@@ -46,25 +46,78 @@ app.get('/test-api', (req, res) => {
   res.json({
     message: 'API is working',
     timestamp: new Date().toISOString(),
-    swaggerUrl: '/api-docs'
+    swaggerUrl: '/api-docs',
+    staticFilesUrl: '/swagger-ui'
   });
 });
 
-// Standard Swagger UI setup
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Role-Based Access Control API Documentation',
-  customfavIcon: '/favicon.ico',
-  swaggerOptions: {
-    persistAuthorization: true,
-    displayRequestDuration: true,
-    filter: true,
-    showRequestHeaders: true,
-    docExpansion: 'list',
-    defaultModelsExpandDepth: 1,
-    defaultModelExpandDepth: 1,
-  }
-}))
+// Test static files endpoint
+app.get('/test-static', (req, res) => {
+  res.json({
+    message: 'Static files test',
+    swaggerPath: require('swagger-ui-dist').getAbsoluteFSPath(),
+    files: [
+      '/swagger-ui/swagger-ui.css',
+      '/swagger-ui/swagger-ui-bundle.js',
+      '/swagger-ui/swagger-ui-standalone-preset.js'
+    ]
+  });
+});
+
+// Serve Swagger UI static files from swagger-ui-dist
+app.use('/swagger-ui', express.static(require('swagger-ui-dist').getAbsoluteFSPath()));
+
+// Custom Swagger UI setup for Vercel
+app.get('/api-docs', (req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Role-Based Access Control API Documentation</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <link rel="stylesheet" type="text/css" href="/swagger-ui/swagger-ui.css" />
+      <style>
+        html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { margin:0; background: #fafafa; }
+        .swagger-ui .topbar { display: none; }
+      </style>
+    </head>
+    <body>
+      <div id="swagger-ui"></div>
+      <script src="/swagger-ui/swagger-ui-bundle.js"></script>
+      <script src="/swagger-ui/swagger-ui-standalone-preset.js"></script>
+      <script>
+        window.onload = function() {
+          const ui = SwaggerUIBundle({
+            spec: ${JSON.stringify(specs)},
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            presets: [
+              SwaggerUIBundle.presets.apis,
+              SwaggerUIStandalonePreset
+            ],
+            plugins: [
+              SwaggerUIBundle.plugins.DownloadUrl
+            ],
+            layout: "StandaloneLayout",
+            persistAuthorization: true,
+            displayRequestDuration: true,
+            filter: true,
+            showRequestHeaders: true,
+            docExpansion: 'list',
+            defaultModelsExpandDepth: 1,
+            defaultModelExpandDepth: 1,
+            tryItOutEnabled: true
+          });
+        };
+      </script>
+    </body>
+    </html>
+  `);
+});
 
 
 
