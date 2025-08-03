@@ -1,0 +1,253 @@
+// @ts-nocheck
+import express from "express";
+import { newsletterController } from "../controllers/NewsletterController";
+import { authenticate } from "../middleware/authenticate";
+
+const router = express.Router();
+
+// All routes require authentication
+router.use(authenticate);
+
+/**
+ * @swagger
+ * /newsletters:
+ *   post:
+ *     summary: Create a new newsletter
+ *     description: Create a new company newsletter and notify all users
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateNewsletterRequest'
+ *     responses:
+ *       201:
+ *         description: Newsletter created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Newsletter created successfully
+ *                 data:
+ *                   $ref: '#/components/schemas/Newsletter'
+ *       400:
+ *         description: Bad request - validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post("/", newsletterController.createNewsletter);
+
+/**
+ * @swagger
+ * /newsletters:
+ *   get:
+ *     summary: Get all active newsletters
+ *     description: Retrieve all active newsletters ordered by creation date
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Newsletters retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Newsletter'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get("/", newsletterController.getAllNewsletters);
+
+/**
+ * @swagger
+ * /newsletters/{id}:
+ *   get:
+ *     summary: Get newsletter by ID
+ *     description: Retrieve a specific newsletter by ID
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Newsletter ID
+ *         example: clx1234567890abcdef
+ *     responses:
+ *       200:
+ *         description: Newsletter retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/Newsletter'
+ *       404:
+ *         description: Newsletter not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get("/:id", newsletterController.getNewsletterById);
+
+/**
+ * @swagger
+ * /newsletters/{id}:
+ *   put:
+ *     summary: Update a newsletter
+ *     description: Update a newsletter (author only)
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Newsletter ID
+ *         example: clx1234567890abcdef
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdateNewsletterRequest'
+ *     responses:
+ *       200:
+ *         description: Newsletter updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Newsletter updated successfully
+ *                 data:
+ *                   $ref: '#/components/schemas/Newsletter'
+ *       400:
+ *         description: Bad request - validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Forbidden - can only edit your own newsletters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Newsletter not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.put("/:id", newsletterController.updateNewsletter);
+
+/**
+ * @swagger
+ * /newsletters/{id}:
+ *   delete:
+ *     summary: Delete a newsletter
+ *     description: Delete a newsletter (author only)
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Newsletter ID
+ *         example: clx1234567890abcdef
+ *     responses:
+ *       200:
+ *         description: Newsletter deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Newsletter deleted successfully
+ *       403:
+ *         description: Forbidden - can only delete your own newsletters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Newsletter not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.delete("/:id", newsletterController.deleteNewsletter);
+
+export default router; 

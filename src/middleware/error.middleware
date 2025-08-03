@@ -1,0 +1,55 @@
+import type { Request, Response, NextFunction } from "express"
+import { logger } from "../utils/logger"
+import { envConfig } from "../utils/env"
+
+export const errorMiddleware = (err: any, req: Request, res: Response, next: NextFunction): void => {
+  logger.error("Unhandled error", {
+    error: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+    body: req.body,
+    params: req.params,
+    query: req.query,
+  })
+
+  // Default error
+  const error = {
+    message: err.message || "Internal server error",
+    status: err.status || 500,
+  }
+
+  // Prisma validation error
+  if (err.code === 'P2002') {
+    error.message = "Duplicate field value entered"
+    error.status = 400
+  }
+
+  // Prisma record not found
+  if (err.code === 'P2025') {
+    error.message = "Resource not found"
+    error.status = 404
+  }
+
+  // Prisma foreign key constraint
+  if (err.code === 'P2003') {
+    error.message = "Invalid reference"
+    error.status = 400
+  }
+
+  // Prisma validation error
+  if (err.code === 'P2000') {
+    error.message = "Validation Error"
+    error.status = 400
+  }
+
+  res.status(error.status).json({
+    success: false,
+    message: error.message,
+    ...(envConfig.isDevelopment() && {
+      stack: err.stack,
+      originalError: err.message,
+    }),
+    timestamp: new Date().toISOString(),
+  })
+}
