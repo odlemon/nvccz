@@ -13,10 +13,5 @@
       "src": "/(.*)",
       "dest": "dist/app.js"
     }
-  ],
-  "functions": {
-    "dist/app.js": {
-      "maxDuration": 30
-    }
-  }
+  ]
 } 
