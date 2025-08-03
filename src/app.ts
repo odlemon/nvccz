@@ -28,9 +28,9 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:"],
-      fontSrc: ["'self'"],
-      connectSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      fontSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https:"],
       frameSrc: ["'self'"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
@@ -57,35 +57,37 @@ app.use((req, res, next) => {
 // Serve Swagger UI static files
 app.use('/swagger-ui', express.static(require('swagger-ui-dist').getAbsoluteFSPath()));
 
-// Swagger UI with local assets
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Role-Based Access Control API Documentation',
-  customfavIcon: '/favicon.ico',
-  swaggerOptions: {
-    persistAuthorization: true,
-    displayRequestDuration: true,
-    filter: true,
-    showRequestHeaders: true,
-    docExpansion: 'list',
-    defaultModelsExpandDepth: 1,
-    defaultModelExpandDepth: 1,
-  }
-}))
+// Test endpoint to verify static files are served
+app.get('/test-static', (req, res) => {
+  res.json({
+    message: 'Static files test',
+    swaggerPath: require('swagger-ui-dist').getAbsoluteFSPath(),
+    files: [
+      '/swagger-ui/swagger-ui.css',
+      '/swagger-ui/swagger-ui-bundle.js',
+      '/swagger-ui/swagger-ui-standalone-preset.js'
+    ]
+  });
+});
 
-// Custom Swagger UI with local assets (fallback)
-app.get('/docs', (req, res) => {
+// Custom Swagger UI setup with inline CSS and JS
+app.get('/api-docs', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(`
     <!DOCTYPE html>
     <html>
     <head>
       <title>API Documentation</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
       <link rel="stylesheet" type="text/css" href="/swagger-ui/swagger-ui.css" />
       <style>
         html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
         *, *:before, *:after { box-sizing: inherit; }
         body { margin:0; background: #fafafa; }
+        .swagger-ui .topbar { display: none; }
+        .swagger-ui .info .title { color: #3b4151; }
+        .swagger-ui .info .title small { color: #606060; }
       </style>
     </head>
     <body>
@@ -95,7 +97,7 @@ app.get('/docs', (req, res) => {
       <script>
         window.onload = function() {
           const ui = SwaggerUIBundle({
-            url: '/api-docs/swagger.json',
+            spec: ${JSON.stringify(specs)},
             dom_id: '#swagger-ui',
             deepLinking: true,
             presets: [
@@ -105,7 +107,75 @@ app.get('/docs', (req, res) => {
             plugins: [
               SwaggerUIBundle.plugins.DownloadUrl
             ],
-            layout: "StandaloneLayout"
+            layout: "StandaloneLayout",
+            persistAuthorization: true,
+            displayRequestDuration: true,
+            filter: true,
+            showRequestHeaders: true,
+            docExpansion: 'list',
+            defaultModelsExpandDepth: 1,
+            defaultModelExpandDepth: 1,
+            tryItOutEnabled: true,
+            requestInterceptor: function(request) {
+              return request;
+            },
+            responseInterceptor: function(response) {
+              return response;
+            }
+          });
+        };
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+// Completely self-contained Swagger UI (no external dependencies)
+app.get('/docs', (req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>API Documentation</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { margin:0; background: #fafafa; }
+        .swagger-ui .topbar { display: none; }
+        .swagger-ui .info .title { color: #3b4151; }
+        .swagger-ui .info .title small { color: #606060; }
+      </style>
+      <link rel="stylesheet" type="text/css" href="/swagger-ui/swagger-ui.css" />
+    </head>
+    <body>
+      <div id="swagger-ui"></div>
+      <script src="/swagger-ui/swagger-ui-bundle.js"></script>
+      <script src="/swagger-ui/swagger-ui-standalone-preset.js"></script>
+      <script>
+        window.onload = function() {
+          const ui = SwaggerUIBundle({
+            spec: ${JSON.stringify(specs)},
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            presets: [
+              SwaggerUIBundle.presets.apis,
+              SwaggerUIStandalonePreset
+            ],
+            plugins: [
+              SwaggerUIBundle.plugins.DownloadUrl
+            ],
+            layout: "StandaloneLayout",
+            persistAuthorization: true,
+            displayRequestDuration: true,
+            filter: true,
+            showRequestHeaders: true,
+            docExpansion: 'list',
+            defaultModelsExpandDepth: 1,
+            defaultModelExpandDepth: 1,
+            tryItOutEnabled: true
           });
         };
       </script>
