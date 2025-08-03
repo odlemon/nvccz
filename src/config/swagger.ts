@@ -4,7 +4,7 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Role-Based Access Control API',
+             title: 'NVCCZ API Documentation',
       version: '1.0.0',
       description: 'A comprehensive API for managing users, roles, and permissions with role-based access control.',
       contact: {
@@ -1094,6 +1094,106 @@ try {
             }
           }
         },
+        '/newsletters/{id}': {
+          get: {
+            summary: 'Get newsletter by ID',
+            description: 'Retrieve a specific newsletter by ID',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Newsletter retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Newsletter' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update newsletter',
+            description: 'Update an existing newsletter',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateNewsletterRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Newsletter updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Newsletter' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete newsletter',
+            description: 'Delete a newsletter',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Newsletter deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         // Events Management
         '/events': {
           get: {
@@ -1144,6 +1244,106 @@ try {
                       properties: {
                         success: { type: 'boolean' },
                         data: { $ref: '#/components/schemas/Event' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/events/{id}': {
+          get: {
+            summary: 'Get event by ID',
+            description: 'Retrieve a specific event by ID',
+            tags: ['Events'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Event retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Event' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update event',
+            description: 'Update an existing event',
+            tags: ['Events'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateEventRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Event updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Event' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete event',
+            description: 'Delete an event',
+            tags: ['Events'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Event deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
                       }
                     }
                   }
