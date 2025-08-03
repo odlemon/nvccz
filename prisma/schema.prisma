@@ -76,7 +76,7 @@ model Reply {
   authorId      String
   author        User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
   parentReplyId String?  // For nested replies
-  parentReply   Reply?   @relation("ReplyReplies", fields: [parentReplyId], references: [id], onDelete: Cascade)
+  parentReply   Reply?   @relation("ReplyReplies", fields: [parentReplyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   replies       Reply[]  @relation("ReplyReplies") // Child replies
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
