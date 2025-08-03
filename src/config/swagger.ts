@@ -1128,7 +1128,7 @@ try {
           },
           put: {
             summary: 'Update newsletter',
-            description: 'Update an existing newsletter',
+            description: 'Update an existing newsletter with optional image upload',
             tags: ['Newsletters'],
             security: [{ bearerAuth: [] }],
             parameters: [
@@ -1142,8 +1142,28 @@ try {
             requestBody: {
               required: true,
               content: {
-                'application/json': {
-                  schema: { $ref: '#/components/schemas/UpdateNewsletterRequest' }
+                'multipart/form-data': {
+                  schema: {
+                    type: 'object',
+                    required: ['title', 'content'],
+                    properties: {
+                      title: {
+                        type: 'string',
+                        description: 'Newsletter title',
+                        example: 'Updated Monthly Company Update'
+                      },
+                      content: {
+                        type: 'string',
+                        description: 'Newsletter content',
+                        example: 'This month we achieved great milestones...'
+                      },
+                      image: {
+                        type: 'string',
+                        format: 'binary',
+                        description: 'Newsletter image (optional)'
+                      }
+                    }
+                  }
                 }
               }
             },
@@ -1156,9 +1176,42 @@ try {
                       type: 'object',
                       properties: {
                         success: { type: 'boolean' },
+                        message: { type: 'string' },
                         data: { $ref: '#/components/schemas/Newsletter' }
                       }
                     }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - validation error',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' }
+                  }
+                }
+              },
+              401: {
+                description: 'Unauthorized',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' }
+                  }
+                }
+              },
+              403: {
+                description: 'Forbidden - can only edit your own newsletters',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' }
+                  }
+                }
+              },
+              404: {
+                description: 'Newsletter not found',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' }
                   }
                 }
               }
@@ -1728,14 +1781,34 @@ try {
         },
         post: {
           summary: 'Create newsletter',
-          description: 'Create a new newsletter',
+          description: 'Create a new newsletter with optional image upload',
           tags: ['Newsletters'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/CreateNewsletterRequest' }
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  required: ['title', 'content'],
+                  properties: {
+                    title: {
+                      type: 'string',
+                      description: 'Newsletter title',
+                      example: 'Monthly Company Update'
+                    },
+                    content: {
+                      type: 'string',
+                      description: 'Newsletter content',
+                      example: 'This month we achieved great milestones...'
+                    },
+                    image: {
+                      type: 'string',
+                      format: 'binary',
+                      description: 'Newsletter image (optional)'
+                    }
+                  }
+                }
               }
             }
           },
@@ -1748,9 +1821,26 @@ try {
                     type: 'object',
                     properties: {
                       success: { type: 'boolean' },
+                      message: { type: 'string' },
                       data: { $ref: '#/components/schemas/Newsletter' }
                     }
                   }
+                }
+              }
+            },
+            400: {
+              description: 'Bad request - validation error',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' }
+                }
+              }
+            },
+            401: {
+              description: 'Unauthorized',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' }
                 }
               }
             }
