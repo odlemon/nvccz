@@ -506,12 +506,13 @@ let specs: any;
 try {
   specs = swaggerJsdoc(options);
   
-  // If no paths are found, create a basic spec
+  // If no paths are found, create a comprehensive fallback spec
   if (!specs.paths || Object.keys(specs.paths).length === 0) {
-    console.warn('No API paths found in JSDoc comments, using fallback spec');
+    console.warn('No API paths found in JSDoc comments, using comprehensive fallback spec');
     specs = {
       ...options.definition,
       paths: {
+        // Authentication
         '/auth/login': {
           post: {
             summary: 'User login',
@@ -560,16 +561,720 @@ try {
               }
             }
           }
+        },
+        // User Management
+        '/users': {
+          get: {
+            summary: 'Get all users',
+            description: 'Retrieve all users in the system',
+            tags: ['Users'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Users retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/User' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create user',
+            description: 'Create a new user',
+            tags: ['Users'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateUserRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'User created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/User' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/users/{id}': {
+          get: {
+            summary: 'Get user by ID',
+            description: 'Retrieve a specific user by ID',
+            tags: ['Users'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'User retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/User' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update user',
+            description: 'Update an existing user',
+            tags: ['Users'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'User updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/User' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete user',
+            description: 'Delete a user',
+            tags: ['Users'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'User deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Role Management
+        '/roles': {
+          get: {
+            summary: 'Get all roles',
+            description: 'Retrieve all roles in the system',
+            tags: ['Roles'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Roles retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Role' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create role',
+            description: 'Create a new role',
+            tags: ['Roles'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateRoleRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Role created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Role' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/roles/{id}': {
+          get: {
+            summary: 'Get role by ID',
+            description: 'Retrieve a specific role by ID',
+            tags: ['Roles'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Role retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Role' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update role',
+            description: 'Update an existing role',
+            tags: ['Roles'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateRoleRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Role updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Role' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete role',
+            description: 'Delete a role',
+            tags: ['Roles'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Role deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Posts Management
+        '/posts': {
+          get: {
+            summary: 'Get all posts',
+            description: 'Retrieve all posts',
+            tags: ['Posts'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Posts retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Post' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create post',
+            description: 'Create a new post',
+            tags: ['Posts'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreatePostRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Post created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Post' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/posts/{id}': {
+          get: {
+            summary: 'Get post by ID',
+            description: 'Retrieve a specific post by ID',
+            tags: ['Posts'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Post retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Post' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update post',
+            description: 'Update an existing post',
+            tags: ['Posts'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdatePostRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Post updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Post' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete post',
+            description: 'Delete a post',
+            tags: ['Posts'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Post deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Newsletters Management
+        '/newsletters': {
+          get: {
+            summary: 'Get all newsletters',
+            description: 'Retrieve all newsletters',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Newsletters retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Newsletter' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create newsletter',
+            description: 'Create a new newsletter',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateNewsletterRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Newsletter created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Newsletter' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Events Management
+        '/events': {
+          get: {
+            summary: 'Get all events',
+            description: 'Retrieve all events',
+            tags: ['Events'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Events retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Event' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create event',
+            description: 'Create a new event',
+            tags: ['Events'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateEventRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Event created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Event' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/events/upcoming': {
+          get: {
+            summary: 'Get upcoming events',
+            description: 'Retrieve upcoming events',
+            tags: ['Events'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Upcoming events retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Event' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Homepage
+        '/homepage': {
+          get: {
+            summary: 'Get homepage data',
+            description: 'Retrieve aggregated homepage data including posts, newsletters, events, and online users',
+            tags: ['Homepage'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Homepage data retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/HomepageData' }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/homepage/online-activity': {
+          get: {
+            summary: 'Get online activity',
+            description: 'Retrieve online user activity',
+            tags: ['Homepage'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Online activity retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              id: { type: 'string' },
+                              firstName: { type: 'string' },
+                              lastName: { type: 'string' },
+                              email: { type: 'string' },
+                              lastSeen: { type: 'string', format: 'date-time' },
+                              isOnline: { type: 'boolean' }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/homepage/notifications': {
+          get: {
+            summary: 'Get user notifications',
+            description: 'Retrieve user notifications with pagination',
+            tags: ['Homepage'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'limit',
+                in: 'query',
+                schema: { type: 'number', default: 50 }
+              },
+              {
+                name: 'offset',
+                in: 'query',
+                schema: { type: 'number', default: 0 }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Notifications retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/NotificationResponse' }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     };
   }
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
-  // Fallback to basic spec
+  // Fallback to comprehensive spec
   specs = {
     ...options.definition,
     paths: {
+      // Authentication
       '/auth/login': {
         post: {
           summary: 'User login',
@@ -589,6 +1294,339 @@ try {
               content: {
                 'application/json': {
                   schema: { $ref: '#/components/schemas/LoginResponse' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/auth/me': {
+        get: {
+          summary: 'Get current user information',
+          description: 'Retrieve information about the currently authenticated user',
+          tags: ['Authentication'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'User information retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { $ref: '#/components/schemas/User' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // User Management
+      '/users': {
+        get: {
+          summary: 'Get all users',
+          description: 'Retrieve all users in the system',
+          tags: ['Users'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Users retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/User' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        post: {
+          summary: 'Create user',
+          description: 'Create a new user',
+          tags: ['Users'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreateUserRequest' }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: 'User created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { $ref: '#/components/schemas/User' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // Role Management
+      '/roles': {
+        get: {
+          summary: 'Get all roles',
+          description: 'Retrieve all roles in the system',
+          tags: ['Roles'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Roles retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/Role' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        post: {
+          summary: 'Create role',
+          description: 'Create a new role',
+          tags: ['Roles'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreateRoleRequest' }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: 'Role created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { $ref: '#/components/schemas/Role' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // Posts Management
+      '/posts': {
+        get: {
+          summary: 'Get all posts',
+          description: 'Retrieve all posts',
+          tags: ['Posts'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Posts retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/Post' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        post: {
+          summary: 'Create post',
+          description: 'Create a new post',
+          tags: ['Posts'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreatePostRequest' }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: 'Post created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { $ref: '#/components/schemas/Post' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // Newsletters Management
+      '/newsletters': {
+        get: {
+          summary: 'Get all newsletters',
+          description: 'Retrieve all newsletters',
+          tags: ['Newsletters'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Newsletters retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/Newsletter' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        post: {
+          summary: 'Create newsletter',
+          description: 'Create a new newsletter',
+          tags: ['Newsletters'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreateNewsletterRequest' }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: 'Newsletter created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { $ref: '#/components/schemas/Newsletter' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // Events Management
+      '/events': {
+        get: {
+          summary: 'Get all events',
+          description: 'Retrieve all events',
+          tags: ['Events'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Events retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/Event' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        post: {
+          summary: 'Create event',
+          description: 'Create a new event',
+          tags: ['Events'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreateEventRequest' }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: 'Event created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { $ref: '#/components/schemas/Event' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // Homepage
+      '/homepage': {
+        get: {
+          summary: 'Get homepage data',
+          description: 'Retrieve aggregated homepage data including posts, newsletters, events, and online users',
+          tags: ['Homepage'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Homepage data retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/HomepageData' }
                 }
               }
             }
