@@ -4,6 +4,12 @@
 
 Once your server is running, you can access the interactive API documentation at:
 
+**Production:**
+```
+https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api-docs
+```
+
+**Development:**
 ```
 http://localhost:3000/api-docs
 ```
@@ -161,13 +167,13 @@ When creating or updating roles, you can use these permissions:
 - `view_structure` - View organizational structure
 - `manage_structure` - Manage organizational structure
 
-### Pricing & Billing
-- `view_pricing` - View pricing information
-- `manage_pricing` - Manage pricing
-- `view_billing_settings` - View billing settings
-- `manage_billing_settings` - Manage billing settings
-- `view_billing` - View billing information
-- `manage_billing` - Manage billing
+### Accounting & Financial Management
+- `view_accounting` - View accounting information
+- `manage_accounting` - Manage accounting records
+- `view_financial_reports` - View financial reports
+- `manage_financial_reports` - Manage financial reports
+- `view_ledger` - View general ledger
+- `manage_ledger` - Manage general ledger
 
 ### User & Role Management
 - `view_users` - View user list
@@ -181,13 +187,13 @@ When creating or updating roles, you can use these permissions:
 - `delete_worklog` - Delete work logs
 - `view_worklog` - View work logs
 
-### Payments & Invoices
-- `view_payments` - View payments
-- `manage_payments` - Manage payments
-- `view_invoices` - View invoices
-- `create_invoice` - Create invoices
-- `edit_invoice` - Edit invoices
-- `delete_invoice` - Delete invoices
+### ERP & Business Operations
+- `view_business_operations` - View business operations
+- `manage_business_operations` - Manage business operations
+- `view_company_data` - View company data
+- `manage_company_data` - Manage company data
+- `view_erp_reports` - View ERP reports
+- `manage_erp_reports` - Manage ERP reports
 
 ### Subscription & Settings
 - `view_subscription` - View subscription

@@ -18,6 +18,10 @@ const options = {
     },
     servers: [
       {
+        url: 'https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api',
+        description: 'Production server'
+      },
+      {
         url: 'http://localhost:3000/api',
         description: 'Development server'
       }

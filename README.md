@@ -1,14 +1,20 @@
-# Authentication API
+# ERP System - Accounting Focus
 
-A simplified authentication API built with Express, TypeScript, Prisma, and MySQL.
+A comprehensive ERP (Enterprise Resource Planning) system built with Express, TypeScript, Prisma, and MySQL, focusing on accounting and business operations.
 
 ## Features
 
-- User login with JWT authentication
-- Get current user information
+- User authentication with JWT and role-based access control
+- Dynamic role and permission management
+- Company posts and communication system
+- Newsletter management
+- Events calendar
+- Online activity tracking
+- Notification system
 - MySQL database with Prisma ORM
 - TypeScript support
 - Express.js framework
+- Swagger API documentation
 
 ## Prerequisites
 

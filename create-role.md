@@ -68,17 +68,21 @@ const user = await prisma.user.create({
 - `view_reports`
 - `manage_users`
 - `manage_roles`
-- `view_billing`
-- `manage_billing`
+- `view_accounting`
+- `manage_accounting`
+- `view_financial_reports`
+- `manage_financial_reports`
+- `view_ledger`
+- `manage_ledger`
 - `create_worklog`
 - `edit_worklog`
 - `delete_worklog`
-- `view_payments`
-- `manage_payments`
-- `view_invoices`
-- `create_invoice`
-- `edit_invoice`
-- `delete_invoice`
+- `view_business_operations`
+- `manage_business_operations`
+- `view_company_data`
+- `manage_company_data`
+- `view_erp_reports`
+- `manage_erp_reports`
 
 ## Default Admin Role
 

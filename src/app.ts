@@ -24,11 +24,7 @@ const port = process.env.PORT || 3000
 
 app.use(helmet())
 app.use(cors({
-  origin: [
-    "https://lysp.io",
-    "https://www.lysp.io",
-    "http://localhost:3001"
-  ],
+  origin: true, // Allow all origins
   credentials: true
 }))
 app.use(express.json())

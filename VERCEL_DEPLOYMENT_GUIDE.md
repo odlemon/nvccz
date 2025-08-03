@@ -15,7 +15,6 @@ Before deploying, make sure you have these environment variables ready:
 ```env
 DATABASE_URL="mysql://username:password@host:port/database"
 JWT_SECRET="your-super-secret-jwt-key"
-CORS_ORIGINS="https://your-frontend-domain.com,http://localhost:3000"
 PORT=3000
 NODE_ENV=production
 ```
@@ -98,8 +97,8 @@ After deployment, you can seed the admin user by:
    - Verify network access from Vercel's servers
 
 4. **CORS errors**
-   - Update `CORS_ORIGINS` in environment variables
-   - Include your frontend domain
+   - CORS is configured to allow all origins (`origin: true`)
+   - No additional configuration needed
 
 ### Build Logs
 If deployment fails, check the build logs in Vercel dashboard for specific errors.
@@ -117,7 +116,6 @@ If deployment fails, check the build logs in Vercel dashboard for specific error
 |----------|-------------|---------|
 | `DATABASE_URL` | MySQL connection string | `mysql://user:pass@host:3306/db` |
 | `JWT_SECRET` | Secret for JWT tokens | `your-secret-key-here` |
-| `CORS_ORIGINS` | Allowed origins (comma-separated) | `https://app.com,http://localhost:3000` |
 | `PORT` | Server port | `3000` |
 | `NODE_ENV` | Environment | `production` |
 

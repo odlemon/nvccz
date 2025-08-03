@@ -17,15 +17,17 @@
     "vercel-build": "npm run build"
   },
   "keywords": [
-    "authentication",
+    "erp",
+    "accounting",
     "express",
     "typescript",
     "prisma",
-    "mysql"
+    "mysql",
+    "business-operations"
   ],
   "author": "Nyasha Karata",
   "license": "ISC",
-  "description": "Authentication API with Express, TypeScript, Prisma and MySQL",
+  "description": "ERP System with Express, TypeScript, Prisma and MySQL - Focused on Accounting",
   "dependencies": {
     "@prisma/client": "^6.7.0",
     "bcrypt": "^6.0.0",

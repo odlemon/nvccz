@@ -12,6 +12,13 @@ Authorization: Bearer <your_jwt_token>
 ```
 
 ## Base URL
+
+**Production:**
+```
+https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api
+```
+
+**Development:**
 ```
 http://localhost:3000/api
 ```
@@ -320,26 +327,26 @@ http://localhost:3000/api
 - `view_reports` - View reports
 - `view_structure` - View organizational structure
 - `manage_structure` - Manage organizational structure
-- `view_pricing` - View pricing information
-- `manage_pricing` - Manage pricing
-- `view_billing_settings` - View billing settings
-- `manage_billing_settings` - Manage billing settings
+- `view_accounting` - View accounting information
+- `manage_accounting` - Manage accounting records
+- `view_financial_reports` - View financial reports
+- `manage_financial_reports` - Manage financial reports
+- `view_ledger` - View general ledger
+- `manage_ledger` - Manage general ledger
 - `view_users` - View user list
 - `manage_users` - Create, update, delete users
 - `view_roles` - View role list
 - `manage_roles` - Create, update, delete roles
-- `view_billing` - View billing information
-- `manage_billing` - Manage billing
 - `create_worklog` - Create work logs
 - `edit_worklog` - Edit work logs
 - `delete_worklog` - Delete work logs
 - `view_worklog` - View work logs
-- `view_payments` - View payments
-- `manage_payments` - Manage payments
-- `view_invoices` - View invoices
-- `create_invoice` - Create invoices
-- `edit_invoice` - Edit invoices
-- `delete_invoice` - Delete invoices
+- `view_business_operations` - View business operations
+- `manage_business_operations` - Manage business operations
+- `view_company_data` - View company data
+- `manage_company_data` - Manage company data
+- `view_erp_reports` - View ERP reports
+- `manage_erp_reports` - Manage ERP reports
 - `view_subscription` - View subscription
 - `manage_subscription` - Manage subscription
 - `manage_firm_settings` - Manage firm settings
@@ -414,6 +421,15 @@ Each permission is an object with:
 
 **Login:**
 ```bash
+# Production
+curl -X POST https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@nvccz.co.zw",
+    "password": "admin123"
+  }'
+
+# Development
 curl -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
@@ -424,6 +440,20 @@ curl -X POST http://localhost:3000/api/auth/login \
 
 **Create Role:**
 ```bash
+# Production
+curl -X POST https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/roles \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "name": "user",
+    "description": "Regular user",
+    "permissions": [
+      {"name": "view_dashboard", "value": true},
+      {"name": "view_users", "value": false}
+    ]
+  }'
+
+# Development
 curl -X POST http://localhost:3000/api/roles \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
@@ -439,6 +469,11 @@ curl -X POST http://localhost:3000/api/roles \
 
 **Get All Users:**
 ```bash
+# Production
+curl -X GET https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/users \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Development
 curl -X GET http://localhost:3000/api/users \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
@@ -447,13 +482,15 @@ curl -X GET http://localhost:3000/api/users \
 
 1. **Login Request:**
    - Method: POST
-   - URL: `http://localhost:3000/api/auth/login`
+   - URL: `https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/auth/login` (Production)
+   - URL: `http://localhost:3000/api/auth/login` (Development)
    - Headers: `Content-Type: application/json`
    - Body: Raw JSON with login credentials
 
 2. **Protected Request:**
    - Method: GET
-   - URL: `http://localhost:3000/api/users`
+   - URL: `https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/users` (Production)
+   - URL: `http://localhost:3000/api/users` (Development)
    - Headers: `Authorization: Bearer <token_from_login>`
 
 ---
