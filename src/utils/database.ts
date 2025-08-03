@@ -22,7 +22,10 @@ export class DatabaseConnection {
       console.log('✅ Connected to MySQL database successfully');
     } catch (error) {
       console.error('❌ MySQL connection error:', error);
-      process.exit(1);
+      // Don't exit process in serverless environment
+      if (process.env.NODE_ENV !== 'production') {
+        process.exit(1);
+      }
     }
   }
   

@@ -65,6 +65,31 @@ app.get("/health", (req, res) => {
   })
 })
 
+// Database test endpoint
+app.get("/test-db", async (req, res) => {
+  try {
+    const prisma = dbConnection.getPrismaClient();
+    await prisma.$connect();
+    
+    // Try a simple query
+    const userCount = await prisma.user.count();
+    
+    res.status(200).json({
+      success: true,
+      message: "Database connection successful",
+      userCount: userCount,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Database connection failed",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+})
+
 // Auth routes
 app.use("/api/auth", authRoutes)
 
