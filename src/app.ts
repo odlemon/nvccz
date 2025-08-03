@@ -57,6 +57,9 @@ app.use((req, res, next) => {
 // Serve Swagger UI static files
 app.use('/swagger-ui', express.static(require('swagger-ui-dist').getAbsoluteFSPath()));
 
+// Serve static files from public directory
+app.use(express.static('public'));
+
 // Test endpoint to verify static files are served
 app.get('/test-static', (req, res) => {
   res.json({
@@ -70,7 +73,7 @@ app.get('/test-static', (req, res) => {
   });
 });
 
-// Custom Swagger UI setup with inline CSS and JS
+// Simple Swagger UI setup
 app.get('/api-docs', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(`
@@ -80,105 +83,200 @@ app.get('/api-docs', (req, res) => {
       <title>API Documentation</title>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <link rel="stylesheet" type="text/css" href="/swagger-ui/swagger-ui.css" />
       <style>
-        html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
-        *, *:before, *:after { box-sizing: inherit; }
-        body { margin:0; background: #fafafa; }
-        .swagger-ui .topbar { display: none; }
-        .swagger-ui .info .title { color: #3b4151; }
-        .swagger-ui .info .title small { color: #606060; }
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .endpoint { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }
+        .method { font-weight: bold; color: #fff; padding: 3px 8px; border-radius: 3px; display: inline-block; margin-right: 10px; }
+        .get { background: #61affe; }
+        .post { background: #49cc90; }
+        .put { background: #fca130; }
+        .delete { background: #f93e3e; }
+        .path { font-family: monospace; font-size: 16px; }
+        .description { margin-top: 10px; color: #666; }
+        .auth { background: #ffeb3b; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
       </style>
     </head>
     <body>
-      <div id="swagger-ui"></div>
-      <script src="/swagger-ui/swagger-ui-bundle.js"></script>
-      <script src="/swagger-ui/swagger-ui-standalone-preset.js"></script>
-      <script>
-        window.onload = function() {
-          const ui = SwaggerUIBundle({
-            spec: ${JSON.stringify(specs)},
-            dom_id: '#swagger-ui',
-            deepLinking: true,
-            presets: [
-              SwaggerUIBundle.presets.apis,
-              SwaggerUIStandalonePreset
-            ],
-            plugins: [
-              SwaggerUIBundle.plugins.DownloadUrl
-            ],
-            layout: "StandaloneLayout",
-            persistAuthorization: true,
-            displayRequestDuration: true,
-            filter: true,
-            showRequestHeaders: true,
-            docExpansion: 'list',
-            defaultModelsExpandDepth: 1,
-            defaultModelExpandDepth: 1,
-            tryItOutEnabled: true,
-            requestInterceptor: function(request) {
-              return request;
-            },
-            responseInterceptor: function(response) {
-              return response;
-            }
-          });
-        };
-      </script>
+      <h1>API Documentation</h1>
+      <p>This is a simplified API documentation view. For full Swagger UI, visit <a href="/docs">/docs</a></p>
+      
+      <h2>Authentication</h2>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="path">/api/auth/login</span>
+        <div class="description">Login with email and password</div>
+      </div>
+      
+      <h2>Users</h2>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="path">/api/users</span>
+        <span class="auth">Auth Required</span>
+        <div class="description">Get all users</div>
+      </div>
+      
+      <h2>Posts</h2>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="path">/api/posts</span>
+        <span class="auth">Auth Required</span>
+        <div class="description">Get all posts</div>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="path">/api/posts</span>
+        <span class="auth">Auth Required</span>
+        <div class="description">Create a new post</div>
+      </div>
+      
+      <h2>Homepage</h2>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="path">/api/homepage</span>
+        <span class="auth">Auth Required</span>
+        <div class="description">Get homepage data (posts, events, newsletters)</div>
+      </div>
+      
+      <p><a href="/api-docs/swagger.json">View Full API Specification (JSON)</a></p>
     </body>
     </html>
   `);
 });
 
-// Completely self-contained Swagger UI (no external dependencies)
+// Alternative documentation route
 app.get('/docs', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(`
     <!DOCTYPE html>
     <html>
     <head>
-      <title>API Documentation</title>
+      <title>API Documentation - Alternative</title>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <style>
-        html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
-        *, *:before, *:after { box-sizing: inherit; }
-        body { margin:0; background: #fafafa; }
-        .swagger-ui .topbar { display: none; }
-        .swagger-ui .info .title { color: #3b4151; }
-        .swagger-ui .info .title small { color: #606060; }
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .endpoint { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; background: white; }
+        .method { font-weight: bold; color: #fff; padding: 3px 8px; border-radius: 3px; display: inline-block; margin-right: 10px; }
+        .get { background: #61affe; }
+        .post { background: #49cc90; }
+        .put { background: #fca130; }
+        .delete { background: #f93e3e; }
+        .path { font-family: monospace; font-size: 16px; }
+        .description { margin-top: 10px; color: #666; }
+        .auth { background: #ffeb3b; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+        h1 { color: #333; border-bottom: 2px solid #61affe; padding-bottom: 10px; }
+        h2 { color: #555; margin-top: 30px; }
+        .section { margin: 20px 0; }
       </style>
-      <link rel="stylesheet" type="text/css" href="/swagger-ui/swagger-ui.css" />
     </head>
     <body>
-      <div id="swagger-ui"></div>
-      <script src="/swagger-ui/swagger-ui-bundle.js"></script>
-      <script src="/swagger-ui/swagger-ui-standalone-preset.js"></script>
-      <script>
-        window.onload = function() {
-          const ui = SwaggerUIBundle({
-            spec: ${JSON.stringify(specs)},
-            dom_id: '#swagger-ui',
-            deepLinking: true,
-            presets: [
-              SwaggerUIBundle.presets.apis,
-              SwaggerUIStandalonePreset
-            ],
-            plugins: [
-              SwaggerUIBundle.plugins.DownloadUrl
-            ],
-            layout: "StandaloneLayout",
-            persistAuthorization: true,
-            displayRequestDuration: true,
-            filter: true,
-            showRequestHeaders: true,
-            docExpansion: 'list',
-            defaultModelsExpandDepth: 1,
-            defaultModelExpandDepth: 1,
-            tryItOutEnabled: true
-          });
-        };
-      </script>
+      <div class="container">
+        <h1>API Documentation</h1>
+        <p>Complete API reference for the ERP System</p>
+        
+        <div class="section">
+          <h2>🔐 Authentication</h2>
+          <div class="endpoint">
+            <span class="method post">POST</span>
+            <span class="path">/api/auth/login</span>
+            <div class="description">Login with email and password to get JWT token</div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h2>👥 Users</h2>
+          <div class="endpoint">
+            <span class="method get">GET</span>
+            <span class="path">/api/users</span>
+            <span class="auth">Auth Required</span>
+            <div class="description">Get all users with pagination</div>
+          </div>
+          <div class="endpoint">
+            <span class="method post">POST</span>
+            <span class="path">/api/users</span>
+            <span class="auth">Admin Only</span>
+            <div class="description">Create a new user</div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h2>📝 Posts</h2>
+          <div class="endpoint">
+            <span class="method get">GET</span>
+            <span class="path">/api/posts</span>
+            <span class="auth">Auth Required</span>
+            <div class="description">Get all posts with replies</div>
+          </div>
+          <div class="endpoint">
+            <span class="method post">POST</span>
+            <span class="path">/api/posts</span>
+            <span class="auth">Auth Required</span>
+            <div class="description">Create a new post</div>
+          </div>
+          <div class="endpoint">
+            <span class="method post">POST</span>
+            <span class="path">/api/posts/{id}/replies</span>
+            <span class="auth">Auth Required</span>
+            <div class="description">Add reply to a post</div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h2>📰 Newsletters</h2>
+          <div class="endpoint">
+            <span class="method get">GET</span>
+            <span class="path">/api/newsletters</span>
+            <span class="auth">Auth Required</span>
+            <div class="description">Get all newsletters</div>
+          </div>
+          <div class="endpoint">
+            <span class="method post">POST</span>
+            <span class="path">/api/newsletters</span>
+            <span class="auth">Admin Only</span>
+            <div class="description">Create a new newsletter</div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h2>📅 Events</h2>
+          <div class="endpoint">
+            <span class="method get">GET</span>
+            <span class="path">/api/events</span>
+            <span class="auth">Auth Required</span>
+            <div class="description">Get all events</div>
+          </div>
+          <div class="endpoint">
+            <span class="method post">POST</span>
+            <span class="path">/api/events</span>
+            <span class="auth">Admin Only</span>
+            <div class="description">Create a new event</div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h2>🏠 Homepage</h2>
+          <div class="endpoint">
+            <span class="method get">GET</span>
+            <span class="path">/api/homepage</span>
+            <span class="auth">Auth Required</span>
+            <div class="description">Get homepage data (posts, events, newsletters, online activity)</div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h2>🔔 Notifications</h2>
+          <div class="endpoint">
+            <span class="method get">GET</span>
+            <span class="path">/api/homepage/notifications</span>
+            <span class="auth">Auth Required</span>
+            <div class="description">Get user notifications</div>
+          </div>
+        </div>
+        
+        <p><a href="/api-docs/swagger.json">📄 View Full API Specification (JSON)</a></p>
+        <p><a href="/test-static">🧪 Test Static Files</a></p>
+      </div>
     </body>
     </html>
   `);

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>API Documentation</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+    *, *:before, *:after { box-sizing: inherit; }
+    body { margin:0; background: #fafafa; }
+    .swagger-ui .topbar { display: none; }
+    .swagger-ui .info .title { color: #3b4151; }
+    .swagger-ui .info .title small { color: #606060; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script>
+    // Load Swagger UI CSS dynamically
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.type = 'text/css';
+    link.href = '/swagger-ui/swagger-ui.css';
+    document.head.appendChild(link);
+    
+    // Load Swagger UI JS
+    const script1 = document.createElement('script');
+    script1.src = '/swagger-ui/swagger-ui-bundle.js';
+    script1.onload = function() {
+      const script2 = document.createElement('script');
+      script2.src = '/swagger-ui/swagger-ui-standalone-preset.js';
+      script2.onload = function() {
+        // Initialize Swagger UI
+        fetch('/api-docs/swagger.json')
+          .then(response => response.json())
+          .then(spec => {
+            const ui = SwaggerUIBundle({
+              spec: spec,
+              dom_id: '#swagger-ui',
+              deepLinking: true,
+              presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIStandalonePreset
+              ],
+              plugins: [
+                SwaggerUIBundle.plugins.DownloadUrl
+              ],
+              layout: "StandaloneLayout",
+              persistAuthorization: true,
+              displayRequestDuration: true,
+              filter: true,
+              showRequestHeaders: true,
+              docExpansion: 'list',
+              defaultModelsExpandDepth: 1,
+              defaultModelExpandDepth: 1,
+              tryItOutEnabled: true
+            });
+          });
+      };
+      document.head.appendChild(script2);
+    };
+    document.head.appendChild(script1);
+  </script>
+</body>
+</html> 
