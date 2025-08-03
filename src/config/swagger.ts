@@ -496,7 +496,107 @@ const options = {
       }
     ]
   },
-  apis: ['./src/**/*.ts']
+  apis: process.env.NODE_ENV === 'production' 
+    ? ['./dist/**/*.js'] 
+    : ['./src/**/*.ts']
 };
 
-export const specs = swaggerJsdoc(options); 
+let specs: any;
+
+try {
+  specs = swaggerJsdoc(options);
+  
+  // If no paths are found, create a basic spec
+  if (!specs.paths || Object.keys(specs.paths).length === 0) {
+    console.warn('No API paths found in JSDoc comments, using fallback spec');
+    specs = {
+      ...options.definition,
+      paths: {
+        '/auth/login': {
+          post: {
+            summary: 'User login',
+            description: 'Authenticate user with email and password',
+            tags: ['Authentication'],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/LoginRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Login successful',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/LoginResponse' }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/auth/me': {
+          get: {
+            summary: 'Get current user information',
+            description: 'Retrieve information about the currently authenticated user',
+            tags: ['Authentication'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'User information retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/User' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+  }
+} catch (error) {
+  console.error('Error generating Swagger spec:', error);
+  // Fallback to basic spec
+  specs = {
+    ...options.definition,
+    paths: {
+      '/auth/login': {
+        post: {
+          summary: 'User login',
+          description: 'Authenticate user with email and password',
+          tags: ['Authentication'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/LoginRequest' }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Login successful',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/LoginResponse' }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+}
+
+export { specs }; 

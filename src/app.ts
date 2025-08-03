@@ -41,6 +41,19 @@ app.use((req, res, next) => {
   next()
 })
 
+// Debug endpoint to check Swagger spec (development only)
+if (process.env.NODE_ENV === 'development') {
+  app.get('/api-spec', (req, res) => {
+    res.json({
+      success: true,
+      spec: specs,
+      paths: Object.keys(specs.paths || {}),
+      totalPaths: Object.keys(specs.paths || {}).length,
+      environment: process.env.NODE_ENV
+    });
+  });
+}
+
 // FASTEST FIX - Pure HTML with CDN resources (no swagger-ui-express)
 app.get('/api-docs', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
