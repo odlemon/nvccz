@@ -18,7 +18,7 @@ const options = {
     },
     servers: [
       {
-        url: 'https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api',
+        url: 'https://nvccz-pi.vercel.app/api',
         description: 'Production server'
       },
       {

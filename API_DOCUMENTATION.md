@@ -15,7 +15,7 @@ Authorization: Bearer <your_jwt_token>
 
 **Production:**
 ```
-https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api
+https://nvccz-pi.vercel.app/api
 ```
 
 **Development:**
@@ -422,7 +422,7 @@ Each permission is an object with:
 **Login:**
 ```bash
 # Production
-curl -X POST https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/auth/login \
+curl -X POST https://nvccz-pi.vercel.app/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@nvccz.co.zw",
@@ -441,7 +441,7 @@ curl -X POST http://localhost:3000/api/auth/login \
 **Create Role:**
 ```bash
 # Production
-curl -X POST https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/roles \
+curl -X POST https://nvccz-pi.vercel.app/api/roles \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -470,7 +470,7 @@ curl -X POST http://localhost:3000/api/roles \
 **Get All Users:**
 ```bash
 # Production
-curl -X GET https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/users \
+curl -X GET https://nvccz-pi.vercel.app/api/users \
   -H "Authorization: Bearer YOUR_TOKEN"
 
 # Development
@@ -482,14 +482,14 @@ curl -X GET http://localhost:3000/api/users \
 
 1. **Login Request:**
    - Method: POST
-   - URL: `https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/auth/login` (Production)
+   - URL: `https://nvccz-pi.vercel.app/api/auth/login` (Production)
    - URL: `http://localhost:3000/api/auth/login` (Development)
    - Headers: `Content-Type: application/json`
    - Body: Raw JSON with login credentials
 
 2. **Protected Request:**
    - Method: GET
-   - URL: `https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api/users` (Production)
+   - URL: `https://nvccz-pi.vercel.app/api/users` (Production)
    - URL: `http://localhost:3000/api/users` (Development)
    - Headers: `Authorization: Bearer <token_from_login>`
 

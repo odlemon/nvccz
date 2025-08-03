@@ -6,7 +6,7 @@ Once your server is running, you can access the interactive API documentation at
 
 **Production:**
 ```
-https://nvccz-moiaeowxc-nyashakarata1-gmailcoms-projects.vercel.app/api-docs
+https://nvccz-pi.vercel.app/api-docs
 ```
 
 **Development:**
