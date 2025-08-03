@@ -73,77 +73,84 @@ app.get('/test-static', (req, res) => {
   });
 });
 
-// Simple Swagger UI setup
+// Interactive Swagger UI setup
 app.get('/api-docs', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(`
     <!DOCTYPE html>
     <html>
     <head>
-      <title>API Documentation</title>
+      <title>Interactive API Documentation</title>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .endpoint { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }
-        .method { font-weight: bold; color: #fff; padding: 3px 8px; border-radius: 3px; display: inline-block; margin-right: 10px; }
-        .get { background: #61affe; }
-        .post { background: #49cc90; }
-        .put { background: #fca130; }
-        .delete { background: #f93e3e; }
-        .path { font-family: monospace; font-size: 16px; }
-        .description { margin-top: 10px; color: #666; }
-        .auth { background: #ffeb3b; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+        html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { margin:0; background: #fafafa; }
+        .swagger-ui .topbar { display: none; }
+        .swagger-ui .info .title { color: #3b4151; }
+        .swagger-ui .info .title small { color: #606060; }
       </style>
     </head>
     <body>
-      <h1>API Documentation</h1>
-      <p>This is a simplified API documentation view. For full Swagger UI, visit <a href="/docs">/docs</a></p>
-      
-      <h2>Authentication</h2>
-      <div class="endpoint">
-        <span class="method post">POST</span>
-        <span class="path">/api/auth/login</span>
-        <div class="description">Login with email and password</div>
-      </div>
-      
-      <h2>Users</h2>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="path">/api/users</span>
-        <span class="auth">Auth Required</span>
-        <div class="description">Get all users</div>
-      </div>
-      
-      <h2>Posts</h2>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="path">/api/posts</span>
-        <span class="auth">Auth Required</span>
-        <div class="description">Get all posts</div>
-      </div>
-      <div class="endpoint">
-        <span class="method post">POST</span>
-        <span class="path">/api/posts</span>
-        <span class="auth">Auth Required</span>
-        <div class="description">Create a new post</div>
-      </div>
-      
-      <h2>Homepage</h2>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="path">/api/homepage</span>
-        <span class="auth">Auth Required</span>
-        <div class="description">Get homepage data (posts, events, newsletters)</div>
-      </div>
-      
-      <p><a href="/api-docs/swagger.json">View Full API Specification (JSON)</a></p>
+      <div id="swagger-ui"></div>
+      <script>
+        // Load Swagger UI CSS dynamically
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.type = 'text/css';
+        link.href = '/swagger-ui/swagger-ui.css';
+        document.head.appendChild(link);
+        
+        // Load Swagger UI JS
+        const script1 = document.createElement('script');
+        script1.src = '/swagger-ui/swagger-ui-bundle.js';
+        script1.onload = function() {
+          const script2 = document.createElement('script');
+          script2.src = '/swagger-ui/swagger-ui-standalone-preset.js';
+          script2.onload = function() {
+            // Initialize Swagger UI
+            fetch('/api-docs/swagger.json')
+              .then(response => response.json())
+              .then(spec => {
+                const ui = SwaggerUIBundle({
+                  spec: spec,
+                  dom_id: '#swagger-ui',
+                  deepLinking: true,
+                  presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                  ],
+                  plugins: [
+                    SwaggerUIBundle.plugins.DownloadUrl
+                  ],
+                  layout: "StandaloneLayout",
+                  persistAuthorization: true,
+                  displayRequestDuration: true,
+                  filter: true,
+                  showRequestHeaders: true,
+                  docExpansion: 'list',
+                  defaultModelsExpandDepth: 1,
+                  defaultModelExpandDepth: 1,
+                  tryItOutEnabled: true
+                });
+              });
+          };
+          document.head.appendChild(script2);
+        };
+        document.head.appendChild(script1);
+      </script>
     </body>
     </html>
   `);
 });
 
-// Alternative documentation route
+// Interactive documentation route (backup)
+app.get('/swagger', (req, res) => {
+  res.sendFile('public/swagger-interactive.html', { root: '.' });
+});
+
+// Alternative documentation route (static view)
 app.get('/docs', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(`
