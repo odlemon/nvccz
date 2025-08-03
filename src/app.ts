@@ -26,8 +26,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:", "https://cdnjs.cloudflare.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
       fontSrc: ["'self'"],
       connectSrc: ["'self'"],
@@ -54,15 +54,11 @@ app.use((req, res, next) => {
   next()
 })
 
-// Swagger UI with CSP headers
-app.use('/api-docs', (req, res, next) => {
-  // Set CSP headers to allow Swagger UI scripts
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';"
-  );
-  next();
-}, swaggerUi.serve, swaggerUi.setup(specs, {
+// Serve Swagger UI static files
+app.use('/swagger-ui', express.static(require('swagger-ui-dist').getAbsoluteFSPath()));
+
+// Swagger UI with local assets
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: 'Role-Based Access Control API Documentation',
   customfavIcon: '/favicon.ico',
@@ -74,17 +70,10 @@ app.use('/api-docs', (req, res, next) => {
     docExpansion: 'list',
     defaultModelsExpandDepth: 1,
     defaultModelExpandDepth: 1,
-  },
-  customJs: [
-    'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.15.5/swagger-ui-bundle.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.15.5/swagger-ui-standalone-preset.min.js'
-  ],
-  customCssUrl: [
-    'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.15.5/swagger-ui.min.css'
-  ]
+  }
 }))
 
-// Alternative simple Swagger setup (fallback)
+// Custom Swagger UI with local assets (fallback)
 app.get('/docs', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(`
@@ -92,7 +81,7 @@ app.get('/docs', (req, res) => {
     <html>
     <head>
       <title>API Documentation</title>
-      <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui.css" />
+      <link rel="stylesheet" type="text/css" href="/swagger-ui/swagger-ui.css" />
       <style>
         html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
         *, *:before, *:after { box-sizing: inherit; }
@@ -101,8 +90,8 @@ app.get('/docs', (req, res) => {
     </head>
     <body>
       <div id="swagger-ui"></div>
-      <script src="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui-bundle.js"></script>
-      <script src="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui-standalone-preset.js"></script>
+      <script src="/swagger-ui/swagger-ui-bundle.js"></script>
+      <script src="/swagger-ui/swagger-ui-standalone-preset.js"></script>
       <script>
         window.onload = function() {
           const ui = SwaggerUIBundle({
