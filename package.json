@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run prisma:generate && tsc",
     "start": "node dist/app.js",
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "lint": "eslint . --ext .ts",
@@ -13,7 +13,8 @@
     "prisma:studio": "prisma studio",
     "prisma:db:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "seed:admin": "ts-node prisma/seed.ts"
+    "seed:admin": "ts-node prisma/seed.ts",
+    "vercel-build": "npm run build"
   },
   "keywords": [
     "authentication",
