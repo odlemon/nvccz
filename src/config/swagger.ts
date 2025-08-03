@@ -303,6 +303,7 @@ const options = {
             id: { type: 'string', example: 'clx1234567890abcdef' },
             title: { type: 'string', example: 'Monthly Company Newsletter' },
             content: { type: 'string', example: 'This is the newsletter content...' },
+            imageUrl: { type: 'string', nullable: true, example: 'https://lysp.s3.amazonaws.com/newsletters/1234567890-image.jpg' },
             authorId: { type: 'string', example: 'clx1234567890abcdef' },
             author: {
               type: 'object',

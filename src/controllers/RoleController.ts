@@ -103,7 +103,7 @@ export class RoleController {
 
       if (!role) {
         res.status(404).json({
-          success: false,
+          success: false, 
           message: "Role not found"
         });
         return;
@@ -145,8 +145,8 @@ export class RoleController {
 
         if (duplicateRole) {
           res.status(409).json({
-            success: false,
-            message: "Role with this name already exists"
+            success: false, 
+            message: "Role with this name already exists" 
           });
           return;
         }
@@ -233,10 +233,10 @@ export class RoleController {
           permissions: true
         }
       });
-
+      
       if (!role) {
         res.status(404).json({
-          success: false,
+          success: false, 
           message: "Role not found"
         });
         return;

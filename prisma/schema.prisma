@@ -88,6 +88,7 @@ model Newsletter {
   id        String   @id @default(cuid())
   title     String
   content   String   @db.Text
+  imageUrl  String?  // URL to the uploaded image
   authorId  String
   author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
   isActive  Boolean  @default(true)

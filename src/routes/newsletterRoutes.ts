@@ -1,7 +1,24 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import { newsletterController } from "../controllers/NewsletterController";
 import { authenticate } from "../middleware/authenticate";
+
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept only image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
 
 const router = express.Router();
 
@@ -20,9 +37,25 @@ router.use(authenticate);
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
- *             $ref: '#/components/schemas/CreateNewsletterRequest'
+ *             type: object
+ *             required:
+ *               - title
+ *               - content
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Newsletter title
+ *                 example: "Monthly Company Update"
+ *               content:
+ *                 type: string
+ *                 description: Newsletter content
+ *                 example: "This month we achieved great milestones..."
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Newsletter image (optional)
  *     responses:
  *       201:
  *         description: Newsletter created successfully
@@ -52,7 +85,7 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post("/", newsletterController.createNewsletter);
+router.post("/", upload.single('image'), newsletterController.createNewsletter);
 
 /**
  * @swagger
@@ -152,9 +185,25 @@ router.get("/:id", newsletterController.getNewsletterById);
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
- *             $ref: '#/components/schemas/UpdateNewsletterRequest'
+ *             type: object
+ *             required:
+ *               - title
+ *               - content
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Newsletter title
+ *                 example: "Updated Monthly Company Update"
+ *               content:
+ *                 type: string
+ *                 description: Newsletter content
+ *                 example: "This month we achieved great milestones..."
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Newsletter image (optional)
  *     responses:
  *       200:
  *         description: Newsletter updated successfully
@@ -196,7 +245,7 @@ router.get("/:id", newsletterController.getNewsletterById);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put("/:id", newsletterController.updateNewsletter);
+router.put("/:id", upload.single('image'), newsletterController.updateNewsletter);
 
 /**
  * @swagger
