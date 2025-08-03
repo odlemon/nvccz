@@ -496,7 +496,7 @@ const options = {
       }
     ]
   },
-  apis: ['./src/routes/*.ts', './src/controllers/*.ts']
+  apis: ['./src/**/*.ts']
 };
 
 export const specs = swaggerJsdoc(options); 
