@@ -3,7 +3,7 @@ import express from "express"
 import cors from "cors"
 import helmet from "helmet"
 import dotenv from "dotenv"
-import swaggerUi from "swagger-ui-express"
+
 import { errorMiddleware } from "./middleware/error"
 import { dbConnection } from "./utils/database"
 import { envConfig } from "./utils/env"
@@ -41,35 +41,66 @@ app.use((req, res, next) => {
   next()
 })
 
-// FASTEST FIX - Use standard swagger-ui-express with inline CSS
-const swaggerOptions = {
-  customCss: `
-    .swagger-ui .topbar { display: none; }
-    .swagger-ui { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
-    .swagger-ui .scheme-container { background: #fafafa; padding: 15px 0; }
-    .swagger-ui .info { margin: 50px 0; }
-    .swagger-ui .info .title { font-size: 36px; color: #3b4151; }
-    .swagger-ui .opblock .opblock-summary { padding: 15px; }
-    .swagger-ui .opblock.opblock-post { border-color: #49cc90; background: rgba(73, 204, 144, 0.1); }
-    .swagger-ui .opblock.opblock-get { border-color: #61affe; background: rgba(97, 175, 254, 0.1); }
-    .swagger-ui .opblock.opblock-put { border-color: #fca130; background: rgba(252, 161, 48, 0.1); }
-    .swagger-ui .opblock.opblock-delete { border-color: #f93e3e; background: rgba(249, 62, 62, 0.1); }
-  `,
-  customSiteTitle: "Role-Based Access Control API Documentation",
-  swaggerOptions: {
-    persistAuthorization: true,
-    displayRequestDuration: true,
-    filter: true,
-    showRequestHeaders: true,
-    docExpansion: 'list',
-    defaultModelsExpandDepth: 1,
-    defaultModelExpandDepth: 1,
-    tryItOutEnabled: true
-  }
-}
-
-// Replace your custom swagger setup with this single line
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, swaggerOptions))
+// FASTEST FIX - Pure HTML with CDN resources (no swagger-ui-express)
+app.get('/api-docs', (req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Role-Based Access Control API Documentation</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.27.1/swagger-ui.css" />
+      <style>
+        html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { margin:0; background: #fafafa; }
+        .swagger-ui .topbar { display: none; }
+        .swagger-ui { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+        .swagger-ui .scheme-container { background: #fafafa; padding: 15px 0; }
+        .swagger-ui .info { margin: 50px 0; }
+        .swagger-ui .info .title { font-size: 36px; color: #3b4151; }
+        .swagger-ui .opblock .opblock-summary { padding: 15px; }
+        .swagger-ui .opblock.opblock-post { border-color: #49cc90; background: rgba(73, 204, 144, 0.1); }
+        .swagger-ui .opblock.opblock-get { border-color: #61affe; background: rgba(97, 175, 254, 0.1); }
+        .swagger-ui .opblock.opblock-put { border-color: #fca130; background: rgba(252, 161, 48, 0.1); }
+        .swagger-ui .opblock.opblock-delete { border-color: #f93e3e; background: rgba(249, 62, 62, 0.1); }
+      </style>
+    </head>
+    <body>
+      <div id="swagger-ui"></div>
+      <script src="https://unpkg.com/swagger-ui-dist@5.27.1/swagger-ui-bundle.js"></script>
+      <script src="https://unpkg.com/swagger-ui-dist@5.27.1/swagger-ui-standalone-preset.js"></script>
+      <script>
+        window.onload = function() {
+          const ui = SwaggerUIBundle({
+            spec: ${JSON.stringify(specs)},
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            presets: [
+              SwaggerUIBundle.presets.apis,
+              SwaggerUIStandalonePreset
+            ],
+            plugins: [
+              SwaggerUIBundle.plugins.DownloadUrl
+            ],
+            layout: "StandaloneLayout",
+            persistAuthorization: true,
+            displayRequestDuration: true,
+            filter: true,
+            showRequestHeaders: true,
+            docExpansion: 'list',
+            defaultModelsExpandDepth: 1,
+            defaultModelExpandDepth: 1,
+            tryItOutEnabled: true
+          });
+        };
+      </script>
+    </body>
+    </html>
+  `);
+});
 
 // Test endpoint to verify API is working
 app.get('/test-api', (req, res) => {
