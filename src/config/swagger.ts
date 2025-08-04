@@ -2543,8 +2543,8 @@ try {
         },
         '/accounting/journal-entries/{id}/validate': {
           get: {
-            summary: 'Validate journal entry balance',
-            description: 'Validate that a journal entry is balanced (debits = credits)',
+            summary: 'Validate journal entry balance by ID',
+            description: 'Validate that a specific journal entry is balanced (debits = credits)',
             tags: ['Accounting - Journal Entries'],
             security: [{ bearerAuth: [] }],
             parameters: [
@@ -2555,30 +2555,45 @@ try {
                 schema: { type: 'string' }
               }
             ],
-            responses: {
-              200: {
-                description: 'Journal entry validation completed',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        data: {
-                          type: 'object',
-                          properties: {
-                            isBalanced: { type: 'boolean' },
-                            totalDebits: { type: 'number' },
-                            totalCredits: { type: 'number' },
-                            difference: { type: 'number' }
+                          responses: {
+                200: {
+                  description: 'Journal entry validation completed',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean' },
+                          data: {
+                            type: 'object',
+                            properties: {
+                              isBalanced: { type: 'boolean' },
+                              totalDebits: { type: 'number' },
+                              totalCredits: { type: 'number' },
+                              difference: { type: 'number' },
+                              message: { type: 'string' }
+                            }
                           }
+                        }
+                      }
+                    }
+                  }
+                },
+                404: {
+                  description: 'Journal entry not found',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean', example: false },
+                          message: { type: 'string', example: 'Journal entry not found' }
                         }
                       }
                     }
                   }
                 }
               }
-            }
           }
         }
       }
