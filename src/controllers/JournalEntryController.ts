@@ -55,6 +55,42 @@ export class JournalEntryController {
   }
 
   /**
+   * Validate journal entry balance by ID
+   */
+  static async validateJournalEntryById(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      
+      const journalEntry = await JournalEntryService.getJournalEntryWithLines(id);
+      
+      if (!journalEntry) {
+        return res.status(404).json({
+          success: false,
+          message: "Journal entry not found"
+        });
+      }
+
+      const isValid = JournalEntryService.validateJournalEntryBalance(journalEntry.journalEntryLines);
+      
+      const totalDebits = journalEntry.journalEntryLines.reduce((sum, line) => sum + parseFloat(line.debitAmount.toString()), 0);
+      const totalCredits = journalEntry.journalEntryLines.reduce((sum, line) => sum + parseFloat(line.creditAmount.toString()), 0);
+      
+      return res.status(200).json({
+        success: true,
+        data: {
+          isBalanced: isValid,
+          totalDebits,
+          totalCredits,
+          difference: totalDebits - totalCredits,
+          message: isValid ? "Journal entry is balanced" : "Journal entry is not balanced"
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Validate journal entry balance
    */
   static async validateBalance(req: AuthRequest, res: Response, next: NextFunction) {

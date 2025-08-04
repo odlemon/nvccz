@@ -120,6 +120,60 @@ router.get("/:id", JournalEntryController.getJournalEntryById);
 
 /**
  * @swagger
+ * /api/accounting/journal-entries/{id}/validate:
+ *   get:
+ *     summary: Validate journal entry balance by ID
+ *     description: Validate that a specific journal entry is balanced (debits = credits)
+ *     tags: [Accounting - Journal Entries]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Journal entry ID
+ *     responses:
+ *       200:
+ *         description: Validation completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     isBalanced:
+ *                       type: boolean
+ *                       description: Whether the journal entry is balanced
+ *                     totalDebits:
+ *                       type: number
+ *                       description: Total debit amount
+ *                     totalCredits:
+ *                       type: number
+ *                       description: Total credit amount
+ *                     difference:
+ *                       type: number
+ *                       description: Difference between debits and credits
+ *                     message:
+ *                       type: string
+ *                       description: Validation message
+ *       404:
+ *         description: Journal entry not found
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/:id/validate", JournalEntryController.validateJournalEntryById);
+
+/**
+ * @swagger
  * /api/accounting/journal-entries/validate:
  *   post:
  *     summary: Validate journal entry balance
