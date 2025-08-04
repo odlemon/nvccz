@@ -2235,7 +2235,7 @@ try {
           delete: {
             summary: 'Delete expense category',
             description: 'Delete an expense category',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expense Categories'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2268,7 +2268,7 @@ try {
           get: {
             summary: 'Get all expenses',
             description: 'Retrieve all expenses in the system',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expenses'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2313,7 +2313,7 @@ try {
           post: {
             summary: 'Create expense',
             description: 'Create a new expense with automatic VAT calculation and journal entry generation',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expenses'],
             security: [{ bearerAuth: [] }],
             requestBody: {
               required: true,
@@ -2345,7 +2345,7 @@ try {
           get: {
             summary: 'Get expense by ID',
             description: 'Retrieve a specific expense by ID',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expenses'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2375,7 +2375,7 @@ try {
           put: {
             summary: 'Update expense',
             description: 'Update an existing expense',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expenses'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2413,7 +2413,7 @@ try {
           delete: {
             summary: 'Delete expense',
             description: 'Soft delete an expense',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expenses'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2445,7 +2445,7 @@ try {
           post: {
             summary: 'Calculate VAT',
             description: 'Calculate VAT for an expense amount',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expenses'],
             security: [{ bearerAuth: [] }],
             requestBody: {
               required: true,
@@ -2472,7 +2472,7 @@ try {
           get: {
             summary: 'Get all journal entries',
             description: 'Retrieve all journal entries in the system',
-            tags: ['Accounting'],
+            tags: ['Accounting - Journal Entries'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2513,7 +2513,7 @@ try {
           get: {
             summary: 'Get journal entry by ID',
             description: 'Retrieve a specific journal entry by ID with all lines',
-            tags: ['Accounting'],
+            tags: ['Accounting - Journal Entries'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2545,7 +2545,7 @@ try {
           get: {
             summary: 'Validate journal entry balance',
             description: 'Validate that a journal entry is balanced (debits = credits)',
-            tags: ['Accounting'],
+            tags: ['Accounting - Journal Entries'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
