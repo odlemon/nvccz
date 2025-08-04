@@ -1766,7 +1766,7 @@ try {
           get: {
             summary: 'Get all currencies',
             description: 'Retrieve all currencies in the system',
-            tags: ['Accounting'],
+            tags: ['Accounting - Currencies'],
             security: [{ bearerAuth: [] }],
             responses: {
               200: {
@@ -1791,7 +1791,7 @@ try {
           post: {
             summary: 'Create currency',
             description: 'Create a new currency',
-            tags: ['Accounting'],
+            tags: ['Accounting - Currencies'],
             security: [{ bearerAuth: [] }],
             requestBody: {
               required: true,
@@ -1823,7 +1823,7 @@ try {
           get: {
             summary: 'Get currency by ID',
             description: 'Retrieve a specific currency by ID',
-            tags: ['Accounting'],
+            tags: ['Accounting - Currencies'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -1853,7 +1853,7 @@ try {
           put: {
             summary: 'Update currency',
             description: 'Update an existing currency',
-            tags: ['Accounting'],
+            tags: ['Accounting - Currencies'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -1891,7 +1891,7 @@ try {
           delete: {
             summary: 'Delete currency',
             description: 'Delete a currency',
-            tags: ['Accounting'],
+            tags: ['Accounting - Currencies'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -1924,7 +1924,7 @@ try {
           get: {
             summary: 'Get all vendors',
             description: 'Retrieve all vendors in the system',
-            tags: ['Accounting'],
+            tags: ['Accounting - Vendors'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -1963,7 +1963,7 @@ try {
           post: {
             summary: 'Create vendor',
             description: 'Create a new vendor',
-            tags: ['Accounting'],
+            tags: ['Accounting - Vendors'],
             security: [{ bearerAuth: [] }],
             requestBody: {
               required: true,
@@ -1995,7 +1995,7 @@ try {
           get: {
             summary: 'Get vendor by ID',
             description: 'Retrieve a specific vendor by ID',
-            tags: ['Accounting'],
+            tags: ['Accounting - Vendors'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2025,7 +2025,7 @@ try {
           put: {
             summary: 'Update vendor',
             description: 'Update an existing vendor',
-            tags: ['Accounting'],
+            tags: ['Accounting - Vendors'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2063,7 +2063,7 @@ try {
           delete: {
             summary: 'Delete vendor',
             description: 'Delete a vendor',
-            tags: ['Accounting'],
+            tags: ['Accounting - Vendors'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2096,7 +2096,7 @@ try {
           get: {
             summary: 'Get all expense categories',
             description: 'Retrieve all expense categories in the system',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expense Categories'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2135,7 +2135,7 @@ try {
           post: {
             summary: 'Create expense category',
             description: 'Create a new expense category',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expense Categories'],
             security: [{ bearerAuth: [] }],
             requestBody: {
               required: true,
@@ -2167,7 +2167,7 @@ try {
           get: {
             summary: 'Get expense category by ID',
             description: 'Retrieve a specific expense category by ID',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expense Categories'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {
@@ -2197,7 +2197,7 @@ try {
           put: {
             summary: 'Update expense category',
             description: 'Update an existing expense category',
-            tags: ['Accounting'],
+            tags: ['Accounting - Expense Categories'],
             security: [{ bearerAuth: [] }],
             parameters: [
               {

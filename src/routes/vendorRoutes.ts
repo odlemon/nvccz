@@ -14,7 +14,7 @@ router.use(authenticate);
  *   post:
  *     summary: Create a new vendor
  *     description: Create a new vendor for expense tracking
- *     tags: [Vendors]
+ *     tags: [Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -83,7 +83,7 @@ router.post("/", vendorController.createVendor);
  *   get:
  *     summary: Get all vendors
  *     description: Retrieve all vendors with optional filters
- *     tags: [Vendors]
+ *     tags: [Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -123,7 +123,7 @@ router.get("/", vendorController.getVendors);
  *   get:
  *     summary: Get vendor by ID
  *     description: Retrieve a specific vendor by ID with recent expenses
- *     tags: [Vendors]
+ *     tags: [Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -159,7 +159,7 @@ router.get("/:id", vendorController.getVendorById);
  *   put:
  *     summary: Update vendor
  *     description: Update a vendor
- *     tags: [Vendors]
+ *     tags: [Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -216,7 +216,7 @@ router.put("/:id", vendorController.updateVendor);
  *   delete:
  *     summary: Delete vendor
  *     description: Soft delete a vendor (sets isActive to false)
- *     tags: [Vendors]
+ *     tags: [Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -244,7 +244,7 @@ router.delete("/:id", vendorController.deleteVendor);
  *   get:
  *     summary: Get vendor expenses
  *     description: Retrieve expenses for a specific vendor
- *     tags: [Vendors]
+ *     tags: [Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:

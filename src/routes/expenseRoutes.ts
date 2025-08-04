@@ -130,7 +130,7 @@ const router = express.Router();
  * /api/accounting/expenses:
  *   post:
  *     summary: Create a new expense
- *     tags: [Expenses]
+ *     tags: [Accounting - Expenses]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -167,7 +167,7 @@ router.post("/", authenticate, expenseController.createExpense);
  * /api/accounting/expenses:
  *   get:
  *     summary: Get all expenses with filtering and pagination
- *     tags: [Expenses]
+ *     tags: [Accounting - Expenses]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -252,7 +252,7 @@ router.get("/", authenticate, expenseController.getExpenses);
  * /api/accounting/expenses/{id}:
  *   get:
  *     summary: Get expense by ID
- *     tags: [Expenses]
+ *     tags: [Accounting - Expenses]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -288,7 +288,7 @@ router.get("/:id", authenticate, expenseController.getExpenseById);
  * /api/accounting/expenses/{id}:
  *   put:
  *     summary: Update an expense
- *     tags: [Expenses]
+ *     tags: [Accounting - Expenses]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -332,7 +332,7 @@ router.put("/:id", authenticate, expenseController.updateExpense);
  * /api/accounting/expenses/{id}:
  *   delete:
  *     summary: Delete an expense (soft delete)
- *     tags: [Expenses]
+ *     tags: [Accounting - Expenses]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -368,7 +368,7 @@ router.delete("/:id", authenticate, expenseController.deleteExpense);
  * /api/accounting/expenses/summary:
  *   get:
  *     summary: Get expense summary statistics
- *     tags: [Expenses]
+ *     tags: [Accounting - Expenses]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -444,7 +444,7 @@ router.get("/summary", authenticate, expenseController.getExpenseSummary);
  * /api/accounting/expenses/calculate-vat:
  *   post:
  *     summary: Calculate VAT for a given amount
- *     tags: [Expenses]
+ *     tags: [Accounting - Expenses]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
