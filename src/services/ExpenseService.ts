@@ -261,7 +261,9 @@ export class ExpenseService {
   }
 
   /**
-   * Update an expense (only if it's still in DRAFT status)
+   * Update an expense with proper double-entry bookkeeping
+   * For DRAFT expenses: Direct update
+   * For POSTED expenses: Create reversal entry, update expense, create new entry
    */
   static async updateExpense(id: string, updateData: Partial<CreateExpenseParams>): Promise<ExpenseWithRelations> {
     const expense = await prisma.expense.findUnique({
@@ -273,49 +275,177 @@ export class ExpenseService {
       throw new Error("Expense not found");
     }
 
-    if (expense.status !== "DRAFT") {
-      throw new Error("Cannot update expense that has been posted");
-    }
+    // Remove journalEntryId from updateData to prevent direct manipulation
+    delete updateData.journalEntryId;
 
-    // Recalculate VAT and total if amount or taxable status changed
-    let vatAmount = Number(expense.vatAmount);
-    let totalAmount = Number(expense.totalAmount);
+    // For DRAFT expenses, allow direct updates
+    if (expense.status === "DRAFT") {
+      // Recalculate VAT and total if amount or taxable status changed
+      let vatAmount = Number(expense.vatAmount);
+      let totalAmount = Number(expense.totalAmount);
 
-    if (updateData.amount !== undefined || updateData.isTaxable !== undefined) {
-      const newAmount = Number(updateData.amount ?? expense.amount);
-      const newIsTaxable = updateData.isTaxable ?? expense.isTaxable;
-      vatAmount = VATService.isVATEligible(newAmount, newIsTaxable)
-        ? VATService.calculateVAT(newAmount)
-        : 0;
-      totalAmount = newAmount + vatAmount;
-    }
+      if (updateData.amount !== undefined || updateData.isTaxable !== undefined) {
+        const newAmount = Number(updateData.amount ?? expense.amount);
+        const newIsTaxable = updateData.isTaxable ?? expense.isTaxable;
+        vatAmount = VATService.isVATEligible(newAmount, newIsTaxable)
+          ? VATService.calculateVAT(newAmount)
+          : 0;
+        totalAmount = newAmount + vatAmount;
+      }
 
-    const updatedExpense = await prisma.expense.update({
-      where: { id },
-      data: {
-        ...updateData,
-        vatAmount: new Decimal(vatAmount),
-        totalAmount: new Decimal(totalAmount)
-      },
-      include: {
-        vendor: true,
-        category: true,
-        currency: true,
-        journalEntry: {
-          select: {
-            id: true,
-            referenceNumber: true,
-            status: true
+      const updatedExpense = await prisma.expense.update({
+        where: { id },
+        data: {
+          ...updateData,
+          vatAmount: new Decimal(vatAmount),
+          totalAmount: new Decimal(totalAmount)
+        },
+        include: {
+          vendor: true,
+          category: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
           }
         }
-      }
-    });
+      });
 
-    return updatedExpense;
+      return updatedExpense;
+    }
+
+    // For POSTED expenses, implement double-entry bookkeeping workflow
+    if (expense.status === "POSTED") {
+      // Check if there are financial changes that require journal entry updates
+      const hasFinancialChanges = 
+        updateData.amount !== undefined || 
+        updateData.isTaxable !== undefined || 
+        updateData.categoryId !== undefined;
+
+      // If no financial changes, just update non-financial fields directly
+      if (!hasFinancialChanges) {
+        const updatedExpense = await prisma.expense.update({
+          where: { id },
+          data: updateData,
+          include: {
+            vendor: true,
+            category: true,
+            currency: true,
+            journalEntry: {
+              select: {
+                id: true,
+                referenceNumber: true,
+                status: true
+              }
+            }
+          }
+        });
+
+        return updatedExpense;
+      }
+
+      // For financial changes, implement the reversal workflow
+      const newAmount = Number(updateData.amount ?? expense.amount);
+      const newIsTaxable = updateData.isTaxable ?? expense.isTaxable;
+      const newCategoryId = updateData.categoryId ?? expense.categoryId;
+      
+      // Calculate new VAT and total amounts
+      const newVatAmount = VATService.isVATEligible(newAmount, newIsTaxable)
+        ? VATService.calculateVAT(newAmount)
+        : 0;
+      const newTotalAmount = newAmount + newVatAmount;
+
+      // Step 1: Create reversal journal entry using original expense data
+      const reversalParams: CreateExpenseJournalEntryParams = {
+        vendorId: expense.vendorId,
+        categoryId: expense.categoryId,
+        amount: Number(expense.amount),
+        vatAmount: Number(expense.vatAmount),
+        totalAmount: Number(expense.totalAmount),
+        currencyId: expense.currencyId,
+        transactionDate: expense.transactionDate,
+        description: expense.description,
+        receiptNumber: expense.receiptNumber || undefined,
+        isTaxable: expense.isTaxable,
+        createdById: expense.createdById
+      };
+
+      const reversalResult = await JournalEntryService.createReversalJournalEntry(reversalParams);
+
+      // Step 2: Update the expense with new amounts and temporarily link to reversal
+      const updatedExpense = await prisma.expense.update({
+        where: { id },
+        data: {
+          ...updateData,
+          amount: new Decimal(newAmount),
+          vatAmount: new Decimal(newVatAmount),
+          totalAmount: new Decimal(newTotalAmount),
+          journalEntryId: reversalResult.journalEntry.id // Temporarily link to reversal
+        },
+        include: {
+          vendor: true,
+          category: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      // Step 3: Create new journal entry with updated amounts
+      const newJournalEntryParams: CreateExpenseJournalEntryParams = {
+        vendorId: updatedExpense.vendorId,
+        categoryId: newCategoryId,
+        amount: newAmount,
+        vatAmount: newVatAmount,
+        totalAmount: newTotalAmount,
+        currencyId: updatedExpense.currencyId,
+        transactionDate: updatedExpense.transactionDate,
+        description: updatedExpense.description,
+        receiptNumber: updatedExpense.receiptNumber || undefined,
+        isTaxable: newIsTaxable,
+        createdById: updatedExpense.createdById
+      };
+
+      const newJournalResult = await JournalEntryService.createExpenseJournalEntry(newJournalEntryParams);
+
+      // Step 4: Update expense to link to the new journal entry
+      const finalExpense = await prisma.expense.update({
+        where: { id },
+        data: {
+          journalEntryId: newJournalResult.journalEntry.id
+        },
+        include: {
+          vendor: true,
+          category: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      return finalExpense;
+    }
+
+    throw new Error("Cannot update expense with current status");
   }
 
   /**
    * Delete an expense (soft delete)
+   * For DRAFT expenses: Direct soft delete
+   * For POSTED expenses: Create reversal entry, then soft delete
    */
   static async deleteExpense(id: string): Promise<void> {
     const expense = await prisma.expense.findUnique({
@@ -327,14 +457,43 @@ export class ExpenseService {
       throw new Error("Expense not found");
     }
 
-    if (expense.status !== "DRAFT") {
-      throw new Error("Cannot delete expense that has been posted");
+    // For DRAFT expenses, just soft delete
+    if (expense.status === "DRAFT") {
+      await prisma.expense.update({
+        where: { id },
+        data: { isActive: false }
+      });
+      return;
     }
 
-    await prisma.expense.update({
-      where: { id },
-      data: { isActive: false }
-    });
+    // For POSTED expenses, create reversal entry before soft delete
+    if (expense.status === "POSTED") {
+      // Create reversal journal entry to cancel the original transaction
+      const reversalParams: CreateExpenseJournalEntryParams = {
+        vendorId: expense.vendorId,
+        categoryId: expense.categoryId,
+        amount: Number(expense.amount),
+        vatAmount: Number(expense.vatAmount),
+        totalAmount: Number(expense.totalAmount),
+        currencyId: expense.currencyId,
+        transactionDate: expense.transactionDate,
+        description: expense.description,
+        receiptNumber: expense.receiptNumber || undefined,
+        isTaxable: expense.isTaxable,
+        createdById: expense.createdById
+      };
+
+      await JournalEntryService.createReversalJournalEntry(reversalParams);
+
+      // Soft delete the expense
+      await prisma.expense.update({
+        where: { id },
+        data: { isActive: false }
+      });
+      return;
+    }
+
+    throw new Error("Cannot delete expense with current status");
   }
 
   /**

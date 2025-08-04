@@ -722,10 +722,10 @@ const options = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'clx1234567890abcdef' },
-            code: { type: 'string', example: '1000' },
-            name: { type: 'string', example: 'Assets' },
-            type: { type: 'string', example: 'ASSET' },
-            parentId: { type: 'string', nullable: true, example: 'clx1234567890abcdef' },
+            accountCode: { type: 'string', example: '1000' },
+            accountName: { type: 'string', example: 'Assets' },
+            accountType: { type: 'string', example: 'ASSET' },
+            parentId: { type: 'string', nullable: true, example: null },
             isActive: { type: 'boolean', example: true },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' }
@@ -2461,6 +2461,205 @@ try {
                 content: {
                   'application/json': {
                     schema: { $ref: '#/components/schemas/VATCalculationResponse' }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Chart of Accounts Management
+        '/accounting/chart-of-accounts': {
+          get: {
+            summary: 'Get all chart of accounts',
+            description: 'Retrieve all chart of accounts entries with optional filtering',
+            tags: ['Accounting - Chart of Accounts'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'accountType',
+                in: 'query',
+                schema: { type: 'string', enum: ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] },
+                description: 'Filter by account type'
+              },
+              {
+                name: 'isActive',
+                in: 'query',
+                schema: { type: 'boolean' },
+                description: 'Filter by active status'
+              },
+              {
+                name: 'parentId',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Filter by parent account ID'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Chart of accounts retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/ChartOfAccounts' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create a new chart of accounts entry',
+            description: 'Create a new account in the chart of accounts',
+            tags: ['Accounting - Chart of Accounts'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    required: ['accountCode', 'accountName', 'accountType'],
+                    properties: {
+                      accountCode: { type: 'string', example: '1000' },
+                      accountName: { type: 'string', example: 'Cash' },
+                      accountType: { type: 'string', enum: ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] },
+                      parentId: { type: 'string', nullable: true },
+                      isActive: { type: 'boolean', example: true }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Chart of accounts entry created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' },
+                        data: { $ref: '#/components/schemas/ChartOfAccounts' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/chart-of-accounts/{id}': {
+          get: {
+            summary: 'Get chart of accounts by ID',
+            description: 'Retrieve a specific chart of accounts entry by ID',
+            tags: ['Accounting - Chart of Accounts'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Chart of accounts retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/ChartOfAccounts' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update chart of accounts',
+            description: 'Update an existing chart of accounts entry',
+            tags: ['Accounting - Chart of Accounts'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      accountCode: { type: 'string', example: '1000' },
+                      accountName: { type: 'string', example: 'Cash' },
+                      accountType: { type: 'string', enum: ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] },
+                      parentId: { type: 'string', nullable: true },
+                      isActive: { type: 'boolean', example: true }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Chart of accounts updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' },
+                        data: { $ref: '#/components/schemas/ChartOfAccounts' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete chart of accounts',
+            description: 'Delete a chart of accounts entry (Admin only)',
+            tags: ['Accounting - Chart of Accounts'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Chart of accounts deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
                   }
                 }
               }

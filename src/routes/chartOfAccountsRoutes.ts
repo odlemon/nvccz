@@ -1,0 +1,321 @@
+// @ts-nocheck
+// routes/chartOfAccountsRoutes.ts
+
+import express from "express";
+import { ChartOfAccountsController } from "../controllers/ChartOfAccountsController";
+import { authenticate } from "../middleware/authenticate";
+import { authorize } from "../middleware/permissionAuth";
+
+const router = express.Router();
+
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts:
+ *   post:
+ *     summary: Create a new chart of accounts entry
+ *     description: Create a new account in the chart of accounts
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - accountCode
+ *               - accountName
+ *               - accountType
+ *             properties:
+ *               accountCode:
+ *                 type: string
+ *                 description: Unique account code (e.g., "1000", "2000")
+ *                 example: "1000"
+ *               accountName:
+ *                 type: string
+ *                 description: Account name
+ *                 example: "Cash"
+ *               accountType:
+ *                 type: string
+ *                 enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE]
+ *                 description: Type of account
+ *                 example: "ASSET"
+ *               parentId:
+ *                 type: string
+ *                 description: ID of parent account (optional for hierarchical structure)
+ *                 example: null
+ *               isActive:
+ *                 type: boolean
+ *                 description: Whether the account is active
+ *                 example: true
+ *     responses:
+ *       201:
+ *         description: Chart of accounts entry created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Chart of accounts entry created successfully
+ *                 data:
+ *                   $ref: '#/components/schemas/ChartOfAccounts'
+ *       400:
+ *         description: Bad request - missing required fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Conflict - account code already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post("/", authenticate, authorize(["admin"]), ChartOfAccountsController.createChartOfAccounts);
+
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts:
+ *   get:
+ *     summary: Get all chart of accounts
+ *     description: Retrieve all chart of accounts entries with optional filtering
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: accountType
+ *         schema:
+ *           type: string
+ *           enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE]
+ *         description: Filter by account type
+ *       - in: query
+ *         name: isActive
+ *         schema:
+ *           type: boolean
+ *         description: Filter by active status
+ *       - in: query
+ *         name: parentId
+ *         schema:
+ *           type: string
+ *         description: Filter by parent account ID
+ *     responses:
+ *       200:
+ *         description: Chart of accounts retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/ChartOfAccounts'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get("/", authenticate, ChartOfAccountsController.getAllChartOfAccounts);
+
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts/{id}:
+ *   get:
+ *     summary: Get chart of accounts by ID
+ *     description: Retrieve a specific chart of accounts entry by ID
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Chart of accounts ID
+ *     responses:
+ *       200:
+ *         description: Chart of accounts retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/ChartOfAccounts'
+ *       404:
+ *         description: Chart of accounts not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get("/:id", authenticate, ChartOfAccountsController.getChartOfAccountsById);
+
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts/{id}:
+ *   put:
+ *     summary: Update chart of accounts
+ *     description: Update an existing chart of accounts entry
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Chart of accounts ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               accountCode:
+ *                 type: string
+ *                 description: Unique account code
+ *                 example: "1000"
+ *               accountName:
+ *                 type: string
+ *                 description: Account name
+ *                 example: "Cash"
+ *               accountType:
+ *                 type: string
+ *                 enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE]
+ *                 description: Type of account
+ *                 example: "ASSET"
+ *               parentId:
+ *                 type: string
+ *                 description: ID of parent account
+ *                 example: null
+ *               isActive:
+ *                 type: boolean
+ *                 description: Whether the account is active
+ *                 example: true
+ *     responses:
+ *       200:
+ *         description: Chart of accounts updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Chart of accounts updated successfully
+ *                 data:
+ *                   $ref: '#/components/schemas/ChartOfAccounts'
+ *       404:
+ *         description: Chart of accounts not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       400:
+ *         description: Bad request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Conflict - account code already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.put("/:id", authenticate, authorize(["admin"]), ChartOfAccountsController.updateChartOfAccounts);
+
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts/{id}:
+ *   delete:
+ *     summary: Delete chart of accounts
+ *     description: Delete a chart of accounts entry (Admin only)
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Chart of accounts ID
+ *     responses:
+ *       200:
+ *         description: Chart of accounts deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Chart of accounts deleted successfully
+ *       404:
+ *         description: Chart of accounts not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Forbidden - insufficient permissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.delete("/:id", authenticate, authorize(["admin"]), ChartOfAccountsController.deleteChartOfAccounts);
+
+export default router; 
