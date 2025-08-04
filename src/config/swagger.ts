@@ -488,6 +488,248 @@ const options = {
               }
             }
           }
+        },
+        // Accounting schemas
+        Currency: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            code: { type: 'string', example: 'ZWL' },
+            name: { type: 'string', example: 'Zimbabwean Dollar' },
+            symbol: { type: 'string', example: '$' },
+            isDefault: { type: 'boolean', example: true },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        CreateCurrencyRequest: {
+          type: 'object',
+          required: ['code', 'name', 'symbol'],
+          properties: {
+            code: { type: 'string', example: 'USD' },
+            name: { type: 'string', example: 'US Dollar' },
+            symbol: { type: 'string', example: '$' },
+            isDefault: { type: 'boolean', example: false }
+          }
+        },
+        UpdateCurrencyRequest: {
+          type: 'object',
+          properties: {
+            code: { type: 'string', example: 'USD' },
+            name: { type: 'string', example: 'US Dollar' },
+            symbol: { type: 'string', example: '$' },
+            isDefault: { type: 'boolean', example: false },
+            isActive: { type: 'boolean', example: true }
+          }
+        },
+        Vendor: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            name: { type: 'string', example: 'CBZ Bank' },
+            contactPerson: { type: 'string', example: 'John Smith' },
+            email: { type: 'string', example: 'contact@cbz.co.zw' },
+            phone: { type: 'string', example: '+263 4 123456' },
+            address: { type: 'string', example: '123 Main Street, Harare' },
+            taxNumber: { type: 'string', example: '123456789' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        CreateVendorRequest: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string', example: 'CBZ Bank' },
+            contactPerson: { type: 'string', example: 'John Smith' },
+            email: { type: 'string', example: 'contact@cbz.co.zw' },
+            phone: { type: 'string', example: '+263 4 123456' },
+            address: { type: 'string', example: '123 Main Street, Harare' },
+            taxNumber: { type: 'string', example: '123456789' }
+          }
+        },
+        UpdateVendorRequest: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', example: 'CBZ Bank Updated' },
+            contactPerson: { type: 'string', example: 'John Smith Updated' },
+            email: { type: 'string', example: 'contact.updated@cbz.co.zw' },
+            phone: { type: 'string', example: '+263 4 123456' },
+            address: { type: 'string', example: '123 Main Street, Harare' },
+            taxNumber: { type: 'string', example: '123456789' },
+            isActive: { type: 'boolean', example: true }
+          }
+        },
+        ExpenseCategory: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            name: { type: 'string', example: 'Professional Services' },
+            description: { type: 'string', example: 'Legal, accounting, consulting services' },
+            parentId: { type: 'string', nullable: true, example: 'clx1234567890abcdef' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            parent: { $ref: '#/components/schemas/ExpenseCategory' },
+            children: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ExpenseCategory' }
+            }
+          }
+        },
+        CreateExpenseCategoryRequest: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string', example: 'Legal Services' },
+            description: { type: 'string', example: 'Legal and compliance services' },
+            parentId: { type: 'string', nullable: true, example: 'clx1234567890abcdef' }
+          }
+        },
+        UpdateExpenseCategoryRequest: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', example: 'Legal Services Updated' },
+            description: { type: 'string', example: 'Updated legal and compliance services' },
+            parentId: { type: 'string', nullable: true, example: 'clx1234567890abcdef' },
+            isActive: { type: 'boolean', example: true }
+          }
+        },
+        Expense: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            vendorId: { type: 'string', example: 'clx1234567890abcdef' },
+            categoryId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 300.00 },
+            vatAmount: { type: 'number', example: 43.50 },
+            totalAmount: { type: 'number', example: 343.50 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
+            description: { type: 'string', example: 'Legal consultation fees' },
+            receiptNumber: { type: 'string', example: 'INV-001' },
+            isTaxable: { type: 'boolean', example: true },
+            status: { type: 'string', example: 'POSTED' },
+            journalEntryId: { type: 'string', example: 'clx1234567890abcdef' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            vendor: { $ref: '#/components/schemas/Vendor' },
+            category: { $ref: '#/components/schemas/ExpenseCategory' },
+            currency: { $ref: '#/components/schemas/Currency' },
+            journalEntry: { $ref: '#/components/schemas/JournalEntry' }
+          }
+        },
+        CreateExpenseRequest: {
+          type: 'object',
+          required: ['vendorId', 'categoryId', 'amount', 'currencyId', 'transactionDate', 'description'],
+          properties: {
+            vendorId: { type: 'string', example: 'clx1234567890abcdef' },
+            categoryId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 300.00 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
+            description: { type: 'string', example: 'Legal consultation fees' },
+            receiptNumber: { type: 'string', example: 'INV-001' },
+            isTaxable: { type: 'boolean', example: true }
+          }
+        },
+        UpdateExpenseRequest: {
+          type: 'object',
+          properties: {
+            vendorId: { type: 'string', example: 'clx1234567890abcdef' },
+            categoryId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 300.00 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
+            description: { type: 'string', example: 'Legal consultation fees' },
+            receiptNumber: { type: 'string', example: 'INV-001' },
+            isTaxable: { type: 'boolean', example: true },
+            isActive: { type: 'boolean', example: true }
+          }
+        },
+        VATCalculationRequest: {
+          type: 'object',
+          required: ['amount', 'isTaxable'],
+          properties: {
+            amount: { type: 'number', example: 300.00 },
+            isTaxable: { type: 'boolean', example: true }
+          }
+        },
+        VATCalculationResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              properties: {
+                amount: { type: 'number', example: 300.00 },
+                vatAmount: { type: 'number', example: 43.50 },
+                totalAmount: { type: 'number', example: 343.50 },
+                vatRate: { type: 'number', example: 0.145 }
+              }
+            }
+          }
+        },
+        JournalEntry: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            referenceNumber: { type: 'string', example: 'JE-2024-001' },
+            description: { type: 'string', example: 'Expense entry for legal fees' },
+            transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
+            status: { type: 'string', example: 'POSTED' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            createdBy: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', example: 'clx1234567890abcdef' },
+                firstName: { type: 'string', example: 'John' },
+                lastName: { type: 'string', example: 'Doe' }
+              }
+            },
+            journalEntryLines: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/JournalEntryLine' }
+            }
+          }
+        },
+        JournalEntryLine: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            journalEntryId: { type: 'string', example: 'clx1234567890abcdef' },
+            accountId: { type: 'string', example: 'clx1234567890abcdef' },
+            description: { type: 'string', example: 'Legal fees expense' },
+            debitAmount: { type: 'number', example: 300.00 },
+            creditAmount: { type: 'number', example: 0.00 },
+            account: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', example: 'clx1234567890abcdef' },
+                code: { type: 'string', example: '5001' },
+                name: { type: 'string', example: 'Legal Fees' },
+                type: { type: 'string', example: 'EXPENSE' }
+              }
+            }
+          }
+        },
+        ChartOfAccounts: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            code: { type: 'string', example: '1000' },
+            name: { type: 'string', example: 'Assets' },
+            type: { type: 'string', example: 'ASSET' },
+            parentId: { type: 'string', nullable: true, example: 'clx1234567890abcdef' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
         }
       }
     },
@@ -1513,6 +1755,826 @@ try {
                 content: {
                   'application/json': {
                     schema: { $ref: '#/components/schemas/NotificationResponse' }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Currency Management
+        '/accounting/currencies': {
+          get: {
+            summary: 'Get all currencies',
+            description: 'Retrieve all currencies in the system',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Currencies retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Currency' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create currency',
+            description: 'Create a new currency',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateCurrencyRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Currency created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Currency' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/currencies/{id}': {
+          get: {
+            summary: 'Get currency by ID',
+            description: 'Retrieve a specific currency by ID',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Currency retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Currency' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update currency',
+            description: 'Update an existing currency',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateCurrencyRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Currency updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Currency' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete currency',
+            description: 'Delete a currency',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Currency deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Vendor Management
+        '/accounting/vendors': {
+          get: {
+            summary: 'Get all vendors',
+            description: 'Retrieve all vendors in the system',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'search',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Search vendors by name'
+              },
+              {
+                name: 'isActive',
+                in: 'query',
+                schema: { type: 'boolean' },
+                description: 'Filter by active status'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Vendors retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Vendor' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create vendor',
+            description: 'Create a new vendor',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateVendorRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Vendor created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Vendor' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/vendors/{id}': {
+          get: {
+            summary: 'Get vendor by ID',
+            description: 'Retrieve a specific vendor by ID',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Vendor retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Vendor' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update vendor',
+            description: 'Update an existing vendor',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateVendorRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Vendor updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Vendor' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete vendor',
+            description: 'Delete a vendor',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Vendor deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Expense Categories Management
+        '/accounting/expense-categories': {
+          get: {
+            summary: 'Get all expense categories',
+            description: 'Retrieve all expense categories in the system',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'search',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Search categories by name'
+              },
+              {
+                name: 'isActive',
+                in: 'query',
+                schema: { type: 'boolean' },
+                description: 'Filter by active status'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Expense categories retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/ExpenseCategory' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create expense category',
+            description: 'Create a new expense category',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateExpenseCategoryRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Expense category created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/ExpenseCategory' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/expense-categories/{id}': {
+          get: {
+            summary: 'Get expense category by ID',
+            description: 'Retrieve a specific expense category by ID',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Expense category retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/ExpenseCategory' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update expense category',
+            description: 'Update an existing expense category',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateExpenseCategoryRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Expense category updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/ExpenseCategory' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete expense category',
+            description: 'Delete an expense category',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Expense category deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Expenses Management
+        '/accounting/expenses': {
+          get: {
+            summary: 'Get all expenses',
+            description: 'Retrieve all expenses in the system',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'search',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Search expenses by description'
+              },
+              {
+                name: 'isActive',
+                in: 'query',
+                schema: { type: 'boolean' },
+                description: 'Filter by active status'
+              },
+              {
+                name: 'status',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Filter by status (DRAFT, POSTED, VOID)'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Expenses retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Expense' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create expense',
+            description: 'Create a new expense with automatic VAT calculation and journal entry generation',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateExpenseRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Expense created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Expense' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/expenses/{id}': {
+          get: {
+            summary: 'Get expense by ID',
+            description: 'Retrieve a specific expense by ID',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Expense retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Expense' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update expense',
+            description: 'Update an existing expense',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateExpenseRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Expense updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Expense' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete expense',
+            description: 'Soft delete an expense',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Expense deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/expenses/vat-calculation': {
+          post: {
+            summary: 'Calculate VAT',
+            description: 'Calculate VAT for an expense amount',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/VATCalculationRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'VAT calculated successfully',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/VATCalculationResponse' }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Journal Entries Management
+        '/accounting/journal-entries': {
+          get: {
+            summary: 'Get all journal entries',
+            description: 'Retrieve all journal entries in the system',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'search',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Search journal entries by reference number'
+              },
+              {
+                name: 'status',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Filter by status (DRAFT, POSTED, VOID)'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Journal entries retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/JournalEntry' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/journal-entries/{id}': {
+          get: {
+            summary: 'Get journal entry by ID',
+            description: 'Retrieve a specific journal entry by ID with all lines',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Journal entry retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/JournalEntry' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/journal-entries/{id}/validate': {
+          get: {
+            summary: 'Validate journal entry balance',
+            description: 'Validate that a journal entry is balanced (debits = credits)',
+            tags: ['Accounting'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Journal entry validation completed',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'object',
+                          properties: {
+                            isBalanced: { type: 'boolean' },
+                            totalDebits: { type: 'number' },
+                            totalCredits: { type: 'number' },
+                            difference: { type: 'number' }
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }

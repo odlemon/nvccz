@@ -33,6 +33,10 @@ model User {
   notifications Notification[]
   userActivity  UserActivity[]
 
+  // New accounting relations
+  journalEntries JournalEntry[]
+  expenses       Expense[]
+
   @@map("users")
 }
 
@@ -138,4 +142,140 @@ model UserActivity {
   createdAt DateTime @default(now())
 
   @@map("user_activity")
+}
+
+// ===== ACCOUNTING MODELS =====
+
+model Currency {
+  id        String   @id @default(cuid())
+  code      String   @unique // e.g., "ZWL", "USD", "EUR"
+  name      String   // e.g., "Zimbabwe Dollar", "US Dollar"
+  symbol    String   // e.g., "$", "€"
+  isActive  Boolean  @default(true)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  expenses      Expense[]
+  journalEntries JournalEntry[]
+
+  @@map("currencies")
+}
+
+model ChartOfAccounts {
+  id          String   @id @default(cuid())
+  accountCode String   @unique // e.g., "1000", "2000"
+  accountName String   // e.g., "Cash", "Legal Fees"
+  accountType String   // "Asset", "Liability", "Equity", "Revenue", "Expense"
+  parentId    String?  // For hierarchical structure
+  parent      ChartOfAccounts? @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    ChartOfAccounts[] @relation("AccountHierarchy")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  journalEntryLines JournalEntryLine[]
+
+  @@map("chart_of_accounts")
+}
+
+model Vendor {
+  id            String   @id @default(cuid())
+  name          String
+  taxNumber     String?
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String?
+  paymentTerms  String?  // e.g., "Net 30"
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  expenses Expense[]
+
+  @@map("vendors")
+}
+
+model ExpenseCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  parentId    String?
+  parent      ExpenseCategory? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    ExpenseCategory[] @relation("CategoryHierarchy")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  expenses Expense[]
+
+  @@map("expense_categories")
+}
+
+model JournalEntry {
+  id              String   @id @default(cuid())
+  transactionDate DateTime
+  referenceNumber String   @unique // Auto-generated: JE-2024-001
+  description     String
+  totalAmount     Decimal  @db.Decimal(15, 2)
+  currencyId      String
+  currency        Currency @relation(fields: [currencyId], references: [id])
+  status          String   @default("DRAFT") // "DRAFT", "POSTED", "VOID"
+  createdById     String
+  createdBy       User     @relation(fields: [createdById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  journalEntryLines JournalEntryLine[]
+  expenses         Expense[]
+
+  @@map("journal_entries")
+}
+
+model JournalEntryLine {
+  id              String   @id @default(cuid())
+  journalEntryId  String
+  journalEntry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  chartOfAccountId String
+  chartOfAccount  ChartOfAccounts @relation(fields: [chartOfAccountId], references: [id])
+  debitAmount     Decimal  @db.Decimal(15, 2) @default(0)
+  creditAmount    Decimal  @db.Decimal(15, 2) @default(0)
+  description     String
+  vatAmount       Decimal? @db.Decimal(15, 2)
+  createdAt       DateTime @default(now())
+
+  @@map("journal_entry_lines")
+}
+
+model Expense {
+  id              String   @id @default(cuid())
+  vendorId        String
+  vendor          Vendor   @relation(fields: [vendorId], references: [id])
+  categoryId      String
+  category        ExpenseCategory @relation(fields: [categoryId], references: [id])
+  amount          Decimal  @db.Decimal(15, 2)
+  vatAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  totalAmount     Decimal  @db.Decimal(15, 2)
+  currencyId      String
+  currency        Currency @relation(fields: [currencyId], references: [id])
+  transactionDate DateTime
+  description     String
+  receiptNumber   String?
+  isTaxable       Boolean  @default(false)
+  status          String   @default("DRAFT") // "DRAFT", "POSTED", "VOID"
+  isActive        Boolean  @default(true) // For soft delete
+  journalEntryId  String?
+  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  createdById     String
+  createdBy       User     @relation(fields: [createdById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("expenses")
 } 

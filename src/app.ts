@@ -16,6 +16,11 @@ import postRoutes from "./routes/postRoutes"
 import newsletterRoutes from "./routes/newsletterRoutes"
 import eventRoutes from "./routes/eventRoutes"
 import homepageRoutes from "./routes/homepageRoutes"
+import currencyRoutes from "./routes/currencyRoutes"
+import vendorRoutes from "./routes/vendorRoutes"
+import expenseCategoryRoutes from "./routes/expenseCategoryRoutes"
+import expenseRoutes from "./routes/expenseRoutes"
+import journalEntryRoutes from "./routes/journalEntryRoutes"
 
 dotenv.config()
 
@@ -173,6 +178,13 @@ app.use("/api/posts", postRoutes)
 app.use("/api/newsletters", newsletterRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/homepage", homepageRoutes)
+
+// Accounting module routes
+app.use("/api/accounting/currencies", currencyRoutes)
+app.use("/api/accounting/vendors", vendorRoutes)
+app.use("/api/accounting/expense-categories", expenseCategoryRoutes)
+app.use("/api/accounting/expenses", expenseRoutes)
+app.use("/api/accounting/journal-entries", journalEntryRoutes)
 
 app.use(errorMiddleware)
 
