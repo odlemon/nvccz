@@ -21,6 +21,7 @@ import vendorRoutes from "./routes/vendorRoutes"
 import expenseCategoryRoutes from "./routes/expenseCategoryRoutes"
 import expenseRoutes from "./routes/expenseRoutes"
 import journalEntryRoutes from "./routes/journalEntryRoutes"
+import chartOfAccountsRoutes from "./routes/chartOfAccountsRoutes"
 
 dotenv.config()
 
@@ -185,6 +186,7 @@ app.use("/api/accounting/vendors", vendorRoutes)
 app.use("/api/accounting/expense-categories", expenseCategoryRoutes)
 app.use("/api/accounting/expenses", expenseRoutes)
 app.use("/api/accounting/journal-entries", journalEntryRoutes)
+app.use("/api/accounting/chart-of-accounts", chartOfAccountsRoutes)
 
 app.use(errorMiddleware)
 

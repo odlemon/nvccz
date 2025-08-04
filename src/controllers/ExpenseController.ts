@@ -135,6 +135,7 @@ export class ExpenseController {
 
   /**
    * Update an expense
+   * Now supports updating both DRAFT and POSTED expenses with proper double-entry bookkeeping
    */
   async updateExpense(req: AuthRequest, res: Response) {
     try {
@@ -146,6 +147,7 @@ export class ExpenseController {
       delete updateData.createdById;
       delete updateData.createdAt;
       delete updateData.updatedAt;
+      delete updateData.journalEntryId; // Don't allow direct journal entry updates
 
       // Convert amount to number if provided
       if (updateData.amount) {

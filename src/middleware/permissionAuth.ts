@@ -106,4 +106,26 @@ export function requireAllPermissions(permissionNames: string[]) {
 
     next();
   };
+}
+
+export function authorize(roles: string[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ 
+        success: false,
+        message: "Unauthorized" 
+      });
+    }
+
+    const userRole = req.user.role?.name;
+    
+    if (!userRole || !roles.includes(userRole)) {
+      return res.status(403).json({ 
+        success: false,
+        message: `Insufficient permissions. Required role: ${roles.join(', ')}` 
+      });
+    }
+
+    next();
+  };
 } 

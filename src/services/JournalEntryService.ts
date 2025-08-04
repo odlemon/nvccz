@@ -130,6 +130,101 @@ export class JournalEntryService {
   }
 
   /**
+   * Create a reversal journal entry to cancel out an original expense entry
+   * This creates the opposite entries: Credit expense, Credit VAT Input, Debit Bank
+   */
+  static async createReversalJournalEntry(params: CreateExpenseJournalEntryParams): Promise<JournalEntryResult> {
+    try {
+      const {
+        vendorId,
+        categoryId,
+        amount,
+        vatAmount,
+        totalAmount,
+        currencyId,
+        transactionDate,
+        description,
+        receiptNumber,
+        isTaxable,
+        createdById
+      } = params;
+
+      const expenseAccount = await this.getExpenseAccount(categoryId);
+      const vatInputAccount = await this.getVATInputAccount();
+      const bankAccount = await this.getBankAccount();
+
+      // Create the reversal journal entry
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate,
+          referenceNumber: this.generateReferenceNumber(),
+          description: `REVERSAL: ${description}`,
+          totalAmount: new Decimal(totalAmount),
+          currencyId,
+          status: "POSTED",
+          createdById
+        }
+      });
+
+      // Create reversal journal entry lines (opposite of original)
+      const journalEntryLines: JournalEntryLine[] = [];
+
+      // 1. Credit the expense account (opposite of debit)
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: expenseAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: new Decimal(amount),
+            description: `REVERSAL - Expense: ${description}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+
+      // 2. If taxable, credit VAT Input account (opposite of debit)
+      if (isTaxable && vatAmount > 0) {
+        journalEntryLines.push(
+          await prisma.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: vatInputAccount.id,
+              debitAmount: new Decimal(0),
+              creditAmount: new Decimal(vatAmount),
+              description: `REVERSAL - VAT Input: ${description}`,
+              vatAmount: new Decimal(vatAmount)
+            }
+          })
+        );
+      }
+
+      // 3. Debit Bank Account (opposite of credit - Cash increases)
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: bankAccount.id,
+            debitAmount: new Decimal(totalAmount),
+            creditAmount: new Decimal(0),
+            description: `REVERSAL - Bank Account: ${description}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+
+      return {
+        journalEntry,
+        journalEntryLines
+      };
+    } catch (error) {
+      console.error("Error creating reversal journal entry:", error);
+      if (error instanceof Error) throw error;
+      throw new Error("Failed to create reversal journal entry. Please try again.");
+    }
+  }
+
+  /**
    * Get the expense account based on the category
    */
   private static async getExpenseAccount(categoryId: string): Promise<ChartOfAccounts> {
