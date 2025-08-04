@@ -14,7 +14,7 @@ router.use(authenticate);
  *   post:
  *     summary: Create a new expense category
  *     description: Create a new expense category for organizing expenses
- *     tags: [Expense Categories]
+ *     tags: [Accounting - Expense Categories]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -67,7 +67,7 @@ router.post("/", expenseCategoryController.createCategory);
  *   get:
  *     summary: Get all expense categories
  *     description: Retrieve all expense categories with optional filters
- *     tags: [Expense Categories]
+ *     tags: [Accounting - Expense Categories]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -112,7 +112,7 @@ router.get("/", expenseCategoryController.getCategories);
  *   get:
  *     summary: Get category by ID
  *     description: Retrieve a specific category by ID with parent, children, and recent expenses
- *     tags: [Expense Categories]
+ *     tags: [Accounting - Expense Categories]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -148,7 +148,7 @@ router.get("/:id", expenseCategoryController.getCategoryById);
  *   put:
  *     summary: Update category
  *     description: Update a category
- *     tags: [Expense Categories]
+ *     tags: [Accounting - Expense Categories]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -195,7 +195,7 @@ router.put("/:id", expenseCategoryController.updateCategory);
  *   delete:
  *     summary: Delete category
  *     description: Soft delete a category (sets isActive to false)
- *     tags: [Expense Categories]
+ *     tags: [Accounting - Expense Categories]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -223,7 +223,7 @@ router.delete("/:id", expenseCategoryController.deleteCategory);
  *   get:
  *     summary: Get category expenses
  *     description: Retrieve expenses for a specific category
- *     tags: [Expense Categories]
+ *     tags: [Accounting - Expense Categories]
  *     security:
  *       - bearerAuth: []
  *     parameters:

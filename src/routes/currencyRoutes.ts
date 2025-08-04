@@ -14,7 +14,7 @@ router.use(authenticate);
  *   post:
  *     summary: Create a new currency
  *     description: Create a new currency for the accounting system
- *     tags: [Currencies]
+ *     tags: [Accounting - Currencies]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -73,7 +73,7 @@ router.post("/", currencyController.createCurrency);
  *   get:
  *     summary: Get all currencies
  *     description: Retrieve all currencies with optional filters
- *     tags: [Currencies]
+ *     tags: [Accounting - Currencies]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -113,7 +113,7 @@ router.get("/", currencyController.getCurrencies);
  *   get:
  *     summary: Get currency by ID
  *     description: Retrieve a specific currency by ID
- *     tags: [Currencies]
+ *     tags: [Accounting - Currencies]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -149,7 +149,7 @@ router.get("/:id", currencyController.getCurrencyById);
  *   put:
  *     summary: Update currency
  *     description: Update a currency
- *     tags: [Currencies]
+ *     tags: [Accounting - Currencies]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -197,7 +197,7 @@ router.put("/:id", currencyController.updateCurrency);
  *   delete:
  *     summary: Delete currency
  *     description: Soft delete a currency (sets isActive to false)
- *     tags: [Currencies]
+ *     tags: [Accounting - Currencies]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -225,7 +225,7 @@ router.delete("/:id", currencyController.deleteCurrency);
  *   get:
  *     summary: Get default currency
  *     description: Retrieve the default currency
- *     tags: [Currencies]
+ *     tags: [Accounting - Currencies]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -254,7 +254,7 @@ router.get("/default", currencyController.getDefaultCurrency);
  *   post:
  *     summary: Set default currency
  *     description: Set a currency as the default currency
- *     tags: [Currencies]
+ *     tags: [Accounting - Currencies]
  *     security:
  *       - bearerAuth: []
  *     parameters:
