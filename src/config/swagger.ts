@@ -2527,47 +2527,6 @@ try {
                 }
               }
             }
-          },
-          post: {
-            summary: 'Create a new chart of accounts entry',
-            description: 'Create a new account in the chart of accounts',
-            tags: ['Accounting - Chart of Accounts'],
-            security: [{ bearerAuth: [] }],
-            requestBody: {
-              required: true,
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    required: ['accountCode', 'accountName', 'accountType'],
-                    properties: {
-                      accountCode: { type: 'string', example: '1000' },
-                      accountName: { type: 'string', example: 'Cash' },
-                      accountType: { type: 'string', enum: ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] },
-                      parentId: { type: 'string', nullable: true },
-                      isActive: { type: 'boolean', example: true }
-                    }
-                  }
-                }
-              }
-            },
-            responses: {
-              201: {
-                description: 'Chart of accounts entry created successfully',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        message: { type: 'string' },
-                        data: { $ref: '#/components/schemas/ChartOfAccounts' }
-                      }
-                    }
-                  }
-                }
-              }
-            }
           }
         },
         '/accounting/chart-of-accounts/{id}': {
@@ -2598,80 +2557,16 @@ try {
                     }
                   }
                 }
-              }
-            }
-          },
-          put: {
-            summary: 'Update chart of accounts',
-            description: 'Update an existing chart of accounts entry',
-            tags: ['Accounting - Chart of Accounts'],
-            security: [{ bearerAuth: [] }],
-            parameters: [
-              {
-                name: 'id',
-                in: 'path',
-                required: true,
-                schema: { type: 'string' }
-              }
-            ],
-            requestBody: {
-              required: true,
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      accountCode: { type: 'string', example: '1000' },
-                      accountName: { type: 'string', example: 'Cash' },
-                      accountType: { type: 'string', enum: ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'] },
-                      parentId: { type: 'string', nullable: true },
-                      isActive: { type: 'boolean', example: true }
-                    }
-                  }
-                }
-              }
-            },
-            responses: {
-              200: {
-                description: 'Chart of accounts updated successfully',
+              },
+              404: {
+                description: 'Chart of accounts entry not found',
                 content: {
                   'application/json': {
                     schema: {
                       type: 'object',
                       properties: {
-                        success: { type: 'boolean' },
-                        message: { type: 'string' },
-                        data: { $ref: '#/components/schemas/ChartOfAccounts' }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          delete: {
-            summary: 'Delete chart of accounts',
-            description: 'Delete a chart of accounts entry (Admin only)',
-            tags: ['Accounting - Chart of Accounts'],
-            security: [{ bearerAuth: [] }],
-            parameters: [
-              {
-                name: 'id',
-                in: 'path',
-                required: true,
-                schema: { type: 'string' }
-              }
-            ],
-            responses: {
-              200: {
-                description: 'Chart of accounts deleted successfully',
-                content: {
-                  'application/json': {
-                    schema: {
-                      type: 'object',
-                      properties: {
-                        success: { type: 'boolean' },
-                        message: { type: 'string' }
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string', example: 'Chart of accounts entry not found' }
                       }
                     }
                   }
