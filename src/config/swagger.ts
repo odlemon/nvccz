@@ -611,6 +611,12 @@ const options = {
             description: { type: 'string', example: 'Legal consultation fees' },
             receiptNumber: { type: 'string', example: 'INV-001' },
             isTaxable: { type: 'boolean', example: true },
+            paymentMethod: { 
+              type: 'string', 
+              enum: ['CASH', 'BANK', 'CREDIT'],
+              description: 'Payment method used for the expense',
+              example: 'BANK'
+            },
             status: { type: 'string', example: 'POSTED' },
             journalEntryId: { type: 'string', example: 'clx1234567890abcdef' },
             isActive: { type: 'boolean', example: true },
@@ -633,7 +639,14 @@ const options = {
             transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
             description: { type: 'string', example: 'Legal consultation fees' },
             receiptNumber: { type: 'string', example: 'INV-001' },
-            isTaxable: { type: 'boolean', example: true }
+            isTaxable: { type: 'boolean', example: true },
+            paymentMethod: { 
+              type: 'string', 
+              enum: ['CASH', 'BANK', 'CREDIT'],
+              default: 'BANK',
+              description: 'Payment method used for the expense',
+              example: 'BANK'
+            }
           }
         },
         UpdateExpenseRequest: {
@@ -647,7 +660,13 @@ const options = {
             description: { type: 'string', example: 'Legal consultation fees' },
             receiptNumber: { type: 'string', example: 'INV-001' },
             isTaxable: { type: 'boolean', example: true },
-            isActive: { type: 'boolean', example: true }
+            isActive: { type: 'boolean', example: true },
+            paymentMethod: { 
+              type: 'string', 
+              enum: ['CASH', 'BANK', 'CREDIT'],
+              description: 'Payment method used for the expense',
+              example: 'BANK'
+            }
           }
         },
         VATCalculationRequest: {
@@ -814,6 +833,12 @@ const options = {
             },
             isTaxable: { type: 'boolean', example: true },
             status: { type: 'string', example: 'DRAFT', enum: ['DRAFT', 'SENT', 'PAID', 'VOID'] },
+            paymentMethod: { 
+              type: 'string', 
+              enum: ['CASH', 'BANK', 'CREDIT'],
+              description: 'Payment method used when invoice is paid',
+              example: 'BANK'
+            },
             journalEntryId: { type: 'string', example: 'clx1234567890abcdef' },
             isActive: { type: 'boolean', example: true },
             createdAt: { type: 'string', format: 'date-time' },
@@ -3230,6 +3255,209 @@ try {
                             averageAmount: { type: 'number' }
                           }
                         }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/invoices/{id}/send': {
+          patch: {
+            summary: 'Send invoice to customer',
+            description: 'Change invoice status from DRAFT to SENT',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' },
+                description: 'Invoice ID'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Invoice sent successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Invoice' }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - invoice not in DRAFT status',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              },
+              404: {
+                description: 'Invoice not found',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/invoices/{id}/mark-as-paid': {
+          patch: {
+            summary: 'Mark invoice as paid',
+            description: 'Change invoice status from SENT to PAID with payment method',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' },
+                description: 'Invoice ID'
+              }
+            ],
+            requestBody: {
+              required: false,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      paymentMethod: {
+                        type: 'string',
+                        enum: ['CASH', 'BANK', 'CREDIT'],
+                        default: 'BANK',
+                        description: 'Payment method used'
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Invoice marked as paid successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Invoice' }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - invoice not in SENT status',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              },
+              404: {
+                description: 'Invoice not found',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/invoices/{id}/void': {
+          patch: {
+            summary: 'Void invoice',
+            description: 'Change invoice status to VOID with optional reason',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' },
+                description: 'Invoice ID'
+              }
+            ],
+            requestBody: {
+              required: false,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      reason: {
+                        type: 'string',
+                        description: 'Reason for voiding the invoice'
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Invoice voided successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Invoice' }
+                      }
+                    }
+                  }
+                }
+              },
+              404: {
+                description: 'Invoice not found',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string' }
                       }
                     }
                   }

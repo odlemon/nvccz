@@ -347,23 +347,43 @@ export class JournalEntryService {
   }
 
   /**
-   * Get the Bank Account
+   * Get the Bank Account (use Cash and Cash Equivalents since it includes bank balances)
    */
   private static async getBankAccount(): Promise<ChartOfAccounts> {
     const bankAccount = await prisma.chartOfAccounts.findFirst({
       where: {
         accountName: {
-          contains: "Cash"
+          contains: "Cash and Cash Equivalents"
         },
         isActive: true
       }
     });
 
     if (!bankAccount) {
-      throw new Error("No Cash/Bank Account found in chart of accounts");
+      throw new Error("No Cash and Cash Equivalents account found in chart of accounts");
     }
 
     return bankAccount;
+  }
+
+  /**
+   * Get the Credit Card Receivable Account (use Accounts Receivable for credit payments)
+   */
+  private static async getCreditCardReceivableAccount(): Promise<ChartOfAccounts> {
+    const creditCardAccount = await prisma.chartOfAccounts.findFirst({
+      where: {
+        accountName: {
+          contains: "Accounts Receivable"
+        },
+        isActive: true
+      }
+    });
+
+    if (!creditCardAccount) {
+      throw new Error("No Accounts Receivable account found in chart of accounts");
+    }
+
+    return creditCardAccount;
   }
 
   /**
@@ -600,7 +620,8 @@ export class JournalEntryService {
         journalEntryLines
       };
     } catch (error: any) {
-      throw new Error(`Failed to create invoice journal entry: ${error.message}`);
+      console.error("Error creating invoice journal entry:", error);
+      throw error; // Return the actual error instead of wrapping it
     }
   }
 
@@ -691,7 +712,8 @@ export class JournalEntryService {
         journalEntryLines
       };
     } catch (error: any) {
-      throw new Error(`Failed to create reversal invoice journal entry: ${error.message}`);
+      console.error("Error creating reversal invoice journal entry:", error);
+      throw error; // Return the actual error instead of wrapping it
     }
   }
 
@@ -711,7 +733,22 @@ export class JournalEntryService {
         createdById
       } = params;
 
-      const debitAccount = await JournalEntryService.getCreditAccount(paymentMethod); // Cash/Bank account
+      // Get the appropriate debit account based on payment method
+      let debitAccount: ChartOfAccounts;
+      switch (paymentMethod) {
+        case "CASH":
+          debitAccount = await this.getCashAccount();
+          break;
+        case "BANK":
+          debitAccount = await this.getBankAccount();
+          break;
+        case "CREDIT":
+          debitAccount = await this.getCreditCardReceivableAccount();
+          break;
+        default:
+          throw new Error(`Invalid payment method: ${paymentMethod}`);
+      }
+
       const creditAccount = await JournalEntryService.getAccountsReceivableAccount();
 
       // Create the journal entry
@@ -730,7 +767,7 @@ export class JournalEntryService {
       // Create journal entry lines for double-entry bookkeeping
       const journalEntryLines: JournalEntryLine[] = [];
 
-      // 1. Debit Cash/Bank account
+      // 1. Debit Cash/Bank/Credit Card Receivable account
       journalEntryLines.push(
         await prisma.journalEntryLine.create({
           data: {
@@ -763,7 +800,8 @@ export class JournalEntryService {
         journalEntryLines
       };
     } catch (error: any) {
-      throw new Error(`Failed to create invoice payment journal entry: ${error.message}`);
+      console.error("Error creating invoice payment journal entry:", error);
+      throw error; // Return the actual error instead of wrapping it
     }
   }
 
@@ -799,7 +837,8 @@ export class JournalEntryService {
 
       return incomeAccount;
     } catch (error: any) {
-      throw new Error(`Failed to get income account: ${error.message}`);
+      console.error("Error getting income account:", error);
+      throw error; // Return the actual error instead of wrapping it
     }
   }
 
@@ -824,7 +863,8 @@ export class JournalEntryService {
 
       return vatOutputAccount;
     } catch (error: any) {
-      throw new Error(`Failed to get VAT Output account: ${error.message}`);
+      console.error("Error getting VAT Output account:", error);
+      throw error; // Return the actual error instead of wrapping it
     }
   }
 
@@ -849,7 +889,8 @@ export class JournalEntryService {
 
       return accountsReceivableAccount;
     } catch (error: any) {
-      throw new Error(`Failed to get Accounts Receivable account: ${error.message}`);
+      console.error("Error getting Accounts Receivable account:", error);
+      throw error; // Return the actual error instead of wrapping it
     }
   }
 }
