@@ -205,11 +205,10 @@ export class InvoiceController {
     try {
       const { startDate, endDate, currencyId } = req.query;
 
-      const params = {
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
-        currencyId: currencyId as string
-      };
+      const params: any = {};
+      if (startDate) params.startDate = new Date(startDate as string);
+      if (endDate) params.endDate = new Date(endDate as string);
+      if (currencyId) params.currencyId = currencyId as string;
 
       const summary = await InvoiceService.getInvoiceSummary(params);
 
@@ -217,6 +216,91 @@ export class InvoiceController {
     } catch (error: any) {
       logger.error("Error getting invoice summary", { error: error.message });
       ResponseHelper.error(res, `Failed to get invoice summary: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Send invoice to customer (DRAFT -> SENT)
+   */
+  static async sendInvoice(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        ResponseHelper.error(res, "Invoice ID is required", undefined, 400);
+        return;
+      }
+
+      const invoice = await InvoiceService.sendInvoice(id);
+
+      logger.info("Invoice sent successfully", {
+        invoiceId: invoice.id,
+        status: invoice.status,
+        userId: (req as any).user?.id
+      });
+
+      ResponseHelper.success(res, "Invoice sent successfully", invoice);
+    } catch (error: any) {
+      logger.error("Error sending invoice", { error: error.message });
+      ResponseHelper.error(res, `Failed to send invoice: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Mark invoice as paid (SENT -> PAID)
+   */
+  static async markAsPaid(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { paymentMethod = "BANK" } = req.body; // Default to BANK payment
+
+      if (!id) {
+        ResponseHelper.error(res, "Invoice ID is required", undefined, 400);
+        return;
+      }
+
+      const invoice = await InvoiceService.markAsPaid(id, paymentMethod);
+
+      logger.info("Invoice marked as paid", {
+        invoiceId: invoice.id,
+        status: invoice.status,
+        paymentMethod,
+        userId: (req as any).user?.id
+      });
+
+      ResponseHelper.success(res, "Invoice marked as paid successfully", invoice);
+    } catch (error: any) {
+      logger.error("Error marking invoice as paid", { error: error.message });
+      ResponseHelper.error(res, `Failed to mark invoice as paid: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Void invoice (any status -> VOID)
+   */
+  static async voidInvoice(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body; // Optional reason for voiding
+
+      if (!id) {
+        ResponseHelper.error(res, "Invoice ID is required", undefined, 400);
+        return;
+      }
+
+      const invoice = await InvoiceService.voidInvoice(id, reason);
+
+      logger.info("Invoice voided successfully", {
+        invoiceId: invoice.id,
+        status: invoice.status,
+        reason,
+        userId: (req as any).user?.id
+      });
+
+      ResponseHelper.success(res, "Invoice voided successfully", invoice);
+    } catch (error: any) {
+      logger.error("Error voiding invoice", { error: error.message });
+      ResponseHelper.error(res, `Failed to void invoice: ${error.message}`, undefined, 500);
     }
   }
 } 

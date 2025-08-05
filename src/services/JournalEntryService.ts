@@ -34,6 +34,16 @@ export interface CreateInvoiceJournalEntryParams {
   createdById: string;
 }
 
+export interface CreateInvoicePaymentJournalEntryParams {
+  invoiceId: string;
+  amount: number;
+  currencyId: string;
+  transactionDate: Date;
+  description: string;
+  paymentMethod: string;
+  createdById: string;
+}
+
 export interface JournalEntryResult {
   journalEntry: JournalEntry;
   journalEntryLines: JournalEntryLine[];
@@ -682,6 +692,78 @@ export class JournalEntryService {
       };
     } catch (error: any) {
       throw new Error(`Failed to create reversal invoice journal entry: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create a payment journal entry for an invoice (when customer pays)
+   * Dr Cash/Bank, Cr Accounts Receivable
+   */
+  static async createInvoicePaymentJournalEntry(params: CreateInvoicePaymentJournalEntryParams): Promise<JournalEntryResult> {
+    try {
+      const {
+        invoiceId,
+        amount,
+        currencyId,
+        transactionDate,
+        description,
+        paymentMethod,
+        createdById
+      } = params;
+
+      const debitAccount = await JournalEntryService.getCreditAccount(paymentMethod); // Cash/Bank account
+      const creditAccount = await JournalEntryService.getAccountsReceivableAccount();
+
+      // Create the journal entry
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate,
+          referenceNumber: JournalEntryService.generateReferenceNumber(),
+          description: `Payment: ${description}`,
+          totalAmount: new Decimal(amount),
+          currencyId,
+          status: "PENDING", // Default to PENDING, must be posted manually
+          createdById
+        }
+      });
+
+      // Create journal entry lines for double-entry bookkeeping
+      const journalEntryLines: JournalEntryLine[] = [];
+
+      // 1. Debit Cash/Bank account
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: debitAccount.id,
+            debitAmount: new Decimal(amount),
+            creditAmount: new Decimal(0),
+            description: `Payment: ${description}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+
+      // 2. Credit Accounts Receivable
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: creditAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: new Decimal(amount),
+            description: `Payment: ${description}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+
+      return {
+        journalEntry,
+        journalEntryLines
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to create invoice payment journal entry: ${error.message}`);
     }
   }
 
