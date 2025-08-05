@@ -1,39 +1,30 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
   relationMode = "prisma"
-  // Connection pooling for serverless
-  // This helps with cold starts and connection limits
 }
 
 model User {
-  id        String   @id @default(cuid())
-  firstName String
-  lastName  String
-  email     String   @unique
-  password  String
-  roleId    String
-  role      Role     @relation(fields: [roleId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  lastSeen  DateTime @default(now())
-
-  // Relations
-  posts         Post[]
-  replies       Reply[]
-  newsletters   Newsletter[]
-  events        Event[]
-  notifications Notification[]
-  userActivity  UserActivity[]
-
-  // New accounting relations
+  id             String         @id @default(cuid())
+  firstName      String
+  lastName       String
+  email          String         @unique
+  password       String
+  roleId         String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  lastSeen       DateTime       @default(now())
+  role           Role           @relation(fields: [roleId], references: [id])
+  posts          Post[]
+  replies        Reply[]
+  newsletters    Newsletter[]
+  events         Event[]
+  notifications  Notification[]
+  userActivity   UserActivity[]
   journalEntries JournalEntry[]
   expenses       Expense[]
   invoices       Invoice[]
@@ -45,30 +36,26 @@ model Role {
   id          String   @id @default(cuid())
   name        String   @unique
   description String?
-  permissions Json     @default("[]")
+  permissions Json
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  // Relations
-  users User[]
+  users       User[]
 
   @@map("roles")
 }
 
 model Post {
-  id          String    @id @default(cuid())
-  title       String
-  content     String    @db.Text
-  authorId    String
-  author      User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  expiresAt   DateTime?
-  isNotified  Boolean   @default(false)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  // Relations
-  replies Reply[]
+  id         String    @id @default(cuid())
+  title      String
+  content    String    @db.Text
+  authorId   String
+  expiresAt  DateTime?
+  isNotified Boolean   @default(false)
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  replies    Reply[]
 
   @@map("posts")
 }
@@ -77,14 +64,14 @@ model Reply {
   id            String   @id @default(cuid())
   content       String   @db.Text
   postId        String
-  post          Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
   authorId      String
-  author        User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  parentReplyId String?  // For nested replies
-  parentReply   Reply?   @relation("ReplyReplies", fields: [parentReplyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  replies       Reply[]  @relation("ReplyReplies") // Child replies
+  parentReplyId String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  post          Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author        User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parentReply   Reply?   @relation("ReplyReplies", fields: [parentReplyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies       Reply[]  @relation("ReplyReplies")
 
   @@map("replies")
 }
@@ -93,12 +80,12 @@ model Newsletter {
   id        String   @id @default(cuid())
   title     String
   content   String   @db.Text
-  imageUrl  String?  // URL to the uploaded image
+  imageUrl  String?
   authorId  String
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@map("newsletters")
 }
@@ -111,10 +98,10 @@ model Event {
   endDate     DateTime
   location    String?
   authorId    String
-  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@map("events")
 }
@@ -123,13 +110,13 @@ model Notification {
   id        String   @id @default(cuid())
   title     String
   message   String   @db.Text
-  type      String   // 'post', 'newsletter', 'event', 'system'
+  type      String
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   isRead    Boolean  @default(false)
-  data      Json?    // Additional data for the notification
+  data      Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
 }
@@ -137,200 +124,183 @@ model Notification {
 model UserActivity {
   id        String   @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    String   // 'login', 'logout', 'post_created', 'event_created', etc.
-  details   Json?    // Additional activity details
+  action    String
+  details   Json?
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_activity")
 }
 
-// ===== ACCOUNTING MODELS =====
-
 model Currency {
-  id        String   @id @default(cuid())
-  code      String   @unique // e.g., "ZWL", "USD", "EUR"
-  name      String   // e.g., "Zimbabwe Dollar", "US Dollar"
-  symbol    String   // e.g., "$", "€"
-  isActive  Boolean  @default(true)
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  expenses      Expense[]
+  id             String         @id @default(cuid())
+  code           String         @unique
+  name           String
+  symbol         String
+  isActive       Boolean        @default(true)
+  isDefault      Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  expenses       Expense[]
   journalEntries JournalEntry[]
-  invoices      Invoice[]
+  invoices       Invoice[]
 
   @@map("currencies")
 }
 
 model ChartOfAccounts {
-  id              String   @id @default(cuid())
-  accountNo       String   @unique // e.g., "1000", "1010", "s5070"
-  accountName     String   // e.g., "Cash and Cash Equivalents", "Accounts Receivable"
-  accountType     String   // e.g., "Current Asset", "Revenue", "Expense", "Income"
-  financialStatement String // e.g., "Balance Sheet", "Income Statement", "Cash Flow / Tracking"
-  notes           String?  // Additional details, examples, or explanations
-  parentId        String?  // For hierarchical structure
-  parent          ChartOfAccounts? @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children        ChartOfAccounts[] @relation("AccountHierarchy")
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // Relations
-  journalEntryLines JournalEntryLine[]
+  id                 String             @id @default(cuid())
+  accountNo          String             @unique
+  accountName        String
+  accountType        String
+  financialStatement String
+  notes              String?
+  parentId           String?
+  isActive           Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  parent             ChartOfAccounts?   @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children           ChartOfAccounts[]  @relation("AccountHierarchy")
+  journalEntryLines  JournalEntryLine[]
 
   @@map("chart_of_accounts")
 }
 
 model Vendor {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String
   taxNumber     String?
   contactPerson String?
   email         String?
   phone         String?
   address       String?
-  paymentTerms  String?  // e.g., "Net 30"
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relations
-  expenses Expense[]
+  paymentTerms  String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  expenses      Expense[]
 
   @@map("vendors")
 }
 
 model ExpenseCategory {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String            @id @default(cuid())
+  name        String            @unique
   description String?
   parentId    String?
-  parent      ExpenseCategory? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  parent      ExpenseCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children    ExpenseCategory[] @relation("CategoryHierarchy")
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  expenses Expense[]
+  expenses    Expense[]
 
   @@map("expense_categories")
 }
 
 model JournalEntry {
-  id              String   @id @default(cuid())
-  transactionDate DateTime
-  referenceNumber String   @unique // Auto-generated: JE-2024-001
-  description     String
-  totalAmount     Decimal  @db.Decimal(15, 2)
-  currencyId      String
-  currency        Currency @relation(fields: [currencyId], references: [id])
-  status          String   @default("PENDING") // "PENDING", "POSTED", "VOID"
-  createdById     String
-  createdBy       User     @relation(fields: [createdById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // Relations
+  id                String             @id @default(cuid())
+  transactionDate   DateTime
+  referenceNumber   String             @unique
+  description       String
+  totalAmount       Decimal            @db.Decimal(15, 2)
+  currencyId        String
+  status            String             @default("PENDING")
+  createdById       String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  currency          Currency           @relation(fields: [currencyId], references: [id])
+  createdBy         User               @relation(fields: [createdById], references: [id])
   journalEntryLines JournalEntryLine[]
-  expenses         Expense[]
-  invoices         Invoice[]
+  expenses          Expense[]
+  invoices          Invoice[]
 
   @@map("journal_entries")
 }
 
 model JournalEntryLine {
-  id              String   @id @default(cuid())
-  journalEntryId  String
-  journalEntry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  id               String          @id @default(cuid())
+  journalEntryId   String
   chartOfAccountId String
-  chartOfAccount  ChartOfAccounts @relation(fields: [chartOfAccountId], references: [id])
-  debitAmount     Decimal  @db.Decimal(15, 2) @default(0)
-  creditAmount    Decimal  @db.Decimal(15, 2) @default(0)
-  description     String
-  vatAmount       Decimal? @db.Decimal(15, 2)
-  createdAt       DateTime @default(now())
+  debitAmount      Decimal         @default(0.00) @db.Decimal(15, 2)
+  creditAmount     Decimal         @default(0.00) @db.Decimal(15, 2)
+  description      String
+  vatAmount        Decimal?        @db.Decimal(15, 2)
+  createdAt        DateTime        @default(now())
+  journalEntry     JournalEntry    @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  chartOfAccount   ChartOfAccounts @relation(fields: [chartOfAccountId], references: [id])
 
   @@map("journal_entry_lines")
 }
 
 model Expense {
-  id              String   @id @default(cuid())
+  id              String          @id @default(cuid())
   vendorId        String
-  vendor          Vendor   @relation(fields: [vendorId], references: [id])
   categoryId      String
-  category        ExpenseCategory @relation(fields: [categoryId], references: [id])
-  amount          Decimal  @db.Decimal(15, 2)
-  vatAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  totalAmount     Decimal  @db.Decimal(15, 2)
+  amount          Decimal         @db.Decimal(15, 2)
+  vatAmount       Decimal         @default(0.00) @db.Decimal(15, 2)
+  totalAmount     Decimal         @db.Decimal(15, 2)
   currencyId      String
-  currency        Currency @relation(fields: [currencyId], references: [id])
   transactionDate DateTime
   description     String
   receiptNumber   String?
-  isTaxable       Boolean  @default(false)
-  paymentMethod   String   @default("BANK") // "CASH", "BANK", "CREDIT"
-  status          String   @default("DRAFT") // "DRAFT", "POSTED", "VOID"
-  isActive        Boolean  @default(true) // For soft delete
+  isTaxable       Boolean         @default(false)
+  paymentMethod   String          @default("BANK")
+  status          String          @default("DRAFT")
+  isActive        Boolean         @default(true)
   journalEntryId  String?
-  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
   createdById     String
-  createdBy       User     @relation(fields: [createdById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  vendor          Vendor          @relation(fields: [vendorId], references: [id])
+  category        ExpenseCategory @relation(fields: [categoryId], references: [id])
+  currency        Currency        @relation(fields: [currencyId], references: [id])
+  journalEntry    JournalEntry?   @relation(fields: [journalEntryId], references: [id])
+  createdBy       User            @relation(fields: [createdById], references: [id])
 
   @@map("expenses")
 }
 
-// ===== INVOICING MODELS =====
-
 model Customer {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String
   taxNumber     String?
   contactPerson String?
   email         String?
   phone         String?
   address       String?
-  paymentTerms  String?  // e.g., "Net 30"
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relations
-  invoices Invoice[]
+  paymentTerms  String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  invoices      Invoice[]
 
   @@map("customers")
 }
 
-
-
 model Invoice {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   customerId      String
-  customer        Customer @relation(fields: [customerId], references: [id])
-  amount          Decimal  @db.Decimal(15, 2)
-  vatAmount       Decimal  @db.Decimal(15, 2) @default(0)
-  totalAmount     Decimal  @db.Decimal(15, 2)
+  amount          Decimal       @db.Decimal(15, 2)
+  vatAmount       Decimal       @default(0.00) @db.Decimal(15, 2)
+  totalAmount     Decimal       @db.Decimal(15, 2)
   currencyId      String
-  currency        Currency @relation(fields: [currencyId], references: [id])
   transactionDate DateTime
   description     String
-  items           Json?    // JSON array of invoice line items
-  invoiceNumber   String?  // Auto-generated: INV-2024-001
-  isTaxable       Boolean  @default(false)
-  status          String   @default("DRAFT") // "DRAFT", "SENT", "PAID", "VOID"
-  isActive        Boolean  @default(true) // For soft delete
+  invoiceNumber   String?
+  isTaxable       Boolean       @default(false)
+  status          String        @default("DRAFT")
+  isActive        Boolean       @default(true)
   journalEntryId  String?
-  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
   createdById     String
-  createdBy       User     @relation(fields: [createdById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  items           Json?
+  paymentMethod   String?       @db.VarChar(255)
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  currency        Currency      @relation(fields: [currencyId], references: [id])
+  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  createdBy       User          @relation(fields: [createdById], references: [id])
 
   @@map("invoices")
-} 
+}

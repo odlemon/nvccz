@@ -615,11 +615,12 @@ export class InvoiceService {
         createdById: invoice.createdById
       });
 
-      // Update invoice status to PAID
+      // Update invoice status to PAID and save payment method
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
         data: { 
           status: "PAID",
+          paymentMethod, // Save the payment method when invoice is paid
           // Note: We don't link the payment journal entry to the invoice
           // as it's a separate transaction
         },
@@ -638,7 +639,8 @@ export class InvoiceService {
 
       return updatedInvoice;
     } catch (error: any) {
-      throw new Error(`Failed to mark invoice as paid: ${error.message}`);
+      console.error("Error marking invoice as paid:", error);
+      throw error; // Return the actual error instead of wrapping it
     }
   }
 
