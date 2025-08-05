@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { InvoiceService, CreateInvoiceParams } from "../services/InvoiceService";
-import { responseHelper } from "../utils/responseHelper";
+import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
 
 export class InvoiceController {
@@ -12,41 +12,41 @@ export class InvoiceController {
     try {
       const {
         customerId,
-        categoryId,
         amount,
         currencyId,
         transactionDate,
         description,
+        items,
         invoiceNumber,
         isTaxable
       } = req.body;
 
       // Validate required fields
-      if (!customerId || !categoryId || !amount || !currencyId || !transactionDate || !description) {
-        responseHelper.sendError(res, 400, "Missing required fields");
+      if (!customerId || !amount || !currencyId || !transactionDate || !description) {
+        ResponseHelper.error(res, "Missing required fields", undefined, 400);
         return;
       }
 
       // Validate amount
       if (amount <= 0) {
-        responseHelper.sendError(res, 400, "Amount must be greater than zero");
+        ResponseHelper.error(res, "Amount must be greater than zero", undefined, 400);
         return;
       }
 
       // Get user ID from request (set by auth middleware)
       const createdById = (req as any).user?.id;
       if (!createdById) {
-        responseHelper.sendError(res, 401, "User not authenticated");
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
         return;
       }
 
       const invoiceParams: CreateInvoiceParams = {
         customerId,
-        categoryId,
         amount: Number(amount),
         currencyId,
         transactionDate: new Date(transactionDate),
         description,
+        items,
         invoiceNumber,
         isTaxable: Boolean(isTaxable),
         createdById
@@ -61,10 +61,10 @@ export class InvoiceController {
         userId: createdById
       });
 
-      responseHelper.sendSuccess(res, 201, "Invoice created successfully", invoice);
+      ResponseHelper.success(res, "Invoice created successfully", invoice, 201);
     } catch (error: any) {
       logger.error("Error creating invoice", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to create invoice: ${error.message}`);
+      ResponseHelper.error(res, `Failed to create invoice: ${error.message}`, undefined, 500);
     }
   }
 
@@ -76,21 +76,21 @@ export class InvoiceController {
       const { id } = req.params;
 
       if (!id) {
-        responseHelper.sendError(res, 400, "Invoice ID is required");
+        ResponseHelper.error(res, "Invoice ID is required", undefined, 400);
         return;
       }
 
       const invoice = await InvoiceService.getInvoiceById(id);
 
       if (!invoice) {
-        responseHelper.sendError(res, 404, "Invoice not found");
+        ResponseHelper.error(res, "Invoice not found", undefined, 404);
         return;
       }
 
-      responseHelper.sendSuccess(res, 200, "Invoice retrieved successfully", invoice);
+      ResponseHelper.success(res, "Invoice retrieved successfully", invoice);
     } catch (error: any) {
       logger.error("Error getting invoice", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to get invoice: ${error.message}`);
+      ResponseHelper.error(res, `Failed to get invoice: ${error.message}`, undefined, 500);
     }
   }
 
@@ -103,7 +103,6 @@ export class InvoiceController {
         page = 1,
         limit = 10,
         customerId,
-        categoryId,
         currencyId,
         startDate,
         endDate,
@@ -114,7 +113,6 @@ export class InvoiceController {
         page: Number(page),
         limit: Number(limit),
         customerId: customerId as string,
-        categoryId: categoryId as string,
         currencyId: currencyId as string,
         startDate: startDate ? new Date(startDate as string) : undefined,
         endDate: endDate ? new Date(endDate as string) : undefined,
@@ -123,10 +121,10 @@ export class InvoiceController {
 
       const result = await InvoiceService.getInvoices(params);
 
-      responseHelper.sendSuccess(res, 200, "Invoices retrieved successfully", result);
+      ResponseHelper.success(res, 200, "Invoices retrieved successfully", result);
     } catch (error: any) {
       logger.error("Error getting invoices", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to get invoices: ${error.message}`);
+      ResponseHelper.error(res, 500, `Failed to get invoices: ${error.message}`);
     }
   }
 
@@ -139,13 +137,13 @@ export class InvoiceController {
       const updateData = req.body;
 
       if (!id) {
-        responseHelper.sendError(res, 400, "Invoice ID is required");
+        ResponseHelper.error(res, 400, "Invoice ID is required");
         return;
       }
 
       // Validate amount if provided
       if (updateData.amount !== undefined && updateData.amount <= 0) {
-        responseHelper.sendError(res, 400, "Amount must be greater than zero");
+        ResponseHelper.error(res, 400, "Amount must be greater than zero");
         return;
       }
 
@@ -167,10 +165,10 @@ export class InvoiceController {
         userId: (req as any).user?.id
       });
 
-      responseHelper.sendSuccess(res, 200, "Invoice updated successfully", updatedInvoice);
+      ResponseHelper.success(res, 200, "Invoice updated successfully", updatedInvoice);
     } catch (error: any) {
       logger.error("Error updating invoice", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to update invoice: ${error.message}`);
+      ResponseHelper.error(res, 500, `Failed to update invoice: ${error.message}`);
     }
   }
 
@@ -182,7 +180,7 @@ export class InvoiceController {
       const { id } = req.params;
 
       if (!id) {
-        responseHelper.sendError(res, 400, "Invoice ID is required");
+        ResponseHelper.error(res, 400, "Invoice ID is required");
         return;
       }
 
@@ -193,10 +191,10 @@ export class InvoiceController {
         userId: (req as any).user?.id
       });
 
-      responseHelper.sendSuccess(res, 200, "Invoice deleted successfully");
+      ResponseHelper.success(res, 200, "Invoice deleted successfully");
     } catch (error: any) {
       logger.error("Error deleting invoice", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to delete invoice: ${error.message}`);
+      ResponseHelper.error(res, 500, `Failed to delete invoice: ${error.message}`);
     }
   }
 
@@ -215,10 +213,10 @@ export class InvoiceController {
 
       const summary = await InvoiceService.getInvoiceSummary(params);
 
-      responseHelper.sendSuccess(res, 200, "Invoice summary retrieved successfully", summary);
+      ResponseHelper.success(res, 200, "Invoice summary retrieved successfully", summary);
     } catch (error: any) {
       logger.error("Error getting invoice summary", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to get invoice summary: ${error.message}`);
+      ResponseHelper.error(res, 500, `Failed to get invoice summary: ${error.message}`);
     }
   }
 } 

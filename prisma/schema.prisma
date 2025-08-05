@@ -307,29 +307,12 @@ model Customer {
   @@map("customers")
 }
 
-model InvoiceCategory {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  parentId    String?
-  parent      InvoiceCategory? @relation("InvoiceCategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children    InvoiceCategory[] @relation("InvoiceCategoryHierarchy")
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 
-  // Relations
-  invoices Invoice[]
-
-  @@map("invoice_categories")
-}
 
 model Invoice {
   id              String   @id @default(cuid())
   customerId      String
   customer        Customer @relation(fields: [customerId], references: [id])
-  categoryId      String
-  category        InvoiceCategory @relation(fields: [categoryId], references: [id])
   amount          Decimal  @db.Decimal(15, 2)
   vatAmount       Decimal  @db.Decimal(15, 2) @default(0)
   totalAmount     Decimal  @db.Decimal(15, 2)
@@ -337,6 +320,7 @@ model Invoice {
   currency        Currency @relation(fields: [currencyId], references: [id])
   transactionDate DateTime
   description     String
+  items           Json?    // JSON array of invoice line items
   invoiceNumber   String?  // Auto-generated: INV-2024-001
   isTaxable       Boolean  @default(false)
   status          String   @default("DRAFT") // "DRAFT", "SENT", "PAID", "VOID"

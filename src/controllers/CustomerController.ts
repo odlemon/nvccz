@@ -2,7 +2,7 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { dbConnection } from "../utils/database";
-import { responseHelper } from "../utils/responseHelper";
+import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
 
 const prisma = dbConnection.getPrismaClient();
@@ -25,7 +25,7 @@ export class CustomerController {
 
       // Validate required fields
       if (!name) {
-        responseHelper.sendError(res, 400, "Customer name is required");
+        ResponseHelper.error(res, "Customer name is required", undefined, 400);
         return;
       }
 
@@ -46,10 +46,10 @@ export class CustomerController {
         name: customer.name
       });
 
-      responseHelper.sendSuccess(res, 201, "Customer created successfully", customer);
+      ResponseHelper.success(res, "Customer created successfully", customer, 201);
     } catch (error: any) {
       logger.error("Error creating customer", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to create customer: ${error.message}`);
+      ResponseHelper.error(res, `Failed to create customer: ${error.message}`, undefined, 500);
     }
   }
 
@@ -61,7 +61,7 @@ export class CustomerController {
       const { id } = req.params;
 
       if (!id) {
-        responseHelper.sendError(res, 400, "Customer ID is required");
+        ResponseHelper.error(res, "Customer ID is required", undefined, 400);
         return;
       }
 
@@ -70,14 +70,14 @@ export class CustomerController {
       });
 
       if (!customer) {
-        responseHelper.sendError(res, 404, "Customer not found");
+        ResponseHelper.error(res, "Customer not found", undefined, 404);
         return;
       }
 
-      responseHelper.sendSuccess(res, 200, "Customer retrieved successfully", customer);
+      ResponseHelper.success(res, "Customer retrieved successfully", customer);
     } catch (error: any) {
       logger.error("Error getting customer", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to get customer: ${error.message}`);
+      ResponseHelper.error(res, `Failed to get customer: ${error.message}`, undefined, 500);
     }
   }
 
@@ -122,10 +122,10 @@ export class CustomerController {
         totalPages: Math.ceil(total / Number(limit))
       };
 
-      responseHelper.sendSuccess(res, 200, "Customers retrieved successfully", result);
+      ResponseHelper.success(res, "Customers retrieved successfully", result);
     } catch (error: any) {
       logger.error("Error getting customers", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to get customers: ${error.message}`);
+      ResponseHelper.error(res, `Failed to get customers: ${error.message}`, undefined, 500);
     }
   }
 
@@ -138,7 +138,7 @@ export class CustomerController {
       const updateData = req.body;
 
       if (!id) {
-        responseHelper.sendError(res, 400, "Customer ID is required");
+        ResponseHelper.error(res, "Customer ID is required", undefined, 400);
         return;
       }
 
@@ -151,10 +151,10 @@ export class CustomerController {
         customerId: id
       });
 
-      responseHelper.sendSuccess(res, 200, "Customer updated successfully", updatedCustomer);
+      ResponseHelper.success(res, "Customer updated successfully", updatedCustomer);
     } catch (error: any) {
       logger.error("Error updating customer", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to update customer: ${error.message}`);
+      ResponseHelper.error(res, `Failed to update customer: ${error.message}`, undefined, 500);
     }
   }
 
@@ -166,7 +166,7 @@ export class CustomerController {
       const { id } = req.params;
 
       if (!id) {
-        responseHelper.sendError(res, 400, "Customer ID is required");
+        ResponseHelper.error(res, "Customer ID is required", undefined, 400);
         return;
       }
 
@@ -179,10 +179,10 @@ export class CustomerController {
         customerId: id
       });
 
-      responseHelper.sendSuccess(res, 200, "Customer deleted successfully");
+      ResponseHelper.success(res, "Customer deleted successfully");
     } catch (error: any) {
       logger.error("Error deleting customer", { error: error.message });
-      responseHelper.sendError(res, 500, `Failed to delete customer: ${error.message}`);
+      ResponseHelper.error(res, `Failed to delete customer: ${error.message}`, undefined, 500);
     }
   }
 } 
