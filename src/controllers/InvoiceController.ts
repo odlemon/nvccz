@@ -121,10 +121,10 @@ export class InvoiceController {
 
       const result = await InvoiceService.getInvoices(params);
 
-      ResponseHelper.success(res, 200, "Invoices retrieved successfully", result);
+      ResponseHelper.success(res, "Invoices retrieved successfully", result);
     } catch (error: any) {
       logger.error("Error getting invoices", { error: error.message });
-      ResponseHelper.error(res, 500, `Failed to get invoices: ${error.message}`);
+      ResponseHelper.error(res, `Failed to get invoices: ${error.message}`, undefined, 500);
     }
   }
 
@@ -137,13 +137,13 @@ export class InvoiceController {
       const updateData = req.body;
 
       if (!id) {
-        ResponseHelper.error(res, 400, "Invoice ID is required");
+        ResponseHelper.error(res, "Invoice ID is required", undefined, 400);
         return;
       }
 
       // Validate amount if provided
       if (updateData.amount !== undefined && updateData.amount <= 0) {
-        ResponseHelper.error(res, 400, "Amount must be greater than zero");
+        ResponseHelper.error(res, "Amount must be greater than zero", undefined, 400);
         return;
       }
 
@@ -165,10 +165,10 @@ export class InvoiceController {
         userId: (req as any).user?.id
       });
 
-      ResponseHelper.success(res, 200, "Invoice updated successfully", updatedInvoice);
+      ResponseHelper.success(res, "Invoice updated successfully", updatedInvoice);
     } catch (error: any) {
       logger.error("Error updating invoice", { error: error.message });
-      ResponseHelper.error(res, 500, `Failed to update invoice: ${error.message}`);
+      ResponseHelper.error(res, `Failed to update invoice: ${error.message}`, undefined, 500);
     }
   }
 
@@ -180,7 +180,7 @@ export class InvoiceController {
       const { id } = req.params;
 
       if (!id) {
-        ResponseHelper.error(res, 400, "Invoice ID is required");
+        ResponseHelper.error(res, "Invoice ID is required", undefined, 400);
         return;
       }
 
@@ -191,10 +191,10 @@ export class InvoiceController {
         userId: (req as any).user?.id
       });
 
-      ResponseHelper.success(res, 200, "Invoice deleted successfully");
+      ResponseHelper.success(res, "Invoice deleted successfully");
     } catch (error: any) {
       logger.error("Error deleting invoice", { error: error.message });
-      ResponseHelper.error(res, 500, `Failed to delete invoice: ${error.message}`);
+      ResponseHelper.error(res, `Failed to delete invoice: ${error.message}`, undefined, 500);
     }
   }
 
@@ -213,10 +213,10 @@ export class InvoiceController {
 
       const summary = await InvoiceService.getInvoiceSummary(params);
 
-      ResponseHelper.success(res, 200, "Invoice summary retrieved successfully", summary);
+      ResponseHelper.success(res, "Invoice summary retrieved successfully", summary);
     } catch (error: any) {
       logger.error("Error getting invoice summary", { error: error.message });
-      ResponseHelper.error(res, 500, `Failed to get invoice summary: ${error.message}`);
+      ResponseHelper.error(res, `Failed to get invoice summary: ${error.message}`, undefined, 500);
     }
   }
 } 
