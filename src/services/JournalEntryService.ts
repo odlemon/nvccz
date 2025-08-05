@@ -17,6 +17,7 @@ export interface CreateExpenseJournalEntryParams {
   description: string;
   receiptNumber?: string;
   isTaxable: boolean;
+  paymentMethod?: "CASH" | "BANK" | "CREDIT";
   createdById: string;
 }
 
@@ -51,12 +52,13 @@ export class JournalEntryService {
         description,
         receiptNumber,
         isTaxable,
+        paymentMethod = "BANK",
         createdById
       } = params;
 
       const expenseAccount = await this.getExpenseAccount(categoryId);
       const vatInputAccount = await this.getVATInputAccount();
-      const bankAccount = await this.getBankAccount();
+      const creditAccount = await this.getCreditAccount(paymentMethod);
 
       // Create the journal entry
       const journalEntry = await prisma.journalEntry.create({
@@ -104,15 +106,15 @@ export class JournalEntryService {
         );
       }
 
-      // 3. Credit Bank Account (Cash decreases)
+      // 3. Credit the appropriate account based on payment method
       journalEntryLines.push(
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            chartOfAccountId: bankAccount.id,
+            chartOfAccountId: creditAccount.id,
             debitAmount: new Decimal(0),
             creditAmount: new Decimal(totalAmount),
-            description: `Bank Account: ${description}`,
+            description: `${creditAccount.accountName}: ${description}`,
             vatAmount: new Decimal(0)
           }
         })
@@ -146,12 +148,13 @@ export class JournalEntryService {
         description,
         receiptNumber,
         isTaxable,
+        paymentMethod = "BANK",
         createdById
       } = params;
 
       const expenseAccount = await this.getExpenseAccount(categoryId);
       const vatInputAccount = await this.getVATInputAccount();
-      const bankAccount = await this.getBankAccount();
+      const creditAccount = await this.getCreditAccount(paymentMethod);
 
       // Create the reversal journal entry
       const journalEntry = await prisma.journalEntry.create({
@@ -199,15 +202,15 @@ export class JournalEntryService {
         );
       }
 
-      // 3. Debit Bank Account (opposite of credit - Cash increases)
+      // 3. Debit the credit account (opposite of credit - Cash increases)
       journalEntryLines.push(
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            chartOfAccountId: bankAccount.id,
+            chartOfAccountId: creditAccount.id,
             debitAmount: new Decimal(totalAmount),
             creditAmount: new Decimal(0),
-            description: `REVERSAL - Bank Account: ${description}`,
+            description: `REVERSAL - ${creditAccount.accountName}: ${description}`,
             vatAmount: new Decimal(0)
           }
         })
@@ -262,6 +265,62 @@ export class JournalEntryService {
     }
 
     return vatInputAccount;
+  }
+
+  /**
+   * Get the appropriate credit account based on payment method
+   */
+  private static async getCreditAccount(paymentMethod: string): Promise<ChartOfAccounts> {
+    switch (paymentMethod) {
+      case "CASH":
+        return await this.getCashAccount();
+      case "BANK":
+        return await this.getBankAccount();
+      case "CREDIT":
+        return await this.getAccountsPayableAccount();
+      default:
+        throw new Error(`Invalid payment method: ${paymentMethod}`);
+    }
+  }
+
+  /**
+   * Get the Cash Account
+   */
+  private static async getCashAccount(): Promise<ChartOfAccounts> {
+    const cashAccount = await prisma.chartOfAccounts.findFirst({
+      where: {
+        accountName: {
+          contains: "Cash"
+        },
+        isActive: true
+      }
+    });
+
+    if (!cashAccount) {
+      throw new Error("No Cash Account found in chart of accounts");
+    }
+
+    return cashAccount;
+  }
+
+  /**
+   * Get the Accounts Payable Account
+   */
+  private static async getAccountsPayableAccount(): Promise<ChartOfAccounts> {
+    const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
+      where: {
+        accountName: {
+          contains: "Accounts Payable"
+        },
+        isActive: true
+      }
+    });
+
+    if (!accountsPayableAccount) {
+      throw new Error("No Accounts Payable Account found in chart of accounts");
+    }
+
+    return accountsPayableAccount;
   }
 
   /**

@@ -16,6 +16,7 @@ export interface CreateExpenseParams {
   description: string;
   receiptNumber?: string;
   isTaxable: boolean;
+  paymentMethod?: "CASH" | "BANK" | "CREDIT";
   createdById: string;
 }
 
@@ -45,6 +46,7 @@ export class ExpenseService {
         description,
         receiptNumber,
         isTaxable,
+        paymentMethod = "BANK",
         createdById
       } = params;
 
@@ -77,6 +79,7 @@ export class ExpenseService {
           description,
           receiptNumber,
           isTaxable,
+          paymentMethod,
           status: "DRAFT",
           createdById
         },
@@ -106,6 +109,7 @@ export class ExpenseService {
         description,
         receiptNumber,
         isTaxable,
+        paymentMethod,
         createdById
       };
       const journalEntryResult = await JournalEntryService.createExpenseJournalEntry(journalEntryParams);
@@ -370,6 +374,7 @@ export class ExpenseService {
         description: expense.description,
         receiptNumber: expense.receiptNumber || undefined,
         isTaxable: expense.isTaxable,
+        paymentMethod: expense.paymentMethod,
         createdById: expense.createdById
       };
 
@@ -411,6 +416,7 @@ export class ExpenseService {
         description: updatedExpense.description,
         receiptNumber: updatedExpense.receiptNumber || undefined,
         isTaxable: newIsTaxable,
+        paymentMethod: updatedExpense.paymentMethod,
         createdById: updatedExpense.createdById
       };
 
@@ -480,6 +486,7 @@ export class ExpenseService {
         description: expense.description,
         receiptNumber: expense.receiptNumber || undefined,
         isTaxable: expense.isTaxable,
+        paymentMethod: expense.paymentMethod,
         createdById: expense.createdById
       };
 

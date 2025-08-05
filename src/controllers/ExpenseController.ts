@@ -17,7 +17,8 @@ export class ExpenseController {
         transactionDate,
         description,
         receiptNumber,
-        isTaxable
+        isTaxable,
+        paymentMethod
       } = req.body;
 
       // Validate required fields
@@ -37,6 +38,7 @@ export class ExpenseController {
         description,
         receiptNumber,
         isTaxable: Boolean(isTaxable),
+        paymentMethod,
         createdById: req.user!.id
       };
 
