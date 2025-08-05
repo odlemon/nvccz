@@ -14,26 +14,32 @@ export class ChartOfAccountsController {
    */
   static async createChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { accountCode, accountName, accountType, parentId, isActive = true } = req.body;
+      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive = true } = req.body;
 
       // Validate required fields
-      if (!accountCode || !accountName || !accountType) {
-        return ResponseHelper.badRequest(res, "Account code, account name, and account type are required");
+      if (!accountNo || !accountName || !accountType || !financialStatement) {
+        return ResponseHelper.badRequest(res, "Account number, account name, account type, and financial statement are required");
       }
 
       // Validate account type
-      const validAccountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
+      const validAccountTypes = ["Current Asset", "Fixed Asset", "Long-Term Asset", "Contra-Asset", "Current Liability", "Long-Term Liability", "Equity", "Revenue", "Expense", "Income"];
       if (!validAccountTypes.includes(accountType)) {
-        return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE");
+        return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income");
       }
 
-      // Check if account code already exists
+      // Validate financial statement
+      const validFinancialStatements = ["Balance Sheet", "Income Statement", "Cash Flow / Tracking", "Income Statement / Cash Flow"];
+      if (!validFinancialStatements.includes(financialStatement)) {
+        return ResponseHelper.badRequest(res, "Invalid financial statement. Must be one of: Balance Sheet, Income Statement, Cash Flow / Tracking, Income Statement / Cash Flow");
+      }
+
+      // Check if account number already exists
       const existingAccount = await prisma.chartOfAccounts.findUnique({
-        where: { accountCode }
+        where: { accountNo }
       });
 
       if (existingAccount) {
-        return ResponseHelper.conflict(res, "Account code already exists");
+        return ResponseHelper.conflict(res, "Account number already exists");
       }
 
       // If parentId is provided, validate it exists
@@ -50,9 +56,11 @@ export class ChartOfAccountsController {
       // Create the chart of accounts entry
       const chartOfAccounts = await prisma.chartOfAccounts.create({
         data: {
-          accountCode,
+          accountNo,
           accountName,
           accountType,
+          financialStatement,
+          notes,
           parentId: parentId || null,
           isActive
         }
@@ -90,7 +98,7 @@ export class ChartOfAccountsController {
         where,
         orderBy: [
           { accountType: 'asc' },
-          { accountCode: 'asc' }
+          { accountNo: 'asc' }
         ]
       });
 
@@ -127,7 +135,7 @@ export class ChartOfAccountsController {
   static async updateChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { accountCode, accountName, accountType, parentId, isActive } = req.body;
+      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive } = req.body;
 
       // Check if chart of accounts exists
       const existingAccount = await prisma.chartOfAccounts.findUnique({
@@ -140,20 +148,28 @@ export class ChartOfAccountsController {
 
       // Validate account type if provided
       if (accountType) {
-        const validAccountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
+        const validAccountTypes = ["Current Asset", "Fixed Asset", "Long-Term Asset", "Contra-Asset", "Current Liability", "Long-Term Liability", "Equity", "Revenue", "Expense", "Income"];
         if (!validAccountTypes.includes(accountType)) {
-          return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE");
+          return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income");
         }
       }
 
-      // Check if account code already exists (if changing account code)
-      if (accountCode && accountCode !== existingAccount.accountCode) {
+      // Validate financial statement if provided
+      if (financialStatement) {
+        const validFinancialStatements = ["Balance Sheet", "Income Statement", "Cash Flow / Tracking", "Income Statement / Cash Flow"];
+        if (!validFinancialStatements.includes(financialStatement)) {
+          return ResponseHelper.badRequest(res, "Invalid financial statement. Must be one of: Balance Sheet, Income Statement, Cash Flow / Tracking, Income Statement / Cash Flow");
+        }
+      }
+
+      // Check if account number already exists (if changing account number)
+      if (accountNo && accountNo !== existingAccount.accountNo) {
         const duplicateAccount = await prisma.chartOfAccounts.findUnique({
-          where: { accountCode }
+          where: { accountNo }
         });
 
         if (duplicateAccount) {
-          return ResponseHelper.conflict(res, "Account code already exists");
+          return ResponseHelper.conflict(res, "Account number already exists");
         }
       }
 
@@ -178,9 +194,11 @@ export class ChartOfAccountsController {
       const updatedChartOfAccounts = await prisma.chartOfAccounts.update({
         where: { id },
         data: {
-          ...(accountCode && { accountCode }),
+          ...(accountNo && { accountNo }),
           ...(accountName && { accountName }),
           ...(accountType && { accountType }),
+          ...(financialStatement && { financialStatement }),
+          ...(notes !== undefined && { notes }),
           ...(parentId !== undefined && { parentId: parentId || null }),
           ...(isActive !== undefined && { isActive })
         }

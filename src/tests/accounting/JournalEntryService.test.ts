@@ -7,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 jest.mock('@prisma/client');
 jest.mock('../../utils/database', () => ({
   dbConnection: {
-    getPrismaClient: jest.fn(() => mockPrisma)
+    getPrismaClient: jest.fn()
   }
 }));
 
@@ -29,28 +29,31 @@ const mockPrisma = {
 describe('JournalEntryService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Set up the mock to return our mockPrisma
+    const { dbConnection } = require('../../utils/database');
+    dbConnection.getPrismaClient.mockReturnValue(mockPrisma);
   });
 
   describe('createExpenseJournalEntry', () => {
     const mockExpenseAccount = {
       id: 'expense-account-id',
-      accountCode: '5000',
+      accountNo: '5000',
       accountName: 'Legal Fees',
-      accountType: 'EXPENSE'
+      accountType: 'Expense'
     };
 
     const mockVATInputAccount = {
       id: 'vat-input-id',
-      accountCode: '8000',
+      accountNo: '1101',
       accountName: 'VAT Input',
-      accountType: 'ASSET'
+      accountType: 'Current Asset'
     };
 
     const mockAccountsPayableAccount = {
       id: 'ap-account-id',
-      accountCode: '3100',
+      accountNo: '2000',
       accountName: 'Accounts Payable',
-      accountType: 'LIABILITY'
+      accountType: 'Current Liability'
     };
 
     const mockJournalEntry = {

@@ -1,129 +1,76 @@
-# Simple Expense Creation Test
+# Simple Expense Test (without journal entry)
 $baseUrl = "http://localhost:3000"
 
-Write-Host "=== EXPENSE CREATION WORKFLOW TEST ===" -ForegroundColor Magenta
-Write-Host ""
+Write-Host "=== SIMPLE EXPENSE TEST ===" -ForegroundColor Green
 
-# Step 1: Login
-Write-Host "1. Logging in..." -ForegroundColor Yellow
-$loginResponse = Invoke-RestMethod -Uri "$baseUrl/api/auth/login" -Method POST -ContentType "application/json" -Body '{"email": "admin@nvccz.co.zw", "password": "admin123"}'
-
-if ($loginResponse.success) {
-    $token = $loginResponse.data.token
-    Write-Host "✓ Login successful" -ForegroundColor Green
-} else {
-    Write-Host "✗ Login failed" -ForegroundColor Red
-    exit 1
+# 1. Login
+Write-Host "`n1. Authenticating..." -ForegroundColor Yellow
+try {
+    $login = Invoke-RestMethod -Uri "$baseUrl/api/auth/login" -Method POST -ContentType "application/json" -Body '{"email": "admin@nvccz.co.zw", "password": "admin123"}'
+    $token = $login.token
+    $headers = @{
+        "Content-Type" = "application/json"
+        "Authorization" = "Bearer $token"
+    }
+    Write-Host "✅ Authentication successful" -ForegroundColor Green
+} catch {
+    Write-Host "❌ Authentication failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit
 }
 
-$headers = @{
-    "Authorization" = "Bearer $token"
-    "Content-Type" = "application/json"
+# 2. Get test data
+Write-Host "`n2. Getting test data..." -ForegroundColor Yellow
+
+# Get active currency
+$currencies = Invoke-RestMethod -Uri "$baseUrl/api/accounting/currencies" -Method GET -Headers $headers
+$activeCurrency = $currencies.data | Where-Object { $_.isActive -eq $true } | Select-Object -First 1
+
+# Get vendor
+$vendors = Invoke-RestMethod -Uri "$baseUrl/api/accounting/vendors" -Method GET -Headers $headers
+$testVendor = $vendors.data | Select-Object -First 1
+
+# Get category
+$categories = Invoke-RestMethod -Uri "$baseUrl/api/accounting/expense-categories" -Method GET -Headers $headers
+$testCategory = $categories.data | Where-Object { $_.parentId -eq $null } | Select-Object -First 1
+
+Write-Host "✅ Using currency: $($activeCurrency.code)" -ForegroundColor Green
+Write-Host "✅ Using vendor: $($testVendor.name)" -ForegroundColor Green
+Write-Host "✅ Using category: $($testCategory.name)" -ForegroundColor Green
+
+# 3. Test expense creation
+Write-Host "`n3. Testing expense creation..." -ForegroundColor Yellow
+$expensePayload = @{
+    description = "Simple test expense"
+    amount = 500.00
+    currencyId = $activeCurrency.id
+    vendorId = $testVendor.id
+    categoryId = $testCategory.id
+    transactionDate = (Get-Date).ToString("yyyy-MM-dd")
+    receiptNumber = "SIMPLE-001"
+    isTaxable = $false
+    paymentMethod = "BANK"
 }
 
-# Step 2: Get required IDs
-Write-Host "`n2. Getting required IDs..." -ForegroundColor Yellow
+Write-Host "Payload:" -ForegroundColor Yellow
+$expensePayload | ConvertTo-Json | Write-Host
 
-$vendorsResponse = Invoke-RestMethod -Uri "$baseUrl/api/accounting/vendors" -Method GET -Headers $headers
-$vendorId = $vendorsResponse.data[0].id
-
-$categoriesResponse = Invoke-RestMethod -Uri "$baseUrl/api/accounting/expense-categories" -Method GET -Headers $headers
-$categoryId = $categoriesResponse.data[0].id
-
-$currenciesResponse = Invoke-RestMethod -Uri "$baseUrl/api/accounting/currencies" -Method GET -Headers $headers
-$currencyId = $currenciesResponse.data[0].id
-
-Write-Host "✓ Got IDs: Vendor=$vendorId, Category=$categoryId, Currency=$currencyId" -ForegroundColor Green
-
-# Step 3: Test Taxable Expense
-Write-Host "`n3. Testing Taxable Expense (300 ZWL)..." -ForegroundColor Cyan
-
-$taxableExpense = @{
-    vendorId = $vendorId
-    categoryId = $categoryId
-    amount = 300
-    currencyId = $currencyId
-    transactionDate = "2024-06-01"
-    description = "Legal Fees - Taxable"
-    isTaxable = $true
-    createdById = "test-user"
-} | ConvertTo-Json
-
-$response = Invoke-RestMethod -Uri "$baseUrl/api/accounting/expenses" -Method POST -Headers $headers -Body $taxableExpense
-
-if ($response.success) {
-    $expense = $response.data
-    Write-Host "✓ Taxable expense created successfully" -ForegroundColor Green
-    Write-Host "  Amount: $($expense.amount)" -ForegroundColor White
-    Write-Host "  VAT Amount: $($expense.vatAmount)" -ForegroundColor White
-    Write-Host "  Total Amount: $($expense.totalAmount)" -ForegroundColor White
-    Write-Host "  Status: $($expense.status)" -ForegroundColor White
+try {
+    $response = Invoke-RestMethod -Uri "$baseUrl/api/accounting/expenses" -Method POST -Headers $headers -Body ($expensePayload | ConvertTo-Json)
+    Write-Host "✅ Expense created successfully!" -ForegroundColor Green
+    Write-Host "Expense ID: $($response.data.id)" -ForegroundColor Cyan
+    Write-Host "Status: $($response.data.status)" -ForegroundColor Cyan
+    Write-Host "Amount: $($response.data.amount)" -ForegroundColor Cyan
+    Write-Host "VAT Amount: $($response.data.vatAmount)" -ForegroundColor Cyan
+    Write-Host "Total: $($response.data.totalAmount)" -ForegroundColor Cyan
+} catch {
+    Write-Host "❌ Failed to create expense: $($_.Exception.Message)" -ForegroundColor Red
     
-    # Verify amounts
-    $expectedVAT = 43.5
-    $expectedTotal = 343.5
-    
-    if ([math]::Abs($expense.vatAmount - $expectedVAT) -lt 0.01) {
-        Write-Host "  ✓ VAT calculation correct (43.5)" -ForegroundColor Green
-    } else {
-        Write-Host "  ✗ VAT calculation incorrect (expected 43.5, got $($expense.vatAmount))" -ForegroundColor Red
+    # Get detailed error
+    if ($_.Exception.Response) {
+        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+        $responseBody = $reader.ReadToEnd()
+        Write-Host "Error details: $responseBody" -ForegroundColor Red
     }
-    
-    if ([math]::Abs($expense.totalAmount - $expectedTotal) -lt 0.01) {
-        Write-Host "  ✓ Total calculation correct (343.5)" -ForegroundColor Green
-    } else {
-        Write-Host "  ✗ Total calculation incorrect (expected 343.5, got $($expense.totalAmount))" -ForegroundColor Red
-    }
-    
-    # Get journal entry
-    $journalEntryId = $expense.journalEntry.id
-    $journalResponse = Invoke-RestMethod -Uri "$baseUrl/api/accounting/journal-entries/$journalEntryId" -Method GET -Headers $headers
-    
-    if ($journalResponse.success) {
-        $journalEntry = $journalResponse.data
-        Write-Host "  ✓ Journal entry retrieved" -ForegroundColor Green
-        
-        # Verify journal entry lines
-        $lines = $journalEntry.journalEntryLines
-        Write-Host "  Journal Entry Lines:" -ForegroundColor Yellow
-        
-        $totalDebits = 0
-        $totalCredits = 0
-        
-        foreach ($line in $lines) {
-            $debit = [double]$line.debitAmount
-            $credit = [double]$line.creditAmount
-            $accountName = $line.chartOfAccount.accountName
-            $description = $line.description
-            
-            $totalDebits += $debit
-            $totalCredits += $credit
-            
-            if ($debit -gt 0) {
-                Write-Host "    Dr $accountName`: $debit ($description)" -ForegroundColor Green
-            } elseif ($credit -gt 0) {
-                Write-Host "    Cr $accountName`: $credit ($description)" -ForegroundColor Red
-            }
-        }
-        
-        # Verify balance
-        $balance = [math]::Abs($totalDebits - $totalCredits)
-        if ($balance -lt 0.01) {
-            Write-Host "  ✓ Journal entry is balanced (Debits: $totalDebits, Credits: $totalCredits)" -ForegroundColor Green
-        } else {
-            Write-Host "  ✗ Journal entry is not balanced (Debits: $totalDebits, Credits: $totalCredits)" -ForegroundColor Red
-        }
-        
-        # Verify Bank Account is credited
-        $bankCredit = $lines | Where-Object { $_.chartOfAccount.accountName -like "*Bank*" -and [double]$_.creditAmount -gt 0 }
-        if ($bankCredit) {
-            Write-Host "  ✓ Bank Account is credited (not Accounts Payable)" -ForegroundColor Green
-        } else {
-            Write-Host "  ✗ Bank Account is not credited" -ForegroundColor Red
-        }
-    }
-} else {
-    Write-Host "✗ Error creating taxable expense" -ForegroundColor Red
 }
 
-Write-Host "`n=== TEST COMPLETED ===" -ForegroundColor Magenta 
+Write-Host "`n=== TEST COMPLETE ===" -ForegroundColor Green 

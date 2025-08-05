@@ -36,6 +36,7 @@ model User {
   // New accounting relations
   journalEntries JournalEntry[]
   expenses       Expense[]
+  invoices       Invoice[]
 
   @@map("users")
 }
@@ -159,21 +160,24 @@ model Currency {
   // Relations
   expenses      Expense[]
   journalEntries JournalEntry[]
+  invoices      Invoice[]
 
   @@map("currencies")
 }
 
 model ChartOfAccounts {
-  id          String   @id @default(cuid())
-  accountCode String   @unique // e.g., "1000", "2000"
-  accountName String   // e.g., "Cash", "Legal Fees"
-  accountType String   // "Asset", "Liability", "Equity", "Revenue", "Expense"
-  parentId    String?  // For hierarchical structure
-  parent      ChartOfAccounts? @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children    ChartOfAccounts[] @relation("AccountHierarchy")
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  accountNo       String   @unique // e.g., "1000", "1010", "s5070"
+  accountName     String   // e.g., "Cash and Cash Equivalents", "Accounts Receivable"
+  accountType     String   // e.g., "Current Asset", "Revenue", "Expense", "Income"
+  financialStatement String // e.g., "Balance Sheet", "Income Statement", "Cash Flow / Tracking"
+  notes           String?  // Additional details, examples, or explanations
+  parentId        String?  // For hierarchical structure
+  parent          ChartOfAccounts? @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children        ChartOfAccounts[] @relation("AccountHierarchy")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Relations
   journalEntryLines JournalEntryLine[]
@@ -234,6 +238,7 @@ model JournalEntry {
   // Relations
   journalEntryLines JournalEntryLine[]
   expenses         Expense[]
+  invoices         Invoice[]
 
   @@map("journal_entries")
 }
@@ -279,4 +284,69 @@ model Expense {
   updatedAt       DateTime @updatedAt
 
   @@map("expenses")
+}
+
+// ===== INVOICING MODELS =====
+
+model Customer {
+  id            String   @id @default(cuid())
+  name          String
+  taxNumber     String?
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String?
+  paymentTerms  String?  // e.g., "Net 30"
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  invoices Invoice[]
+
+  @@map("customers")
+}
+
+model InvoiceCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  parentId    String?
+  parent      InvoiceCategory? @relation("InvoiceCategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    InvoiceCategory[] @relation("InvoiceCategoryHierarchy")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  invoices Invoice[]
+
+  @@map("invoice_categories")
+}
+
+model Invoice {
+  id              String   @id @default(cuid())
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  categoryId      String
+  category        InvoiceCategory @relation(fields: [categoryId], references: [id])
+  amount          Decimal  @db.Decimal(15, 2)
+  vatAmount       Decimal  @db.Decimal(15, 2) @default(0)
+  totalAmount     Decimal  @db.Decimal(15, 2)
+  currencyId      String
+  currency        Currency @relation(fields: [currencyId], references: [id])
+  transactionDate DateTime
+  description     String
+  invoiceNumber   String?  // Auto-generated: INV-2024-001
+  isTaxable       Boolean  @default(false)
+  status          String   @default("DRAFT") // "DRAFT", "SENT", "PAID", "VOID"
+  isActive        Boolean  @default(true) // For soft delete
+  journalEntryId  String?
+  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  createdById     String
+  createdBy       User     @relation(fields: [createdById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("invoices")
 } 

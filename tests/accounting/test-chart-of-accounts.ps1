@@ -17,46 +17,46 @@ try {
     Write-Host "✅ Success: Retrieved chart of accounts" -ForegroundColor Green
     Write-Host "   Count: $($response.data.Count)" -ForegroundColor Cyan
     if ($response.data.Count -gt 0) {
-        Write-Host "   First account: $($response.data[0].accountName) ($($response.data[0].accountCode))" -ForegroundColor Cyan
+        Write-Host "   First account: $($response.data[0].accountName) ($($response.data[0].accountNo))" -ForegroundColor Cyan
     }
 } catch {
     Write-Host "❌ Error: $($_.Exception.Message)" -ForegroundColor Red
 }
 
-# Test 2: Get chart of accounts by type (ASSET)
-Write-Host "`n2. Testing GET /api/accounting/chart-of-accounts?accountType=ASSET" -ForegroundColor Yellow
+# Test 2: Get chart of accounts by type (Current Asset)
+Write-Host "`n2. Testing GET /api/accounting/chart-of-accounts?accountType=Current Asset" -ForegroundColor Yellow
 try {
-    $response = Invoke-RestMethod -Uri "$baseUrl/api/accounting/chart-of-accounts?accountType=ASSET" -Method GET -Headers @{
+    $response = Invoke-RestMethod -Uri "$baseUrl/api/accounting/chart-of-accounts?accountType=Current Asset" -Method GET -Headers @{
         "Authorization" = "Bearer $token"
         "Content-Type" = "application/json"
     }
-    Write-Host "✅ Success: Retrieved ASSET accounts" -ForegroundColor Green
+    Write-Host "✅ Success: Retrieved Current Asset accounts" -ForegroundColor Green
     Write-Host "   Count: $($response.data.Count)" -ForegroundColor Cyan
 } catch {
     Write-Host "❌ Error: $($_.Exception.Message)" -ForegroundColor Red
 }
 
-# Test 3: Get chart of accounts by type (EXPENSE)
-Write-Host "`n3. Testing GET /api/accounting/chart-of-accounts?accountType=EXPENSE" -ForegroundColor Yellow
+# Test 3: Get chart of accounts by type (Expense)
+Write-Host "`n3. Testing GET /api/accounting/chart-of-accounts?accountType=Expense" -ForegroundColor Yellow
 try {
-    $response = Invoke-RestMethod -Uri "$baseUrl/api/accounting/chart-of-accounts?accountType=EXPENSE" -Method GET -Headers @{
+    $response = Invoke-RestMethod -Uri "$baseUrl/api/accounting/chart-of-accounts?accountType=Expense" -Method GET -Headers @{
         "Authorization" = "Bearer $token"
         "Content-Type" = "application/json"
     }
-    Write-Host "✅ Success: Retrieved EXPENSE accounts" -ForegroundColor Green
+    Write-Host "✅ Success: Retrieved Expense accounts" -ForegroundColor Green
     Write-Host "   Count: $($response.data.Count)" -ForegroundColor Cyan
 } catch {
     Write-Host "❌ Error: $($_.Exception.Message)" -ForegroundColor Red
 }
 
-# Test 4: Get chart of accounts by type (LIABILITY)
-Write-Host "`n4. Testing GET /api/accounting/chart-of-accounts?accountType=LIABILITY" -ForegroundColor Yellow
+# Test 4: Get chart of accounts by type (Current Liability)
+Write-Host "`n4. Testing GET /api/accounting/chart-of-accounts?accountType=Current Liability" -ForegroundColor Yellow
 try {
-    $response = Invoke-RestMethod -Uri "$baseUrl/api/accounting/chart-of-accounts?accountType=LIABILITY" -Method GET -Headers @{
+    $response = Invoke-RestMethod -Uri "$baseUrl/api/accounting/chart-of-accounts?accountType=Current Liability" -Method GET -Headers @{
         "Authorization" = "Bearer $token"
         "Content-Type" = "application/json"
     }
-    Write-Host "✅ Success: Retrieved LIABILITY accounts" -ForegroundColor Green
+    Write-Host "✅ Success: Retrieved Current Liability accounts" -ForegroundColor Green
     Write-Host "   Count: $($response.data.Count)" -ForegroundColor Cyan
 } catch {
     Write-Host "❌ Error: $($_.Exception.Message)" -ForegroundColor Red
