@@ -4,7 +4,7 @@
 import { Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
 import { AuthRequest } from "../middleware/authenticate";
-import { sendSuccessResponse, sendErrorResponse } from "../utils/responseHelper";
+import { ResponseHelper } from "../utils/responseHelper";
 
 const prisma = new PrismaClient();
 
@@ -18,13 +18,13 @@ export class ChartOfAccountsController {
 
       // Validate required fields
       if (!accountCode || !accountName || !accountType) {
-        return sendErrorResponse(res, 400, "Account code, account name, and account type are required");
+        return ResponseHelper.badRequest(res, "Account code, account name, and account type are required");
       }
 
       // Validate account type
       const validAccountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
       if (!validAccountTypes.includes(accountType)) {
-        return sendErrorResponse(res, 400, "Invalid account type. Must be one of: ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE");
+        return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE");
       }
 
       // Check if account code already exists
@@ -33,7 +33,7 @@ export class ChartOfAccountsController {
       });
 
       if (existingAccount) {
-        return sendErrorResponse(res, 409, "Account code already exists");
+        return ResponseHelper.conflict(res, "Account code already exists");
       }
 
       // If parentId is provided, validate it exists
@@ -43,7 +43,7 @@ export class ChartOfAccountsController {
         });
 
         if (!parentAccount) {
-          return sendErrorResponse(res, 400, "Parent account not found");
+          return ResponseHelper.badRequest(res, "Parent account not found");
         }
       }
 
@@ -58,7 +58,7 @@ export class ChartOfAccountsController {
         }
       });
 
-      return sendSuccessResponse(res, 201, "Chart of accounts entry created successfully", chartOfAccounts);
+      return ResponseHelper.created(res, "Chart of accounts entry created successfully", chartOfAccounts);
     } catch (error) {
       next(error);
     }
@@ -94,7 +94,7 @@ export class ChartOfAccountsController {
         ]
       });
 
-      return sendSuccessResponse(res, 200, "Chart of accounts retrieved successfully", chartOfAccounts);
+      return ResponseHelper.success(res, "Chart of accounts retrieved successfully", chartOfAccounts);
     } catch (error) {
       next(error);
     }
@@ -112,10 +112,10 @@ export class ChartOfAccountsController {
       });
 
       if (!chartOfAccounts) {
-        return sendErrorResponse(res, 404, "Chart of accounts not found");
+        return ResponseHelper.notFound(res, "Chart of accounts not found");
       }
 
-      return sendSuccessResponse(res, 200, "Chart of accounts retrieved successfully", chartOfAccounts);
+      return ResponseHelper.success(res, "Chart of accounts retrieved successfully", chartOfAccounts);
     } catch (error) {
       next(error);
     }
@@ -135,14 +135,14 @@ export class ChartOfAccountsController {
       });
 
       if (!existingAccount) {
-        return sendErrorResponse(res, 404, "Chart of accounts not found");
+        return ResponseHelper.notFound(res, "Chart of accounts not found");
       }
 
       // Validate account type if provided
       if (accountType) {
         const validAccountTypes = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
         if (!validAccountTypes.includes(accountType)) {
-          return sendErrorResponse(res, 400, "Invalid account type. Must be one of: ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE");
+          return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE");
         }
       }
 
@@ -153,14 +153,14 @@ export class ChartOfAccountsController {
         });
 
         if (duplicateAccount) {
-          return sendErrorResponse(res, 409, "Account code already exists");
+          return ResponseHelper.conflict(res, "Account code already exists");
         }
       }
 
       // If parentId is provided, validate it exists and is not the same as the current account
       if (parentId !== undefined) {
         if (parentId === id) {
-          return sendErrorResponse(res, 400, "Account cannot be its own parent");
+          return ResponseHelper.badRequest(res, "Account cannot be its own parent");
         }
 
         if (parentId) {
@@ -169,7 +169,7 @@ export class ChartOfAccountsController {
           });
 
           if (!parentAccount) {
-            return sendErrorResponse(res, 400, "Parent account not found");
+            return ResponseHelper.badRequest(res, "Parent account not found");
           }
         }
       }
@@ -186,7 +186,7 @@ export class ChartOfAccountsController {
         }
       });
 
-      return sendSuccessResponse(res, 200, "Chart of accounts updated successfully", updatedChartOfAccounts);
+      return ResponseHelper.success(res, "Chart of accounts updated successfully", updatedChartOfAccounts);
     } catch (error) {
       next(error);
     }
@@ -205,7 +205,7 @@ export class ChartOfAccountsController {
       });
 
       if (!existingAccount) {
-        return sendErrorResponse(res, 404, "Chart of accounts not found");
+        return ResponseHelper.notFound(res, "Chart of accounts not found");
       }
 
       // Check if account has children
@@ -214,7 +214,7 @@ export class ChartOfAccountsController {
       });
 
       if (childrenCount > 0) {
-        return sendErrorResponse(res, 400, "Cannot delete account with child accounts. Please reassign or delete child accounts first.");
+        return ResponseHelper.badRequest(res, "Cannot delete account with child accounts. Please reassign or delete child accounts first.");
       }
 
       // Check if account is used in journal entries
@@ -223,7 +223,7 @@ export class ChartOfAccountsController {
       });
 
       if (journalEntryLinesCount > 0) {
-        return sendErrorResponse(res, 400, "Cannot delete account that is used in journal entries. Please reassign or delete related journal entries first.");
+        return ResponseHelper.badRequest(res, "Cannot delete account that is used in journal entries. Please reassign or delete related journal entries first.");
       }
 
       // Delete the chart of accounts entry
@@ -231,7 +231,7 @@ export class ChartOfAccountsController {
         where: { id }
       });
 
-      return sendSuccessResponse(res, 200, "Chart of accounts deleted successfully");
+      return ResponseHelper.success(res, "Chart of accounts deleted successfully");
     } catch (error) {
       next(error);
     }
