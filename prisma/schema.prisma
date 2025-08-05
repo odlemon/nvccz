@@ -225,7 +225,7 @@ model JournalEntry {
   totalAmount     Decimal  @db.Decimal(15, 2)
   currencyId      String
   currency        Currency @relation(fields: [currencyId], references: [id])
-  status          String   @default("DRAFT") // "DRAFT", "POSTED", "VOID"
+  status          String   @default("PENDING") // "PENDING", "POSTED", "VOID"
   createdById     String
   createdBy       User     @relation(fields: [createdById], references: [id])
   createdAt       DateTime @default(now())

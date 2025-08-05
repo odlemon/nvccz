@@ -68,7 +68,7 @@ export class JournalEntryService {
           description: `Expense: ${description}`,
           totalAmount: new Decimal(totalAmount),
           currencyId,
-          status: "POSTED",
+          status: "PENDING", // Default to PENDING, must be posted manually
           createdById
         }
       });
@@ -164,7 +164,7 @@ export class JournalEntryService {
           description: `REVERSAL: ${description}`,
           totalAmount: new Decimal(totalAmount),
           currencyId,
-          status: "POSTED",
+          status: "PENDING", // Default to PENDING, must be posted manually
           createdById
         }
       });
@@ -407,6 +407,87 @@ export class JournalEntryService {
         transactionDate: 'desc'
       }
     });
+  }
+
+  /**
+   * Post a journal entry (change status from PENDING to POSTED)
+   */
+  static async postJournalEntry(journalEntryId: string): Promise<JournalEntry> {
+    try {
+      // Get the journal entry with its lines
+      const journalEntry = await prisma.journalEntry.findUnique({
+        where: { id: journalEntryId },
+        include: {
+          journalEntryLines: true
+        }
+      });
+
+      if (!journalEntry) {
+        throw new Error("Journal entry not found");
+      }
+
+      if (journalEntry.status === "POSTED") {
+        throw new Error("Journal entry is already posted");
+      }
+
+      if (journalEntry.status === "VOID") {
+        throw new Error("Cannot post a voided journal entry");
+      }
+
+      // Validate that the journal entry is balanced
+      if (!this.validateJournalEntryBalance(journalEntry.journalEntryLines)) {
+        throw new Error("Journal entry is not balanced. Debits must equal credits.");
+      }
+
+      // Update the status to POSTED
+      const updatedJournalEntry = await prisma.journalEntry.update({
+        where: { id: journalEntryId },
+        data: {
+          status: "POSTED",
+          updatedAt: new Date()
+        }
+      });
+
+      return updatedJournalEntry;
+    } catch (error) {
+      console.error("Error posting journal entry:", error);
+      if (error instanceof Error) throw error;
+      throw new Error("Failed to post journal entry. Please try again.");
+    }
+  }
+
+  /**
+   * Void a journal entry (change status to VOID)
+   */
+  static async voidJournalEntry(journalEntryId: string): Promise<JournalEntry> {
+    try {
+      const journalEntry = await prisma.journalEntry.findUnique({
+        where: { id: journalEntryId }
+      });
+
+      if (!journalEntry) {
+        throw new Error("Journal entry not found");
+      }
+
+      if (journalEntry.status === "VOID") {
+        throw new Error("Journal entry is already voided");
+      }
+
+      // Update the status to VOID
+      const updatedJournalEntry = await prisma.journalEntry.update({
+        where: { id: journalEntryId },
+        data: {
+          status: "VOID",
+          updatedAt: new Date()
+        }
+      });
+
+      return updatedJournalEntry;
+    } catch (error) {
+      console.error("Error voiding journal entry:", error);
+      if (error instanceof Error) throw error;
+      throw new Error("Failed to void journal entry. Please try again.");
+    }
   }
 }
 

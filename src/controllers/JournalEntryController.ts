@@ -1,120 +1,101 @@
 // @ts-nocheck
-import { Request, Response, NextFunction } from "express";
-import { AuthRequest } from "../middleware/authenticate";
+import { Request, Response } from "express";
 import JournalEntryService from "../services/JournalEntryService";
+import { ResponseHelper } from "../utils/responseHelper";
 
 export class JournalEntryController {
   /**
-   * Get journal entry by ID with all lines
+   * Get all journal entries
    */
-  static async getJournalEntryById(req: AuthRequest, res: Response, next: NextFunction) {
+  static async getJournalEntries(req: Request, res: Response) {
+    try {
+      const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
+        new Date('2020-01-01'), // Default start date
+        new Date() // Current date
+      );
+
+      return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
+    } catch (error) {
+      console.error("Error getting journal entries:", error);
+      return ResponseHelper.error(res, "Failed to retrieve journal entries", undefined, 500);
+    }
+  }
+
+  /**
+   * Get a specific journal entry by ID
+   */
+  static async getJournalEntry(req: Request, res: Response) {
     try {
       const { id } = req.params;
       const journalEntry = await JournalEntryService.getJournalEntryWithLines(id);
-      
+
       if (!journalEntry) {
-        return res.status(404).json({
-          success: false,
-          message: "Journal entry not found"
-        });
+        return ResponseHelper.notFound(res, "Journal entry not found");
       }
 
-      return res.status(200).json({
-        success: true,
-        data: journalEntry
-      });
+      return ResponseHelper.success(res, "Journal entry retrieved successfully", journalEntry);
     } catch (error) {
-      next(error);
+      console.error("Error getting journal entry:", error);
+      return ResponseHelper.error(res, "Failed to retrieve journal entry", undefined, 500);
     }
   }
 
   /**
-   * Get all journal entries with pagination
+   * Post a journal entry (change status from PENDING to POSTED)
    */
-  static async getJournalEntries(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      const { page = 1, limit = 10, startDate, endDate } = req.query;
-      
-      const start = startDate ? new Date(startDate as string) : undefined;
-      const end = endDate ? new Date(endDate as string) : undefined;
-      
-      const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(start, end);
-      
-      return res.status(200).json({
-        success: true,
-        data: journalEntries,
-        pagination: {
-          page: parseInt(page as string),
-          limit: parseInt(limit as string),
-          total: journalEntries.length
-        }
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * Validate journal entry balance by ID
-   */
-  static async validateJournalEntryById(req: AuthRequest, res: Response, next: NextFunction) {
+  static async postJournalEntry(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      
-      const journalEntry = await JournalEntryService.getJournalEntryWithLines(id);
-      
-      if (!journalEntry) {
-        return res.status(404).json({
-          success: false,
-          message: "Journal entry not found"
-        });
-      }
+      const journalEntry = await JournalEntryService.postJournalEntry(id);
 
-      const isValid = JournalEntryService.validateJournalEntryBalance(journalEntry.journalEntryLines);
-      
-      const totalDebits = journalEntry.journalEntryLines.reduce((sum, line) => sum + parseFloat(line.debitAmount.toString()), 0);
-      const totalCredits = journalEntry.journalEntryLines.reduce((sum, line) => sum + parseFloat(line.creditAmount.toString()), 0);
-      
-      return res.status(200).json({
-        success: true,
-        data: {
-          isBalanced: isValid,
-          totalDebits,
-          totalCredits,
-          difference: totalDebits - totalCredits,
-          message: isValid ? "Journal entry is balanced" : "Journal entry is not balanced"
-        }
-      });
+      return ResponseHelper.success(res, "Journal entry posted successfully", journalEntry);
     } catch (error) {
-      next(error);
+      console.error("Error posting journal entry:", error);
+      if (error instanceof Error) {
+        return ResponseHelper.badRequest(res, error.message);
+      }
+      return ResponseHelper.error(res, "Failed to post journal entry", undefined, 500);
     }
   }
 
   /**
-   * Validate journal entry balance
+   * Void a journal entry (change status to VOID)
    */
-  static async validateBalance(req: AuthRequest, res: Response, next: NextFunction) {
+  static async voidJournalEntry(req: Request, res: Response) {
     try {
-      const { journalEntryLines } = req.body;
-      
-      if (!Array.isArray(journalEntryLines)) {
-        return res.status(400).json({
-          success: false,
-          message: "Journal entry lines must be an array"
-        });
+      const { id } = req.params;
+      const journalEntry = await JournalEntryService.voidJournalEntry(id);
+
+      return ResponseHelper.success(res, "Journal entry voided successfully", journalEntry);
+    } catch (error) {
+      console.error("Error voiding journal entry:", error);
+      if (error instanceof Error) {
+        return ResponseHelper.badRequest(res, error.message);
+      }
+      return ResponseHelper.error(res, "Failed to void journal entry", undefined, 500);
+    }
+  }
+
+  /**
+   * Get journal entries by date range
+   */
+  static async getJournalEntriesByDateRange(req: Request, res: Response) {
+    try {
+      const { startDate, endDate } = req.query;
+
+      if (!startDate || !endDate) {
+        return ResponseHelper.badRequest(res, "Start date and end date are required");
       }
 
-      const isValid = JournalEntryService.validateJournalEntryBalance(journalEntryLines);
-      
-      return res.status(200).json({
-        success: true,
-        data: {
-          isValid,
-          message: isValid ? "Journal entry is balanced" : "Journal entry is not balanced"
-        }
-      });
+      const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
+        new Date(startDate as string),
+        new Date(endDate as string)
+      );
+
+      return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
     } catch (error) {
-      next(error);
+      console.error("Error getting journal entries by date range:", error);
+      return ResponseHelper.error(res, "Failed to retrieve journal entries", undefined, 500);
     }
   }
 }

@@ -680,8 +680,22 @@ const options = {
             referenceNumber: { type: 'string', example: 'JE-2024-001' },
             description: { type: 'string', example: 'Expense entry for legal fees' },
             transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
-            status: { type: 'string', example: 'POSTED' },
-            isActive: { type: 'boolean', example: true },
+            status: { 
+              type: 'string', 
+              enum: ['PENDING', 'POSTED', 'VOID'],
+              example: 'PENDING',
+              description: 'Journal entry status: PENDING (default), POSTED (after approval), VOID (cancelled)'
+            },
+            totalAmount: { type: 'number', example: 343.50 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            currency: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', example: 'clx1234567890abcdef' },
+                code: { type: 'string', example: 'ZWL' },
+                name: { type: 'string', example: 'Zimbabwe Dollar' }
+              }
+            },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
             createdBy: {
@@ -2670,7 +2684,7 @@ try {
         '/accounting/journal-entries': {
           get: {
             summary: 'Get all journal entries',
-            description: 'Retrieve all journal entries in the system',
+            description: 'Retrieve all journal entries in the system with optional filtering',
             tags: ['Accounting - Journal Entries'],
             security: [{ bearerAuth: [] }],
             parameters: [
@@ -2683,8 +2697,11 @@ try {
               {
                 name: 'status',
                 in: 'query',
-                schema: { type: 'string' },
-                description: 'Filter by status (DRAFT, POSTED, VOID)'
+                schema: { 
+                  type: 'string',
+                  enum: ['PENDING', 'POSTED', 'VOID']
+                },
+                description: 'Filter by status (PENDING, POSTED, VOID)'
               }
             ],
             responses: {
@@ -2700,6 +2717,69 @@ try {
                           type: 'array',
                           items: { $ref: '#/components/schemas/JournalEntry' }
                         }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/journal-entries/by-date-range': {
+          get: {
+            summary: 'Get journal entries by date range',
+            description: 'Retrieve journal entries within a specific date range',
+            tags: ['Accounting - Journal Entries'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'startDate',
+                in: 'query',
+                required: true,
+                schema: { 
+                  type: 'string',
+                  format: 'date'
+                },
+                description: 'Start date (YYYY-MM-DD)'
+              },
+              {
+                name: 'endDate',
+                in: 'query',
+                required: true,
+                schema: { 
+                  type: 'string',
+                  format: 'date'
+                },
+                description: 'End date (YYYY-MM-DD)'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Journal entries retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/JournalEntry' }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - missing date parameters',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string', example: 'Start date and end date are required' }
                       }
                     }
                   }
@@ -2736,14 +2816,28 @@ try {
                     }
                   }
                 }
+              },
+              404: {
+                description: 'Journal entry not found',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string', example: 'Journal entry not found' }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
         },
-        '/accounting/journal-entries/{id}/validate': {
-          get: {
-            summary: 'Validate journal entry balance by ID',
-            description: 'Validate that a specific journal entry is balanced (debits = credits)',
+        '/accounting/journal-entries/{id}/post': {
+          patch: {
+            summary: 'Post journal entry',
+            description: 'Change journal entry status from PENDING to POSTED. Validates that the entry is balanced before posting.',
             tags: ['Accounting - Journal Entries'],
             security: [{ bearerAuth: [] }],
             parameters: [
@@ -2754,45 +2848,118 @@ try {
                 schema: { type: 'string' }
               }
             ],
-                          responses: {
-                200: {
-                  description: 'Journal entry validation completed',
-                  content: {
-                    'application/json': {
-                      schema: {
-                        type: 'object',
-                        properties: {
-                          success: { type: 'boolean' },
-                          data: {
-                            type: 'object',
-                            properties: {
-                              isBalanced: { type: 'boolean' },
-                              totalDebits: { type: 'number' },
-                              totalCredits: { type: 'number' },
-                              difference: { type: 'number' },
-                              message: { type: 'string' }
-                            }
-                          }
-                        }
+            responses: {
+              200: {
+                description: 'Journal entry posted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string', example: 'Journal entry posted successfully' },
+                        data: { $ref: '#/components/schemas/JournalEntry' }
                       }
                     }
                   }
-                },
-                404: {
-                  description: 'Journal entry not found',
-                  content: {
-                    'application/json': {
-                      schema: {
-                        type: 'object',
-                        properties: {
-                          success: { type: 'boolean', example: false },
-                          message: { type: 'string', example: 'Journal entry not found' }
+                }
+              },
+              400: {
+                description: 'Bad request - validation failed',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { 
+                          type: 'string', 
+                          example: 'Journal entry is not balanced. Debits must equal credits.' 
                         }
                       }
                     }
                   }
                 }
+              },
+              404: {
+                description: 'Journal entry not found',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string', example: 'Journal entry not found' }
+                      }
+                    }
+                  }
+                }
               }
+            }
+          }
+        },
+        '/accounting/journal-entries/{id}/void': {
+          patch: {
+            summary: 'Void journal entry',
+            description: 'Change journal entry status to VOID',
+            tags: ['Accounting - Journal Entries'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Journal entry voided successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string', example: 'Journal entry voided successfully' },
+                        data: { $ref: '#/components/schemas/JournalEntry' }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - validation failed',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { 
+                          type: 'string', 
+                          example: 'Journal entry is already voided' 
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              404: {
+                description: 'Journal entry not found',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string', example: 'Journal entry not found' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
