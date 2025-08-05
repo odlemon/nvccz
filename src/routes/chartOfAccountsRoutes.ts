@@ -24,23 +24,33 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required:
- *               - accountCode
+ *               - accountNo
  *               - accountName
  *               - accountType
+ *               - financialStatement
  *             properties:
- *               accountCode:
+ *               accountNo:
  *                 type: string
- *                 description: Unique account code (e.g., "1000", "2000")
+ *                 description: Unique account number (e.g., "1000", "1010", "s5070")
  *                 example: "1000"
  *               accountName:
  *                 type: string
  *                 description: Account name
- *                 example: "Cash"
+ *                 example: "Cash and Cash Equivalents"
  *               accountType:
  *                 type: string
- *                 enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE]
+ *                 enum: [Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income]
  *                 description: Type of account
- *                 example: "ASSET"
+ *                 example: "Current Asset"
+ *               financialStatement:
+ *                 type: string
+ *                 enum: [Balance Sheet, Income Statement, Cash Flow / Tracking, Income Statement / Cash Flow]
+ *                 description: Financial statement where this account appears
+ *                 example: "Balance Sheet"
+ *               notes:
+ *                 type: string
+ *                 description: Additional details, examples, or explanations
+ *                 example: "Bank balances, petty cash"
  *               parentId:
  *                 type: string
  *                 description: ID of parent account (optional for hierarchical structure)
@@ -203,19 +213,28 @@ router.get("/:id", authenticate, ChartOfAccountsController.getChartOfAccountsByI
  *           schema:
  *             type: object
  *             properties:
- *               accountCode:
+ *               accountNo:
  *                 type: string
- *                 description: Unique account code
+ *                 description: Unique account number
  *                 example: "1000"
  *               accountName:
  *                 type: string
  *                 description: Account name
- *                 example: "Cash"
+ *                 example: "Cash and Cash Equivalents"
  *               accountType:
  *                 type: string
- *                 enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE]
+ *                 enum: [Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income]
  *                 description: Type of account
- *                 example: "ASSET"
+ *                 example: "Current Asset"
+ *               financialStatement:
+ *                 type: string
+ *                 enum: [Balance Sheet, Income Statement, Cash Flow / Tracking, Income Statement / Cash Flow]
+ *                 description: Financial statement where this account appears
+ *                 example: "Balance Sheet"
+ *               notes:
+ *                 type: string
+ *                 description: Additional details, examples, or explanations
+ *                 example: "Bank balances, petty cash"
  *               parentId:
  *                 type: string
  *                 description: ID of parent account

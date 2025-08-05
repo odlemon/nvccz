@@ -21,6 +21,20 @@ export interface CreateExpenseJournalEntryParams {
   createdById: string;
 }
 
+export interface CreateInvoiceJournalEntryParams {
+  customerId: string;
+  categoryId: string;
+  amount: number;
+  vatAmount: number;
+  totalAmount: number;
+  currencyId: string;
+  transactionDate: Date;
+  description: string;
+  invoiceNumber?: string;
+  isTaxable: boolean;
+  createdById: string;
+}
+
 export interface JournalEntryResult {
   journalEntry: JournalEntry;
   journalEntryLines: JournalEntryLine[];
@@ -235,7 +249,7 @@ export class JournalEntryService {
     // In the future, this could be mapped based on category
     const expenseAccount = await prisma.chartOfAccounts.findFirst({
       where: {
-        accountType: "EXPENSE",
+        accountType: "Expense",
         isActive: true
       }
     });
@@ -330,14 +344,14 @@ export class JournalEntryService {
     const bankAccount = await prisma.chartOfAccounts.findFirst({
       where: {
         accountName: {
-          contains: "Bank Account"
+          contains: "Cash"
         },
         isActive: true
       }
     });
 
     if (!bankAccount) {
-      throw new Error("No Bank Account found in chart of accounts");
+      throw new Error("No Cash/Bank Account found in chart of accounts");
     }
 
     return bankAccount;
@@ -487,6 +501,262 @@ export class JournalEntryService {
       console.error("Error voiding journal entry:", error);
       if (error instanceof Error) throw error;
       throw new Error("Failed to void journal entry. Please try again.");
+    }
+  }
+
+  /**
+   * Create a journal entry for an invoice transaction
+   */
+  static async createInvoiceJournalEntry(params: CreateInvoiceJournalEntryParams): Promise<JournalEntryResult> {
+    try {
+      const {
+        customerId,
+        categoryId,
+        amount,
+        vatAmount,
+        totalAmount,
+        currencyId,
+        transactionDate,
+        description,
+        invoiceNumber,
+        isTaxable,
+        createdById
+      } = params;
+
+      const incomeAccount = await this.getIncomeAccount(categoryId);
+      const vatOutputAccount = await this.getVATOutputAccount();
+      const debitAccount = await this.getAccountsReceivableAccount();
+
+      // Create the journal entry
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate,
+          referenceNumber: this.generateReferenceNumber(),
+          description: `Invoice: ${description}`,
+          totalAmount: new Decimal(totalAmount),
+          currencyId,
+          status: "PENDING", // Default to PENDING, must be posted manually
+          createdById
+        }
+      });
+
+      // Create journal entry lines for double-entry bookkeeping
+      const journalEntryLines: JournalEntryLine[] = [];
+
+      // 1. Debit Accounts Receivable
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: debitAccount.id,
+            debitAmount: new Decimal(totalAmount),
+            creditAmount: new Decimal(0),
+            description: `Invoice: ${description}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+
+      // 2. Credit the income account
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: incomeAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: new Decimal(amount),
+            description: `Invoice: ${description}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+
+      // 3. If taxable, credit VAT Output account
+      if (isTaxable && vatAmount > 0) {
+        journalEntryLines.push(
+          await prisma.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: vatOutputAccount.id,
+              debitAmount: new Decimal(0),
+              creditAmount: new Decimal(vatAmount),
+              description: `VAT Output: ${description}`,
+              vatAmount: new Decimal(vatAmount)
+            }
+          })
+        );
+      }
+
+      return {
+        journalEntry,
+        journalEntryLines
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to create invoice journal entry: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create a reversal journal entry for an invoice transaction
+   */
+  static async createReversalInvoiceJournalEntry(params: CreateInvoiceJournalEntryParams): Promise<JournalEntryResult> {
+    try {
+      const {
+        customerId,
+        categoryId,
+        amount,
+        vatAmount,
+        totalAmount,
+        currencyId,
+        transactionDate,
+        description,
+        invoiceNumber,
+        isTaxable,
+        createdById
+      } = params;
+
+      const incomeAccount = await this.getIncomeAccount(categoryId);
+      const vatOutputAccount = await this.getVATOutputAccount();
+      const debitAccount = await this.getAccountsReceivableAccount();
+
+      // Create the reversal journal entry
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate,
+          referenceNumber: this.generateReferenceNumber(),
+          description: `REVERSAL: Invoice ${invoiceNumber || description}`,
+          totalAmount: new Decimal(totalAmount),
+          currencyId,
+          status: "PENDING",
+          createdById
+        }
+      });
+
+      // Create reversal journal entry lines (opposite of original)
+      const journalEntryLines: JournalEntryLine[] = [];
+
+      // 1. Credit Accounts Receivable (opposite of debit)
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: debitAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: new Decimal(totalAmount),
+            description: `REVERSAL: Invoice ${invoiceNumber || description}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+
+      // 2. Debit the income account (opposite of credit)
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: incomeAccount.id,
+            debitAmount: new Decimal(amount),
+            creditAmount: new Decimal(0),
+            description: `REVERSAL: Invoice ${invoiceNumber || description}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+
+      // 3. If taxable, debit VAT Output account (opposite of credit)
+      if (isTaxable && vatAmount > 0) {
+        journalEntryLines.push(
+          await prisma.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: vatOutputAccount.id,
+              debitAmount: new Decimal(vatAmount),
+              creditAmount: new Decimal(0),
+              description: `REVERSAL: VAT Output ${invoiceNumber || description}`,
+              vatAmount: new Decimal(vatAmount)
+            }
+          })
+        );
+      }
+
+      return {
+        journalEntry,
+        journalEntryLines
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to create reversal invoice journal entry: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get income account for invoice category
+   */
+  private static async getIncomeAccount(categoryId: string): Promise<ChartOfAccounts> {
+    try {
+      // First try to get the category and find a matching income account
+      const category = await prisma.invoiceCategory.findUnique({
+        where: { id: categoryId }
+      });
+
+      if (!category) {
+        throw new Error("Invoice category not found");
+      }
+
+      // Look for an income account that matches the category name
+      let incomeAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          accountType: "Revenue",
+          accountName: {
+            contains: category.name,
+            mode: "insensitive"
+          },
+          isActive: true
+        }
+      });
+
+      // If no specific match, get a default income account
+      if (!incomeAccount) {
+        incomeAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            accountType: "Revenue",
+            isActive: true
+          }
+        });
+      }
+
+      if (!incomeAccount) {
+        throw new Error("No income account found in chart of accounts");
+      }
+
+      return incomeAccount;
+    } catch (error: any) {
+      throw new Error(`Failed to get income account: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get VAT Output account
+   */
+  private static async getVATOutputAccount(): Promise<ChartOfAccounts> {
+    try {
+      const vatOutputAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          accountType: "Current Liability",
+          accountName: {
+            contains: "VAT Output",
+            mode: "insensitive"
+          },
+          isActive: true
+        }
+      });
+
+      if (!vatOutputAccount) {
+        throw new Error("VAT Output account not found in chart of accounts");
+      }
+
+      return vatOutputAccount;
+    } catch (error: any) {
+      throw new Error(`Failed to get VAT Output account: ${error.message}`);
     }
   }
 }

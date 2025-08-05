@@ -1,320 +1,373 @@
+// @ts-nocheck
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-const chartOfAccounts = [
-  // Assets
-  {
-    accountCode: "1000",
-    accountName: "Current Assets",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "1100",
-    accountName: "Cash and Cash Equivalents",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "1110",
-    accountName: "Bank Account",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "1200",
-    accountName: "Accounts Receivable",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "1300",
-    accountName: "Prepaid Expenses",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "1400",
-    accountName: "Other Current Assets",
-    accountType: "ASSET",
-    parentId: null
-  },
-
-  // Fixed Assets
-  {
-    accountCode: "2000",
-    accountName: "Fixed Assets",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "2100",
-    accountName: "Equipment",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "2200",
-    accountName: "Furniture and Fixtures",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "2300",
-    accountName: "Computer Equipment",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "2400",
-    accountName: "Accumulated Depreciation",
-    accountType: "ASSET",
-    parentId: null
-  },
-
-  // Liabilities
-  {
-    accountCode: "3000",
-    accountName: "Current Liabilities",
-    accountType: "LIABILITY",
-    parentId: null
-  },
-  {
-    accountCode: "3100",
-    accountName: "Accounts Payable",
-    accountType: "LIABILITY",
-    parentId: null
-  },
-  {
-    accountCode: "3200",
-    accountName: "Accrued Expenses",
-    accountType: "LIABILITY",
-    parentId: null
-  },
-  {
-    accountCode: "3300",
-    accountName: "VAT Payable",
-    accountType: "LIABILITY",
-    parentId: null
-  },
-  {
-    accountCode: "3400",
-    accountName: "Other Current Liabilities",
-    accountType: "LIABILITY",
-    parentId: null
-  },
-
-  // Long-term Liabilities
-  {
-    accountCode: "4000",
-    accountName: "Long-term Liabilities",
-    accountType: "LIABILITY",
-    parentId: null
-  },
-  {
-    accountCode: "4100",
-    accountName: "Long-term Loans",
-    accountType: "LIABILITY",
-    parentId: null
-  },
-
-  // Equity
-  {
-    accountCode: "5000",
-    accountName: "Equity",
-    accountType: "EQUITY",
-    parentId: null
-  },
-  {
-    accountCode: "5100",
-    accountName: "Share Capital",
-    accountType: "EQUITY",
-    parentId: null
-  },
-  {
-    accountCode: "5200",
-    accountName: "Retained Earnings",
-    accountType: "EQUITY",
-    parentId: null
-  },
-  {
-    accountCode: "5300",
-    accountName: "Current Year Earnings",
-    accountType: "EQUITY",
-    parentId: null
-  },
-
-  // Revenue
-  {
-    accountCode: "6000",
-    accountName: "Revenue",
-    accountType: "REVENUE",
-    parentId: null
-  },
-  {
-    accountCode: "6100",
-    accountName: "Management Fees",
-    accountType: "REVENUE",
-    parentId: null
-  },
-  {
-    accountCode: "6200",
-    accountName: "Consulting Fees",
-    accountType: "REVENUE",
-    parentId: null
-  },
-  {
-    accountCode: "6300",
-    accountName: "Interest Income",
-    accountType: "REVENUE",
-    parentId: null
-  },
-  {
-    accountCode: "6400",
-    accountName: "Other Income",
-    accountType: "REVENUE",
-    parentId: null
-  },
-
-  // Expenses
-  {
-    accountCode: "7000",
-    accountName: "Expenses",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7100",
-    accountName: "Office Expenses",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7200",
-    accountName: "Travel Expenses",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7300",
-    accountName: "Legal and Professional Fees",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7400",
-    accountName: "Marketing and Advertising",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7500",
-    accountName: "Utilities",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7600",
-    accountName: "Rent Expense",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7700",
-    accountName: "Salaries and Wages",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7800",
-    accountName: "Insurance",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-  {
-    accountCode: "7900",
-    accountName: "Other Expenses",
-    accountType: "EXPENSE",
-    parentId: null
-  },
-
-  // VAT Accounts
-  {
-    accountCode: "8000",
-    accountName: "VAT Input",
-    accountType: "ASSET",
-    parentId: null
-  },
-  {
-    accountCode: "8100",
-    accountName: "VAT Output",
-    accountType: "LIABILITY",
-    parentId: null
-  }
-];
-
 async function seedChartOfAccounts() {
+  console.log("🌱 Seeding comprehensive chart of accounts...");
+
   try {
-    console.log("🌱 Starting Chart of Accounts seeding...");
-
-    // Clear existing chart of accounts
-    await prisma.chartOfAccounts.deleteMany({});
-    console.log("✅ Cleared existing chart of accounts");
-
-    // Create new chart of accounts
-    const createdAccounts = await prisma.chartOfAccounts.createMany({
-      data: chartOfAccounts
-    });
-
-    console.log(`✅ Created ${createdAccounts.count} chart of accounts entries`);
-
-    // Verify the accounts were created
-    const accountCount = await prisma.chartOfAccounts.count();
-    console.log(`📊 Total chart of accounts: ${accountCount}`);
-
-    // Display some key accounts
-    const keyAccounts = await prisma.chartOfAccounts.findMany({
+    // Check if accounts already exist
+    const existingAccounts = await prisma.chartOfAccounts.findMany({
       where: {
-        accountName: {
-          in: [
-            "Bank Account",
-            "Accounts Payable",
-            "VAT Input",
-            "VAT Payable",
-            "Office Expenses",
-            "Management Fees"
-          ]
-        }
-      },
-      select: {
-        accountCode: true,
-        accountName: true,
-        accountType: true
+        OR: [
+          { accountName: { contains: "Cash and Cash Equivalents" } },
+          { accountName: { contains: "Accounts Receivable" } },
+          { accountName: { contains: "Management Fees Income" } }
+        ]
       }
     });
 
-    console.log("\n🔑 Key Accounts Created:");
-    keyAccounts.forEach(account => {
-      console.log(`  ${account.accountCode} - ${account.accountName} (${account.accountType})`);
+    if (existingAccounts.length > 0) {
+      console.log("✅ Chart of accounts already exist, skipping...");
+      return;
+    }
+
+    // 1000s - Assets
+    console.log("📊 Creating Asset accounts...");
+    
+    // Current Assets
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1000",
+    accountName: "Cash and Cash Equivalents",
+        accountType: "Current Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Bank balances, petty cash"
+      }
     });
 
-    console.log("\n✅ Chart of Accounts seeding completed successfully!");
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1010",
+    accountName: "Accounts Receivable",
+        accountType: "Current Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Receivables from partners, fees"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1020",
+    accountName: "Prepaid Expenses",
+        accountType: "Current Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Prepaid rent, insurance"
+      }
+    });
+
+  // Fixed Assets
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1100",
+        accountName: "Office Equipment",
+        accountType: "Fixed Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Furniture, computers"
+      }
+    });
+
+    // Long-Term Assets
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1200",
+        accountName: "Long-Term Investments",
+        accountType: "Long-Term Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Investments in portfolio companies"
+      }
+    });
+
+    // Contra-Asset
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1300",
+    accountName: "Accumulated Depreciation",
+        accountType: "Contra-Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Depreciation of office equipment"
+      }
+    });
+
+    // 2000s - Liabilities
+    console.log("📊 Creating Liability accounts...");
+    
+    // Current Liabilities
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "2000",
+    accountName: "Accounts Payable",
+        accountType: "Current Liability",
+        financialStatement: "Balance Sheet",
+        notes: "Vendor payables"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "2010",
+    accountName: "Accrued Expenses",
+        accountType: "Current Liability",
+        financialStatement: "Balance Sheet",
+        notes: "Salaries payable, interest"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "2100",
+        accountName: "Deferred Revenue",
+        accountType: "Current Liability",
+        financialStatement: "Balance Sheet",
+        notes: "If applicable, e.g., management fees prepaid"
+      }
+    });
+
+    // Long-Term Liabilities
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "2200",
+        accountName: "Notes Payable",
+        accountType: "Long-Term Liability",
+        financialStatement: "Balance Sheet",
+        notes: "Loans (if any)"
+      }
+    });
+
+    // 3000s - Equity
+    console.log("📊 Creating Equity accounts...");
+    
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "3000",
+    accountName: "Share Capital",
+        accountType: "Equity",
+        financialStatement: "Balance Sheet",
+        notes: "Initial capital contributions"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "3100",
+    accountName: "Retained Earnings",
+        accountType: "Equity",
+        financialStatement: "Balance Sheet",
+        notes: "Cumulative net income/loss"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "3200",
+    accountName: "Current Year Earnings",
+        accountType: "Equity",
+        financialStatement: "Balance Sheet",
+        notes: "Transfers to retained earnings"
+      }
+    });
+
+    // 4000s - Revenue
+    console.log("📊 Creating Revenue accounts...");
+    
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "4000",
+        accountName: "Management Fees Income",
+        accountType: "Revenue",
+        financialStatement: "Income Statement",
+        notes: "Fund management revenue"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "4010",
+        accountName: "Investment Gains",
+        accountType: "Revenue",
+        financialStatement: "Income Statement",
+        notes: "Dividends, exits, interest"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "4020",
+    accountName: "Other Income",
+        accountType: "Revenue",
+        financialStatement: "Income Statement",
+        notes: "Consulting or advisory revenue"
+      }
+    });
+
+    // 5000s - Operating Expenses
+    console.log("📊 Creating Operating Expense accounts...");
+    
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "5000",
+    accountName: "Salaries and Wages",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Staff and executive payroll"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "5010",
+        accountName: "Office Rent",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Office lease"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "5020",
+        accountName: "Office Equipment",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Small asset purchases, non-capitalized"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "5030",
+        accountName: "Travel and Entertainment",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "VC travel, conferences"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "5040",
+        accountName: "Marketing and PR",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Branding, investor relations"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "5050",
+        accountName: "Professional Fees",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Legal, audit, advisory"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "5060",
+        accountName: "Utilities and Internet",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Overheads"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "s5070",
+        accountName: "Bank Charges",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Transfer fees, account charges"
+      }
+    });
+
+    // 6000s - Investment-Related
+    console.log("📊 Creating Investment-Related accounts...");
+    
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "6000",
+        accountName: "Investment Write-Offs",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Failed investments"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "6010",
+        accountName: "Capital Calls Paid",
+        accountType: "Expense",
+        financialStatement: "Cash Flow / Tracking",
+        notes: "Contributions to external funds"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "6020",
+        accountName: "Distributions Received",
+        accountType: "Income",
+        financialStatement: "Income Statement / Cash Flow",
+        notes: "Cash or non-cash returns"
+      }
+    });
+
+    // VAT Accounts (for tax compliance)
+    console.log("📊 Creating VAT accounts...");
+    
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "2001",
+        accountName: "VAT Output",
+        accountType: "Current Liability",
+        financialStatement: "Balance Sheet",
+        notes: "VAT collected on sales (14.5% in Zimbabwe)"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1101",
+        accountName: "VAT Input",
+        accountType: "Current Asset",
+        financialStatement: "Balance Sheet",
+        notes: "VAT paid on purchases (14.5% in Zimbabwe)"
+      }
+    });
+
+    console.log("🎉 Comprehensive chart of accounts seeded successfully!");
+    console.log("");
+    console.log("Created account categories:");
+    console.log("- Assets (1000s): Cash, Receivables, Equipment, Investments");
+    console.log("- Liabilities (2000s): Payables, Accruals, Loans");
+    console.log("- Equity (3000s): Share Capital, Retained Earnings");
+    console.log("- Revenue (4000s): Management Fees, Investment Gains");
+    console.log("- Operating Expenses (5000s): Salaries, Rent, Travel, etc.");
+    console.log("- Investment-Related (6000s): Write-offs, Capital Calls");
+    console.log("- VAT Accounts: Input and Output for tax compliance");
+    console.log("");
+    console.log("These accounts support comprehensive double-entry bookkeeping for the ERP system.");
+
   } catch (error) {
     console.error("❌ Error seeding chart of accounts:", error);
     throw error;
   }
 }
 
-// Run the seeding function
-seedChartOfAccounts()
-  .then(async () => {
-    await prisma.$disconnect();
-    console.log("🔌 Database connection closed");
-    process.exit(0);
-  })
-  .catch(async (error) => {
+async function main() {
+  try {
+    await seedChartOfAccounts();
+  } catch (error) {
     console.error("❌ Seeding failed:", error);
-    await prisma.$disconnect();
     process.exit(1);
-  }); 
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+main(); 

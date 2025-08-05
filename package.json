@@ -18,7 +18,7 @@
     "prisma:db:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:admin": "ts-node prisma/seed.ts",
-    "seed:chart-of-accounts": "ts-node prisma/seedChartOfAccounts.ts",
+
     "vercel-build": "npm run build"
   },
   "keywords": [
