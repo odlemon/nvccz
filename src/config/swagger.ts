@@ -746,6 +746,130 @@ const options = {
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' }
           }
+        },
+        Customer: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            name: { type: 'string', example: 'ABC Investment Fund' },
+            taxNumber: { type: 'string', example: 'TAX123456789' },
+            contactPerson: { type: 'string', example: 'John Smith' },
+            email: { type: 'string', example: 'john@abcfund.com' },
+            phone: { type: 'string', example: '+263777123456' },
+            address: { type: 'string', example: '123 Investment Street, Harare' },
+            paymentTerms: { type: 'string', example: 'Net 30' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        CreateCustomerRequest: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string', example: 'ABC Investment Fund' },
+            taxNumber: { type: 'string', example: 'TAX123456789' },
+            contactPerson: { type: 'string', example: 'John Smith' },
+            email: { type: 'string', example: 'john@abcfund.com' },
+            phone: { type: 'string', example: '+263777123456' },
+            address: { type: 'string', example: '123 Investment Street, Harare' },
+            paymentTerms: { type: 'string', example: 'Net 30' }
+          }
+        },
+        UpdateCustomerRequest: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', example: 'ABC Investment Fund Updated' },
+            taxNumber: { type: 'string', example: 'TAX123456789' },
+            contactPerson: { type: 'string', example: 'John Smith Updated' },
+            email: { type: 'string', example: 'john.updated@abcfund.com' },
+            phone: { type: 'string', example: '+263777123456' },
+            address: { type: 'string', example: '123 Investment Street, Harare' },
+            paymentTerms: { type: 'string', example: 'Net 15' },
+            isActive: { type: 'boolean', example: true }
+          }
+        },
+        Invoice: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            customerId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 1000.00 },
+            vatAmount: { type: 'number', example: 145.00 },
+            totalAmount: { type: 'number', example: 1145.00 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
+            description: { type: 'string', example: 'Management Fees Q4 2024' },
+            invoiceNumber: { type: 'string', example: 'INV-1754391778855-504' },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  description: { type: 'string', example: 'Management Fee Q4 2024' },
+                  amount: { type: 'number', example: 1000.00 },
+                  category: { type: 'string', example: 'Management Fees' }
+                }
+              }
+            },
+            isTaxable: { type: 'boolean', example: true },
+            status: { type: 'string', example: 'DRAFT', enum: ['DRAFT', 'SENT', 'PAID', 'VOID'] },
+            journalEntryId: { type: 'string', example: 'clx1234567890abcdef' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            customer: { $ref: '#/components/schemas/Customer' },
+            currency: { $ref: '#/components/schemas/Currency' },
+            journalEntry: { $ref: '#/components/schemas/JournalEntry' }
+          }
+        },
+        CreateInvoiceRequest: {
+          type: 'object',
+          required: ['customerId', 'amount', 'currencyId', 'transactionDate', 'description'],
+          properties: {
+            customerId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 1000.00 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
+            description: { type: 'string', example: 'Management Fees Q4 2024' },
+            invoiceNumber: { type: 'string', example: 'INV-2024-001' },
+            isTaxable: { type: 'boolean', example: true },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  description: { type: 'string', example: 'Management Fee Q4 2024' },
+                  amount: { type: 'number', example: 1000.00 },
+                  category: { type: 'string', example: 'Management Fees' }
+                }
+              }
+            }
+          }
+        },
+        UpdateInvoiceRequest: {
+          type: 'object',
+          properties: {
+            customerId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 1000.00 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
+            description: { type: 'string', example: 'Management Fees Q4 2024 Updated' },
+            invoiceNumber: { type: 'string', example: 'INV-2024-001' },
+            isTaxable: { type: 'boolean', example: true },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  description: { type: 'string', example: 'Management Fee Q4 2024' },
+                  amount: { type: 'number', example: 1000.00 },
+                  category: { type: 'string', example: 'Management Fees' }
+                }
+              }
+            },
+            isActive: { type: 'boolean', example: true }
+          }
         }
       }
     },
@@ -2851,6 +2975,419 @@ try {
                       properties: {
                         success: { type: 'boolean', example: false },
                         message: { type: 'string', example: 'Journal entry not found' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Invoices Management
+        '/accounting/invoices': {
+          get: {
+            summary: 'Get all invoices',
+            description: 'Retrieve all invoices with optional filtering and pagination',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'page',
+                in: 'query',
+                schema: { type: 'integer', default: 1 },
+                description: 'Page number for pagination'
+              },
+              {
+                name: 'limit',
+                in: 'query',
+                schema: { type: 'integer', default: 10 },
+                description: 'Number of items per page'
+              },
+              {
+                name: 'customerId',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Filter by customer ID'
+              },
+              {
+                name: 'currencyId',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Filter by currency ID'
+              },
+              {
+                name: 'startDate',
+                in: 'query',
+                schema: { type: 'string', format: 'date' },
+                description: 'Filter by start date'
+              },
+              {
+                name: 'endDate',
+                in: 'query',
+                schema: { type: 'string', format: 'date' },
+                description: 'Filter by end date'
+              },
+              {
+                name: 'status',
+                in: 'query',
+                schema: { type: 'string', enum: ['DRAFT', 'SENT', 'PAID', 'VOID'] },
+                description: 'Filter by invoice status'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Invoices retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Invoice' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create invoice',
+            description: 'Create a new invoice with automatic VAT calculation and journal entry generation',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateInvoiceRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Invoice created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' },
+                        data: { $ref: '#/components/schemas/Invoice' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/invoices/{id}': {
+          get: {
+            summary: 'Get invoice by ID',
+            description: 'Retrieve a specific invoice by ID',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Invoice retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Invoice' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update invoice',
+            description: 'Update an existing invoice',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateInvoiceRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Invoice updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Invoice' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete invoice',
+            description: 'Soft delete an invoice',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Invoice deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/invoices/summary': {
+          get: {
+            summary: 'Get invoice summary',
+            description: 'Get invoice summary statistics',
+            tags: ['Accounting - Invoices'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'startDate',
+                in: 'query',
+                schema: { type: 'string', format: 'date' },
+                description: 'Start date for summary'
+              },
+              {
+                name: 'endDate',
+                in: 'query',
+                schema: { type: 'string', format: 'date' },
+                description: 'End date for summary'
+              },
+              {
+                name: 'currencyId',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Filter by currency ID'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Invoice summary retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'object',
+                          properties: {
+                            totalInvoices: { type: 'number' },
+                            totalAmount: { type: 'number' },
+                            totalVAT: { type: 'number' },
+                            averageAmount: { type: 'number' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Customers Management
+        '/accounting/customers': {
+          get: {
+            summary: 'Get all customers',
+            description: 'Retrieve all customers',
+            tags: ['Accounting - Customers'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Customers retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Customer' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create customer',
+            description: 'Create a new customer',
+            tags: ['Accounting - Customers'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateCustomerRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Customer created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Customer' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/customers/{id}': {
+          get: {
+            summary: 'Get customer by ID',
+            description: 'Retrieve a specific customer by ID',
+            tags: ['Accounting - Customers'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Customer retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Customer' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update customer',
+            description: 'Update an existing customer',
+            tags: ['Accounting - Customers'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateCustomerRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Customer updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Customer' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete customer',
+            description: 'Delete a customer',
+            tags: ['Accounting - Customers'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Customer deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
                       }
                     }
                   }

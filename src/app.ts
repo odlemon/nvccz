@@ -24,7 +24,7 @@ import journalEntryRoutes from "./routes/journalEntryRoutes"
 import chartOfAccountsRoutes from "./routes/chartOfAccountsRoutes"
 import invoiceRoutes from "./routes/invoiceRoutes"
 import customerRoutes from "./routes/customerRoutes"
-import invoiceCategoryRoutes from "./routes/invoiceCategoryRoutes"
+
 
 dotenv.config()
 
@@ -192,7 +192,7 @@ app.use("/api/accounting/journal-entries", journalEntryRoutes)
 app.use("/api/accounting/chart-of-accounts", chartOfAccountsRoutes)
 app.use("/api/accounting/invoices", invoiceRoutes)
 app.use("/api/accounting/customers", customerRoutes)
-app.use("/api/accounting/invoice-categories", invoiceCategoryRoutes)
+
 
 app.use(errorMiddleware)
 

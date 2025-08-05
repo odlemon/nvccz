@@ -23,7 +23,6 @@ export interface CreateExpenseJournalEntryParams {
 
 export interface CreateInvoiceJournalEntryParams {
   customerId: string;
-  categoryId: string;
   amount: number;
   vatAmount: number;
   totalAmount: number;
@@ -78,7 +77,7 @@ export class JournalEntryService {
       const journalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate,
-          referenceNumber: this.generateReferenceNumber(),
+          referenceNumber: JournalEntryService.generateReferenceNumber(),
           description: `Expense: ${description}`,
           totalAmount: new Decimal(totalAmount),
           currencyId,
@@ -174,7 +173,7 @@ export class JournalEntryService {
       const journalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate,
-          referenceNumber: this.generateReferenceNumber(),
+          referenceNumber: JournalEntryService.generateReferenceNumber(),
           description: `REVERSAL: ${description}`,
           totalAmount: new Decimal(totalAmount),
           currencyId,
@@ -511,7 +510,6 @@ export class JournalEntryService {
     try {
       const {
         customerId,
-        categoryId,
         amount,
         vatAmount,
         totalAmount,
@@ -523,15 +521,15 @@ export class JournalEntryService {
         createdById
       } = params;
 
-      const incomeAccount = await this.getIncomeAccount(categoryId);
-      const vatOutputAccount = await this.getVATOutputAccount();
-      const debitAccount = await this.getAccountsReceivableAccount();
+      const incomeAccount = await JournalEntryService.getIncomeAccount();
+      const vatOutputAccount = await JournalEntryService.getVATOutputAccount();
+      const debitAccount = await JournalEntryService.getAccountsReceivableAccount();
 
       // Create the journal entry
       const journalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate,
-          referenceNumber: this.generateReferenceNumber(),
+          referenceNumber: JournalEntryService.generateReferenceNumber(),
           description: `Invoice: ${description}`,
           totalAmount: new Decimal(totalAmount),
           currencyId,
@@ -603,7 +601,6 @@ export class JournalEntryService {
     try {
       const {
         customerId,
-        categoryId,
         amount,
         vatAmount,
         totalAmount,
@@ -615,15 +612,15 @@ export class JournalEntryService {
         createdById
       } = params;
 
-      const incomeAccount = await this.getIncomeAccount(categoryId);
-      const vatOutputAccount = await this.getVATOutputAccount();
-      const debitAccount = await this.getAccountsReceivableAccount();
+      const incomeAccount = await JournalEntryService.getIncomeAccount();
+      const vatOutputAccount = await JournalEntryService.getVATOutputAccount();
+      const debitAccount = await JournalEntryService.getAccountsReceivableAccount();
 
       // Create the reversal journal entry
       const journalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate,
-          referenceNumber: this.generateReferenceNumber(),
+          referenceNumber: JournalEntryService.generateReferenceNumber(),
           description: `REVERSAL: Invoice ${invoiceNumber || description}`,
           totalAmount: new Decimal(totalAmount),
           currencyId,
@@ -691,30 +688,20 @@ export class JournalEntryService {
   /**
    * Get income account for invoice category
    */
-  private static async getIncomeAccount(categoryId: string): Promise<ChartOfAccounts> {
+  private static async getIncomeAccount(): Promise<ChartOfAccounts> {
     try {
-      // First try to get the category and find a matching income account
-      const category = await prisma.invoiceCategory.findUnique({
-        where: { id: categoryId }
-      });
-
-      if (!category) {
-        throw new Error("Invoice category not found");
-      }
-
-      // Look for an income account that matches the category name
+      // Look for a Management Fees Income account first (as per requirements)
       let incomeAccount = await prisma.chartOfAccounts.findFirst({
         where: {
           accountType: "Revenue",
           accountName: {
-            contains: category.name,
-            mode: "insensitive"
+            contains: "Management Fees"
           },
           isActive: true
         }
       });
 
-      // If no specific match, get a default income account
+      // If no Management Fees account, get any Revenue account
       if (!incomeAccount) {
         incomeAccount = await prisma.chartOfAccounts.findFirst({
           where: {
@@ -725,7 +712,7 @@ export class JournalEntryService {
       }
 
       if (!incomeAccount) {
-        throw new Error("No income account found in chart of accounts");
+        throw new Error("No income/revenue account found in chart of accounts");
       }
 
       return incomeAccount;
@@ -739,16 +726,15 @@ export class JournalEntryService {
    */
   private static async getVATOutputAccount(): Promise<ChartOfAccounts> {
     try {
-      const vatOutputAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          accountType: "Current Liability",
-          accountName: {
-            contains: "VAT Output",
-            mode: "insensitive"
-          },
-          isActive: true
-        }
-      });
+          const vatOutputAccount = await prisma.chartOfAccounts.findFirst({
+      where: {
+        accountType: "Current Liability",
+        accountName: {
+          contains: "VAT Output"
+        },
+        isActive: true
+      }
+    });
 
       if (!vatOutputAccount) {
         throw new Error("VAT Output account not found in chart of accounts");
@@ -757,6 +743,31 @@ export class JournalEntryService {
       return vatOutputAccount;
     } catch (error: any) {
       throw new Error(`Failed to get VAT Output account: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get Accounts Receivable account
+   */
+  private static async getAccountsReceivableAccount(): Promise<ChartOfAccounts> {
+    try {
+      const accountsReceivableAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          accountType: "Current Asset",
+          accountName: {
+            contains: "Accounts Receivable"
+          },
+          isActive: true
+        }
+      });
+
+      if (!accountsReceivableAccount) {
+        throw new Error("Accounts Receivable account not found in chart of accounts");
+      }
+
+      return accountsReceivableAccount;
+    } catch (error: any) {
+      throw new Error(`Failed to get Accounts Receivable account: ${error.message}`);
     }
   }
 }

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { PrismaClient, Invoice, Customer, InvoiceCategory, Currency } from "@prisma/client";
+import { PrismaClient, Invoice, Customer, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { dbConnection } from "../utils/database";
 import VATService from "./VATService";
@@ -9,11 +9,11 @@ const prisma = dbConnection.getPrismaClient();
 
 export interface CreateInvoiceParams {
   customerId: string;
-  categoryId: string;
   amount: number;
   currencyId: string;
   transactionDate: Date;
   description: string;
+  items?: any[]; // JSON array of invoice line items
   invoiceNumber?: string;
   isTaxable: boolean;
   createdById: string;
@@ -21,7 +21,6 @@ export interface CreateInvoiceParams {
 
 export interface InvoiceWithRelations extends Invoice {
   customer: Customer;
-  category: InvoiceCategory;
   currency: Currency;
   journalEntry?: {
     id: string;
@@ -47,11 +46,11 @@ export class InvoiceService {
     try {
       const {
         customerId,
-        categoryId,
         amount,
         currencyId,
         transactionDate,
         description,
+        items,
         invoiceNumber,
         isTaxable,
         createdById
@@ -65,8 +64,8 @@ export class InvoiceService {
         throw new Error("Description is required");
       }
       
-      // Validate that customer, category, and currency exist
-      await this.validateInvoiceData(customerId, categoryId, currencyId);
+      // Validate that customer and currency exist
+      await this.validateInvoiceData(customerId, currencyId);
 
       // Calculate VAT if taxable (as number)
       const vatAmount: number = VATService.isVATEligible(amount, isTaxable)
@@ -81,13 +80,13 @@ export class InvoiceService {
       const invoice = await prisma.invoice.create({
         data: {
           customerId,
-          categoryId,
           amount: new Decimal(amount),
           vatAmount: new Decimal(vatAmount),
           totalAmount: new Decimal(totalAmount),
           currencyId,
           transactionDate,
           description,
+          items: items || [],
           invoiceNumber: finalInvoiceNumber,
           isTaxable,
           status: "DRAFT",
@@ -95,7 +94,6 @@ export class InvoiceService {
         },
         include: {
           customer: true,
-          category: true,
           currency: true,
           journalEntry: {
             select: {
@@ -110,7 +108,6 @@ export class InvoiceService {
       // Create journal entry for double-entry bookkeeping
       const journalEntryResult = await JournalEntryService.createInvoiceJournalEntry({
         customerId,
-        categoryId,
         amount,
         vatAmount,
         totalAmount,
@@ -128,7 +125,7 @@ export class InvoiceService {
         data: { journalEntryId: journalEntryResult.journalEntry.id },
         include: {
           customer: true,
-          category: true,
+          
           currency: true,
           journalEntry: {
             select: {
@@ -149,18 +146,14 @@ export class InvoiceService {
   /**
    * Validate that customer, category, and currency exist
    */
-  private static async validateInvoiceData(customerId: string, categoryId: string, currencyId: string): Promise<void> {
-    const [customer, category, currency] = await Promise.all([
+  private static async validateInvoiceData(customerId: string, currencyId: string): Promise<void> {
+    const [customer, currency] = await Promise.all([
       prisma.customer.findUnique({ where: { id: customerId } }),
-      prisma.invoiceCategory.findUnique({ where: { id: categoryId } }),
       prisma.currency.findUnique({ where: { id: currencyId } })
     ]);
 
     if (!customer) {
       throw new Error("Customer not found");
-    }
-    if (!category) {
-      throw new Error("Invoice category not found");
     }
     if (!currency) {
       throw new Error("Currency not found");
@@ -176,7 +169,6 @@ export class InvoiceService {
         where: { id },
         include: {
           customer: true,
-          category: true,
           currency: true,
           journalEntry: {
             select: {
@@ -199,7 +191,6 @@ export class InvoiceService {
     page?: number;
     limit?: number;
     customerId?: string;
-    categoryId?: string;
     currencyId?: string;
     startDate?: Date;
     endDate?: Date;
@@ -216,7 +207,6 @@ export class InvoiceService {
         page = 1,
         limit = 10,
         customerId,
-        categoryId,
         currencyId,
         startDate,
         endDate,
@@ -229,7 +219,6 @@ export class InvoiceService {
       const where: any = { isActive: true };
 
       if (customerId) where.customerId = customerId;
-      if (categoryId) where.categoryId = categoryId;
       if (currencyId) where.currencyId = currencyId;
       if (status) where.status = status;
       if (startDate || endDate) {
@@ -246,7 +235,7 @@ export class InvoiceService {
           orderBy: { createdAt: 'desc' },
           include: {
             customer: true,
-            category: true,
+            
             currency: true,
             journalEntry: {
               select: {
@@ -293,7 +282,6 @@ export class InvoiceService {
         // Create reversal journal entry for the current invoice
         await JournalEntryService.createReversalInvoiceJournalEntry({
           customerId: currentInvoice.customerId,
-          categoryId: currentInvoice.categoryId,
           amount: Number(currentInvoice.amount),
           vatAmount: Number(currentInvoice.vatAmount),
           totalAmount: Number(currentInvoice.totalAmount),
@@ -339,7 +327,7 @@ export class InvoiceService {
         },
         include: {
           customer: true,
-          category: true,
+          
           currency: true,
           journalEntry: {
             select: {
@@ -355,7 +343,7 @@ export class InvoiceService {
       if (currentInvoice.status === "SENT" && isFinancialUpdate) {
         const journalEntryResult = await JournalEntryService.createInvoiceJournalEntry({
           customerId: updatedInvoice.customerId,
-          categoryId: updatedInvoice.categoryId,
+          
           amount: newAmount,
           vatAmount: newVatAmount,
           totalAmount: newTotalAmount,
@@ -373,7 +361,7 @@ export class InvoiceService {
           data: { journalEntryId: journalEntryResult.journalEntry.id },
           include: {
             customer: true,
-            category: true,
+            
             currency: true,
             journalEntry: {
               select: {
@@ -406,7 +394,7 @@ export class InvoiceService {
       if (invoice.status === "SENT" && invoice.journalEntry) {
         await JournalEntryService.createReversalInvoiceJournalEntry({
           customerId: invoice.customerId,
-          categoryId: invoice.categoryId,
+          
           amount: Number(invoice.amount),
           vatAmount: Number(invoice.vatAmount),
           totalAmount: Number(invoice.totalAmount),
@@ -467,7 +455,7 @@ export class InvoiceService {
       const invoices = await prisma.invoice.findMany({
         where,
         include: {
-          category: true,
+          
           customer: true
         }
       });

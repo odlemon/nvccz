@@ -24,7 +24,6 @@ router.use(authenticate);
  *             type: object
  *             required:
  *               - customerId
- *               - categoryId
  *               - amount
  *               - currencyId
  *               - transactionDate
@@ -33,33 +32,65 @@ router.use(authenticate);
  *               customerId:
  *                 type: string
  *                 description: ID of the customer
- *               categoryId:
- *                 type: string
- *                 description: ID of the invoice category
+ *                 example: clx1234567890abcdef
  *               amount:
  *                 type: number
- *                 description: Invoice amount
+ *                 description: Invoice base amount (before VAT)
+ *                 example: 1000.00
  *               currencyId:
  *                 type: string
  *                 description: ID of the currency
+ *                 example: clx1234567890abcdef
  *               transactionDate:
  *                 type: string
  *                 format: date
  *                 description: Transaction date
+ *                 example: "2025-08-05"
  *               description:
  *                 type: string
  *                 description: Invoice description
+ *                 example: "Management Fees Q4 2024"
  *               invoiceNumber:
  *                 type: string
- *                 description: Custom invoice number (optional)
+ *                 description: Custom invoice number (optional, auto-generated if not provided)
+ *                 example: "INV-2024-001"
  *               isTaxable:
  *                 type: boolean
- *                 description: Whether the invoice is taxable
+ *                 description: Whether the invoice is taxable (14.5% VAT in Zimbabwe)
+ *                 example: true
+ *               items:
+ *                 type: array
+ *                 description: Array of invoice line items
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     description:
+ *                       type: string
+ *                       example: "Management Fee Q4 2024"
+ *                     amount:
+ *                       type: number
+ *                       example: 1000.00
+ *                     category:
+ *                       type: string
+ *                       example: "Management Fees"
  *     responses:
  *       201:
  *         description: Invoice created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Invoice created successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/Invoice'
  *       400:
- *         description: Bad request
+ *         description: Bad request - validation error
  *       401:
  *         description: Unauthorized
  *       500:
