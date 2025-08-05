@@ -444,70 +444,271 @@ export class InvoiceService {
       const { startDate, endDate, currencyId } = params;
 
       // Build where clause
-      const where: any = { isActive: true };
-      if (startDate || endDate) {
-        where.transactionDate = {};
-        if (startDate) where.transactionDate.gte = startDate;
-        if (endDate) where.transactionDate.lte = endDate;
-      }
-      if (currencyId) where.currencyId = currencyId;
+      const whereClause: any = {
+        isActive: true
+      };
 
+      if (startDate || endDate) {
+        whereClause.transactionDate = {};
+        if (startDate) whereClause.transactionDate.gte = startDate;
+        if (endDate) whereClause.transactionDate.lte = endDate;
+      }
+
+      if (currencyId) {
+        whereClause.currencyId = currencyId;
+      }
+
+      // Get basic statistics
       const invoices = await prisma.invoice.findMany({
-        where,
+        where: whereClause,
         include: {
-          
-          customer: true
+          customer: true,
+          currency: true
         }
       });
 
-      const totalInvoices = invoices.reduce((sum, inv) => sum + Number(inv.totalAmount), 0);
+      const totalInvoices = invoices.length;
+      const totalAmount = invoices.reduce((sum, inv) => sum + Number(inv.totalAmount), 0);
       const totalVAT = invoices.reduce((sum, inv) => sum + Number(inv.vatAmount), 0);
-      const averageInvoice = invoices.length > 0 ? totalInvoices / invoices.length : 0;
+      const averageInvoice = totalInvoices > 0 ? totalAmount / totalInvoices : 0;
 
-      // Group by category
-      const byCategory = invoices.reduce((acc, inv) => {
-        const categoryName = inv.category.name;
-        const existing = acc.find(item => item.categoryName === categoryName);
-        if (existing) {
-          existing.total += Number(inv.totalAmount);
-          existing.count += 1;
-        } else {
-          acc.push({
-            categoryName,
-            total: Number(inv.totalAmount),
-            count: 1
+      // Group by category (from items)
+      const categoryTotals: { [key: string]: { total: number; count: number } } = {};
+      invoices.forEach(invoice => {
+        if (invoice.items && Array.isArray(invoice.items)) {
+          invoice.items.forEach((item: any) => {
+            const category = item.category || 'Unknown';
+            if (!categoryTotals[category]) {
+              categoryTotals[category] = { total: 0, count: 0 };
+            }
+            categoryTotals[category].total += Number(item.amount || 0);
+            categoryTotals[category].count += 1;
           });
         }
-        return acc;
-      }, [] as Array<{ categoryName: string; total: number; count: number }>);
+      });
+
+      const byCategory = Object.entries(categoryTotals).map(([categoryName, data]) => ({
+        categoryName,
+        total: data.total,
+        count: data.count
+      }));
 
       // Group by customer
-      const byCustomer = invoices.reduce((acc, inv) => {
-        const customerName = inv.customer.name;
-        const existing = acc.find(item => item.customerName === customerName);
-        if (existing) {
-          existing.total += Number(inv.totalAmount);
-          existing.count += 1;
-        } else {
-          acc.push({
-            customerName,
-            total: Number(inv.totalAmount),
-            count: 1
-          });
+      const customerTotals: { [key: string]: { total: number; count: number; name: string } } = {};
+      invoices.forEach(invoice => {
+        const customerId = invoice.customerId;
+        const customerName = invoice.customer.name;
+        if (!customerTotals[customerId]) {
+          customerTotals[customerId] = { total: 0, count: 0, name: customerName };
         }
-        return acc;
-      }, [] as Array<{ customerName: string; total: number; count: number }>);
+        customerTotals[customerId].total += Number(invoice.totalAmount);
+        customerTotals[customerId].count += 1;
+      });
+
+      const byCustomer = Object.values(customerTotals).map(data => ({
+        customerName: data.name,
+        total: data.total,
+        count: data.count
+      }));
 
       return {
         totalInvoices,
         totalVAT,
         averageInvoice,
-        invoiceCount: invoices.length,
+        invoiceCount: totalInvoices,
         byCategory,
         byCustomer
       };
     } catch (error: any) {
       throw new Error(`Failed to get invoice summary: ${error.message}`);
+    }
+  }
+
+  /**
+   * Send invoice to customer (DRAFT -> SENT)
+   * No accounting impact - just status change
+   */
+  static async sendInvoice(id: string): Promise<InvoiceWithRelations> {
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id },
+        include: {
+          customer: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      if (!invoice) {
+        throw new Error("Invoice not found");
+      }
+
+      if (invoice.status !== "DRAFT") {
+        throw new Error(`Cannot send invoice with status: ${invoice.status}. Only DRAFT invoices can be sent.`);
+      }
+
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id },
+        data: { status: "SENT" },
+        include: {
+          customer: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      return updatedInvoice;
+    } catch (error: any) {
+      throw new Error(`Failed to send invoice: ${error.message}`);
+    }
+  }
+
+  /**
+   * Mark invoice as paid (SENT -> PAID)
+   * Creates payment journal entry: Dr Cash/Bank, Cr Accounts Receivable
+   */
+  static async markAsPaid(id: string, paymentMethod: string = "BANK"): Promise<InvoiceWithRelations> {
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id },
+        include: {
+          customer: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      if (!invoice) {
+        throw new Error("Invoice not found");
+      }
+
+      if (invoice.status !== "SENT") {
+        throw new Error(`Cannot mark invoice as paid with status: ${invoice.status}. Only SENT invoices can be marked as paid.`);
+      }
+
+      // Create payment journal entry
+      const paymentJournalEntry = await JournalEntryService.createInvoicePaymentJournalEntry({
+        invoiceId: id,
+        amount: Number(invoice.totalAmount),
+        currencyId: invoice.currencyId,
+        transactionDate: new Date(),
+        description: `Payment for invoice: ${invoice.invoiceNumber}`,
+        paymentMethod,
+        createdById: invoice.createdById
+      });
+
+      // Update invoice status to PAID
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id },
+        data: { 
+          status: "PAID",
+          // Note: We don't link the payment journal entry to the invoice
+          // as it's a separate transaction
+        },
+        include: {
+          customer: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      return updatedInvoice;
+    } catch (error: any) {
+      throw new Error(`Failed to mark invoice as paid: ${error.message}`);
+    }
+  }
+
+  /**
+   * Void invoice (any status -> VOID)
+   * Creates reversal journal entry to cancel the original invoice entry
+   */
+  static async voidInvoice(id: string, reason?: string): Promise<InvoiceWithRelations> {
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id },
+        include: {
+          customer: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      if (!invoice) {
+        throw new Error("Invoice not found");
+      }
+
+      if (invoice.status === "VOID") {
+        throw new Error("Invoice is already voided");
+      }
+
+      // Create reversal journal entry
+      const reversalJournalEntry = await JournalEntryService.createReversalInvoiceJournalEntry({
+        customerId: invoice.customerId,
+        amount: Number(invoice.amount),
+        vatAmount: Number(invoice.vatAmount),
+        totalAmount: Number(invoice.totalAmount),
+        currencyId: invoice.currencyId,
+        transactionDate: new Date(),
+        description: `VOID: ${invoice.description}${reason ? ` - Reason: ${reason}` : ''}`,
+        invoiceNumber: invoice.invoiceNumber,
+        isTaxable: invoice.isTaxable,
+        createdById: invoice.createdById
+      });
+
+      // Update invoice status to VOID
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id },
+        data: { 
+          status: "VOID",
+          // Note: We don't link the reversal journal entry to the invoice
+          // as it's a separate transaction
+        },
+        include: {
+          customer: true,
+          currency: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      return updatedInvoice;
+    } catch (error: any) {
+      throw new Error(`Failed to void invoice: ${error.message}`);
     }
   }
 } 

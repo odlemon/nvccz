@@ -312,4 +312,113 @@ router.delete("/:id", InvoiceController.deleteInvoice);
  */
 router.get("/summary", InvoiceController.getInvoiceSummary);
 
+/**
+ * @swagger
+ * /api/accounting/invoices/{id}/send:
+ *   patch:
+ *     summary: Send invoice to customer (DRAFT -> SENT)
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Invoice ID
+ *     responses:
+ *       200:
+ *         description: Invoice sent successfully
+ *       400:
+ *         description: Bad request - invoice not in DRAFT status
+ *       404:
+ *         description: Invoice not found
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.patch("/:id/send", InvoiceController.sendInvoice);
+
+/**
+ * @swagger
+ * /api/accounting/invoices/{id}/mark-as-paid:
+ *   patch:
+ *     summary: Mark invoice as paid (SENT -> PAID)
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Invoice ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [CASH, BANK, CREDIT]
+ *                 default: BANK
+ *                 description: Payment method used
+ *     responses:
+ *       200:
+ *         description: Invoice marked as paid successfully
+ *       400:
+ *         description: Bad request - invoice not in SENT status
+ *       404:
+ *         description: Invoice not found
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.patch("/:id/mark-as-paid", InvoiceController.markAsPaid);
+
+/**
+ * @swagger
+ * /api/accounting/invoices/{id}/void:
+ *   patch:
+ *     summary: Void invoice (any status -> VOID)
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Invoice ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 description: Optional reason for voiding the invoice
+ *     responses:
+ *       200:
+ *         description: Invoice voided successfully
+ *       400:
+ *         description: Bad request - invoice already voided
+ *       404:
+ *         description: Invoice not found
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.patch("/:id/void", InvoiceController.voidInvoice);
+
 export default router; 
