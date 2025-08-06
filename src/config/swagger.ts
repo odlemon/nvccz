@@ -895,6 +895,138 @@ const options = {
             },
             isActive: { type: 'boolean', example: true }
           }
+        },
+        // Revenue schemas
+        RevenueSource: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            name: { type: 'string', example: 'Client Services' },
+            description: { type: 'string', example: 'Revenue from client services' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        CreateRevenueSourceRequest: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string', example: 'Client Services' },
+            description: { type: 'string', example: 'Revenue from client services' }
+          }
+        },
+        UpdateRevenueSourceRequest: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', example: 'Client Services Updated' },
+            description: { type: 'string', example: 'Updated revenue from client services' },
+            isActive: { type: 'boolean', example: true }
+          }
+        },
+        RevenueCategory: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            name: { type: 'string', example: 'Management Fees' },
+            description: { type: 'string', example: 'Management and advisory fees' },
+            parentId: { type: 'string', nullable: true, example: 'clx1234567890abcdef' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            parent: { $ref: '#/components/schemas/RevenueCategory' },
+            children: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/RevenueCategory' }
+            }
+          }
+        },
+        CreateRevenueCategoryRequest: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string', example: 'Management Fees' },
+            description: { type: 'string', example: 'Management and advisory fees' },
+            parentId: { type: 'string', nullable: true, example: 'clx1234567890abcdef' }
+          }
+        },
+        UpdateRevenueCategoryRequest: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', example: 'Management Fees Updated' },
+            description: { type: 'string', example: 'Updated management and advisory fees' },
+            parentId: { type: 'string', nullable: true, example: 'clx1234567890abcdef' },
+            isActive: { type: 'boolean', example: true }
+          }
+        },
+        Revenue: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            sourceId: { type: 'string', example: 'clx1234567890abcdef' },
+            categoryId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 1000.00 },
+            vatAmount: { type: 'number', example: 145.00 },
+            totalAmount: { type: 'number', example: 1145.00 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
+            description: { type: 'string', example: 'Management fees for Q4 2024' },
+            isTaxable: { type: 'boolean', example: true },
+            paymentMethod: { 
+              type: 'string', 
+              enum: ['CASH', 'BANK', 'CREDIT'],
+              description: 'Payment method used for the revenue',
+              example: 'BANK'
+            },
+            status: { type: 'string', example: 'POSTED' },
+            journalEntryId: { type: 'string', example: 'clx1234567890abcdef' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            source: { $ref: '#/components/schemas/RevenueSource' },
+            category: { $ref: '#/components/schemas/RevenueCategory' },
+            currency: { $ref: '#/components/schemas/Currency' },
+            journalEntry: { $ref: '#/components/schemas/JournalEntry' }
+          }
+        },
+        CreateRevenueRequest: {
+          type: 'object',
+          required: ['sourceId', 'categoryId', 'amount', 'currencyId', 'transactionDate', 'description'],
+          properties: {
+            sourceId: { type: 'string', example: 'clx1234567890abcdef' },
+            categoryId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 1000.00 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
+            description: { type: 'string', example: 'Management fees for Q4 2024' },
+            isTaxable: { type: 'boolean', example: true },
+            paymentMethod: { 
+              type: 'string', 
+              enum: ['CASH', 'BANK', 'CREDIT'],
+              default: 'BANK',
+              description: 'Payment method used for the revenue',
+              example: 'BANK'
+            }
+          }
+        },
+        UpdateRevenueRequest: {
+          type: 'object',
+          properties: {
+            sourceId: { type: 'string', example: 'clx1234567890abcdef' },
+            categoryId: { type: 'string', example: 'clx1234567890abcdef' },
+            amount: { type: 'number', example: 1000.00 },
+            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
+            transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
+            description: { type: 'string', example: 'Management fees for Q4 2024 Updated' },
+            isTaxable: { type: 'boolean', example: true },
+            isActive: { type: 'boolean', example: true },
+            paymentMethod: { 
+              type: 'string', 
+              enum: ['CASH', 'BANK', 'CREDIT'],
+              description: 'Payment method used for the revenue',
+              example: 'BANK'
+            }
+          }
         }
       }
     },
@@ -905,8 +1037,8 @@ const options = {
     ]
   },
   apis: process.env.NODE_ENV === 'production' 
-    ? ['./dist/**/*.js'] 
-    : ['./src/**/*.ts']
+    ? ['./dist/**/*.js', './dist/routes/**/*.js', './dist/controllers/**/*.js'] 
+    : ['./src/**/*.ts', './src/routes/**/*.ts', './src/controllers/**/*.ts']
 };
 
 let specs: any;
@@ -3622,11 +3754,561 @@ try {
                 }
               }
             }
+                  },
+        // Revenue Sources Management
+        '/accounting/revenue-sources': {
+          get: {
+            summary: 'Get all revenue sources',
+            description: 'Retrieve all revenue sources in the system',
+            tags: ['Accounting - Revenue Sources'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'search',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Search revenue sources by name'
+              },
+              {
+                name: 'isActive',
+                in: 'query',
+                schema: { type: 'boolean' },
+                description: 'Filter by active status'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenue sources retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/RevenueSource' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create revenue source',
+            description: 'Create a new revenue source',
+            tags: ['Accounting - Revenue Sources'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateRevenueSourceRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Revenue source created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/RevenueSource' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/revenue-sources/{id}': {
+          get: {
+            summary: 'Get revenue source by ID',
+            description: 'Retrieve a specific revenue source by ID',
+            tags: ['Accounting - Revenue Sources'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenue source retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/RevenueSource' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update revenue source',
+            description: 'Update an existing revenue source',
+            tags: ['Accounting - Revenue Sources'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateRevenueSourceRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Revenue source updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/RevenueSource' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete revenue source',
+            description: 'Soft delete a revenue source (only if not in use)',
+            tags: ['Accounting - Revenue Sources'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenue source deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - revenue source is in use',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string', example: 'Cannot delete revenue source that is in use' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Revenue Categories Management
+        '/accounting/revenue-categories': {
+          get: {
+            summary: 'Get all revenue categories',
+            description: 'Retrieve all revenue categories in the system',
+            tags: ['Accounting - Revenue Categories'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'search',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Search categories by name'
+              },
+              {
+                name: 'isActive',
+                in: 'query',
+                schema: { type: 'boolean' },
+                description: 'Filter by active status'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenue categories retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/RevenueCategory' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create revenue category',
+            description: 'Create a new revenue category',
+            tags: ['Accounting - Revenue Categories'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateRevenueCategoryRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Revenue category created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/RevenueCategory' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/revenue-categories/{id}': {
+          get: {
+            summary: 'Get revenue category by ID',
+            description: 'Retrieve a specific revenue category by ID',
+            tags: ['Accounting - Revenue Categories'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenue category retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/RevenueCategory' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update revenue category',
+            description: 'Update an existing revenue category',
+            tags: ['Accounting - Revenue Categories'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateRevenueCategoryRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Revenue category updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/RevenueCategory' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete revenue category',
+            description: 'Soft delete a revenue category (only if not in use and has no children)',
+            tags: ['Accounting - Revenue Categories'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenue category deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - category is in use or has children',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: false },
+                        message: { type: 'string', example: 'Cannot delete category that is in use or has child categories' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        // Revenues Management
+        '/accounting/revenues': {
+          get: {
+            summary: 'Get all revenues',
+            description: 'Retrieve all revenues in the system',
+            tags: ['Accounting - Revenues'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'search',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Search revenues by description'
+              },
+              {
+                name: 'isActive',
+                in: 'query',
+                schema: { type: 'boolean' },
+                description: 'Filter by active status'
+              },
+              {
+                name: 'status',
+                in: 'query',
+                schema: { type: 'string' },
+                description: 'Filter by status (DRAFT, POSTED, VOID)'
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenues retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: {
+                          type: 'array',
+                          items: { $ref: '#/components/schemas/Revenue' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          post: {
+            summary: 'Create revenue',
+            description: 'Create a new revenue with automatic VAT calculation and journal entry generation',
+            tags: ['Accounting - Revenues'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/CreateRevenueRequest' }
+                }
+              }
+            },
+            responses: {
+              201: {
+                description: 'Revenue created successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Revenue' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        '/accounting/revenues/{id}': {
+          get: {
+            summary: 'Get revenue by ID',
+            description: 'Retrieve a specific revenue by ID',
+            tags: ['Accounting - Revenues'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenue retrieved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Revenue' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          put: {
+            summary: 'Update revenue',
+            description: 'Update an existing revenue (creates reversal entries for POSTED revenues)',
+            tags: ['Accounting - Revenues'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UpdateRevenueRequest' }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Revenue updated successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        data: { $ref: '#/components/schemas/Revenue' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          delete: {
+            summary: 'Delete revenue',
+            description: 'Soft delete a revenue (creates reversal entries for POSTED revenues)',
+            tags: ['Accounting - Revenues'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Revenue deleted successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean' },
+                        message: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
-    };
-  }
+    }
+  };
+}
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
   // Fallback to comprehensive spec
@@ -4002,6 +4684,316 @@ try {
                     properties: {
                       success: { type: 'boolean' },
                       data: { $ref: '#/components/schemas/Event' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // Income Statement
+      '/accounting/income-statement/generate': {
+        post: {
+          summary: 'Generate income statement for a specific period',
+          description: 'Generate a basic income statement showing revenue, expenses, and net income',
+          tags: ['Accounting - Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Income statement generated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/detailed': {
+        post: {
+          summary: 'Get detailed income statement with transaction breakdown',
+          description: 'Get income statement with detailed transaction information for each account',
+          tags: ['Accounting - Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Detailed income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/summary': {
+        post: {
+          summary: 'Get income statement summary (high-level totals)',
+          description: 'Get a summary view of income statement with totals only',
+          tags: ['Accounting - Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Income statement summary retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/comprehensive': {
+        post: {
+          summary: 'Get comprehensive detailed income statement with all transaction details',
+          description: 'Get comprehensive income statement with complete transaction details, statistics, and grouped data',
+          tags: ['Accounting - Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Comprehensive detailed income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/comparative': {
+        post: {
+          summary: 'Get comparative income statement for multiple periods',
+          description: 'Get income statement comparing multiple periods side by side',
+          tags: ['Accounting - Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['periods'],
+                  properties: {
+                    periods: {
+                      type: 'array',
+                      minItems: 2,
+                      items: {
+                        type: 'object',
+                        required: ['startDate', 'endDate'],
+                        properties: {
+                          startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                          endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                          currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Comparative income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/vertical': {
+        post: {
+          summary: 'Get vertical income statement with traditional format',
+          description: 'Get income statement in traditional vertical format with detailed breakdowns',
+          tags: ['Accounting - Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Vertical income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement': {
+        get: {
+          summary: 'Get income statement by query parameters',
+          description: 'Get income statement using query parameters (for GET requests)',
+          tags: ['Accounting - Income Statement'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'startDate',
+              required: true,
+              schema: { type: 'string', format: 'date' },
+              description: 'Start date of the period'
+            },
+            {
+              in: 'query',
+              name: 'endDate',
+              required: true,
+              schema: { type: 'string', format: 'date' },
+              description: 'End date of the period'
+            },
+            {
+              in: 'query',
+              name: 'currencyId',
+              schema: { type: 'string' },
+              description: 'Currency ID (optional)'
+            },
+            {
+              in: 'query',
+              name: 'type',
+              schema: { type: 'string', enum: ['summary', 'detailed'], default: 'summary' },
+              description: 'Type of income statement to return'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
                     }
                   }
                 }

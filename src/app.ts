@@ -25,6 +25,9 @@ import chartOfAccountsRoutes from "./routes/chartOfAccountsRoutes"
 import invoiceRoutes from "./routes/invoiceRoutes"
 import customerRoutes from "./routes/customerRoutes"
 import incomeStatementRoutes from "./routes/incomeStatementRoutes"
+import revenueRoutes from "./routes/revenueRoutes"
+import revenueSourceRoutes from "./routes/revenueSourceRoutes"
+import revenueCategoryRoutes from "./routes/revenueCategoryRoutes"
 
 
 dotenv.config()
@@ -194,6 +197,9 @@ app.use("/api/accounting/chart-of-accounts", chartOfAccountsRoutes)
 app.use("/api/accounting/invoices", invoiceRoutes)
 app.use("/api/accounting/customers", customerRoutes)
 app.use("/api/accounting/income-statement", incomeStatementRoutes)
+app.use("/api/accounting/revenues", revenueRoutes)
+app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
+app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
 
 
 app.use(errorMiddleware)
