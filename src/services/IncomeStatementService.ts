@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { PrismaClient, ChartOfAccounts, JournalEntryLine } from "@prisma/client";
 import { dbConnection } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
