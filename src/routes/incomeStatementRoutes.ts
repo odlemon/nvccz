@@ -8,7 +8,7 @@ const router = Router();
 
 /**
  * @swagger
- * /api/income-statement/generate:
+ * /api/accounting/income-statement/generate:
  *   post:
  *     summary: Generate income statement for a specific period
  *     tags: [Income Statement]
@@ -49,7 +49,7 @@ router.post("/generate", authenticate, authorize(["admin", "accountant"]), Incom
 
 /**
  * @swagger
- * /api/income-statement/detailed:
+ * /api/accounting/income-statement/detailed:
  *   post:
  *     summary: Get detailed income statement with transaction breakdown
  *     tags: [Income Statement]
@@ -87,7 +87,7 @@ router.post("/detailed", authenticate, authorize(["admin", "accountant"]), Incom
 
 /**
  * @swagger
- * /api/income-statement/summary:
+ * /api/accounting/income-statement/summary:
  *   post:
  *     summary: Get income statement summary (high-level totals)
  *     tags: [Income Statement]
@@ -125,7 +125,7 @@ router.post("/summary", authenticate, authorize(["admin", "accountant"]), Income
 
 /**
  * @swagger
- * /api/income-statement/comprehensive:
+ * /api/accounting/income-statement/comprehensive:
  *   post:
  *     summary: Get comprehensive detailed income statement with all transaction details
  *     tags: [Income Statement]
@@ -163,7 +163,7 @@ router.post("/comprehensive", authenticate, authorize(["admin", "accountant"]), 
 
 /**
  * @swagger
- * /api/income-statement/comparative:
+ * /api/accounting/income-statement/comparative:
  *   post:
  *     summary: Get comparative income statement for multiple periods
  *     tags: [Income Statement]
@@ -209,7 +209,7 @@ router.post("/comparative", authenticate, authorize(["admin", "accountant"]), In
 
 /**
  * @swagger
- * /api/income-statement/vertical:
+ * /api/accounting/income-statement/vertical:
  *   post:
  *     summary: Get vertical income statement with traditional format
  *     tags: [Income Statement]
@@ -247,7 +247,7 @@ router.post("/vertical", authenticate, authorize(["admin", "accountant"]), Incom
 
 /**
  * @swagger
- * /api/income-statement:
+ * /api/accounting/income-statement:
  *   get:
  *     summary: Get income statement by query parameters
  *     tags: [Income Statement]
