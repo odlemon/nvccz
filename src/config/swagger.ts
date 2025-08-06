@@ -1046,12 +1046,10 @@ let specs: any;
 try {
   specs = swaggerJsdoc(options);
   
-  // If no paths are found, create a comprehensive fallback spec
-  if (!specs.paths || Object.keys(specs.paths).length === 0) {
-    console.warn('No API paths found in JSDoc comments, using comprehensive fallback spec');
-    specs = {
-      ...options.definition,
-      paths: {
+  // Create fallback spec with all endpoints
+  const fallbackSpec = {
+    ...options.definition,
+    paths: {
         // Authentication
         '/auth/login': {
           post: {
@@ -4308,7 +4306,15 @@ try {
       }
     }
   };
-}
+  
+  // Merge JSDoc-generated paths with fallback paths to ensure all endpoints are included
+  if (specs.paths && Object.keys(specs.paths).length > 0) {
+    // Merge paths, with fallback taking precedence for missing endpoints
+    specs.paths = { ...fallbackSpec.paths, ...specs.paths };
+  } else {
+    // Use fallback spec if no JSDoc paths found
+    specs = fallbackSpec;
+  }
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
   // Fallback to comprehensive spec
