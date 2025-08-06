@@ -11,7 +11,7 @@ const router = Router();
  * /api/accounting/income-statement/generate:
  *   post:
  *     summary: Generate income statement for a specific period
- *     tags: [Income Statement]
+ *     tags: [Accounting - Income Statement]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -52,7 +52,7 @@ router.post("/generate", authenticate, authorize(["admin", "accountant"]), Incom
  * /api/accounting/income-statement/detailed:
  *   post:
  *     summary: Get detailed income statement with transaction breakdown
- *     tags: [Income Statement]
+ *     tags: [Accounting - Income Statement]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -90,7 +90,7 @@ router.post("/detailed", authenticate, authorize(["admin", "accountant"]), Incom
  * /api/accounting/income-statement/summary:
  *   post:
  *     summary: Get income statement summary (high-level totals)
- *     tags: [Income Statement]
+ *     tags: [Accounting - Income Statement]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -128,7 +128,7 @@ router.post("/summary", authenticate, authorize(["admin", "accountant"]), Income
  * /api/accounting/income-statement/comprehensive:
  *   post:
  *     summary: Get comprehensive detailed income statement with all transaction details
- *     tags: [Income Statement]
+ *     tags: [Accounting - Income Statement]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -166,7 +166,7 @@ router.post("/comprehensive", authenticate, authorize(["admin", "accountant"]), 
  * /api/accounting/income-statement/comparative:
  *   post:
  *     summary: Get comparative income statement for multiple periods
- *     tags: [Income Statement]
+ *     tags: [Accounting - Income Statement]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -212,7 +212,7 @@ router.post("/comparative", authenticate, authorize(["admin", "accountant"]), In
  * /api/accounting/income-statement/vertical:
  *   post:
  *     summary: Get vertical income statement with traditional format
- *     tags: [Income Statement]
+ *     tags: [Accounting - Income Statement]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -250,7 +250,7 @@ router.post("/vertical", authenticate, authorize(["admin", "accountant"]), Incom
  * /api/accounting/income-statement:
  *   get:
  *     summary: Get income statement by query parameters
- *     tags: [Income Statement]
+ *     tags: [Accounting - Income Statement]
  *     security:
  *       - bearerAuth: []
  *     parameters:
