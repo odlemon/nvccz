@@ -22,7 +22,6 @@ const router = Router();
  *           schema:
  *             type: object
  *             required:
- *               - customerId
  *               - sourceId
  *               - categoryId
  *               - amount
@@ -30,10 +29,6 @@ const router = Router();
  *               - transactionDate
  *               - description
  *             properties:
- *               customerId:
- *                 type: string
- *                 description: ID of the customer
- *                 example: "clx1234567890abcdef"
  *               sourceId:
  *                 type: string
  *                 description: ID of the revenue source
@@ -59,10 +54,6 @@ const router = Router();
  *                 type: string
  *                 description: Description of the revenue
  *                 example: "Consulting services for Q1"
- *               invoiceNumber:
- *                 type: string
- *                 description: Invoice number (optional)
- *                 example: "INV-2024-001"
  *               isTaxable:
  *                 type: boolean
  *                 description: Whether the revenue is subject to VAT
@@ -120,11 +111,6 @@ router.post("/", authenticate, authorize(["admin", "accountant"]), RevenueContro
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: customerId
- *         schema:
- *           type: string
- *         description: Filter by customer ID
  *       - in: query
  *         name: sourceId
  *         schema:
@@ -282,9 +268,6 @@ router.get("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCont
  *           schema:
  *             type: object
  *             properties:
- *               customerId:
- *                 type: string
- *                 description: ID of the customer
  *               sourceId:
  *                 type: string
  *                 description: ID of the revenue source
@@ -304,9 +287,6 @@ router.get("/:id", authenticate, authorize(["admin", "accountant"]), RevenueCont
  *               description:
  *                 type: string
  *                 description: Description of the revenue
- *               invoiceNumber:
- *                 type: string
- *                 description: Invoice number
  *               isTaxable:
  *                 type: boolean
  *                 description: Whether the revenue is subject to VAT
