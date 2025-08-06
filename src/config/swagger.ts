@@ -4010,6 +4010,455 @@ try {
           }
         }
       },
+      // Income Statement
+      '/accounting/income-statement/generate': {
+        post: {
+          summary: 'Generate income statement for a specific period',
+          description: 'Generate a basic income statement showing revenue, expenses, and net income',
+          tags: ['Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Income statement generated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          period: {
+                            type: 'object',
+                            properties: {
+                              startDate: { type: 'string', format: 'date-time' },
+                              endDate: { type: 'string', format: 'date-time' }
+                            }
+                          },
+                          revenue: {
+                            type: 'object',
+                            properties: {
+                              accounts: { type: 'array', items: { type: 'object' } },
+                              total: { type: 'number' }
+                            }
+                          },
+                          expenses: {
+                            type: 'object',
+                            properties: {
+                              accounts: { type: 'array', items: { type: 'object' } },
+                              total: { type: 'number' }
+                            }
+                          },
+                          netIncome: { type: 'number' },
+                          currency: {
+                            type: 'object',
+                            properties: {
+                              id: { type: 'string' },
+                              code: { type: 'string' },
+                              name: { type: 'string' }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: {
+              description: 'Bad request - validation error',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' }
+                }
+              }
+            },
+            401: {
+              description: 'Unauthorized',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ErrorResponse' }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/detailed': {
+        post: {
+          summary: 'Get detailed income statement with transaction breakdown',
+          description: 'Get income statement with detailed transaction information for each account',
+          tags: ['Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Detailed income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/summary': {
+        post: {
+          summary: 'Get income statement summary (high-level totals)',
+          description: 'Get a summary view of income statement with totals only',
+          tags: ['Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Income statement summary retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/comprehensive': {
+        post: {
+          summary: 'Get comprehensive detailed income statement with all transaction details',
+          description: 'Get comprehensive income statement with complete transaction details, statistics, and grouped data',
+          tags: ['Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Comprehensive detailed income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          period: { type: 'object' },
+                          currency: { type: 'object' },
+                          generatedAt: { type: 'string', format: 'date-time' },
+                          summary: {
+                            type: 'object',
+                            properties: {
+                              revenue: { type: 'object' },
+                              expenses: { type: 'object' },
+                              netIncome: { type: 'number' }
+                            }
+                          },
+                          statistics: {
+                            type: 'object',
+                            properties: {
+                              totalJournalEntries: { type: 'number' },
+                              totalTransactions: { type: 'number' },
+                              totalDebitAmount: { type: 'number' },
+                              totalCreditAmount: { type: 'number' },
+                              totalVatAmount: { type: 'number' },
+                              revenueAccounts: { type: 'number' },
+                              expenseAccounts: { type: 'number' },
+                              uniqueVendors: { type: 'number' },
+                              uniqueCustomers: { type: 'number' }
+                            }
+                          },
+                          detailedTransactions: {
+                            type: 'object',
+                            properties: {
+                              byType: { type: 'object' },
+                              allEntries: { type: 'array', items: { type: 'object' } }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/comparative': {
+        post: {
+          summary: 'Get comparative income statement for multiple periods',
+          description: 'Get income statement comparing multiple periods side by side',
+          tags: ['Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['periods'],
+                  properties: {
+                    periods: {
+                      type: 'array',
+                      minItems: 2,
+                      items: {
+                        type: 'object',
+                        required: ['startDate', 'endDate'],
+                        properties: {
+                          startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                          endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                          currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Comparative income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement/vertical': {
+        post: {
+          summary: 'Get vertical income statement with traditional format',
+          description: 'Get income statement in traditional vertical format with detailed breakdowns',
+          tags: ['Income Statement'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['startDate', 'endDate'],
+                  properties: {
+                    startDate: { type: 'string', format: 'date', example: '2025-01-01' },
+                    endDate: { type: 'string', format: 'date', example: '2025-12-31' },
+                    currencyId: { type: 'string', example: 'clx1234567890abcdef' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Vertical income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          period: { type: 'object' },
+                          currency: { type: 'object' },
+                          generatedAt: { type: 'string', format: 'date-time' },
+                          income: {
+                            type: 'object',
+                            properties: {
+                              sales: { type: 'number' },
+                              salesReturns: { type: 'number' },
+                              netSales: { type: 'number' }
+                            }
+                          },
+                          costOfGoodsSold: {
+                            type: 'object',
+                            properties: {
+                              operatingStock: { type: 'number' },
+                              purchases: { type: 'number' },
+                              wages: { type: 'number' },
+                              carriageInward: { type: 'number' },
+                              directExpenses: { type: 'number' },
+                              closingStock: { type: 'number' },
+                              netCostOfGoodsSold: { type: 'number' }
+                            }
+                          },
+                          grossProfit: { type: 'number' },
+                          operatingExpenses: {
+                            type: 'object',
+                            properties: {
+                              administrativeExpenses: { type: 'number' },
+                              financeExpenses: { type: 'number' },
+                              sellingExpenses: { type: 'number' },
+                              totalOperatingExpenses: { type: 'number' }
+                            }
+                          },
+                          operatingProfit: { type: 'number' },
+                          nonOperatingItems: {
+                            type: 'object',
+                            properties: {
+                              nonOperatingIncome: { type: 'number' },
+                              nonOperatingExpenses: { type: 'number' },
+                              netProfitBeforeTax: { type: 'number' }
+                            }
+                          },
+                          tax: {
+                            type: 'object',
+                            properties: {
+                              taxAmount: { type: 'number' },
+                              netProfitAfterTax: { type: 'number' }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/accounting/income-statement': {
+        get: {
+          summary: 'Get income statement by query parameters',
+          description: 'Get income statement using query parameters (for GET requests)',
+          tags: ['Income Statement'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'startDate',
+              required: true,
+              schema: { type: 'string', format: 'date' },
+              description: 'Start date of the period'
+            },
+            {
+              in: 'query',
+              name: 'endDate',
+              required: true,
+              schema: { type: 'string', format: 'date' },
+              description: 'End date of the period'
+            },
+            {
+              in: 'query',
+              name: 'currencyId',
+              schema: { type: 'string' },
+              description: 'Currency ID (optional)'
+            },
+            {
+              in: 'query',
+              name: 'type',
+              schema: { type: 'string', enum: ['summary', 'detailed'], default: 'summary' },
+              description: 'Type of income statement to return'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Income statement retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       // Homepage
       '/homepage': {
         get: {
