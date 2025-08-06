@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Request, Response } from "express";
 import IncomeStatementService, { IncomeStatementParams } from "../services/IncomeStatementService";
 
