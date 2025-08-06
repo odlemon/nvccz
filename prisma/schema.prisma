@@ -28,6 +28,7 @@ model User {
   journalEntries JournalEntry[]
   expenses       Expense[]
   invoices       Invoice[]
+  revenues       Revenue[]
 
   @@map("users")
 }
@@ -144,6 +145,7 @@ model Currency {
   expenses       Expense[]
   journalEntries JournalEntry[]
   invoices       Invoice[]
+  revenues       Revenue[]
 
   @@map("currencies")
 }
@@ -214,6 +216,7 @@ model JournalEntry {
   journalEntryLines JournalEntryLine[]
   expenses          Expense[]
   invoices          Invoice[]
+  revenues          Revenue[]
 
   @@map("journal_entries")
 }
@@ -276,6 +279,60 @@ model Customer {
   invoices      Invoice[]
 
   @@map("customers")
+}
+
+model RevenueSource {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  revenues    Revenue[]
+
+  @@map("revenue_sources")
+}
+
+model RevenueCategory {
+  id          String            @id @default(cuid())
+  name        String            @unique
+  description String?
+  parentId    String?
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  parent      RevenueCategory?  @relation("RevenueCategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    RevenueCategory[] @relation("RevenueCategoryHierarchy")
+  revenues    Revenue[]
+
+  @@map("revenue_categories")
+}
+
+model Revenue {
+  id              String           @id @default(cuid())
+  sourceId        String
+  categoryId      String
+  amount          Decimal          @db.Decimal(15, 2)
+  vatAmount       Decimal          @default(0.00) @db.Decimal(15, 2)
+  totalAmount     Decimal          @db.Decimal(15, 2)
+  currencyId      String
+  transactionDate DateTime
+  description     String
+  isTaxable       Boolean          @default(false)
+  paymentMethod   String           @default("BANK")
+  status          String           @default("DRAFT")
+  isActive        Boolean          @default(true)
+  journalEntryId  String?
+  createdById     String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  source          RevenueSource    @relation(fields: [sourceId], references: [id])
+  category        RevenueCategory  @relation(fields: [categoryId], references: [id])
+  currency        Currency         @relation(fields: [currencyId], references: [id])
+  journalEntry    JournalEntry?    @relation(fields: [journalEntryId], references: [id])
+  createdBy       User             @relation(fields: [createdById], references: [id])
+
+  @@map("revenues")
 }
 
 model Invoice {
