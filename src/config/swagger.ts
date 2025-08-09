@@ -42,6 +42,7 @@ const options = {
             firstName: { type: 'string', example: 'John' },
             lastName: { type: 'string', example: 'Doe' },
             email: { type: 'string', format: 'email', example: 'john@example.com' },
+            backgroundImage: { type: 'string', example: 'https://example.com/backgrounds/tech-background.jpg' },
             roleId: { type: 'string', example: 'clx1234567890abcdef' },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' }
@@ -112,7 +113,8 @@ const options = {
             lastName: { type: 'string', example: 'Doe' },
             email: { type: 'string', format: 'email', example: 'john@example.com' },
             password: { type: 'string', example: 'password123' },
-            roleId: { type: 'string', example: 'clx1234567890abcdef' }
+            roleId: { type: 'string', example: 'clx1234567890abcdef' },
+            backgroundImage: { type: 'string', example: 'https://example.com/backgrounds/tech-background.jpg' }
           }
         },
         UpdateUserRequest: {
@@ -121,7 +123,8 @@ const options = {
             firstName: { type: 'string', example: 'John Updated' },
             lastName: { type: 'string', example: 'Doe Updated' },
             email: { type: 'string', format: 'email', example: 'john.updated@example.com' },
-            roleId: { type: 'string', example: 'clx1234567890abcdef' }
+            roleId: { type: 'string', example: 'clx1234567890abcdef' },
+            backgroundImage: { type: 'string', example: 'https://example.com/backgrounds/tech-background.jpg' }
           }
         },
         ChangePasswordRequest: {
@@ -1026,6 +1029,132 @@ const options = {
               description: 'Payment method used for the revenue',
               example: 'BANK'
             }
+          }
+        },
+        // Mini-KYC schemas
+        MiniKyc: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            userId: { type: 'string', example: 'clx1234567890abcdef' },
+            data: { 
+              type: 'object', 
+              description: 'Dynamic key-value pairs for KYC data',
+              example: {
+                businessType: 'Technology',
+                companySize: '25-50',
+                industry: 'Software Development',
+                foundedYear: 2020,
+                employeeCount: 35,
+                preferredCurrency: 'USD',
+                annualRevenue: '2000000-5000000',
+                taxId: 'TAX123456789',
+                bankAccountNumber: '1234567890',
+                businessAddress: '123 Tech Street, Harare',
+                contactPerson: 'John Doe',
+                phoneNumber: '+263777123456',
+                website: 'https://example.com',
+                businessLicense: 'LIC123456',
+                complianceStatus: 'Compliant',
+                riskLevel: 'Low',
+                verificationStatus: 'Verified',
+                lastReviewDate: '2024-12-01'
+              }
+            },
+            isCompleted: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        CreateMiniKycRequest: {
+          type: 'object',
+          properties: {
+            data: { 
+              type: 'object', 
+              description: 'Dynamic key-value pairs for KYC data',
+              example: {
+                businessType: 'Technology',
+                companySize: '25-50',
+                industry: 'Software Development',
+                foundedYear: 2020,
+                employeeCount: 35,
+                preferredCurrency: 'USD',
+                annualRevenue: '2000000-5000000',
+                taxId: 'TAX123456789',
+                bankAccountNumber: '1234567890',
+                businessAddress: '123 Tech Street, Harare',
+                contactPerson: 'John Doe',
+                phoneNumber: '+263777123456',
+                website: 'https://example.com',
+                businessLicense: 'LIC123456',
+                complianceStatus: 'Compliant',
+                riskLevel: 'Low',
+                verificationStatus: 'Verified',
+                lastReviewDate: '2024-12-01'
+              }
+            },
+            isCompleted: { type: 'boolean', example: true }
+          }
+        },
+        UpdateMiniKycRequest: {
+          type: 'object',
+          properties: {
+            data: { 
+              type: 'object', 
+              description: 'Dynamic key-value pairs for KYC data',
+              example: {
+                businessType: 'Technology Updated',
+                companySize: '50-100',
+                industry: 'Software Development',
+                foundedYear: 2020,
+                employeeCount: 75,
+                preferredCurrency: 'USD',
+                annualRevenue: '5000000-10000000',
+                taxId: 'TAX123456789',
+                bankAccountNumber: '1234567890',
+                businessAddress: '456 Tech Street, Harare',
+                contactPerson: 'John Doe Updated',
+                phoneNumber: '+263777123456',
+                website: 'https://example.com',
+                businessLicense: 'LIC123456',
+                complianceStatus: 'Compliant',
+                riskLevel: 'Low',
+                verificationStatus: 'Verified',
+                lastReviewDate: '2024-12-01'
+              }
+            },
+            isCompleted: { type: 'boolean', example: true }
+          }
+        },
+        // Company Profile schemas
+        CompanyProfile: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            twitter: { type: 'string', example: 'https://twitter.com/nvccz' },
+            facebook: { type: 'string', example: 'https://facebook.com/nvccz' },
+            linkedin: { type: 'string', example: 'https://linkedin.com/company/nvccz' },
+            instagram: { type: 'string', example: 'https://instagram.com/nvccz' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        CreateCompanyProfileRequest: {
+          type: 'object',
+          properties: {
+            twitter: { type: 'string', example: 'https://twitter.com/nvccz' },
+            facebook: { type: 'string', example: 'https://facebook.com/nvccz' },
+            linkedin: { type: 'string', example: 'https://linkedin.com/company/nvccz' },
+            instagram: { type: 'string', example: 'https://instagram.com/nvccz' }
+          }
+        },
+        UpdateCompanyProfileRequest: {
+          type: 'object',
+          properties: {
+            twitter: { type: 'string', example: 'https://twitter.com/nvccz_updated' },
+            facebook: { type: 'string', example: 'https://facebook.com/nvccz_updated' },
+            linkedin: { type: 'string', example: 'https://linkedin.com/company/nvccz_updated' },
+            instagram: { type: 'string', example: 'https://instagram.com/nvccz_updated' }
           }
         }
       }
@@ -5021,6 +5150,313 @@ try {
               content: {
                 'application/json': {
                   schema: { $ref: '#/components/schemas/HomepageData' }
+                }
+              }
+            }
+          }
+        }
+      },
+      // Mini-KYC Management
+      '/mini-kyc': {
+        post: {
+          summary: 'Create or update mini-KYC',
+          description: 'Create or update mini-KYC for the authenticated user',
+          tags: ['Mini-KYC'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreateMiniKycRequest' }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Mini-KYC created/updated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { $ref: '#/components/schemas/MiniKyc' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        get: {
+          summary: 'Get mini-KYC',
+          description: 'Get mini-KYC for the authenticated user',
+          tags: ['Mini-KYC'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Mini-KYC retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { $ref: '#/components/schemas/MiniKyc' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        put: {
+          summary: 'Update mini-KYC',
+          description: 'Update mini-KYC for the authenticated user',
+          tags: ['Mini-KYC'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/UpdateMiniKycRequest' }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Mini-KYC updated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { $ref: '#/components/schemas/MiniKyc' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        delete: {
+          summary: 'Delete mini-KYC',
+          description: 'Delete mini-KYC for the authenticated user',
+          tags: ['Mini-KYC'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Mini-KYC deleted successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/mini-kyc/status': {
+        get: {
+          summary: 'Get KYC status',
+          description: 'Check if user has completed mini-KYC',
+          tags: ['Mini-KYC'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'KYC status retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          isCompleted: { type: 'boolean' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/mini-kyc/all': {
+        get: {
+          summary: 'Get all mini-KYC records',
+          description: 'Get all mini-KYC records (admin only)',
+          tags: ['Mini-KYC'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'All mini-KYC records retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/MiniKyc' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // Company Profile Management
+      '/company-profile': {
+        post: {
+          summary: 'Create company profile',
+          description: 'Create a new company profile with social media URLs (Admin only)',
+          tags: ['Company Profile'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreateCompanyProfileRequest' }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: 'Company profile created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { $ref: '#/components/schemas/CompanyProfile' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        get: {
+          summary: 'Get company profile',
+          description: 'Retrieve the company profile with social media URLs',
+          tags: ['Company Profile'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Company profile retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: { $ref: '#/components/schemas/CompanyProfile' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        put: {
+          summary: 'Update company profile',
+          description: 'Update the company profile with social media URLs (Admin only)',
+          tags: ['Company Profile'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/UpdateCompanyProfileRequest' }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Company profile updated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { $ref: '#/components/schemas/CompanyProfile' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        delete: {
+          summary: 'Delete company profile',
+          description: 'Delete the company profile (Admin only)',
+          tags: ['Company Profile'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: 'Company profile deleted successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      '/company-profile/upsert': {
+        post: {
+          summary: 'Create or update company profile',
+          description: 'Create a new company profile or update existing one (Admin only)',
+          tags: ['Company Profile'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreateCompanyProfileRequest' }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Company profile created or updated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { $ref: '#/components/schemas/CompanyProfile' }
+                    }
+                  }
                 }
               }
             }

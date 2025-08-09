@@ -18,7 +18,6 @@
     "prisma:db:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:admin": "ts-node prisma/seed.ts",
-
     "vercel-build": "npm run build"
   },
   "keywords": [
@@ -40,12 +39,15 @@
     "bcrypt": "^6.0.0",
     "compression": "^1.8.0",
     "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
+    "decimal.js": "^10.6.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.0.1",
     "express-validator": "^7.2.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
+    "levenshtein-edit-distance": "^3.0.1",
     "multer": "^2.0.2",
     "swagger-jsdoc": "^6.2.8"
   },

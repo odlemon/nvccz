@@ -9,26 +9,31 @@ datasource db {
 }
 
 model User {
-  id             String         @id @default(cuid())
-  firstName      String
-  lastName       String
-  email          String         @unique
-  password       String
-  roleId         String
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  lastSeen       DateTime       @default(now())
-  role           Role           @relation(fields: [roleId], references: [id])
-  posts          Post[]
-  replies        Reply[]
-  newsletters    Newsletter[]
-  events         Event[]
-  notifications  Notification[]
-  userActivity   UserActivity[]
-  journalEntries JournalEntry[]
-  expenses       Expense[]
-  invoices       Invoice[]
-  revenues       Revenue[]
+  id                        String                     @id @default(cuid())
+  firstName                 String
+  lastName                  String
+  email                     String                     @unique
+  password                  String
+  roleId                    String
+  backgroundImage           String?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  lastSeen                  DateTime                   @default(now())
+  role                      Role                       @relation(fields: [roleId], references: [id])
+  posts                     Post[]
+  replies                   Reply[]
+  newsletters               Newsletter[]
+  events                    Event[]
+  notifications             Notification[]
+  userActivity              UserActivity[]
+  journalEntries            JournalEntry[]
+  expenses                  Expense[]
+  invoices                  Invoice[]
+  revenues                  Revenue[]
+  bankReconciliations       BankReconciliation[]
+  reconciliationResults     ReconciliationResult[]
+  reconciliationAuditTrails ReconciliationAuditTrail[]
+  miniKyc                  MiniKyc?
 
   @@map("users")
 }
@@ -201,22 +206,24 @@ model ExpenseCategory {
 }
 
 model JournalEntry {
-  id                String             @id @default(cuid())
-  transactionDate   DateTime
-  referenceNumber   String             @unique
-  description       String
-  totalAmount       Decimal            @db.Decimal(15, 2)
-  currencyId        String
-  status            String             @default("PENDING")
-  createdById       String
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  currency          Currency           @relation(fields: [currencyId], references: [id])
-  createdBy         User               @relation(fields: [createdById], references: [id])
-  journalEntryLines JournalEntryLine[]
-  expenses          Expense[]
-  invoices          Invoice[]
-  revenues          Revenue[]
+  id                    String                 @id @default(cuid())
+  transactionDate       DateTime
+  referenceNumber       String                 @unique
+  description           String
+  totalAmount           Decimal                @db.Decimal(15, 2)
+  currencyId            String
+  status                String                 @default("PENDING")
+  createdById           String
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  currency              Currency               @relation(fields: [currencyId], references: [id])
+  createdBy             User                   @relation(fields: [createdById], references: [id])
+  journalEntryLines     JournalEntryLine[]
+  expenses              Expense[]
+  invoices              Invoice[]
+  revenues              Revenue[]
+  bankTransactions      BankTransaction[]
+  reconciliationResults ReconciliationResult[]
 
   @@map("journal_entries")
 }
@@ -309,30 +316,105 @@ model RevenueCategory {
 }
 
 model Revenue {
-  id              String           @id @default(cuid())
+  id              String          @id @default(cuid())
   sourceId        String
   categoryId      String
-  amount          Decimal          @db.Decimal(15, 2)
-  vatAmount       Decimal          @default(0.00) @db.Decimal(15, 2)
-  totalAmount     Decimal          @db.Decimal(15, 2)
+  amount          Decimal         @db.Decimal(15, 2)
+  vatAmount       Decimal         @default(0.00) @db.Decimal(15, 2)
+  totalAmount     Decimal         @db.Decimal(15, 2)
   currencyId      String
   transactionDate DateTime
   description     String
-  isTaxable       Boolean          @default(false)
-  paymentMethod   String           @default("BANK")
-  status          String           @default("DRAFT")
-  isActive        Boolean          @default(true)
+  isTaxable       Boolean         @default(false)
+  paymentMethod   String          @default("BANK")
+  status          String          @default("DRAFT")
+  isActive        Boolean         @default(true)
   journalEntryId  String?
   createdById     String
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  source          RevenueSource    @relation(fields: [sourceId], references: [id])
-  category        RevenueCategory  @relation(fields: [categoryId], references: [id])
-  currency        Currency         @relation(fields: [currencyId], references: [id])
-  journalEntry    JournalEntry?    @relation(fields: [journalEntryId], references: [id])
-  createdBy       User             @relation(fields: [createdById], references: [id])
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  source          RevenueSource   @relation(fields: [sourceId], references: [id])
+  category        RevenueCategory @relation(fields: [categoryId], references: [id])
+  currency        Currency        @relation(fields: [currencyId], references: [id])
+  journalEntry    JournalEntry?   @relation(fields: [journalEntryId], references: [id])
+  createdBy       User            @relation(fields: [createdById], references: [id])
 
   @@map("revenues")
+}
+
+model BankReconciliation {
+  id                        String                     @id @default(cuid())
+  fileName                  String
+  fileUrl                   String
+  status                    String                     @default("PENDING")
+  totalTransactions         Int                        @default(0)
+  matchedCount              Int                        @default(0)
+  unmatchedCount            Int                        @default(0)
+  confidenceThreshold       Decimal                    @default(90.00) @db.Decimal(5, 2)
+  overallAccuracy           Decimal?                   @db.Decimal(5, 2)
+  notes                     String?                    @db.Text
+  createdById               String
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  createdBy                 User                       @relation(fields: [createdById], references: [id])
+  bankTransactions          BankTransaction[]
+  reconciliationResults     ReconciliationResult[]
+  reconciliationAuditTrails ReconciliationAuditTrail[]
+
+  @@map("bank_reconciliations")
+}
+
+model BankTransaction {
+  id                    String                 @id @default(cuid())
+  reconciliationId      String
+  transactionDate       DateTime
+  description           String
+  amount                Decimal                @db.Decimal(15, 2)
+  reference             String?
+  isMatched             Boolean                @default(false)
+  confidenceScore       Decimal?               @db.Decimal(5, 2)
+  matchedJournalEntryId String?
+  notes                 String?                @db.Text
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  reconciliation        BankReconciliation     @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  matchedJournalEntry   JournalEntry?          @relation(fields: [matchedJournalEntryId], references: [id])
+  reconciliationResults ReconciliationResult[]
+
+  @@map("bank_transactions")
+}
+
+model ReconciliationResult {
+  id                String             @id @default(cuid())
+  reconciliationId  String
+  bankTransactionId String
+  journalEntryId    String
+  matchType         String
+  confidenceScore   Decimal            @db.Decimal(5, 2)
+  status            String             @default("PENDING")
+  notes             String?            @db.Text
+  createdById       String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  reconciliation    BankReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  bankTransaction   BankTransaction    @relation(fields: [bankTransactionId], references: [id], onDelete: Cascade)
+  journalEntry      JournalEntry       @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  createdBy         User               @relation(fields: [createdById], references: [id])
+
+  @@map("reconciliation_results")
+}
+
+model ReconciliationAuditTrail {
+  id               String             @id @default(cuid())
+  reconciliationId String
+  action           String
+  details          Json
+  createdById      String
+  createdAt        DateTime           @default(now())
+  reconciliation   BankReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  createdBy        User               @relation(fields: [createdById], references: [id])
+
+  @@map("reconciliation_audit_trail")
 }
 
 model Invoice {
@@ -360,4 +442,28 @@ model Invoice {
   createdBy       User          @relation(fields: [createdById], references: [id])
 
   @@map("invoices")
+}
+
+model MiniKyc {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  data        Json     // Dynamic key-value pairs for KYC data
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("mini_kyc")
+}
+
+model CompanyProfile {
+  id        String   @id @default(cuid())
+  twitter   String?
+  facebook  String?
+  linkedin  String?
+  instagram String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("company_profile")
 }

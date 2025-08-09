@@ -1,0 +1,154 @@
+// @ts-nocheck
+import { PrismaClient } from '@prisma/client';
+import { uploadToS3 } from '../utils/awsS3';
+import { Decimal } from 'decimal.js';
+import csv from 'csv-parser';
+
+const prisma = new PrismaClient();
+
+interface BankTransactionData {
+  transactionDate: Date;
+  description: string;
+  amount: Decimal;
+  reference?: string;
+}
+
+interface UploadResult {
+  reconciliationId: string;
+  fileName: string;
+  fileUrl: string;
+  success: boolean;
+  message: string;
+}
+
+export class BankStatementUploadService {
+  static async uploadBankStatement(file: Express.Multer.File, userId: string): Promise<UploadResult> {
+    try {
+      // Validate file
+      if (!file || !file.buffer) {
+        throw new Error('No file provided');
+      }
+
+      // Generate unique filename
+      const timestamp = Date.now();
+      const fileName = `${timestamp}-${file.originalname}`;
+      const key = `bank-statements/${fileName}`;
+
+      // Upload to S3
+      const fileUrl = await uploadToS3(file.buffer, key, file.mimetype);
+
+      // Create reconciliation record
+      const reconciliation = await prisma.bankReconciliation.create({
+        data: {
+          fileName: file.originalname,
+          fileUrl,
+          status: 'PENDING',
+          createdById: userId
+        }
+      });
+
+      return {
+        reconciliationId: reconciliation.id,
+        fileName: file.originalname,
+        fileUrl,
+        success: true,
+        message: 'File uploaded successfully'
+      };
+    } catch (error) {
+      console.error('Error uploading bank statement:', error);
+      throw error;
+    }
+  }
+
+  static async parseCSVFile(fileBuffer: Buffer): Promise<BankTransactionData[]> {
+    return new Promise((resolve, reject) => {
+      const transactions: BankTransactionData[] = [];
+      const stream = require('stream');
+      const bufferStream = new stream.PassThrough();
+      bufferStream.end(fileBuffer);
+
+      bufferStream
+        .pipe(csv())
+        .on('data', (row: any) => {
+          const normalizedRow = this.normalizeCSVRow(row);
+          if (normalizedRow) {
+            transactions.push(normalizedRow);
+          }
+        })
+        .on('end', () => {
+          resolve(transactions);
+        })
+        .on('error', (error: any) => {
+          reject(error);
+        });
+    });
+  }
+
+  private static normalizeCSVRow(row: any): BankTransactionData | null {
+    try {
+      // Try different possible column names for date
+      const dateField = row.date || row.Date || row.DATE || row.transactionDate || row.TransactionDate || row.TRANSACTION_DATE;
+      const descriptionField = row.description || row.Description || row.DESCRIPTION || row.narrative || row.Narrative || row.NARRATIVE;
+      const amountField = row.amount || row.Amount || row.AMOUNT || row.debit || row.Debit || row.DEBIT || row.credit || row.Credit || row.CREDIT;
+      const referenceField = row.reference || row.Reference || row.REFERENCE || row.ref || row.Ref || row.REF;
+
+      if (!dateField || !descriptionField || !amountField) {
+        return null;
+      }
+
+      // Parse date
+      const transactionDate = new Date(dateField);
+      if (isNaN(transactionDate.getTime())) {
+        return null;
+      }
+
+      // Parse amount
+      const amountStr = amountField.toString().replace(/[^\d.-]/g, '');
+      const amount = new Decimal(amountStr);
+      if (amount.isNaN()) {
+        return null;
+      }
+
+      return {
+        transactionDate,
+        description: descriptionField.toString().trim(),
+        amount,
+        reference: referenceField ? referenceField.toString().trim() : undefined
+      };
+    } catch (error) {
+      console.error('Error normalizing CSV row:', error);
+      return null;
+    }
+  }
+
+  static async storeTransactions(reconciliationId: string, transactions: BankTransactionData[]): Promise<number> {
+    try {
+      const bankTransactions = transactions.map(transaction => ({
+        reconciliationId,
+        transactionDate: transaction.transactionDate,
+        description: transaction.description,
+        amount: transaction.amount,
+        reference: transaction.reference || null,
+        isMatched: false
+      }));
+
+      const result = await prisma.bankTransaction.createMany({
+        data: bankTransactions
+      });
+
+      // Update reconciliation with transaction count
+      await prisma.bankReconciliation.update({
+        where: { id: reconciliationId },
+        data: { 
+          totalTransactions: result.count,
+          status: 'PROCESSING'
+        }
+      });
+
+      return result.count;
+    } catch (error) {
+      console.error('Error storing transactions:', error);
+      throw error;
+    }
+  }
+} 

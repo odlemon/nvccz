@@ -38,7 +38,8 @@ async function main() {
         { name: "manage_erp_reports", value: true },
         { name: "view_subscription", value: true },
         { name: "manage_subscription", value: true },
-        { name: "manage_firm_settings", value: true }
+        { name: "manage_firm_settings", value: true },
+        { name: "bank_reconciliation", value: true }
       ]
     },
   });
