@@ -11,7 +11,7 @@ router.use(authenticate);
 
 /**
  * @swagger
- * /company-profile:
+ * /api/company-profile:
  *   post:
  *     summary: Create company profile
  *     description: Create a new company profile with social media URLs (Admin only)
@@ -85,7 +85,7 @@ router.post("/", authorize(["admin"]), CompanyProfileController.createCompanyPro
 
 /**
  * @swagger
- * /company-profile:
+ * /api/company-profile:
  *   get:
  *     summary: Get company profile
  *     description: Retrieve the company profile with social media URLs
@@ -131,7 +131,7 @@ router.get("/", CompanyProfileController.getCompanyProfile);
 
 /**
  * @swagger
- * /company-profile:
+ * /api/company-profile:
  *   put:
  *     summary: Update company profile
  *     description: Update the company profile with social media URLs (Admin only)
@@ -205,7 +205,7 @@ router.put("/", authorize(["admin"]), CompanyProfileController.updateCompanyProf
 
 /**
  * @swagger
- * /company-profile:
+ * /api/company-profile:
  *   delete:
  *     summary: Delete company profile
  *     description: Delete the company profile (Admin only)
@@ -237,7 +237,7 @@ router.delete("/", authorize(["admin"]), CompanyProfileController.deleteCompanyP
 
 /**
  * @swagger
- * /company-profile/upsert:
+ * /api/company-profile/upsert:
  *   post:
  *     summary: Create or update company profile
  *     description: Create a new company profile or update existing one (Admin only)
