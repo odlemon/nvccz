@@ -28,6 +28,9 @@ import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import revenueRoutes from "./routes/revenueRoutes"
 import revenueSourceRoutes from "./routes/revenueSourceRoutes"
 import revenueCategoryRoutes from "./routes/revenueCategoryRoutes"
+import bankReconciliationRoutes from "./routes/bankReconciliationRoutes"
+import miniKycRoutes from "./routes/miniKycRoutes"
+import companyProfileRoutes from "./routes/companyProfileRoutes"
 
 
 dotenv.config()
@@ -200,6 +203,13 @@ app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
+app.use("/api/accounting/bank-reconciliation", bankReconciliationRoutes)
+
+// Mini-KYC routes
+app.use("/api/mini-kyc", miniKycRoutes)
+
+// Company Profile routes
+app.use("/api/company-profile", companyProfileRoutes)
 
 
 app.use(errorMiddleware)

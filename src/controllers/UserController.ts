@@ -10,7 +10,7 @@ export class UserController {
   // Create a new user
   async createUser(req: Request, res: Response, next: NextFunction) {
     try {
-      const { firstName, lastName, email, password, roleId } = req.body;
+      const { firstName, lastName, email, password, roleId, backgroundImage } = req.body;
 
       // Validate required fields
       if (!firstName || !lastName || !email || !password || !roleId) {
@@ -57,7 +57,8 @@ export class UserController {
           lastName,
           email: email.toLowerCase(),
           password: hashedPassword,
-          roleId
+          roleId,
+          backgroundImage
         },
         include: {
           role: {
@@ -101,6 +102,7 @@ export class UserController {
           firstName: true,
           lastName: true,
           email: true,
+          backgroundImage: true,
           createdAt: true,
           updatedAt: true,
           lastSeen: true,
@@ -138,6 +140,7 @@ export class UserController {
           firstName: true,
           lastName: true,
           email: true,
+          backgroundImage: true,
           createdAt: true,
           updatedAt: true,
           role: {
@@ -172,7 +175,7 @@ export class UserController {
   async updateUser(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { firstName, lastName, email, roleId } = req.body;
+      const { firstName, lastName, email, roleId, backgroundImage } = req.body;
 
       // Check if user exists
       const existingUser = await prisma.user.findUnique({
@@ -224,7 +227,8 @@ export class UserController {
           firstName: firstName || undefined,
           lastName: lastName || undefined,
           email: email ? email.toLowerCase() : undefined,
-          roleId: roleId || undefined
+          roleId: roleId || undefined,
+          backgroundImage: backgroundImage || undefined
         },
         include: {
           role: {
