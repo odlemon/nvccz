@@ -23,24 +23,7 @@ router.use(authenticate);
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               twitter:
- *                 type: string
- *                 description: Twitter URL
- *                 example: "https://twitter.com/company"
- *               facebook:
- *                 type: string
- *                 description: Facebook URL
- *                 example: "https://facebook.com/company"
- *               linkedin:
- *                 type: string
- *                 description: LinkedIn URL
- *                 example: "https://linkedin.com/company/company"
- *               instagram:
- *                 type: string
- *                 description: Instagram URL
- *                 example: "https://instagram.com/company"
+ *             $ref: '#/components/schemas/CreateCompanyProfileRequest'
  *     responses:
  *       201:
  *         description: Company profile created successfully
@@ -56,24 +39,7 @@ router.use(authenticate);
  *                   type: string
  *                   example: Company profile created successfully
  *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     twitter:
- *                       type: string
- *                     facebook:
- *                       type: string
- *                     linkedin:
- *                       type: string
- *                     instagram:
- *                       type: string
- *                     createdAt:
- *                       type: string
- *                       format: date-time
- *                     updatedAt:
- *                       type: string
- *                       format: date-time
+ *                   $ref: '#/components/schemas/CompanyProfile'
  *       400:
  *         description: Bad request - company profile already exists
  *       401:
@@ -104,24 +70,7 @@ router.post("/", authorize(["admin"]), CompanyProfileController.createCompanyPro
  *                   type: boolean
  *                   example: true
  *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     twitter:
- *                       type: string
- *                     facebook:
- *                       type: string
- *                     linkedin:
- *                       type: string
- *                     instagram:
- *                       type: string
- *                     createdAt:
- *                       type: string
- *                       format: date-time
- *                     updatedAt:
- *                       type: string
- *                       format: date-time
+ *                   $ref: '#/components/schemas/CompanyProfile'
  *       401:
  *         description: Unauthorized
  *       404:
@@ -143,24 +92,7 @@ router.get("/", CompanyProfileController.getCompanyProfile);
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               twitter:
- *                 type: string
- *                 description: Twitter URL
- *                 example: "https://twitter.com/company"
- *               facebook:
- *                 type: string
- *                 description: Facebook URL
- *                 example: "https://facebook.com/company"
- *               linkedin:
- *                 type: string
- *                 description: LinkedIn URL
- *                 example: "https://linkedin.com/company/company"
- *               instagram:
- *                 type: string
- *                 description: Instagram URL
- *                 example: "https://instagram.com/company"
+ *             $ref: '#/components/schemas/UpdateCompanyProfileRequest'
  *     responses:
  *       200:
  *         description: Company profile updated successfully
@@ -176,24 +108,7 @@ router.get("/", CompanyProfileController.getCompanyProfile);
  *                   type: string
  *                   example: Company profile updated successfully
  *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     twitter:
- *                       type: string
- *                     facebook:
- *                       type: string
- *                     linkedin:
- *                       type: string
- *                     instagram:
- *                       type: string
- *                     createdAt:
- *                       type: string
- *                       format: date-time
- *                     updatedAt:
- *                       type: string
- *                       format: date-time
+ *                   $ref: '#/components/schemas/CompanyProfile'
  *       400:
  *         description: Bad request - company profile not found
  *       401:
@@ -249,24 +164,7 @@ router.delete("/", authorize(["admin"]), CompanyProfileController.deleteCompanyP
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               twitter:
- *                 type: string
- *                 description: Twitter URL
- *                 example: "https://twitter.com/company"
- *               facebook:
- *                 type: string
- *                 description: Facebook URL
- *                 example: "https://facebook.com/company"
- *               linkedin:
- *                 type: string
- *                 description: LinkedIn URL
- *                 example: "https://linkedin.com/company/company"
- *               instagram:
- *                 type: string
- *                 description: Instagram URL
- *                 example: "https://instagram.com/company"
+ *             $ref: '#/components/schemas/CreateCompanyProfileRequest'
  *     responses:
  *       200:
  *         description: Company profile created or updated successfully
@@ -282,24 +180,7 @@ router.delete("/", authorize(["admin"]), CompanyProfileController.deleteCompanyP
  *                   type: string
  *                   example: Company profile created successfully
  *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     twitter:
- *                       type: string
- *                     facebook:
- *                       type: string
- *                     linkedin:
- *                       type: string
- *                     instagram:
- *                       type: string
- *                     createdAt:
- *                       type: string
- *                       format: date-time
- *                     updatedAt:
- *                       type: string
- *                       format: date-time
+ *                   $ref: '#/components/schemas/CompanyProfile'
  *       401:
  *         description: Unauthorized
  *       403:
