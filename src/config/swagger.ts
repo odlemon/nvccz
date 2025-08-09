@@ -1166,7 +1166,7 @@ const options = {
     ]
   },
   apis: process.env.NODE_ENV === 'production' 
-    ? ['./dist/**/*.js', './dist/routes/**/*.js', './dist/controllers/**/*.js'] 
+    ? [] // In production, don't scan files - use fallback spec only
     : ['./src/**/*.ts', './src/routes/**/*.ts', './src/controllers/**/*.ts']
 };
 
@@ -4436,13 +4436,18 @@ try {
     }
   };
   
-  // Merge JSDoc-generated paths with fallback paths to ensure all endpoints are included
-  if (specs.paths && Object.keys(specs.paths).length > 0) {
-    // Merge paths, with fallback taking precedence for missing endpoints
-    specs.paths = { ...fallbackSpec.paths, ...specs.paths };
-  } else {
-    // Use fallback spec if no JSDoc paths found
+  // In production, always use fallback spec to ensure all endpoints are included
+  if (process.env.NODE_ENV === 'production') {
     specs = fallbackSpec;
+  } else {
+    // In development, merge JSDoc-generated paths with fallback paths
+    if (specs.paths && Object.keys(specs.paths).length > 0) {
+      // Merge paths, with fallback taking precedence for missing endpoints
+      specs.paths = { ...fallbackSpec.paths, ...specs.paths };
+    } else {
+      // Use fallback spec if no JSDoc paths found
+      specs = fallbackSpec;
+    }
   }
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
