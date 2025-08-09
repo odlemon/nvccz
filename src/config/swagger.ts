@@ -5162,7 +5162,7 @@ try {
         }
       },
       // Mini-KYC Management
-      '/mini-kyc': {
+              '/api/mini-kyc': {
         post: {
           summary: 'Create or update mini-KYC',
           description: 'Create or update mini-KYC for the authenticated user',
@@ -5270,7 +5270,7 @@ try {
           }
         }
       },
-      '/mini-kyc/status': {
+              '/api/mini-kyc/status': {
         get: {
           summary: 'Get KYC status',
           description: 'Check if user has completed mini-KYC',
@@ -5299,7 +5299,7 @@ try {
           }
         }
       },
-      '/mini-kyc/all': {
+              '/api/mini-kyc/all': {
         get: {
           summary: 'Get all mini-KYC records',
           description: 'Get all mini-KYC records (admin only)',
@@ -5327,7 +5327,7 @@ try {
         }
       },
       // Company Profile Management
-      '/company-profile': {
+              '/api/company-profile': {
         post: {
           summary: 'Create company profile',
           description: 'Create a new company profile with social media URLs (Admin only)',
@@ -5435,7 +5435,7 @@ try {
           }
         }
       },
-      '/company-profile/upsert': {
+              '/api/company-profile/upsert': {
         post: {
           summary: 'Create or update company profile',
           description: 'Create a new company profile or update existing one (Admin only)',
