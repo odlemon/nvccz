@@ -10,7 +10,7 @@ router.use(authenticate);
 
 /**
  * @swagger
- * /api/mini-kyc:
+ * /mini-kyc:
  *   post:
  *     summary: Create or update mini-KYC for the authenticated user
  *     tags: [Mini-KYC]
@@ -51,7 +51,7 @@ router.post('/', MiniKycController.createOrUpdateMiniKyc);
 
 /**
  * @swagger
- * /api/mini-kyc:
+ * /mini-kyc:
  *   get:
  *     summary: Get mini-KYC for the authenticated user
  *     tags: [Mini-KYC]
@@ -69,7 +69,7 @@ router.get('/', MiniKycController.getMiniKyc);
 
 /**
  * @swagger
- * /api/mini-kyc:
+ * /mini-kyc:
  *   put:
  *     summary: Update mini-KYC for the authenticated user
  *     tags: [Mini-KYC]
@@ -102,7 +102,7 @@ router.put('/', MiniKycController.updateMiniKyc);
 
 /**
  * @swagger
- * /api/mini-kyc:
+ * /mini-kyc:
  *   delete:
  *     summary: Delete mini-KYC for the authenticated user
  *     tags: [Mini-KYC]
@@ -122,7 +122,7 @@ router.delete('/', MiniKycController.deleteMiniKyc);
 
 /**
  * @swagger
- * /api/mini-kyc/status:
+ * /mini-kyc/status:
  *   get:
  *     summary: Check if user has completed mini-KYC
  *     tags: [Mini-KYC]
@@ -149,7 +149,7 @@ router.get('/status', MiniKycController.getKycStatus);
 
 /**
  * @swagger
- * /api/mini-kyc/all:
+ * /mini-kyc/all:
  *   get:
  *     summary: Get all mini-KYC records (admin only)
  *     tags: [Mini-KYC]
