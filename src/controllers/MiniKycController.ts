@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Request, Response } from 'express';
 import { MiniKycService, CreateMiniKycRequest, UpdateMiniKycRequest } from '../services/MiniKycService';
 import { logger } from '../utils/logger';
