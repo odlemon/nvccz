@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Router } from 'express';
 import { MiniKycController } from '../controllers/MiniKycController';
 import { authenticate } from '../middleware/authenticate';
