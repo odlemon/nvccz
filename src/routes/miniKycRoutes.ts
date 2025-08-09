@@ -21,25 +21,21 @@ router.use(authenticate);
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - data
- *             properties:
- *               data:
- *                 type: object
- *                 description: Dynamic key-value pairs for KYC data
- *                 example:
- *                   businessType: "SaaS"
- *                   companySize: "10-50"
- *                   preferredCurrency: "USD"
- *                   taxId: "123456789"
- *               isCompleted:
- *                 type: boolean
- *                 description: Whether the KYC is completed
- *                 default: false
+ *             $ref: '#/components/schemas/CreateMiniKycRequest'
  *     responses:
  *       200:
  *         description: Mini-KYC created/updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   $ref: '#/components/schemas/MiniKyc'
  *       400:
  *         description: Bad request - data field is required
  *       401:
@@ -60,6 +56,15 @@ router.post('/', MiniKycController.createOrUpdateMiniKyc);
  *     responses:
  *       200:
  *         description: Mini-KYC retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/MiniKyc'
  *       401:
  *         description: Unauthorized
  *       500:
@@ -80,17 +85,21 @@ router.get('/', MiniKycController.getMiniKyc);
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               data:
- *                 type: object
- *                 description: Dynamic key-value pairs for KYC data
- *               isCompleted:
- *                 type: boolean
- *                 description: Whether the KYC is completed
+ *             $ref: '#/components/schemas/UpdateMiniKycRequest'
  *     responses:
  *       200:
  *         description: Mini-KYC updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   $ref: '#/components/schemas/MiniKyc'
  *       401:
  *         description: Unauthorized
  *       404:
@@ -111,6 +120,15 @@ router.put('/', MiniKycController.updateMiniKyc);
  *     responses:
  *       200:
  *         description: Mini-KYC deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
  *       401:
  *         description: Unauthorized
  *       404:
@@ -136,10 +154,15 @@ router.delete('/', MiniKycController.deleteMiniKyc);
  *             schema:
  *               type: object
  *               properties:
- *                 isCompleted:
+ *                 success:
  *                   type: boolean
- *                 userId:
- *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     isCompleted:
+ *                       type: boolean
+ *                     userId:
+ *                       type: string
  *       401:
  *         description: Unauthorized
  *       500:
@@ -158,6 +181,17 @@ router.get('/status', MiniKycController.getKycStatus);
  *     responses:
  *       200:
  *         description: All mini-KYC records retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/MiniKyc'
  *       401:
  *         description: Unauthorized
  *       403:
