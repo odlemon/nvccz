@@ -34,6 +34,7 @@ model User {
   reconciliationResults     ReconciliationResult[]
   reconciliationAuditTrails ReconciliationAuditTrail[]
   miniKyc                  MiniKyc?
+  targets                  Target[]
 
   @@map("users")
 }
@@ -466,4 +467,18 @@ model CompanyProfile {
   updatedAt DateTime @updatedAt
 
   @@map("company_profile")
+}
+
+model Target {
+  id        String   @id @default(cuid())
+  type      String   // Sales, Revenue, Expenses, Profit
+  value     Decimal  @db.Decimal(15, 2)
+  deadline  DateTime
+  isActive  Boolean  @default(true)
+  createdById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy User     @relation(fields: [createdById], references: [id])
+
+  @@map("targets")
 }
