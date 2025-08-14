@@ -4,18 +4,16 @@ import { logger } from '../utils/logger';
 
 const prisma = new PrismaClient();
 
-export interface MiniKycData {
+export interface MiniKycPreferences {
   [key: string]: any;
 }
 
 export interface CreateMiniKycRequest {
-  data: MiniKycData;
-  isCompleted?: boolean;
+  preferences: MiniKycPreferences;
 }
 
 export interface UpdateMiniKycRequest {
-  data?: MiniKycData;
-  isCompleted?: boolean;
+  preferences?: MiniKycPreferences;
 }
 
 export class MiniKycService {
@@ -33,8 +31,7 @@ export class MiniKycService {
         const updatedKyc = await prisma.miniKyc.update({
           where: { userId },
           data: {
-            data: request.data,
-            isCompleted: request.isCompleted ?? existingKyc.isCompleted,
+            preferences: request.preferences,
             updatedAt: new Date()
           }
         });
@@ -46,8 +43,7 @@ export class MiniKycService {
         const newKyc = await prisma.miniKyc.create({
           data: {
             userId,
-            data: request.data,
-            isCompleted: request.isCompleted ?? false
+            preferences: request.preferences
           }
         });
 
@@ -107,8 +103,7 @@ export class MiniKycService {
       const updatedKyc = await prisma.miniKyc.update({
         where: { userId },
         data: {
-          data: request.data ?? existingKyc.data,
-          isCompleted: request.isCompleted ?? existingKyc.isCompleted,
+          preferences: request.preferences ?? existingKyc.preferences,
           updatedAt: new Date()
         }
       });
@@ -175,20 +170,5 @@ export class MiniKycService {
     }
   }
 
-  /**
-   * Check if user has completed mini-KYC
-   */
-  static async isKycCompleted(userId: string): Promise<boolean> {
-    try {
-      const kyc = await prisma.miniKyc.findUnique({
-        where: { userId },
-        select: { isCompleted: true }
-      });
 
-      return kyc?.isCompleted ?? false;
-    } catch (error) {
-      logger.error('Error checking KYC completion status:', error);
-      throw error;
-    }
-  }
 } 

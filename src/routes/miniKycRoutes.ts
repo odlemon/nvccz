@@ -21,7 +21,13 @@ router.use(authenticate);
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/CreateMiniKycRequest'
+ *             type: object
+ *             required:
+ *               - preferences
+ *             properties:
+ *               preferences:
+ *                 type: object
+ *                 description: User preferences for KYC
  *     responses:
  *       200:
  *         description: Mini-KYC created/updated successfully
@@ -35,9 +41,22 @@ router.use(authenticate);
  *                 message:
  *                   type: string
  *                 data:
- *                   $ref: '#/components/schemas/MiniKyc'
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     userId:
+ *                       type: string
+ *                     preferences:
+ *                       type: object
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
  *       400:
- *         description: Bad request - data field is required
+ *         description: Bad request - preferences field is required
  *       401:
  *         description: Unauthorized
  *       500:
@@ -64,7 +83,20 @@ router.post('/', MiniKycController.createOrUpdateMiniKyc);
  *                 success:
  *                   type: boolean
  *                 data:
- *                   $ref: '#/components/schemas/MiniKyc'
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     userId:
+ *                       type: string
+ *                     preferences:
+ *                       type: object
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
  *       401:
  *         description: Unauthorized
  *       500:
@@ -85,7 +117,11 @@ router.get('/', MiniKycController.getMiniKyc);
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/UpdateMiniKycRequest'
+ *             type: object
+ *             properties:
+ *               preferences:
+ *                 type: object
+ *                 description: User preferences for KYC
  *     responses:
  *       200:
  *         description: Mini-KYC updated successfully
@@ -99,7 +135,20 @@ router.get('/', MiniKycController.getMiniKyc);
  *                 message:
  *                   type: string
  *                 data:
- *                   $ref: '#/components/schemas/MiniKyc'
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     userId:
+ *                       type: string
+ *                     preferences:
+ *                       type: object
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
  *       401:
  *         description: Unauthorized
  *       404:
@@ -138,37 +187,7 @@ router.put('/', MiniKycController.updateMiniKyc);
  */
 router.delete('/', MiniKycController.deleteMiniKyc);
 
-/**
- * @swagger
- * /api/mini-kyc/status:
- *   get:
- *     summary: Check if user has completed mini-KYC
- *     tags: [Mini-KYC]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: KYC status retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     isCompleted:
- *                       type: boolean
- *                     userId:
- *                       type: string
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Internal server error
- */
-router.get('/status', MiniKycController.getKycStatus);
+
 
 /**
  * @swagger
@@ -191,7 +210,20 @@ router.get('/status', MiniKycController.getKycStatus);
  *                 data:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/MiniKyc'
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       userId:
+ *                         type: string
+ *                       preferences:
+ *                         type: object
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                       updatedAt:
+ *                         type: string
+ *                         format: date-time
  *       401:
  *         description: Unauthorized
  *       403:

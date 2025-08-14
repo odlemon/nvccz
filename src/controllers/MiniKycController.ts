@@ -11,18 +11,17 @@ export class MiniKycController {
   static async createOrUpdateMiniKyc(req: Request, res: Response) {
     try {
       const userId = (req as any).user.id;
-      const { data, isCompleted }: CreateMiniKycRequest = req.body;
+      const { preferences }: CreateMiniKycRequest = req.body;
 
-      if (!data || typeof data !== 'object') {
+      if (!preferences || typeof preferences !== 'object') {
         return res.status(400).json({
           success: false,
-          message: 'Data field is required and must be an object'
+          message: 'Preferences field is required and must be an object'
         });
       }
 
       const kyc = await MiniKycService.createOrUpdateMiniKyc(userId, {
-        data,
-        isCompleted
+        preferences
       });
 
       logger.info(`Mini-KYC created/updated for user ${userId}`);
@@ -80,11 +79,10 @@ export class MiniKycController {
   static async updateMiniKyc(req: Request, res: Response) {
     try {
       const userId = (req as any).user.id;
-      const { data, isCompleted }: UpdateMiniKycRequest = req.body;
+      const { preferences }: UpdateMiniKycRequest = req.body;
 
       const kyc = await MiniKycService.updateMiniKyc(userId, {
-        data,
-        isCompleted
+        preferences
       });
 
       logger.info(`Mini-KYC updated for user ${userId}`);
@@ -176,31 +174,5 @@ export class MiniKycController {
     }
   }
 
-  /**
-   * Check if user has completed mini-KYC
-   * GET /api/mini-kyc/status
-   */
-  static async getKycStatus(req: Request, res: Response) {
-    try {
-      const userId = (req as any).user.id;
 
-      const isCompleted = await MiniKycService.isKycCompleted(userId);
-
-      logger.info(`KYC status checked for user ${userId}: ${isCompleted}`);
-      return res.status(200).json({
-        success: true,
-        message: 'KYC status retrieved successfully',
-        data: {
-          isCompleted,
-          userId
-        }
-      });
-    } catch (error) {
-      logger.error('Error in getKycStatus:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-      });
-    }
-  }
 } 
