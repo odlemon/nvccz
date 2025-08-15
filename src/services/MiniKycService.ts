@@ -4,54 +4,48 @@ import { logger } from '../utils/logger';
 
 const prisma = new PrismaClient();
 
-export interface MiniKycData {
-  [key: string]: any;
-}
-
 export interface CreateMiniKycRequest {
-  data: MiniKycData;
-  isCompleted?: boolean;
+  ID: string;
+  Preferences: string[];
 }
 
 export interface UpdateMiniKycRequest {
-  data?: MiniKycData;
-  isCompleted?: boolean;
+  ID: string;
+  Preferences: string[];
 }
 
 export class MiniKycService {
   /**
    * Create or update mini-KYC for a user
    */
-  static async createOrUpdateMiniKyc(userId: string, request: CreateMiniKycRequest) {
+  static async createOrUpdateMiniKyc(request: CreateMiniKycRequest) {
     try {
       const existingKyc = await prisma.miniKyc.findUnique({
-        where: { userId }
+        where: { userId: request.ID }
       });
 
       if (existingKyc) {
         // Update existing KYC
         const updatedKyc = await prisma.miniKyc.update({
-          where: { userId },
+          where: { userId: request.ID },
           data: {
-            data: request.data,
-            isCompleted: request.isCompleted ?? existingKyc.isCompleted,
+            preferences: request.Preferences,
             updatedAt: new Date()
           }
         });
 
-        logger.info(`Mini-KYC updated for user ${userId}`);
+        logger.info(`Mini-KYC updated for user ${request.ID}`);
         return updatedKyc;
       } else {
         // Create new KYC
         const newKyc = await prisma.miniKyc.create({
           data: {
-            userId,
-            data: request.data,
-            isCompleted: request.isCompleted ?? false
+            userId: request.ID,
+            preferences: request.Preferences
           }
         });
 
-        logger.info(`Mini-KYC created for user ${userId}`);
+        logger.info(`Mini-KYC created for user ${request.ID}`);
         return newKyc;
       }
     } catch (error) {
@@ -94,10 +88,10 @@ export class MiniKycService {
   /**
    * Update mini-KYC for a user
    */
-  static async updateMiniKyc(userId: string, request: UpdateMiniKycRequest) {
+  static async updateMiniKyc(request: UpdateMiniKycRequest) {
     try {
       const existingKyc = await prisma.miniKyc.findUnique({
-        where: { userId }
+        where: { userId: request.ID }
       });
 
       if (!existingKyc) {
@@ -105,15 +99,14 @@ export class MiniKycService {
       }
 
       const updatedKyc = await prisma.miniKyc.update({
-        where: { userId },
+        where: { userId: request.ID },
         data: {
-          data: request.data ?? existingKyc.data,
-          isCompleted: request.isCompleted ?? existingKyc.isCompleted,
+          preferences: request.Preferences,
           updatedAt: new Date()
         }
       });
 
-      logger.info(`Mini-KYC updated for user ${userId}`);
+      logger.info(`Mini-KYC updated for user ${request.ID}`);
       return updatedKyc;
     } catch (error) {
       logger.error('Error updating mini-KYC:', error);
@@ -175,20 +168,5 @@ export class MiniKycService {
     }
   }
 
-  /**
-   * Check if user has completed mini-KYC
-   */
-  static async isKycCompleted(userId: string): Promise<boolean> {
-    try {
-      const kyc = await prisma.miniKyc.findUnique({
-        where: { userId },
-        select: { isCompleted: true }
-      });
 
-      return kyc?.isCompleted ?? false;
-    } catch (error) {
-      logger.error('Error checking KYC completion status:', error);
-      throw error;
-    }
-  }
 } 
