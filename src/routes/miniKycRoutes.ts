@@ -12,7 +12,7 @@ router.use(authenticate);
  * @swagger
  * /api/mini-kyc:
  *   post:
- *     summary: Create or update mini-KYC for the authenticated user
+ *     summary: Create or update mini-KYC for a user
  *     tags: [Mini-KYC]
  *     security:
  *       - bearerAuth: []
@@ -23,11 +23,17 @@ router.use(authenticate);
  *           schema:
  *             type: object
  *             required:
- *               - preferences
+ *               - ID
+ *               - Preferences
  *             properties:
- *               preferences:
- *                 type: object
- *                 description: User preferences for KYC
+ *               ID:
+ *                 type: string
+ *                 description: User ID
+ *               Preferences:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: User preferences as array of strings
  *     responses:
  *       200:
  *         description: Mini-KYC created/updated successfully
@@ -48,7 +54,9 @@ router.use(authenticate);
  *                     userId:
  *                       type: string
  *                     preferences:
- *                       type: object
+ *                       type: array
+ *                       items:
+ *                         type: string
  *                     createdAt:
  *                       type: string
  *                       format: date-time
@@ -56,7 +64,7 @@ router.use(authenticate);
  *                       type: string
  *                       format: date-time
  *       400:
- *         description: Bad request - preferences field is required
+ *         description: Bad request - ID and Preferences fields are required
  *       401:
  *         description: Unauthorized
  *       500:
@@ -68,10 +76,17 @@ router.post('/', MiniKycController.createOrUpdateMiniKyc);
  * @swagger
  * /api/mini-kyc:
  *   get:
- *     summary: Get mini-KYC for the authenticated user
+ *     summary: Get mini-KYC for a user
  *     tags: [Mini-KYC]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: userId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: User ID to get KYC for
  *     responses:
  *       200:
  *         description: Mini-KYC retrieved successfully
@@ -90,7 +105,9 @@ router.post('/', MiniKycController.createOrUpdateMiniKyc);
  *                     userId:
  *                       type: string
  *                     preferences:
- *                       type: object
+ *                       type: array
+ *                       items:
+ *                         type: string
  *                     createdAt:
  *                       type: string
  *                       format: date-time
@@ -108,7 +125,7 @@ router.get('/', MiniKycController.getMiniKyc);
  * @swagger
  * /api/mini-kyc:
  *   put:
- *     summary: Update mini-KYC for the authenticated user
+ *     summary: Update mini-KYC for a user
  *     tags: [Mini-KYC]
  *     security:
  *       - bearerAuth: []
@@ -118,10 +135,18 @@ router.get('/', MiniKycController.getMiniKyc);
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - ID
+ *               - Preferences
  *             properties:
- *               preferences:
- *                 type: object
- *                 description: User preferences for KYC
+ *               ID:
+ *                 type: string
+ *                 description: User ID
+ *               Preferences:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: User preferences as array of strings
  *     responses:
  *       200:
  *         description: Mini-KYC updated successfully
@@ -142,7 +167,9 @@ router.get('/', MiniKycController.getMiniKyc);
  *                     userId:
  *                       type: string
  *                     preferences:
- *                       type: object
+ *                       type: array
+ *                       items:
+ *                         type: string
  *                     createdAt:
  *                       type: string
  *                       format: date-time
@@ -162,10 +189,17 @@ router.put('/', MiniKycController.updateMiniKyc);
  * @swagger
  * /api/mini-kyc:
  *   delete:
- *     summary: Delete mini-KYC for the authenticated user
+ *     summary: Delete mini-KYC for a user
  *     tags: [Mini-KYC]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: userId
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: User ID to delete KYC for
  *     responses:
  *       200:
  *         description: Mini-KYC deleted successfully

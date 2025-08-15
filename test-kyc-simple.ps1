@@ -1,76 +1,98 @@
-# Simple KYC Test
+# Simple KYC CRUD Test
 $baseUrl = "http://localhost:3000"
 
-Write-Host "=== SIMPLE KYC TEST ===" -ForegroundColor Green
+Write-Host "=== Testing KYC CRUD Operations ===" -ForegroundColor Green
 
-# 1. Login
-Write-Host "`n1. Authenticating..." -ForegroundColor Yellow
+# Step 1: Login
+Write-Host "`n1. Logging in..." -ForegroundColor Yellow
 try {
-    $login = Invoke-RestMethod -Uri "$baseUrl/api/auth/login" -Method POST -ContentType "application/json" -Body '{"email": "admin@nvccz.co.zw", "password": "admin123"}'
-    $token = $login.token
-    $headers = @{
-        "Content-Type" = "application/json"
-        "Authorization" = "Bearer $token"
-    }
-    Write-Host "✅ Authentication successful" -ForegroundColor Green
-} catch {
-    Write-Host "❌ Authentication failed: $($_.Exception.Message)" -ForegroundColor Red
-    exit
-}
-
-# 2. Create KYC
-Write-Host "`n2. Creating KYC..." -ForegroundColor Yellow
-
-$kycPayload = @{
-    preferences = @{
-        theme = "dark"
-        language = "en"
-        notifications = @{
-            email = $true
-            sms = $false
-            push = $true
-        }
-        privacy = @{
-            shareData = $false
-            marketingEmails = $true
-        }
-    }
-}
-
-Write-Host "Payload:" -ForegroundColor Yellow
-$kycPayload | ConvertTo-Json | Write-Host
-
-try {
-    $response = Invoke-RestMethod -Uri "$baseUrl/api/mini-kyc" -Method POST -Headers $headers -Body ($kycPayload | ConvertTo-Json)
-    Write-Host "✅ KYC created successfully!" -ForegroundColor Green
-    Write-Host "KYC ID: $($response.data.id)" -ForegroundColor Cyan
-    Write-Host "User ID: $($response.data.userId)" -ForegroundColor Cyan
-    Write-Host "Preferences: $($response.data.preferences | ConvertTo-Json)" -ForegroundColor Cyan
-} catch {
-    Write-Host "❌ Failed to create KYC: $($_.Exception.Message)" -ForegroundColor Red
+    $loginBody = '{"email": "admin@nvccz.co.zw", "password": "admin123"}'
+    $loginResponse = Invoke-RestMethod -Uri "$baseUrl/api/auth/login" -Method POST -ContentType "application/json" -Body $loginBody
     
-    # Get detailed error
-    if ($_.Exception.Response) {
-        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-        $responseBody = $reader.ReadToEnd()
-        Write-Host "Error details: $responseBody" -ForegroundColor Red
+    Write-Host "Login successful!" -ForegroundColor Green
+    $token = $loginResponse.data.token
+    $userID = $loginResponse.data.user.id
+    
+    Write-Host "Token: $($token.Substring(0, 50))..." -ForegroundColor Cyan
+    Write-Host "User ID: $userID" -ForegroundColor Cyan
+    
+    $headers = @{
+        "Authorization" = "Bearer $token"
+        "Content-Type" = "application/json"
     }
+    
+} catch {
+    Write-Host "Login failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
 }
 
-# 3. Get KYC
+# Step 2: Create KYC
+Write-Host "`n2. Creating KYC..." -ForegroundColor Yellow
+try {
+    $createBody = @{
+        ID = $userID
+        Preferences = @("preference1", "preference2", "preference3")
+    } | ConvertTo-Json
+    
+    $createResponse = Invoke-RestMethod -Uri "$baseUrl/api/mini-kyc" -Method POST -Headers $headers -Body $createBody
+    Write-Host "Create successful!" -ForegroundColor Green
+    Write-Host "Response: $($createResponse | ConvertTo-Json)" -ForegroundColor White
+} catch {
+    Write-Host "Create failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 3: Get KYC
 Write-Host "`n3. Getting KYC..." -ForegroundColor Yellow
 try {
-    $getResponse = Invoke-RestMethod -Uri "$baseUrl/api/mini-kyc" -Method GET -Headers $headers
-    if ($getResponse.data) {
-        Write-Host "✅ KYC retrieved successfully!" -ForegroundColor Green
-        Write-Host "ID: $($getResponse.data.id)" -ForegroundColor Cyan
-        Write-Host "User ID: $($getResponse.data.userId)" -ForegroundColor Cyan
-        Write-Host "Preferences: $($getResponse.data.preferences | ConvertTo-Json)" -ForegroundColor Cyan
-    } else {
-        Write-Host "ℹ️ No KYC found" -ForegroundColor Yellow
-    }
+    $getResponse = Invoke-RestMethod -Uri "$baseUrl/api/mini-kyc?userId=$userID" -Method GET -Headers $headers
+    Write-Host "Get successful!" -ForegroundColor Green
+    Write-Host "Response: $($getResponse | ConvertTo-Json)" -ForegroundColor White
 } catch {
-    Write-Host "❌ Failed to get KYC: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Get failed: $($_.Exception.Message)" -ForegroundColor Red
 }
 
-Write-Host "`n=== TEST COMPLETE ===" -ForegroundColor Green 
+# Step 4: Update KYC
+Write-Host "`n4. Updating KYC..." -ForegroundColor Yellow
+try {
+    $updateBody = @{
+        ID = $userID
+        Preferences = @("updated-preference1", "updated-preference2", "new-preference4")
+    } | ConvertTo-Json
+    
+    $updateResponse = Invoke-RestMethod -Uri "$baseUrl/api/mini-kyc" -Method PUT -Headers $headers -Body $updateBody
+    Write-Host "Update successful!" -ForegroundColor Green
+    Write-Host "Response: $($updateResponse | ConvertTo-Json)" -ForegroundColor White
+} catch {
+    Write-Host "Update failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 5: Verify Update
+Write-Host "`n5. Verifying update..." -ForegroundColor Yellow
+try {
+    $verifyResponse = Invoke-RestMethod -Uri "$baseUrl/api/mini-kyc?userId=$userID" -Method GET -Headers $headers
+    Write-Host "Verify successful!" -ForegroundColor Green
+    Write-Host "Response: $($verifyResponse | ConvertTo-Json)" -ForegroundColor White
+} catch {
+    Write-Host "Verify failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 6: Delete KYC
+Write-Host "`n6. Deleting KYC..." -ForegroundColor Yellow
+try {
+    $deleteResponse = Invoke-RestMethod -Uri "$baseUrl/api/mini-kyc?userId=$userID" -Method DELETE -Headers $headers
+    Write-Host "Delete successful!" -ForegroundColor Green
+    Write-Host "Response: $($deleteResponse | ConvertTo-Json)" -ForegroundColor White
+} catch {
+    Write-Host "Delete failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 7: Verify Deletion
+Write-Host "`n7. Verifying deletion..." -ForegroundColor Yellow
+try {
+    $finalResponse = Invoke-RestMethod -Uri "$baseUrl/api/mini-kyc?userId=$userID" -Method GET -Headers $headers
+    Write-Host "Final check response: $($finalResponse | ConvertTo-Json)" -ForegroundColor White
+} catch {
+    Write-Host "Final check failed (expected if deleted): $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+Write-Host "`n=== CRUD Test Completed ===" -ForegroundColor Green 
