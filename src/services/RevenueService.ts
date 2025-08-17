@@ -9,7 +9,7 @@ const prisma = dbConnection.getPrismaClient();
 
 export interface CreateRevenueParams {
   sourceId: string;
-  categoryId: string;
+  categoryId?: string;
   amount: number;
   currencyId: string;
   transactionDate: Date;
@@ -21,7 +21,7 @@ export interface CreateRevenueParams {
 
 export interface RevenueWithRelations extends Revenue {
   source: RevenueSource;
-  category: RevenueCategory;
+  category: RevenueCategory | null;
   currency: Currency;
   journalEntry?: {
     id: string;
@@ -55,7 +55,7 @@ export class RevenueService {
       if (!description || description.trim().length === 0) {
         throw new Error("Description is required");
       }
-      // Validate that source, category, and currency exist
+      // Validate that source and currency exist (categoryId is optional)
       await this.validateRevenueData(sourceId, categoryId, currencyId);
 
       // Calculate VAT if taxable (as number)
@@ -68,7 +68,7 @@ export class RevenueService {
       const revenue = await prisma.revenue.create({
         data: {
           sourceId,
-          categoryId,
+          categoryId: categoryId || null,
           amount: new Decimal(amount),
           vatAmount: new Decimal(vatAmount),
           totalAmount: new Decimal(totalAmount),
@@ -97,7 +97,7 @@ export class RevenueService {
       // Create journal entry for the revenue transaction
       const journalEntry = await JournalEntryService.createRevenueJournalEntry({
         sourceId,
-        categoryId,
+        categoryId: categoryId || undefined,
         amount,
         vatAmount,
         totalAmount,
@@ -428,17 +428,17 @@ export class RevenueService {
   }
 
   /**
-   * Validate that source, category, and currency exist
+   * Validate that source and currency exist (categoryId is optional)
    */
-  private static async validateRevenueData(sourceId: string, categoryId: string, currencyId: string): Promise<void> {
+  private static async validateRevenueData(sourceId: string, categoryId?: string, currencyId: string): Promise<void> {
     const [source, category, currency] = await Promise.all([
       prisma.revenueSource.findUnique({ where: { id: sourceId } }),
-      prisma.revenueCategory.findUnique({ where: { id: categoryId } }),
+      categoryId ? prisma.revenueCategory.findUnique({ where: { id: categoryId } }) : Promise.resolve(null),
       prisma.currency.findUnique({ where: { id: currencyId } })
     ]);
 
     if (!source) throw new Error("Revenue source not found");
-    if (!category) throw new Error("Revenue category not found");
+    if (categoryId && !category) throw new Error("Revenue category not found");
     if (!currency) throw new Error("Currency not found");
   }
 }

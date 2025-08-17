@@ -23,7 +23,6 @@ const router = Router();
  *             type: object
  *             required:
  *               - sourceId
- *               - categoryId
  *               - amount
  *               - currencyId
  *               - transactionDate
@@ -35,7 +34,7 @@ const router = Router();
  *                 example: "clx1234567890abcdef"
  *               categoryId:
  *                 type: string
- *                 description: ID of the revenue category
+ *                 description: ID of the revenue category (optional)
  *                 example: "clx1234567890abcdef"
  *               amount:
  *                 type: number

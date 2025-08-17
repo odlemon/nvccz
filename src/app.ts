@@ -32,6 +32,7 @@ import bankReconciliationRoutes from "./routes/bankReconciliationRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
 import targetRoutes from "./routes/targetRoutes"
+import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 
 
 dotenv.config()
@@ -214,6 +215,9 @@ app.use("/api/company-profile", companyProfileRoutes)
 
 // Target management routes
 app.use("/api/targets", targetRoutes)
+
+// Target tracking routes
+app.use("/api/target-tracking", targetTrackingRoutes)
 
 
 app.use(errorMiddleware)

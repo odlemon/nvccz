@@ -21,10 +21,10 @@ export class RevenueController {
       } = req.body;
 
       // Validate required fields
-      if (!sourceId || !categoryId || !amount || !currencyId || !transactionDate || !description) {
+      if (!sourceId || !amount || !currencyId || !transactionDate || !description) {
         return res.status(400).json({
           success: false,
-          message: "Missing required fields: sourceId, categoryId, amount, currencyId, transactionDate, description"
+          message: "Missing required fields: sourceId, amount, currencyId, transactionDate, description"
         });
       }
 
