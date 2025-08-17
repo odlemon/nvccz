@@ -44,7 +44,11 @@ app.use(helmet({
   contentSecurityPolicy: false
 }))
 app.use(cors({
-  origin: true, // Allow all origins
+  origin: [
+    "https://nvccz-frontend.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:3001"
+  ],
   credentials: true
 }))
 app.use(express.json())
