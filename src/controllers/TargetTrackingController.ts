@@ -9,6 +9,13 @@ export class TargetTrackingController {
    */
   static async getActualData(req: Request, res: Response) {
     try {
+      // Add cache-busting headers
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+
       const actualData = await TargetTrackingService.getActualData();
 
       return ResponseHelper.success(res, "Actual data retrieved successfully", actualData);

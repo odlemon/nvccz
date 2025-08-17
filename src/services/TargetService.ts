@@ -120,6 +120,9 @@ export class TargetService {
       }
       if (isActive !== undefined) {
         where.isActive = isActive;
+      } else {
+        // Default to showing only active targets
+        where.isActive = true;
       }
       if (createdById) {
         where.createdById = createdById;
@@ -203,7 +206,7 @@ export class TargetService {
   }
 
   /**
-   * Delete target (soft delete by setting isActive to false)
+   * Delete target (permanent deletion)
    */
   static async deleteTarget(id: string): Promise<void> {
     try {
@@ -215,9 +218,8 @@ export class TargetService {
         throw new Error("Target not found");
       }
 
-      await prisma.target.update({
-        where: { id },
-        data: { isActive: false }
+      await prisma.target.delete({
+        where: { id }
       });
     } catch (error: any) {
       throw new Error(`Failed to delete target: ${error.message}`);
