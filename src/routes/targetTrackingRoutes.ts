@@ -2,7 +2,6 @@
 import { Router } from "express";
 import TargetTrackingController from "../controllers/TargetTrackingController";
 import { authenticate } from "../middleware/authenticate";
-import { noCacheMiddleware } from "../middleware/cacheControl";
 
 const router = Router();
 
@@ -109,7 +108,7 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.get("/actual-data", authenticate, noCacheMiddleware, TargetTrackingController.getActualData);
+router.get("/actual-data", authenticate, TargetTrackingController.getActualData);
 
 /**
  * @swagger
