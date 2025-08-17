@@ -46,7 +46,7 @@ export interface CreateInvoicePaymentJournalEntryParams {
 
 export interface CreateRevenueJournalEntryParams {
   sourceId: string;
-  categoryId: string;
+  categoryId?: string;
   amount: number;
   vatAmount: number;
   totalAmount: number;
@@ -1023,7 +1023,7 @@ export class JournalEntryService {
         createdById
       } = params;
 
-      const revenueAccount = await this.getRevenueAccount(categoryId);
+      const revenueAccount = await this.getRevenueAccount(categoryId || "");
       const vatOutputAccount = await this.getVATOutputAccount();
       const debitAccount = await this.getDebitAccount(paymentMethod);
 
@@ -1103,9 +1103,9 @@ export class JournalEntryService {
   }
 
   /**
-   * Get revenue account for revenue category
+   * Get revenue account for revenue category (categoryId is optional)
    */
-  private static async getRevenueAccount(categoryId: string): Promise<ChartOfAccounts> {
+  private static async getRevenueAccount(categoryId?: string): Promise<ChartOfAccounts> {
     try {
       // For now, use the same logic as getIncomeAccount since revenue categories
       // will map to revenue accounts in the chart of accounts
