@@ -4,7 +4,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 import { dbConnection } from "../utils/database";
-import { setUserContext, clearUserContext } from "../config/sentry";
+
 
 const prisma = dbConnection.getPrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
@@ -58,13 +58,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     
     req.user = user;
     
-    // Set user context in Sentry for error tracking
-    setUserContext({
-      id: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName
-    });
+
     
     next();
   } catch (err) {
