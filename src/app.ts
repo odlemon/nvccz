@@ -53,10 +53,7 @@ app.use(helmet({
 }))
 app.use(cors({
   origin: [
-    "https://nvccz-frontend.vercel.app",
-    "https://nvcc.vercel.app",
-    "http://localhost:3000",
-    "http://localhost:3001"
+    "*"
   ],
   credentials: true
 }))
