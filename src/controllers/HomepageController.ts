@@ -33,12 +33,52 @@ export const homepageController = {
   async getHomepageData(req: AuthRequest, res: Response) {
     try {
       const userId = req.user.id;
+      
+      // Parse pagination parameters
+      const {
+        limit = 20,
+        cursor,
+        postsLimit = 10,
+        newslettersLimit = 5,
+        eventsLimit = 10
+      } = req.query;
+
+      // Validate pagination parameters
+      const parsedLimit = Math.min(Math.max(Number(limit), 1), 100);
+      const parsedPostsLimit = Math.min(Math.max(Number(postsLimit), 1), 50);
+      const parsedNewslettersLimit = Math.min(Math.max(Number(newslettersLimit), 1), 20);
+      const parsedEventsLimit = Math.min(Math.max(Number(eventsLimit), 1), 50);
+
+      // Parse cursor if provided
+      let cursorDate: Date | undefined;
+      if (cursor && typeof cursor === 'string') {
+        try {
+          const decodedCursor = Buffer.from(cursor, 'base64').toString('utf-8');
+          cursorDate = new Date(decodedCursor);
+          if (isNaN(cursorDate.getTime())) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid cursor format"
+            });
+          }
+        } catch (error) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid cursor format"
+          });
+        }
+      }
 
       // Update user's last seen
       await prisma.user.update({
         where: { id: userId },
         data: { lastSeen: new Date() }
       });
+
+      // Build cursor filter for posts
+      const postsCursorFilter = cursorDate ? {
+        createdAt: { lt: cursorDate }
+      } : {};
 
       // Get all data in parallel for better performance
       const [
@@ -48,14 +88,15 @@ export const homepageController = {
         allEvents,
         onlineUsers
       ] = await Promise.all([
-        // Get active posts (not expired)
+        // Get active posts (not expired) with pagination
         prisma.post.findMany({
           where: {
             isActive: true,
             OR: [
               { expiresAt: null },
               { expiresAt: { gt: new Date() } }
-            ]
+            ],
+            ...postsCursorFilter
           },
           include: {
             author: {
@@ -79,10 +120,11 @@ export const homepageController = {
               orderBy: { createdAt: 'asc' }
             }
           },
-          orderBy: { createdAt: 'desc' }
+          orderBy: { createdAt: 'desc' },
+          take: parsedPostsLimit
         }),
 
-        // Get active newsletters
+        // Get active newsletters with pagination
         prisma.newsletter.findMany({
           where: { isActive: true },
           include: {
@@ -95,10 +137,11 @@ export const homepageController = {
               }
             }
           },
-          orderBy: { createdAt: 'desc' }
+          orderBy: { createdAt: 'desc' },
+          take: parsedNewslettersLimit
         }),
 
-        // Get upcoming events (start date >= current date)
+        // Get upcoming events (start date >= current date) with pagination
         prisma.event.findMany({
           where: {
             isActive: true,
@@ -114,10 +157,11 @@ export const homepageController = {
               }
             }
           },
-          orderBy: { startDate: 'asc' }
+          orderBy: { startDate: 'asc' },
+          take: parsedEventsLimit
         }),
 
-        // Get all active events (regardless of date)
+        // Get all active events (regardless of date) with pagination
         prisma.event.findMany({
           where: { isActive: true },
           include: {
@@ -130,7 +174,8 @@ export const homepageController = {
               }
             }
           },
-          orderBy: { startDate: 'asc' }
+          orderBy: { startDate: 'asc' },
+          take: parsedEventsLimit
         }),
 
         // Get online users (active in last 5 minutes)
@@ -160,6 +205,13 @@ export const homepageController = {
         onlineUsers: onlineUsers.length
       };
 
+      // Generate next cursor if there are posts
+      let nextCursor: string | null = null;
+      if (posts.length > 0 && posts.length === parsedPostsLimit) {
+        const lastPost = posts[posts.length - 1];
+        nextCursor = Buffer.from(lastPost.createdAt.toISOString()).toString('base64');
+      }
+
       res.status(200).json({
         success: true,
         data: {
@@ -170,7 +222,15 @@ export const homepageController = {
             all: allEvents
           },
           onlineUsers,
-          summary
+          summary,
+          pagination: {
+            hasMore: nextCursor !== null,
+            nextCursor,
+            limit: parsedPostsLimit,
+            postsLimit: parsedPostsLimit,
+            newslettersLimit: parsedNewslettersLimit,
+            eventsLimit: parsedEventsLimit
+          }
         }
       });
     } catch (error: any) {

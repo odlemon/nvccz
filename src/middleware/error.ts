@@ -2,8 +2,19 @@
 import type { Request, Response, NextFunction } from "express"
 import { logger } from "../utils/logger"
 import { envConfig } from "../utils/env"
+import { captureException } from "../config/sentry"
 
 export const errorMiddleware = (err: any, req: Request, res: Response, next: NextFunction): void => {
+  // Capture error in Sentry with context
+  captureException(err, {
+    path: req.path,
+    method: req.method,
+    body: req.body,
+    params: req.params,
+    query: req.query,
+    user: req.user, // If user is authenticated
+  });
+
   logger.error("Unhandled error", {
     error: err.message,
     stack: err.stack,

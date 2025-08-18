@@ -9,11 +9,13 @@ import { dbConnection } from "./utils/database"
 import { envConfig } from "./utils/env"
 import { logger } from "./utils/logger"
 import { specs } from "./config/swagger"
+import { initializeSentry, Sentry } from "./config/sentry"
 import authRoutes from "./routes/authRoutes"
 import roleRoutes from "./routes/roleRoutes"
 import userRoutes from "./routes/userRoutes"
 import postRoutes from "./routes/postRoutes"
 import newsletterRoutes from "./routes/newsletterRoutes"
+import newsletterSubscriptionRoutes from "./routes/newsletterSubscriptionRoutes"
 import eventRoutes from "./routes/eventRoutes"
 import homepageRoutes from "./routes/homepageRoutes"
 import currencyRoutes from "./routes/currencyRoutes"
@@ -37,8 +39,14 @@ import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 
 dotenv.config()
 
+// Initialize Sentry first
+initializeSentry();
+
 const app = express()
 const port = process.env.PORT || 3000
+
+// The request handler must be the first middleware on the app
+app.use(Sentry.Handlers.requestHandler());
 
 app.use(helmet({
   contentSecurityPolicy: false
@@ -46,6 +54,7 @@ app.use(helmet({
 app.use(cors({
   origin: [
     "https://nvccz-frontend.vercel.app",
+    "https://nvcc.vercel.app",
     "http://localhost:3000",
     "http://localhost:3001"
   ],
@@ -193,6 +202,7 @@ app.use("/api/users", userRoutes)
 // Homepage features routes
 app.use("/api/posts", postRoutes)
 app.use("/api/newsletters", newsletterRoutes)
+app.use("/api/newsletter", newsletterSubscriptionRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/homepage", homepageRoutes)
 
@@ -223,6 +233,8 @@ app.use("/api/targets", targetRoutes)
 // Target tracking routes
 app.use("/api/target-tracking", targetTrackingRoutes)
 
+// The error handler must be registered before any other error middleware and after all controllers
+app.use(Sentry.Handlers.errorHandler());
 
 app.use(errorMiddleware)
 

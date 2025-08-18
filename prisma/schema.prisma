@@ -481,3 +481,31 @@ model Target {
 
   @@map("targets")
 }
+
+model NewsletterSubscription {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  firstName     String?
+  lastName      String?
+  topics        Json     // Array of topic strings stored as JSON
+  isConfirmed   Boolean  @default(false)
+  confirmationToken String? @unique
+  confirmedAt   DateTime?
+  unsubscribedAt DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("newsletter_subscriptions")
+}
+
+model NewsletterTopic {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("newsletter_topics")
+}
