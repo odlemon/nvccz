@@ -4,7 +4,7 @@
     { "src": "src/app.ts", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "src/app.ts" }
+    { "src": "/(.*)", "dest": "src/app.ts", "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"] }
   ],
   "functions": {
     "src/app.ts": {
@@ -12,27 +12,6 @@
     }
   },
   "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods", 
-          "value": "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
-        },
-        {
-          "key": "Access-Control-Max-Age",
-          "value": "86400"
-        }
-      ]
-    },
     {
       "source": "/(.*)",
       "headers": [
@@ -47,14 +26,12 @@
         {
           "key": "Access-Control-Allow-Headers", 
           "value": "Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
+        },
+        {
+          "key": "Access-Control-Max-Age",
+          "value": "86400"
         }
       ]
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/src/app.ts"
     }
   ]
 }
