@@ -36,7 +36,6 @@ import companyProfileRoutes from "./routes/companyProfileRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 
-
 dotenv.config()
 
 // Initialize Sentry first
@@ -48,13 +47,89 @@ const port = process.env.PORT || 3000
 // The request handler must be the first middleware on the app
 app.use(Sentry.Handlers.requestHandler());
 
+// CORS Configuration - UPDATED
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // List of allowed origins
+    const allowedOrigins = [
+      'https://nvcczz.vercel.app',
+      'https://nvccz-pi.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:5173', // Vite default
+      'http://localhost:4173', // Vite preview
+    ];
+    
+    // In development, allow all origins
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      logger.warn(`Blocked by CORS: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers'
+  ],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+  maxAge: 86400 // 24 hours
+};
+
+// Apply CORS before other middleware
+app.use(cors(corsOptions));
+
+// Manual CORS headers as fallback
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://nvcczz.vercel.app',
+    'https://nvccz-pi.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+    'http://localhost:4173',
+  ];
+
+  if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
+  next();
+});
+
 app.use(helmet({
-  contentSecurityPolicy: false
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
 }))
-app.use(cors({
-  origin: true,
-  credentials: true
-}))
+
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
@@ -63,9 +138,20 @@ app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path}`, {
     ip: req.ip,
     userAgent: req.get("User-Agent"),
+    origin: req.get("Origin"),
   })
   next()
 })
+
+// Debug endpoint to check CORS
+app.get('/cors-test', (req, res) => {
+  res.json({
+    success: true,
+    origin: req.get('Origin'),
+    headers: req.headers,
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Debug endpoint to check Swagger spec (development only)
 if (process.env.NODE_ENV === 'development') {
