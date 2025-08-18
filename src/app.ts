@@ -9,7 +9,7 @@ import { dbConnection } from "./utils/database"
 import { envConfig } from "./utils/env"
 import { logger } from "./utils/logger"
 import { specs } from "./config/swagger"
-import { initializeSentry, Sentry } from "./config/sentry"
+
 import authRoutes from "./routes/authRoutes"
 import roleRoutes from "./routes/roleRoutes"
 import userRoutes from "./routes/userRoutes"
@@ -36,47 +36,29 @@ import companyProfileRoutes from "./routes/companyProfileRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 
+
 dotenv.config()
 
-// Initialize Sentry first
-initializeSentry();
+
 
 const app = express()
 const port = process.env.PORT || 3000
 
-// AGGRESSIVE CORS FIX - Handle ALL requests first
-app.use((req, res, next) => {
-  // Set CORS headers for all requests
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
-  res.header('Access-Control-Max-Age', '86400');
 
-  // Handle preflight requests immediately
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  next();
-});
-
-// The request handler must be the first middleware on the app (after CORS)
-app.use(Sentry.Handlers.requestHandler());
-
-// Simple CORS configuration
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  optionsSuccessStatus: 200
-}));
 
 app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
+  contentSecurityPolicy: false
 }))
-
+app.use(cors({
+  origin: [
+    "https://nvcczz.vercel.app",
+    "https://nvccz-frontend.vercel.app",
+    "https://nvcc.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:3001"
+  ],
+  credentials: true
+}))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
@@ -85,21 +67,9 @@ app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path}`, {
     ip: req.ip,
     userAgent: req.get("User-Agent"),
-    origin: req.get("Origin"),
   })
   next()
 })
-
-// Debug endpoint to check CORS
-app.get('/cors-test', (req, res) => {
-  res.json({
-    success: true,
-    origin: req.get('Origin'),
-    method: req.method,
-    headers: req.headers,
-    timestamp: new Date().toISOString()
-  });
-});
 
 // Debug endpoint to check Swagger spec (development only)
 if (process.env.NODE_ENV === 'development') {
@@ -262,8 +232,7 @@ app.use("/api/targets", targetRoutes)
 // Target tracking routes
 app.use("/api/target-tracking", targetTrackingRoutes)
 
-// The error handler must be registered before any other error middleware and after all controllers
-app.use(Sentry.Handlers.errorHandler());
+
 
 app.use(errorMiddleware)
 
