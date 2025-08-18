@@ -1,9 +1,22 @@
 // @ts-nocheck
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { homepageController } from "../controllers/HomepageController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
+
+// Rate limiting for homepage endpoints
+const homepageRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    message: "Too many requests from this IP, please try again later."
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // All routes require authentication
 router.use(authenticate);
@@ -13,10 +26,48 @@ router.use(authenticate);
  * /homepage:
  *   get:
  *     summary: Get homepage data
- *     description: Retrieve all homepage data including posts, newsletters, events (upcoming and all), and online users
+ *     description: Retrieve all homepage data including posts, newsletters, events (upcoming and all), and online users with cursor pagination
  *     tags: [Homepage]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Number of items to return per page
+ *       - in: query
+ *         name: cursor
+ *         schema:
+ *           type: string
+ *         description: Cursor for pagination (base64 encoded timestamp)
+ *       - in: query
+ *         name: postsLimit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           minimum: 1
+ *           maximum: 50
+ *         description: Number of posts to return
+ *       - in: query
+ *         name: newslettersLimit
+ *         schema:
+ *           type: integer
+ *           default: 5
+ *           minimum: 1
+ *           maximum: 20
+ *         description: Number of newsletters to return
+ *       - in: query
+ *         name: eventsLimit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           minimum: 1
+ *           maximum: 50
+ *         description: Number of events to return
  *     responses:
  *       200:
  *         description: Homepage data retrieved successfully
@@ -24,14 +75,26 @@ router.use(authenticate);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/HomepageData'
+ *       400:
+ *         description: Invalid pagination parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       401:
  *         description: Unauthorized
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
+ *       429:
+ *         description: Too many requests
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/", homepageController.getHomepageData);
+router.get("/", homepageRateLimit, homepageController.getHomepageData);
 
 /**
  * @swagger
