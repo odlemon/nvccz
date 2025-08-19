@@ -71,3 +71,4 @@ Write-Host "   2. Create a new project for your Node.js app" -ForegroundColor Wh
 Write-Host "   3. Copy the DSN to your .env file: SENTRY_DSN=https://..." -ForegroundColor White
 Write-Host "   4. Restart your server" -ForegroundColor White
 
+

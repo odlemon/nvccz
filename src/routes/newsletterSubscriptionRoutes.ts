@@ -299,3 +299,4 @@ router.get("/status", newsletterSubscriptionController.getSubscriptionStatus);
 
 export default router;
 
+

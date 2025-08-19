@@ -50,7 +50,7 @@ app.use(helmet({
   contentSecurityPolicy: false
 }))
 app.use(cors({
-  origin: [
+  origin: [ 
     "https://nvcczz.vercel.app",
     "https://nvccz-frontend.vercel.app",
     "https://nvcc.vercel.app",

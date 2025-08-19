@@ -132,3 +132,4 @@ Write-Host "   • In production, integrate with a real email service like SendG
 Write-Host "   • The confirmation token expires after 24 hours" -ForegroundColor White
 Write-Host "   • Rate limiting is applied (10 requests per 15 minutes)" -ForegroundColor White
 
+
