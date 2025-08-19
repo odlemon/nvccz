@@ -53,6 +53,7 @@ app.use(cors({
   origin: [ 
     "https://nvcczz.vercel.app",
     "https://nvccz-frontend.vercel.app",
+    "https://nvccz-new.vercel.app",
     "https://nvcc.vercel.app",
     "http://localhost:3000",
     "http://localhost:3001"
