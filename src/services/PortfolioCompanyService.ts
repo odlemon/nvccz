@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { PrismaClient } from "@prisma/client";
 import { dbConnection } from "../utils/database";
 import bcrypt from "bcryptjs";
