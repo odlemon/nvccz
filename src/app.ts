@@ -33,6 +33,7 @@ import revenueCategoryRoutes from "./routes/revenueCategoryRoutes"
 import bankReconciliationRoutes from "./routes/bankReconciliationRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
+import portfolioCompanyRoutes from "./routes/portfolioCompanyRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 
@@ -227,6 +228,9 @@ app.use("/api/mini-kyc", miniKycRoutes)
 
 // Company Profile routes
 app.use("/api/company-profile", companyProfileRoutes)
+
+// Portfolio Company routes
+app.use("/api/portfolio-companies", portfolioCompanyRoutes)
 
 // Target management routes
 app.use("/api/targets", targetRoutes)

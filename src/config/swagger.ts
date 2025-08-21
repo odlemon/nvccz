@@ -842,12 +842,36 @@ const options = {
               description: 'Payment method used when invoice is paid',
               example: 'BANK'
             },
+            // Currency conversion fields
+            exchangeRateAtCreation: { 
+              type: 'number', 
+              example: 1.15,
+              description: 'Exchange rate when invoice was created (for multi-currency payments)'
+            },
+            paymentCurrencyId: { 
+              type: 'string', 
+              example: 'clx1234567890abcdef',
+              description: 'Currency used for payment (if different from invoice currency)'
+            },
+            amountInPaymentCurrency: { 
+              type: 'number', 
+              example: 1150.00,
+              description: 'Amount in payment currency after conversion'
+            },
+
+            paymentDate: { 
+              type: 'string', 
+              format: 'date-time',
+              example: '2025-08-05T10:30:00Z',
+              description: 'Date when payment was processed'
+            },
             journalEntryId: { type: 'string', example: 'clx1234567890abcdef' },
             isActive: { type: 'boolean', example: true },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
             customer: { $ref: '#/components/schemas/Customer' },
             currency: { $ref: '#/components/schemas/Currency' },
+            paymentCurrency: { $ref: '#/components/schemas/Currency' },
             journalEntry: { $ref: '#/components/schemas/JournalEntry' }
           }
         },
@@ -862,6 +886,11 @@ const options = {
             description: { type: 'string', example: 'Management Fees Q4 2024' },
             invoiceNumber: { type: 'string', example: 'INV-2024-001' },
             isTaxable: { type: 'boolean', example: true },
+            exchangeRateAtCreation: { 
+              type: 'number', 
+              example: 1.15,
+              description: 'Exchange rate when invoice was created (for multi-currency payments)'
+            },
             items: {
               type: 'array',
               items: {
@@ -1155,6 +1184,118 @@ const options = {
             facebook: { type: 'string', example: 'https://facebook.com/nvccz_updated' },
             linkedin: { type: 'string', example: 'https://linkedin.com/company/nvccz_updated' },
             instagram: { type: 'string', example: 'https://instagram.com/nvccz_updated' }
+          }
+        },
+        // Portfolio Company schemas
+        PortfolioCompany: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            userId: { type: 'string', example: 'clx1234567890abcdef' },
+            name: { type: 'string', example: 'TechStartup Inc.' },
+            registrationNumber: { type: 'string', example: 'REG123456789' },
+            industry: { type: 'string', example: 'Technology' },
+            foundingDate: { type: 'string', format: 'date-time', example: '2020-01-15T00:00:00.000Z' },
+            address: { type: 'string', example: '123 Innovation Street, Tech City, TC 12345' },
+            website: { type: 'string', example: 'https://techstartup.com' },
+            description: { type: 'string', example: 'A leading technology startup focused on AI solutions' },
+            logoUrl: { type: 'string', example: 'https://example.com/logo.png' },
+            status: { type: 'string', example: 'PENDING', enum: ['PENDING', 'APPROVED', 'REJECTED', 'ACTIVE', 'SUSPENDED'] },
+            companySize: { type: 'string', example: 'MEDIUM', enum: ['SMALL', 'MEDIUM', 'LARGE'] },
+            employeeCount: { type: 'integer', example: 50 },
+            annualRevenue: { type: 'number', example: 1000000.00 },
+            fundingStage: { type: 'string', example: 'SERIES_A', enum: ['SEED', 'SERIES_A', 'SERIES_B', 'SERIES_C', 'LATE_STAGE'] },
+            contactPerson: { type: 'string', example: 'John Doe' },
+            contactPhone: { type: 'string', example: '+1234567890' },
+            contactEmail: { type: 'string', example: 'contact@techstartup.com' },
+            socialMedia: { 
+              type: 'object', 
+              example: {
+                linkedin: 'https://linkedin.com/company/techstartup',
+                twitter: 'https://twitter.com/techstartup',
+                facebook: 'https://facebook.com/techstartup'
+              }
+            },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', example: 'clx1234567890abcdef' },
+                firstName: { type: 'string', example: 'John' },
+                lastName: { type: 'string', example: 'Doe' },
+                email: { type: 'string', example: 'john.doe@techstartup.com' },
+                role: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', example: 'clx1234567890abcdef' },
+                    name: { type: 'string', example: 'applicant' }
+                  }
+                }
+              }
+            }
+          }
+        },
+        CreatePortfolioCompanyRequest: {
+          type: 'object',
+          required: ['firstName', 'lastName', 'email', 'password', 'name', 'registrationNumber', 'industry', 'foundingDate', 'address'],
+          properties: {
+            firstName: { type: 'string', example: 'John' },
+            lastName: { type: 'string', example: 'Doe' },
+            email: { type: 'string', format: 'email', example: 'john.doe@techstartup.com' },
+            password: { type: 'string', minLength: 6, example: 'password123' },
+            name: { type: 'string', example: 'TechStartup Inc.' },
+            registrationNumber: { type: 'string', example: 'REG123456789' },
+            industry: { type: 'string', example: 'Technology' },
+            foundingDate: { type: 'string', format: 'date', example: '2020-01-15' },
+            address: { type: 'string', example: '123 Innovation Street, Tech City, TC 12345' },
+            website: { type: 'string', format: 'uri', example: 'https://techstartup.com' },
+            description: { type: 'string', example: 'A leading technology startup focused on AI solutions' },
+            logoUrl: { type: 'string', format: 'uri', example: 'https://example.com/logo.png' },
+            status: { type: 'string', example: 'PENDING', enum: ['PENDING', 'APPROVED', 'REJECTED', 'ACTIVE', 'SUSPENDED'] },
+            companySize: { type: 'string', example: 'MEDIUM', enum: ['SMALL', 'MEDIUM', 'LARGE'] },
+            employeeCount: { type: 'integer', example: 50 },
+            annualRevenue: { type: 'number', example: 1000000.00 },
+            fundingStage: { type: 'string', example: 'SERIES_A', enum: ['SEED', 'SERIES_A', 'SERIES_B', 'SERIES_C', 'LATE_STAGE'] },
+            contactPerson: { type: 'string', example: 'John Doe' },
+            contactPhone: { type: 'string', example: '+1234567890' },
+            contactEmail: { type: 'string', example: 'contact@techstartup.com' },
+            socialMedia: { 
+              type: 'object', 
+              example: {
+                linkedin: 'https://linkedin.com/company/techstartup',
+                twitter: 'https://twitter.com/techstartup',
+                facebook: 'https://facebook.com/techstartup'
+              }
+            }
+          }
+        },
+        UpdatePortfolioCompanyRequest: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', example: 'TechStartup Inc. Updated' },
+            industry: { type: 'string', example: 'Technology' },
+            foundingDate: { type: 'string', format: 'date', example: '2020-01-15' },
+            address: { type: 'string', example: '123 Innovation Street, Tech City, TC 12345' },
+            website: { type: 'string', format: 'uri', example: 'https://techstartup.com' },
+            description: { type: 'string', example: 'A leading technology startup focused on AI solutions' },
+            logoUrl: { type: 'string', format: 'uri', example: 'https://example.com/logo.png' },
+            status: { type: 'string', example: 'APPROVED', enum: ['PENDING', 'APPROVED', 'REJECTED', 'ACTIVE', 'SUSPENDED'] },
+            companySize: { type: 'string', example: 'MEDIUM', enum: ['SMALL', 'MEDIUM', 'LARGE'] },
+            employeeCount: { type: 'integer', example: 50 },
+            annualRevenue: { type: 'number', example: 1000000.00 },
+            fundingStage: { type: 'string', example: 'SERIES_A', enum: ['SEED', 'SERIES_A', 'SERIES_B', 'SERIES_C', 'LATE_STAGE'] },
+            contactPerson: { type: 'string', example: 'John Doe' },
+            contactPhone: { type: 'string', example: '+1234567890' },
+            contactEmail: { type: 'string', example: 'contact@techstartup.com' },
+            socialMedia: { 
+              type: 'object', 
+              example: {
+                linkedin: 'https://linkedin.com/company/techstartup',
+                twitter: 'https://twitter.com/techstartup',
+                facebook: 'https://facebook.com/techstartup'
+              }
+            }
           }
         }
       }
@@ -3610,7 +3751,12 @@ try {
                         enum: ['CASH', 'BANK', 'CREDIT'],
                         default: 'BANK',
                         description: 'Payment method used'
-                      }
+                      },
+                      paymentCurrencyId: {
+                        type: 'string',
+                        description: 'Currency used for payment (if different from invoice currency)'
+                      },
+
                     }
                   }
                 }
