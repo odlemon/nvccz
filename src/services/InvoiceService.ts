@@ -38,13 +38,55 @@ export interface InvoiceWithRelations extends Invoice {
 
 export class InvoiceService {
   /**
-   * Generate a unique invoice number
+   * Get the next sequential invoice number
    */
-  private static generateInvoiceNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000);
-    return `INV-${timestamp}-${random}`;
+  private static async getNextInvoiceNumber(): Promise<string> {
+    try {
+      // Get the current year
+      const currentYear = new Date().getFullYear();
+      
+      // Find the highest invoice number for the current year
+      const lastInvoice = await prisma.invoice.findFirst({
+        where: {
+          invoiceNumber: {
+            startsWith: `INV-${currentYear}-`
+          }
+        },
+        orderBy: {
+          invoiceNumber: 'desc'
+        }
+      });
+
+      let nextNumber = 1;
+
+      if (lastInvoice && lastInvoice.invoiceNumber) {
+        // Extract the number from the last invoice (format: INV-YYYY-NNN)
+        const match = lastInvoice.invoiceNumber.match(/INV-\d{4}-(\d+)/);
+        if (match) {
+          nextNumber = parseInt(match[1]) + 1;
+        }
+      }
+
+      // Format with leading zeros (3 digits)
+      const formattedNumber = nextNumber.toString().padStart(3, '0');
+      return `INV-${currentYear}-${formattedNumber}`;
+    } catch (error) {
+      console.error("Error generating invoice number:", error);
+      // Fallback to timestamp-based number if there's an error
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 1000);
+      return `INV-${timestamp}-${random}`;
+    }
   }
+
+  /**
+   * Generate a unique invoice number (legacy method - now uses sequential numbering)
+   */
+  private static async generateInvoiceNumber(): Promise<string> {
+    return await this.getNextInvoiceNumber();
+  }
+
+
 
   /**
    * Create a new invoice with automatic VAT calculation and journal entry creation
@@ -81,7 +123,7 @@ export class InvoiceService {
       const totalAmount: number = Number(amount) + Number(vatAmount);
 
       // Generate invoice number if not provided
-      const finalInvoiceNumber = invoiceNumber || this.generateInvoiceNumber();
+      const finalInvoiceNumber = invoiceNumber || await this.generateInvoiceNumber();
 
       // Create the invoice record (convert to Decimal at DB write)
       const invoice = await prisma.invoice.create({
@@ -616,7 +658,9 @@ export class InvoiceService {
       }
 
       // Handle currency conversion if payment currency is different from invoice currency
-      let amountInPaymentCurrency = Number(invoice.totalAmount);
+      let amountInPaymentCurrency = Number(invoice.amount);
+      let vatAmountInPaymentCurrency = Number(invoice.vatAmount);
+      let totalAmountInPaymentCurrency = Number(invoice.totalAmount);
       let finalCurrencyId = invoice.currencyId;
 
       if (paymentCurrencyId && paymentCurrencyId !== invoice.currencyId) {
@@ -625,8 +669,11 @@ export class InvoiceService {
           throw new Error("Exchange rate at creation is required for currency conversion");
         }
 
-        // Convert using the rate from invoice creation date
-        amountInPaymentCurrency = Number(invoice.totalAmount) * Number(invoice.exchangeRateAtCreation);
+        // Convert all amounts using the rate from invoice creation date
+        const exchangeRate = Number(invoice.exchangeRateAtCreation);
+        amountInPaymentCurrency = Number(invoice.amount) * exchangeRate;
+        vatAmountInPaymentCurrency = Number(invoice.vatAmount) * exchangeRate;
+        totalAmountInPaymentCurrency = Number(invoice.totalAmount) * exchangeRate;
         finalCurrencyId = paymentCurrencyId;
       }
 
@@ -634,6 +681,8 @@ export class InvoiceService {
       const paymentJournalEntry = await JournalEntryService.createInvoicePaymentJournalEntry({
         invoiceId: id,
         amount: amountInPaymentCurrency,
+        vatAmount: vatAmountInPaymentCurrency,
+        totalAmount: totalAmountInPaymentCurrency,
         currencyId: finalCurrencyId,
         transactionDate: new Date(),
         description: `Payment for invoice: ${invoice.invoiceNumber}`,

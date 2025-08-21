@@ -37,6 +37,8 @@ export interface CreateInvoiceJournalEntryParams {
 export interface CreateInvoicePaymentJournalEntryParams {
   invoiceId: string;
   amount: number;
+  vatAmount?: number; // VAT amount in payment currency
+  totalAmount: number; // Total amount in payment currency
   currencyId: string;
   transactionDate: Date;
   description: string;
@@ -835,6 +837,8 @@ export class JournalEntryService {
       const {
         invoiceId,
         amount,
+        vatAmount = 0,
+        totalAmount,
         currencyId,
         transactionDate,
         description,
@@ -866,7 +870,7 @@ export class JournalEntryService {
           transactionDate,
           referenceNumber: JournalEntryService.generateReferenceNumber(),
           description: `Payment: ${description}`,
-          totalAmount: new Decimal(amount),
+          totalAmount: new Decimal(totalAmount),
           currencyId,
           status: "PENDING", // Default to PENDING, must be posted manually
           createdById
@@ -882,7 +886,7 @@ export class JournalEntryService {
           data: {
             journalEntryId: journalEntry.id,
             chartOfAccountId: debitAccount.id,
-            debitAmount: new Decimal(amount),
+            debitAmount: new Decimal(totalAmount),
             creditAmount: new Decimal(0),
             description: `Payment: ${description}`,
             vatAmount: new Decimal(0)
@@ -897,7 +901,7 @@ export class JournalEntryService {
             journalEntryId: journalEntry.id,
             chartOfAccountId: creditAccount.id,
             debitAmount: new Decimal(0),
-            creditAmount: new Decimal(amount),
+            creditAmount: new Decimal(totalAmount),
             description: `Payment: ${description}`,
             vatAmount: new Decimal(0)
           }
