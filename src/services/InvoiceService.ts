@@ -17,11 +17,18 @@ export interface CreateInvoiceParams {
   invoiceNumber?: string;
   isTaxable: boolean;
   createdById: string;
+  exchangeRateAtCreation?: number; // Rate when invoice was created
+}
+
+export interface MarkAsPaidParams {
+  paymentMethod?: string;
+  paymentCurrencyId?: string; // Currency used for payment
 }
 
 export interface InvoiceWithRelations extends Invoice {
   customer: Customer;
   currency: Currency;
+  paymentCurrency?: Currency | null;
   journalEntry?: {
     id: string;
     referenceNumber: string;
@@ -90,7 +97,8 @@ export class InvoiceService {
           invoiceNumber: finalInvoiceNumber,
           isTaxable,
           status: "DRAFT",
-          createdById
+          createdById,
+          exchangeRateAtCreation: params.exchangeRateAtCreation ? new Decimal(params.exchangeRateAtCreation) : null
         },
         include: {
           customer: true,
@@ -578,14 +586,17 @@ export class InvoiceService {
   /**
    * Mark invoice as paid (SENT -> PAID)
    * Creates payment journal entry: Dr Cash/Bank, Cr Accounts Receivable
+   * Supports multi-currency payments with conversion
    */
-  static async markAsPaid(id: string, paymentMethod: string = "BANK"): Promise<InvoiceWithRelations> {
+  static async markAsPaid(id: string, params: MarkAsPaidParams = {}): Promise<InvoiceWithRelations> {
+    const { paymentMethod = "BANK", paymentCurrencyId } = params;
     try {
       const invoice = await prisma.invoice.findUnique({
         where: { id },
         include: {
           customer: true,
           currency: true,
+          paymentCurrency: true,
           journalEntry: {
             select: {
               id: true,
@@ -604,29 +615,48 @@ export class InvoiceService {
         throw new Error(`Cannot mark invoice as paid with status: ${invoice.status}. Only SENT invoices can be marked as paid.`);
       }
 
+      // Handle currency conversion if payment currency is different from invoice currency
+      let amountInPaymentCurrency = Number(invoice.totalAmount);
+      let finalCurrencyId = invoice.currencyId;
+
+      if (paymentCurrencyId && paymentCurrencyId !== invoice.currencyId) {
+        // Use the exchange rate from invoice creation date for conversion
+        if (!invoice.exchangeRateAtCreation) {
+          throw new Error("Exchange rate at creation is required for currency conversion");
+        }
+
+        // Convert using the rate from invoice creation date
+        amountInPaymentCurrency = Number(invoice.totalAmount) * Number(invoice.exchangeRateAtCreation);
+        finalCurrencyId = paymentCurrencyId;
+      }
+
       // Create payment journal entry
       const paymentJournalEntry = await JournalEntryService.createInvoicePaymentJournalEntry({
         invoiceId: id,
-        amount: Number(invoice.totalAmount),
-        currencyId: invoice.currencyId,
+        amount: amountInPaymentCurrency,
+        currencyId: finalCurrencyId,
         transactionDate: new Date(),
         description: `Payment for invoice: ${invoice.invoiceNumber}`,
         paymentMethod,
         createdById: invoice.createdById
       });
 
-      // Update invoice status to PAID and save payment method
+      // Update invoice status to PAID and save payment details
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
         data: { 
           status: "PAID",
-          paymentMethod, // Save the payment method when invoice is paid
-          // Note: We don't link the payment journal entry to the invoice
-          // as it's a separate transaction
+          paymentMethod,
+          paymentCurrencyId: paymentCurrencyId || null,
+          amountInPaymentCurrency: paymentCurrencyId && paymentCurrencyId !== invoice.currencyId 
+            ? new Decimal(amountInPaymentCurrency) 
+            : null,
+          paymentDate: new Date()
         },
         include: {
           customer: true,
           currency: true,
+          paymentCurrency: true,
           journalEntry: {
             select: {
               id: true,

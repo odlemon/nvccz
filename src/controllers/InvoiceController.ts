@@ -18,7 +18,8 @@ export class InvoiceController {
         description,
         items,
         invoiceNumber,
-        isTaxable
+        isTaxable,
+        exchangeRateAtCreation
       } = req.body;
 
       // Validate required fields
@@ -49,7 +50,8 @@ export class InvoiceController {
         items,
         invoiceNumber,
         isTaxable: Boolean(isTaxable),
-        createdById
+        createdById,
+        exchangeRateAtCreation: exchangeRateAtCreation ? Number(exchangeRateAtCreation) : undefined
       };
 
       const invoice = await InvoiceService.createInvoice(invoiceParams);
@@ -252,14 +254,20 @@ export class InvoiceController {
   static async markAsPaid(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const { paymentMethod = "BANK" } = req.body; // Default to BANK payment
+      const { 
+        paymentMethod = "BANK", 
+        paymentCurrencyId
+      } = req.body;
 
       if (!id) {
         ResponseHelper.error(res, "Invoice ID is required", undefined, 400);
         return;
       }
 
-      const invoice = await InvoiceService.markAsPaid(id, paymentMethod);
+      const invoice = await InvoiceService.markAsPaid(id, {
+        paymentMethod,
+        paymentCurrencyId
+      });
 
       logger.info("Invoice marked as paid", {
         invoiceId: invoice.id,

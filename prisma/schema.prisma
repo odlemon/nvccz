@@ -35,6 +35,11 @@ model User {
   reconciliationAuditTrails ReconciliationAuditTrail[]
   miniKyc                  MiniKyc?
   targets                  Target[]
+  portfolioCompany         PortfolioCompany?
+  funds                    Fund[]
+  fundManagers            FundManager[]
+  documents               Document[]
+  auditLogs               AuditLog[]
 
   @@map("users")
 }
@@ -114,16 +119,20 @@ model Event {
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  title     String
-  message   String   @db.Text
-  type      String
-  userId    String
-  isRead    Boolean  @default(false)
-  data      Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String   @id @default(cuid())
+  title           String
+  message         String   @db.Text
+  type            String
+  userId          String
+  isRead          Boolean  @default(false)
+  data            Json?
+  relatedEntity   String?  // APPLICATION, FUND, STAGE, etc.
+  relatedEntityId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
 }
@@ -151,6 +160,7 @@ model Currency {
   expenses       Expense[]
   journalEntries JournalEntry[]
   invoices       Invoice[]
+  paymentInvoices Invoice[]     @relation("PaymentCurrency")
   revenues       Revenue[]
 
   @@map("currencies")
@@ -437,8 +447,17 @@ model Invoice {
   updatedAt       DateTime      @updatedAt
   items           Json?
   paymentMethod   String?       @db.VarChar(255)
+  
+  // Currency conversion fields (for multi-currency payments)
+  exchangeRateAtCreation Decimal? @db.Decimal(15, 6)  // Rate when invoice was created
+  paymentCurrencyId      String?                      // Currency used for payment
+  amountInPaymentCurrency Decimal? @db.Decimal(15, 2) // Amount in payment currency
+  
+  paymentDate            DateTime?                    // Date when payment was processed
+  
   customer        Customer      @relation(fields: [customerId], references: [id])
   currency        Currency      @relation(fields: [currencyId], references: [id])
+  paymentCurrency Currency?     @relation("PaymentCurrency", fields: [paymentCurrencyId], references: [id])
   journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
   createdBy       User          @relation(fields: [createdById], references: [id])
 
@@ -466,6 +485,190 @@ model CompanyProfile {
   updatedAt DateTime @updatedAt
 
   @@map("company_profile")
+}
+
+
+
+model PortfolioCompany {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  name               String
+  registrationNumber String   @unique
+  industry           String
+  foundingDate       DateTime
+  address            String
+  website            String?
+  description        String?  @db.Text
+  logoUrl            String?
+  status             String   @default("PENDING") // PENDING, APPROVED, REJECTED, ACTIVE, SUSPENDED
+  companySize        String?  // SMALL, MEDIUM, LARGE
+  employeeCount      Int?
+  annualRevenue      Decimal? @db.Decimal(15, 2)
+  fundingStage       String?  // SEED, SERIES_A, SERIES_B, etc.
+  contactPerson      String?
+  contactPhone       String?
+  contactEmail       String?
+  socialMedia        Json?    // Store social media links as JSON
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  // Relations
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications       Application[]
+
+  @@map("portfolio_companies")
+}
+
+model Fund {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?  @db.Text
+  totalAmount       Decimal  @db.Decimal(15, 2)
+  remainingAmount   Decimal  @db.Decimal(15, 2)
+  minInvestment     Decimal  @db.Decimal(15, 2)
+  maxInvestment     Decimal  @db.Decimal(15, 2)
+  focusIndustries   Json     // Array of industry strings
+  applicationStart  DateTime
+  applicationEnd    DateTime
+  status            String   @default("COMING_SOON") // COMING_SOON, OPEN, CLOSED, PAUSED
+  fundType          String?  // SEED, GROWTH, LATE_STAGE, etc.
+  investmentThesis  String?  @db.Text
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  createdBy         User     @relation(fields: [createdById], references: [id])
+  applications      Application[]
+  fundManagers      FundManager[]
+
+  @@map("funds")
+}
+
+model FundManager {
+  id        String   @id @default(cuid())
+  fundId    String
+  userId    String
+  role      String   @default("MANAGER") // MANAGER, ASSOCIATE, ANALYST
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  fund      Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews   Review[]
+  stages    ApplicationStage[]
+
+  @@unique([fundId, userId])
+
+  @@map("fund_managers")
+}
+
+model Application {
+  id              String   @id @default(cuid())
+  companyId       String
+  fundId          String
+  requestedAmount Decimal  @db.Decimal(15, 2)
+  proposalUrl     String?
+  financialsUrl   String?
+  teamUrl         String?
+  status          String   @default("DRAFT") // DRAFT, SUBMITTED, UNDER_REVIEW, SHORTLISTED, REJECTED, APPROVED, FUNDED
+  currentStage    String?
+  submittedAt     DateTime?
+  decisionDate    DateTime?
+  decisionNotes   String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  company         PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fund            Fund             @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  stages          ApplicationStage[]
+  reviews         Review[]
+  documents       Document[]
+
+  @@map("applications")
+}
+
+model ApplicationStage {
+  id                  String   @id @default(cuid())
+  applicationId       String
+  stageName           String
+  status              String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, REJECTED
+  startDate           DateTime?
+  endDate             DateTime?
+  notes               String?  @db.Text
+  assignedToId        String?
+  requiredDocuments   Json     // Array of required document types
+  submittedDocuments  Json     // Array of submitted document IDs
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  application         Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  assignedTo          FundManager?   @relation(fields: [assignedToId], references: [id])
+  documents           Document[]
+
+  @@map("application_stages")
+}
+
+model Review {
+  id            String   @id @default(cuid())
+  applicationId String
+  reviewerId    String
+  score         Int      // 1-10 scale
+  strengths     String?  @db.Text
+  weaknesses    String?  @db.Text
+  recommendation String  @default("MAYBE") // APPROVE, REJECT, MAYBE
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer      FundManager @relation(fields: [reviewerId], references: [id])
+
+  @@map("reviews")
+}
+
+model Document {
+  id              String   @id @default(cuid())
+  applicationId   String
+  stageId         String?
+  uploadedById    String
+  name            String
+  type            String
+  url             String
+  size            Int
+  mimeType        String?
+  isPublic        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  application     Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  stage           ApplicationStage? @relation(fields: [stageId], references: [id])
+  uploadedBy      User             @relation(fields: [uploadedById], references: [id])
+
+  @@map("documents")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  entityType  String
+  entityId    String
+  oldValues   Json?
+  newValues   Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
 }
 
 model Target {
