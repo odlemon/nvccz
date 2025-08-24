@@ -40,6 +40,7 @@ model User {
   fundManagers            FundManager[]
   documents               Document[]
   auditLogs               AuditLog[]
+  dueDiligenceReviews     DueDiligenceReview[]
 
   @@map("users")
 }
@@ -514,7 +515,6 @@ model PortfolioCompany {
   
   // Relations
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applications       Application[]
 
   @@map("portfolio_companies")
 }
@@ -566,29 +566,128 @@ model FundManager {
 }
 
 model Application {
-  id              String   @id @default(cuid())
-  companyId       String
-  fundId          String
-  requestedAmount Decimal  @db.Decimal(15, 2)
-  proposalUrl     String?
-  financialsUrl   String?
-  teamUrl         String?
-  status          String   @default("DRAFT") // DRAFT, SUBMITTED, UNDER_REVIEW, SHORTLISTED, REJECTED, APPROVED, FUNDED
-  currentStage    String?
-  submittedAt     DateTime?
-  decisionDate    DateTime?
-  decisionNotes   String?  @db.Text
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  
+  // Applicant Information (no user account initially)
+  applicantName         String
+  applicantEmail        String
+  applicantPhone        String
+  applicantAddress      String
+  
+  // Business Information
+  businessName          String
+  businessDescription   String   @db.Text
+  industry              String
+  businessStage         String   // IDEA, STARTUP, OPERATIONAL
+  foundingDate          DateTime?
+  
+  // Investment Details
+  requestedAmount       Decimal  @db.Decimal(15, 2)
+  fundId                String?  // Optional - can be assigned later
+  
+  // Application Workflow
+  currentStage          String   @default("SHORTLISTED") // SHORTLISTED, UNDER_DUE_DILIGENCE, DUE_DILIGENCE_COMPLETED, etc.
+  submittedAt           DateTime?
+  updatedAt             DateTime  @updatedAt
+  
+  // Screening & Evaluation
+  initialScreeningScore Decimal? @db.Decimal(5, 2) // 0-100%
+  screeningOutcome      String?  // PASSED, FAILED, CONDITIONAL
+  dueDiligenceScore     Decimal? @db.Decimal(5, 2)
+  boardDecision         String?  // APPROVED, REJECTED, CONDITIONAL_APPROVAL
   
   // Relations
-  company         PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  fund            Fund             @relation(fields: [fundId], references: [id], onDelete: Cascade)
-  stages          ApplicationStage[]
-  reviews         Review[]
-  documents       Document[]
+  fund                  Fund?    @relation(fields: [fundId], references: [id])
+  documents             ApplicationDocument[]
+  notifications         ApplicationNotification[]
+  dueDiligenceReview    DueDiligenceReview?
+  
+  createdAt             DateTime @default(now())
 
   @@map("applications")
+}
+
+model ApplicationDocument {
+  id              String   @id @default(cuid())
+  applicationId   String
+  documentType    String   // BUSINESS_PLAN, PROOF_OF_CONCEPT, MARKET_RESEARCH, PROJECTED_CASH_FLOWS, HISTORICAL_FINANCIALS
+  fileName        String
+  fileUrl         String   // URL to the document (Google Drive, Dropbox, etc.)
+  fileSize        Int
+  uploadedAt      DateTime @default(now())
+  isRequired      Boolean  @default(false)
+  isSubmitted     Boolean  @default(false)
+  
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime @default(now())
+
+  @@map("application_documents")
+}
+
+model ApplicationNotification {
+  id                    String   @id @default(cuid())
+  applicationId         String
+  recipientEmail        String
+  recipientPhone        String?
+  
+  notificationType      String   // APPLICATION_SUBMITTED, SCREENING_RESULT, etc.
+  title                 String
+  message               String   @db.Text
+  isSent                Boolean  @default(false)
+  sentAt                DateTime?
+  
+  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  
+  createdAt             DateTime @default(now())
+
+  @@map("application_notifications")
+}
+
+model DueDiligenceReview {
+  id                    String   @id @default(cuid())
+  applicationId         String
+  reviewerId            String
+  
+  // Assessment Areas (Yes/No with comments)
+  marketResearchViable  Boolean  @default(false)
+  marketResearchComments String? @db.Text
+  
+  financialViable       Boolean  @default(false)
+  financialComments     String? @db.Text
+  
+  competitiveOpportunities Boolean @default(false)
+  competitiveComments   String? @db.Text
+  
+  managementTeamQualified Boolean @default(false)
+  managementComments    String? @db.Text
+  
+  legalCompliant        Boolean  @default(false)
+  legalComments         String? @db.Text
+  
+  riskTolerable         Boolean  @default(false)
+  riskComments          String? @db.Text
+  
+  // Overall assessment
+  overallScore          Decimal? @db.Decimal(5, 2) // 0-100%
+  recommendation        String?  // APPROVE, REJECT, CONDITIONAL
+  finalComments         String?  @db.Text
+  
+  // Status
+  status                String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
+  
+  // Timestamps
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  completedAt           DateTime?
+  
+  // Relations
+  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer              User @relation(fields: [reviewerId], references: [id])
+
+  @@unique([applicationId])
+  
+  @@map("due_diligence_reviews")
 }
 
 model ApplicationStage {
@@ -606,7 +705,6 @@ model ApplicationStage {
   updatedAt           DateTime @updatedAt
   
   // Relations
-  application         Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   assignedTo          FundManager?   @relation(fields: [assignedToId], references: [id])
   documents           Document[]
 
@@ -626,7 +724,6 @@ model Review {
   updatedAt     DateTime @updatedAt
   
   // Relations
-  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   reviewer      FundManager @relation(fields: [reviewerId], references: [id])
 
   @@map("reviews")
@@ -646,7 +743,6 @@ model Document {
   createdAt       DateTime @default(now())
   
   // Relations
-  application     Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   stage           ApplicationStage? @relation(fields: [stageId], references: [id])
   uploadedBy      User             @relation(fields: [uploadedById], references: [id])
 
