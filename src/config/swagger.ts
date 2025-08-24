@@ -1186,6 +1186,53 @@ const options = {
             instagram: { type: 'string', example: 'https://instagram.com/nvccz_updated' }
           }
         },
+        // Application schemas
+        Application: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            applicantName: { type: 'string', example: 'John Doe' },
+            applicantEmail: { type: 'string', example: 'john.doe@example.com' },
+            applicantPhone: { type: 'string', example: '+1234567890' },
+            applicantAddress: { type: 'string', example: '123 Main Street, City, Country' },
+            businessName: { type: 'string', example: 'TechStart Inc.' },
+            businessDescription: { type: 'string', example: 'A technology startup focused on AI solutions' },
+            industry: { type: 'string', example: 'Technology' },
+            businessStage: { type: 'string', example: 'STARTUP' },
+            foundingDate: { type: 'string', format: 'date-time', example: '2023-01-15T00:00:00.000Z' },
+            requestedAmount: { type: 'number', example: 100000 },
+            fundId: { type: 'string', example: 'clx1234567890abcdef' },
+            currentStage: { type: 'string', example: 'SHORTLISTED' },
+            submittedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00.000Z' },
+            initialScreeningScore: { type: 'number', example: 75.5 },
+            screeningOutcome: { type: 'string', example: 'PASSED' },
+            dueDiligenceScore: { type: 'number', example: 82.0 },
+            boardDecision: { type: 'string', example: 'APPROVED' },
+            createdAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00.000Z' },
+            updatedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00.000Z' },
+            fund: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', example: 'clx1234567890abcdef' },
+                name: { type: 'string', example: 'NVCCZ Seed Fund' },
+                status: { type: 'string', example: 'OPEN' }
+              }
+            },
+            documents: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', example: 'clx1234567890abcdef' },
+                  documentType: { type: 'string', example: 'BUSINESS_PLAN' },
+                  fileName: { type: 'string', example: 'business_plan.pdf' },
+                  isRequired: { type: 'boolean', example: true },
+                  isSubmitted: { type: 'boolean', example: true }
+                }
+              }
+            }
+          }
+        },
         // Portfolio Company schemas
         PortfolioCompany: {
           type: 'object',
