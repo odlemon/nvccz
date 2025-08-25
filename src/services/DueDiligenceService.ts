@@ -61,16 +61,16 @@ export class DueDiligenceService {
       }
 
       if (application.currentStage !== 'SHORTLISTED') {
-        throw new Error('Due diligence can only be initiated for applications in SHORTLISTED stage');
+        throw new Error('Due diligence can only be initiated for applications in SHORTLISTED stage. Current stage: ' + application.currentStage);
       }
 
-      // Check if due diligence already exists
+      // Check if due diligence already exists - prevent multiple due diligence reviews
       const existingDueDiligence = await prisma.dueDiligenceReview.findUnique({
         where: { applicationId: params.applicationId }
       });
 
       if (existingDueDiligence) {
-        throw new Error('Due diligence already exists for this application');
+        throw new Error('A due diligence review already exists for this application. Only one due diligence review is allowed per application.');
       }
 
       // Create due diligence record
@@ -258,11 +258,11 @@ export class DueDiligenceService {
         }
       });
 
-      // Update application stage to DUE_DILIGENCE_COMPLETED
+      // Update application stage to UNDER_BOARD_REVIEW
       await prisma.application.update({
         where: { id: applicationId },
         data: { 
-          currentStage: 'DUE_DILIGENCE_COMPLETED',
+          currentStage: 'UNDER_BOARD_REVIEW',
           dueDiligenceScore: existingDueDiligence.overallScore
         }
       });
@@ -275,7 +275,7 @@ export class DueDiligenceService {
           recipientPhone: existingDueDiligence.application.applicantPhone,
           notificationType: 'DUE_DILIGENCE_COMPLETED',
           title: 'Due Diligence Completed',
-          message: `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Your application will now proceed to the board review stage.`
+          message: `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Your application is now under board review.`
         }
       });
 

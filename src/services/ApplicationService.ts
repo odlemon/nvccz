@@ -79,6 +79,46 @@ export interface ApplicationWithRelations {
     isRequired: boolean;
     isSubmitted: boolean;
   }>;
+  dueDiligenceReview?: {
+    id: string;
+    status: string;
+    overallScore?: Decimal;
+    recommendation?: string;
+    reviewer: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+    };
+  };
+  boardReview?: {
+    id: string;
+    status: string;
+    investmentApproved: boolean;
+    investmentRejected: boolean;
+    conditionalApproval: boolean;
+    reviewer: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+    };
+  };
+    termSheet?: {
+    id: string;
+    status: string;
+    title: string;
+    investmentAmount: Decimal;
+    isDraft: boolean;
+    isFinal: boolean;
+    isSigned: boolean;
+    createdBy: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+    };
+  };
 }
 
 export class ApplicationService {
@@ -208,6 +248,30 @@ export class ApplicationService {
           dueDiligenceReview: {
             include: {
               reviewer: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          },
+          boardReview: {
+            include: {
+              reviewer: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          },
+          termSheet: {
+            include: {
+              createdBy: {
                 select: {
                   id: true,
                   firstName: true,
@@ -503,6 +567,30 @@ export class ApplicationService {
             dueDiligenceReview: {
               include: {
                 reviewer: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            },
+            boardReview: {
+              include: {
+                reviewer: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            },
+            termSheet: {
+              include: {
+                createdBy: {
                   select: {
                     id: true,
                     firstName: true,
