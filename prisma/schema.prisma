@@ -41,6 +41,11 @@ model User {
   documents               Document[]
   auditLogs               AuditLog[]
   dueDiligenceReviews     DueDiligenceReview[]
+  boardReviews             BoardReview[]
+  termSheets               TermSheet[]
+  investmentImplementations InvestmentImplementation[]
+  fundDisbursementsApproved FundDisbursement[] @relation("FundDisbursementApprovedBy")
+  fundDisbursementsDisbursed FundDisbursement[] @relation("FundDisbursementDisbursedBy")
 
   @@map("users")
 }
@@ -515,6 +520,7 @@ model PortfolioCompany {
   
   // Relations
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  investmentImplementation InvestmentImplementation?
 
   @@map("portfolio_companies")
 }
@@ -522,7 +528,7 @@ model PortfolioCompany {
 model Fund {
   id                String   @id @default(cuid())
   name              String
-  description       String?  @db.Text
+  description       String   @db.Text
   totalAmount       Decimal  @db.Decimal(15, 2)
   remainingAmount   Decimal  @db.Decimal(15, 2)
   minInvestment     Decimal  @db.Decimal(15, 2)
@@ -530,9 +536,7 @@ model Fund {
   focusIndustries   Json     // Array of industry strings
   applicationStart  DateTime
   applicationEnd    DateTime
-  status            String   @default("COMING_SOON") // COMING_SOON, OPEN, CLOSED, PAUSED
-  fundType          String?  // SEED, GROWTH, LATE_STAGE, etc.
-  investmentThesis  String?  @db.Text
+  status            String   @default("OPEN") // OPEN, CLOSED, COMING_SOON
   createdById       String
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -541,6 +545,8 @@ model Fund {
   createdBy         User     @relation(fields: [createdById], references: [id])
   applications      Application[]
   fundManagers      FundManager[]
+  fundDisbursements FundDisbursement[]
+  investmentImplementations InvestmentImplementation[]
 
   @@map("funds")
 }
@@ -601,6 +607,9 @@ model Application {
   documents             ApplicationDocument[]
   notifications         ApplicationNotification[]
   dueDiligenceReview    DueDiligenceReview?
+  boardReview           BoardReview?
+  termSheet             TermSheet?
+  investmentImplementation InvestmentImplementation?
   
   createdAt             DateTime @default(now())
 
@@ -688,6 +697,90 @@ model DueDiligenceReview {
   @@unique([applicationId])
   
   @@map("due_diligence_reviews")
+}
+
+model BoardReview {
+  id                    String   @id @default(cuid())
+  applicationId         String
+  reviewerId            String
+  
+  // Investment Decision Options (as per requirements) - Only one should be true
+  investmentApproved    Boolean  @default(false)
+  investmentRejected    Boolean  @default(false)
+  conditionalApproval   Boolean  @default(false)
+  
+  // Recommendation Report
+  recommendationReport  String?  @db.Text
+  additionalInformation String?  @db.Text
+  
+  // Board Decision Details
+  decisionReason        String?  @db.Text
+  conditions            String?  @db.Text  // For conditional approval
+  nextSteps             String?  @db.Text
+  
+  // Overall assessment
+  overallScore          Decimal? @db.Decimal(5, 2) // 0-100%
+  finalComments         String?  @db.Text
+  
+  // Status
+  status                String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
+  
+  // Timestamps
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  completedAt           DateTime?
+  
+  // Relations
+  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer              User @relation(fields: [reviewerId], references: [id])
+
+  @@unique([applicationId])
+  
+  @@map("board_reviews")
+}
+
+model TermSheet {
+  id                    String   @id @default(cuid())
+  applicationId         String
+  createdById           String
+  
+  // Term Sheet Details
+  title                 String
+  version               String   @default("1.0")
+  status                String   @default("DRAFT") // DRAFT, FINAL, SIGNED
+  
+  // Investment Terms
+  investmentAmount      Decimal  @db.Decimal(15, 2)
+  equityPercentage      Decimal? @db.Decimal(5, 2)
+  valuation             Decimal? @db.Decimal(15, 2)
+  
+  // Key Terms
+  keyTerms              String?  @db.Text
+  conditions            String?  @db.Text
+  timeline              String?  @db.Text
+  
+  // Document
+  documentUrl           String?  // URL to the term sheet document
+  documentFileName      String?
+  documentSize          Int?
+  
+  // Status tracking
+  isDraft               Boolean  @default(true)
+  isFinal               Boolean  @default(false)
+  isSigned              Boolean  @default(false)
+  signedAt              DateTime?
+  
+  // Timestamps
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  createdBy             User @relation(fields: [createdById], references: [id])
+
+  @@unique([applicationId])
+  
+  @@map("term_sheets")
 }
 
 model ApplicationStage {
@@ -807,4 +900,97 @@ model NewsletterTopic {
   updatedAt   DateTime @updatedAt
 
   @@map("newsletter_topics")
+}
+
+
+
+model InvestmentImplementation {
+  id                    String   @id @default(cuid())
+  portfolioCompanyId    String
+  applicationId         String
+  fundId                String?
+  initiatedById         String
+  
+  // Implementation Checklist
+  finalDueDiligence     Boolean  @default(false)
+  contractsSigned       Boolean  @default(false)
+  fundsDisbursed        Boolean  @default(false)
+  
+  // Implementation Details
+  implementationPlan    String?  @db.Text
+  assignedTeam          String?  // Comma-separated user IDs
+  notes                 String?  @db.Text
+  
+  // Status
+  status                String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, ON_HOLD
+  
+  // Timestamps
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  completedAt           DateTime?
+  
+  // Relations
+  portfolioCompany      PortfolioCompany @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
+  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fund                  Fund? @relation(fields: [fundId], references: [id])
+  initiatedBy           User @relation(fields: [initiatedById], references: [id])
+  milestones            InvestmentMilestone[]
+  fundDisbursements     FundDisbursement[]
+
+  @@unique([portfolioCompanyId])
+  @@unique([applicationId])
+  @@map("investment_implementations")
+}
+
+model InvestmentMilestone {
+  id                        String   @id @default(cuid())
+  investmentImplementationId String
+  title                     String
+  description               String   @db.Text
+  amount                    Decimal  @db.Decimal(15, 2)
+  dueDate                   DateTime
+  isCompleted               Boolean  @default(false)
+  completedAt               DateTime?
+  notes                     String?  @db.Text
+  deliverables              String?  @db.Text
+  
+  // Timestamps
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  
+  // Relations
+  investmentImplementation   InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
+  fundDisbursements         FundDisbursement[]
+
+  @@map("investment_milestones")
+}
+
+model FundDisbursement {
+  id                        String   @id @default(cuid())
+  fundId                    String
+  investmentImplementationId String
+  milestoneId               String?
+  amount                    Decimal  @db.Decimal(15, 2)
+  disbursementDate          DateTime
+  disbursementType          String   // INITIAL, MILESTONE, FINAL
+  status                    String   @default("PENDING") // PENDING, APPROVED, DISBURSED, REJECTED
+  approvedById              String?
+  disbursedById             String?
+  notes                     String?  @db.Text
+  transactionReference      String?
+  
+  // Timestamps
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  approvedAt                DateTime?
+  disbursedAt               DateTime?
+  
+  // Relations
+  fund                      Fund @relation(fields: [fundId], references: [id])
+  investmentImplementation   InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
+  milestone                 InvestmentMilestone? @relation(fields: [milestoneId], references: [id])
+  approvedBy                User? @relation("FundDisbursementApprovedBy", fields: [approvedById], references: [id])
+  disbursedBy               User? @relation("FundDisbursementDisbursedBy", fields: [disbursedById], references: [id])
+
+  @@map("fund_disbursements")
 }
