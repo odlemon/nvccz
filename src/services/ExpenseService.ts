@@ -4,6 +4,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { dbConnection } from "../utils/database";
 import VATService from "./VATService";
 import JournalEntryService, { CreateExpenseJournalEntryParams } from "./JournalEntryService";
+import AuditService from "./AuditService";
 
 const prisma = dbConnection.getPrismaClient();
 
@@ -134,6 +135,16 @@ export class ExpenseService {
           }
         }
       });
+
+      // Audit: CREATE expense
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "Expense",
+        entityId: updatedExpense.id,
+        newValues: updatedExpense,
+      });
+
       return updatedExpense;
     } catch (error) {
       console.error("Error creating expense:", error);
@@ -331,6 +342,7 @@ export class ExpenseService {
 
       // If no financial changes, just update non-financial fields directly
       if (!hasFinancialChanges) {
+        const before = expense;
         const updatedExpense = await prisma.expense.update({
           where: { id },
           data: updateData,
@@ -346,6 +358,16 @@ export class ExpenseService {
               }
             }
           }
+        });
+
+        // Audit: UPDATE expense (DRAFT)
+        await AuditService.log({
+          userId: updatedExpense.createdById,
+          action: "UPDATE",
+          entityType: "Expense",
+          entityId: id,
+          oldValues: before,
+          newValues: updatedExpense,
         });
 
         return updatedExpense;
@@ -378,6 +400,7 @@ export class ExpenseService {
         createdById: expense.createdById
       };
 
+      const before = expense;
       const reversalResult = await JournalEntryService.createReversalJournalEntry(reversalParams);
 
       // Step 2: Update the expense with new amounts and temporarily link to reversal
@@ -442,6 +465,16 @@ export class ExpenseService {
         }
       });
 
+      // Audit: UPDATE expense (POSTED with reversal workflow)
+      await AuditService.log({
+        userId: finalExpense.createdById,
+        action: "UPDATE",
+        entityType: "Expense",
+        entityId: id,
+        oldValues: before,
+        newValues: finalExpense,
+      });
+
       return finalExpense;
     }
 
@@ -465,9 +498,18 @@ export class ExpenseService {
 
     // For DRAFT expenses, just soft delete
     if (expense.status === "DRAFT") {
+      const before = expense;
       await prisma.expense.update({
         where: { id },
         data: { isActive: false }
+      });
+      // Audit: DELETE (soft) expense (DRAFT)
+      await AuditService.log({
+        userId: before.createdById,
+        action: "DELETE",
+        entityType: "Expense",
+        entityId: id,
+        oldValues: before,
       });
       return;
     }
@@ -493,9 +535,18 @@ export class ExpenseService {
       await JournalEntryService.createReversalJournalEntry(reversalParams);
 
       // Soft delete the expense
+      const before = expense;
       await prisma.expense.update({
         where: { id },
         data: { isActive: false }
+      });
+      // Audit: DELETE (soft) expense (POSTED)
+      await AuditService.log({
+        userId: before.createdById,
+        action: "DELETE",
+        entityType: "Expense",
+        entityId: id,
+        oldValues: before,
       });
       return;
     }

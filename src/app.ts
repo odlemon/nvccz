@@ -41,6 +41,7 @@ import investmentImplementationRoutes from "./routes/investmentImplementationRou
 import fundRoutes from "./routes/fundRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
+import auditRoutes from "./routes/auditRoutes"
 
 
 dotenv.config()
@@ -78,6 +79,10 @@ app.use((req, res, next) => {
   })
   next()
 })
+
+// Attach request metadata (ip, user-agent) for audit logging
+import { attachRequestMeta } from "./middleware/requestMeta"
+app.use(attachRequestMeta)
 
 // Debug endpoint to check Swagger spec (development only)
 if (process.env.NODE_ENV === 'development') {
@@ -255,6 +260,9 @@ app.use("/api/targets", targetRoutes)
 
 // Target tracking routes
 app.use("/api/target-tracking", targetTrackingRoutes)
+
+// Audit logs
+app.use("/api/audit-logs", auditRoutes)
 
 
 

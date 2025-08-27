@@ -4,6 +4,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { dbConnection } from "../utils/database";
 import VATService from "./VATService";
 import JournalEntryService, { CreateInvoiceJournalEntryParams } from "./JournalEntryService";
+import AuditService from "./AuditService";
 
 const prisma = dbConnection.getPrismaClient();
 
@@ -187,6 +188,15 @@ export class InvoiceService {
         }
       });
 
+      // Audit: CREATE invoice
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "Invoice",
+        entityId: updatedInvoice.id,
+        newValues: updatedInvoice,
+      });
+
       return updatedInvoice;
     } catch (error: any) {
       throw new Error(`Failed to create invoice: ${error.message}`);
@@ -366,6 +376,7 @@ export class InvoiceService {
       }
 
       // Update the invoice
+      const before = currentInvoice;
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
         data: {
@@ -406,7 +417,7 @@ export class InvoiceService {
         });
 
         // Update invoice with new journal entry reference
-        return await prisma.invoice.update({
+        const finalUpdatedInvoice = await prisma.invoice.update({
           where: { id },
           data: { journalEntryId: journalEntryResult.journalEntry.id },
           include: {
@@ -422,7 +433,29 @@ export class InvoiceService {
             }
           }
         });
+
+        // Audit: UPDATE invoice (SENT with financial changes)
+        await AuditService.log({
+          userId: finalUpdatedInvoice.createdById,
+          action: "UPDATE",
+          entityType: "Invoice",
+          entityId: id,
+          oldValues: currentInvoice,
+          newValues: finalUpdatedInvoice,
+        });
+
+        return finalUpdatedInvoice;
       }
+
+      // Audit: UPDATE invoice (no financial changes)
+      await AuditService.log({
+        userId: updatedInvoice.createdById,
+        action: "UPDATE",
+        entityType: "Invoice",
+        entityId: id,
+        oldValues: before,
+        newValues: updatedInvoice,
+      });
 
       return updatedInvoice;
     } catch (error: any) {
@@ -785,6 +818,16 @@ export class InvoiceService {
             }
           }
         }
+      });
+
+      // Audit: VOID invoice
+      await AuditService.log({
+        userId: updatedInvoice.createdById,
+        action: "VOID",
+        entityType: "Invoice",
+        entityId: id,
+        oldValues: invoice,
+        newValues: updatedInvoice,
       });
 
       return updatedInvoice;

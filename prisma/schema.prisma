@@ -858,6 +858,9 @@ model AuditLog {
   user        User?    @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }
 
 model Target {

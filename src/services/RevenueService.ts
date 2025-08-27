@@ -4,6 +4,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { dbConnection } from "../utils/database";
 import VATService from "./VATService";
 import JournalEntryService, { CreateRevenueJournalEntryParams } from "./JournalEntryService";
+import AuditService from "./AuditService";
 
 const prisma = dbConnection.getPrismaClient();
 
@@ -125,6 +126,15 @@ export class RevenueService {
             }
           }
         }
+      });
+
+      // Audit: CREATE revenue
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "Revenue",
+        entityId: updatedRevenue.id,
+        newValues: updatedRevenue,
       });
 
       return updatedRevenue;
@@ -283,6 +293,7 @@ export class RevenueService {
 
         // If no financial changes, just update non-financial fields directly
         if (!hasFinancialChanges) {
+          const before = revenue;
           const updatedRevenue = await prisma.revenue.update({
             where: { id },
             data: updateData,
@@ -298,6 +309,16 @@ export class RevenueService {
                 }
               }
             }
+          });
+
+          // Audit: UPDATE revenue (DRAFT)
+          await AuditService.log({
+            userId: updatedRevenue.createdById,
+            action: "UPDATE",
+            entityType: "Revenue",
+            entityId: id,
+            oldValues: before,
+            newValues: updatedRevenue,
           });
 
           return updatedRevenue;
@@ -332,6 +353,7 @@ export class RevenueService {
         const reversalResult = await JournalEntryService.createReversalRevenueJournalEntry(reversalParams);
 
         // Step 2: Update the revenue with new amounts and temporarily link to reversal
+        const before = revenue;
         const updatedRevenue = await prisma.revenue.update({
           where: { id },
           data: {
@@ -357,17 +379,17 @@ export class RevenueService {
 
         // Step 3: Create new journal entry with updated data
         const newJournalEntryParams: CreateRevenueJournalEntryParams = {
-          sourceId: newCategoryId,
+          sourceId: updatedRevenue.sourceId,
           categoryId: newCategoryId,
           amount: newAmount,
           vatAmount: newVatAmount,
           totalAmount: newTotalAmount,
-          currencyId: revenue.currencyId,
-          transactionDate: revenue.transactionDate,
-          description: updateData.description ?? revenue.description,
+          currencyId: updatedRevenue.currencyId,
+          transactionDate: updatedRevenue.transactionDate,
+          description: updateData.description ?? updatedRevenue.description,
           isTaxable: newIsTaxable,
-          paymentMethod: revenue.paymentMethod,
-          createdById: revenue.createdById
+          paymentMethod: updatedRevenue.paymentMethod,
+          createdById: updatedRevenue.createdById
         };
 
         const newJournalEntry = await JournalEntryService.createRevenueJournalEntry(newJournalEntryParams);
@@ -390,6 +412,16 @@ export class RevenueService {
           }
         });
 
+        // Audit: UPDATE revenue (POSTED with reversal workflow)
+        await AuditService.log({
+          userId: finalUpdatedRevenue.createdById,
+          action: "UPDATE",
+          entityType: "Revenue",
+          entityId: id,
+          oldValues: before,
+          newValues: finalUpdatedRevenue,
+        });
+
         return finalUpdatedRevenue;
       }
 
@@ -405,7 +437,8 @@ export class RevenueService {
    */
   static async deleteRevenue(id: string): Promise<RevenueWithRelations> {
     try {
-      return await prisma.revenue.update({
+      const before = await prisma.revenue.findUnique({ where: { id } });
+      const deleted = await prisma.revenue.update({
         where: { id },
         data: { isActive: false },
         include: {
@@ -421,6 +454,18 @@ export class RevenueService {
           }
         }
       });
+
+      // Audit: DELETE (soft) revenue
+      await AuditService.log({
+        userId: deleted.createdById,
+        action: "DELETE",
+        entityType: "Revenue",
+        entityId: id,
+        oldValues: before,
+        newValues: deleted,
+      });
+
+      return deleted;
     } catch (error: any) {
       console.error("Error deleting revenue:", error);
       throw error;
