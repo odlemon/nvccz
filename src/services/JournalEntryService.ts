@@ -509,6 +509,7 @@ export class JournalEntryService {
 
   /**
    * Get journal entry with its lines
+   * Include transaction paymentMethod and attach it to each line
    */
   static async getJournalEntryWithLines(journalEntryId: string): Promise<JournalEntryResult | null> {
     const journalEntry = await prisma.journalEntry.findUnique({
@@ -518,23 +519,39 @@ export class JournalEntryService {
           include: {
             chartOfAccount: true
           }
-        }
+        },
+        // Include related transactions to infer payment method
+        expenses: { select: { paymentMethod: true } },
+        revenues: { select: { paymentMethod: true } },
+        invoices: { select: { paymentMethod: true } }
       }
     });
 
     if (!journalEntry) return null;
 
+    const paymentMethod =
+      (journalEntry.expenses?.[0]?.paymentMethod) ||
+      (journalEntry.revenues?.[0]?.paymentMethod) ||
+      (journalEntry.invoices?.[0]?.paymentMethod) ||
+      null;
+
+    const journalEntryLines = journalEntry.journalEntryLines.map((line: any) => ({
+      ...line,
+      paymentMethod
+    }));
+
     return {
-      journalEntry,
-      journalEntryLines: journalEntry.journalEntryLines
-    };
+      journalEntry: { ...journalEntry, paymentMethod },
+      journalEntryLines
+    } as any;
   }
 
   /**
    * Get all journal entries for a date range
+   * Include paymentMethod from related transaction and surface it on each line
    */
-  static async getJournalEntriesByDateRange(startDate: Date, endDate: Date): Promise<JournalEntry[]> {
-    return await prisma.journalEntry.findMany({
+  static async getJournalEntriesByDateRange(startDate: Date, endDate: Date): Promise<any[]> {
+    const entries = await prisma.journalEntry.findMany({
       where: {
         transactionDate: {
           gte: startDate,
@@ -555,11 +572,33 @@ export class JournalEntryService {
             lastName: true,
             email: true
           }
-        }
+        },
+        // Include related transactions to infer payment method
+        expenses: { select: { paymentMethod: true } },
+        revenues: { select: { paymentMethod: true } },
+        invoices: { select: { paymentMethod: true } }
       },
       orderBy: {
         transactionDate: 'desc'
       }
+    });
+
+    // Attach paymentMethod to each line for each entry
+    return entries.map((entry: any) => {
+      const paymentMethod =
+        (entry.expenses?.[0]?.paymentMethod) ||
+        (entry.revenues?.[0]?.paymentMethod) ||
+        (entry.invoices?.[0]?.paymentMethod) ||
+        null;
+
+      return {
+        ...entry,
+        paymentMethod,
+        journalEntryLines: entry.journalEntryLines.map((line: any) => ({
+          ...line,
+          paymentMethod
+        }))
+      };
     });
   }
 
