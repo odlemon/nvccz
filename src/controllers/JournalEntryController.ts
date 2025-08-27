@@ -46,7 +46,8 @@ export class JournalEntryController {
   static async postJournalEntry(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const journalEntry = await JournalEntryService.postJournalEntry(id);
+      const userId = (req as any).user?.id;
+      const journalEntry = await JournalEntryService.postJournalEntry(id, userId);
 
       return ResponseHelper.success(res, "Journal entry posted successfully", journalEntry);
     } catch (error) {
@@ -64,7 +65,8 @@ export class JournalEntryController {
   static async voidJournalEntry(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const journalEntry = await JournalEntryService.voidJournalEntry(id);
+      const userId = (req as any).user?.id;
+      const journalEntry = await JournalEntryService.voidJournalEntry(id, userId);
 
       return ResponseHelper.success(res, "Journal entry voided successfully", journalEntry);
     } catch (error) {

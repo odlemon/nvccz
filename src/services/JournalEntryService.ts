@@ -3,6 +3,7 @@ import { PrismaClient, JournalEntry, JournalEntryLine, ChartOfAccounts } from "@
 import { dbConnection } from "../utils/database";
 import VATService from "./VATService";
 import { Decimal } from "@prisma/client/runtime/library";
+import AuditService from "./AuditService";
 
 const prisma = dbConnection.getPrismaClient();
 
@@ -110,6 +111,15 @@ export class JournalEntryService {
           status: "PENDING", // Default to PENDING, must be posted manually
           createdById
         }
+      });
+
+      // Audit: CREATE JournalEntry (Expense)
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "JournalEntry",
+        entityId: journalEntry.id,
+        newValues: journalEntry,
       });
 
       // Create journal entry lines for double-entry bookkeeping
@@ -605,7 +615,7 @@ export class JournalEntryService {
   /**
    * Post a journal entry (change status from PENDING to POSTED)
    */
-  static async postJournalEntry(journalEntryId: string): Promise<JournalEntry> {
+  static async postJournalEntry(journalEntryId: string, performedById?: string): Promise<JournalEntry> {
     try {
       // Get the journal entry with its lines
       const journalEntry = await prisma.journalEntry.findUnique({
@@ -641,6 +651,16 @@ export class JournalEntryService {
         }
       });
 
+      // Audit: POST journal entry
+      await AuditService.log({
+        userId: performedById ?? journalEntry.createdById,
+        action: "POST",
+        entityType: "JournalEntry",
+        entityId: journalEntryId,
+        oldValues: journalEntry,
+        newValues: updatedJournalEntry,
+      });
+
       return updatedJournalEntry;
     } catch (error) {
       console.error("Error posting journal entry:", error);
@@ -652,7 +672,7 @@ export class JournalEntryService {
   /**
    * Void a journal entry (change status to VOID)
    */
-  static async voidJournalEntry(journalEntryId: string): Promise<JournalEntry> {
+  static async voidJournalEntry(journalEntryId: string, performedById?: string): Promise<JournalEntry> {
     try {
       const journalEntry = await prisma.journalEntry.findUnique({
         where: { id: journalEntryId }
@@ -673,6 +693,16 @@ export class JournalEntryService {
           status: "VOID",
           updatedAt: new Date()
         }
+      });
+
+      // Audit: VOID journal entry
+      await AuditService.log({
+        userId: performedById ?? journalEntry.createdById,
+        action: "VOID",
+        entityType: "JournalEntry",
+        entityId: journalEntryId,
+        oldValues: journalEntry,
+        newValues: updatedJournalEntry,
       });
 
       return updatedJournalEntry;
@@ -716,6 +746,15 @@ export class JournalEntryService {
           status: "PENDING", // Default to PENDING, must be posted manually
           createdById
         }
+      });
+
+      // Audit: CREATE JournalEntry (Invoice)
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "JournalEntry",
+        entityId: journalEntry.id,
+        newValues: journalEntry,
       });
 
       // Create journal entry lines for double-entry bookkeeping
@@ -1081,6 +1120,15 @@ export class JournalEntryService {
           status: "PENDING", // Default to PENDING, must be posted manually
           createdById
         }
+      });
+
+      // Audit: CREATE JournalEntry (Revenue)
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "JournalEntry",
+        entityId: journalEntry.id,
+        newValues: journalEntry,
       });
 
       // Create journal entry lines for double-entry bookkeeping
