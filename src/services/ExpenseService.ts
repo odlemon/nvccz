@@ -308,6 +308,7 @@ export class ExpenseService {
         totalAmount = newAmount + vatAmount;
       }
 
+      const before = expense;
       const updatedExpense = await prisma.expense.update({
         where: { id },
         data: {
@@ -327,6 +328,16 @@ export class ExpenseService {
             }
           }
         }
+      });
+
+      // Audit: UPDATE expense (DRAFT)
+      await AuditService.log({
+        userId: updatedExpense.createdById,
+        action: "UPDATE",
+        entityType: "Expense",
+        entityId: id,
+        oldValues: before,
+        newValues: updatedExpense,
       });
 
       return updatedExpense;

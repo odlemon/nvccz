@@ -40,7 +40,7 @@ export class AuditController {
         if (endDate) where.createdAt.lte = new Date(endDate);
       }
 
-      const [logs, total] = await Promise.all([
+      const [logsRaw, total] = await Promise.all([
         prisma.auditLog.findMany({
           where,
           include: {
@@ -54,6 +54,15 @@ export class AuditController {
         }),
         prisma.auditLog.count({ where }),
       ]);
+
+      // Remove ipAddress/userAgent if null/empty from response payload
+      const logs = logsRaw.map((log: any) => {
+        const { ipAddress, userAgent, ...rest } = log;
+        const out: any = { ...rest };
+        if (ipAddress) out.ipAddress = ipAddress;
+        if (userAgent) out.userAgent = userAgent;
+        return out;
+      });
 
       return ResponseHelper.paginated(res, "Audit logs retrieved successfully", logs, {
         page: pageNum,
