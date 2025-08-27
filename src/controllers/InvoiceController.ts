@@ -22,15 +22,26 @@ export class InvoiceController {
         exchangeRateAtCreation
       } = req.body;
 
-      // Validate required fields
-      if (!customerId || !amount || !currencyId || !transactionDate || !description) {
-        ResponseHelper.error(res, "Missing required fields", undefined, 400);
+      // Validate required fields with specifics
+      const missing: string[] = [];
+      if (!customerId) missing.push("customerId");
+      if (amount === undefined || amount === null) missing.push("amount");
+      if (!currencyId) missing.push("currencyId");
+      if (!transactionDate) missing.push("transactionDate");
+      if (!description) missing.push("description");
+
+      if (missing.length) {
+        ResponseHelper.badRequest(
+          res,
+          `Missing required fields: ${missing.join(", ")}`,
+          JSON.stringify({ missingFields: missing })
+        );
         return;
       }
 
       // Validate amount
-      if (amount <= 0) {
-        ResponseHelper.error(res, "Amount must be greater than zero", undefined, 400);
+      if (Number(amount) <= 0) {
+        ResponseHelper.badRequest(res, "Amount must be greater than zero");
         return;
       }
 
