@@ -491,9 +491,20 @@ export class InvoiceService {
       }
 
       // Soft delete the invoice
-      await prisma.invoice.update({
+      const before = invoice;
+      const deleted = await prisma.invoice.update({
         where: { id },
         data: { isActive: false }
+      });
+
+      // Audit: DELETE invoice (soft)
+      await AuditService.log({
+        userId: invoice.createdById,
+        action: "DELETE",
+        entityType: "Invoice",
+        entityId: id,
+        oldValues: before,
+        newValues: deleted,
       });
     } catch (error: any) {
       throw new Error(`Failed to delete invoice: ${error.message}`);
@@ -636,6 +647,7 @@ export class InvoiceService {
         throw new Error(`Cannot send invoice with status: ${invoice.status}. Only DRAFT invoices can be sent.`);
       }
 
+      const before = invoice;
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
         data: { status: "SENT" },
@@ -650,6 +662,16 @@ export class InvoiceService {
             }
           }
         }
+      });
+
+      // Audit: SEND invoice (status change)
+      await AuditService.log({
+        userId: updatedInvoice.createdById,
+        action: "SEND",
+        entityType: "Invoice",
+        entityId: id,
+        oldValues: before,
+        newValues: updatedInvoice,
       });
 
       return updatedInvoice;
@@ -724,6 +746,7 @@ export class InvoiceService {
       });
 
       // Update invoice status to PAID and save payment details
+      const before = invoice;
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
         data: { 
@@ -747,6 +770,16 @@ export class InvoiceService {
             }
           }
         }
+      });
+
+      // Audit: MARK_AS_PAID
+      await AuditService.log({
+        userId: updatedInvoice.createdById,
+        action: "MARK_AS_PAID",
+        entityType: "Invoice",
+        entityId: id,
+        oldValues: before,
+        newValues: updatedInvoice,
       });
 
       return updatedInvoice;
