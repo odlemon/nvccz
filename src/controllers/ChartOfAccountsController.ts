@@ -211,6 +211,116 @@ export class ChartOfAccountsController {
   }
 
   /**
+   * Get all chart of accounts with their detailed journal entry lines
+   */
+  static async getAllChartOfAccountsWithJournalEntryLines(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { accountType, isActive, parentId, includeInactive = false } = req.query;
+
+      // Build where clause for filtering
+      const where: any = {};
+
+      if (accountType) {
+        where.accountType = accountType;
+      }
+
+      if (isActive !== undefined) {
+        where.isActive = isActive === 'true';
+      } else if (!includeInactive) {
+        where.isActive = true;
+      }
+
+      if (parentId) {
+        where.parentId = parentId;
+      }
+
+      const chartOfAccounts = await prisma.chartOfAccounts.findMany({
+        where,
+        include: {
+          parent: {
+            select: {
+              id: true,
+              accountNo: true,
+              accountName: true,
+              accountType: true
+            }
+          },
+          children: {
+            select: {
+              id: true,
+              accountNo: true,
+              accountName: true,
+              accountType: true,
+              isActive: true
+            }
+          },
+          journalEntryLines: {
+            include: {
+              journalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  transactionDate: true,
+                  description: true,
+                  totalAmount: true,
+                  status: true,
+                  currency: {
+                    select: {
+                      code: true,
+                      symbol: true
+                    }
+                  }
+                }
+              }
+            },
+            orderBy: {
+              createdAt: 'desc'
+            }
+          },
+          _count: {
+            select: {
+              journalEntryLines: true,
+              children: true
+            }
+          }
+        },
+        orderBy: [
+          { accountType: 'asc' },
+          { accountNo: 'asc' }
+        ]
+      });
+
+      // Calculate summary statistics for each account
+      const enrichedChartOfAccounts = chartOfAccounts.map(account => {
+        const totalDebits = account.journalEntryLines.reduce((sum, line) => 
+          sum + parseFloat(line.debitAmount.toString()), 0
+        );
+        const totalCredits = account.journalEntryLines.reduce((sum, line) => 
+          sum + parseFloat(line.creditAmount.toString()), 0
+        );
+        const netBalance = totalDebits - totalCredits;
+
+        return {
+          ...account,
+          summary: {
+            totalDebits,
+            totalCredits,
+            netBalance,
+            transactionCount: account.journalEntryLines.length,
+            lastTransactionDate: account.journalEntryLines.length > 0 
+              ? account.journalEntryLines[0].createdAt 
+              : null
+          }
+        };
+      });
+
+      return ResponseHelper.success(res, "Chart of accounts with journal entry lines retrieved successfully", enrichedChartOfAccounts);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Delete chart of accounts
    */
   static async deleteChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
