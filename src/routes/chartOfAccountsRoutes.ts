@@ -188,6 +188,180 @@ router.get("/", authenticate, ChartOfAccountsController.getAllChartOfAccounts);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts/with-journal-entries:
+ *   get:
+ *     summary: Get all chart of accounts with detailed journal entry lines
+ *     description: Retrieve all chart of accounts entries with their associated journal entry lines, including summary statistics
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: accountType
+ *         schema:
+ *           type: string
+ *           enum: [Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income]
+ *         description: Filter by account type
+ *       - in: query
+ *         name: isActive
+ *         schema:
+ *           type: boolean
+ *         description: Filter by active status
+ *       - in: query
+ *         name: parentId
+ *         schema:
+ *           type: string
+ *         description: Filter by parent account ID
+ *       - in: query
+ *         name: includeInactive
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: Include inactive accounts in results
+ *     responses:
+ *       200:
+ *         description: Chart of accounts with journal entry lines retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Chart of accounts with journal entry lines retrieved successfully
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       accountNo:
+ *                         type: string
+ *                       accountName:
+ *                         type: string
+ *                       accountType:
+ *                         type: string
+ *                       financialStatement:
+ *                         type: string
+ *                       notes:
+ *                         type: string
+ *                       parentId:
+ *                         type: string
+ *                       isActive:
+ *                         type: boolean
+ *                       parent:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           accountNo:
+ *                             type: string
+ *                           accountName:
+ *                             type: string
+ *                           accountType:
+ *                             type: string
+ *                       children:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                             type: string
+ *                             accountNo:
+ *                             type: string
+ *                             accountName:
+ *                             type: string
+ *                             accountType:
+ *                             type: string
+ *                             isActive:
+ *                             type: boolean
+ *                       journalEntryLines:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: string
+ *                             debitAmount:
+ *                               type: string
+ *                               format: decimal
+ *                             creditAmount:
+ *                               type: string
+ *                               format: decimal
+ *                             description:
+ *                               type: string
+ *                             vatAmount:
+ *                               type: string
+ *                               format: decimal
+ *                             createdAt:
+ *                               type: string
+ *                               format: date-time
+ *                             journalEntry:
+ *                               type: object
+ *                               properties:
+ *                                 id:
+ *                                   type: string
+ *                                 referenceNumber:
+ *                                   type: string
+ *                                 transactionDate:
+ *                                   type: string
+ *                                   format: date-time
+ *                                 description:
+ *                                   type: string
+ *                                 totalAmount:
+ *                                   type: string
+ *                                   format: decimal
+ *                                 status:
+ *                                   type: string
+ *                                 currency:
+ *                                   type: object
+ *                                   properties:
+ *                                     code:
+ *                                       type: string
+ *                                     symbol:
+ *                                       type: string
+ *                       _count:
+ *                         type: object
+ *                         properties:
+ *                           journalEntryLines:
+ *                             type: number
+ *                           children:
+ *                             type: number
+ *                       summary:
+ *                         type: object
+ *                         properties:
+ *                           totalDebits:
+ *                             type: number
+ *                           totalCredits:
+ *                             type: number
+ *                           netBalance:
+ *                             type: number
+ *                           transactionCount:
+ *                             type: number
+ *                           lastTransactionDate:
+ *                             type: string
+ *                             format: date-time
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get("/with-journal-entries", authenticate, ChartOfAccountsController.getAllChartOfAccountsWithJournalEntryLines);
+
 router.get("/:id", authenticate, ChartOfAccountsController.getChartOfAccountsById);
 
 /**
@@ -337,4 +511,176 @@ router.put("/:id", authenticate, authorize(["admin"]), ChartOfAccountsController
  */
 router.delete("/:id", authenticate, authorize(["admin"]), ChartOfAccountsController.deleteChartOfAccounts);
 
+/**
+ * @swagger
+ * /api/accounting/chart-of-accounts/with-journal-entries:
+ *   get:
+ *     summary: Get all chart of accounts with detailed journal entry lines
+ *     description: Retrieve all chart of accounts entries with their associated journal entry lines, including summary statistics
+ *     tags: [Accounting - Chart of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: accountType
+ *         schema:
+ *           type: string
+ *           enum: [Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income]
+ *         description: Filter by account type
+ *       - in: query
+ *         name: isActive
+ *         schema:
+ *           type: boolean
+ *         description: Filter by active status
+ *       - in: query
+ *         name: parentId
+ *         schema:
+ *           type: string
+ *         description: Filter by parent account ID
+ *       - in: query
+ *         name: includeInactive
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: Include inactive accounts in results
+ *     responses:
+ *       200:
+ *         description: Chart of accounts with journal entry lines retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Chart of accounts with journal entry lines retrieved successfully
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       accountNo:
+ *                         type: string
+ *                       accountName:
+ *                         type: string
+ *                       accountType:
+ *                         type: string
+ *                       financialStatement:
+ *                         type: string
+ *                       notes:
+ *                         type: string
+ *                       parentId:
+ *                         type: string
+ *                       isActive:
+ *                         type: boolean
+ *                       parent:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           accountNo:
+ *                             type: string
+ *                           accountName:
+ *                             type: string
+ *                           accountType:
+ *                             type: string
+ *                       children:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: string
+ *                             accountNo:
+ *                               type: string
+ *                             accountName:
+ *                               type: string
+ *                             accountType:
+ *                               type: string
+ *                             isActive:
+ *                               type: boolean
+ *                       journalEntryLines:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: string
+ *                             debitAmount:
+ *                               type: string
+ *                               format: decimal
+ *                             creditAmount:
+ *                               type: string
+ *                               format: decimal
+ *                             description:
+ *                               type: string
+ *                             vatAmount:
+ *                               type: string
+ *                               format: decimal
+ *                             createdAt:
+ *                               type: string
+ *                               format: date-time
+ *                             journalEntry:
+ *                               type: object
+ *                               properties:
+ *                                 id:
+ *                                   type: string
+ *                                 referenceNumber:
+ *                                   type: string
+ *                                 transactionDate:
+ *                                   type: string
+ *                                   format: date-time
+ *                                 description:
+ *                                   type: string
+ *                                 totalAmount:
+ *                                   type: string
+ *                                   format: decimal
+ *                                 status:
+ *                                   type: string
+ *                                 currency:
+ *                                   type: object
+ *                                   properties:
+ *                                     code:
+ *                                       type: string
+ *                                     symbol:
+ *                                       type: string
+ *                       _count:
+ *                         type: object
+ *                         properties:
+ *                           journalEntryLines:
+ *                             type: number
+ *                           children:
+ *                             type: number
+ *                       summary:
+ *                         type: object
+ *                         properties:
+ *                           totalDebits:
+ *                             type: number
+ *                           totalCredits:
+ *                             type: number
+ *                           netBalance:
+ *                             type: number
+ *                           transactionCount:
+ *                             type: number
+ *                           lastTransactionDate:
+ *                             type: string
+ *                             format: date-time
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 export default router; 
