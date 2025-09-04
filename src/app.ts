@@ -39,6 +39,7 @@ import boardReviewRoutes from "./routes/boardReviewRoutes"
 import termSheetRoutes from "./routes/termSheetRoutes"
 import investmentImplementationRoutes from "./routes/investmentImplementationRoutes"
 import fundRoutes from "./routes/fundRoutes"
+import clientRoutes from "./routes/clientRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 import auditRoutes from "./routes/auditRoutes"
@@ -254,6 +255,9 @@ app.use("/api/investment-implementations", investmentImplementationRoutes)
 
 // Fund Management routes
 app.use("/api/funds", fundRoutes)
+
+// Client Management routes
+app.use("/api/clients", clientRoutes)
 
 // Target management routes
 app.use("/api/targets", targetRoutes)

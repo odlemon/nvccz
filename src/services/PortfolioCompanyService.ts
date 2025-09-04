@@ -30,6 +30,15 @@ export interface CreatePortfolioCompanyRequest {
   contactPhone?: string;
   contactEmail?: string;
   socialMedia?: Record<string, string>;
+  
+  // New enhanced fields
+  fundId?: string;
+  startDate?: Date;
+  endDate?: Date;
+  capTable?: any;
+  financialKpis?: any;
+  financialHistoryExcel?: any;
+  eSign?: any;
 }
 
 export interface UpdatePortfolioCompanyRequest {
@@ -49,6 +58,15 @@ export interface UpdatePortfolioCompanyRequest {
   contactPhone?: string;
   contactEmail?: string;
   socialMedia?: Record<string, string>;
+  
+  // New enhanced fields
+  fundId?: string;
+  startDate?: Date;
+  endDate?: Date;
+  capTable?: any;
+  financialKpis?: any;
+  financialHistoryExcel?: any;
+  eSign?: any;
 }
 
 export interface CreateUserRequest {
@@ -56,6 +74,43 @@ export interface CreateUserRequest {
   lastName: string;
   email: string;
   password: string;
+}
+
+export interface CreatePortfolioCompanyByAdminRequest {
+  // User details (optional - can create without user)
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  password?: string;
+  userId?: string; // If user already exists
+  
+  // Company details
+  name: string;
+  registrationNumber?: string; // Made optional for admin creation
+  industry?: string; // Made optional for admin creation
+  foundingDate?: Date; // Made optional for admin creation
+  address?: string; // Made optional for admin creation
+  website?: string;
+  description?: string;
+  logoUrl?: string;
+  status?: string;
+  companySize?: string;
+  employeeCount?: number;
+  annualRevenue?: number;
+  fundingStage?: string;
+  contactPerson?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  socialMedia?: Record<string, string>;
+  
+  // Enhanced fields
+  fundId?: string;
+  startDate?: Date;
+  endDate?: Date;
+  capTable?: any;
+  financialKpis?: any;
+  financialHistoryExcel?: any;
+  eSign?: any;
 }
 
 export class PortfolioCompanyService {
@@ -150,7 +205,15 @@ export class PortfolioCompanyService {
           contactPerson: request.contactPerson,
           contactPhone: request.contactPhone,
           contactEmail: request.contactEmail,
-          socialMedia: request.socialMedia
+          socialMedia: request.socialMedia,
+          // New enhanced fields
+          fundId: request.fundId,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          capTable: request.capTable,
+          financialKpis: request.financialKpis,
+          financialHistoryExcel: request.financialHistoryExcel,
+          eSign: request.eSign
         },
         include: {
           user: {
@@ -165,6 +228,129 @@ export class PortfolioCompanyService {
                   name: true
                 }
               }
+            }
+          }
+        }
+      });
+
+      return portfolioCompany;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Create portfolio company by admin (with or without user)
+  static async createPortfolioCompanyByAdmin(request: CreatePortfolioCompanyByAdminRequest) {
+    try {
+      // Check if registration number already exists (only if provided)
+      if (request.registrationNumber) {
+        const existingCompany = await prisma.portfolioCompany.findUnique({
+          where: { registrationNumber: request.registrationNumber }
+        });
+
+        if (existingCompany) {
+          throw new Error("Company with this registration number already exists");
+        }
+      }
+
+      let userId: string;
+
+      if (request.userId) {
+        // Use existing user
+        const existingUser = await prisma.user.findUnique({
+          where: { id: request.userId }
+        });
+        
+        if (!existingUser) {
+          throw new Error("User not found");
+        }
+        
+        userId = request.userId;
+      } else if (request.email && request.firstName && request.lastName && request.password) {
+        // Create new user
+        const user = await this.createUser({
+          firstName: request.firstName,
+          lastName: request.lastName,
+          email: request.email,
+          password: request.password
+        });
+        userId = user.id;
+      } else {
+        // Create a minimal user for admin-created companies
+        const user = await this.createUser({
+          firstName: request.firstName || "Admin",
+          lastName: request.lastName || "Created",
+          email: request.email || `admin-created-${Date.now()}@example.com`,
+          password: request.password || "TempPassword123!"
+        });
+        userId = user.id;
+      }
+
+      // Generate registration number if not provided
+      const registrationNumber = request.registrationNumber || `REG-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+      // Handle founding date properly
+      let foundingDate: Date;
+      if (request.foundingDate) {
+        foundingDate = new Date(request.foundingDate);
+        // Validate the date
+        if (isNaN(foundingDate.getTime())) {
+          foundingDate = new Date(); // Fallback to current date if invalid
+        }
+      } else {
+        foundingDate = new Date(); // Default to current date
+      }
+
+      // Create portfolio company
+      const portfolioCompany = await prisma.portfolioCompany.create({
+        data: {
+          userId: userId,
+          name: request.name,
+          registrationNumber: registrationNumber,
+          industry: request.industry || "Technology", // Default industry
+          foundingDate: foundingDate,
+          address: request.address || "Address not provided", // Default address
+          website: request.website,
+          description: request.description,
+          logoUrl: request.logoUrl,
+          status: request.status || "ACTIVE",
+          companySize: request.companySize,
+          employeeCount: request.employeeCount,
+          annualRevenue: request.annualRevenue,
+          fundingStage: request.fundingStage,
+          contactPerson: request.contactPerson,
+          contactPhone: request.contactPhone,
+          contactEmail: request.contactEmail,
+          socialMedia: request.socialMedia,
+          // Enhanced fields
+          fundId: request.fundId || null,
+          startDate: request.startDate ? new Date(request.startDate) : null,
+          endDate: request.endDate ? new Date(request.endDate) : null,
+          capTable: request.capTable,
+          financialKpis: request.financialKpis,
+          financialHistoryExcel: request.financialHistoryExcel,
+          eSign: request.eSign
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              role: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              }
+            }
+          },
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              description: true
             }
           }
         }
@@ -194,6 +380,13 @@ export class PortfolioCompanyService {
                   name: true
                 }
               }
+            }
+          },
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              description: true
             }
           }
         }
@@ -228,6 +421,13 @@ export class PortfolioCompanyService {
                 }
               }
             }
+          },
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              description: true
+            }
           }
         }
       });
@@ -260,6 +460,13 @@ export class PortfolioCompanyService {
                   name: true
                 }
               }
+            }
+          },
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              description: true
             }
           }
         }
@@ -304,7 +511,15 @@ export class PortfolioCompanyService {
           contactPerson: request.contactPerson,
           contactPhone: request.contactPhone,
           contactEmail: request.contactEmail,
-          socialMedia: request.socialMedia
+          socialMedia: request.socialMedia,
+          // Enhanced fields
+          fundId: request.fundId,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          capTable: request.capTable,
+          financialKpis: request.financialKpis,
+          financialHistoryExcel: request.financialHistoryExcel,
+          eSign: request.eSign
         },
         include: {
           user: {
@@ -319,6 +534,13 @@ export class PortfolioCompanyService {
                   name: true
                 }
               }
+            }
+          },
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              description: true
             }
           }
         }
@@ -359,7 +581,15 @@ export class PortfolioCompanyService {
           contactPerson: request.contactPerson,
           contactPhone: request.contactPhone,
           contactEmail: request.contactEmail,
-          socialMedia: request.socialMedia
+          socialMedia: request.socialMedia,
+          // Enhanced fields
+          fundId: request.fundId,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          capTable: request.capTable,
+          financialKpis: request.financialKpis,
+          financialHistoryExcel: request.financialHistoryExcel,
+          eSign: request.eSign
         },
         include: {
           user: {
@@ -374,6 +604,13 @@ export class PortfolioCompanyService {
                   name: true
                 }
               }
+            }
+          },
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              description: true
             }
           }
         }
@@ -402,6 +639,13 @@ export class PortfolioCompanyService {
                   name: true
                 }
               }
+            }
+          },
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              description: true
             }
           }
         },

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
-import { PortfolioCompanyService, CreatePortfolioCompanyRequest, UpdatePortfolioCompanyRequest } from "../services/PortfolioCompanyService";
+import { PortfolioCompanyService, CreatePortfolioCompanyRequest, UpdatePortfolioCompanyRequest, CreatePortfolioCompanyByAdminRequest } from "../services/PortfolioCompanyService";
 
 export class PortfolioCompanyController {
   // Create portfolio company with user
@@ -27,7 +27,15 @@ export class PortfolioCompanyController {
         contactPerson: req.body.contactPerson,
         contactPhone: req.body.contactPhone,
         contactEmail: req.body.contactEmail,
-        socialMedia: req.body.socialMedia
+        socialMedia: req.body.socialMedia,
+        // Enhanced fields
+        fundId: req.body.fund_id,
+        startDate: req.body.start_date ? new Date(req.body.start_date) : undefined,
+        endDate: req.body.end_date ? new Date(req.body.end_date) : undefined,
+        capTable: req.body.cap_table,
+        financialKpis: req.body.financial_kpis,
+        financialHistoryExcel: req.body.financial_history_excel,
+        eSign: req.body.e_sign
       };
 
       const portfolioCompany = await PortfolioCompanyService.createPortfolioCompany(request);
@@ -35,6 +43,58 @@ export class PortfolioCompanyController {
       res.status(201).json({
         success: true,
         message: "Portfolio company created successfully",
+        data: portfolioCompany
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  // Create portfolio company by admin (internal creation)
+  static async createPortfolioCompanyByAdmin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const request: CreatePortfolioCompanyByAdminRequest = {
+        // User details (optional)
+        firstName: req.body.firstName,
+        lastName: req.body.lastName,
+        email: req.body.email,
+        password: req.body.password,
+        userId: req.body.user_id,
+        
+        // Company details
+        name: req.body.name,
+        registrationNumber: req.body.registrationNumber,
+        industry: req.body.industry,
+        foundingDate: req.body.foundingDate ? new Date(req.body.foundingDate) : undefined,
+        address: req.body.address,
+        website: req.body.website,
+        description: req.body.description,
+        logoUrl: req.body.logoUrl,
+        status: req.body.status,
+        companySize: req.body.companySize,
+        employeeCount: req.body.employeeCount,
+        annualRevenue: req.body.annualRevenue,
+        fundingStage: req.body.fundingStage,
+        contactPerson: req.body.contactPerson,
+        contactPhone: req.body.contactPhone,
+        contactEmail: req.body.contactEmail,
+        socialMedia: req.body.socialMedia,
+        
+        // Enhanced fields
+        fundId: req.body.fund_id && req.body.fund_id.trim() !== "" ? req.body.fund_id : undefined,
+        startDate: req.body.start_date ? new Date(req.body.start_date) : undefined,
+        endDate: req.body.end_date ? new Date(req.body.end_date) : undefined,
+        capTable: req.body.cap_table,
+        financialKpis: req.body.financial_kpis,
+        financialHistoryExcel: req.body.financial_history_excel,
+        eSign: req.body.e_sign
+      };
+
+      const portfolioCompany = await PortfolioCompanyService.createPortfolioCompanyByAdmin(request);
+
+      res.status(201).json({
+        success: true,
+        message: "Portfolio company created successfully by admin",
         data: portfolioCompany
       });
     } catch (error: any) {
@@ -107,7 +167,15 @@ export class PortfolioCompanyController {
         contactPerson: req.body.contactPerson,
         contactPhone: req.body.contactPhone,
         contactEmail: req.body.contactEmail,
-        socialMedia: req.body.socialMedia
+        socialMedia: req.body.socialMedia,
+        // Enhanced fields
+        fundId: req.body.fund_id,
+        startDate: req.body.start_date ? new Date(req.body.start_date) : undefined,
+        endDate: req.body.end_date ? new Date(req.body.end_date) : undefined,
+        capTable: req.body.cap_table,
+        financialKpis: req.body.financial_kpis,
+        financialHistoryExcel: req.body.financial_history_excel,
+        eSign: req.body.e_sign
       };
 
       const portfolioCompany = await PortfolioCompanyService.updatePortfolioCompany(id, request);
@@ -142,7 +210,15 @@ export class PortfolioCompanyController {
         contactPerson: req.body.contactPerson,
         contactPhone: req.body.contactPhone,
         contactEmail: req.body.contactEmail,
-        socialMedia: req.body.socialMedia
+        socialMedia: req.body.socialMedia,
+        // Enhanced fields
+        fundId: req.body.fund_id,
+        startDate: req.body.start_date ? new Date(req.body.start_date) : undefined,
+        endDate: req.body.end_date ? new Date(req.body.end_date) : undefined,
+        capTable: req.body.cap_table,
+        financialKpis: req.body.financial_kpis,
+        financialHistoryExcel: req.body.financial_history_excel,
+        eSign: req.body.e_sign
       };
 
       const portfolioCompany = await PortfolioCompanyService.updateCurrentUserPortfolioCompany(userId, request);

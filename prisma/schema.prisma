@@ -515,11 +515,21 @@ model PortfolioCompany {
   contactPhone       String?
   contactEmail       String?
   socialMedia        Json?    // Store social media links as JSON
+  
+  // New fields for enhanced portfolio company management
+  fundId             String?  // Optional fund association
+  startDate          DateTime? // Investment start date
+  endDate            DateTime? // Investment end date
+  capTable           Json?    // Capitalization table data
+  financialKpis      Json?    // Financial KPIs data
+  financialHistoryExcel Json? // Financial history file information
+  eSign              Json?    // Electronic signature data
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   
   // Relations
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fund               Fund?    @relation(fields: [fundId], references: [id], onDelete: SetNull)
   investmentImplementation InvestmentImplementation?
 
   @@map("portfolio_companies")
@@ -545,10 +555,53 @@ model Fund {
   createdBy         User     @relation(fields: [createdById], references: [id])
   applications      Application[]
   fundManagers      FundManager[]
+  portfolioCompanies PortfolioCompany[]
   fundDisbursements FundDisbursement[]
   investmentImplementations InvestmentImplementation[]
+  investmentCommitments InvestmentCommitment[]
 
   @@map("funds")
+}
+
+model Client {
+  id                String   @id @default(cuid())
+  investorId        String   @unique // External investor ID (e.g., "inv_001")
+  type              String   // "individual" or "institutional"
+  legalName         String
+  email             String   @unique
+  country           String
+  phone             String?
+  address           String?
+  taxId             String?
+  status            String   @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  investmentCommitments InvestmentCommitment[]
+
+  @@map("clients")
+}
+
+model InvestmentCommitment {
+  id                String   @id @default(cuid())
+  clientId          String
+  fundId            String
+  amount            Decimal  @db.Decimal(15, 2)
+  currency          String   @default("USD")
+  effectiveDate     DateTime
+  status            String   @default("PENDING") // PENDING, ACTIVE, COMPLETED, CANCELLED
+  eSign             Json?    // Electronic signature data
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund              Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, fundId]) // Prevent duplicate commitments
+  @@map("investment_commitments")
 }
 
 model FundManager {
