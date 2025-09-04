@@ -77,6 +77,203 @@ router.post("/", PortfolioCompanyController.createPortfolioCompany);
 
 /**
  * @swagger
+ * /api/portfolio-companies/admin:
+ *   post:
+ *     summary: Create portfolio company by admin (internal creation)
+ *     description: Create a new portfolio company from admin side with enhanced fields including fund association, cap table, financial KPIs, etc.
+ *     tags: [Portfolio Companies]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               # User details (optional - either userId or user details)
+ *               user_id:
+ *                 type: string
+ *                 description: Existing user ID (if user already exists)
+ *               firstName:
+ *                 type: string
+ *                 description: First name (required if creating new user)
+ *               lastName:
+ *                 type: string
+ *                 description: Last name (required if creating new user)
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: Email (required if creating new user)
+ *               password:
+ *                 type: string
+ *                 minLength: 6
+ *                 description: Password (required if creating new user)
+ *               
+ *               # Company details
+ *               name:
+ *                 type: string
+ *                 description: Company name
+ *               registrationNumber:
+ *                 type: string
+ *                 description: Company registration number (optional - will be auto-generated if not provided)
+ *               industry:
+ *                 type: string
+ *                 description: Industry sector (optional - defaults to "Technology")
+ *               foundingDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Company founding date (optional - defaults to current date)
+ *               address:
+ *                 type: string
+ *                 description: Company address (optional - defaults to "Address not provided")
+ *               website:
+ *                 type: string
+ *                 format: uri
+ *                 description: Company website
+ *               description:
+ *                 type: string
+ *                 description: Company description
+ *               logoUrl:
+ *                 type: string
+ *                 format: uri
+ *                 description: Company logo URL
+ *               status:
+ *                 type: string
+ *                 enum: [PENDING, APPROVED, REJECTED, ACTIVE, SUSPENDED]
+ *                 default: ACTIVE
+ *                 description: Company status
+ *               companySize:
+ *                 type: string
+ *                 enum: [SMALL, MEDIUM, LARGE]
+ *                 description: Company size
+ *               employeeCount:
+ *                 type: integer
+ *                 description: Number of employees
+ *               annualRevenue:
+ *                 type: number
+ *                 description: Annual revenue
+ *               fundingStage:
+ *                 type: string
+ *                 enum: [SEED, SERIES_A, SERIES_B, SERIES_C, GROWTH]
+ *                 description: Current funding stage
+ *               contactPerson:
+ *                 type: string
+ *                 description: Primary contact person
+ *               contactPhone:
+ *                 type: string
+ *                 description: Contact phone number
+ *               contactEmail:
+ *                 type: string
+ *                 format: email
+ *                 description: Contact email
+ *               socialMedia:
+ *                 type: object
+ *                 description: Social media links
+ *               
+ *               # Enhanced fields
+ *               fund_id:
+ *                 type: string
+ *                 description: Associated fund ID (optional)
+ *               start_date:
+ *                 type: string
+ *                 format: date
+ *                 description: Investment start date
+ *               end_date:
+ *                 type: string
+ *                 format: date
+ *                 description: Investment end date
+ *               cap_table:
+ *                 type: object
+ *                 description: Capitalization table data
+ *                 properties:
+ *                   total_fully_diluted_shares:
+ *                     type: number
+ *                   securities:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         holder_name:
+ *                           type: string
+ *                         security_type:
+ *                           type: string
+ *                         class:
+ *                           type: string
+ *                         quantity:
+ *                           type: number
+ *                         percent_fully_diluted:
+ *                           type: number
+ *               financial_kpis:
+ *                 type: object
+ *                 description: Financial KPIs data
+ *                 properties:
+ *                   currency:
+ *                     type: string
+ *                   revenue:
+ *                     type: number
+ *                   expenses:
+ *                     type: number
+ *                   net_income:
+ *                     type: number
+ *                   cash:
+ *                     type: number
+ *                   months_of_runway:
+ *                     type: number
+ *               financial_history_excel:
+ *                 type: object
+ *                 description: Financial history file information
+ *                 properties:
+ *                   file_name:
+ *                     type: string
+ *                   mime_type:
+ *                     type: string
+ *                   url:
+ *                     type: string
+ *                   checksum_sha256:
+ *                     type: string
+ *               e_sign:
+ *                 type: object
+ *                 description: Electronic signature data
+ *                 properties:
+ *                   user_id:
+ *                     type: string
+ *                   signed_at:
+ *                     type: string
+ *                     format: date-time
+ *                   signature_id:
+ *                     type: string
+ *     responses:
+ *       201:
+ *         description: Portfolio company created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Portfolio company created successfully by admin
+ *                 data:
+ *                   $ref: '#/components/schemas/PortfolioCompany'
+ *       400:
+ *         description: Bad request - missing required fields or validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - insufficient permissions
+ *       409:
+ *         description: Conflict - company with registration number already exists
+ */
+router.post("/admin", authenticate, authorize(["admin"]), PortfolioCompanyController.createPortfolioCompanyByAdmin);
+
+/**
+ * @swagger
  * /api/portfolio-companies:
  *   get:
  *     summary: Get all portfolio companies
@@ -186,6 +383,7 @@ router.get("/me", authenticate, authorize(["applicant"]), PortfolioCompanyContro
  * /api/portfolio-companies/{id}:
  *   put:
  *     summary: Update portfolio company details
+ *     description: Update portfolio company with enhanced fields including fund association, cap table, financial KPIs, etc.
  *     tags: [Portfolio Companies]
  *     security:
  *       - bearerAuth: []
@@ -202,23 +400,135 @@ router.get("/me", authenticate, authorize(["applicant"]), PortfolioCompanyContro
  *           schema:
  *             type: object
  *             properties:
+ *               # Basic company details
  *               name:
  *                 type: string
+ *                 description: Company name
  *               industry:
  *                 type: string
+ *                 description: Industry sector
  *               foundingDate:
  *                 type: string
  *                 format: date
+ *                 description: Company founding date
  *               address:
  *                 type: string
+ *                 description: Company address
  *               website:
  *                 type: string
  *                 format: uri
+ *                 description: Company website
  *               description:
  *                 type: string
+ *                 description: Company description
  *               logoUrl:
  *                 type: string
  *                 format: uri
+ *                 description: Company logo URL
+ *               status:
+ *                 type: string
+ *                 enum: [PENDING, APPROVED, REJECTED, ACTIVE, SUSPENDED]
+ *                 description: Company status
+ *               companySize:
+ *                 type: string
+ *                 enum: [SMALL, MEDIUM, LARGE]
+ *                 description: Company size
+ *               employeeCount:
+ *                 type: integer
+ *                 description: Number of employees
+ *               annualRevenue:
+ *                 type: number
+ *                 description: Annual revenue
+ *               fundingStage:
+ *                 type: string
+ *                 enum: [SEED, SERIES_A, SERIES_B, SERIES_C, GROWTH]
+ *                 description: Current funding stage
+ *               contactPerson:
+ *                 type: string
+ *                 description: Primary contact person
+ *               contactPhone:
+ *                 type: string
+ *                 description: Contact phone number
+ *               contactEmail:
+ *                 type: string
+ *                 format: email
+ *                 description: Contact email
+ *               socialMedia:
+ *                 type: object
+ *                 description: Social media links
+ *               
+ *               # Enhanced fields
+ *               fund_id:
+ *                 type: string
+ *                 description: Associated fund ID (optional)
+ *               start_date:
+ *                 type: string
+ *                 format: date
+ *                 description: Investment start date
+ *               end_date:
+ *                 type: string
+ *                 format: date
+ *                 description: Investment end date
+ *               cap_table:
+ *                 type: object
+ *                 description: Capitalization table data
+ *                 properties:
+ *                   total_fully_diluted_shares:
+ *                     type: number
+ *                   securities:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         holder_name:
+ *                           type: string
+ *                         security_type:
+ *                           type: string
+ *                         class:
+ *                           type: string
+ *                         quantity:
+ *                           type: number
+ *                         percent_fully_diluted:
+ *                           type: number
+ *               financial_kpis:
+ *                 type: object
+ *                 description: Financial KPIs data
+ *                 properties:
+ *                   currency:
+ *                     type: string
+ *                   revenue:
+ *                     type: number
+ *                   expenses:
+ *                     type: number
+ *                   net_income:
+ *                     type: number
+ *                   cash:
+ *                     type: number
+ *                   months_of_runway:
+ *                     type: number
+ *               financial_history_excel:
+ *                 type: object
+ *                 description: Financial history file information
+ *                 properties:
+ *                   file_name:
+ *                     type: string
+ *                   mime_type:
+ *                     type: string
+ *                   url:
+ *                     type: string
+ *                   checksum_sha256:
+ *                     type: string
+ *               e_sign:
+ *                 type: object
+ *                 description: Electronic signature data
+ *                 properties:
+ *                   user_id:
+ *                     type: string
+ *                   signed_at:
+ *                     type: string
+ *                     format: date-time
+ *                   signature_id:
+ *                     type: string
  *     responses:
  *       200:
  *         description: Portfolio company updated successfully
