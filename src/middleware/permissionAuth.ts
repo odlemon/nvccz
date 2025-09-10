@@ -3,21 +3,23 @@ import { Request, Response, NextFunction } from "express";
 import { AuthRequest } from "./authenticate";
 
 export function requirePermission(permissionName: string) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      return res.status(401).json({ 
+      res.status(401).json({ 
         success: false,
         message: "Unauthorized" 
       });
+      return;
     }
 
     const userPermissions = req.user.role.permissions;
     
     if (!userPermissions || !Array.isArray(userPermissions)) {
-      return res.status(403).json({ 
+      res.status(403).json({ 
         success: false,
         message: "No permissions found" 
       });
+      return;
     }
 
     const hasPermission = userPermissions.some(
@@ -26,10 +28,11 @@ export function requirePermission(permissionName: string) {
     );
 
     if (!hasPermission) {
-      return res.status(403).json({ 
+      res.status(403).json({ 
         success: false,
         message: `Insufficient permissions. Required: ${permissionName}` 
       });
+      return;
     }
 
     next();
@@ -37,21 +40,23 @@ export function requirePermission(permissionName: string) {
 }
 
 export function requireAnyPermission(permissionNames: string[]) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      return res.status(401).json({ 
+      res.status(401).json({ 
         success: false,
         message: "Unauthorized" 
       });
+      return;
     }
 
     const userPermissions = req.user.role.permissions;
     
     if (!userPermissions || !Array.isArray(userPermissions)) {
-      return res.status(403).json({ 
+      res.status(403).json({ 
         success: false,
         message: "No permissions found" 
       });
+      return;
     }
 
     const hasAnyPermission = permissionNames.some(permissionName =>
@@ -62,10 +67,11 @@ export function requireAnyPermission(permissionNames: string[]) {
     );
 
     if (!hasAnyPermission) {
-      return res.status(403).json({ 
+      res.status(403).json({ 
         success: false,
         message: `Insufficient permissions. Required one of: ${permissionNames.join(', ')}` 
       });
+      return;
     }
 
     next();
@@ -73,21 +79,23 @@ export function requireAnyPermission(permissionNames: string[]) {
 }
 
 export function requireAllPermissions(permissionNames: string[]) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      return res.status(401).json({ 
+      res.status(401).json({ 
         success: false,
         message: "Unauthorized" 
       });
+      return;
     }
 
     const userPermissions = req.user.role.permissions;
     
     if (!userPermissions || !Array.isArray(userPermissions)) {
-      return res.status(403).json({ 
+      res.status(403).json({ 
         success: false,
         message: "No permissions found" 
       });
+      return;
     }
 
     const hasAllPermissions = permissionNames.every(permissionName =>
@@ -98,10 +106,11 @@ export function requireAllPermissions(permissionNames: string[]) {
     );
 
     if (!hasAllPermissions) {
-      return res.status(403).json({ 
+      res.status(403).json({ 
         success: false,
         message: `Insufficient permissions. Required all: ${permissionNames.join(', ')}` 
       });
+      return;
     }
 
     next();
@@ -109,21 +118,23 @@ export function requireAllPermissions(permissionNames: string[]) {
 }
 
 export function authorize(roles: string[]) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      return res.status(401).json({ 
+      res.status(401).json({ 
         success: false,
         message: "Unauthorized" 
       });
+      return;
     }
 
     const userRole = req.user.role?.name;
     
     if (!userRole || !roles.includes(userRole)) {
-      return res.status(403).json({ 
+      res.status(403).json({ 
         success: false,
         message: `Insufficient permissions. Required role: ${roles.join(', ')}` 
       });
+      return;
     }
 
     next();
