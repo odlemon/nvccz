@@ -1,7 +1,7 @@
 // @ts-nocheck
 import express from "express";
 import { RiskAssessmentController } from "../controllers/RiskAssessmentController";
-import { authenticate } from "../middleware/auth";
+import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
 const router = express.Router();
