@@ -1594,6 +1594,8 @@ model VarianceReport {
   // Relations
   preparer              User @relation("VarianceReportPreparer", fields: [preparedBy], references: [id])
   approver              User? @relation("VarianceReportApprover", fields: [approvedBy], references: [id])
+  budget                Budget? @relation(fields: [budgetId], references: [id])
+  budgetId              String?
   
   @@map("variance_reports")
 }
@@ -1719,8 +1721,8 @@ model DealProgress {
   
   // Relations
   dealSourcingGoal      DealSourcingGoal @relation(fields: [dealSourcingGoalId], references: [id])
-  assignedTo            User @relation(fields: [assignedToId], references: [id])
-  manager               User? @relation(fields: [managerId], references: [id])
+  assignedTo            User @relation("DealProgressAssignedTo", fields: [assignedToId], references: [id])
+  manager               User? @relation("DealProgressManager", fields: [managerId], references: [id])
   progressUpdates       DealProgressUpdate[]
   
   @@map("deal_progress")
@@ -1949,7 +1951,7 @@ model Budget {
   updatedAt             DateTime @updatedAt
   
   // Relations
-  createdBy             User @relation(fields: [createdById], references: [id])
+  createdBy             User @relation("BudgetCreatedBy", fields: [createdById], references: [id])
   budgetItems           BudgetItem[]
   varianceReports       VarianceReport[]
   
