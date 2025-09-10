@@ -1,0 +1,701 @@
+// @ts-nocheck
+import { PrismaClient, Json } from "@prisma/client";
+import { dbConnection } from "../utils/database";
+
+const prisma = dbConnection.getPrismaClient();
+
+export interface CreateTaskRequest {
+  title: string;
+  description?: string;
+  team: string[] | Json;
+  stage?: string;
+  date: Date;
+  priority?: string;
+  assets?: string;
+  branch?: string;
+  department?: string;
+  ruleset?: string;
+  
+  // Performance-related fields
+  goalId?: string;
+  performanceCategory?: string;
+  isPerformanceTask?: boolean;
+  
+  // Target Values
+  monetaryValue?: number;
+  percentValue?: number;
+  
+  // KPI Integration
+  kpi?: {
+    id: string;
+    name?: string;
+    type?: string;
+    unitSymbol?: string;
+    unitPosition?: string;
+  };
+}
+
+export interface UpdateTaskRequest {
+  title?: string;
+  description?: string;
+  team?: string[] | Json;
+  stage?: string;
+  date?: Date;
+  priority?: string;
+  assets?: string;
+  branch?: string;
+  department?: string;
+  ruleset?: string;
+  
+  // Performance-related fields
+  goalId?: string;
+  performanceCategory?: string;
+  isPerformanceTask?: boolean;
+  
+  // Target Values
+  monetaryValue?: number;
+  percentValue?: number;
+  monetaryValueAchieved?: number;
+  percentValueAchieved?: number;
+  
+  // KPI Integration
+  kpi?: {
+    id: string;
+    name?: string;
+    type?: string;
+    unitSymbol?: string;
+    unitPosition?: string;
+  };
+}
+
+export class TaskService {
+  // Create a new task
+  static async createTask(request: CreateTaskRequest, createdBy: string) {
+    try {
+      // Validate creator and assignment boundaries (department-based)
+      const creator = await prisma.user.findUnique({
+        where: { id: createdBy },
+        include: { role: true }
+      });
+
+      if (!creator) {
+        throw new Error("Creator user not found");
+      }
+
+      // Helper: normalize team to string[] of userIds
+      const normalizeTeamToIds = (team: any): string[] => {
+        if (!team) return [];
+        if (Array.isArray(team)) return team as string[];
+        if (typeof team === 'string') {
+          try {
+            const parsed = JSON.parse(team);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        }
+        return [];
+      };
+
+      const teamUserIds = normalizeTeamToIds(request.team);
+
+      // Enforce: non-admin/non-ceo cannot assign outside their department
+      const creatorRoleName = creator.role?.name?.toLowerCase?.() || '';
+      const isPrivileged = creatorRoleName === 'admin' || creatorRoleName === 'ceo';
+      if (!isPrivileged && teamUserIds.length > 0) {
+        const assignees = await prisma.user.findMany({
+          where: { id: { in: teamUserIds } },
+          select: { id: true, departmentId: true }
+        });
+
+        const creatorDept = creator.departmentId || null;
+        const outOfDept = assignees.find(u => (u.departmentId || null) !== creatorDept);
+        if (outOfDept) {
+          throw new Error("You can only assign tasks to users within your department");
+        }
+      }
+      // Validate goal if provided
+      if (request.goalId) {
+        const goal = await prisma.performanceGoal.findUnique({
+          where: { id: request.goalId }
+        });
+
+        if (!goal) {
+          throw new Error("Performance goal not found");
+        }
+      }
+
+      // Validate KPI if provided
+      let kpiData = null;
+      if (request.kpi && request.kpi.id) {
+        const kpiRecord = await prisma.kPI.findUnique({
+          where: { id: request.kpi.id }
+        });
+
+        if (!kpiRecord) {
+          throw new Error("KPI not found");
+        }
+
+        kpiData = {
+          id: request.kpi.id,
+          name: request.kpi.name || kpiRecord.name,
+          type: request.kpi.type || kpiRecord.type,
+          unitSymbol: request.kpi.unitSymbol || kpiRecord.unitSymbol,
+          unitPosition: request.kpi.unitPosition || kpiRecord.unitPosition
+        };
+      }
+
+      // Create activity log
+      const activity = {
+        type: "todo",
+        activity: `New task has been assigned to you${request.team.length > 1 ? ` and ${request.team.length - 1} others` : ''}. The task priority is set as ${request.priority || 'medium'} priority, so check and act accordingly. The task date is ${new Date(request.date).toDateString()}. Thank you!!!`,
+        date: new Date(),
+        by: createdBy
+      };
+
+      // Create the task
+      const task = await prisma.task.create({
+        data: {
+          title: request.title,
+          description: request.description,
+          team: request.team,
+          stage: request.stage || "todo",
+          date: request.date,
+          priority: (request.priority || "medium").toLowerCase(),
+          assets: request.assets,
+          branch: request.branch,
+          department: request.department,
+          ruleset: request.ruleset,
+          
+          // Performance-related fields
+          goalId: request.goalId,
+          performanceCategory: request.performanceCategory,
+          isPerformanceTask: request.isPerformanceTask || false,
+          
+          // Target Values
+          monetaryValue: request.monetaryValue,
+          percentValue: request.percentValue,
+          monetaryValueAchieved: 0,
+          percentValueAchieved: 0,
+          
+          // KPI Integration
+          kpi: kpiData,
+          
+          // Activities
+          activities: [activity],
+          
+          // Metadata
+          createdBy: createdBy,
+          isOverdue: false,
+          overdueStatus: null,
+          originalStage: null
+        },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              category: true
+            }
+          }
+        }
+      });
+
+      return task;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Update task
+  static async updateTask(id: string, request: UpdateTaskRequest, updatedByUserId?: string) {
+    try {
+      const existingTask = await prisma.task.findUnique({
+        where: { id }
+      });
+
+      if (!existingTask) {
+        throw new Error("Task not found");
+      }
+
+      // Validate goal if provided
+      if (request.goalId) {
+        const goal = await prisma.performanceGoal.findUnique({
+          where: { id: request.goalId }
+        });
+
+        if (!goal) {
+          throw new Error("Performance goal not found");
+        }
+      }
+
+      // Validate KPI if provided
+      let kpiData = existingTask.kpi;
+      if (request.kpi && request.kpi.id) {
+        const kpiRecord = await prisma.kPI.findUnique({
+          where: { id: request.kpi.id }
+        });
+
+        if (!kpiRecord) {
+          throw new Error("KPI not found");
+        }
+
+        kpiData = {
+          id: request.kpi.id,
+          name: request.kpi.name || kpiRecord.name,
+          type: request.kpi.type || kpiRecord.type,
+          unitSymbol: request.kpi.unitSymbol || kpiRecord.unitSymbol,
+          unitPosition: request.kpi.unitPosition || kpiRecord.unitPosition
+        };
+      }
+
+      // Validate assignment boundaries on team change
+      if (request.team && updatedByUserId) {
+        const updater = await prisma.user.findUnique({
+          where: { id: updatedByUserId },
+          include: { role: true }
+        });
+
+        if (!updater) {
+          throw new Error("Updating user not found");
+        }
+
+        const normalizeTeamToIds = (team: any): string[] => {
+          if (!team) return [];
+          if (Array.isArray(team)) return team as string[];
+          if (typeof team === 'string') {
+            try {
+              const parsed = JSON.parse(team);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          }
+          return [];
+        };
+
+        const teamUserIds = normalizeTeamToIds(request.team);
+        const updaterRoleName = updater.role?.name?.toLowerCase?.() || '';
+        const isPrivileged = updaterRoleName === 'admin' || updaterRoleName === 'ceo';
+        if (!isPrivileged && teamUserIds.length > 0) {
+          const assignees = await prisma.user.findMany({
+            where: { id: { in: teamUserIds } },
+            select: { id: true, departmentId: true }
+          });
+
+          const updaterDept = updater.departmentId || null;
+          const outOfDept = assignees.find(u => (u.departmentId || null) !== updaterDept);
+          if (outOfDept) {
+            throw new Error("You can only assign tasks to users within your department");
+          }
+        }
+      }
+
+      // Update the task
+      const updatedTask = await prisma.task.update({
+        where: { id },
+        data: {
+          ...(request.title && { title: request.title }),
+          ...(request.description !== undefined && { description: request.description }),
+          ...(request.team && { team: request.team }),
+          ...(request.stage && { stage: request.stage }),
+          ...(request.date && { date: request.date }),
+          ...(request.priority && { priority: request.priority.toLowerCase() }),
+          ...(request.assets !== undefined && { assets: request.assets }),
+          ...(request.branch !== undefined && { branch: request.branch }),
+          ...(request.department !== undefined && { department: request.department }),
+          ...(request.ruleset !== undefined && { ruleset: request.ruleset }),
+          
+          // Performance-related fields
+          ...(request.goalId && { goalId: request.goalId }),
+          ...(request.performanceCategory !== undefined && { performanceCategory: request.performanceCategory }),
+          ...(request.isPerformanceTask !== undefined && { isPerformanceTask: request.isPerformanceTask }),
+          
+          // Target Values
+          ...(request.monetaryValue !== undefined && { monetaryValue: request.monetaryValue }),
+          ...(request.percentValue !== undefined && { percentValue: request.percentValue }),
+          ...(request.monetaryValueAchieved !== undefined && { monetaryValueAchieved: request.monetaryValueAchieved }),
+          ...(request.percentValueAchieved !== undefined && { percentValueAchieved: request.percentValueAchieved }),
+          
+          // KPI Integration
+          kpi: kpiData
+        },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              category: true
+            }
+          }
+        }
+      });
+
+      return updatedTask;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Update task stage with enhanced overdue logic
+  static async updateTaskStage(id: string, stage: string, achievements: any = {}) {
+    try {
+      const task = await prisma.task.findUnique({
+        where: { id }
+      });
+
+      if (!task) {
+        throw new Error("Task not found");
+      }
+
+      // Check if task is overdue
+      const isOverdue = new Date(task.date) < new Date();
+      
+      let updateData: any = {
+        stage: stage
+      };
+
+      // Handle overdue logic
+      if (isOverdue && !task.isOverdue) {
+        // Task just became overdue
+        updateData.isOverdue = true;
+        updateData.originalStage = task.stage; // Store original stage
+        updateData.overdueStatus = `overdue_${stage}`; // overdue_todo, overdue_in_progress, etc.
+      } else if (isOverdue && task.isOverdue) {
+        // Task is still overdue, update overdue status
+        updateData.overdueStatus = `overdue_${stage}`;
+      } else if (!isOverdue && task.isOverdue) {
+        // Task is no longer overdue
+        updateData.isOverdue = false;
+        updateData.overdueStatus = null;
+        updateData.originalStage = null;
+      }
+
+      // Update achievements if provided
+      if (achievements.monetaryValueAchieved !== undefined) {
+        updateData.monetaryValueAchieved = (task.monetaryValueAchieved || 0) + achievements.monetaryValueAchieved;
+      }
+
+      if (achievements.percentValueAchieved !== undefined) {
+        updateData.percentValueAchieved = (task.percentValueAchieved || 0) + achievements.percentValueAchieved;
+      }
+
+      // Update the task
+      const updatedTask = await prisma.task.update({
+        where: { id },
+        data: updateData,
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              category: true
+            }
+          }
+        }
+      });
+
+      return updatedTask;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Post task activity
+  static async postTaskActivity(taskId: string, activity: any) {
+    try {
+      const task = await prisma.task.findUnique({
+        where: { id: taskId }
+      });
+
+      if (!task) {
+        throw new Error("Task not found");
+      }
+
+      // Get approver name if provided
+      let approverName = null;
+      if (activity.approverId) {
+        const approver = await prisma.user.findUnique({
+          where: { id: activity.approverId }
+        });
+        if (approver) {
+          approverName = `${approver.firstName} ${approver.lastName}`;
+        }
+      }
+
+      const activityData = {
+        type: activity.type,
+        approver: approverName,
+        approvedDate: activity.approvedDate,
+        activity: activity.activity,
+        date: new Date(),
+        by: activity.userId,
+        collectedMonetary: 0,
+        collectedPercent: 0
+      };
+
+      let updateData: any = {
+        activities: [...(task.activities || []), activityData]
+      };
+
+      // Handle KPI-based achievements
+      if (task.kpi?.type === "Metric" && activity.monetaryValueAchieved) {
+        activityData.collectedMonetary = activity.monetaryValueAchieved;
+        updateData.monetaryValueAchieved = (task.monetaryValueAchieved || 0) + activity.monetaryValueAchieved;
+        
+        if (updateData.monetaryValueAchieved >= (task.monetaryValue || 0)) {
+          updateData.stage = "completed";
+        }
+      } else if (task.kpi?.type === "Percentage" && activity.percentValueAchieved) {
+        activityData.collectedPercent = activity.percentValueAchieved;
+        updateData.percentValueAchieved = (task.percentValueAchieved || 0) + activity.percentValueAchieved;
+        
+        if (task.ruleset) {
+          let isCompleted = false;
+          
+          switch (task.ruleset) {
+            case "<":
+              isCompleted = activity.percentValueAchieved < (task.percentValue || 0);
+              break;
+            case ">":
+              isCompleted = updateData.percentValueAchieved > (task.percentValue || 0);
+              break;
+            case "=":
+              isCompleted = updateData.percentValueAchieved >= (task.percentValue || 0);
+              break;
+            default:
+              isCompleted = updateData.percentValueAchieved >= (task.percentValue || 0);
+          }
+          
+          if (isCompleted) {
+            updateData.stage = "completed";
+          }
+        }
+      }
+
+      // Update the task
+      const updatedTask = await prisma.task.update({
+        where: { id: taskId },
+        data: updateData,
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              category: true
+            }
+          }
+        }
+      });
+
+      return updatedTask;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Get all tasks with filtering
+  static async getAllTasks(filters: any = {}) {
+    try {
+      const where: any = {
+        isTrashed: false
+      };
+
+      if (filters.stage) {
+        where.stage = filters.stage;
+      }
+
+      if (filters.priority) {
+        where.priority = filters.priority;
+      }
+
+      if (filters.department) {
+        where.department = filters.department;
+      }
+
+      if (filters.performanceCategory) {
+        where.performanceCategory = filters.performanceCategory;
+      }
+
+      if (filters.isPerformanceTask !== undefined) {
+        where.isPerformanceTask = filters.isPerformanceTask;
+      }
+
+      if (filters.goalId) {
+        where.goalId = filters.goalId;
+      }
+
+      if (filters.isOverdue !== undefined) {
+        where.isOverdue = filters.isOverdue;
+      }
+
+      if (filters.search) {
+        where.OR = [
+          { title: { contains: filters.search, mode: 'insensitive' } },
+          { stage: { contains: filters.search, mode: 'insensitive' } },
+          { priority: { contains: filters.search, mode: 'insensitive' } }
+        ];
+      }
+
+      const tasks = await prisma.task.findMany({
+        where,
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              category: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      return tasks;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Get task by ID
+  static async getTaskById(id: string) {
+    try {
+      const task = await prisma.task.findUnique({
+        where: { id },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              category: true
+            }
+          }
+        }
+      });
+
+      if (!task) {
+        throw new Error("Task not found");
+      }
+
+      return task;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Get task statistics
+  static async getTaskStatistics() {
+    try {
+      const [
+        totalTasks,
+        completedTasks,
+        inProgressTasks,
+        todoTasks,
+        overdueTasks,
+        performanceTasks,
+        businessTasks
+      ] = await Promise.all([
+        prisma.task.count({ where: { isTrashed: false } }),
+        prisma.task.count({ where: { stage: "completed", isTrashed: false } }),
+        prisma.task.count({ where: { stage: "in_progress", isTrashed: false } }),
+        prisma.task.count({ where: { stage: "todo", isTrashed: false } }),
+        prisma.task.count({ where: { isOverdue: true, isTrashed: false } }),
+        prisma.task.count({ where: { isPerformanceTask: true, isTrashed: false } }),
+        prisma.task.count({ where: { isPerformanceTask: false, isTrashed: false } })
+      ]);
+
+      // Get tasks by department
+      const tasksByDepartment = await prisma.task.groupBy({
+        by: ['department'],
+        _count: {
+          id: true
+        },
+        where: {
+          isTrashed: false,
+          department: { not: null }
+        }
+      });
+
+      // Get tasks by priority
+      const tasksByPriority = await prisma.task.groupBy({
+        by: ['priority'],
+        _count: {
+          id: true
+        },
+        where: {
+          isTrashed: false
+        }
+      });
+
+      return {
+        totalTasks,
+        completedTasks,
+        inProgressTasks,
+        todoTasks,
+        overdueTasks,
+        performanceTasks,
+        businessTasks,
+        tasksByDepartment,
+        tasksByPriority
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+}

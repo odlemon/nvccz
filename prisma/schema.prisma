@@ -46,6 +46,50 @@ model User {
   investmentImplementations InvestmentImplementation[]
   fundDisbursementsApproved FundDisbursement[] @relation("FundDisbursementApprovedBy")
   fundDisbursementsDisbursed FundDisbursement[] @relation("FundDisbursementDisbursedBy")
+  
+  // Performance Management Relations
+  departmentId             String?
+  department               Department? @relation("UserDepartment", fields: [departmentId], references: [id])
+  performanceGoals         PerformanceGoal[] @relation("GoalAssignee")
+  createdPerformanceGoals  PerformanceGoal[] @relation("GoalCreator")
+  activityLogs             ActivityLog[]
+  createdTasks             Task[] @relation("TaskCreator")
+  
+  // Stakeholder Management Relations
+  managedStakeholders      Stakeholder[] @relation("StakeholderManager")
+  onboardingInitiated      StakeholderOnboarding[] @relation("OnboardingInitiator")
+  onboardingAssigned       StakeholderOnboarding[] @relation("OnboardingAssignee")
+  engagementInitiated      StakeholderEngagement[] @relation("EngagementInitiator")
+  
+  // Performance Review Relations
+  performanceReviewsAsReviewee PerformanceReview[] @relation("PerformanceReviewReviewee")
+  performanceReviewsAsReviewer PerformanceReview[] @relation("PerformanceReviewReviewer")
+  performanceReviewFeedback   PerformanceReviewFeedback[] @relation("PerformanceReviewFeedbackProvider")
+  
+  // Reporting Relations
+  reportTemplatesCreated   ReportTemplate[] @relation("ReportTemplateCreator")
+  varianceReportsPrepared  VarianceReport[] @relation("VarianceReportPreparer")
+  varianceReportsApproved  VarianceReport[] @relation("VarianceReportApprover")
+  turnoverReportsPrepared  TurnoverAnalysisReport[] @relation("TurnoverReportPreparer")
+  turnoverReportsApproved  TurnoverAnalysisReport[] @relation("TurnoverReportApprover")
+  
+  // Deal Management Relations
+  dealSourcingGoalsAssigned     DealSourcingGoal[] @relation("DealSourcingGoalAssignedTo")
+  dealSourcingGoalsCreated      DealSourcingGoal[] @relation("DealSourcingGoalCreatedBy")
+  dealProgressAssigned          DealProgress[] @relation("DealProgressAssignedTo")
+  dealProgressManaged           DealProgress[] @relation("DealProgressManager")
+  dealProgressUpdates           DealProgressUpdate[]
+  researchReportsAssigned       ResearchReport[] @relation("ResearchReportAssignedTo")
+  researchReportsCreated        ResearchReport[] @relation("ResearchReportCreatedBy")
+  researchReportActivities      ResearchReportActivity[]
+  riskAssessmentsAssigned       RiskAssessment[] @relation("RiskAssessmentAssignedTo")
+  riskAssessmentsCreated        RiskAssessment[] @relation("RiskAssessmentCreatedBy")
+  budgetItemsCreated            BudgetItem[] @relation("BudgetItemCreatedBy")
+  budgetsCreated                Budget[] @relation("BudgetCreatedBy")
+  portfolioValuationsAssigned   PortfolioValuation[] @relation("PortfolioValuationAssignedTo")
+  portfolioValuationsCreated    PortfolioValuation[] @relation("PortfolioValuationCreatedBy")
+  portfolioValuationActivities  PortfolioValuationActivity[]
+  exitInterviewsConducted       ExitInterview[] @relation("ExitInterviewConductedBy")
 
   @@map("users")
 }
@@ -930,6 +974,58 @@ model Target {
   @@map("targets")
 }
 
+model Task {
+  id                    String   @id @default(cuid())
+  title                 String
+  description           String?  @db.Text
+  team                  Json?    // Array of user IDs stored as JSON
+  stage                 String   @default("todo") // todo, in_progress, completed, overdue
+  date                  DateTime
+  priority              String   @default("medium") // low, medium, high, critical
+  assets                String?
+  branch                String?
+  department            String?
+  ruleset               String?
+  
+  // Performance-related fields
+  goalId                String?
+  goal                  PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  performanceCategory   String? // "business", "performance", "operational"
+  isPerformanceTask     Boolean @default(false)
+  
+  // Enhanced overdue logic
+  isOverdue             Boolean @default(false)
+  overdueStatus         String? // "overdue_todo", "overdue_in_progress", "overdue_completed"
+  originalStage         String? // Store original stage before overdue
+  
+  // Target Values (following your existing pattern)
+  monetaryValue         Decimal? @db.Decimal(15, 2)
+  percentValue          Decimal? @db.Decimal(5, 2)
+  monetaryValueAchieved Decimal? @default(0.00) @db.Decimal(15, 2)
+  percentValueAchieved  Decimal? @default(0.00) @db.Decimal(5, 2)
+  
+  // KPI Integration
+  kpi                   Json?    // KPI object with id, name, type, etc.
+  
+  // Activities
+  activities            Json?    // Array of activity objects
+  
+  // Status
+  status                String?  // Additional status field
+  isTrashed             Boolean  @default(false)
+  
+  // Metadata
+  createdBy             String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  creator               User     @relation("TaskCreator", fields: [createdBy], references: [id])
+  activityLogs          ActivityLog[]
+  
+  @@map("tasks")
+}
+
 model NewsletterSubscription {
   id            String   @id @default(cuid())
   email         String   @unique
@@ -1049,4 +1145,964 @@ model FundDisbursement {
   disbursedBy               User? @relation("FundDisbursementDisbursedBy", fields: [disbursedById], references: [id])
 
   @@map("fund_disbursements")
+}
+
+// Performance Management Models
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?  @db.Text
+  branch      String?  // Link to existing branch system
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  users       User[]   @relation("UserDepartment")
+  goals       PerformanceGoal[]
+  dealSourcingGoals DealSourcingGoal[]
+  
+  @@map("departments")
+}
+
+model PerformanceGoal {
+  id                    String   @id @default(cuid())
+  title                 String
+  description           String?  @db.Text
+  type                  String   // "company", "department", "individual"
+  category              String   // "financial", "operational", "strategic"
+  
+  // Hierarchy
+  parentGoalId          String?
+  departmentId          String?
+  department            Department? @relation(fields: [departmentId], references: [id])
+  
+  // Target Values
+  monetaryValue         Decimal? @db.Decimal(15, 2)
+  percentValue          Decimal? @db.Decimal(5, 2)
+  monetaryValueAchieved Decimal? @default(0.00) @db.Decimal(15, 2)
+  percentValueAchieved  Decimal? @default(0.00) @db.Decimal(5, 2)
+  
+  // KPI Integration (using existing KPI model)
+  kpiId                 String?
+  kpi                   KPI?     @relation(fields: [kpiId], references: [id])
+  
+  // Status & Progress
+  status                String   @default("active") // active, completed, paused, cancelled
+  priority              String   @default("medium") // low, medium, high, critical
+  stage                 String   @default("planning") // planning, in_progress, review, completed
+  
+  // Timeline
+  startDate             DateTime
+  endDate               DateTime
+  completedAt           DateTime?
+  
+  // Assignment
+  assignedToId          String?
+  assignedTo            User?    @relation("GoalAssignee", fields: [assignedToId], references: [id])
+  createdById           String
+  createdBy             User     @relation("GoalCreator", fields: [createdById], references: [id])
+  
+  // Activities
+  activities            Json?    // Array of activity objects
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  parentGoal            PerformanceGoal? @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subGoals              PerformanceGoal[] @relation("GoalHierarchy")
+  tasks                 Task[]
+  activityLogs          ActivityLog[]
+  
+  @@map("performance_goals")
+}
+
+model ActivityLog {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id])
+  
+  // Activity Details
+  activityType          String   // "goal_update", "task_completion", "kpi_update", "general"
+  title                 String
+  description           String?  @db.Text
+  
+  // Associated Entities
+  goalId                String?
+  goal                  PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  taskId                String?
+  task                  Task? @relation(fields: [taskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kpiId                 String?
+  kpi                   KPI? @relation(fields: [kpiId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  
+  // Progress Updates
+  monetaryValueAchieved Decimal? @db.Decimal(15, 2)
+  percentValueAchieved  Decimal? @db.Decimal(5, 2)
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  
+  @@map("activity_logs")
+}
+
+model KPI {
+  id                    String   @id @default(cuid())
+  name                  String
+  type                  String   // "Metric", "Percentage"
+  branch                String?
+  weightValue           Decimal? @db.Decimal(5, 2)
+  
+  // Unit Information
+  hasUnit               Boolean  @default(false)
+  unitCategory          String?
+  unit                  String?
+  unitSymbol            String?
+  unitPosition          String?  @default("suffix") // prefix, suffix
+  
+  // Status
+  isActive              Boolean  @default(true)
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  performanceGoals      PerformanceGoal[]
+  activityLogs          ActivityLog[]
+  
+  @@map("kpis")
+}
+
+// ===== STAKEHOLDER MANAGEMENT MODULE =====
+
+model Stakeholder {
+  id                    String   @id @default(cuid())
+  
+  // Basic Information
+  stakeholderId         String   @unique // External stakeholder identifier
+  type                  String   // "INVESTOR", "LP", "ADVISOR", "PARTNER", "VENDOR"
+  legalName             String
+  email                 String   @unique
+  phone                 String?
+  address               String?
+  country               String?
+  
+  // Business Information
+  organizationName      String?
+  industry              String?
+  taxId                 String?
+  registrationNumber    String?
+  
+  // Investment Information (for investors/LPs)
+  totalCommitment       Decimal? @db.Decimal(15, 2)
+  currency              String?  @default("USD")
+  investmentFocus       String?  // "TECHNOLOGY", "HEALTHCARE", "FINANCIAL_SERVICES", etc.
+  riskTolerance         String?  // "LOW", "MEDIUM", "HIGH"
+  
+  // Relationship Information
+  relationshipManagerId String?
+  relationshipStartDate DateTime?
+  relationshipStatus    String   @default("ACTIVE") // "ACTIVE", "INACTIVE", "SUSPENDED", "TERMINATED"
+  
+  // Engagement Metrics
+  lastContactDate       DateTime?
+  contactFrequency      String?  @default("MONTHLY") // "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUALLY"
+  preferredContactMethod String? @default("EMAIL") // "EMAIL", "PHONE", "IN_PERSON", "VIDEO"
+  
+  // Status
+  status                String   @default("ACTIVE") // "ACTIVE", "INACTIVE", "PENDING", "SUSPENDED"
+  isActive              Boolean  @default(true)
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  relationshipManager   User?    @relation("StakeholderManager", fields: [relationshipManagerId], references: [id])
+  onboardingRecords     StakeholderOnboarding[]
+  engagementLogs        StakeholderEngagement[]
+  performanceReviews    PerformanceReview[]
+  
+  @@map("stakeholders")
+}
+
+model StakeholderOnboarding {
+  id                    String   @id @default(cuid())
+  stakeholderId         String
+  
+  // Onboarding Process
+  stage                 String   // "INITIAL_CONTACT", "KYC_COMPLETED", "DOCUMENTS_SIGNED", "ONBOARDED", "COMPLETED"
+  status                String   @default("IN_PROGRESS") // "IN_PROGRESS", "COMPLETED", "FAILED", "ON_HOLD"
+  
+  // Process Details
+  initiatedBy           String
+  assignedTo            String?
+  startDate             DateTime?
+  completedDate         DateTime?
+  expectedCompletionDate DateTime?
+  
+  // Documents and Requirements
+  requiredDocuments     Json     // Array of required document types
+  submittedDocuments    Json     // Array of submitted document IDs
+  kycStatus             String?  @default("PENDING") // "PENDING", "COMPLETED", "FAILED"
+  complianceStatus      String?  @default("PENDING") // "PENDING", "COMPLETED", "FAILED"
+  
+  // Notes and Comments
+  notes                 String?  @db.Text
+  internalNotes         String?  @db.Text
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  stakeholder           Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  initiator             User @relation("OnboardingInitiator", fields: [initiatedBy], references: [id])
+  assignee              User? @relation("OnboardingAssignee", fields: [assignedTo], references: [id])
+  
+  @@map("stakeholder_onboarding")
+}
+
+model StakeholderEngagement {
+  id                    String   @id @default(cuid())
+  stakeholderId         String
+  
+  // Engagement Details
+  engagementType        String   // "EMAIL", "PHONE_CALL", "MEETING", "PRESENTATION", "REPORT", "EVENT"
+  subject               String
+  description           String?  @db.Text
+  
+  // Engagement Metrics
+  duration              Int?     // Duration in minutes
+  satisfaction          Int?     // 1-5 scale
+  followUpRequired      Boolean  @default(false)
+  followUpDate          DateTime?
+  
+  // Participants
+  initiatedBy           String
+  participants          Json     // Array of participant user IDs
+  
+  // Outcome
+  outcome               String?  // "POSITIVE", "NEUTRAL", "NEGATIVE", "FOLLOW_UP_REQUIRED"
+  nextSteps             String?  @db.Text
+  actionItems           Json     // Array of action items
+  
+  // Metadata
+  engagementDate        DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  stakeholder           Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  initiator             User @relation("EngagementInitiator", fields: [initiatedBy], references: [id])
+  
+  @@map("stakeholder_engagement")
+}
+
+// ===== PERFORMANCE REVIEW MODULE =====
+
+model PerformanceReview {
+  id                    String   @id @default(cuid())
+  
+  // Review Information
+  reviewType            String   // "ANNUAL", "QUARTERLY", "MONTHLY", "PROJECT_BASED", "GOAL_BASED"
+  reviewPeriod          String   // "Q1_2024", "2024", "JAN_2024", etc.
+  title                 String
+  description           String?  @db.Text
+  
+  // Participants
+  revieweeId            String   // Person being reviewed
+  reviewerId            String   // Person conducting the review
+  stakeholderId         String?  // If stakeholder is involved in review
+  
+  // Review Status
+  status                String   @default("DRAFT") // "DRAFT", "IN_PROGRESS", "COMPLETED", "APPROVED", "REJECTED"
+  stage                 String   @default("SELF_ASSESSMENT") // "SELF_ASSESSMENT", "MANAGER_REVIEW", "PEER_REVIEW", "FINAL_REVIEW"
+  
+  // Review Dates
+  reviewStartDate       DateTime?
+  reviewEndDate         DateTime?
+  dueDate               DateTime?
+  completedDate         DateTime?
+  
+  // Review Criteria and Scores
+  criteria              Json     // Array of review criteria with weights
+  scores                Json     // Array of scores for each criterion
+  overallScore          Decimal? @db.Decimal(5, 2) // 0-100 scale
+  rating                String?  // "EXCEEDS_EXPECTATIONS", "MEETS_EXPECTATIONS", "BELOW_EXPECTATIONS", "NEEDS_IMPROVEMENT"
+  
+  // Review Content
+  strengths             String?  @db.Text
+  areasForImprovement   String?  @db.Text
+  achievements          String?  @db.Text
+  goals                 String?  @db.Text
+  developmentPlan       String?  @db.Text
+  
+  // Feedback
+  managerFeedback       String?  @db.Text
+  selfFeedback          String?  @db.Text
+  peerFeedback          String?  @db.Text
+  stakeholderFeedback   String?  @db.Text
+  
+  // Action Items
+  actionItems           Json     // Array of action items with due dates
+  nextReviewDate        DateTime?
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  reviewee              User @relation("PerformanceReviewReviewee", fields: [revieweeId], references: [id])
+  reviewer              User @relation("PerformanceReviewReviewer", fields: [reviewerId], references: [id])
+  stakeholder           Stakeholder? @relation(fields: [stakeholderId], references: [id])
+  reviewFeedback        PerformanceReviewFeedback[]
+  
+  @@map("performance_reviews")
+}
+
+model PerformanceReviewFeedback {
+  id                    String   @id @default(cuid())
+  reviewId              String
+  
+  // Feedback Provider
+  feedbackProviderId    String
+  feedbackProviderType  String   // "MANAGER", "PEER", "SELF", "STAKEHOLDER", "DIRECT_REPORT"
+  
+  // Feedback Content
+  feedbackType          String   // "STRENGTHS", "IMPROVEMENT_AREAS", "GOALS", "DEVELOPMENT", "GENERAL"
+  content               String   @db.Text
+  rating                Int?     // 1-5 scale
+  
+  // Feedback Status
+  isPrivate             Boolean  @default(false) // Private feedback only visible to reviewee and manager
+  isAnonymous           Boolean  @default(false)
+  status                String   @default("SUBMITTED") // "DRAFT", "SUBMITTED", "APPROVED"
+  
+  // Metadata
+  submittedAt           DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  review                PerformanceReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  feedbackProvider      User @relation("PerformanceReviewFeedbackProvider", fields: [feedbackProviderId], references: [id])
+  
+  @@map("performance_review_feedback")
+}
+
+// ===== AUTOMATED REPORTING MODULE =====
+
+model ReportTemplate {
+  id                    String   @id @default(cuid())
+  
+  // Template Information
+  name                  String   @unique
+  description           String?  @db.Text
+  reportType            String   // "VARIANCE", "TURNOVER", "RECONCILIATION", "PERFORMANCE", "STAKEHOLDER", "DEAL_METRICS"
+  category              String   // "FINANCIAL", "OPERATIONAL", "PERFORMANCE", "COMPLIANCE"
+  
+  // Report Configuration
+  frequency             String   // "DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUALLY", "ON_DEMAND"
+  schedule              String?  // Cron expression for scheduled reports
+  isActive              Boolean  @default(true)
+  
+  // Report Content
+  template              Json     // Report template configuration
+  parameters            Json     // Report parameters and filters
+  recipients            Json     // Array of recipient user IDs
+  
+  // Metadata
+  createdBy             String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  creator               User @relation("ReportTemplateCreator", fields: [createdBy], references: [id])
+  generatedReports      GeneratedReport[]
+  
+  @@map("report_templates")
+}
+
+model GeneratedReport {
+  id                    String   @id @default(cuid())
+  templateId            String
+  
+  // Report Information
+  reportName            String
+  reportType            String
+  reportPeriod          String   // "Q1_2024", "2024", "JAN_2024", etc.
+  status                String   @default("GENERATING") // "GENERATING", "COMPLETED", "FAILED", "DELIVERED"
+  
+  // Report Data
+  data                  Json     // Report data and results
+  summary               String?  @db.Text
+  insights              Json     // AI-generated insights
+  recommendations       Json     // AI-generated recommendations
+  
+  // Delivery Information
+  generatedAt           DateTime @default(now())
+  deliveredAt           DateTime?
+  recipients            Json     // Array of recipient user IDs who received the report
+  
+  // File Information
+  fileUrl               String?
+  fileName              String?
+  fileSize              Int?
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  template              ReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  
+  @@map("generated_reports")
+}
+
+model VarianceReport {
+  id                    String   @id @default(cuid())
+  
+  // Report Information
+  reportPeriod          String   // "JAN_2024", "Q1_2024", etc.
+  reportType            String   // "MONTHLY", "QUARTERLY", "ANNUAL"
+  status                String   @default("DRAFT") // "DRAFT", "COMPLETED", "APPROVED"
+  
+  // Financial Data
+  actualExpenses        Decimal  @db.Decimal(15, 2)
+  budgetedExpenses      Decimal  @db.Decimal(15, 2)
+  variance              Decimal  @db.Decimal(15, 2)
+  variancePercentage    Decimal  @db.Decimal(5, 2)
+  
+  // Variance Analysis
+  significantVariances  Json     // Array of significant variances (>5%)
+  explanations          Json     // Explanations for variances
+  actionItems           Json     // Action items to address variances
+  
+  // Approval
+  preparedBy            String
+  approvedBy            String?
+  approvedAt            DateTime?
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  preparer              User @relation("VarianceReportPreparer", fields: [preparedBy], references: [id])
+  approver              User? @relation("VarianceReportApprover", fields: [approvedBy], references: [id])
+  
+  @@map("variance_reports")
+}
+
+model TurnoverAnalysisReport {
+  id                    String   @id @default(cuid())
+  
+  // Report Information
+  reportPeriod          String   // "Q1_2024", "2024", etc.
+  reportType            String   // "QUARTERLY", "ANNUAL"
+  status                String   @default("DRAFT") // "DRAFT", "COMPLETED", "APPROVED"
+  
+  // Turnover Data
+  totalEmployees        Int
+  employeesLeft         Int
+  turnoverRate          Decimal  @db.Decimal(5, 2)
+  voluntaryTurnover     Int
+  involuntaryTurnover   Int
+  
+  // Department Analysis
+  departmentBreakdown   Json     // Turnover by department
+  roleBreakdown         Json     // Turnover by role/position
+  tenureBreakdown       Json     // Turnover by tenure
+  
+  // Exit Interview Analysis
+  exitInterviewData     Json     // Analysis of exit interview responses
+  commonReasons         Json     // Common reasons for leaving
+  retentionRecommendations Json // Recommendations for improving retention
+  
+  // Approval
+  preparedBy            String
+  approvedBy            String?
+  approvedAt            DateTime?
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  preparer              User @relation("TurnoverReportPreparer", fields: [preparedBy], references: [id])
+  approver              User? @relation("TurnoverReportApprover", fields: [approvedBy], references: [id])
+  
+  @@map("turnover_analysis_reports")
+}
+
+// Deal Sourcing Goals - CEO to Portfolio Manager to Analysts cascading
+model DealSourcingGoal {
+  id                    String   @id @default(cuid())
+  title                 String
+  description           String?
+  type                  String   // "company", "department", "individual"
+  category              String   // "deal_sourcing", "due_diligence", "closing"
+  parentGoalId          String?
+  departmentId          String?
+  
+  // Deal-specific fields
+  targetDeals           Int      // Number of deals to source
+  targetValue           Decimal? @db.Decimal(15, 2) // Target deal value
+  targetSectors         Json?    // Target sectors/industries
+  targetStages          Json?    // Target deal stages
+  
+  // Progress tracking
+  dealsSourced          Int      @default(0)
+  dealsInPipeline       Int      @default(0)
+  dealsClosed           Int      @default(0)
+  totalValueSourced     Decimal  @default(0) @db.Decimal(15, 2)
+  
+  // Timeline
+  startDate             DateTime
+  endDate               DateTime
+  status                String   @default("active") // "active", "completed", "cancelled"
+  priority              String   @default("medium") // "low", "medium", "high", "critical"
+  
+  // Assignment
+  assignedToId          String?
+  createdById           String
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  parentGoal            DealSourcingGoal? @relation("DealSourcingGoalParent", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subGoals              DealSourcingGoal[] @relation("DealSourcingGoalParent")
+  department            Department? @relation(fields: [departmentId], references: [id])
+  assignedTo            User? @relation("DealSourcingGoalAssignedTo", fields: [assignedToId], references: [id])
+  createdBy             User @relation("DealSourcingGoalCreatedBy", fields: [createdById], references: [id])
+  dealProgress          DealProgress[]
+  
+  @@map("deal_sourcing_goals")
+}
+
+// Deal Progress Tracking - Progress bars for active deals
+model DealProgress {
+  id                    String   @id @default(cuid())
+  dealSourcingGoalId    String
+  applicationId         String?  // Link to existing application if applicable
+  
+  // Deal details
+  dealName              String
+  dealValue             Decimal  @db.Decimal(15, 2)
+  sector                String
+  stage                 String   // "sourcing", "due_diligence", "term_sheet", "closing", "completed"
+  
+  // Progress tracking
+  progressPercentage    Decimal  @default(0) @db.Decimal(5, 2) // 0-100%
+  currentMilestone      String
+  nextMilestone         String?
+  estimatedCompletion   DateTime?
+  
+  // Team assignment
+  assignedToId          String
+  managerId             String?
+  
+  // Status
+  status                String   @default("active") // "active", "on_hold", "completed", "cancelled"
+  isOverdue             Boolean  @default(false)
+  lastUpdated           DateTime @default(now())
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  dealSourcingGoal      DealSourcingGoal @relation(fields: [dealSourcingGoalId], references: [id])
+  assignedTo            User @relation(fields: [assignedToId], references: [id])
+  manager               User? @relation(fields: [managerId], references: [id])
+  progressUpdates       DealProgressUpdate[]
+  
+  @@map("deal_progress")
+}
+
+// Deal Progress Updates - Activity logging for deal progress
+model DealProgressUpdate {
+  id                    String   @id @default(cuid())
+  dealProgressId        String
+  userId                String
+  
+  // Update details
+  updateType            String   // "milestone_completed", "stage_change", "value_update", "note"
+  title                 String
+  description           String?
+  previousStage         String?
+  newStage              String?
+  previousValue         Decimal? @db.Decimal(15, 2)
+  newValue              Decimal? @db.Decimal(15, 2)
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  
+  // Relations
+  dealProgress          DealProgress @relation(fields: [dealProgressId], references: [id])
+  user                  User @relation(fields: [userId], references: [id])
+  
+  @@map("deal_progress_updates")
+}
+
+// Research Reports - Research Analyst quarterly targets
+model ResearchReport {
+  id                    String   @id @default(cuid())
+  title                 String
+  description           String?
+  reportType            String   // "sector_analysis", "market_trends", "company_analysis", "technology_review"
+  sector                String   // "fintech", "healthtech", "edtech", etc.
+  
+  // Quarterly tracking
+  quarter               String   // "Q1 2025", "Q2 2025", etc.
+  year                  Int
+  targetCompletionDate  DateTime
+  
+  // Progress tracking
+  status                String   @default("planned") // "planned", "in_progress", "review", "published"
+  progressPercentage    Decimal  @default(0) @db.Decimal(5, 2)
+  currentPhase          String   // "research", "analysis", "writing", "review", "publication"
+  
+  // Content tracking
+  pitchDecksReviewed    Int      @default(0)
+  dueDiligenceQuestions Json?    // Array of questions generated
+  keyFindings           Json?    // Key findings from research
+  recommendations       Json?    // Investment recommendations
+  
+  // Assignment
+  assignedToId          String
+  createdById           String
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  publishedAt           DateTime?
+  
+  // Relations
+  assignedTo            User @relation("ResearchReportAssignedTo", fields: [assignedToId], references: [id])
+  createdBy             User @relation("ResearchReportCreatedBy", fields: [createdById], references: [id])
+  reportActivities      ResearchReportActivity[]
+  
+  @@map("research_reports")
+}
+
+// Research Report Activities - Detailed activity logging
+model ResearchReportActivity {
+  id                    String   @id @default(cuid())
+  researchReportId      String
+  userId                String
+  
+  // Activity details
+  activityType          String   // "pitch_deck_review", "question_generation", "research_note", "analysis_update"
+  title                 String
+  description           String?
+  
+  // Specific data
+  pitchDeckCount        Int?     // Number of pitch decks reviewed
+  questionsGenerated    Json?    // Array of due diligence questions
+  researchNotes         String?  // Research notes and findings
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  
+  // Relations
+  researchReport        ResearchReport @relation(fields: [researchReportId], references: [id])
+  user                  User @relation(fields: [userId], references: [id])
+  
+  @@map("research_report_activities")
+}
+
+// Risk Assessments - Comprehensive risk assessment with sub-tasks
+model RiskAssessment {
+  id                    String   @id @default(cuid())
+  title                 String
+  description           String?
+  assessmentType        String   // "startup_investment", "portfolio_company", "market_risk"
+  
+  // Company/Deal details
+  companyName           String?
+  dealValue             Decimal? @db.Decimal(15, 2)
+  sector                String?
+  stage                 String?  // Deal stage
+  
+  // Risk categories and scores
+  burnRateRisk          Decimal? @db.Decimal(5, 2) // 0-10 scale
+  marketViabilityRisk   Decimal? @db.Decimal(5, 2)
+  ipLegalRisk           Decimal? @db.Decimal(5, 2)
+  founderRisk           Decimal? @db.Decimal(5, 2)
+  financialRisk         Decimal? @db.Decimal(5, 2)
+  operationalRisk       Decimal? @db.Decimal(5, 2)
+  
+  // Overall assessment
+  overallRiskScore      Decimal? @db.Decimal(5, 2)
+  riskLevel             String?  // "low", "medium", "high", "critical"
+  recommendation        String?  // "proceed", "proceed_with_conditions", "decline"
+  
+  // Status and timeline
+  status                String   @default("in_progress") // "in_progress", "completed", "reviewed"
+  targetCompletionDate  DateTime
+  completedAt           DateTime?
+  
+  // Assignment
+  assignedToId          String
+  createdById           String
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  assignedTo            User @relation("RiskAssessmentAssignedTo", fields: [assignedToId], references: [id])
+  createdBy             User @relation("RiskAssessmentCreatedBy", fields: [createdById], references: [id])
+  riskSubTasks          RiskAssessmentSubTask[]
+  riskHistory           RiskAssessmentHistory[]
+  
+  @@map("risk_assessments")
+}
+
+// Risk Assessment Sub-tasks - Individual risk category tasks
+model RiskAssessmentSubTask {
+  id                    String   @id @default(cuid())
+  riskAssessmentId      String
+  
+  // Sub-task details
+  category              String   // "burn_rate", "market_viability", "ip_legal", "founder", "financial", "operational"
+  title                 String
+  description           String?
+  
+  // Progress tracking
+  status                String   @default("pending") // "pending", "in_progress", "completed"
+  progressPercentage    Decimal  @default(0) @db.Decimal(5, 2)
+  riskScore             Decimal? @db.Decimal(5, 2)
+  findings              String?
+  recommendations       String?
+  
+  // Timeline
+  targetCompletionDate  DateTime
+  completedAt           DateTime?
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  riskAssessment        RiskAssessment @relation(fields: [riskAssessmentId], references: [id])
+  
+  @@map("risk_assessment_sub_tasks")
+}
+
+// Risk Assessment History - Track outcomes and improve models
+model RiskAssessmentHistory {
+  id                    String   @id @default(cuid())
+  riskAssessmentId      String
+  
+  // Historical data
+  initialRiskScore      Decimal  @db.Decimal(5, 2)
+  actualOutcome         String   // "success", "failure", "partial_success"
+  actualImpact          String?  // Description of actual impact
+  accuracyRating        Decimal? @db.Decimal(5, 2) // How accurate was the assessment
+  
+  // Learning data
+  lessonsLearned        String?
+  modelImprovements     String?
+  
+  // Metadata
+  recordedAt            DateTime @default(now())
+  
+  // Relations
+  riskAssessment        RiskAssessment @relation(fields: [riskAssessmentId], references: [id])
+  
+  @@map("risk_assessment_history")
+}
+
+// Budget Management - Monthly budgets with line items
+model Budget {
+  id                    String   @id @default(cuid())
+  name                  String
+  description           String?
+  budgetType            String   // "monthly", "quarterly", "annual"
+  period                String   // "2025-01", "Q1 2025", "2025"
+  
+  // Budget totals
+  totalBudgeted         Decimal  @db.Decimal(15, 2)
+  totalActual           Decimal  @default(0) @db.Decimal(15, 2)
+  totalVariance         Decimal  @default(0) @db.Decimal(15, 2)
+  variancePercentage    Decimal  @default(0) @db.Decimal(5, 2)
+  
+  // Status
+  status                String   @default("draft") // "draft", "active", "closed"
+  isActive              Boolean  @default(false)
+  
+  // Timeline
+  startDate             DateTime
+  endDate               DateTime
+  createdById           String
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  createdBy             User @relation(fields: [createdById], references: [id])
+  budgetItems           BudgetItem[]
+  varianceReports       VarianceReport[]
+  
+  @@map("budgets")
+}
+
+// Budget Items - Individual line items
+model BudgetItem {
+  id                    String   @id @default(cuid())
+  budgetId              String
+  
+  // Item details
+  category              String   // "salary", "software_licenses", "office_rent", "travel", "marketing"
+  subcategory           String?
+  description           String
+  accountCode           String?
+  
+  // Financials
+  budgetedAmount        Decimal  @db.Decimal(15, 2)
+  actualAmount          Decimal  @default(0) @db.Decimal(15, 2)
+  variance              Decimal  @default(0) @db.Decimal(15, 2)
+  variancePercentage    Decimal  @default(0) @db.Decimal(5, 2)
+  
+  // Status
+  isSignificantVariance Boolean  @default(false) // >5% variance
+  varianceExplanation   String?
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  createdById           String
+  
+  // Relations
+  budget                Budget @relation(fields: [budgetId], references: [id])
+  createdBy             User @relation("BudgetItemCreatedBy", fields: [createdById], references: [id])
+  
+  @@map("budget_items")
+}
+
+// Portfolio Valuations - Quarterly valuation process
+model PortfolioValuation {
+  id                    String   @id @default(cuid())
+  title                 String
+  description           String?
+  valuationPeriod       String   // "Q1 2025", "Q2 2025", etc.
+  quarter               Int
+  year                  Int
+  
+  // Valuation details
+  totalPortfolioValue   Decimal? @db.Decimal(15, 2)
+  previousValue         Decimal? @db.Decimal(15, 2)
+  valueChange           Decimal? @db.Decimal(15, 2)
+  valueChangePercentage Decimal? @db.Decimal(5, 2)
+  
+  // Process tracking
+  status                String   @default("planned") // "planned", "in_progress", "completed", "approved"
+  currentStep           String   // "cap_tables", "financials", "communication", "reconciliation"
+  progressPercentage    Decimal  @default(0) @db.Decimal(5, 2)
+  
+  // Checklist items
+  capTablesObtained     Boolean  @default(false)
+  financialsReconciled  Boolean  @default(false)
+  portfolioCFOsContacted Boolean @default(false)
+  internalReviewDone    Boolean  @default(false)
+  stakeholderReportReady Boolean @default(false)
+  
+  // Timeline
+  targetCompletionDate  DateTime
+  completedAt           DateTime?
+  
+  // Assignment
+  assignedToId          String
+  createdById           String
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  assignedTo            User @relation("PortfolioValuationAssignedTo", fields: [assignedToId], references: [id])
+  createdBy             User @relation("PortfolioValuationCreatedBy", fields: [createdById], references: [id])
+  valuationActivities   PortfolioValuationActivity[]
+  
+  @@map("portfolio_valuations")
+}
+
+// Portfolio Valuation Activities - Step-by-step tracking
+model PortfolioValuationActivity {
+  id                    String   @id @default(cuid())
+  portfolioValuationId  String
+  userId                String
+  
+  // Activity details
+  activityType          String   // "cap_table_obtained", "financial_reconciled", "cfo_contacted", "review_completed"
+  title                 String
+  description           String?
+  
+  // Specific data
+  companiesProcessed    Int?     // Number of companies processed
+  reconciliationStatus  Json?    // Reconciliation status for each company
+  issuesIdentified      Json?    // Issues or discrepancies found
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  
+  // Relations
+  portfolioValuation    PortfolioValuation @relation(fields: [portfolioValuationId], references: [id])
+  user                  User @relation(fields: [userId], references: [id])
+  
+  @@map("portfolio_valuation_activities")
+}
+
+// Exit Interviews - HR turnover analysis
+model ExitInterview {
+  id                    String   @id @default(cuid())
+  
+  // Employee details
+  employeeName          String
+  employeeId            String?
+  department            String
+  position              String
+  tenure                String   // "0-1 years", "1-3 years", "3-5 years", "5+ years"
+  
+  // Interview details
+  interviewDate         DateTime
+  conductedById         String
+  interviewType         String   // "voluntary", "involuntary", "retirement"
+  
+  // Reasons for leaving
+  primaryReason         String
+  secondaryReasons      Json?    // Array of secondary reasons
+  pushFactors           Json?    // What pushed them to leave
+  pullFactors           Json?    // What pulled them away
+  
+  // Feedback
+  workEnvironmentRating Decimal? @db.Decimal(2, 1) // 1-5 scale
+  managementRating      Decimal? @db.Decimal(2, 1)
+  compensationRating    Decimal? @db.Decimal(2, 1)
+  growthOpportunityRating Decimal? @db.Decimal(2, 1)
+  
+  // Recommendations
+  wouldRecommendCompany Boolean?
+  suggestionsForImprovement String?
+  
+  // Status
+  status                String   @default("completed") // "scheduled", "completed", "cancelled"
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  conductedBy           User @relation("ExitInterviewConductedBy", fields: [conductedById], references: [id])
+  
+  @@map("exit_interviews")
 }

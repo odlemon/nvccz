@@ -1,0 +1,485 @@
+// @ts-nocheck
+import express from "express";
+import { TaskController } from "../controllers/TaskController";
+import { authenticate } from "../middleware/authenticate";
+
+const router = express.Router();
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Task:
+ *       type: object
+ *       required:
+ *         - title
+ *         - team
+ *         - date
+ *       properties:
+ *         id:
+ *           type: string
+ *           description: Unique identifier for the task
+ *         title:
+ *           type: string
+ *           description: Task title
+ *         description:
+ *           type: string
+ *           description: Task description
+ *         team:
+ *           type: array
+ *           items:
+ *             type: string
+ *           description: Array of user IDs assigned to the task
+ *         stage:
+ *           type: string
+ *           enum: [todo, in_progress, completed, overdue]
+ *           description: Task stage
+ *         date:
+ *           type: string
+ *           format: date-time
+ *           description: Task due date
+ *         priority:
+ *           type: string
+ *           enum: [low, medium, high, critical]
+ *           description: Task priority
+ *         assets:
+ *           type: string
+ *           description: Task assets
+ *         branch:
+ *           type: string
+ *           description: Branch association
+ *         department:
+ *           type: string
+ *           description: Department association
+ *         ruleset:
+ *           type: string
+ *           description: Task ruleset
+ *         goalId:
+ *           type: string
+ *           description: Associated performance goal ID
+ *         performanceCategory:
+ *           type: string
+ *           enum: [business, performance, operational]
+ *           description: Performance category
+ *         isPerformanceTask:
+ *           type: boolean
+ *           description: Whether this is a performance task
+ *         monetaryValue:
+ *           type: number
+ *           description: Target monetary value
+ *         percentValue:
+ *           type: number
+ *           description: Target percentage value
+ *         monetaryValueAchieved:
+ *           type: number
+ *           description: Achieved monetary value
+ *         percentValueAchieved:
+ *           type: number
+ *           description: Achieved percentage value
+ *         kpi:
+ *           type: object
+ *           description: Associated KPI information
+ *         isOverdue:
+ *           type: boolean
+ *           description: Whether the task is overdue
+ *         overdueStatus:
+ *           type: string
+ *           enum: [overdue_todo, overdue_in_progress, overdue_completed]
+ *           description: Overdue status tag
+ *         originalStage:
+ *           type: string
+ *           description: Original stage before overdue
+ *         activities:
+ *           type: array
+ *           description: Task activities
+ *         isTrashed:
+ *           type: boolean
+ *           description: Whether the task is trashed
+ */
+
+/**
+ * @swagger
+ * /api/tasks:
+ *   post:
+ *     summary: Create a new task
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - team
+ *               - date
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Task title
+ *               description:
+ *                 type: string
+ *                 description: Task description
+ *               team:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of user IDs assigned to the task
+ *               stage:
+ *                 type: string
+ *                 enum: [todo, in_progress, completed, overdue]
+ *                 description: Task stage
+ *               date:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Task due date
+ *               priority:
+ *                 type: string
+ *                 enum: [low, medium, high, critical]
+ *                 description: Task priority
+ *               assets:
+ *                 type: string
+ *                 description: Task assets
+ *               branch:
+ *                 type: string
+ *                 description: Branch association
+ *               department:
+ *                 type: string
+ *                 description: Department association
+ *               ruleset:
+ *                 type: string
+ *                 description: Task ruleset
+ *               goalId:
+ *                 type: string
+ *                 description: Associated performance goal ID
+ *               performanceCategory:
+ *                 type: string
+ *                 enum: [business, performance, operational]
+ *                 description: Performance category
+ *               isPerformanceTask:
+ *                 type: boolean
+ *                 description: Whether this is a performance task
+ *               monetaryValue:
+ *                 type: number
+ *                 description: Target monetary value
+ *               percentValue:
+ *                 type: number
+ *                 description: Target percentage value
+ *               kpi:
+ *                 type: object
+ *                 description: Associated KPI information
+ *     responses:
+ *       201:
+ *         description: Task created successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/", authenticate, TaskController.createTask);
+
+/**
+ * @swagger
+ * /api/tasks:
+ *   get:
+ *     summary: Get all tasks
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: stage
+ *         schema:
+ *           type: string
+ *           enum: [todo, in_progress, completed, overdue]
+ *         description: Filter by task stage
+ *       - in: query
+ *         name: priority
+ *         schema:
+ *           type: string
+ *           enum: [low, medium, high, critical]
+ *         description: Filter by task priority
+ *       - in: query
+ *         name: department
+ *         schema:
+ *           type: string
+ *         description: Filter by department
+ *       - in: query
+ *         name: performanceCategory
+ *         schema:
+ *           type: string
+ *           enum: [business, performance, operational]
+ *         description: Filter by performance category
+ *       - in: query
+ *         name: isPerformanceTask
+ *         schema:
+ *           type: boolean
+ *         description: Filter by performance task flag
+ *       - in: query
+ *         name: goalId
+ *         schema:
+ *           type: string
+ *         description: Filter by performance goal ID
+ *       - in: query
+ *         name: isOverdue
+ *         schema:
+ *           type: boolean
+ *         description: Filter by overdue status
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search in title, stage, and priority
+ *     responses:
+ *       200:
+ *         description: List of tasks
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/", authenticate, TaskController.getAllTasks);
+
+/**
+ * @swagger
+ * /api/tasks/statistics:
+ *   get:
+ *     summary: Get task statistics
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Task statistics
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/statistics", authenticate, TaskController.getTaskStatistics);
+
+/**
+ * @swagger
+ * /api/tasks/{id}:
+ *   get:
+ *     summary: Get task by ID
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Task ID
+ *     responses:
+ *       200:
+ *         description: Task details
+ *       404:
+ *         description: Task not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/:id", authenticate, TaskController.getTaskById);
+
+/**
+ * @swagger
+ * /api/tasks/{id}:
+ *   put:
+ *     summary: Update task
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Task title
+ *               description:
+ *                 type: string
+ *                 description: Task description
+ *               team:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of user IDs assigned to the task
+ *               stage:
+ *                 type: string
+ *                 enum: [todo, in_progress, completed, overdue]
+ *                 description: Task stage
+ *               date:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Task due date
+ *               priority:
+ *                 type: string
+ *                 enum: [low, medium, high, critical]
+ *                 description: Task priority
+ *               assets:
+ *                 type: string
+ *                 description: Task assets
+ *               branch:
+ *                 type: string
+ *                 description: Branch association
+ *               department:
+ *                 type: string
+ *                 description: Department association
+ *               ruleset:
+ *                 type: string
+ *                 description: Task ruleset
+ *               goalId:
+ *                 type: string
+ *                 description: Associated performance goal ID
+ *               performanceCategory:
+ *                 type: string
+ *                 enum: [business, performance, operational]
+ *                 description: Performance category
+ *               isPerformanceTask:
+ *                 type: boolean
+ *                 description: Whether this is a performance task
+ *               monetaryValue:
+ *                 type: number
+ *                 description: Target monetary value
+ *               percentValue:
+ *                 type: number
+ *                 description: Target percentage value
+ *               monetaryValueAchieved:
+ *                 type: number
+ *                 description: Achieved monetary value
+ *               percentValueAchieved:
+ *                 type: number
+ *                 description: Achieved percentage value
+ *               kpi:
+ *                 type: object
+ *                 description: Associated KPI information
+ *     responses:
+ *       200:
+ *         description: Task updated successfully
+ *       400:
+ *         description: Bad request
+ *       404:
+ *         description: Task not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.put("/:id", authenticate, TaskController.updateTask);
+
+/**
+ * @swagger
+ * /api/tasks/{id}/stage:
+ *   put:
+ *     summary: Update task stage
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - stage
+ *             properties:
+ *               stage:
+ *                 type: string
+ *                 enum: [todo, in_progress, completed, overdue]
+ *                 description: New task stage
+ *               monetaryValueAchieved:
+ *                 type: number
+ *                 description: Additional monetary value achieved
+ *               percentValueAchieved:
+ *                 type: number
+ *                 description: Additional percentage value achieved
+ *     responses:
+ *       200:
+ *         description: Task stage updated successfully
+ *       400:
+ *         description: Bad request
+ *       404:
+ *         description: Task not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.put("/:id/stage", authenticate, TaskController.updateTaskStage);
+
+/**
+ * @swagger
+ * /api/tasks/{id}/activity:
+ *   post:
+ *     summary: Post task activity
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Task ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - type
+ *               - activity
+ *               - userId
+ *             properties:
+ *               type:
+ *                 type: string
+ *                 description: Activity type
+ *               activity:
+ *                 type: string
+ *                 description: Activity description
+ *               monetaryValueAchieved:
+ *                 type: number
+ *                 description: Monetary value achieved
+ *               percentValueAchieved:
+ *                 type: number
+ *                 description: Percentage value achieved
+ *               userId:
+ *                 type: string
+ *                 description: User ID performing the activity
+ *               approverId:
+ *                 type: string
+ *                 description: Approver user ID
+ *               approvedDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Approval date
+ *     responses:
+ *       200:
+ *         description: Activity posted successfully
+ *       400:
+ *         description: Bad request
+ *       404:
+ *         description: Task not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/:id/activity", authenticate, TaskController.postTaskActivity);
+
+export default router;
+
