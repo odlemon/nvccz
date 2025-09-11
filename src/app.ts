@@ -313,7 +313,7 @@ app.use("/api/performance-reviews", performanceReviewRoutes)
 app.use("/api/automated-reporting", automatedReportingRoutes)
 
 // Deal Management routes
-app.use("/api/deal-sourcing", dealSourcingRoutes)
+// app.use("/api/deal-sourcing", dealSourcingRoutes)
 
 // Research Report routes
 app.use("/api/research-reports", researchReportRoutes)
@@ -338,12 +338,13 @@ const startServer = async (): Promise<void> => {
   try {
     await dbConnection.connect()
 
-    app.listen(port, () => {
+    app.listen(port, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${port}`, {
         environment: envConfig.get("NODE_ENV"),
         port: port,
       })
       logger.info(`📚 API Documentation available at http://localhost:${port}/api-docs`)
+      logger.info(`🌐 Server accessible at http://31.220.82.129:${port}`)
     })
   } catch (error: any) {
     logger.error("Failed to start server", { error: error.message })
