@@ -68,6 +68,7 @@ import riskAssessmentRoutes from "./routes/riskAssessmentRoutes"
 import budgetManagementRoutes from "./routes/budgetManagementRoutes"
 import portfolioValuationRoutes from "./routes/portfolioValuationRoutes"
 import exitInterviewRoutes from "./routes/exitInterviewRoutes"
+import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 
 
 dotenv.config()
@@ -90,7 +91,8 @@ app.use(cors({
     "https://nvccz-new.vercel.app",
     "https://nvcc.vercel.app",
     "http://localhost:3000",
-    "http://localhost:3001"
+    "http://localhost:3001",
+    "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io"
   ],
   credentials: true
 }))
@@ -329,6 +331,9 @@ app.use("/api/portfolio-valuations", portfolioValuationRoutes)
 
 // Exit Interview routes
 app.use("/api/exit-interviews", exitInterviewRoutes)
+
+// Performance Scorecard routes
+app.use("/api/performance-scorecards", performanceScorecardRoutes)
 
 
 
