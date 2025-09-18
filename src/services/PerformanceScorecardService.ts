@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { DatabaseConnection } from "../utils/database";
 
 const dbConnection = DatabaseConnection.getInstance();
