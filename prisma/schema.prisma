@@ -90,6 +90,14 @@ model User {
   portfolioValuationsCreated    PortfolioValuation[] @relation("PortfolioValuationCreatedBy")
   portfolioValuationActivities  PortfolioValuationActivity[]
   exitInterviewsConducted       ExitInterview[] @relation("ExitInterviewConductedBy")
+  
+  // Payroll Relations
+  employee                      Employee?
+  payrollRunsCreated            PayrollRun[]
+  taxRulesCreated               TaxRules[]
+  allowanceTypesCreated         AllowanceTypes[]
+  deductionTypesCreated         DeductionTypes[]
+  bankFileTemplatesCreated      BankFileTemplate[]
 
   @@map("users")
 }
@@ -212,6 +220,17 @@ model Currency {
   invoices       Invoice[]
   paymentInvoices Invoice[]     @relation("PaymentCurrency")
   revenues       Revenue[]
+  
+  // Payroll Relations
+  employees      Employee[]
+  payrollRuns    PayrollRun[]
+  employeePayrolls EmployeePayroll[]
+  taxRules       TaxRules[]
+  payrollAllowances PayrollAllowance[]
+  payrollDeductions PayrollDeduction[]
+  salaryStructures SalaryStructure[]
+  leaveBalances  LeaveBalance[]
+  payslips       Payslip[]
 
   @@map("currencies")
 }
@@ -2107,4 +2126,262 @@ model ExitInterview {
   conductedBy           User @relation("ExitInterviewConductedBy", fields: [conductedById], references: [id])
   
   @@map("exit_interviews")
+}
+
+// ===== PAYROLL MODULE =====
+
+model Employee {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  employeeNumber    String   @unique
+  bankName          String?
+  branchCode        String?
+  accountNumber     String?
+  basicSalary       Decimal  @default(0)
+  currencyId        String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+  salaryStructures  SalaryStructure[]
+  leaveBalances     LeaveBalance[]
+  payslips          Payslip[]
+  employeePayrolls  EmployeePayroll[]
+
+  @@map("employees")
+}
+
+model PayrollRun {
+  id                String   @id @default(cuid())
+  name              String
+  payPeriod         String   // e.g., "March 2024"
+  startDate         DateTime
+  endDate           DateTime
+  status            PayrollStatus @default(DRAFT)
+  totalGrossPay     Decimal  @default(0)
+  totalDeductions   Decimal  @default(0)
+  totalNetPay       Decimal  @default(0)
+  currencyId        String?
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+  createdBy         User     @relation(fields: [createdById], references: [id])
+  employeePayrolls  EmployeePayroll[]
+  payslips          Payslip[]
+
+  @@map("payroll_runs")
+}
+
+model EmployeePayroll {
+  id                String   @id @default(cuid())
+  payrollRunId      String
+  employeeId        String
+  basicSalary       Decimal  @default(0)
+  totalAllowances   Decimal  @default(0)
+  totalDeductions   Decimal  @default(0)
+  grossPay          Decimal  @default(0)
+  netPay            Decimal  @default(0)
+  currencyId        String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  payrollRun        PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee          Employee @relation(fields: [employeeId], references: [id])
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+  allowances        PayrollAllowance[]
+  deductions        PayrollDeduction[]
+
+  @@unique([payrollRunId, employeeId])
+  @@map("employee_payrolls")
+}
+
+model TaxRules {
+  id                String   @id @default(cuid())
+  name              String
+  type              TaxType
+  rate              Decimal
+  threshold         Decimal?
+  ceiling           Decimal?
+  isActive          Boolean  @default(true)
+  effectiveDate     DateTime
+  endDate           DateTime?
+  currencyId        String?
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+  createdBy         User     @relation(fields: [createdById], references: [id])
+
+  @@map("tax_rules")
+}
+
+model AllowanceTypes {
+  id                String   @id @default(cuid())
+  name              String
+  code              String   @unique
+  description       String?
+  isTaxable         Boolean  @default(true)
+  isActive          Boolean  @default(true)
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  createdBy         User     @relation(fields: [createdById], references: [id])
+  allowances        PayrollAllowance[]
+  salaryStructures  SalaryStructure[]
+
+  @@map("allowance_types")
+}
+
+model DeductionTypes {
+  id                String   @id @default(cuid())
+  name              String
+  code              String   @unique
+  description       String?
+  isStatutory       Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  createdBy         User     @relation(fields: [createdById], references: [id])
+  deductions        PayrollDeduction[]
+
+  @@map("deduction_types")
+}
+
+model PayrollAllowance {
+  id                String   @id @default(cuid())
+  employeePayrollId String
+  allowanceTypeId   String
+  amount            Decimal
+  currencyId        String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  employeePayroll   EmployeePayroll @relation(fields: [employeePayrollId], references: [id], onDelete: Cascade)
+  allowanceType     AllowanceTypes @relation(fields: [allowanceTypeId], references: [id])
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+
+  @@map("payroll_allowances")
+}
+
+model PayrollDeduction {
+  id                String   @id @default(cuid())
+  employeePayrollId String
+  deductionTypeId   String
+  amount            Decimal
+  currencyId        String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  employeePayroll   EmployeePayroll @relation(fields: [employeePayrollId], references: [id], onDelete: Cascade)
+  deductionType     DeductionTypes @relation(fields: [deductionTypeId], references: [id])
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+
+  @@map("payroll_deductions")
+}
+
+model SalaryStructure {
+  id                String   @id @default(cuid())
+  employeeId        String
+  allowanceTypeId   String
+  amount            Decimal
+  currencyId        String?
+  isActive          Boolean  @default(true)
+  effectiveDate     DateTime
+  endDate           DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  employee          Employee @relation(fields: [employeeId], references: [id])
+  allowanceType     AllowanceTypes @relation(fields: [allowanceTypeId], references: [id])
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+
+  @@map("salary_structures")
+}
+
+model LeaveBalance {
+  id                String   @id @default(cuid())
+  employeeId        String
+  leaveType         String
+  balance           Decimal
+  currencyId        String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  employee          Employee @relation(fields: [employeeId], references: [id])
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+
+  @@map("leave_balances")
+}
+
+model Payslip {
+  id                String   @id @default(cuid())
+  employeeId        String
+  payrollRunId      String
+  grossPay          Decimal
+  totalDeductions   Decimal
+  netPay            Decimal
+  currencyId        String?
+  pdfPath           String?
+  isGenerated       Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  employee          Employee @relation(fields: [employeeId], references: [id])
+  payrollRun        PayrollRun @relation(fields: [payrollRunId], references: [id])
+  currency          Currency? @relation(fields: [currencyId], references: [id])
+
+  @@unique([employeeId, payrollRunId])
+  @@map("payslips")
+}
+
+model BankFileTemplate {
+  id                String   @id @default(cuid())
+  name              String
+  bankName          String
+  delimiter         String   @default(",")
+  hasHeader         Boolean  @default(true)
+  columnOrder       String   // JSON array of column names
+  isActive          Boolean  @default(true)
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  createdBy         User     @relation(fields: [createdById], references: [id])
+
+  @@map("bank_file_templates")
+}
+
+// Enums
+enum PayrollStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+enum TaxType {
+  PAYE
+  NSSA
+  AIDS_LEVY
+  CUSTOM
 }
