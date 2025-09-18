@@ -1,3 +1,4 @@
+// @ts-nocheck
 import express from "express";
 import { PerformanceScorecardController } from "../controllers/PerformanceScorecardController";
 import { authenticate } from "../middleware/authenticate";

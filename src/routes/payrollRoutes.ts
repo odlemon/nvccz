@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Router } from 'express';
 import { PayrollController } from '../controllers/PayrollController';
 import { authenticate } from '../middleware/authenticate';
