@@ -93,7 +93,9 @@ app.use(cors({
     "https://nvcc.vercel.app",
     "http://localhost:3000",
     "http://localhost:3001",
-    "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io"
+    "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
+    "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io"
+    
   ],
   credentials: true
 }))
