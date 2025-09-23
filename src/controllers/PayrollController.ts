@@ -133,12 +133,65 @@ export class PayrollController {
 
       const createdById = (req as any).user.id;
 
+      // Convert dates for comparison
+      const startDateObj = new Date(startDate);
+      const endDateObj = new Date(endDate);
+
+      // Check for overlapping payroll runs in the same period
+      const existingPayrollRun = await prisma.payrollRun.findFirst({
+        where: {
+          OR: [
+            // Check if new period overlaps with existing period
+            {
+              AND: [
+                { startDate: { lte: endDateObj } },
+                { endDate: { gte: startDateObj } }
+              ]
+            },
+            // Check if existing period is within new period
+            {
+              AND: [
+                { startDate: { gte: startDateObj } },
+                { endDate: { lte: endDateObj } }
+              ]
+            },
+            // Check if new period is within existing period
+            {
+              AND: [
+                { startDate: { lte: startDateObj } },
+                { endDate: { gte: endDateObj } }
+              ]
+            }
+          ],
+          // Exclude cancelled payroll runs
+          status: {
+            not: 'CANCELLED'
+          }
+        }
+      });
+
+      if (existingPayrollRun) {
+        return res.status(400).json({
+          success: false,
+          message: 'A payroll run already exists for this period',
+          error: `Payroll run "${existingPayrollRun.name}" (${existingPayrollRun.payPeriod}) already covers the period ${startDate} to ${endDate}`,
+          existingPayrollRun: {
+            id: existingPayrollRun.id,
+            name: existingPayrollRun.name,
+            payPeriod: existingPayrollRun.payPeriod,
+            startDate: existingPayrollRun.startDate,
+            endDate: existingPayrollRun.endDate,
+            status: existingPayrollRun.status
+          }
+        });
+      }
+
       const payrollRun = await prisma.payrollRun.create({
         data: {
           name,
           payPeriod,
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: startDateObj,
+          endDate: endDateObj,
           currencyId,
           createdById
         },
@@ -1419,6 +1472,197 @@ export class PayrollController {
       res.status(500).json({
         success: false,
         message: 'Failed to delete employee',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Update payroll run
+   */
+  static async updatePayrollRun(req: Request, res: Response) {
+    try {
+      const { payrollRunId } = req.params;
+      const {
+        name,
+        payPeriod,
+        startDate,
+        endDate,
+        currencyId
+      } = req.body;
+
+      // Check if payroll run exists and is in draft status
+      const existingPayrollRun = await prisma.payrollRun.findUnique({
+        where: { id: payrollRunId }
+      });
+
+      if (!existingPayrollRun) {
+        return res.status(404).json({
+          success: false,
+          message: 'Payroll run not found'
+        });
+      }
+
+      if (existingPayrollRun.status !== 'DRAFT') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only draft payroll runs can be updated'
+        });
+      }
+
+      // If dates are being updated, check for overlapping periods
+      if (startDate && endDate) {
+        const startDateObj = new Date(startDate);
+        const endDateObj = new Date(endDate);
+
+        // Check for overlapping payroll runs (excluding current one)
+        const overlappingPayrollRun = await prisma.payrollRun.findFirst({
+          where: {
+            id: { not: payrollRunId }, // Exclude current payroll run
+            OR: [
+              // Check if new period overlaps with existing period
+              {
+                AND: [
+                  { startDate: { lte: endDateObj } },
+                  { endDate: { gte: startDateObj } }
+                ]
+              },
+              // Check if existing period is within new period
+              {
+                AND: [
+                  { startDate: { gte: startDateObj } },
+                  { endDate: { lte: endDateObj } }
+                ]
+              },
+              // Check if new period is within existing period
+              {
+                AND: [
+                  { startDate: { lte: startDateObj } },
+                  { endDate: { gte: endDateObj } }
+                ]
+              }
+            ],
+            // Exclude cancelled payroll runs
+            status: {
+              not: 'CANCELLED'
+            }
+          }
+        });
+
+        if (overlappingPayrollRun) {
+          return res.status(400).json({
+            success: false,
+            message: 'A payroll run already exists for this period',
+            error: `Payroll run "${overlappingPayrollRun.name}" (${overlappingPayrollRun.payPeriod}) already covers the period ${startDate} to ${endDate}`,
+            existingPayrollRun: {
+              id: overlappingPayrollRun.id,
+              name: overlappingPayrollRun.name,
+              payPeriod: overlappingPayrollRun.payPeriod,
+              startDate: overlappingPayrollRun.startDate,
+              endDate: overlappingPayrollRun.endDate,
+              status: overlappingPayrollRun.status
+            }
+          });
+        }
+      }
+
+      const payrollRun = await prisma.payrollRun.update({
+        where: { id: payrollRunId },
+        data: {
+          name,
+          payPeriod,
+          startDate: startDate ? new Date(startDate) : undefined,
+          endDate: endDate ? new Date(endDate) : undefined,
+          currencyId
+        },
+        include: {
+          currency: true,
+          createdBy: {
+            select: { firstName: true, lastName: true, email: true }
+          }
+        }
+      });
+
+      res.json({
+        success: true,
+        message: 'Payroll run updated successfully',
+        data: payrollRun
+      });
+    } catch (error) {
+      console.error('Error updating payroll run:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update payroll run',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Delete payroll run
+   */
+  static async deletePayrollRun(req: Request, res: Response) {
+    try {
+      const { payrollRunId } = req.params;
+
+      // Check if payroll run exists
+      const existingPayrollRun = await prisma.payrollRun.findUnique({
+        where: { id: payrollRunId }
+      });
+
+      if (!existingPayrollRun) {
+        return res.status(404).json({
+          success: false,
+          message: 'Payroll run not found'
+        });
+      }
+
+      if (existingPayrollRun.status === 'COMPLETED') {
+        return res.status(400).json({
+          success: false,
+          message: 'Completed payroll runs cannot be deleted'
+        });
+      }
+
+      // Delete related records first (cascade should handle this, but being explicit)
+      await prisma.payrollDeduction.deleteMany({
+        where: {
+          employeePayroll: {
+            payrollRunId
+          }
+        }
+      });
+
+      await prisma.payrollAllowance.deleteMany({
+        where: {
+          employeePayroll: {
+            payrollRunId
+          }
+        }
+      });
+
+      await prisma.employeePayroll.deleteMany({
+        where: { payrollRunId }
+      });
+
+      await prisma.payslip.deleteMany({
+        where: { payrollRunId }
+      });
+
+      // Delete the payroll run
+      await prisma.payrollRun.delete({
+        where: { id: payrollRunId }
+      });
+
+      res.json({
+        success: true,
+        message: 'Payroll run deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting payroll run:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete payroll run',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
