@@ -41,12 +41,31 @@ export class PayrollService {
     currencyId: string
   ): Promise<PayrollCalculationResult> {
     try {
+      // Get payroll run to determine the effective date for calculations
+      const payrollRun = await prisma.payrollRun.findUnique({
+        where: { id: payrollRunId }
+      });
+
+      if (!payrollRun) {
+        throw new Error('Payroll run not found');
+      }
+
+      // Use payroll run end date as the effective date for calculations
+      const effectiveDate = payrollRun.endDate;
+
       // Get employee with salary structure
       const employee = await prisma.employee.findUnique({
         where: { id: employeeId },
         include: {
           salaryStructures: {
-            where: { isActive: true },
+            where: { 
+              isActive: true,
+              effectiveDate: { lte: effectiveDate },
+              OR: [
+                { endDate: null },
+                { endDate: { gte: effectiveDate } }
+              ]
+            },
             include: { allowanceType: true }
           },
           currency: true
@@ -57,15 +76,15 @@ export class PayrollService {
         throw new Error('Employee not found');
       }
 
-      // Get active tax rules for the currency
+      // Get active tax rules for the currency and effective date
       const taxRules = await prisma.taxRules.findMany({
         where: {
           currencyId,
           isActive: true,
-          effectiveDate: { lte: new Date() },
+          effectiveDate: { lte: effectiveDate },
           OR: [
             { endDate: null },
-            { endDate: { gte: new Date() } }
+            { endDate: { gte: effectiveDate } }
           ]
         },
         orderBy: { effectiveDate: 'desc' }
@@ -79,18 +98,24 @@ export class PayrollService {
       // Calculate basic salary
       const basicSalary = employee.basicSalary;
 
-      // Calculate allowances
+      // Calculate allowances - only include those effective for the payroll period
       const allowances = [];
       let totalAllowances = new Decimal(0);
 
       for (const salaryStructure of employee.salaryStructures) {
-        const allowance = {
-          type: salaryStructure.allowanceType.name,
-          amount: salaryStructure.amount,
-          isTaxable: salaryStructure.allowanceType.isTaxable
-        };
-        allowances.push(allowance);
-        totalAllowances = totalAllowances.add(salaryStructure.amount);
+        // Double-check effective date logic
+        const isEffective = salaryStructure.effectiveDate <= effectiveDate && 
+          (salaryStructure.endDate === null || salaryStructure.endDate >= effectiveDate);
+
+        if (isEffective) {
+          const allowance = {
+            type: salaryStructure.allowanceType.name,
+            amount: salaryStructure.amount,
+            isTaxable: salaryStructure.allowanceType.isTaxable
+          };
+          allowances.push(allowance);
+          totalAllowances = totalAllowances.add(salaryStructure.amount);
+        }
       }
 
       // Calculate gross pay
@@ -102,30 +127,36 @@ export class PayrollService {
 
       // Calculate statutory deductions (PAYE, NSSA, AIDS Levy)
       for (const taxRule of taxRules) {
-        let deductionAmount = new Decimal(0);
+        // Double-check effective date logic for tax rules
+        const isTaxRuleEffective = taxRule.effectiveDate <= effectiveDate && 
+          (taxRule.endDate === null || taxRule.endDate >= effectiveDate);
 
-        switch (taxRule.type) {
-          case 'PAYE':
-            deductionAmount = this.calculatePAYE(grossPay, taxRule);
-            break;
-          case 'NSSA':
-            deductionAmount = this.calculateNSSA(grossPay, taxRule);
-            break;
-          case 'AIDS_LEVY':
-            deductionAmount = this.calculateAIDSLevy(grossPay, taxRule);
-            break;
-          default:
-            // Custom tax calculation
-            deductionAmount = this.calculateCustomTax(grossPay, taxRule);
-        }
+        if (isTaxRuleEffective) {
+          let deductionAmount = new Decimal(0);
 
-        if (deductionAmount.gt(0)) {
-          deductions.push({
-            type: taxRule.name,
-            amount: deductionAmount,
-            isStatutory: true
-          });
-          totalDeductions = totalDeductions.add(deductionAmount);
+          switch (taxRule.type) {
+            case 'PAYE':
+              deductionAmount = this.calculatePAYE(grossPay, taxRule);
+              break;
+            case 'NSSA':
+              deductionAmount = this.calculateNSSA(grossPay, taxRule);
+              break;
+            case 'AIDS_LEVY':
+              deductionAmount = this.calculateAIDSLevy(grossPay, taxRule);
+              break;
+            default:
+              // Custom tax calculation
+              deductionAmount = this.calculateCustomTax(grossPay, taxRule);
+          }
+
+          if (deductionAmount.gt(0)) {
+            deductions.push({
+              type: taxRule.name,
+              amount: deductionAmount,
+              isStatutory: true
+            });
+            totalDeductions = totalDeductions.add(deductionAmount);
+          }
         }
       }
 

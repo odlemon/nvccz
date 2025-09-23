@@ -19,6 +19,8 @@ router.get('/employee/leave-balances', authenticate, PayrollController.getEmploy
 // ===== PAYROLL RUN ROUTES =====
 router.post('/payroll-runs', authenticate, PayrollController.createPayrollRun);
 router.get('/payroll-runs', authenticate, PayrollController.getAllPayrollRuns);
+router.put('/payroll-runs/:payrollRunId', authenticate, PayrollController.updatePayrollRun);
+router.delete('/payroll-runs/:payrollRunId', authenticate, PayrollController.deletePayrollRun);
 router.post('/payroll-runs/:payrollRunId/process', authenticate, PayrollController.processPayrollRun);
 router.get('/payroll-runs/:payrollRunId', authenticate, PayrollController.getPayrollRunSummary);
 
