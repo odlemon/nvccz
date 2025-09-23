@@ -969,34 +969,55 @@ export class PayrollController {
         currencyId
       } = req.body;
 
-      const leaveBalance = await prisma.leaveBalance.upsert({
+      // First, try to find existing leave balance
+      const existingBalance = await prisma.leaveBalance.findFirst({
         where: {
-          employeeId_leaveType: {
-            employeeId,
-            leaveType
-          }
-        },
-        update: {
-          balance: parseFloat(balance),
-          currencyId
-        },
-        create: {
           employeeId,
-          leaveType,
-          balance: parseFloat(balance),
-          currencyId
-        },
-        include: {
-          employee: {
-            include: {
-              user: {
-                select: { firstName: true, lastName: true, email: true }
-              }
-            }
-          },
-          currency: true
+          leaveType
         }
       });
+
+      let leaveBalance;
+      if (existingBalance) {
+        // Update existing balance
+        leaveBalance = await prisma.leaveBalance.update({
+          where: { id: existingBalance.id },
+          data: {
+            balance: parseFloat(balance),
+            currencyId
+          },
+          include: {
+            employee: {
+              include: {
+                user: {
+                  select: { firstName: true, lastName: true, email: true }
+                }
+              }
+            },
+            currency: true
+          }
+        });
+      } else {
+        // Create new balance
+        leaveBalance = await prisma.leaveBalance.create({
+          data: {
+            employeeId,
+            leaveType,
+            balance: parseFloat(balance),
+            currencyId
+          },
+          include: {
+            employee: {
+              include: {
+                user: {
+                  select: { firstName: true, lastName: true, email: true }
+                }
+              }
+            },
+            currency: true
+          }
+        });
+      }
 
       res.json({
         success: true,

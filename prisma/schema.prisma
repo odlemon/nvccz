@@ -2328,6 +2328,7 @@ model LeaveBalance {
   employee          Employee @relation(fields: [employeeId], references: [id])
   currency          Currency? @relation(fields: [currencyId], references: [id])
 
+  @@unique([employeeId, leaveType])
   @@map("leave_balances")
 }
 
