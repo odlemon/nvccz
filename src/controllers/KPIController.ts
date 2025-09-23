@@ -9,7 +9,7 @@ export class KPIController {
       const {
         name,
         type,
-        branch,
+        departmentId,
         weightValue,
         hasUnit,
         unitCategory,
@@ -35,7 +35,7 @@ export class KPIController {
       const kpi = await KPIService.createKPI({
         name,
         type,
-        branch,
+        departmentId,
         weightValue,
         hasUnit,
         unitCategory,
@@ -62,7 +62,7 @@ export class KPIController {
     try {
       const {
         type,
-        branch,
+        departmentId,
         isActive,
         hasUnit,
         search
@@ -70,7 +70,7 @@ export class KPIController {
 
       const filters: any = {};
       if (type) filters.type = type as string;
-      if (branch) filters.branch = branch as string;
+      if (departmentId) filters.departmentId = departmentId as string;
       if (isActive !== undefined) filters.isActive = isActive === 'true';
       if (hasUnit !== undefined) filters.hasUnit = hasUnit === 'true';
       if (search) filters.search = search as string;
@@ -116,7 +116,7 @@ export class KPIController {
       const {
         name,
         type,
-        branch,
+        departmentId,
         weightValue,
         hasUnit,
         unitCategory,
@@ -136,7 +136,7 @@ export class KPIController {
       const kpi = await KPIService.updateKPI(id, {
         name,
         type,
-        branch,
+        departmentId,
         weightValue,
         hasUnit,
         unitCategory,
@@ -186,6 +186,37 @@ export class KPIController {
       res.status(200).json({
         success: true,
         statistics
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  // Get comprehensive KPI tracking data
+  static async getKPITracking(req: Request, res: Response) {
+    try {
+      const {
+        kpiId,
+        type,
+        departmentId,
+        isActive
+      } = req.query;
+
+      const filters: any = {};
+      if (kpiId) filters.kpiId = kpiId as string;
+      if (type) filters.type = type as string;
+      if (departmentId) filters.departmentId = departmentId as string;
+      if (isActive !== undefined) filters.isActive = isActive === 'true';
+
+      const trackingData = await KPIService.getKPITracking(filters);
+
+      res.status(200).json({
+        success: true,
+        message: "KPI tracking data retrieved successfully",
+        data: trackingData
       });
     } catch (error: any) {
       res.status(400).json({

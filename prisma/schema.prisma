@@ -1271,7 +1271,7 @@ model KPI {
   id                    String   @id @default(cuid())
   name                  String
   type                  String   // "Metric", "Percentage"
-  branch                String?
+  departmentId          String?
   weightValue           Decimal? @db.Decimal(5, 2)
   
   // Unit Information

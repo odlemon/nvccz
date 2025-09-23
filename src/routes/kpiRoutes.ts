@@ -176,6 +176,106 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
 
 /**
  * @swagger
+ * /api/kpis/tracking:
+ *   get:
+ *     summary: Get comprehensive KPI tracking data for all KPIs
+ *     tags: [KPIs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kpiId
+ *         schema:
+ *           type: string
+ *         description: Filter by specific KPI ID
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [Metric, Percentage]
+ *         description: Filter by KPI type
+ *       - in: query
+ *         name: departmentId
+ *         schema:
+ *           type: string
+ *         description: Filter by department ID
+ *       - in: query
+ *         name: isActive
+ *         schema:
+ *           type: boolean
+ *         description: Filter by active status
+ *     responses:
+ *       200:
+ *         description: Comprehensive KPI tracking data with progress metrics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     kpis:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           type:
+ *                             type: string
+ *                           departmentId:
+ *                             type: string
+ *                           tracking:
+ *                             type: object
+ *                             properties:
+ *                               totalGoals:
+ *                                 type: number
+ *                               activeGoals:
+ *                                 type: number
+ *                               completedGoals:
+ *                                 type: number
+ *                               goalCompletionRate:
+ *                                 type: number
+ *                               monetaryProgress:
+ *                                 type: number
+ *                               percentProgress:
+ *                                 type: number
+ *                               isOnTrack:
+ *                                 type: boolean
+ *                               needsAttention:
+ *                                 type: boolean
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalKPIs:
+ *                           type: number
+ *                         activeKPIs:
+ *                           type: number
+ *                         onTrackKPIs:
+ *                           type: number
+ *                         needsAttentionKPIs:
+ *                           type: number
+ *                         overallProgress:
+ *                           type: number
+ *                         systemHealth:
+ *                           type: string
+ *                           enum: [healthy, warning, critical]
+ *       401:
+ *         description: Unauthorized
+ *       400:
+ *         description: Bad request
+ */
+router.get("/tracking", authenticate, KPIController.getKPITracking);
+
+/**
+ * @swagger
  * /api/kpis/{id}:
  *   get:
  *     summary: Get KPI by ID

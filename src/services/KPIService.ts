@@ -7,7 +7,7 @@ const prisma = dbConnection.getPrismaClient();
 export interface CreateKPIRequest {
   name: string;
   type: string; // "Metric", "Percentage"
-  branch?: string;
+  departmentId?: string;
   weightValue?: number;
   hasUnit?: boolean;
   unitCategory?: string;
@@ -19,7 +19,7 @@ export interface CreateKPIRequest {
 export interface UpdateKPIRequest {
   name?: string;
   type?: string;
-  branch?: string;
+  departmentId?: string;
   weightValue?: number;
   hasUnit?: boolean;
   unitCategory?: string;
@@ -37,12 +37,12 @@ export class KPIService {
       const existingKPI = await prisma.kPI.findFirst({
         where: { 
           name: request.name,
-          branch: request.branch || null
+          departmentId: request.departmentId || null
         }
       });
 
       if (existingKPI) {
-        throw new Error("KPI with this name already exists in this branch");
+        throw new Error("KPI with this name already exists in this department");
       }
 
       // Create the KPI
@@ -50,7 +50,7 @@ export class KPIService {
         data: {
           name: request.name,
           type: request.type,
-          branch: request.branch,
+          departmentId: request.departmentId,
           weightValue: request.weightValue,
           hasUnit: request.hasUnit || false,
           unitCategory: request.unitCategory,
@@ -76,8 +76,8 @@ export class KPIService {
         where.type = filters.type;
       }
 
-      if (filters.branch) {
-        where.branch = filters.branch;
+      if (filters.departmentId) {
+        where.departmentId = filters.departmentId;
       }
 
       if (filters.isActive !== undefined) {
@@ -182,13 +182,13 @@ export class KPIService {
         const nameConflict = await prisma.kPI.findFirst({
           where: { 
             name: request.name,
-            branch: request.branch || existingKPI.branch,
+            departmentId: request.departmentId || existingKPI.departmentId,
             id: { not: id }
           }
         });
 
         if (nameConflict) {
-          throw new Error("KPI with this name already exists in this branch");
+          throw new Error("KPI with this name already exists in this department");
         }
       }
 
@@ -198,7 +198,7 @@ export class KPIService {
         data: {
           ...(request.name && { name: request.name }),
           ...(request.type && { type: request.type }),
-          ...(request.branch !== undefined && { branch: request.branch }),
+          ...(request.departmentId !== undefined && { departmentId: request.departmentId }),
           ...(request.weightValue !== undefined && { weightValue: request.weightValue }),
           ...(request.hasUnit !== undefined && { hasUnit: request.hasUnit }),
           ...(request.unitCategory !== undefined && { unitCategory: request.unitCategory }),
@@ -280,14 +280,14 @@ export class KPIService {
         prisma.kPI.count({ where: { hasUnit: true } })
       ]);
 
-      // Get KPIs by branch
-      const kpisByBranch = await prisma.kPI.groupBy({
-        by: ['branch'],
+      // Get KPIs by department
+      const kpisByDepartment = await prisma.kPI.groupBy({
+        by: ['departmentId'],
         _count: {
           id: true
         },
         where: {
-          branch: { not: null }
+          departmentId: { not: null }
         }
       });
 
@@ -305,11 +305,188 @@ export class KPIService {
         percentageKPIs,
         activeKPIs,
         kpisWithUnits,
-        kpisByBranch,
+        kpisByDepartment,
         kpisByType
       };
     } catch (error) {
       throw error;
     }
   }
+
+  // Get comprehensive KPI tracking data
+  static async getKPITracking(filters: any = {}) {
+    try {
+      const where: any = {};
+      
+      // Apply filters
+      if (filters.kpiId) {
+        where.id = filters.kpiId;
+      }
+      if (filters.type) {
+        where.type = filters.type;
+      }
+      if (filters.departmentId) {
+        where.departmentId = filters.departmentId;
+      }
+      if (filters.isActive !== undefined) {
+        where.isActive = filters.isActive;
+      }
+
+      // Get KPIs with comprehensive tracking data
+      const kpis = await prisma.kPI.findMany({
+        where,
+        include: {
+          performanceGoals: {
+            include: {
+              department: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              },
+              assignedTo: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              },
+              _count: {
+                select: {
+                  tasks: true,
+                  activityLogs: true
+                }
+              }
+            }
+          },
+          activityLogs: {
+            select: {
+              id: true,
+              activityType: true,
+              title: true,
+              description: true,
+              monetaryValueAchieved: true,
+              percentValueAchieved: true,
+              createdAt: true
+            },
+            orderBy: {
+              createdAt: 'desc'
+            },
+            take: 10 // Last 10 activities
+          },
+          _count: {
+            select: {
+              performanceGoals: true,
+              activityLogs: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      // Calculate tracking metrics for each KPI
+      const kpisWithTracking = kpis.map(kpi => {
+        const totalGoals = kpi.performanceGoals.length;
+        const activeGoals = kpi.performanceGoals.filter(goal => goal.status === 'active').length;
+        const completedGoals = kpi.performanceGoals.filter(goal => goal.status === 'completed').length;
+        
+        // Calculate total target values
+        const totalMonetaryTarget = kpi.performanceGoals.reduce((sum, goal) => 
+          sum + (goal.monetaryValue || 0), 0
+        );
+        const totalPercentTarget = kpi.performanceGoals.reduce((sum, goal) => 
+          sum + (goal.percentValue || 0), 0
+        );
+        
+        // Calculate total achieved values
+        const totalMonetaryAchieved = kpi.performanceGoals.reduce((sum, goal) => 
+          sum + (goal.monetaryValueAchieved || 0), 0
+        );
+        const totalPercentAchieved = kpi.performanceGoals.reduce((sum, goal) => 
+          sum + (goal.percentValueAchieved || 0), 0
+        );
+        
+        // Calculate progress percentages
+        const monetaryProgress = totalMonetaryTarget > 0 
+          ? (totalMonetaryAchieved / totalMonetaryTarget) * 100 
+          : 0;
+        const percentProgress = totalPercentTarget > 0 
+          ? (totalPercentAchieved / totalPercentTarget) * 100 
+          : 0;
+        
+        // Get recent activity summary
+        const recentActivities = kpi.activityLogs.slice(0, 5);
+        const totalActivities = kpi._count.activityLogs;
+        
+        // Calculate goal completion rate
+        const goalCompletionRate = totalGoals > 0 ? (completedGoals / totalGoals) * 100 : 0;
+        
+        return {
+          ...kpi,
+          tracking: {
+            totalGoals,
+            activeGoals,
+            completedGoals,
+            goalCompletionRate: Math.round(goalCompletionRate * 100) / 100,
+            totalMonetaryTarget,
+            totalPercentTarget,
+            totalMonetaryAchieved,
+            totalPercentAchieved,
+            monetaryProgress: Math.round(monetaryProgress * 100) / 100,
+            percentProgress: Math.round(percentProgress * 100) / 100,
+            totalActivities,
+            recentActivities,
+            isOnTrack: monetaryProgress >= 80 || percentProgress >= 80,
+            needsAttention: monetaryProgress < 50 || percentProgress < 50
+          }
+        };
+      });
+
+      // Calculate overall system metrics
+      const totalKPIs = kpisWithTracking.length;
+      const activeKPIs = kpisWithTracking.filter(kpi => kpi.isActive).length;
+      const onTrackKPIs = kpisWithTracking.filter(kpi => kpi.tracking.isOnTrack).length;
+      const needsAttentionKPIs = kpisWithTracking.filter(kpi => kpi.tracking.needsAttention).length;
+      
+      const totalGoals = kpisWithTracking.reduce((sum, kpi) => sum + kpi.tracking.totalGoals, 0);
+      const totalActiveGoals = kpisWithTracking.reduce((sum, kpi) => sum + kpi.tracking.activeGoals, 0);
+      const totalCompletedGoals = kpisWithTracking.reduce((sum, kpi) => sum + kpi.tracking.completedGoals, 0);
+      
+      const overallProgress = totalGoals > 0 
+        ? kpisWithTracking.reduce((sum, kpi) => sum + kpi.tracking.monetaryProgress + kpi.tracking.percentProgress, 0) / (totalKPIs * 2)
+        : 0;
+
+      return {
+        kpis: kpisWithTracking,
+        summary: {
+          totalKPIs,
+          activeKPIs,
+          onTrackKPIs,
+          needsAttentionKPIs,
+          totalGoals,
+          totalActiveGoals,
+          totalCompletedGoals,
+          overallProgress: Math.round(overallProgress * 100) / 100,
+          systemHealth: overallProgress >= 70 ? 'healthy' : overallProgress >= 50 ? 'warning' : 'critical'
+        },
+        filters: {
+          applied: filters,
+          available: {
+            types: ['Metric', 'Percentage'],
+            departments: await prisma.kPI.findMany({
+              select: { departmentId: true },
+              where: { departmentId: { not: null } },
+              distinct: ['departmentId']
+            }).then(results => results.map(r => r.departmentId).filter(Boolean))
+          }
+        }
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
 }
