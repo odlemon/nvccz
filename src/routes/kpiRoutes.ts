@@ -276,6 +276,111 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
 
 /**
  * @swagger
+ * /api/kpis/analytics/summary:
+ *   get:
+ *     summary: Get KPI analytics summary
+ *     tags: [KPIs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: departmentId
+ *         schema:
+ *           type: string
+ *         description: Filter by department ID
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [week, month, quarter, year]
+ *           default: month
+ *         description: Time period for analytics
+ *     responses:
+ *       200:
+ *         description: KPI analytics summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalKPIs:
+ *                           type: number
+ *                         activeKPIs:
+ *                           type: number
+ *                         completedKPIs:
+ *                           type: number
+ *                         averageProgress:
+ *                           type: number
+ *                         onTrackPercentage:
+ *                           type: number
+ *                     departmentBreakdown:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           departmentId:
+ *                             type: string
+ *                           departmentName:
+ *                             type: string
+ *                           kpiCount:
+ *                             type: number
+ *                           averageProgress:
+ *                             type: number
+ *                     performanceMetrics:
+ *                       type: object
+ *                       properties:
+ *                         topPerformingKPIs:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                               progress:
+ *                                 type: number
+ *                         needsAttentionKPIs:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                               progress:
+ *                                 type: number
+ *                     trends:
+ *                       type: object
+ *                       properties:
+ *                         period:
+ *                           type: string
+ *                         improvementRate:
+ *                           type: number
+ *                         declineRate:
+ *                           type: number
+ *                         stableRate:
+ *                           type: number
+ *       401:
+ *         description: Unauthorized
+ *       400:
+ *         description: Bad request
+ */
+router.get("/analytics/summary", authenticate, KPIController.getKPIAnalyticsSummary);
+
+/**
+ * @swagger
  * /api/kpis/{id}:
  *   get:
  *     summary: Get KPI by ID

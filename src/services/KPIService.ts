@@ -489,4 +489,175 @@ export class KPIService {
     }
   }
 
+  // Get KPI analytics summary
+  static async getKPIAnalyticsSummary(filters: any = {}, period: string = 'month') {
+    try {
+      const where: any = {};
+      
+      // Apply filters
+      if (filters.departmentId) {
+        where.departmentId = filters.departmentId;
+      }
+      if (filters.isActive !== undefined) {
+        where.isActive = filters.isActive;
+      }
+
+      // Get all KPIs with their performance goals and activity logs
+      const kpis = await prisma.kPI.findMany({
+        where,
+        include: {
+          performanceGoals: {
+            include: {
+              activityLogs: true
+            }
+          },
+          activityLogs: {
+            orderBy: { createdAt: 'desc' },
+            take: 10
+          },
+          _count: {
+            select: {
+              performanceGoals: true,
+              activityLogs: true
+            }
+          }
+        }
+      });
+
+      // Calculate summary statistics
+      const totalKPIs = kpis.length;
+      const activeKPIs = kpis.filter(kpi => kpi.isActive).length;
+      
+      // Calculate progress for each KPI
+      const kpisWithProgress = kpis.map(kpi => {
+        const totalGoals = kpi.performanceGoals.length;
+        const completedGoals = kpi.performanceGoals.filter(goal => goal.status === 'COMPLETED').length;
+        
+        // Calculate monetary progress
+        const totalMonetaryTarget = kpi.performanceGoals.reduce((sum, goal) => 
+          sum + (goal.monetaryValue || 0), 0
+        );
+        const totalMonetaryAchieved = kpi.performanceGoals.reduce((sum, goal) => 
+          sum + (goal.monetaryValueAchieved || 0), 0
+        );
+        const monetaryProgress = totalMonetaryTarget > 0 
+          ? (totalMonetaryAchieved / totalMonetaryTarget) * 100 
+          : 0;
+        
+        // Calculate percentage progress
+        const totalPercentTarget = kpi.performanceGoals.reduce((sum, goal) => 
+          sum + (goal.percentValue || 0), 0
+        );
+        const totalPercentAchieved = kpi.performanceGoals.reduce((sum, goal) => 
+          sum + (goal.percentValueAchieved || 0), 0
+        );
+        const percentProgress = totalPercentTarget > 0 
+          ? (totalPercentAchieved / totalPercentTarget) * 100 
+          : 0;
+        
+        const overallProgress = Math.max(monetaryProgress, percentProgress);
+        
+        return {
+          id: kpi.id,
+          name: kpi.name,
+          type: kpi.type,
+          departmentId: kpi.departmentId,
+          progress: overallProgress,
+          isOnTrack: overallProgress >= 80,
+          needsAttention: overallProgress < 50
+        };
+      });
+
+      const completedKPIs = kpisWithProgress.filter(kpi => kpi.progress >= 100).length;
+      const onTrackKPIs = kpisWithProgress.filter(kpi => kpi.isOnTrack).length;
+      const needsAttentionKPIs = kpisWithProgress.filter(kpi => kpi.needsAttention).length;
+      
+      const averageProgress = kpisWithProgress.length > 0 
+        ? kpisWithProgress.reduce((sum, kpi) => sum + kpi.progress, 0) / kpisWithProgress.length 
+        : 0;
+      
+      const onTrackPercentage = totalKPIs > 0 ? (onTrackKPIs / totalKPIs) * 100 : 0;
+
+      // Department breakdown
+      const departmentStats = await prisma.kPI.groupBy({
+        by: ['departmentId'],
+        where: {
+          ...where,
+          departmentId: { not: null }
+        },
+        _count: { id: true }
+      });
+
+      // Get department names
+      const departmentIds = departmentStats.map(stat => stat.departmentId).filter(Boolean);
+      const departments = await prisma.department.findMany({
+        where: { id: { in: departmentIds } },
+        select: { id: true, name: true }
+      });
+
+      const departmentBreakdown = departmentStats.map(stat => {
+        const department = departments.find(d => d.id === stat.departmentId);
+        const departmentKPIs = kpisWithProgress.filter(kpi => kpi.departmentId === stat.departmentId);
+        const departmentProgress = departmentKPIs.length > 0 
+          ? departmentKPIs.reduce((sum, kpi) => sum + kpi.progress, 0) / departmentKPIs.length 
+          : 0;
+        
+        return {
+          departmentId: stat.departmentId,
+          departmentName: department?.name || 'Unknown Department',
+          kpiCount: stat._count.id,
+          averageProgress: departmentProgress
+        };
+      });
+
+      // Performance metrics
+      const topPerformingKPIs = kpisWithProgress
+        .filter(kpi => kpi.progress > 0)
+        .sort((a, b) => b.progress - a.progress)
+        .slice(0, 5)
+        .map(kpi => ({
+          id: kpi.id,
+          name: kpi.name,
+          progress: kpi.progress
+        }));
+
+      const needsAttentionKPIsList = kpisWithProgress
+        .filter(kpi => kpi.needsAttention)
+        .sort((a, b) => a.progress - b.progress)
+        .slice(0, 5)
+        .map(kpi => ({
+          id: kpi.id,
+          name: kpi.name,
+          progress: kpi.progress
+        }));
+
+      // Calculate trends (simplified - in a real implementation, you'd compare with previous periods)
+      const trends = {
+        period,
+        improvementRate: 0, // Would need historical data
+        declineRate: 0,     // Would need historical data
+        stableRate: 100     // Would need historical data
+      };
+
+      return {
+        summary: {
+          totalKPIs,
+          activeKPIs,
+          completedKPIs,
+          averageProgress: Math.round(averageProgress * 100) / 100,
+          onTrackPercentage: Math.round(onTrackPercentage * 100) / 100
+        },
+        departmentBreakdown,
+        performanceMetrics: {
+          topPerformingKPIs,
+          needsAttentionKPIs: needsAttentionKPIsList
+        },
+        trends
+      };
+    } catch (error) {
+      console.error("Error getting KPI analytics summary:", error);
+      throw error;
+    }
+  }
+
 }
