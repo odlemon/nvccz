@@ -70,6 +70,7 @@ import portfolioValuationRoutes from "./routes/portfolioValuationRoutes"
 import exitInterviewRoutes from "./routes/exitInterviewRoutes"
 import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
+import procurementRoutes from "./routes/procurementRoutes"
 
 
 dotenv.config()
@@ -340,6 +341,9 @@ app.use("/api/performance-scorecards", performanceScorecardRoutes)
 
 // Payroll Management routes
 app.use("/api/payroll", payrollRoutes)
+
+// Procurement Management routes
+app.use("/api/procurement", procurementRoutes)
 
 
 
