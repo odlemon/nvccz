@@ -9,95 +9,105 @@ datasource db {
 }
 
 model User {
-  id                        String                     @id @default(cuid())
-  firstName                 String
-  lastName                  String
-  email                     String                     @unique
-  password                  String
-  roleId                    String
-  backgroundImage           String?
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  lastSeen                  DateTime                   @default(now())
-  role                      Role                       @relation(fields: [roleId], references: [id])
-  posts                     Post[]
-  replies                   Reply[]
-  newsletters               Newsletter[]
-  events                    Event[]
-  notifications             Notification[]
-  userActivity              UserActivity[]
-  journalEntries            JournalEntry[]
-  expenses                  Expense[]
-  invoices                  Invoice[]
-  revenues                  Revenue[]
-  bankReconciliations       BankReconciliation[]
-  reconciliationResults     ReconciliationResult[]
-  reconciliationAuditTrails ReconciliationAuditTrail[]
-  miniKyc                  MiniKyc?
-  targets                  Target[]
-  portfolioCompany         PortfolioCompany?
-  funds                    Fund[]
-  fundManagers            FundManager[]
-  documents               Document[]
-  auditLogs               AuditLog[]
-  dueDiligenceReviews     DueDiligenceReview[]
-  boardReviews             BoardReview[]
-  termSheets               TermSheet[]
-  investmentImplementations InvestmentImplementation[]
-  fundDisbursementsApproved FundDisbursement[] @relation("FundDisbursementApprovedBy")
-  fundDisbursementsDisbursed FundDisbursement[] @relation("FundDisbursementDisbursedBy")
-  
+  id                         String                     @id @default(cuid())
+  firstName                  String
+  lastName                   String
+  email                      String                     @unique
+  password                   String
+  roleId                     String
+  backgroundImage            String?
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
+  lastSeen                   DateTime                   @default(now())
+  role                       Role                       @relation(fields: [roleId], references: [id])
+  posts                      Post[]
+  replies                    Reply[]
+  newsletters                Newsletter[]
+  events                     Event[]
+  notifications              Notification[]
+  userActivity               UserActivity[]
+  journalEntries             JournalEntry[]
+  expenses                   Expense[]
+  invoices                   Invoice[]
+  revenues                   Revenue[]
+  bankReconciliations        BankReconciliation[]
+  reconciliationResults      ReconciliationResult[]
+  reconciliationAuditTrails  ReconciliationAuditTrail[]
+  miniKyc                    MiniKyc?
+  targets                    Target[]
+  portfolioCompany           PortfolioCompany?
+  funds                      Fund[]
+  fundManagers               FundManager[]
+  documents                  Document[]
+  auditLogs                  AuditLog[]
+  dueDiligenceReviews        DueDiligenceReview[]
+  boardReviews               BoardReview[]
+  termSheets                 TermSheet[]
+  investmentImplementations  InvestmentImplementation[]
+  fundDisbursementsApproved  FundDisbursement[]         @relation("FundDisbursementApprovedBy")
+  fundDisbursementsDisbursed FundDisbursement[]         @relation("FundDisbursementDisbursedBy")
+
   // Performance Management Relations
-  departmentId             String?
-  department               Department? @relation("UserDepartment", fields: [departmentId], references: [id])
-  performanceGoals         PerformanceGoal[] @relation("GoalAssignee")
-  createdPerformanceGoals  PerformanceGoal[] @relation("GoalCreator")
-  activityLogs             ActivityLog[]
-  createdTasks             Task[] @relation("TaskCreator")
-  
+  departmentId            String?
+  department              Department?       @relation("UserDepartment", fields: [departmentId], references: [id])
+  performanceGoals        PerformanceGoal[] @relation("GoalAssignee")
+  createdPerformanceGoals PerformanceGoal[] @relation("GoalCreator")
+  activityLogs            ActivityLog[]
+  createdTasks            Task[]            @relation("TaskCreator")
+
   // Stakeholder Management Relations
-  managedStakeholders      Stakeholder[] @relation("StakeholderManager")
-  onboardingInitiated      StakeholderOnboarding[] @relation("OnboardingInitiator")
-  onboardingAssigned       StakeholderOnboarding[] @relation("OnboardingAssignee")
-  engagementInitiated      StakeholderEngagement[] @relation("EngagementInitiator")
-  
+  managedStakeholders Stakeholder[]           @relation("StakeholderManager")
+  onboardingInitiated StakeholderOnboarding[] @relation("OnboardingInitiator")
+  onboardingAssigned  StakeholderOnboarding[] @relation("OnboardingAssignee")
+  engagementInitiated StakeholderEngagement[] @relation("EngagementInitiator")
+
   // Performance Review Relations
-  performanceReviewsAsReviewee PerformanceReview[] @relation("PerformanceReviewReviewee")
-  performanceReviewsAsReviewer PerformanceReview[] @relation("PerformanceReviewReviewer")
-  performanceReviewFeedback   PerformanceReviewFeedback[] @relation("PerformanceReviewFeedbackProvider")
-  
+  performanceReviewsAsReviewee PerformanceReview[]         @relation("PerformanceReviewReviewee")
+  performanceReviewsAsReviewer PerformanceReview[]         @relation("PerformanceReviewReviewer")
+  performanceReviewFeedback    PerformanceReviewFeedback[] @relation("PerformanceReviewFeedbackProvider")
+
   // Reporting Relations
-  reportTemplatesCreated   ReportTemplate[] @relation("ReportTemplateCreator")
-  varianceReportsPrepared  VarianceReport[] @relation("VarianceReportPreparer")
-  varianceReportsApproved  VarianceReport[] @relation("VarianceReportApprover")
-  turnoverReportsPrepared  TurnoverAnalysisReport[] @relation("TurnoverReportPreparer")
-  turnoverReportsApproved  TurnoverAnalysisReport[] @relation("TurnoverReportApprover")
-  
+  reportTemplatesCreated  ReportTemplate[]         @relation("ReportTemplateCreator")
+  varianceReportsPrepared VarianceReport[]         @relation("VarianceReportPreparer")
+  varianceReportsApproved VarianceReport[]         @relation("VarianceReportApprover")
+  turnoverReportsPrepared TurnoverAnalysisReport[] @relation("TurnoverReportPreparer")
+  turnoverReportsApproved TurnoverAnalysisReport[] @relation("TurnoverReportApprover")
+
   // Deal Management Relations
-  dealSourcingGoalsAssigned     DealSourcingGoal[] @relation("DealSourcingGoalAssignedTo")
-  dealSourcingGoalsCreated      DealSourcingGoal[] @relation("DealSourcingGoalCreatedBy")
-  dealProgressAssigned          DealProgress[] @relation("DealProgressAssignedTo")
-  dealProgressManaged           DealProgress[] @relation("DealProgressManager")
-  dealProgressUpdates           DealProgressUpdate[]
-  researchReportsAssigned       ResearchReport[] @relation("ResearchReportAssignedTo")
-  researchReportsCreated        ResearchReport[] @relation("ResearchReportCreatedBy")
-  researchReportActivities      ResearchReportActivity[]
-  riskAssessmentsAssigned       RiskAssessment[] @relation("RiskAssessmentAssignedTo")
-  riskAssessmentsCreated        RiskAssessment[] @relation("RiskAssessmentCreatedBy")
-  budgetItemsCreated            BudgetItem[] @relation("BudgetItemCreatedBy")
-  budgetsCreated                Budget[] @relation("BudgetCreatedBy")
-  portfolioValuationsAssigned   PortfolioValuation[] @relation("PortfolioValuationAssignedTo")
-  portfolioValuationsCreated    PortfolioValuation[] @relation("PortfolioValuationCreatedBy")
-  portfolioValuationActivities  PortfolioValuationActivity[]
-  exitInterviewsConducted       ExitInterview[] @relation("ExitInterviewConductedBy")
-  
+  dealSourcingGoalsAssigned    DealSourcingGoal[]           @relation("DealSourcingGoalAssignedTo")
+  dealSourcingGoalsCreated     DealSourcingGoal[]           @relation("DealSourcingGoalCreatedBy")
+  dealProgressAssigned         DealProgress[]               @relation("DealProgressAssignedTo")
+  dealProgressManaged          DealProgress[]               @relation("DealProgressManager")
+  dealProgressUpdates          DealProgressUpdate[]
+  researchReportsAssigned      ResearchReport[]             @relation("ResearchReportAssignedTo")
+  researchReportsCreated       ResearchReport[]             @relation("ResearchReportCreatedBy")
+  researchReportActivities     ResearchReportActivity[]
+  riskAssessmentsAssigned      RiskAssessment[]             @relation("RiskAssessmentAssignedTo")
+  riskAssessmentsCreated       RiskAssessment[]             @relation("RiskAssessmentCreatedBy")
+  budgetItemsCreated           BudgetItem[]                 @relation("BudgetItemCreatedBy")
+  budgetsCreated               Budget[]                     @relation("BudgetCreatedBy")
+  portfolioValuationsAssigned  PortfolioValuation[]         @relation("PortfolioValuationAssignedTo")
+  portfolioValuationsCreated   PortfolioValuation[]         @relation("PortfolioValuationCreatedBy")
+  portfolioValuationActivities PortfolioValuationActivity[]
+  exitInterviewsConducted      ExitInterview[]              @relation("ExitInterviewConductedBy")
+
   // Payroll Relations
-  employee                      Employee?
-  payrollRunsCreated            PayrollRun[]
-  taxRulesCreated               TaxRules[]
-  allowanceTypesCreated         AllowanceTypes[]
-  deductionTypesCreated         DeductionTypes[]
-  bankFileTemplatesCreated      BankFileTemplate[]
+  employee                 Employee?
+  payrollRunsCreated       PayrollRun[]
+  taxRulesCreated          TaxRules[]
+  allowanceTypesCreated    AllowanceTypes[]
+  deductionTypesCreated    DeductionTypes[]
+  bankFileTemplatesCreated BankFileTemplate[]
+
+  // Procurement Relations
+  purchaseRequisitionsRequested PurchaseRequisition[] @relation("RequisitionRequestedBy")
+  purchaseRequisitionsApproved  PurchaseRequisition[] @relation("RequisitionApprovedBy")
+  purchaseOrdersCreated         PurchaseOrder[]       @relation("POCreatedBy")
+  purchaseOrdersApproved        PurchaseOrder[]       @relation("POApprovedBy")
+  procurementInvoicesCreated    ProcurementInvoice[]  @relation("InvoiceCreatedBy")
+  procurementInvoicesApproved   ProcurementInvoice[]  @relation("InvoiceApprovedBy")
+  grnsReceived                  GoodsReceivedNote[]   @relation("GRNReceivedBy")
+  grnsApproved                  GoodsReceivedNote[]   @relation("GRNApprovedBy")
 
   @@map("users")
 }
@@ -184,13 +194,13 @@ model Notification {
   userId          String
   isRead          Boolean  @default(false)
   data            Json?
-  relatedEntity   String?  // APPLICATION, FUND, STAGE, etc.
+  relatedEntity   String? // APPLICATION, FUND, STAGE, etc.
   relatedEntityId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  
+
   // Relations
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
 }
@@ -207,30 +217,35 @@ model UserActivity {
 }
 
 model Currency {
-  id             String         @id @default(cuid())
-  code           String         @unique
-  name           String
-  symbol         String
-  isActive       Boolean        @default(true)
-  isDefault      Boolean        @default(false)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  expenses       Expense[]
-  journalEntries JournalEntry[]
-  invoices       Invoice[]
-  paymentInvoices Invoice[]     @relation("PaymentCurrency")
-  revenues       Revenue[]
-  
+  id              String         @id @default(cuid())
+  code            String         @unique
+  name            String
+  symbol          String
+  isActive        Boolean        @default(true)
+  isDefault       Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  expenses        Expense[]
+  journalEntries  JournalEntry[]
+  invoices        Invoice[]
+  paymentInvoices Invoice[]      @relation("PaymentCurrency")
+  revenues        Revenue[]
+
   // Payroll Relations
-  employees      Employee[]
-  payrollRuns    PayrollRun[]
-  employeePayrolls EmployeePayroll[]
-  taxRules       TaxRules[]
+  employees         Employee[]
+  payrollRuns       PayrollRun[]
+  employeePayrolls  EmployeePayroll[]
+  taxRules          TaxRules[]
   payrollAllowances PayrollAllowance[]
   payrollDeductions PayrollDeduction[]
-  salaryStructures SalaryStructure[]
-  leaveBalances  LeaveBalance[]
-  payslips       Payslip[]
+  salaryStructures  SalaryStructure[]
+  leaveBalances     LeaveBalance[]
+  payslips          Payslip[]
+
+  // Procurement Relations
+  purchaseRequisitions PurchaseRequisition[] @relation("RequisitionCurrency")
+  purchaseOrders       PurchaseOrder[]       @relation("POCurrency")
+  procurementInvoices  ProcurementInvoice[]  @relation("InvoiceCurrency")
 
   @@map("currencies")
 }
@@ -267,6 +282,11 @@ model Vendor {
   updatedAt     DateTime  @updatedAt
   expenses      Expense[]
 
+  // Procurement Relations
+  purchaseOrders        PurchaseOrder[]           @relation("POVendor")
+  procurementInvoices   ProcurementInvoice[]      @relation("InvoiceVendor")
+  preferredRequisitions PurchaseRequisitionItem[] @relation("PreferredVendorRequisition")
+
   @@map("vendors")
 }
 
@@ -301,6 +321,7 @@ model JournalEntry {
   journalEntryLines     JournalEntryLine[]
   expenses              Expense[]
   invoices              Invoice[]
+  procurementInvoices   ProcurementInvoice[]   @relation("ProcurementInvoiceJournal")
   revenues              Revenue[]
   bankTransactions      BankTransaction[]
   reconciliationResults ReconciliationResult[]
@@ -396,28 +417,28 @@ model RevenueCategory {
 }
 
 model Revenue {
-  id              String          @id @default(cuid())
+  id              String           @id @default(cuid())
   sourceId        String
   categoryId      String?
-  amount          Decimal         @db.Decimal(15, 2)
-  vatAmount       Decimal         @default(0.00) @db.Decimal(15, 2)
-  totalAmount     Decimal         @db.Decimal(15, 2)
+  amount          Decimal          @db.Decimal(15, 2)
+  vatAmount       Decimal          @default(0.00) @db.Decimal(15, 2)
+  totalAmount     Decimal          @db.Decimal(15, 2)
   currencyId      String
   transactionDate DateTime
   description     String
-  isTaxable       Boolean         @default(false)
-  paymentMethod   String          @default("BANK")
-  status          String          @default("DRAFT")
-  isActive        Boolean         @default(true)
+  isTaxable       Boolean          @default(false)
+  paymentMethod   String           @default("BANK")
+  status          String           @default("DRAFT")
+  isActive        Boolean          @default(true)
   journalEntryId  String?
   createdById     String
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  source          RevenueSource   @relation(fields: [sourceId], references: [id])
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  source          RevenueSource    @relation(fields: [sourceId], references: [id])
   category        RevenueCategory? @relation(fields: [categoryId], references: [id])
-  currency        Currency        @relation(fields: [currencyId], references: [id])
-  journalEntry    JournalEntry?   @relation(fields: [journalEntryId], references: [id])
-  createdBy       User            @relation(fields: [createdById], references: [id])
+  currency        Currency         @relation(fields: [currencyId], references: [id])
+  journalEntry    JournalEntry?    @relation(fields: [journalEntryId], references: [id])
+  createdBy       User             @relation(fields: [createdById], references: [id])
 
   @@map("revenues")
 }
@@ -498,32 +519,32 @@ model ReconciliationAuditTrail {
 }
 
 model Invoice {
-  id              String        @id @default(cuid())
+  id              String   @id @default(cuid())
   customerId      String
-  amount          Decimal       @db.Decimal(15, 2)
-  vatAmount       Decimal       @default(0.00) @db.Decimal(15, 2)
-  totalAmount     Decimal       @db.Decimal(15, 2)
+  amount          Decimal  @db.Decimal(15, 2)
+  vatAmount       Decimal  @default(0.00) @db.Decimal(15, 2)
+  totalAmount     Decimal  @db.Decimal(15, 2)
   currencyId      String
   transactionDate DateTime
   description     String
   invoiceNumber   String?
-  isTaxable       Boolean       @default(false)
-  status          String        @default("DRAFT")
-  isActive        Boolean       @default(true)
+  isTaxable       Boolean  @default(false)
+  status          String   @default("DRAFT")
+  isActive        Boolean  @default(true)
   journalEntryId  String?
   createdById     String
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
   items           Json?
-  paymentMethod   String?       @db.VarChar(255)
-  
+  paymentMethod   String?  @db.VarChar(255)
+
   // Currency conversion fields (for multi-currency payments)
-  exchangeRateAtCreation Decimal? @db.Decimal(15, 6)  // Rate when invoice was created
-  paymentCurrencyId      String?                      // Currency used for payment
+  exchangeRateAtCreation  Decimal? @db.Decimal(15, 6) // Rate when invoice was created
+  paymentCurrencyId       String? // Currency used for payment
   amountInPaymentCurrency Decimal? @db.Decimal(15, 2) // Amount in payment currency
-  
-  paymentDate            DateTime?                    // Date when payment was processed
-  
+
+  paymentDate DateTime? // Date when payment was processed
+
   customer        Customer      @relation(fields: [customerId], references: [id])
   currency        Currency      @relation(fields: [currencyId], references: [id])
   paymentCurrency Currency?     @relation("PaymentCurrency", fields: [paymentCurrencyId], references: [id])
@@ -536,7 +557,7 @@ model Invoice {
 model MiniKyc {
   id          String   @id @default(cuid())
   userId      String   @unique
-  preferences Json     // User preferences as array of strings stored as JSON
+  preferences Json // User preferences as array of strings stored as JSON
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -556,8 +577,6 @@ model CompanyProfile {
   @@map("company_profile")
 }
 
-
-
 model PortfolioCompany {
   id                 String   @id @default(cuid())
   userId             String   @unique
@@ -570,76 +589,76 @@ model PortfolioCompany {
   description        String?  @db.Text
   logoUrl            String?
   status             String   @default("PENDING") // PENDING, APPROVED, REJECTED, ACTIVE, SUSPENDED
-  companySize        String?  // SMALL, MEDIUM, LARGE
+  companySize        String? // SMALL, MEDIUM, LARGE
   employeeCount      Int?
   annualRevenue      Decimal? @db.Decimal(15, 2)
-  fundingStage       String?  // SEED, SERIES_A, SERIES_B, etc.
+  fundingStage       String? // SEED, SERIES_A, SERIES_B, etc.
   contactPerson      String?
   contactPhone       String?
   contactEmail       String?
-  socialMedia        Json?    // Store social media links as JSON
-  
+  socialMedia        Json? // Store social media links as JSON
+
   // New fields for enhanced portfolio company management
-  fundId             String?  // Optional fund association
-  startDate          DateTime? // Investment start date
-  endDate            DateTime? // Investment end date
-  capTable           Json?    // Capitalization table data
-  financialKpis      Json?    // Financial KPIs data
+  fundId                String? // Optional fund association
+  startDate             DateTime? // Investment start date
+  endDate               DateTime? // Investment end date
+  capTable              Json? // Capitalization table data
+  financialKpis         Json? // Financial KPIs data
   financialHistoryExcel Json? // Financial history file information
-  eSign              Json?    // Electronic signature data
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  
+  eSign                 Json? // Electronic signature data
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
   // Relations
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fund               Fund?    @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  user                     User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fund                     Fund?                     @relation(fields: [fundId], references: [id], onDelete: SetNull)
   investmentImplementation InvestmentImplementation?
 
   @@map("portfolio_companies")
 }
 
 model Fund {
-  id                String   @id @default(cuid())
-  name              String
-  description       String   @db.Text
-  totalAmount       Decimal  @db.Decimal(15, 2)
-  remainingAmount   Decimal  @db.Decimal(15, 2)
-  minInvestment     Decimal  @db.Decimal(15, 2)
-  maxInvestment     Decimal  @db.Decimal(15, 2)
-  focusIndustries   Json     // Array of industry strings
-  applicationStart  DateTime
-  applicationEnd    DateTime
-  status            String   @default("OPEN") // OPEN, CLOSED, COMING_SOON
-  createdById       String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
+  id               String   @id @default(cuid())
+  name             String
+  description      String   @db.Text
+  totalAmount      Decimal  @db.Decimal(15, 2)
+  remainingAmount  Decimal  @db.Decimal(15, 2)
+  minInvestment    Decimal  @db.Decimal(15, 2)
+  maxInvestment    Decimal  @db.Decimal(15, 2)
+  focusIndustries  Json // Array of industry strings
+  applicationStart DateTime
+  applicationEnd   DateTime
+  status           String   @default("OPEN") // OPEN, CLOSED, COMING_SOON
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
   // Relations
-  createdBy         User     @relation(fields: [createdById], references: [id])
-  applications      Application[]
-  fundManagers      FundManager[]
-  portfolioCompanies PortfolioCompany[]
-  fundDisbursements FundDisbursement[]
+  createdBy                 User                       @relation(fields: [createdById], references: [id])
+  applications              Application[]
+  fundManagers              FundManager[]
+  portfolioCompanies        PortfolioCompany[]
+  fundDisbursements         FundDisbursement[]
   investmentImplementations InvestmentImplementation[]
-  investmentCommitments InvestmentCommitment[]
+  investmentCommitments     InvestmentCommitment[]
 
   @@map("funds")
 }
 
 model Client {
-  id                String   @id @default(cuid())
-  investorId        String   @unique // External investor ID (e.g., "inv_001")
-  type              String   // "individual" or "institutional"
-  legalName         String
-  email             String   @unique
-  country           String
-  phone             String?
-  address           String?
-  taxId             String?
-  status            String   @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
+  id         String   @id @default(cuid())
+  investorId String   @unique // External investor ID (e.g., "inv_001")
+  type       String // "individual" or "institutional"
+  legalName  String
+  email      String   @unique
+  country    String
+  phone      String?
+  address    String?
+  taxId      String?
+  status     String   @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
   // Relations
   investmentCommitments InvestmentCommitment[]
 
@@ -647,21 +666,21 @@ model Client {
 }
 
 model InvestmentCommitment {
-  id                String   @id @default(cuid())
-  clientId          String
-  fundId            String
-  amount            Decimal  @db.Decimal(15, 2)
-  currency          String   @default("USD")
-  effectiveDate     DateTime
-  status            String   @default("PENDING") // PENDING, ACTIVE, COMPLETED, CANCELLED
-  eSign             Json?    // Electronic signature data
-  notes             String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
+  id            String   @id @default(cuid())
+  clientId      String
+  fundId        String
+  amount        Decimal  @db.Decimal(15, 2)
+  currency      String   @default("USD")
+  effectiveDate DateTime
+  status        String   @default("PENDING") // PENDING, ACTIVE, COMPLETED, CANCELLED
+  eSign         Json? // Electronic signature data
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   // Relations
-  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  fund              Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund   Fund   @relation(fields: [fundId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, fundId]) // Prevent duplicate commitments
   @@map("investment_commitments")
@@ -675,389 +694,385 @@ model FundManager {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   // Relations
-  fund      Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reviews   Review[]
-  stages    ApplicationStage[]
+  fund    Fund               @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews Review[]
+  stages  ApplicationStage[]
 
   @@unique([fundId, userId])
-
   @@map("fund_managers")
 }
 
 model Application {
-  id                    String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Applicant Information (no user account initially)
-  applicantName         String
-  applicantEmail        String
-  applicantPhone        String
-  applicantAddress      String
-  
+  applicantName    String
+  applicantEmail   String
+  applicantPhone   String
+  applicantAddress String
+
   // Business Information
-  businessName          String
-  businessDescription   String   @db.Text
-  industry              String
-  businessStage         String   // IDEA, STARTUP, OPERATIONAL
-  foundingDate          DateTime?
-  
+  businessName        String
+  businessDescription String    @db.Text
+  industry            String
+  businessStage       String // IDEA, STARTUP, OPERATIONAL
+  foundingDate        DateTime?
+
   // Investment Details
-  requestedAmount       Decimal  @db.Decimal(15, 2)
-  fundId                String?  // Optional - can be assigned later
-  
+  requestedAmount Decimal @db.Decimal(15, 2)
+  fundId          String? // Optional - can be assigned later
+
   // Application Workflow
-  currentStage          String   @default("SHORTLISTED") // SHORTLISTED, UNDER_DUE_DILIGENCE, DUE_DILIGENCE_COMPLETED, etc.
-  submittedAt           DateTime?
-  updatedAt             DateTime  @updatedAt
-  
+  currentStage String    @default("SHORTLISTED") // SHORTLISTED, UNDER_DUE_DILIGENCE, DUE_DILIGENCE_COMPLETED, etc.
+  submittedAt  DateTime?
+  updatedAt    DateTime  @updatedAt
+
   // Screening & Evaluation
   initialScreeningScore Decimal? @db.Decimal(5, 2) // 0-100%
-  screeningOutcome      String?  // PASSED, FAILED, CONDITIONAL
+  screeningOutcome      String? // PASSED, FAILED, CONDITIONAL
   dueDiligenceScore     Decimal? @db.Decimal(5, 2)
-  boardDecision         String?  // APPROVED, REJECTED, CONDITIONAL_APPROVAL
-  
+  boardDecision         String? // APPROVED, REJECTED, CONDITIONAL_APPROVAL
+
   // Relations
-  fund                  Fund?    @relation(fields: [fundId], references: [id])
-  documents             ApplicationDocument[]
-  notifications         ApplicationNotification[]
-  dueDiligenceReview    DueDiligenceReview?
-  boardReview           BoardReview?
-  termSheet             TermSheet?
+  fund                     Fund?                     @relation(fields: [fundId], references: [id])
+  documents                ApplicationDocument[]
+  notifications            ApplicationNotification[]
+  dueDiligenceReview       DueDiligenceReview?
+  boardReview              BoardReview?
+  termSheet                TermSheet?
   investmentImplementation InvestmentImplementation?
-  
-  createdAt             DateTime @default(now())
+
+  createdAt DateTime @default(now())
 
   @@map("applications")
 }
 
 model ApplicationDocument {
-  id              String   @id @default(cuid())
-  applicationId   String
-  documentType    String   // BUSINESS_PLAN, PROOF_OF_CONCEPT, MARKET_RESEARCH, PROJECTED_CASH_FLOWS, HISTORICAL_FINANCIALS
-  fileName        String
-  fileUrl         String   // URL to the document (Google Drive, Dropbox, etc.)
-  fileSize        Int
-  uploadedAt      DateTime @default(now())
-  isRequired      Boolean  @default(false)
-  isSubmitted     Boolean  @default(false)
-  
-  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  
-  createdAt       DateTime @default(now())
+  id            String   @id @default(cuid())
+  applicationId String
+  documentType  String // BUSINESS_PLAN, PROOF_OF_CONCEPT, MARKET_RESEARCH, PROJECTED_CASH_FLOWS, HISTORICAL_FINANCIALS
+  fileName      String
+  fileUrl       String // URL to the document (Google Drive, Dropbox, etc.)
+  fileSize      Int
+  uploadedAt    DateTime @default(now())
+  isRequired    Boolean  @default(false)
+  isSubmitted   Boolean  @default(false)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
 
   @@map("application_documents")
 }
 
 model ApplicationNotification {
-  id                    String   @id @default(cuid())
-  applicationId         String
-  recipientEmail        String
-  recipientPhone        String?
-  
-  notificationType      String   // APPLICATION_SUBMITTED, SCREENING_RESULT, etc.
-  title                 String
-  message               String   @db.Text
-  isSent                Boolean  @default(false)
-  sentAt                DateTime?
-  
-  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  
-  createdAt             DateTime @default(now())
+  id             String  @id @default(cuid())
+  applicationId  String
+  recipientEmail String
+  recipientPhone String?
+
+  notificationType String // APPLICATION_SUBMITTED, SCREENING_RESULT, etc.
+  title            String
+  message          String    @db.Text
+  isSent           Boolean   @default(false)
+  sentAt           DateTime?
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
 
   @@map("application_notifications")
 }
 
 model DueDiligenceReview {
-  id                    String   @id @default(cuid())
-  applicationId         String
-  reviewerId            String
-  
+  id            String @id @default(cuid())
+  applicationId String
+  reviewerId    String
+
   // Assessment Areas (Yes/No with comments)
-  marketResearchViable  Boolean  @default(false)
+  marketResearchViable   Boolean @default(false)
   marketResearchComments String? @db.Text
-  
-  financialViable       Boolean  @default(false)
-  financialComments     String? @db.Text
-  
+
+  financialViable   Boolean @default(false)
+  financialComments String? @db.Text
+
   competitiveOpportunities Boolean @default(false)
-  competitiveComments   String? @db.Text
-  
+  competitiveComments      String? @db.Text
+
   managementTeamQualified Boolean @default(false)
-  managementComments    String? @db.Text
-  
-  legalCompliant        Boolean  @default(false)
-  legalComments         String? @db.Text
-  
-  riskTolerable         Boolean  @default(false)
-  riskComments          String? @db.Text
-  
+  managementComments      String? @db.Text
+
+  legalCompliant Boolean @default(false)
+  legalComments  String? @db.Text
+
+  riskTolerable Boolean @default(false)
+  riskComments  String? @db.Text
+
   // Overall assessment
-  overallScore          Decimal? @db.Decimal(5, 2) // 0-100%
-  recommendation        String?  // APPROVE, REJECT, CONDITIONAL
-  finalComments         String?  @db.Text
-  
+  overallScore   Decimal? @db.Decimal(5, 2) // 0-100%
+  recommendation String? // APPROVE, REJECT, CONDITIONAL
+  finalComments  String?  @db.Text
+
   // Status
-  status                String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
-  
+  status String @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
+
   // Timestamps
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  completedAt           DateTime?
-  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
   // Relations
-  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  reviewer              User @relation(fields: [reviewerId], references: [id])
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer    User        @relation(fields: [reviewerId], references: [id])
 
   @@unique([applicationId])
-  
   @@map("due_diligence_reviews")
 }
 
 model BoardReview {
-  id                    String   @id @default(cuid())
-  applicationId         String
-  reviewerId            String
-  
+  id            String @id @default(cuid())
+  applicationId String
+  reviewerId    String
+
   // Investment Decision Options (as per requirements) - Only one should be true
-  investmentApproved    Boolean  @default(false)
-  investmentRejected    Boolean  @default(false)
-  conditionalApproval   Boolean  @default(false)
-  
+  investmentApproved  Boolean @default(false)
+  investmentRejected  Boolean @default(false)
+  conditionalApproval Boolean @default(false)
+
   // Recommendation Report
-  recommendationReport  String?  @db.Text
-  additionalInformation String?  @db.Text
-  
+  recommendationReport  String? @db.Text
+  additionalInformation String? @db.Text
+
   // Board Decision Details
-  decisionReason        String?  @db.Text
-  conditions            String?  @db.Text  // For conditional approval
-  nextSteps             String?  @db.Text
-  
+  decisionReason String? @db.Text
+  conditions     String? @db.Text // For conditional approval
+  nextSteps      String? @db.Text
+
   // Overall assessment
-  overallScore          Decimal? @db.Decimal(5, 2) // 0-100%
-  finalComments         String?  @db.Text
-  
+  overallScore  Decimal? @db.Decimal(5, 2) // 0-100%
+  finalComments String?  @db.Text
+
   // Status
-  status                String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
-  
+  status String @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
+
   // Timestamps
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  completedAt           DateTime?
-  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
   // Relations
-  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  reviewer              User @relation(fields: [reviewerId], references: [id])
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer    User        @relation(fields: [reviewerId], references: [id])
 
   @@unique([applicationId])
-  
   @@map("board_reviews")
 }
 
 model TermSheet {
-  id                    String   @id @default(cuid())
-  applicationId         String
-  createdById           String
-  
+  id            String @id @default(cuid())
+  applicationId String
+  createdById   String
+
   // Term Sheet Details
-  title                 String
-  version               String   @default("1.0")
-  status                String   @default("DRAFT") // DRAFT, FINAL, SIGNED
-  
+  title   String
+  version String @default("1.0")
+  status  String @default("DRAFT") // DRAFT, FINAL, SIGNED
+
   // Investment Terms
-  investmentAmount      Decimal  @db.Decimal(15, 2)
-  equityPercentage      Decimal? @db.Decimal(5, 2)
-  valuation             Decimal? @db.Decimal(15, 2)
-  
+  investmentAmount Decimal  @db.Decimal(15, 2)
+  equityPercentage Decimal? @db.Decimal(5, 2)
+  valuation        Decimal? @db.Decimal(15, 2)
+
   // Key Terms
-  keyTerms              String?  @db.Text
-  conditions            String?  @db.Text
-  timeline              String?  @db.Text
-  
+  keyTerms   String? @db.Text
+  conditions String? @db.Text
+  timeline   String? @db.Text
+
   // Document
-  documentUrl           String?  // URL to the term sheet document
-  documentFileName      String?
-  documentSize          Int?
-  
+  documentUrl      String? // URL to the term sheet document
+  documentFileName String?
+  documentSize     Int?
+
   // Status tracking
-  isDraft               Boolean  @default(true)
-  isFinal               Boolean  @default(false)
-  isSigned              Boolean  @default(false)
-  signedAt              DateTime?
-  
+  isDraft  Boolean   @default(true)
+  isFinal  Boolean   @default(false)
+  isSigned Boolean   @default(false)
+  signedAt DateTime?
+
   // Timestamps
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  createdBy             User @relation(fields: [createdById], references: [id])
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  createdBy   User        @relation(fields: [createdById], references: [id])
 
   @@unique([applicationId])
-  
   @@map("term_sheets")
 }
 
 model ApplicationStage {
-  id                  String   @id @default(cuid())
-  applicationId       String
-  stageName           String
-  status              String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, REJECTED
-  startDate           DateTime?
-  endDate             DateTime?
-  notes               String?  @db.Text
-  assignedToId        String?
-  requiredDocuments   Json     // Array of required document types
-  submittedDocuments  Json     // Array of submitted document IDs
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  
+  id                 String    @id @default(cuid())
+  applicationId      String
+  stageName          String
+  status             String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, REJECTED
+  startDate          DateTime?
+  endDate            DateTime?
+  notes              String?   @db.Text
+  assignedToId       String?
+  requiredDocuments  Json // Array of required document types
+  submittedDocuments Json // Array of submitted document IDs
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
   // Relations
-  assignedTo          FundManager?   @relation(fields: [assignedToId], references: [id])
-  documents           Document[]
+  assignedTo FundManager? @relation(fields: [assignedToId], references: [id])
+  documents  Document[]
 
   @@map("application_stages")
 }
 
 model Review {
-  id            String   @id @default(cuid())
-  applicationId String
-  reviewerId    String
-  score         Int      // 1-10 scale
-  strengths     String?  @db.Text
-  weaknesses    String?  @db.Text
-  recommendation String  @default("MAYBE") // APPROVE, REJECT, MAYBE
-  notes         String?  @db.Text
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
+  id             String   @id @default(cuid())
+  applicationId  String
+  reviewerId     String
+  score          Int // 1-10 scale
+  strengths      String?  @db.Text
+  weaknesses     String?  @db.Text
+  recommendation String   @default("MAYBE") // APPROVE, REJECT, MAYBE
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
   // Relations
-  reviewer      FundManager @relation(fields: [reviewerId], references: [id])
+  reviewer FundManager @relation(fields: [reviewerId], references: [id])
 
   @@map("reviews")
 }
 
 model Document {
-  id              String   @id @default(cuid())
-  applicationId   String
-  stageId         String?
-  uploadedById    String
-  name            String
-  type            String
-  url             String
-  size            Int
-  mimeType        String?
-  isPublic        Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  
+  id            String   @id @default(cuid())
+  applicationId String
+  stageId       String?
+  uploadedById  String
+  name          String
+  type          String
+  url           String
+  size          Int
+  mimeType      String?
+  isPublic      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
   // Relations
-  stage           ApplicationStage? @relation(fields: [stageId], references: [id])
-  uploadedBy      User             @relation(fields: [uploadedById], references: [id])
+  stage      ApplicationStage? @relation(fields: [stageId], references: [id])
+  uploadedBy User              @relation(fields: [uploadedById], references: [id])
 
   @@map("documents")
 }
 
 model AuditLog {
-  id          String   @id @default(cuid())
-  userId      String?
-  action      String
-  entityType  String
-  entityId    String
-  oldValues   Json?
-  newValues   Json?
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime @default(now())
-  
-  // Relations
-  user        User?    @relation(fields: [userId], references: [id])
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
 
-  @@map("audit_logs")
+  // Relations
+  user User? @relation(fields: [userId], references: [id])
+
   @@index([entityType, entityId])
   @@index([userId, createdAt])
   @@index([createdAt])
+  @@map("audit_logs")
 }
 
 model Target {
-  id        String   @id @default(cuid())
-  type      String   // Sales, Revenue, Expenses, Profit
-  value     Decimal  @db.Decimal(15, 2)
-  deadline  DateTime
-  isActive  Boolean  @default(true)
+  id          String   @id @default(cuid())
+  type        String // Sales, Revenue, Expenses, Profit
+  value       Decimal  @db.Decimal(15, 2)
+  deadline    DateTime
+  isActive    Boolean  @default(true)
   createdById String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  createdBy User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User     @relation(fields: [createdById], references: [id])
 
   @@map("targets")
 }
 
 model Task {
-  id                    String   @id @default(cuid())
-  title                 String
-  description           String?  @db.Text
-  team                  Json?    // Array of user IDs stored as JSON
-  stage                 String   @default("todo") // todo, in_progress, completed, overdue
-  date                  DateTime
-  priority              String   @default("medium") // low, medium, high, critical
-  assets                String?
-  branch                String?
-  department            String?
-  ruleset               String?
-  
+  id          String   @id @default(cuid())
+  title       String
+  description String?  @db.Text
+  team        Json? // Array of user IDs stored as JSON
+  stage       String   @default("todo") // todo, in_progress, completed, overdue
+  date        DateTime
+  priority    String   @default("medium") // low, medium, high, critical
+  assets      String?
+  branch      String?
+  department  String?
+  ruleset     String?
+
   // Performance-related fields
-  goalId                String?
-  goal                  PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  performanceCategory   String? // "business", "performance", "operational"
-  isPerformanceTask     Boolean @default(false)
-  
+  goalId              String?
+  goal                PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  performanceCategory String? // "business", "performance", "operational"
+  isPerformanceTask   Boolean          @default(false)
+
   // Enhanced overdue logic
-  isOverdue             Boolean @default(false)
-  overdueStatus         String? // "overdue_todo", "overdue_in_progress", "overdue_completed"
-  originalStage         String? // Store original stage before overdue
-  
+  isOverdue     Boolean @default(false)
+  overdueStatus String? // "overdue_todo", "overdue_in_progress", "overdue_completed"
+  originalStage String? // Store original stage before overdue
+
   // Target Values (following your existing pattern)
   monetaryValue         Decimal? @db.Decimal(15, 2)
   percentValue          Decimal? @db.Decimal(5, 2)
   monetaryValueAchieved Decimal? @default(0.00) @db.Decimal(15, 2)
   percentValueAchieved  Decimal? @default(0.00) @db.Decimal(5, 2)
-  
+
   // KPI Integration
-  kpi                   Json?    // KPI object with id, name, type, etc.
-  
+  kpi Json? // KPI object with id, name, type, etc.
+
   // Activities
-  activities            Json?    // Array of activity objects
-  
+  activities Json? // Array of activity objects
+
   // Status
-  status                String?  // Additional status field
-  isTrashed             Boolean  @default(false)
-  
+  status    String? // Additional status field
+  isTrashed Boolean @default(false)
+
   // Metadata
-  createdBy             String
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  creator               User     @relation("TaskCreator", fields: [createdBy], references: [id])
-  activityLogs          ActivityLog[]
-  
+  creator      User          @relation("TaskCreator", fields: [createdBy], references: [id])
+  activityLogs ActivityLog[]
+
   @@map("tasks")
 }
 
 model NewsletterSubscription {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  firstName     String?
-  lastName      String?
-  topics        Json     // Array of topic strings stored as JSON
-  isConfirmed   Boolean  @default(false)
-  confirmationToken String? @unique
-  confirmedAt   DateTime?
-  unsubscribedAt DateTime?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                String    @id @default(cuid())
+  email             String    @unique
+  firstName         String?
+  lastName          String?
+  topics            Json // Array of topic strings stored as JSON
+  isConfirmed       Boolean   @default(false)
+  confirmationToken String?   @unique
+  confirmedAt       DateTime?
+  unsubscribedAt    DateTime?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@map("newsletter_subscriptions")
 }
@@ -1073,40 +1088,38 @@ model NewsletterTopic {
   @@map("newsletter_topics")
 }
 
-
-
 model InvestmentImplementation {
-  id                    String   @id @default(cuid())
-  portfolioCompanyId    String
-  applicationId         String
-  fundId                String?
-  initiatedById         String
-  
+  id                 String  @id @default(cuid())
+  portfolioCompanyId String
+  applicationId      String
+  fundId             String?
+  initiatedById      String
+
   // Implementation Checklist
-  finalDueDiligence     Boolean  @default(false)
-  contractsSigned       Boolean  @default(false)
-  fundsDisbursed        Boolean  @default(false)
-  
+  finalDueDiligence Boolean @default(false)
+  contractsSigned   Boolean @default(false)
+  fundsDisbursed    Boolean @default(false)
+
   // Implementation Details
-  implementationPlan    String?  @db.Text
-  assignedTeam          String?  // Comma-separated user IDs
-  notes                 String?  @db.Text
-  
+  implementationPlan String? @db.Text
+  assignedTeam       String? // Comma-separated user IDs
+  notes              String? @db.Text
+
   // Status
-  status                String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, ON_HOLD
-  
+  status String @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, ON_HOLD
+
   // Timestamps
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  completedAt           DateTime?
-  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
   // Relations
-  portfolioCompany      PortfolioCompany @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
-  application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  fund                  Fund? @relation(fields: [fundId], references: [id])
-  initiatedBy           User @relation(fields: [initiatedById], references: [id])
-  milestones            InvestmentMilestone[]
-  fundDisbursements     FundDisbursement[]
+  portfolioCompany  PortfolioCompany      @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
+  application       Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fund              Fund?                 @relation(fields: [fundId], references: [id])
+  initiatedBy       User                  @relation(fields: [initiatedById], references: [id])
+  milestones        InvestmentMilestone[]
+  fundDisbursements FundDisbursement[]
 
   @@unique([portfolioCompanyId])
   @@unique([applicationId])
@@ -1114,54 +1127,54 @@ model InvestmentImplementation {
 }
 
 model InvestmentMilestone {
-  id                        String   @id @default(cuid())
+  id                         String    @id @default(cuid())
   investmentImplementationId String
-  title                     String
-  description               String   @db.Text
-  amount                    Decimal  @db.Decimal(15, 2)
-  dueDate                   DateTime
-  isCompleted               Boolean  @default(false)
-  completedAt               DateTime?
-  notes                     String?  @db.Text
-  deliverables              String?  @db.Text
-  
+  title                      String
+  description                String    @db.Text
+  amount                     Decimal   @db.Decimal(15, 2)
+  dueDate                    DateTime
+  isCompleted                Boolean   @default(false)
+  completedAt                DateTime?
+  notes                      String?   @db.Text
+  deliverables               String?   @db.Text
+
   // Timestamps
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  investmentImplementation   InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
-  fundDisbursements         FundDisbursement[]
+  investmentImplementation InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
+  fundDisbursements        FundDisbursement[]
 
   @@map("investment_milestones")
 }
 
 model FundDisbursement {
-  id                        String   @id @default(cuid())
-  fundId                    String
+  id                         String   @id @default(cuid())
+  fundId                     String
   investmentImplementationId String
-  milestoneId               String?
-  amount                    Decimal  @db.Decimal(15, 2)
-  disbursementDate          DateTime
-  disbursementType          String   // INITIAL, MILESTONE, FINAL
-  status                    String   @default("PENDING") // PENDING, APPROVED, DISBURSED, REJECTED
-  approvedById              String?
-  disbursedById             String?
-  notes                     String?  @db.Text
-  transactionReference      String?
-  
+  milestoneId                String?
+  amount                     Decimal  @db.Decimal(15, 2)
+  disbursementDate           DateTime
+  disbursementType           String // INITIAL, MILESTONE, FINAL
+  status                     String   @default("PENDING") // PENDING, APPROVED, DISBURSED, REJECTED
+  approvedById               String?
+  disbursedById              String?
+  notes                      String?  @db.Text
+  transactionReference       String?
+
   // Timestamps
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
-  approvedAt                DateTime?
-  disbursedAt               DateTime?
-  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  approvedAt  DateTime?
+  disbursedAt DateTime?
+
   // Relations
-  fund                      Fund @relation(fields: [fundId], references: [id])
-  investmentImplementation   InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
-  milestone                 InvestmentMilestone? @relation(fields: [milestoneId], references: [id])
-  approvedBy                User? @relation("FundDisbursementApprovedBy", fields: [approvedById], references: [id])
-  disbursedBy               User? @relation("FundDisbursementDisbursedBy", fields: [disbursedById], references: [id])
+  fund                     Fund                     @relation(fields: [fundId], references: [id])
+  investmentImplementation InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
+  milestone                InvestmentMilestone?     @relation(fields: [milestoneId], references: [id])
+  approvedBy               User?                    @relation("FundDisbursementApprovedBy", fields: [approvedById], references: [id])
+  disbursedBy              User?                    @relation("FundDisbursementDisbursedBy", fields: [disbursedById], references: [id])
 
   @@map("fund_disbursements")
 }
@@ -1172,1091 +1185,1383 @@ model Department {
   id          String   @id @default(cuid())
   name        String   @unique
   description String?  @db.Text
-  branch      String?  // Link to existing branch system
+  branch      String? // Link to existing branch system
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
+
   // Relations
-  users       User[]   @relation("UserDepartment")
-  goals       PerformanceGoal[]
-  dealSourcingGoals DealSourcingGoal[]
-  
+  users                User[]                @relation("UserDepartment")
+  goals                PerformanceGoal[]
+  dealSourcingGoals    DealSourcingGoal[]
+  purchaseRequisitions PurchaseRequisition[] @relation("RequisitionDepartment")
+
   @@map("departments")
 }
 
 model PerformanceGoal {
-  id                    String   @id @default(cuid())
-  title                 String
-  description           String?  @db.Text
-  type                  String   // "company", "department", "individual"
-  category              String   // "financial", "operational", "strategic"
-  
+  id          String  @id @default(cuid())
+  title       String
+  description String? @db.Text
+  type        String // "company", "department", "individual"
+  category    String // "financial", "operational", "strategic"
+
   // Hierarchy
-  parentGoalId          String?
-  departmentId          String?
-  department            Department? @relation(fields: [departmentId], references: [id])
-  
+  parentGoalId String?
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
   // Target Values
   monetaryValue         Decimal? @db.Decimal(15, 2)
   percentValue          Decimal? @db.Decimal(5, 2)
   monetaryValueAchieved Decimal? @default(0.00) @db.Decimal(15, 2)
   percentValueAchieved  Decimal? @default(0.00) @db.Decimal(5, 2)
-  
+
   // KPI Integration (using existing KPI model)
-  kpiId                 String?
-  kpi                   KPI?     @relation(fields: [kpiId], references: [id])
-  
+  kpiId String?
+  kpi   KPI?    @relation(fields: [kpiId], references: [id])
+
   // Status & Progress
-  status                String   @default("active") // active, completed, paused, cancelled
-  priority              String   @default("medium") // low, medium, high, critical
-  stage                 String   @default("planning") // planning, in_progress, review, completed
-  
+  status   String @default("active") // active, completed, paused, cancelled
+  priority String @default("medium") // low, medium, high, critical
+  stage    String @default("planning") // planning, in_progress, review, completed
+
   // Timeline
-  startDate             DateTime
-  endDate               DateTime
-  completedAt           DateTime?
-  
+  startDate   DateTime
+  endDate     DateTime
+  completedAt DateTime?
+
   // Assignment
-  assignedToId          String?
-  assignedTo            User?    @relation("GoalAssignee", fields: [assignedToId], references: [id])
-  createdById           String
-  createdBy             User     @relation("GoalCreator", fields: [createdById], references: [id])
-  
+  assignedToId String?
+  assignedTo   User?   @relation("GoalAssignee", fields: [assignedToId], references: [id])
+  createdById  String
+  createdBy    User    @relation("GoalCreator", fields: [createdById], references: [id])
+
   // Activities
-  activities            Json?    // Array of activity objects
-  
+  activities Json? // Array of activity objects
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  parentGoal            PerformanceGoal? @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  subGoals              PerformanceGoal[] @relation("GoalHierarchy")
-  tasks                 Task[]
-  activityLogs          ActivityLog[]
-  
+  parentGoal   PerformanceGoal?  @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subGoals     PerformanceGoal[] @relation("GoalHierarchy")
+  tasks        Task[]
+  activityLogs ActivityLog[]
+
   @@map("performance_goals")
 }
 
 model ActivityLog {
-  id                    String   @id @default(cuid())
-  userId                String
-  user                  User     @relation(fields: [userId], references: [id])
-  
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
   // Activity Details
-  activityType          String   // "goal_update", "task_completion", "kpi_update", "general"
-  title                 String
-  description           String?  @db.Text
-  
+  activityType String // "goal_update", "task_completion", "kpi_update", "general"
+  title        String
+  description  String? @db.Text
+
   // Associated Entities
-  goalId                String?
-  goal                  PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  taskId                String?
-  task                  Task? @relation(fields: [taskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  kpiId                 String?
-  kpi                   KPI? @relation(fields: [kpiId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  
+  goalId String?
+  goal   PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  taskId String?
+  task   Task?            @relation(fields: [taskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kpiId  String?
+  kpi    KPI?             @relation(fields: [kpiId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
   // Progress Updates
   monetaryValueAchieved Decimal? @db.Decimal(15, 2)
   percentValueAchieved  Decimal? @db.Decimal(5, 2)
-  
+
   // Metadata
-  createdAt             DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+
   @@map("activity_logs")
 }
 
 model KPI {
-  id                    String   @id @default(cuid())
-  name                  String
-  type                  String   // "Metric", "Percentage"
-  departmentId          String?
-  weightValue           Decimal? @db.Decimal(5, 2)
-  
+  id           String   @id @default(cuid())
+  name         String
+  type         String // "Metric", "Percentage"
+  departmentId String?
+  weightValue  Decimal? @db.Decimal(5, 2)
+
   // Unit Information
-  hasUnit               Boolean  @default(false)
-  unitCategory          String?
-  unit                  String?
-  unitSymbol            String?
-  unitPosition          String?  @default("suffix") // prefix, suffix
-  
+  hasUnit      Boolean @default(false)
+  unitCategory String?
+  unit         String?
+  unitSymbol   String?
+  unitPosition String? @default("suffix") // prefix, suffix
+
   // Status
-  isActive              Boolean  @default(true)
-  
+  isActive Boolean @default(true)
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  performanceGoals      PerformanceGoal[]
-  activityLogs          ActivityLog[]
-  
+  performanceGoals PerformanceGoal[]
+  activityLogs     ActivityLog[]
+
   @@map("kpis")
+}
+
+// ===== PROCUREMENT MODULE =====
+
+model PurchaseRequisition {
+  id                String      @id @default(cuid())
+  requisitionNumber String      @unique
+  title             String
+  description       String?     @db.Text
+  departmentId      String?
+  requestedById     String
+  requestedBy       User        @relation("RequisitionRequestedBy", fields: [requestedById], references: [id])
+  department        Department? @relation("RequisitionDepartment", fields: [departmentId], references: [id])
+
+  // Status and workflow
+  status        String  @default("DRAFT") // DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO
+  priority      String  @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  justification String? @db.Text
+
+  // Approval workflow
+  approvedById    String?
+  approvedBy      User?     @relation("RequisitionApprovedBy", fields: [approvedById], references: [id])
+  approvedAt      DateTime?
+  rejectionReason String?   @db.Text
+
+  // Financial
+  totalAmount Decimal   @default(0.00) @db.Decimal(15, 2)
+  currencyId  String?
+  currency    Currency? @relation("RequisitionCurrency", fields: [currencyId], references: [id])
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  items          PurchaseRequisitionItem[]
+  purchaseOrders PurchaseOrder[]
+
+  @@map("purchase_requisitions")
+}
+
+model PurchaseRequisitionItem {
+  id            String              @id @default(cuid())
+  requisitionId String
+  requisition   PurchaseRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+
+  // Item details
+  itemName    String
+  description String? @db.Text
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(15, 2)
+  totalPrice  Decimal @db.Decimal(15, 2)
+  unit        String? // e.g., "pieces", "kg", "liters"
+
+  // Vendor preference
+  preferredVendorId String?
+  preferredVendor   Vendor? @relation("PreferredVendorRequisition", fields: [preferredVendorId], references: [id])
+
+  // Specifications
+  specifications Json? // Technical specifications as JSON
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("purchase_requisition_items")
+}
+
+model PurchaseOrder {
+  id            String               @id @default(cuid())
+  poNumber      String               @unique
+  requisitionId String?
+  requisition   PurchaseRequisition? @relation(fields: [requisitionId], references: [id])
+
+  // Vendor information
+  vendorId String
+  vendor   Vendor @relation("POVendor", fields: [vendorId], references: [id])
+
+  // Status and workflow
+  status   String @default("DRAFT") // DRAFT, SENT, ACKNOWLEDGED, PARTIALLY_RECEIVED, RECEIVED, CANCELLED
+  priority String @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+
+  // Financial
+  subtotal    Decimal   @default(0.00) @db.Decimal(15, 2)
+  taxAmount   Decimal   @default(0.00) @db.Decimal(15, 2)
+  totalAmount Decimal   @default(0.00) @db.Decimal(15, 2)
+  currencyId  String?
+  currency    Currency? @relation("POCurrency", fields: [currencyId], references: [id])
+
+  // Dates
+  orderDate            DateTime  @default(now())
+  expectedDeliveryDate DateTime?
+  actualDeliveryDate   DateTime?
+
+  // Shipping and terms
+  shippingAddress String? @db.Text
+  paymentTerms    String? // e.g., "Net 30", "Net 60"
+  deliveryTerms   String? // e.g., "FOB", "CIF"
+
+  // Approval
+  approvedById String?
+  approvedBy   User?     @relation("POApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  // Metadata
+  createdById String
+  createdBy   User     @relation("POCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  items              PurchaseOrderItem[]
+  invoices           ProcurementInvoice[]
+  goodsReceivedNotes GoodsReceivedNote[]
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  // Item details
+  itemName    String
+  description String? @db.Text
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(15, 2)
+  totalPrice  Decimal @db.Decimal(15, 2)
+  unit        String? // e.g., "pieces", "kg", "liters"
+
+  // Received quantities
+  quantityReceived Decimal @default(0.00) @db.Decimal(10, 2)
+  quantityPending  Decimal @default(0.00) @db.Decimal(10, 2)
+
+  // Specifications
+  specifications Json? // Technical specifications as JSON
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  goodsReceivedNoteItems GoodsReceivedNoteItem[]
+
+  @@map("purchase_order_items")
+}
+
+model ProcurementInvoice {
+  id              String         @id @default(cuid())
+  invoiceNumber   String         @unique
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+
+  // Vendor information
+  vendorId String
+  vendor   Vendor @relation("InvoiceVendor", fields: [vendorId], references: [id])
+
+  // OCR/AI Processing
+  ocrProcessed    Boolean  @default(false)
+  ocrData         Json? // OCR extracted data
+  aiMatched       Boolean  @default(false)
+  aiMatchScore    Decimal? @db.Decimal(5, 2) // 0-100 match score
+  aiDiscrepancies Json? // AI detected discrepancies
+
+  // Status and workflow
+  status         String @default("RECEIVED") // RECEIVED, PROCESSING, MATCHED, DISCREPANCY, APPROVED, PAID, REJECTED
+  matchingStatus String @default("PENDING") // PENDING, MATCHED, DISCREPANCY, MANUAL_REVIEW
+
+  // Financial
+  subtotal    Decimal   @default(0.00) @db.Decimal(15, 2)
+  taxAmount   Decimal   @default(0.00) @db.Decimal(15, 2)
+  totalAmount Decimal   @default(0.00) @db.Decimal(15, 2)
+  currencyId  String?
+  currency    Currency? @relation("InvoiceCurrency", fields: [currencyId], references: [id])
+
+  // Dates
+  invoiceDate   DateTime
+  dueDate       DateTime?
+  receivedDate  DateTime  @default(now())
+  processedDate DateTime?
+
+  // Document management
+  documentPath String? // Path to uploaded invoice document
+  documentType String? // PDF, IMAGE, etc.
+
+  // Approval
+  approvedById String?
+  approvedBy   User?     @relation("InvoiceApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  // Payment
+  paymentStatus    String    @default("PENDING") // PENDING, PROCESSING, PAID, FAILED
+  paymentDate      DateTime?
+  paymentReference String?
+
+  // Journal entry integration
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation("ProcurementInvoiceJournal", fields: [journalEntryId], references: [id])
+
+  // Metadata
+  createdById String
+  createdBy   User     @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  items ProcurementInvoiceItem[]
+
+  @@map("procurement_invoices")
+}
+
+model ProcurementInvoiceItem {
+  id        String             @id @default(cuid())
+  invoiceId String
+  invoice   ProcurementInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  // Item details
+  itemName    String
+  description String? @db.Text
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(15, 2)
+  totalPrice  Decimal @db.Decimal(15, 2)
+  unit        String? // e.g., "pieces", "kg", "liters"
+
+  // Matching with PO
+  matchedPOItemId String? // Reference to PurchaseOrderItem if matched
+  matchStatus     String  @default("PENDING") // PENDING, MATCHED, DISCREPANCY
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("procurement_invoice_items")
+}
+
+model GoodsReceivedNote {
+  id              String        @id @default(cuid())
+  grnNumber       String        @unique
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+
+  // Status
+  status String @default("DRAFT") // DRAFT, RECEIVED, VERIFIED, APPROVED
+
+  // Receipt details
+  receivedDate DateTime @default(now())
+  receivedById String
+  receivedBy   User     @relation("GRNReceivedBy", fields: [receivedById], references: [id])
+
+  // Quality control
+  qualityStatus String  @default("PENDING") // PENDING, PASSED, FAILED, CONDITIONAL
+  qualityNotes  String? @db.Text
+
+  // Approval
+  approvedById String?
+  approvedBy   User?     @relation("GRNApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  items GoodsReceivedNoteItem[]
+
+  @@map("goods_received_notes")
+}
+
+model GoodsReceivedNoteItem {
+  id                  String            @id @default(cuid())
+  grnId               String
+  grn                 GoodsReceivedNote @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+
+  // Received quantities
+  quantityOrdered  Decimal @db.Decimal(10, 2)
+  quantityReceived Decimal @db.Decimal(10, 2)
+  quantityAccepted Decimal @db.Decimal(10, 2)
+  quantityRejected Decimal @default(0.00) @db.Decimal(10, 2)
+
+  // Quality
+  qualityStatus String  @default("PENDING") // PENDING, PASSED, FAILED, CONDITIONAL
+  qualityNotes  String? @db.Text
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("goods_received_note_items")
 }
 
 // ===== STAKEHOLDER MANAGEMENT MODULE =====
 
 model Stakeholder {
-  id                    String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Basic Information
-  stakeholderId         String   @unique // External stakeholder identifier
-  type                  String   // "INVESTOR", "LP", "ADVISOR", "PARTNER", "VENDOR"
-  legalName             String
-  email                 String   @unique
-  phone                 String?
-  address               String?
-  country               String?
-  
+  stakeholderId String  @unique // External stakeholder identifier
+  type          String // "INVESTOR", "LP", "ADVISOR", "PARTNER", "VENDOR"
+  legalName     String
+  email         String  @unique
+  phone         String?
+  address       String?
+  country       String?
+
   // Business Information
-  organizationName      String?
-  industry              String?
-  taxId                 String?
-  registrationNumber    String?
-  
+  organizationName   String?
+  industry           String?
+  taxId              String?
+  registrationNumber String?
+
   // Investment Information (for investors/LPs)
-  totalCommitment       Decimal? @db.Decimal(15, 2)
-  currency              String?  @default("USD")
-  investmentFocus       String?  // "TECHNOLOGY", "HEALTHCARE", "FINANCIAL_SERVICES", etc.
-  riskTolerance         String?  // "LOW", "MEDIUM", "HIGH"
-  
+  totalCommitment Decimal? @db.Decimal(15, 2)
+  currency        String?  @default("USD")
+  investmentFocus String? // "TECHNOLOGY", "HEALTHCARE", "FINANCIAL_SERVICES", etc.
+  riskTolerance   String? // "LOW", "MEDIUM", "HIGH"
+
   // Relationship Information
   relationshipManagerId String?
   relationshipStartDate DateTime?
-  relationshipStatus    String   @default("ACTIVE") // "ACTIVE", "INACTIVE", "SUSPENDED", "TERMINATED"
-  
+  relationshipStatus    String    @default("ACTIVE") // "ACTIVE", "INACTIVE", "SUSPENDED", "TERMINATED"
+
   // Engagement Metrics
-  lastContactDate       DateTime?
-  contactFrequency      String?  @default("MONTHLY") // "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUALLY"
-  preferredContactMethod String? @default("EMAIL") // "EMAIL", "PHONE", "IN_PERSON", "VIDEO"
-  
+  lastContactDate        DateTime?
+  contactFrequency       String?   @default("MONTHLY") // "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUALLY"
+  preferredContactMethod String?   @default("EMAIL") // "EMAIL", "PHONE", "IN_PERSON", "VIDEO"
+
   // Status
-  status                String   @default("ACTIVE") // "ACTIVE", "INACTIVE", "PENDING", "SUSPENDED"
-  isActive              Boolean  @default(true)
-  
+  status   String  @default("ACTIVE") // "ACTIVE", "INACTIVE", "PENDING", "SUSPENDED"
+  isActive Boolean @default(true)
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  relationshipManager   User?    @relation("StakeholderManager", fields: [relationshipManagerId], references: [id])
-  onboardingRecords     StakeholderOnboarding[]
-  engagementLogs        StakeholderEngagement[]
-  performanceReviews    PerformanceReview[]
-  
+  relationshipManager User?                   @relation("StakeholderManager", fields: [relationshipManagerId], references: [id])
+  onboardingRecords   StakeholderOnboarding[]
+  engagementLogs      StakeholderEngagement[]
+  performanceReviews  PerformanceReview[]
+
   @@map("stakeholders")
 }
 
 model StakeholderOnboarding {
-  id                    String   @id @default(cuid())
-  stakeholderId         String
-  
+  id            String @id @default(cuid())
+  stakeholderId String
+
   // Onboarding Process
-  stage                 String   // "INITIAL_CONTACT", "KYC_COMPLETED", "DOCUMENTS_SIGNED", "ONBOARDED", "COMPLETED"
-  status                String   @default("IN_PROGRESS") // "IN_PROGRESS", "COMPLETED", "FAILED", "ON_HOLD"
-  
+  stage  String // "INITIAL_CONTACT", "KYC_COMPLETED", "DOCUMENTS_SIGNED", "ONBOARDED", "COMPLETED"
+  status String @default("IN_PROGRESS") // "IN_PROGRESS", "COMPLETED", "FAILED", "ON_HOLD"
+
   // Process Details
-  initiatedBy           String
-  assignedTo            String?
-  startDate             DateTime?
-  completedDate         DateTime?
+  initiatedBy            String
+  assignedTo             String?
+  startDate              DateTime?
+  completedDate          DateTime?
   expectedCompletionDate DateTime?
-  
+
   // Documents and Requirements
-  requiredDocuments     Json     // Array of required document types
-  submittedDocuments    Json     // Array of submitted document IDs
-  kycStatus             String?  @default("PENDING") // "PENDING", "COMPLETED", "FAILED"
-  complianceStatus      String?  @default("PENDING") // "PENDING", "COMPLETED", "FAILED"
-  
+  requiredDocuments  Json // Array of required document types
+  submittedDocuments Json // Array of submitted document IDs
+  kycStatus          String? @default("PENDING") // "PENDING", "COMPLETED", "FAILED"
+  complianceStatus   String? @default("PENDING") // "PENDING", "COMPLETED", "FAILED"
+
   // Notes and Comments
-  notes                 String?  @db.Text
-  internalNotes         String?  @db.Text
-  
+  notes         String? @db.Text
+  internalNotes String? @db.Text
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  stakeholder           Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
-  initiator             User @relation("OnboardingInitiator", fields: [initiatedBy], references: [id])
-  assignee              User? @relation("OnboardingAssignee", fields: [assignedTo], references: [id])
-  
+  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  initiator   User        @relation("OnboardingInitiator", fields: [initiatedBy], references: [id])
+  assignee    User?       @relation("OnboardingAssignee", fields: [assignedTo], references: [id])
+
   @@map("stakeholder_onboarding")
 }
 
 model StakeholderEngagement {
-  id                    String   @id @default(cuid())
-  stakeholderId         String
-  
+  id            String @id @default(cuid())
+  stakeholderId String
+
   // Engagement Details
-  engagementType        String   // "EMAIL", "PHONE_CALL", "MEETING", "PRESENTATION", "REPORT", "EVENT"
-  subject               String
-  description           String?  @db.Text
-  
+  engagementType String // "EMAIL", "PHONE_CALL", "MEETING", "PRESENTATION", "REPORT", "EVENT"
+  subject        String
+  description    String? @db.Text
+
   // Engagement Metrics
-  duration              Int?     // Duration in minutes
-  satisfaction          Int?     // 1-5 scale
-  followUpRequired      Boolean  @default(false)
-  followUpDate          DateTime?
-  
+  duration         Int? // Duration in minutes
+  satisfaction     Int? // 1-5 scale
+  followUpRequired Boolean   @default(false)
+  followUpDate     DateTime?
+
   // Participants
-  initiatedBy           String
-  participants          Json     // Array of participant user IDs
-  
+  initiatedBy  String
+  participants Json // Array of participant user IDs
+
   // Outcome
-  outcome               String?  // "POSITIVE", "NEUTRAL", "NEGATIVE", "FOLLOW_UP_REQUIRED"
-  nextSteps             String?  @db.Text
-  actionItems           Json     // Array of action items
-  
+  outcome     String? // "POSITIVE", "NEUTRAL", "NEGATIVE", "FOLLOW_UP_REQUIRED"
+  nextSteps   String? @db.Text
+  actionItems Json // Array of action items
+
   // Metadata
-  engagementDate        DateTime @default(now())
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  engagementDate DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
   // Relations
-  stakeholder           Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
-  initiator             User @relation("EngagementInitiator", fields: [initiatedBy], references: [id])
-  
+  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  initiator   User        @relation("EngagementInitiator", fields: [initiatedBy], references: [id])
+
   @@map("stakeholder_engagement")
 }
 
 // ===== PERFORMANCE REVIEW MODULE =====
 
 model PerformanceReview {
-  id                    String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Review Information
-  reviewType            String   // "ANNUAL", "QUARTERLY", "MONTHLY", "PROJECT_BASED", "GOAL_BASED"
-  reviewPeriod          String   // "Q1_2024", "2024", "JAN_2024", etc.
-  title                 String
-  description           String?  @db.Text
-  
+  reviewType   String // "ANNUAL", "QUARTERLY", "MONTHLY", "PROJECT_BASED", "GOAL_BASED"
+  reviewPeriod String // "Q1_2024", "2024", "JAN_2024", etc.
+  title        String
+  description  String? @db.Text
+
   // Participants
-  revieweeId            String   // Person being reviewed
-  reviewerId            String   // Person conducting the review
-  stakeholderId         String?  // If stakeholder is involved in review
-  
+  revieweeId    String // Person being reviewed
+  reviewerId    String // Person conducting the review
+  stakeholderId String? // If stakeholder is involved in review
+
   // Review Status
-  status                String   @default("DRAFT") // "DRAFT", "IN_PROGRESS", "COMPLETED", "APPROVED", "REJECTED"
-  stage                 String   @default("SELF_ASSESSMENT") // "SELF_ASSESSMENT", "MANAGER_REVIEW", "PEER_REVIEW", "FINAL_REVIEW"
-  
+  status String @default("DRAFT") // "DRAFT", "IN_PROGRESS", "COMPLETED", "APPROVED", "REJECTED"
+  stage  String @default("SELF_ASSESSMENT") // "SELF_ASSESSMENT", "MANAGER_REVIEW", "PEER_REVIEW", "FINAL_REVIEW"
+
   // Review Dates
-  reviewStartDate       DateTime?
-  reviewEndDate         DateTime?
-  dueDate               DateTime?
-  completedDate         DateTime?
-  
+  reviewStartDate DateTime?
+  reviewEndDate   DateTime?
+  dueDate         DateTime?
+  completedDate   DateTime?
+
   // Review Criteria and Scores
-  criteria              Json     // Array of review criteria with weights
-  scores                Json     // Array of scores for each criterion
-  overallScore          Decimal? @db.Decimal(5, 2) // 0-100 scale
-  rating                String?  // "EXCEEDS_EXPECTATIONS", "MEETS_EXPECTATIONS", "BELOW_EXPECTATIONS", "NEEDS_IMPROVEMENT"
-  
+  criteria     Json // Array of review criteria with weights
+  scores       Json // Array of scores for each criterion
+  overallScore Decimal? @db.Decimal(5, 2) // 0-100 scale
+  rating       String? // "EXCEEDS_EXPECTATIONS", "MEETS_EXPECTATIONS", "BELOW_EXPECTATIONS", "NEEDS_IMPROVEMENT"
+
   // Review Content
-  strengths             String?  @db.Text
-  areasForImprovement   String?  @db.Text
-  achievements          String?  @db.Text
-  goals                 String?  @db.Text
-  developmentPlan       String?  @db.Text
-  
+  strengths           String? @db.Text
+  areasForImprovement String? @db.Text
+  achievements        String? @db.Text
+  goals               String? @db.Text
+  developmentPlan     String? @db.Text
+
   // Feedback
-  managerFeedback       String?  @db.Text
-  selfFeedback          String?  @db.Text
-  peerFeedback          String?  @db.Text
-  stakeholderFeedback   String?  @db.Text
-  
+  managerFeedback     String? @db.Text
+  selfFeedback        String? @db.Text
+  peerFeedback        String? @db.Text
+  stakeholderFeedback String? @db.Text
+
   // Action Items
-  actionItems           Json     // Array of action items with due dates
-  nextReviewDate        DateTime?
-  
+  actionItems    Json // Array of action items with due dates
+  nextReviewDate DateTime?
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  reviewee              User @relation("PerformanceReviewReviewee", fields: [revieweeId], references: [id])
-  reviewer              User @relation("PerformanceReviewReviewer", fields: [reviewerId], references: [id])
-  stakeholder           Stakeholder? @relation(fields: [stakeholderId], references: [id])
-  reviewFeedback        PerformanceReviewFeedback[]
-  
+  reviewee       User                        @relation("PerformanceReviewReviewee", fields: [revieweeId], references: [id])
+  reviewer       User                        @relation("PerformanceReviewReviewer", fields: [reviewerId], references: [id])
+  stakeholder    Stakeholder?                @relation(fields: [stakeholderId], references: [id])
+  reviewFeedback PerformanceReviewFeedback[]
+
   @@map("performance_reviews")
 }
 
 model PerformanceReviewFeedback {
-  id                    String   @id @default(cuid())
-  reviewId              String
-  
+  id       String @id @default(cuid())
+  reviewId String
+
   // Feedback Provider
-  feedbackProviderId    String
-  feedbackProviderType  String   // "MANAGER", "PEER", "SELF", "STAKEHOLDER", "DIRECT_REPORT"
-  
+  feedbackProviderId   String
+  feedbackProviderType String // "MANAGER", "PEER", "SELF", "STAKEHOLDER", "DIRECT_REPORT"
+
   // Feedback Content
-  feedbackType          String   // "STRENGTHS", "IMPROVEMENT_AREAS", "GOALS", "DEVELOPMENT", "GENERAL"
-  content               String   @db.Text
-  rating                Int?     // 1-5 scale
-  
+  feedbackType String // "STRENGTHS", "IMPROVEMENT_AREAS", "GOALS", "DEVELOPMENT", "GENERAL"
+  content      String @db.Text
+  rating       Int? // 1-5 scale
+
   // Feedback Status
-  isPrivate             Boolean  @default(false) // Private feedback only visible to reviewee and manager
-  isAnonymous           Boolean  @default(false)
-  status                String   @default("SUBMITTED") // "DRAFT", "SUBMITTED", "APPROVED"
-  
+  isPrivate   Boolean @default(false) // Private feedback only visible to reviewee and manager
+  isAnonymous Boolean @default(false)
+  status      String  @default("SUBMITTED") // "DRAFT", "SUBMITTED", "APPROVED"
+
   // Metadata
-  submittedAt           DateTime @default(now())
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  submittedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   // Relations
-  review                PerformanceReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-  feedbackProvider      User @relation("PerformanceReviewFeedbackProvider", fields: [feedbackProviderId], references: [id])
-  
+  review           PerformanceReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  feedbackProvider User              @relation("PerformanceReviewFeedbackProvider", fields: [feedbackProviderId], references: [id])
+
   @@map("performance_review_feedback")
 }
 
 // ===== AUTOMATED REPORTING MODULE =====
 
 model ReportTemplate {
-  id                    String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Template Information
-  name                  String   @unique
-  description           String?  @db.Text
-  reportType            String   // "VARIANCE", "TURNOVER", "RECONCILIATION", "PERFORMANCE", "STAKEHOLDER", "DEAL_METRICS"
-  category              String   // "FINANCIAL", "OPERATIONAL", "PERFORMANCE", "COMPLIANCE"
-  
+  name        String  @unique
+  description String? @db.Text
+  reportType  String // "VARIANCE", "TURNOVER", "RECONCILIATION", "PERFORMANCE", "STAKEHOLDER", "DEAL_METRICS"
+  category    String // "FINANCIAL", "OPERATIONAL", "PERFORMANCE", "COMPLIANCE"
+
   // Report Configuration
-  frequency             String   // "DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUALLY", "ON_DEMAND"
-  schedule              String?  // Cron expression for scheduled reports
-  isActive              Boolean  @default(true)
-  
+  frequency String // "DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUALLY", "ON_DEMAND"
+  schedule  String? // Cron expression for scheduled reports
+  isActive  Boolean @default(true)
+
   // Report Content
-  template              Json     // Report template configuration
-  parameters            Json     // Report parameters and filters
-  recipients            Json     // Array of recipient user IDs
-  
+  template   Json // Report template configuration
+  parameters Json // Report parameters and filters
+  recipients Json // Array of recipient user IDs
+
   // Metadata
-  createdBy             String
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  creator               User @relation("ReportTemplateCreator", fields: [createdBy], references: [id])
-  generatedReports      GeneratedReport[]
-  
+  creator          User              @relation("ReportTemplateCreator", fields: [createdBy], references: [id])
+  generatedReports GeneratedReport[]
+
   @@map("report_templates")
 }
 
 model GeneratedReport {
-  id                    String   @id @default(cuid())
-  templateId            String
-  
+  id         String @id @default(cuid())
+  templateId String
+
   // Report Information
-  reportName            String
-  reportType            String
-  reportPeriod          String   // "Q1_2024", "2024", "JAN_2024", etc.
-  status                String   @default("GENERATING") // "GENERATING", "COMPLETED", "FAILED", "DELIVERED"
-  
+  reportName   String
+  reportType   String
+  reportPeriod String // "Q1_2024", "2024", "JAN_2024", etc.
+  status       String @default("GENERATING") // "GENERATING", "COMPLETED", "FAILED", "DELIVERED"
+
   // Report Data
-  data                  Json     // Report data and results
-  summary               String?  @db.Text
-  insights              Json     // AI-generated insights
-  recommendations       Json     // AI-generated recommendations
-  
+  data            Json // Report data and results
+  summary         String? @db.Text
+  insights        Json // AI-generated insights
+  recommendations Json // AI-generated recommendations
+
   // Delivery Information
-  generatedAt           DateTime @default(now())
-  deliveredAt           DateTime?
-  recipients            Json     // Array of recipient user IDs who received the report
-  
+  generatedAt DateTime  @default(now())
+  deliveredAt DateTime?
+  recipients  Json // Array of recipient user IDs who received the report
+
   // File Information
-  fileUrl               String?
-  fileName              String?
-  fileSize              Int?
-  
+  fileUrl  String?
+  fileName String?
+  fileSize Int?
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  template              ReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  
+  template ReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
   @@map("generated_reports")
 }
 
 model VarianceReport {
-  id                    String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Report Information
-  reportPeriod          String   // "JAN_2024", "Q1_2024", etc.
-  reportType            String   // "MONTHLY", "QUARTERLY", "ANNUAL"
-  status                String   @default("DRAFT") // "DRAFT", "COMPLETED", "APPROVED"
-  
+  reportPeriod String // "JAN_2024", "Q1_2024", etc.
+  reportType   String // "MONTHLY", "QUARTERLY", "ANNUAL"
+  status       String @default("DRAFT") // "DRAFT", "COMPLETED", "APPROVED"
+
   // Financial Data
-  actualExpenses        Decimal  @db.Decimal(15, 2)
-  budgetedExpenses      Decimal  @db.Decimal(15, 2)
-  variance              Decimal  @db.Decimal(15, 2)
-  variancePercentage    Decimal  @db.Decimal(5, 2)
-  
+  actualExpenses     Decimal @db.Decimal(15, 2)
+  budgetedExpenses   Decimal @db.Decimal(15, 2)
+  variance           Decimal @db.Decimal(15, 2)
+  variancePercentage Decimal @db.Decimal(5, 2)
+
   // Variance Analysis
-  significantVariances  Json     // Array of significant variances (>5%)
-  explanations          Json     // Explanations for variances
-  actionItems           Json     // Action items to address variances
-  
+  significantVariances Json // Array of significant variances (>5%)
+  explanations         Json // Explanations for variances
+  actionItems          Json // Action items to address variances
+
   // Approval
-  preparedBy            String
-  approvedBy            String?
-  approvedAt            DateTime?
-  
+  preparedBy String
+  approvedBy String?
+  approvedAt DateTime?
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  preparer              User @relation("VarianceReportPreparer", fields: [preparedBy], references: [id])
-  approver              User? @relation("VarianceReportApprover", fields: [approvedBy], references: [id])
-  budget                Budget? @relation(fields: [budgetId], references: [id])
-  budgetId              String?
-  
+  preparer User    @relation("VarianceReportPreparer", fields: [preparedBy], references: [id])
+  approver User?   @relation("VarianceReportApprover", fields: [approvedBy], references: [id])
+  budget   Budget? @relation(fields: [budgetId], references: [id])
+  budgetId String?
+
   @@map("variance_reports")
 }
 
 model TurnoverAnalysisReport {
-  id                    String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Report Information
-  reportPeriod          String   // "Q1_2024", "2024", etc.
-  reportType            String   // "QUARTERLY", "ANNUAL"
-  status                String   @default("DRAFT") // "DRAFT", "COMPLETED", "APPROVED"
-  
+  reportPeriod String // "Q1_2024", "2024", etc.
+  reportType   String // "QUARTERLY", "ANNUAL"
+  status       String @default("DRAFT") // "DRAFT", "COMPLETED", "APPROVED"
+
   // Turnover Data
-  totalEmployees        Int
-  employeesLeft         Int
-  turnoverRate          Decimal  @db.Decimal(5, 2)
-  voluntaryTurnover     Int
-  involuntaryTurnover   Int
-  
+  totalEmployees      Int
+  employeesLeft       Int
+  turnoverRate        Decimal @db.Decimal(5, 2)
+  voluntaryTurnover   Int
+  involuntaryTurnover Int
+
   // Department Analysis
-  departmentBreakdown   Json     // Turnover by department
-  roleBreakdown         Json     // Turnover by role/position
-  tenureBreakdown       Json     // Turnover by tenure
-  
+  departmentBreakdown Json // Turnover by department
+  roleBreakdown       Json // Turnover by role/position
+  tenureBreakdown     Json // Turnover by tenure
+
   // Exit Interview Analysis
-  exitInterviewData     Json     // Analysis of exit interview responses
-  commonReasons         Json     // Common reasons for leaving
+  exitInterviewData        Json // Analysis of exit interview responses
+  commonReasons            Json // Common reasons for leaving
   retentionRecommendations Json // Recommendations for improving retention
-  
+
   // Approval
-  preparedBy            String
-  approvedBy            String?
-  approvedAt            DateTime?
-  
+  preparedBy String
+  approvedBy String?
+  approvedAt DateTime?
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  preparer              User @relation("TurnoverReportPreparer", fields: [preparedBy], references: [id])
-  approver              User? @relation("TurnoverReportApprover", fields: [approvedBy], references: [id])
-  
+  preparer User  @relation("TurnoverReportPreparer", fields: [preparedBy], references: [id])
+  approver User? @relation("TurnoverReportApprover", fields: [approvedBy], references: [id])
+
   @@map("turnover_analysis_reports")
 }
 
 // Deal Sourcing Goals - CEO to Portfolio Manager to Analysts cascading
 model DealSourcingGoal {
-  id                    String   @id @default(cuid())
-  title                 String
-  description           String?
-  type                  String   // "company", "department", "individual"
-  category              String   // "deal_sourcing", "due_diligence", "closing"
-  parentGoalId          String?
-  departmentId          String?
-  
+  id           String  @id @default(cuid())
+  title        String
+  description  String?
+  type         String // "company", "department", "individual"
+  category     String // "deal_sourcing", "due_diligence", "closing"
+  parentGoalId String?
+  departmentId String?
+
   // Deal-specific fields
-  targetDeals           Int      // Number of deals to source
-  targetValue           Decimal? @db.Decimal(15, 2) // Target deal value
-  targetSectors         Json?    // Target sectors/industries
-  targetStages          Json?    // Target deal stages
-  
+  targetDeals   Int // Number of deals to source
+  targetValue   Decimal? @db.Decimal(15, 2) // Target deal value
+  targetSectors Json? // Target sectors/industries
+  targetStages  Json? // Target deal stages
+
   // Progress tracking
-  dealsSourced          Int      @default(0)
-  dealsInPipeline       Int      @default(0)
-  dealsClosed           Int      @default(0)
-  totalValueSourced     Decimal  @default(0) @db.Decimal(15, 2)
-  
+  dealsSourced      Int     @default(0)
+  dealsInPipeline   Int     @default(0)
+  dealsClosed       Int     @default(0)
+  totalValueSourced Decimal @default(0) @db.Decimal(15, 2)
+
   // Timeline
-  startDate             DateTime
-  endDate               DateTime
-  status                String   @default("active") // "active", "completed", "cancelled"
-  priority              String   @default("medium") // "low", "medium", "high", "critical"
-  
+  startDate DateTime
+  endDate   DateTime
+  status    String   @default("active") // "active", "completed", "cancelled"
+  priority  String   @default("medium") // "low", "medium", "high", "critical"
+
   // Assignment
-  assignedToId          String?
-  createdById           String
-  
+  assignedToId String?
+  createdById  String
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  parentGoal            DealSourcingGoal? @relation("DealSourcingGoalParent", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  subGoals              DealSourcingGoal[] @relation("DealSourcingGoalParent")
-  department            Department? @relation(fields: [departmentId], references: [id])
-  assignedTo            User? @relation("DealSourcingGoalAssignedTo", fields: [assignedToId], references: [id])
-  createdBy             User @relation("DealSourcingGoalCreatedBy", fields: [createdById], references: [id])
-  dealProgress          DealProgress[]
-  
+  parentGoal   DealSourcingGoal?  @relation("DealSourcingGoalParent", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subGoals     DealSourcingGoal[] @relation("DealSourcingGoalParent")
+  department   Department?        @relation(fields: [departmentId], references: [id])
+  assignedTo   User?              @relation("DealSourcingGoalAssignedTo", fields: [assignedToId], references: [id])
+  createdBy    User               @relation("DealSourcingGoalCreatedBy", fields: [createdById], references: [id])
+  dealProgress DealProgress[]
+
   @@map("deal_sourcing_goals")
 }
 
 // Deal Progress Tracking - Progress bars for active deals
 model DealProgress {
-  id                    String   @id @default(cuid())
-  dealSourcingGoalId    String
-  applicationId         String?  // Link to existing application if applicable
-  
+  id                 String  @id @default(cuid())
+  dealSourcingGoalId String
+  applicationId      String? // Link to existing application if applicable
+
   // Deal details
-  dealName              String
-  dealValue             Decimal  @db.Decimal(15, 2)
-  sector                String
-  stage                 String   // "sourcing", "due_diligence", "term_sheet", "closing", "completed"
-  
+  dealName  String
+  dealValue Decimal @db.Decimal(15, 2)
+  sector    String
+  stage     String // "sourcing", "due_diligence", "term_sheet", "closing", "completed"
+
   // Progress tracking
-  progressPercentage    Decimal  @default(0) @db.Decimal(5, 2) // 0-100%
-  currentMilestone      String
-  nextMilestone         String?
-  estimatedCompletion   DateTime?
-  
+  progressPercentage  Decimal   @default(0) @db.Decimal(5, 2) // 0-100%
+  currentMilestone    String
+  nextMilestone       String?
+  estimatedCompletion DateTime?
+
   // Team assignment
-  assignedToId          String
-  managerId             String?
-  
+  assignedToId String
+  managerId    String?
+
   // Status
-  status                String   @default("active") // "active", "on_hold", "completed", "cancelled"
-  isOverdue             Boolean  @default(false)
-  lastUpdated           DateTime @default(now())
-  
+  status      String   @default("active") // "active", "on_hold", "completed", "cancelled"
+  isOverdue   Boolean  @default(false)
+  lastUpdated DateTime @default(now())
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  dealSourcingGoal      DealSourcingGoal @relation(fields: [dealSourcingGoalId], references: [id])
-  assignedTo            User @relation("DealProgressAssignedTo", fields: [assignedToId], references: [id])
-  manager               User? @relation("DealProgressManager", fields: [managerId], references: [id])
-  progressUpdates       DealProgressUpdate[]
-  
+  dealSourcingGoal DealSourcingGoal     @relation(fields: [dealSourcingGoalId], references: [id])
+  assignedTo       User                 @relation("DealProgressAssignedTo", fields: [assignedToId], references: [id])
+  manager          User?                @relation("DealProgressManager", fields: [managerId], references: [id])
+  progressUpdates  DealProgressUpdate[]
+
   @@map("deal_progress")
 }
 
 // Deal Progress Updates - Activity logging for deal progress
 model DealProgressUpdate {
-  id                    String   @id @default(cuid())
-  dealProgressId        String
-  userId                String
-  
+  id             String @id @default(cuid())
+  dealProgressId String
+  userId         String
+
   // Update details
-  updateType            String   // "milestone_completed", "stage_change", "value_update", "note"
-  title                 String
-  description           String?
-  previousStage         String?
-  newStage              String?
-  previousValue         Decimal? @db.Decimal(15, 2)
-  newValue              Decimal? @db.Decimal(15, 2)
-  
+  updateType    String // "milestone_completed", "stage_change", "value_update", "note"
+  title         String
+  description   String?
+  previousStage String?
+  newStage      String?
+  previousValue Decimal? @db.Decimal(15, 2)
+  newValue      Decimal? @db.Decimal(15, 2)
+
   // Metadata
-  createdAt             DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+
   // Relations
-  dealProgress          DealProgress @relation(fields: [dealProgressId], references: [id])
-  user                  User @relation(fields: [userId], references: [id])
-  
+  dealProgress DealProgress @relation(fields: [dealProgressId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
   @@map("deal_progress_updates")
 }
 
 // Research Reports - Research Analyst quarterly targets
 model ResearchReport {
-  id                    String   @id @default(cuid())
-  title                 String
-  description           String?
-  reportType            String   // "sector_analysis", "market_trends", "company_analysis", "technology_review"
-  sector                String   // "fintech", "healthtech", "edtech", etc.
-  
+  id          String  @id @default(cuid())
+  title       String
+  description String?
+  reportType  String // "sector_analysis", "market_trends", "company_analysis", "technology_review"
+  sector      String // "fintech", "healthtech", "edtech", etc.
+
   // Quarterly tracking
-  quarter               String   // "Q1 2025", "Q2 2025", etc.
-  year                  Int
-  targetCompletionDate  DateTime
-  
+  quarter              String // "Q1 2025", "Q2 2025", etc.
+  year                 Int
+  targetCompletionDate DateTime
+
   // Progress tracking
-  status                String   @default("planned") // "planned", "in_progress", "review", "published"
-  progressPercentage    Decimal  @default(0) @db.Decimal(5, 2)
-  currentPhase          String   // "research", "analysis", "writing", "review", "publication"
-  
+  status             String  @default("planned") // "planned", "in_progress", "review", "published"
+  progressPercentage Decimal @default(0) @db.Decimal(5, 2)
+  currentPhase       String // "research", "analysis", "writing", "review", "publication"
+
   // Content tracking
-  pitchDecksReviewed    Int      @default(0)
-  dueDiligenceQuestions Json?    // Array of questions generated
-  keyFindings           Json?    // Key findings from research
-  recommendations       Json?    // Investment recommendations
-  
+  pitchDecksReviewed    Int   @default(0)
+  dueDiligenceQuestions Json? // Array of questions generated
+  keyFindings           Json? // Key findings from research
+  recommendations       Json? // Investment recommendations
+
   // Assignment
-  assignedToId          String
-  createdById           String
-  
+  assignedToId String
+  createdById  String
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  publishedAt           DateTime?
-  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime?
+
   // Relations
-  assignedTo            User @relation("ResearchReportAssignedTo", fields: [assignedToId], references: [id])
-  createdBy             User @relation("ResearchReportCreatedBy", fields: [createdById], references: [id])
-  reportActivities      ResearchReportActivity[]
-  
+  assignedTo       User                     @relation("ResearchReportAssignedTo", fields: [assignedToId], references: [id])
+  createdBy        User                     @relation("ResearchReportCreatedBy", fields: [createdById], references: [id])
+  reportActivities ResearchReportActivity[]
+
   @@map("research_reports")
 }
 
 // Research Report Activities - Detailed activity logging
 model ResearchReportActivity {
-  id                    String   @id @default(cuid())
-  researchReportId      String
-  userId                String
-  
+  id               String @id @default(cuid())
+  researchReportId String
+  userId           String
+
   // Activity details
-  activityType          String   // "pitch_deck_review", "question_generation", "research_note", "analysis_update"
-  title                 String
-  description           String?
-  
+  activityType String // "pitch_deck_review", "question_generation", "research_note", "analysis_update"
+  title        String
+  description  String?
+
   // Specific data
-  pitchDeckCount        Int?     // Number of pitch decks reviewed
-  questionsGenerated    Json?    // Array of due diligence questions
-  researchNotes         String?  // Research notes and findings
-  
+  pitchDeckCount     Int? // Number of pitch decks reviewed
+  questionsGenerated Json? // Array of due diligence questions
+  researchNotes      String? // Research notes and findings
+
   // Metadata
-  createdAt             DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+
   // Relations
-  researchReport        ResearchReport @relation(fields: [researchReportId], references: [id])
-  user                  User @relation(fields: [userId], references: [id])
-  
+  researchReport ResearchReport @relation(fields: [researchReportId], references: [id])
+  user           User           @relation(fields: [userId], references: [id])
+
   @@map("research_report_activities")
 }
 
 // Risk Assessments - Comprehensive risk assessment with sub-tasks
 model RiskAssessment {
-  id                    String   @id @default(cuid())
-  title                 String
-  description           String?
-  assessmentType        String   // "startup_investment", "portfolio_company", "market_risk"
-  
+  id             String  @id @default(cuid())
+  title          String
+  description    String?
+  assessmentType String // "startup_investment", "portfolio_company", "market_risk"
+
   // Company/Deal details
-  companyName           String?
-  dealValue             Decimal? @db.Decimal(15, 2)
-  sector                String?
-  stage                 String?  // Deal stage
-  
+  companyName String?
+  dealValue   Decimal? @db.Decimal(15, 2)
+  sector      String?
+  stage       String? // Deal stage
+
   // Risk categories and scores
-  burnRateRisk          Decimal? @db.Decimal(5, 2) // 0-10 scale
-  marketViabilityRisk   Decimal? @db.Decimal(5, 2)
-  ipLegalRisk           Decimal? @db.Decimal(5, 2)
-  founderRisk           Decimal? @db.Decimal(5, 2)
-  financialRisk         Decimal? @db.Decimal(5, 2)
-  operationalRisk       Decimal? @db.Decimal(5, 2)
-  
+  burnRateRisk        Decimal? @db.Decimal(5, 2) // 0-10 scale
+  marketViabilityRisk Decimal? @db.Decimal(5, 2)
+  ipLegalRisk         Decimal? @db.Decimal(5, 2)
+  founderRisk         Decimal? @db.Decimal(5, 2)
+  financialRisk       Decimal? @db.Decimal(5, 2)
+  operationalRisk     Decimal? @db.Decimal(5, 2)
+
   // Overall assessment
-  overallRiskScore      Decimal? @db.Decimal(5, 2)
-  riskLevel             String?  // "low", "medium", "high", "critical"
-  recommendation        String?  // "proceed", "proceed_with_conditions", "decline"
-  
+  overallRiskScore Decimal? @db.Decimal(5, 2)
+  riskLevel        String? // "low", "medium", "high", "critical"
+  recommendation   String? // "proceed", "proceed_with_conditions", "decline"
+
   // Status and timeline
-  status                String   @default("in_progress") // "in_progress", "completed", "reviewed"
-  targetCompletionDate  DateTime
-  completedAt           DateTime?
-  
+  status               String    @default("in_progress") // "in_progress", "completed", "reviewed"
+  targetCompletionDate DateTime
+  completedAt          DateTime?
+
   // Assignment
-  assignedToId          String
-  createdById           String
-  
+  assignedToId String
+  createdById  String
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  assignedTo            User @relation("RiskAssessmentAssignedTo", fields: [assignedToId], references: [id])
-  createdBy             User @relation("RiskAssessmentCreatedBy", fields: [createdById], references: [id])
-  riskSubTasks          RiskAssessmentSubTask[]
-  riskHistory           RiskAssessmentHistory[]
-  
+  assignedTo   User                    @relation("RiskAssessmentAssignedTo", fields: [assignedToId], references: [id])
+  createdBy    User                    @relation("RiskAssessmentCreatedBy", fields: [createdById], references: [id])
+  riskSubTasks RiskAssessmentSubTask[]
+  riskHistory  RiskAssessmentHistory[]
+
   @@map("risk_assessments")
 }
 
 // Risk Assessment Sub-tasks - Individual risk category tasks
 model RiskAssessmentSubTask {
-  id                    String   @id @default(cuid())
-  riskAssessmentId      String
-  
+  id               String @id @default(cuid())
+  riskAssessmentId String
+
   // Sub-task details
-  category              String   // "burn_rate", "market_viability", "ip_legal", "founder", "financial", "operational"
-  title                 String
-  description           String?
-  
+  category    String // "burn_rate", "market_viability", "ip_legal", "founder", "financial", "operational"
+  title       String
+  description String?
+
   // Progress tracking
-  status                String   @default("pending") // "pending", "in_progress", "completed"
-  progressPercentage    Decimal  @default(0) @db.Decimal(5, 2)
-  riskScore             Decimal? @db.Decimal(5, 2)
-  findings              String?
-  recommendations       String?
-  
+  status             String   @default("pending") // "pending", "in_progress", "completed"
+  progressPercentage Decimal  @default(0) @db.Decimal(5, 2)
+  riskScore          Decimal? @db.Decimal(5, 2)
+  findings           String?
+  recommendations    String?
+
   // Timeline
-  targetCompletionDate  DateTime
-  completedAt           DateTime?
-  
+  targetCompletionDate DateTime
+  completedAt          DateTime?
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  riskAssessment        RiskAssessment @relation(fields: [riskAssessmentId], references: [id])
-  
+  riskAssessment RiskAssessment @relation(fields: [riskAssessmentId], references: [id])
+
   @@map("risk_assessment_sub_tasks")
 }
 
 // Risk Assessment History - Track outcomes and improve models
 model RiskAssessmentHistory {
-  id                    String   @id @default(cuid())
-  riskAssessmentId      String
-  
+  id               String @id @default(cuid())
+  riskAssessmentId String
+
   // Historical data
-  initialRiskScore      Decimal  @db.Decimal(5, 2)
-  actualOutcome         String   // "success", "failure", "partial_success"
-  actualImpact          String?  // Description of actual impact
-  accuracyRating        Decimal? @db.Decimal(5, 2) // How accurate was the assessment
-  
+  initialRiskScore Decimal  @db.Decimal(5, 2)
+  actualOutcome    String // "success", "failure", "partial_success"
+  actualImpact     String? // Description of actual impact
+  accuracyRating   Decimal? @db.Decimal(5, 2) // How accurate was the assessment
+
   // Learning data
-  lessonsLearned        String?
-  modelImprovements     String?
-  
+  lessonsLearned    String?
+  modelImprovements String?
+
   // Metadata
-  recordedAt            DateTime @default(now())
-  
+  recordedAt DateTime @default(now())
+
   // Relations
-  riskAssessment        RiskAssessment @relation(fields: [riskAssessmentId], references: [id])
-  
+  riskAssessment RiskAssessment @relation(fields: [riskAssessmentId], references: [id])
+
   @@map("risk_assessment_history")
 }
 
 // Budget Management - Monthly budgets with line items
 model Budget {
-  id                    String   @id @default(cuid())
-  name                  String
-  description           String?
-  budgetType            String   // "monthly", "quarterly", "annual"
-  period                String   // "2025-01", "Q1 2025", "2025"
-  
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  budgetType  String // "monthly", "quarterly", "annual"
+  period      String // "2025-01", "Q1 2025", "2025"
+
   // Budget totals
-  totalBudgeted         Decimal  @db.Decimal(15, 2)
-  totalActual           Decimal  @default(0) @db.Decimal(15, 2)
-  totalVariance         Decimal  @default(0) @db.Decimal(15, 2)
-  variancePercentage    Decimal  @default(0) @db.Decimal(5, 2)
-  
+  totalBudgeted      Decimal @db.Decimal(15, 2)
+  totalActual        Decimal @default(0) @db.Decimal(15, 2)
+  totalVariance      Decimal @default(0) @db.Decimal(15, 2)
+  variancePercentage Decimal @default(0) @db.Decimal(5, 2)
+
   // Status
-  status                String   @default("draft") // "draft", "active", "closed"
-  isActive              Boolean  @default(false)
-  
+  status   String  @default("draft") // "draft", "active", "closed"
+  isActive Boolean @default(false)
+
   // Timeline
-  startDate             DateTime
-  endDate               DateTime
-  createdById           String
-  
+  startDate   DateTime
+  endDate     DateTime
+  createdById String
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  createdBy             User @relation("BudgetCreatedBy", fields: [createdById], references: [id])
-  budgetItems           BudgetItem[]
-  varianceReports       VarianceReport[]
-  
+  createdBy       User             @relation("BudgetCreatedBy", fields: [createdById], references: [id])
+  budgetItems     BudgetItem[]
+  varianceReports VarianceReport[]
+
   @@map("budgets")
 }
 
 // Budget Items - Individual line items
 model BudgetItem {
-  id                    String   @id @default(cuid())
-  budgetId              String
-  
+  id       String @id @default(cuid())
+  budgetId String
+
   // Item details
-  category              String   // "salary", "software_licenses", "office_rent", "travel", "marketing"
-  subcategory           String?
-  description           String
-  accountCode           String?
-  
+  category    String // "salary", "software_licenses", "office_rent", "travel", "marketing"
+  subcategory String?
+  description String
+  accountCode String?
+
   // Financials
-  budgetedAmount        Decimal  @db.Decimal(15, 2)
-  actualAmount          Decimal  @default(0) @db.Decimal(15, 2)
-  variance              Decimal  @default(0) @db.Decimal(15, 2)
-  variancePercentage    Decimal  @default(0) @db.Decimal(5, 2)
-  
+  budgetedAmount     Decimal @db.Decimal(15, 2)
+  actualAmount       Decimal @default(0) @db.Decimal(15, 2)
+  variance           Decimal @default(0) @db.Decimal(15, 2)
+  variancePercentage Decimal @default(0) @db.Decimal(5, 2)
+
   // Status
-  isSignificantVariance Boolean  @default(false) // >5% variance
+  isSignificantVariance Boolean @default(false) // >5% variance
   varianceExplanation   String?
-  
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  createdById           String
-  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+
   // Relations
-  budget                Budget @relation(fields: [budgetId], references: [id])
-  createdBy             User @relation("BudgetItemCreatedBy", fields: [createdById], references: [id])
-  
+  budget    Budget @relation(fields: [budgetId], references: [id])
+  createdBy User   @relation("BudgetItemCreatedBy", fields: [createdById], references: [id])
+
   @@map("budget_items")
 }
 
 // Portfolio Valuations - Quarterly valuation process
 model PortfolioValuation {
-  id                    String   @id @default(cuid())
-  title                 String
-  description           String?
-  valuationPeriod       String   // "Q1 2025", "Q2 2025", etc.
-  quarter               Int
-  year                  Int
-  
+  id              String  @id @default(cuid())
+  title           String
+  description     String?
+  valuationPeriod String // "Q1 2025", "Q2 2025", etc.
+  quarter         Int
+  year            Int
+
   // Valuation details
   totalPortfolioValue   Decimal? @db.Decimal(15, 2)
   previousValue         Decimal? @db.Decimal(15, 2)
   valueChange           Decimal? @db.Decimal(15, 2)
   valueChangePercentage Decimal? @db.Decimal(5, 2)
-  
+
   // Process tracking
-  status                String   @default("planned") // "planned", "in_progress", "completed", "approved"
-  currentStep           String   // "cap_tables", "financials", "communication", "reconciliation"
-  progressPercentage    Decimal  @default(0) @db.Decimal(5, 2)
-  
+  status             String  @default("planned") // "planned", "in_progress", "completed", "approved"
+  currentStep        String // "cap_tables", "financials", "communication", "reconciliation"
+  progressPercentage Decimal @default(0) @db.Decimal(5, 2)
+
   // Checklist items
-  capTablesObtained     Boolean  @default(false)
-  financialsReconciled  Boolean  @default(false)
+  capTablesObtained      Boolean @default(false)
+  financialsReconciled   Boolean @default(false)
   portfolioCFOsContacted Boolean @default(false)
-  internalReviewDone    Boolean  @default(false)
+  internalReviewDone     Boolean @default(false)
   stakeholderReportReady Boolean @default(false)
-  
+
   // Timeline
-  targetCompletionDate  DateTime
-  completedAt           DateTime?
-  
+  targetCompletionDate DateTime
+  completedAt          DateTime?
+
   // Assignment
-  assignedToId          String
-  createdById           String
-  
+  assignedToId String
+  createdById  String
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  assignedTo            User @relation("PortfolioValuationAssignedTo", fields: [assignedToId], references: [id])
-  createdBy             User @relation("PortfolioValuationCreatedBy", fields: [createdById], references: [id])
-  valuationActivities   PortfolioValuationActivity[]
-  
+  assignedTo          User                         @relation("PortfolioValuationAssignedTo", fields: [assignedToId], references: [id])
+  createdBy           User                         @relation("PortfolioValuationCreatedBy", fields: [createdById], references: [id])
+  valuationActivities PortfolioValuationActivity[]
+
   @@map("portfolio_valuations")
 }
 
 // Portfolio Valuation Activities - Step-by-step tracking
 model PortfolioValuationActivity {
-  id                    String   @id @default(cuid())
-  portfolioValuationId  String
-  userId                String
-  
+  id                   String @id @default(cuid())
+  portfolioValuationId String
+  userId               String
+
   // Activity details
-  activityType          String   // "cap_table_obtained", "financial_reconciled", "cfo_contacted", "review_completed"
-  title                 String
-  description           String?
-  
+  activityType String // "cap_table_obtained", "financial_reconciled", "cfo_contacted", "review_completed"
+  title        String
+  description  String?
+
   // Specific data
-  companiesProcessed    Int?     // Number of companies processed
-  reconciliationStatus  Json?    // Reconciliation status for each company
-  issuesIdentified      Json?    // Issues or discrepancies found
-  
+  companiesProcessed   Int? // Number of companies processed
+  reconciliationStatus Json? // Reconciliation status for each company
+  issuesIdentified     Json? // Issues or discrepancies found
+
   // Metadata
-  createdAt             DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+
   // Relations
-  portfolioValuation    PortfolioValuation @relation(fields: [portfolioValuationId], references: [id])
-  user                  User @relation(fields: [userId], references: [id])
-  
+  portfolioValuation PortfolioValuation @relation(fields: [portfolioValuationId], references: [id])
+  user               User               @relation(fields: [userId], references: [id])
+
   @@map("portfolio_valuation_activities")
 }
 
 // Exit Interviews - HR turnover analysis
 model ExitInterview {
-  id                    String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Employee details
-  employeeName          String
-  employeeId            String?
-  department            String
-  position              String
-  tenure                String   // "0-1 years", "1-3 years", "3-5 years", "5+ years"
-  
+  employeeName String
+  employeeId   String?
+  department   String
+  position     String
+  tenure       String // "0-1 years", "1-3 years", "3-5 years", "5+ years"
+
   // Interview details
-  interviewDate         DateTime
-  conductedById         String
-  interviewType         String   // "voluntary", "involuntary", "retirement"
-  
+  interviewDate DateTime
+  conductedById String
+  interviewType String // "voluntary", "involuntary", "retirement"
+
   // Reasons for leaving
-  primaryReason         String
-  secondaryReasons      Json?    // Array of secondary reasons
-  pushFactors           Json?    // What pushed them to leave
-  pullFactors           Json?    // What pulled them away
-  
+  primaryReason    String
+  secondaryReasons Json? // Array of secondary reasons
+  pushFactors      Json? // What pushed them to leave
+  pullFactors      Json? // What pulled them away
+
   // Feedback
-  workEnvironmentRating Decimal? @db.Decimal(2, 1) // 1-5 scale
-  managementRating      Decimal? @db.Decimal(2, 1)
-  compensationRating    Decimal? @db.Decimal(2, 1)
+  workEnvironmentRating   Decimal? @db.Decimal(2, 1) // 1-5 scale
+  managementRating        Decimal? @db.Decimal(2, 1)
+  compensationRating      Decimal? @db.Decimal(2, 1)
   growthOpportunityRating Decimal? @db.Decimal(2, 1)
-  
+
   // Recommendations
-  wouldRecommendCompany Boolean?
+  wouldRecommendCompany     Boolean?
   suggestionsForImprovement String?
-  
+
   // Status
-  status                String   @default("completed") // "scheduled", "completed", "cancelled"
-  
+  status String @default("completed") // "scheduled", "completed", "cancelled"
+
   // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  conductedBy           User @relation("ExitInterviewConductedBy", fields: [conductedById], references: [id])
-  
+  conductedBy User @relation("ExitInterviewConductedBy", fields: [conductedById], references: [id])
+
   @@map("exit_interviews")
 }
 
 // ===== PAYROLL MODULE =====
 
 model Employee {
-  id                String   @id @default(cuid())
-  userId            String   @unique
-  employeeNumber    String   @unique
-  bankName          String?
-  branchCode        String?
-  accountNumber     String?
-  basicSalary       Decimal  @default(0)
-  currencyId        String?
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  employeeNumber String   @unique
+  bankName       String?
+  branchCode     String?
+  accountNumber  String?
+  basicSalary    Decimal  @default(0)
+  currencyId     String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Relations
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  currency          Currency? @relation(fields: [currencyId], references: [id])
-  salaryStructures  SalaryStructure[]
-  leaveBalances     LeaveBalance[]
-  payslips          Payslip[]
-  employeePayrolls  EmployeePayroll[]
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency         Currency?         @relation(fields: [currencyId], references: [id])
+  salaryStructures SalaryStructure[]
+  leaveBalances    LeaveBalance[]
+  payslips         Payslip[]
+  employeePayrolls EmployeePayroll[]
 
   @@map("employees")
 }
 
 model PayrollRun {
-  id                String   @id @default(cuid())
-  name              String
-  payPeriod         String   // e.g., "March 2024"
-  startDate         DateTime
-  endDate           DateTime
-  status            PayrollStatus @default(DRAFT)
-  totalGrossPay     Decimal  @default(0)
-  totalDeductions   Decimal  @default(0)
-  totalNetPay       Decimal  @default(0)
-  currencyId        String?
-  createdById       String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String        @id @default(cuid())
+  name            String
+  payPeriod       String // e.g., "March 2024"
+  startDate       DateTime
+  endDate         DateTime
+  status          PayrollStatus @default(DRAFT)
+  totalGrossPay   Decimal       @default(0)
+  totalDeductions Decimal       @default(0)
+  totalNetPay     Decimal       @default(0)
+  currencyId      String?
+  createdById     String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   // Relations
-  currency          Currency? @relation(fields: [currencyId], references: [id])
-  createdBy         User     @relation(fields: [createdById], references: [id])
-  employeePayrolls  EmployeePayroll[]
-  payslips          Payslip[]
+  currency         Currency?         @relation(fields: [currencyId], references: [id])
+  createdBy        User              @relation(fields: [createdById], references: [id])
+  employeePayrolls EmployeePayroll[]
+  payslips         Payslip[]
 
   @@map("payroll_runs")
 }
 
 model EmployeePayroll {
-  id                String   @id @default(cuid())
-  payrollRunId      String
-  employeeId        String
-  basicSalary       Decimal  @default(0)
-  totalAllowances   Decimal  @default(0)
-  totalDeductions   Decimal  @default(0)
-  grossPay          Decimal  @default(0)
-  netPay            Decimal  @default(0)
-  currencyId        String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String   @id @default(cuid())
+  payrollRunId    String
+  employeeId      String
+  basicSalary     Decimal  @default(0)
+  totalAllowances Decimal  @default(0)
+  totalDeductions Decimal  @default(0)
+  grossPay        Decimal  @default(0)
+  netPay          Decimal  @default(0)
+  currencyId      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Relations
-  payrollRun        PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
-  employee          Employee @relation(fields: [employeeId], references: [id])
-  currency          Currency? @relation(fields: [currencyId], references: [id])
-  allowances        PayrollAllowance[]
-  deductions        PayrollDeduction[]
+  payrollRun PayrollRun         @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee   Employee           @relation(fields: [employeeId], references: [id])
+  currency   Currency?          @relation(fields: [currencyId], references: [id])
+  allowances PayrollAllowance[]
+  deductions PayrollDeduction[]
 
   @@unique([payrollRunId, employeeId])
   @@map("employee_payrolls")
 }
 
 model TaxRules {
-  id                String   @id @default(cuid())
-  name              String
-  type              TaxType
-  rate              Decimal
-  threshold         Decimal?
-  ceiling           Decimal?
-  isActive          Boolean  @default(true)
-  effectiveDate     DateTime
-  endDate           DateTime?
-  currencyId        String?
-  createdById       String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id            String    @id @default(cuid())
+  name          String
+  type          TaxType
+  rate          Decimal
+  threshold     Decimal?
+  ceiling       Decimal?
+  isActive      Boolean   @default(true)
+  effectiveDate DateTime
+  endDate       DateTime?
+  currencyId    String?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   // Relations
-  currency          Currency? @relation(fields: [currencyId], references: [id])
-  createdBy         User     @relation(fields: [createdById], references: [id])
+  currency  Currency? @relation(fields: [currencyId], references: [id])
+  createdBy User      @relation(fields: [createdById], references: [id])
 
   @@map("tax_rules")
 }
 
 model AllowanceTypes {
-  id                String   @id @default(cuid())
-  name              String
-  code              String   @unique
-  description       String?
-  isTaxable         Boolean  @default(true)
-  isActive          Boolean  @default(true)
-  createdById       String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  description String?
+  isTaxable   Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  createdBy         User     @relation(fields: [createdById], references: [id])
-  allowances        PayrollAllowance[]
-  salaryStructures  SalaryStructure[]
+  createdBy        User               @relation(fields: [createdById], references: [id])
+  allowances       PayrollAllowance[]
+  salaryStructures SalaryStructure[]
 
   @@map("allowance_types")
 }
 
 model DeductionTypes {
-  id                String   @id @default(cuid())
-  name              String
-  code              String   @unique
-  description       String?
-  isStatutory       Boolean  @default(false)
-  isActive          Boolean  @default(true)
-  createdById       String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  description String?
+  isStatutory Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  createdBy         User     @relation(fields: [createdById], references: [id])
-  deductions        PayrollDeduction[]
+  createdBy  User               @relation(fields: [createdById], references: [id])
+  deductions PayrollDeduction[]
 
   @@map("deduction_types")
 }
@@ -2271,9 +2576,9 @@ model PayrollAllowance {
   updatedAt         DateTime @updatedAt
 
   // Relations
-  employeePayroll   EmployeePayroll @relation(fields: [employeePayrollId], references: [id], onDelete: Cascade)
-  allowanceType     AllowanceTypes @relation(fields: [allowanceTypeId], references: [id])
-  currency          Currency? @relation(fields: [currencyId], references: [id])
+  employeePayroll EmployeePayroll @relation(fields: [employeePayrollId], references: [id], onDelete: Cascade)
+  allowanceType   AllowanceTypes  @relation(fields: [allowanceTypeId], references: [id])
+  currency        Currency?       @relation(fields: [currencyId], references: [id])
 
   @@map("payroll_allowances")
 }
@@ -2288,86 +2593,86 @@ model PayrollDeduction {
   updatedAt         DateTime @updatedAt
 
   // Relations
-  employeePayroll   EmployeePayroll @relation(fields: [employeePayrollId], references: [id], onDelete: Cascade)
-  deductionType     DeductionTypes @relation(fields: [deductionTypeId], references: [id])
-  currency          Currency? @relation(fields: [currencyId], references: [id])
+  employeePayroll EmployeePayroll @relation(fields: [employeePayrollId], references: [id], onDelete: Cascade)
+  deductionType   DeductionTypes  @relation(fields: [deductionTypeId], references: [id])
+  currency        Currency?       @relation(fields: [currencyId], references: [id])
 
   @@map("payroll_deductions")
 }
 
 model SalaryStructure {
-  id                String   @id @default(cuid())
-  employeeId        String
-  allowanceTypeId   String
-  amount            Decimal
-  currencyId        String?
-  isActive          Boolean  @default(true)
-  effectiveDate     DateTime
-  endDate           DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String    @id @default(cuid())
+  employeeId      String
+  allowanceTypeId String
+  amount          Decimal
+  currencyId      String?
+  isActive        Boolean   @default(true)
+  effectiveDate   DateTime
+  endDate         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   // Relations
-  employee          Employee @relation(fields: [employeeId], references: [id])
-  allowanceType     AllowanceTypes @relation(fields: [allowanceTypeId], references: [id])
-  currency          Currency? @relation(fields: [currencyId], references: [id])
+  employee      Employee       @relation(fields: [employeeId], references: [id])
+  allowanceType AllowanceTypes @relation(fields: [allowanceTypeId], references: [id])
+  currency      Currency?      @relation(fields: [currencyId], references: [id])
 
   @@map("salary_structures")
 }
 
 model LeaveBalance {
-  id                String   @id @default(cuid())
-  employeeId        String
-  leaveType         String
-  balance           Decimal
-  currencyId        String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id         String   @id @default(cuid())
+  employeeId String
+  leaveType  String
+  balance    Decimal
+  currencyId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Relations
-  employee          Employee @relation(fields: [employeeId], references: [id])
-  currency          Currency? @relation(fields: [currencyId], references: [id])
+  employee Employee  @relation(fields: [employeeId], references: [id])
+  currency Currency? @relation(fields: [currencyId], references: [id])
 
   @@unique([employeeId, leaveType])
   @@map("leave_balances")
 }
 
 model Payslip {
-  id                String   @id @default(cuid())
-  employeeId        String
-  payrollRunId      String
-  grossPay          Decimal
-  totalDeductions   Decimal
-  netPay            Decimal
-  currencyId        String?
-  pdfPath           String?
-  isGenerated       Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String   @id @default(cuid())
+  employeeId      String
+  payrollRunId    String
+  grossPay        Decimal
+  totalDeductions Decimal
+  netPay          Decimal
+  currencyId      String?
+  pdfPath         String?
+  isGenerated     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Relations
-  employee          Employee @relation(fields: [employeeId], references: [id])
-  payrollRun        PayrollRun @relation(fields: [payrollRunId], references: [id])
-  currency          Currency? @relation(fields: [currencyId], references: [id])
+  employee   Employee   @relation(fields: [employeeId], references: [id])
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id])
+  currency   Currency?  @relation(fields: [currencyId], references: [id])
 
   @@unique([employeeId, payrollRunId])
   @@map("payslips")
 }
 
 model BankFileTemplate {
-  id                String   @id @default(cuid())
-  name              String
-  bankName          String
-  delimiter         String   @default(",")
-  hasHeader         Boolean  @default(true)
-  columnOrder       String   // JSON array of column names
-  isActive          Boolean  @default(true)
-  createdById       String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  bankName    String
+  delimiter   String   @default(",")
+  hasHeader   Boolean  @default(true)
+  columnOrder String // JSON array of column names
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  createdBy         User     @relation(fields: [createdById], references: [id])
+  createdBy User @relation(fields: [createdById], references: [id])
 
   @@map("bank_file_templates")
 }
