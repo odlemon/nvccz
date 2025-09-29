@@ -218,25 +218,36 @@ export class TaskController {
     try {
       const { id } = req.params;
       const {
-        type,
-        activity,
+        activityType,
+        title,
+        description,
         monetaryValueAchieved,
         percentValueAchieved,
-        userId,
+        notes,
         approverId,
         approvedDate
       } = req.body;
 
-      if (!type || !activity || !userId) {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      if (!activityType || !title) {
         return res.status(400).json({
           success: false,
-          message: "Type, activity, and userId are required"
+          message: "Activity type and title are required"
         });
       }
 
       const task = await TaskService.postTaskActivity(id, {
-        type,
-        activity,
+        type: activityType,
+        activity: title,
+        description: description || notes, // Use description or notes
         monetaryValueAchieved,
         percentValueAchieved,
         userId,

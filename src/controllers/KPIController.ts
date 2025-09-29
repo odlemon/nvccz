@@ -225,4 +225,30 @@ export class KPIController {
       });
     }
   }
+
+  // Get KPI analytics summary
+  static async getKPIAnalyticsSummary(req: Request, res: Response) {
+    try {
+      const {
+        departmentId,
+        period = 'month'
+      } = req.query;
+
+      const filters: any = {};
+      if (departmentId) filters.departmentId = departmentId as string;
+
+      const analyticsData = await KPIService.getKPIAnalyticsSummary(filters, period as string);
+
+      res.status(200).json({
+        success: true,
+        message: "KPI analytics summary retrieved successfully",
+        data: analyticsData
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
 }
