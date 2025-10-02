@@ -578,6 +578,7 @@ export class PayrollService {
           currencyId: payslip.employee.currencyId,
           idNumber: payslip.employee.idNumber,
           nextOfKin: payslip.employee.nextOfKin,
+          nextOfKinContact: payslip.employee.nextOfKinContact,
           address: payslip.employee.address,
           pictureUrl: payslip.employee.pictureUrl,
           isActive: payslip.employee.isActive,
