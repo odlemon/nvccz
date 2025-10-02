@@ -10,6 +10,7 @@ router.post('/employees', authenticate, PayrollController.createEmployee);
 router.get('/employees', authenticate, PayrollController.getEmployees);
 router.put('/employees/:id', authenticate, PayrollController.updateEmployee);
 router.delete('/employees/:id', authenticate, PayrollController.deleteEmployee);
+router.delete('/employees/:id/permanent', authenticate, PayrollController.permanentlyDeleteEmployee);
 
 // ===== EMPLOYEE PORTAL ROUTES =====
 router.get('/employee/portal', authenticate, PayrollController.getEmployeePayrollInfo);

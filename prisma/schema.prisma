@@ -2444,6 +2444,10 @@ model Employee {
   accountNumber  String?
   basicSalary    Decimal  @default(0)
   currencyId     String?
+  idNumber       String?
+  nextOfKin      String?
+  address        String?
+  pictureUrl     String?
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -2510,7 +2514,7 @@ model EmployeePayroll {
 model TaxRules {
   id            String    @id @default(cuid())
   name          String
-  type          TaxType
+  type          String    // Changed from TaxType enum to String for complete flexibility
   rate          Decimal
   threshold     Decimal?
   ceiling       Decimal?
@@ -2685,9 +2689,3 @@ enum PayrollStatus {
   CANCELLED
 }
 
-enum TaxType {
-  PAYE
-  NSSA
-  AIDS_LEVY
-  CUSTOM
-}

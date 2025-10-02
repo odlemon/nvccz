@@ -26,12 +26,15 @@ POST /api/payroll/employees
 ```json
 {
   "userId": "string",
-  "employeeNumber": "EMP001",
   "bankName": "CBZ Bank Limited",
   "branchCode": "001",
   "accountNumber": "1004149",
   "basicSalary": 130200.00,
-  "currencyId": "string"
+  "currencyId": "string",
+  "idNumber": "string",
+  "nextOfKin": "string",
+  "address": "string",
+  "pictureUrl": "string"
 }
 ```
 
@@ -49,6 +52,10 @@ POST /api/payroll/employees
     "accountNumber": "1004149",
     "basicSalary": 130200.00,
     "currencyId": "string",
+    "idNumber": "string",
+    "nextOfKin": "string",
+    "address": "string",
+    "pictureUrl": "string",
     "isActive": true,
     "createdAt": "2024-01-15T10:00:00Z",
     "updatedAt": "2024-01-15T10:00:00Z",
@@ -338,6 +345,11 @@ POST /api/payroll/tax-rules
   "currencyId": "string"
 }
 ```
+
+**Note**: The `type` field is now completely flexible - you can use any string value you want:
+- Standard types: "PAYE", "NSSA", "AIDS_LEVY"
+- Custom types: "HEALTH_INSURANCE", "PENSION_FUND", "TRAINING_LEVY", "UNION_DUES", etc.
+- Any custom string: "COMPANY_SPECIFIC_TAX", "REGIONAL_LEVY", etc.
 
 **Response:**
 ```json
