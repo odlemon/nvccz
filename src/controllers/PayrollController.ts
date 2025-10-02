@@ -17,7 +17,11 @@ export class PayrollController {
         branchCode,
         accountNumber,
         basicSalary,
-        currencyId
+        currencyId,
+        idNumber,
+        nextOfKin,
+        address,
+        pictureUrl
       } = req.body;
 
       // Check if user exists
@@ -64,7 +68,11 @@ export class PayrollController {
           branchCode,
           accountNumber,
           basicSalary: parseFloat(basicSalary),
-          currencyId
+          currencyId,
+          idNumber,
+          nextOfKin,
+          address,
+          pictureUrl
         },
         include: {
           user: {
@@ -1474,25 +1482,101 @@ export class PayrollController {
   }
 
   /**
-   * Delete employee
+   * Delete employee (soft delete - sets isActive to false)
    */
   static async deleteEmployee(req: Request, res: Response) {
     try {
       const { id } = req.params;
 
-      await prisma.employee.delete({
+      // Check if employee exists
+      const employee = await prisma.employee.findUnique({
         where: { id }
+      });
+
+      if (!employee) {
+        return res.status(404).json({
+          success: false,
+          message: 'Employee not found'
+        });
+      }
+
+      // Soft delete by setting isActive to false
+      await prisma.employee.update({
+        where: { id },
+        data: { isActive: false }
       });
 
       res.json({
         success: true,
-        message: 'Employee deleted successfully'
+        message: 'Employee deleted successfully (deactivated)'
       });
     } catch (error) {
       console.error('Error deleting employee:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to delete employee',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Permanently delete employee (hard delete with cascade)
+   * WARNING: This will delete all related payroll data permanently
+   */
+  static async permanentlyDeleteEmployee(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      // Check if employee exists
+      const employee = await prisma.employee.findUnique({
+        where: { id }
+      });
+
+      if (!employee) {
+        return res.status(404).json({
+          success: false,
+          message: 'Employee not found'
+        });
+      }
+
+      // Use transaction to delete all related records first
+      await prisma.$transaction(async (tx) => {
+        // Delete employee payrolls first
+        await tx.employeePayroll.deleteMany({
+          where: { employeeId: id }
+        });
+
+        // Delete payslips
+        await tx.payslip.deleteMany({
+          where: { employeeId: id }
+        });
+
+        // Delete salary structures
+        await tx.salaryStructure.deleteMany({
+          where: { employeeId: id }
+        });
+
+        // Delete leave balances
+        await tx.leaveBalance.deleteMany({
+          where: { employeeId: id }
+        });
+
+        // Finally delete the employee
+        await tx.employee.delete({
+          where: { id }
+        });
+      });
+
+      res.json({
+        success: true,
+        message: 'Employee permanently deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error permanently deleting employee:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to permanently delete employee',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }

@@ -405,39 +405,6 @@ This guide provides comprehensive testing instructions for the Procurement Modul
 }
 ```
 
-### 5. Dashboard
-
-#### Get Procurement Dashboard
-
-**GET** `/api/procurement/dashboard`
-
-**Expected Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "requisitions": {
-      "total": 25,
-      "pending": 5,
-      "approved": 18
-    },
-    "purchaseOrders": {
-      "total": 15,
-      "pending": 3,
-      "received": 10
-    },
-    "invoices": {
-      "total": 30,
-      "pending": 8,
-      "approved": 20
-    },
-    "grns": {
-      "total": 12,
-      "pending": 2
-    }
-  }
-}
-```
 
 ## Complete Workflow Testing
 

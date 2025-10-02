@@ -38,6 +38,37 @@ POST /api/payroll/tax-rules
 }
 ```
 
+**Custom Tax Examples:**
+```json
+{
+  "name": "Health Insurance Tax",
+  "type": "HEALTH_INSURANCE",
+  "rate": 2.5,
+  "threshold": 500,
+  "currencyId": "USD_CURRENCY_ID"
+}
+```
+
+```json
+{
+  "name": "Company Pension Fund",
+  "type": "PENSION_FUND",
+  "rate": 5.0,
+  "ceiling": 10000,
+  "currencyId": "USD_CURRENCY_ID"
+}
+```
+
+```json
+{
+  "name": "Skills Development Levy",
+  "type": "TRAINING_LEVY",
+  "rate": 1.0,
+  "threshold": 2000,
+  "currencyId": "USD_CURRENCY_ID"
+}
+```
+
 **NSSA Contribution:**
 ```json
 {
@@ -293,7 +324,11 @@ POST /api/payroll/employees
   "branchCode": "001",
   "accountNumber": "1234567890",
   "basicSalary": 2500.00,
-  "currencyId": "USD_CURRENCY_ID"
+  "currencyId": "USD_CURRENCY_ID",
+  "idNumber": "123456789",
+  "nextOfKin": "John Doe - Brother - +263771234567",
+  "address": "123 Main Street, Harare, Zimbabwe",
+  "pictureUrl": "https://example.com/employee-photos/employee123.jpg"
 }
 ```
 
@@ -327,11 +362,18 @@ PUT /api/payroll/employees/{employeeId}
 
 **Note**: The `employeeNumber` is auto-generated and cannot be updated manually.
 
-#### **6.4 Delete Employee**
+#### **6.4 Delete Employee (Soft Delete)**
 ```
 DELETE /api/payroll/employees/{employeeId}
 ```
-**Description**: Delete an employee
+**Description**: Soft delete an employee (sets isActive to false, preserves historical data)
+
+#### **6.5 Permanently Delete Employee**
+```
+DELETE /api/payroll/employees/{employeeId}/permanent
+```
+**Description**: Permanently delete an employee and all related payroll data
+**WARNING**: This will permanently delete all payroll history, payslips, and related data
 
 ---
 
