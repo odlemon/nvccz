@@ -709,6 +709,18 @@ export class PayrollController {
       const payslips = await prisma.payslip.findMany({
         where: { employeeId: employee.id },
         include: {
+          employee: {
+            include: {
+              user: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              },
+              currency: true
+            }
+          },
           payrollRun: {
             select: {
               id: true,
@@ -726,13 +738,50 @@ export class PayrollController {
         take: Number(limit)
       });
 
+      // Transform payslips to include all employee fields and company name
+      const transformedPayslips = payslips.map(payslip => ({
+        id: payslip.id,
+        employeeId: payslip.employeeId,
+        payrollRunId: payslip.payrollRunId,
+        grossPay: payslip.grossPay,
+        totalDeductions: payslip.totalDeductions,
+        netPay: payslip.netPay,
+        currencyId: payslip.currencyId,
+        createdAt: payslip.createdAt,
+        updatedAt: payslip.updatedAt,
+        // Employee details with all fields
+        employee: {
+          id: payslip.employee.id,
+          userId: payslip.employee.userId,
+          employeeNumber: payslip.employee.employeeNumber,
+          bankName: payslip.employee.bankName,
+          branchCode: payslip.employee.branchCode,
+          accountNumber: payslip.employee.accountNumber,
+          basicSalary: payslip.employee.basicSalary,
+          currencyId: payslip.employee.currencyId,
+          idNumber: payslip.employee.idNumber,
+          nextOfKin: payslip.employee.nextOfKin,
+          address: payslip.employee.address,
+          pictureUrl: payslip.employee.pictureUrl,
+          isActive: payslip.employee.isActive,
+          createdAt: payslip.employee.createdAt,
+          updatedAt: payslip.employee.updatedAt,
+          user: payslip.employee.user,
+          currency: payslip.employee.currency
+        },
+        payrollRun: payslip.payrollRun,
+        currency: payslip.currency,
+        // Company information
+        companyName: "National Venture Capital Company of Zimbabwe"
+      }));
+
       const total = await prisma.payslip.count({
         where: { employeeId: employee.id }
       });
 
       res.json({
         success: true,
-        data: payslips,
+        data: transformedPayslips,
         pagination: {
           page: Number(page),
           limit: Number(limit),
