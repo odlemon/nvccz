@@ -33,6 +33,13 @@ POST /api/payroll/employees
   "currencyId": "string",
   "idNumber": "string",
   "nextOfKin": "string",
+  "nextOfKinContact": {
+    "name": "string",
+    "relationship": "string",
+    "phone": "string",
+    "email": "string",
+    "address": "string"
+  },
   "address": "string",
   "pictureUrl": "string"
 }
@@ -53,7 +60,14 @@ POST /api/payroll/employees
     "basicSalary": 130200.00,
     "currencyId": "string",
     "idNumber": "string",
-    "nextOfKin": "string",
+    "nextOfKin": "John Doe - Brother",
+    "nextOfKinContact": {
+      "name": "John Doe",
+      "relationship": "Brother",
+      "phone": "+263771234567",
+      "email": "john.doe@example.com",
+      "address": "123 Family Street, Harare, Zimbabwe"
+    },
     "address": "string",
     "pictureUrl": "string",
     "isActive": true,

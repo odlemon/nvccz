@@ -599,14 +599,53 @@ export class ApplicationService {
                   }
                 }
               }
+            },
+            investmentImplementation: {
+              select: {
+                id: true,
+                portfolioCompanyId: true
+              }
             }
           }
         }),
         prisma.application.count({ where })
       ]);
 
+      // Get portfolio company IDs from the applications
+      const portfolioCompanyIds = applications
+        .map(app => app.investmentImplementation?.portfolioCompanyId)
+        .filter(Boolean);
+
+      // Fetch portfolio company data separately
+      const portfolioCompanies = portfolioCompanyIds.length > 0 
+        ? await prisma.portfolioCompany.findMany({
+            where: {
+              id: {
+                in: portfolioCompanyIds
+              }
+            },
+            select: {
+              id: true,
+              name: true
+            }
+          })
+        : [];
+
+      // Create a map for quick lookup
+      const portfolioCompanyMap = new Map(
+        portfolioCompanies.map(pc => [pc.id, pc])
+      );
+
+      // Attach portfolio company data to applications
+      const applicationsWithPortfolioCompanies = applications.map(app => ({
+        ...app,
+        portfolioCompany: app.investmentImplementation?.portfolioCompanyId 
+          ? portfolioCompanyMap.get(app.investmentImplementation.portfolioCompanyId)
+          : null
+      }));
+
       return {
-        applications,
+        applications: applicationsWithPortfolioCompanies,
         total,
         page,
         totalPages: Math.ceil(total / limit)

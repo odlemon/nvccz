@@ -326,7 +326,14 @@ POST /api/payroll/employees
   "basicSalary": 2500.00,
   "currencyId": "USD_CURRENCY_ID",
   "idNumber": "123456789",
-  "nextOfKin": "John Doe - Brother - +263771234567",
+  "nextOfKin": "John Doe - Brother",
+  "nextOfKinContact": {
+    "name": "John Doe",
+    "relationship": "Brother",
+    "phone": "+263771234567",
+    "email": "john.doe@example.com",
+    "address": "123 Family Street, Harare, Zimbabwe"
+  },
   "address": "123 Main Street, Harare, Zimbabwe",
   "pictureUrl": "https://example.com/employee-photos/employee123.jpg"
 }

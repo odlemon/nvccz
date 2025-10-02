@@ -20,6 +20,7 @@ export class PayrollController {
         currencyId,
         idNumber,
         nextOfKin,
+        nextOfKinContact,
         address,
         pictureUrl
       } = req.body;
@@ -71,6 +72,7 @@ export class PayrollController {
           currencyId,
           idNumber,
           nextOfKin,
+          nextOfKinContact,
           address,
           pictureUrl
         },
@@ -761,6 +763,7 @@ export class PayrollController {
           currencyId: payslip.employee.currencyId,
           idNumber: payslip.employee.idNumber,
           nextOfKin: payslip.employee.nextOfKin,
+          nextOfKinContact: payslip.employee.nextOfKinContact,
           address: payslip.employee.address,
           pictureUrl: payslip.employee.pictureUrl,
           isActive: payslip.employee.isActive,
