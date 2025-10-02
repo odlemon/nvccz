@@ -297,28 +297,49 @@ GET /api/payroll/payslips/{employeeId}/{payrollRunId}
     "totalDeductions": 69378.08,
     "netPay": 173067.31,
     "currencyId": "string",
-    "pdfPath": null,
-    "isGenerated": false,
     "createdAt": "2024-01-15T10:00:00Z",
     "updatedAt": "2024-01-15T10:00:00Z",
     "employee": {
       "id": "string",
+      "userId": "string",
       "employeeNumber": "EMP001",
+      "bankName": "CBZ Bank Limited",
+      "branchCode": "001",
+      "accountNumber": "1004149",
+      "basicSalary": 130200.00,
+      "currencyId": "string",
+      "idNumber": "123456789",
+      "nextOfKin": "John Doe - Brother - +263771234567",
+      "address": "123 Main Street, Harare, Zimbabwe",
+      "pictureUrl": "https://example.com/employee-photos/employee123.jpg",
+      "isActive": true,
+      "createdAt": "2024-01-15T10:00:00Z",
+      "updatedAt": "2024-01-15T10:00:00Z",
       "user": {
         "firstName": "Mavis",
-        "lastName": "Christopher"
+        "lastName": "Christopher",
+        "email": "mavis@company.com"
+      },
+      "currency": {
+        "code": "USD",
+        "name": "US Dollar",
+        "symbol": "$"
       }
     },
     "payrollRun": {
       "id": "string",
       "name": "March 2024 Payroll",
-      "payPeriod": "March 2024"
+      "payPeriod": "March 2024",
+      "startDate": "2024-03-01T00:00:00Z",
+      "endDate": "2024-03-31T23:59:59Z",
+      "status": "COMPLETED"
     },
     "currency": {
       "code": "USD",
       "name": "US Dollar",
       "symbol": "$"
-    }
+    },
+    "companyName": "National Venture Capital Company of Zimbabwe"
   }
 }
 ```
