@@ -505,8 +505,8 @@ export class BoardReviewService {
         return;
       }
 
-      // Generate a temporary password (user will need to reset it)
-              const tempPassword = "password123";
+      // Generate a secure temporary password
+      const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase();
       
       // Hash password
       const bcrypt = require('bcryptjs');
@@ -572,17 +572,40 @@ export class BoardReviewService {
       console.log(`User ID: ${user.id}, Portfolio Company ID: ${portfolioCompany.id}`);
       console.log(`Temporary password: ${tempPassword}`);
 
+      // Send investment approved and account created email
+      try {
+        const { EmailNotificationService } = await import('../services/EmailNotificationService');
+        await EmailNotificationService.sendInvestmentApprovedAccountCreatedEmail({
+          applicantName: application.applicantName,
+          applicantEmail: application.applicantEmail,
+          businessName: application.businessName,
+          applicationId: application.id,
+          currentStage: 'BOARD_APPROVED',
+          tempPassword: tempPassword
+        });
+        console.log("Investment approved account created email sent successfully", {
+          applicationId: application.id,
+          applicantEmail: application.applicantEmail
+        });
+      } catch (emailError) {
+        console.error("Failed to send investment approved account created email", {
+          applicationId: application.id,
+          error: emailError.message
+        });
+        // Don't fail the account creation if email fails
+      }
+
       // Create notification about account creation
-                      await prisma.applicationNotification.create({
-                  data: {
-                    applicationId: application.id,
-                    recipientEmail: application.applicantEmail,
-                    recipientPhone: application.applicantPhone,
-                    notificationType: "ACCOUNT_CREATED",
-                    title: "Account Created",
-                    message: `Your account has been created successfully. You can now log in to view and sign the term sheet. Your password is: ${tempPassword}. Please change your password after logging in.`
-                  }
-                });
+      await prisma.applicationNotification.create({
+        data: {
+          applicationId: application.id,
+          recipientEmail: application.applicantEmail,
+          recipientPhone: application.applicantPhone,
+          notificationType: "ACCOUNT_CREATED",
+          title: "Account Created",
+          message: `Your account has been created successfully. You can now log in to view and sign the term sheet. Your password is: ${tempPassword}. Please change your password after logging in.`
+        }
+      });
 
     } catch (error: any) {
       console.error(`Failed to create user and portfolio company: ${error.message}`);

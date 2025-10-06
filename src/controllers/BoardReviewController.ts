@@ -1,6 +1,7 @@
 //@ts-nocheck
 import { Request, Response } from 'express';
 import { BoardReviewService, CreateBoardReviewRequest, UpdateBoardReviewRequest } from '../services/BoardReviewService';
+import { EmailNotificationService } from '../services/EmailNotificationService';
 import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 
@@ -48,6 +49,47 @@ export class BoardReviewController {
        };
 
       const boardReview = await BoardReviewService.createBoardReview(boardReviewParams);
+
+      // Send appropriate email notification based on the decision
+      try {
+        let emailMethod;
+        let currentStage;
+        
+        if (investmentApproved) {
+          emailMethod = EmailNotificationService.sendInvestmentDecisionEmail;
+          currentStage = 'BOARD_APPROVED';
+        } else if (investmentRejected) {
+          emailMethod = EmailNotificationService.sendApplicationRejectedEmail;
+          currentStage = 'BOARD_REJECTED';
+        } else if (conditionalApproval) {
+          emailMethod = EmailNotificationService.sendInvestmentDecisionEmail;
+          currentStage = 'BOARD_CONDITIONAL';
+        } else {
+          // If no decision is made yet, send board review started email
+          emailMethod = EmailNotificationService.sendBoardReviewStartedEmail;
+          currentStage = 'UNDER_BOARD_REVIEW';
+        }
+
+        await emailMethod({
+          applicantName: boardReview.application.applicantName,
+          applicantEmail: boardReview.application.applicantEmail,
+          businessName: boardReview.application.businessName,
+          applicationId: boardReview.application.id,
+          currentStage: currentStage
+        });
+        
+        logger.info("Board review decision email sent successfully", {
+          applicationId: boardReview.applicationId,
+          applicantEmail: boardReview.application.applicantEmail,
+          decision: currentStage
+        });
+      } catch (emailError) {
+        logger.error("Failed to send board review decision email", {
+          applicationId: boardReview.applicationId,
+          error: emailError.message
+        });
+        // Don't fail the board review creation if email fails
+      }
 
       logger.info("Board review created successfully", {
         boardReviewId: boardReview.id,
@@ -142,6 +184,28 @@ export class BoardReviewController {
       }
 
       const boardReview = await BoardReviewService.completeBoardReview(applicationId);
+
+      // Send investment decision email notification
+      try {
+        await EmailNotificationService.sendInvestmentDecisionEmail({
+          applicantName: boardReview.application.applicantName,
+          applicantEmail: boardReview.application.applicantEmail,
+          businessName: boardReview.application.businessName,
+          applicationId: boardReview.application.id,
+          currentStage: boardReview.application.currentStage
+        });
+        logger.info("Investment decision email sent successfully", {
+          applicationId: boardReview.applicationId,
+          applicantEmail: boardReview.application.applicantEmail,
+          decision: boardReview.application.currentStage
+        });
+      } catch (emailError) {
+        logger.error("Failed to send investment decision email", {
+          applicationId: boardReview.applicationId,
+          error: emailError.message
+        });
+        // Don't fail the board review completion if email fails
+      }
 
       logger.info("Board review completed successfully", {
         boardReviewId: boardReview.id,

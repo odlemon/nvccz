@@ -611,38 +611,72 @@ export class ApplicationService {
         prisma.application.count({ where })
       ]);
 
-      // Get portfolio company IDs from the applications
-      const portfolioCompanyIds = applications
-        .map(app => app.investmentImplementation?.portfolioCompanyId)
-        .filter(Boolean);
+      // Get applicant emails from applications
+      const applicantEmails = applications.map(app => app.applicantEmail);
 
-      // Fetch portfolio company data separately
-      const portfolioCompanies = portfolioCompanyIds.length > 0 
+      // Find users by applicant emails
+      const users = await prisma.user.findMany({
+        where: {
+          email: {
+            in: applicantEmails
+          }
+        },
+        select: {
+          id: true,
+          email: true
+        }
+      });
+
+      // Create a map of email to user ID
+      const userMap = new Map(users.map(user => [user.email, user.id]));
+
+      // Find portfolio companies for these users
+      const userIds = users.map(user => user.id);
+      const portfolioCompanies = userIds.length > 0 
         ? await prisma.portfolioCompany.findMany({
             where: {
-              id: {
-                in: portfolioCompanyIds
+              userId: {
+                in: userIds
               }
             },
             select: {
               id: true,
-              name: true
+              userId: true,
+              name: true,
+              industry: true,
+              status: true,
+              registrationNumber: true,
+              foundingDate: true,
+              address: true,
+              website: true,
+              description: true,
+              companySize: true,
+              employeeCount: true,
+              annualRevenue: true,
+              fundingStage: true,
+              contactPerson: true,
+              contactPhone: true,
+              contactEmail: true
             }
           })
         : [];
 
-      // Create a map for quick lookup
+      // Create a map for quick lookup by user ID
       const portfolioCompanyMap = new Map(
-        portfolioCompanies.map(pc => [pc.id, pc])
+        portfolioCompanies.map(pc => [pc.userId, pc])
       );
 
       // Attach portfolio company data to applications
-      const applicationsWithPortfolioCompanies = applications.map(app => ({
-        ...app,
-        portfolioCompany: app.investmentImplementation?.portfolioCompanyId 
-          ? portfolioCompanyMap.get(app.investmentImplementation.portfolioCompanyId)
-          : null
-      }));
+      const applicationsWithPortfolioCompanies = applications.map(app => {
+        const userId = userMap.get(app.applicantEmail);
+        const portfolioCompany = userId ? portfolioCompanyMap.get(userId) : null;
+        
+        return {
+          ...app,
+          portfolioCompanyId: portfolioCompany?.id || null,
+          portfolioCompany: portfolioCompany || null
+        };
+      });
 
       return {
         applications: applicationsWithPortfolioCompanies,

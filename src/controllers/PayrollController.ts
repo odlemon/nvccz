@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import { PayrollService } from '../services/PayrollService';
 
 const prisma = new PrismaClient();
@@ -503,22 +504,43 @@ export class PayrollController {
         name,
         code,
         description,
-        isStatutory
+        rate,
+        threshold,
+        ceiling,
+        isStatutory,
+        effectiveDate,
+        endDate,
+        currencyId
       } = req.body;
 
       const createdById = (req as any).user.id;
+
+      // Validate that statutory deductions don't require employee assignment
+      if (isStatutory === true || isStatutory === 'true') {
+        // Statutory deductions apply to ALL employees automatically
+        // No employee assignment needed
+      }
 
       const deductionType = await prisma.deductionTypes.create({
         data: {
           name,
           code,
           description,
+          rate: new Decimal(rate || 0),
+          threshold: threshold ? new Decimal(threshold) : null,
+          ceiling: ceiling ? new Decimal(ceiling) : null,
           isStatutory: isStatutory === 'true' || isStatutory === true,
+          effectiveDate: new Date(effectiveDate),
+          endDate: endDate ? new Date(endDate) : null,
+          currencyId,
           createdById
         },
         include: {
           createdBy: {
             select: { firstName: true, lastName: true, email: true }
+          },
+          currency: {
+            select: { code: true, name: true, symbol: true }
           }
         }
       });
@@ -548,19 +570,299 @@ export class PayrollController {
         include: {
           createdBy: {
             select: { firstName: true, lastName: true, email: true }
+          },
+          currency: {
+            select: { code: true, name: true, symbol: true }
+          },
+          employeeDeductions: {
+            where: { isActive: true },
+            select: {
+              id: true,
+              employeeId: true,
+              amount: true,
+              rate: true,
+              isActive: true,
+              effectiveDate: true,
+              endDate: true,
+              employee: {
+                select: {
+                  id: true,
+                  employeeNumber: true,
+                  user: {
+                    select: {
+                      firstName: true,
+                      lastName: true,
+                      email: true
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       });
 
+      // Clean up the response to only show meaningful employee deduction data
+      const cleanedDeductionTypes = deductionTypes.map(deductionType => ({
+        ...deductionType,
+        employeeDeductions: deductionType.employeeDeductions.map(empDed => {
+          const cleanedEmpDed: any = {
+            id: empDed.id,
+            employeeId: empDed.employeeId,
+            isActive: empDed.isActive,
+            effectiveDate: empDed.effectiveDate,
+            endDate: empDed.endDate,
+            employee: empDed.employee
+          };
+          
+          // Only include amount/rate if they have values (custom overrides)
+          if (empDed.amount) cleanedEmpDed.amount = empDed.amount;
+          if (empDed.rate) cleanedEmpDed.rate = empDed.rate;
+          
+          return cleanedEmpDed;
+        })
+      }));
+
       res.json({
         success: true,
-        data: deductionTypes
+        data: cleanedDeductionTypes
       });
     } catch (error) {
       console.error('Error getting deduction types:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to get deduction types',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Get single deduction type with employees
+   */
+  static async getDeductionType(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const deductionType = await prisma.deductionTypes.findUnique({
+        where: { id },
+        include: {
+          createdBy: {
+            select: { firstName: true, lastName: true, email: true }
+          },
+          currency: {
+            select: { code: true, name: true, symbol: true }
+          },
+          employeeDeductions: {
+            where: { isActive: true },
+            select: {
+              id: true,
+              employeeId: true,
+              amount: true,
+              rate: true,
+              isActive: true,
+              effectiveDate: true,
+              endDate: true,
+              employee: {
+                select: {
+                  id: true,
+                  employeeNumber: true,
+                  user: {
+                    select: {
+                      firstName: true,
+                      lastName: true,
+                      email: true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!deductionType) {
+        return res.status(404).json({
+          success: false,
+          message: 'Deduction type not found'
+        });
+      }
+
+      // Clean up the response to only show meaningful employee deduction data
+      const cleanedDeductionType = {
+        ...deductionType,
+        employeeDeductions: deductionType.employeeDeductions.map(empDed => {
+          const cleanedEmpDed: any = {
+            id: empDed.id,
+            employeeId: empDed.employeeId,
+            isActive: empDed.isActive,
+            effectiveDate: empDed.effectiveDate,
+            endDate: empDed.endDate,
+            employee: empDed.employee
+          };
+          
+          // Only include amount/rate if they have values (custom overrides)
+          if (empDed.amount) cleanedEmpDed.amount = empDed.amount;
+          if (empDed.rate) cleanedEmpDed.rate = empDed.rate;
+          
+          return cleanedEmpDed;
+        })
+      };
+
+      res.json({
+        success: true,
+        data: cleanedDeductionType
+      });
+    } catch (error) {
+      console.error('Error getting deduction type:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get deduction type',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Assign employees to deduction type (Non-Statutory Only)
+   */
+  static async assignEmployeesToDeduction(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { employeeIds, amount, rate } = req.body;
+
+      // Check if deduction type exists and is not statutory
+      const deductionType = await prisma.deductionTypes.findUnique({
+        where: { id }
+      });
+
+      if (!deductionType) {
+        return res.status(404).json({
+          success: false,
+          message: 'Deduction type not found'
+        });
+      }
+
+      if (deductionType.isStatutory) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot assign employees to statutory deductions. Statutory deductions apply to all employees automatically.'
+        });
+      }
+
+      // Create employee deductions
+      const employeeDeductions = [];
+      for (const employeeId of employeeIds) {
+        const employeeDeduction = await prisma.employeeDeduction.create({
+          data: {
+            employeeId,
+            deductionTypeId: id,
+            amount: amount ? new Decimal(amount) : null,
+            rate: rate ? new Decimal(rate) : null, // Only set if custom rate provided
+            effectiveDate: new Date() // Use current date as assignment date
+          },
+          include: {
+            employee: {
+              select: {
+                id: true,
+                employeeNumber: true,
+                user: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            }
+          }
+        });
+        employeeDeductions.push(employeeDeduction);
+      }
+
+      res.json({
+        success: true,
+        message: 'Employees assigned to deduction type successfully',
+        data: employeeDeductions
+      });
+    } catch (error) {
+      console.error('Error assigning employees to deduction:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to assign employees to deduction type',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Remove employees from deduction type (Non-Statutory Only)
+   */
+  static async removeEmployeesFromDeduction(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { employeeIds } = req.body;
+
+      // Check if deduction type exists and is not statutory
+      const deductionType = await prisma.deductionTypes.findUnique({
+        where: { id }
+      });
+
+      if (!deductionType) {
+        return res.status(404).json({
+          success: false,
+          message: 'Deduction type not found'
+        });
+      }
+
+      if (deductionType.isStatutory) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot remove employees from statutory deductions. Statutory deductions apply to all employees automatically.'
+        });
+      }
+
+      // Remove employee deductions
+      const removedCount = await prisma.employeeDeduction.deleteMany({
+        where: {
+          deductionTypeId: id,
+          employeeId: { in: employeeIds }
+        }
+      });
+
+      // Get remaining employees
+      const remainingEmployees = await prisma.employeeDeduction.findMany({
+        where: { deductionTypeId: id },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              employeeNumber: true,
+              user: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      res.json({
+        success: true,
+        message: 'Employees removed from deduction type successfully',
+        data: {
+          removedCount: removedCount.count,
+          remainingEmployees
+        }
+      });
+    } catch (error) {
+      console.error('Error removing employees from deduction:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to remove employees from deduction type',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
@@ -1299,22 +1601,41 @@ export class PayrollController {
         name,
         code,
         description,
+        rate,
+        threshold,
+        ceiling,
         isStatutory,
-        isActive
+        isActive,
+        effectiveDate,
+        endDate,
+        currencyId
       } = req.body;
+
+      const updateData: any = {
+        name,
+        code,
+        description,
+        isStatutory: isStatutory === 'true' || isStatutory === true,
+        isActive: isActive === 'true' || isActive === true
+      };
+
+      // Only update fields that are provided
+      if (rate !== undefined) updateData.rate = new Decimal(rate);
+      if (threshold !== undefined) updateData.threshold = threshold ? new Decimal(threshold) : null;
+      if (ceiling !== undefined) updateData.ceiling = ceiling ? new Decimal(ceiling) : null;
+      if (effectiveDate !== undefined) updateData.effectiveDate = new Date(effectiveDate);
+      if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null;
+      if (currencyId !== undefined) updateData.currencyId = currencyId;
 
       const deductionType = await prisma.deductionTypes.update({
         where: { id },
-        data: {
-          name,
-          code,
-          description,
-          isStatutory: isStatutory !== undefined ? isStatutory : undefined,
-          isActive: isActive !== undefined ? isActive : undefined
-        },
+        data: updateData,
         include: {
           createdBy: {
             select: { firstName: true, lastName: true, email: true }
+          },
+          currency: {
+            select: { code: true, name: true, symbol: true }
           }
         }
       });
