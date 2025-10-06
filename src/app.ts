@@ -71,6 +71,7 @@ import exitInterviewRoutes from "./routes/exitInterviewRoutes"
 import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
+import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 
 
 dotenv.config()
@@ -95,7 +96,8 @@ app.use(cors({
     "http://localhost:3000",
     "http://localhost:3001",
     "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
-    "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io"
+    "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io",
+    "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io"
     
   ],
   credentials: true
@@ -344,6 +346,9 @@ app.use("/api/payroll", payrollRoutes)
 
 // Procurement Management routes
 app.use("/api/procurement", procurementRoutes)
+
+// Approval Workflow routes
+app.use("/api/approval-workflows", approvalWorkflowRoutes)
 
 
 
