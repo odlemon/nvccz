@@ -109,6 +109,13 @@ model User {
   grnsReceived                  GoodsReceivedNote[]   @relation("GRNReceivedBy")
   grnsApproved                  GoodsReceivedNote[]   @relation("GRNApprovedBy")
 
+  // Approval Workflow Relations
+  approvalWorkflowsCreated      ApprovalWorkflow[]
+  approvalStepsAssigned         ApprovalStep[]        @relation("ApprovalStepUser")
+  approvalRequestsRequested     ApprovalRequest[]      @relation("ApprovalRequestedBy")
+  approvalsGiven                Approval[]             @relation("ApprovalApprover")
+  approvalsDelegatedTo          Approval[]             @relation("ApprovalDelegatedTo")
+
   @@map("users")
 }
 
@@ -120,6 +127,7 @@ model Role {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   users       User[]
+  approvalSteps ApprovalStep[] @relation("ApprovalStepRole")
 
   @@map("roles")
 }
@@ -1196,6 +1204,7 @@ model Department {
   goals                PerformanceGoal[]
   dealSourcingGoals    DealSourcingGoal[]
   purchaseRequisitions PurchaseRequisition[] @relation("RequisitionDepartment")
+  approvalSteps        ApprovalStep[]       @relation("ApprovalStepDepartment")
 
   @@map("departments")
 }
@@ -2718,6 +2727,115 @@ model BankFileTemplate {
   createdBy User @relation(fields: [createdById], references: [id])
 
   @@map("bank_file_templates")
+}
+
+// Approval Workflow Models
+model ApprovalWorkflow {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  module      String   // PROCUREMENT, PAYROLL, EXPENSE, etc.
+  entityType  String   // PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, etc.
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  createdBy User              @relation(fields: [createdById], references: [id])
+  steps     ApprovalStep[]
+  requests  ApprovalRequest[]
+
+  @@map("approval_workflows")
+}
+
+model ApprovalStep {
+  id         String   @id @default(cuid())
+  workflowId String
+  workflow   ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  
+  stepNumber Int
+  stepName   String
+  stepType   String // USER, ROLE, DEPARTMENT, AMOUNT_THRESHOLD
+  
+  // Configuration based on stepType
+  userId       String?
+  roleId       String?
+  departmentId String?
+  amountThreshold Decimal? @db.Decimal(15, 2)
+  
+  // Approval settings
+  isRequired    Boolean @default(true)
+  canDelegate   Boolean @default(false)
+  autoApprove   Boolean @default(false)
+  approvalOrder String  @default("SEQUENTIAL") // SEQUENTIAL, PARALLEL
+  
+  // Relations
+  user       User?       @relation("ApprovalStepUser", fields: [userId], references: [id])
+  role       Role?       @relation("ApprovalStepRole", fields: [roleId], references: [id])
+  department Department? @relation("ApprovalStepDepartment", fields: [departmentId], references: [id])
+  approvals  Approval[]
+
+  @@unique([workflowId, stepNumber])
+  @@map("approval_steps")
+}
+
+model ApprovalRequest {
+  id         String   @id @default(cuid())
+  workflowId String
+  workflow   ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  
+  // Entity being approved
+  entityType String // PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, etc.
+  entityId   String
+  entityData Json? // Snapshot of entity data at time of request
+  
+  // Request details
+  requestedById String
+  requestedBy   User     @relation("ApprovalRequestedBy", fields: [requestedById], references: [id])
+  requestDate   DateTime @default(now())
+  
+  // Status tracking
+  status        String   @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  currentStep   Int      @default(1)
+  totalSteps    Int
+  completedAt   DateTime?
+  rejectedAt    DateTime?
+  rejectionReason String? @db.Text
+  
+  // Relations
+  approvals Approval[]
+
+  @@map("approval_requests")
+}
+
+model Approval {
+  id         String   @id @default(cuid())
+  requestId  String
+  request    ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stepId     String
+  step       ApprovalStep @relation(fields: [stepId], references: [id])
+  
+  // Approver details
+  approverId String
+  approver   User     @relation("ApprovalApprover", fields: [approverId], references: [id])
+  
+  // Approval details
+  status     String   @default("PENDING") // PENDING, APPROVED, REJECTED, DELEGATED
+  comments   String?  @db.Text
+  approvedAt DateTime?
+  rejectedAt DateTime?
+  
+  // Delegation
+  delegatedToId String?
+  delegatedTo   User?   @relation("ApprovalDelegatedTo", fields: [delegatedToId], references: [id])
+  delegatedAt   DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([requestId, stepId, approverId])
+  @@map("approvals")
 }
 
 // Enums
