@@ -90,9 +90,34 @@ export class PayrollService {
         orderBy: { effectiveDate: 'desc' }
       });
 
-      // Get active deduction types
-      const deductionTypes = await prisma.deductionTypes.findMany({
-        where: { isActive: true }
+      // Get employee-specific deductions that are effective for the payroll period
+      const employeeDeductions = await prisma.employeeDeduction.findMany({
+        where: {
+          employeeId,
+          isActive: true,
+          effectiveDate: { lte: effectiveDate },
+          OR: [
+            { endDate: null },
+            { endDate: { gte: effectiveDate } }
+          ]
+        },
+        include: { 
+          deductionType: true
+        }
+      });
+
+      // Get statutory deduction types
+      const statutoryDeductionTypes = await prisma.deductionTypes.findMany({
+        where: {
+          isStatutory: true,
+          isActive: true,
+          effectiveDate: { lte: effectiveDate },
+          OR: [
+            { endDate: null },
+            { endDate: { gte: effectiveDate } }
+          ]
+        },
+        orderBy: { effectiveDate: 'desc' }
       });
 
       // Calculate basic salary
@@ -122,10 +147,80 @@ export class PayrollService {
       const grossPay = basicSalary.add(totalAllowances);
 
       // Calculate deductions
+      // Note: Effective date logic ensures deductions are only applied if:
+      // 1. Deduction type is active and effective for the payroll period
+      // 2. Employee deduction assignment is effective for the payroll period
+      // 3. Both effectiveDate <= payrollEndDate AND (endDate is null OR endDate >= payrollEndDate)
       const deductions = [];
       let totalDeductions = new Decimal(0);
 
-      // Calculate statutory deductions (PAYE, NSSA, AIDS Levy)
+      // 1. Employee-specific deductions
+      for (const employeeDeduction of employeeDeductions) {
+        const deductionType = employeeDeduction.deductionType;
+        
+        // Check if deduction type is active and effective
+        const isDeductionTypeEffective = deductionType.isActive && 
+          deductionType.effectiveDate <= effectiveDate && 
+          (deductionType.endDate === null || deductionType.endDate >= effectiveDate);
+        
+        // Check if employee deduction is effective for the payroll period
+        const isEmployeeDeductionEffective = employeeDeduction.effectiveDate <= effectiveDate && 
+          (employeeDeduction.endDate === null || employeeDeduction.endDate >= effectiveDate);
+
+        if (isDeductionTypeEffective && isEmployeeDeductionEffective) {
+          let deductionAmount = new Decimal(0);
+
+          if (employeeDeduction.amount) {
+            // Fixed amount deduction
+            deductionAmount = employeeDeduction.amount;
+          } else {
+            // Percentage-based deduction
+            const rate = employeeDeduction.rate || deductionType.rate;
+            deductionAmount = this.calculatePercentageDeduction(
+              grossPay, 
+              rate, 
+              deductionType.threshold, 
+              deductionType.ceiling
+            );
+          }
+
+          if (deductionAmount.gt(0)) {
+            deductions.push({
+              type: deductionType.name,
+              amount: deductionAmount,
+              isStatutory: false
+            });
+            totalDeductions = totalDeductions.add(deductionAmount);
+          }
+        }
+      }
+
+      // 2. Statutory deductions (applied to ALL employees)
+      for (const deductionType of statutoryDeductionTypes) {
+        // Check if statutory deduction is effective for the payroll period
+        const isStatutoryDeductionEffective = deductionType.effectiveDate <= effectiveDate && 
+          (deductionType.endDate === null || deductionType.endDate >= effectiveDate);
+
+        if (isStatutoryDeductionEffective) {
+          let deductionAmount = this.calculatePercentageDeduction(
+            grossPay,
+            deductionType.rate,
+            deductionType.threshold,
+            deductionType.ceiling
+          );
+
+          if (deductionAmount.gt(0)) {
+            deductions.push({
+              type: deductionType.name,
+              amount: deductionAmount,
+              isStatutory: true
+            });
+            totalDeductions = totalDeductions.add(deductionAmount);
+          }
+        }
+      }
+
+      // 3. Tax rules (PAYE, NSSA, AIDS Levy)
       for (const taxRule of taxRules) {
         // Double-check effective date logic for tax rules
         const isTaxRuleEffective = taxRule.effectiveDate <= effectiveDate && 
@@ -598,6 +693,31 @@ export class PayrollService {
       console.error('Error getting employee payslip:', error);
       throw error;
     }
+  }
+
+  /**
+   * Calculate percentage-based deduction
+   */
+  private static calculatePercentageDeduction(
+    grossPay: Decimal,
+    rate: Decimal,
+    threshold?: Decimal,
+    ceiling?: Decimal
+  ): Decimal {
+    // Check if gross pay meets threshold
+    if (threshold && grossPay.lt(threshold)) {
+      return new Decimal(0);
+    }
+
+    // Calculate percentage
+    let deductionAmount = grossPay.mul(rate).div(100);
+
+    // Apply ceiling if specified
+    if (ceiling && deductionAmount.gt(ceiling)) {
+      deductionAmount = ceiling;
+    }
+
+    return deductionAmount;
   }
 }
 

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { PortfolioCompanyService, CreatePortfolioCompanyRequest, UpdatePortfolioCompanyRequest, CreatePortfolioCompanyByAdminRequest } from "../services/PortfolioCompanyService";
+import { EmailNotificationService } from "../services/EmailNotificationService";
 
 export class PortfolioCompanyController {
   // Create portfolio company with user
@@ -39,6 +40,27 @@ export class PortfolioCompanyController {
       };
 
       const portfolioCompany = await PortfolioCompanyService.createPortfolioCompany(request);
+
+      // Send portfolio company created email notification
+      try {
+        await EmailNotificationService.sendPortfolioCompanyCreatedEmail({
+          applicantName: `${request.firstName} ${request.lastName}`,
+          applicantEmail: request.email,
+          businessName: request.name,
+          applicationId: portfolioCompany.id,
+          currentStage: 'PORTFOLIO_COMPANY_CREATED'
+        });
+        console.log("Portfolio company created email sent successfully", {
+          portfolioCompanyId: portfolioCompany.id,
+          applicantEmail: request.email
+        });
+      } catch (emailError) {
+        console.error("Failed to send portfolio company created email", {
+          portfolioCompanyId: portfolioCompany.id,
+          error: emailError.message
+        });
+        // Don't fail the portfolio company creation if email fails
+      }
 
       res.status(201).json({
         success: true,

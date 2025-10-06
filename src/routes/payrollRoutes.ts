@@ -56,8 +56,13 @@ router.delete('/allowance-types/:id', authenticate, PayrollController.deleteAllo
 // ===== DEDUCTION TYPES MANAGEMENT =====
 router.post('/deduction-types', authenticate, PayrollController.createDeductionType);
 router.get('/deduction-types', authenticate, PayrollController.getDeductionTypes);
+router.get('/deduction-types/:id', authenticate, PayrollController.getDeductionType);
 router.put('/deduction-types/:id', authenticate, PayrollController.updateDeductionType);
 router.delete('/deduction-types/:id', authenticate, PayrollController.deleteDeductionType);
+
+// ===== EMPLOYEE DEDUCTION ASSIGNMENTS (Non-Statutory Only) =====
+router.put('/deduction-types/:id/employees', authenticate, PayrollController.assignEmployeesToDeduction);
+router.delete('/deduction-types/:id/employees', authenticate, PayrollController.removeEmployeesFromDeduction);
 
 // ===== BANK FILE TEMPLATES MANAGEMENT =====
 router.post('/bank-templates', authenticate, PayrollController.createBankFileTemplate);

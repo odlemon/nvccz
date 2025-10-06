@@ -1,6 +1,10 @@
 //@ts-nocheck
 import { Request, Response } from 'express';
+import { EmailNotificationService } from '../services/EmailNotificationService';
 import { InvestmentImplementationService } from '../services/InvestmentImplementationService';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 export class InvestmentImplementationController {
   /**
@@ -41,6 +45,40 @@ export class InvestmentImplementationController {
         implementationPlan,
         notes
       });
+
+      // Send investment implementation started email notification
+      try {
+        // Get application details for email
+        const application = await prisma.application.findUnique({
+          where: { id: applicationId },
+          select: {
+            applicantName: true,
+            applicantEmail: true,
+            businessName: true,
+            id: true
+          }
+        });
+
+        if (application) {
+          await EmailNotificationService.sendInvestmentImplementationStartedEmail({
+            applicantName: application.applicantName,
+            applicantEmail: application.applicantEmail,
+            businessName: application.businessName,
+            applicationId: application.id,
+            currentStage: 'INVESTMENT_IMPLEMENTATION'
+          });
+          console.log("Investment implementation started email sent successfully", {
+            applicationId: application.id,
+            applicantEmail: application.applicantEmail
+          });
+        }
+      } catch (emailError) {
+        console.error("Failed to send investment implementation started email", {
+          applicationId,
+          error: emailError.message
+        });
+        // Don't fail the implementation initiation if email fails
+      }
 
       res.status(201).json({
         success: true,
@@ -238,6 +276,48 @@ export class InvestmentImplementationController {
         disbursedById,
         transactionReference
       );
+
+      // Send disbursement completed email notification
+      try {
+        // Get application details for email through investment implementation
+        const investmentImplementation = await prisma.investmentImplementation.findUnique({
+          where: { id: disbursement.investmentImplementationId },
+          select: {
+            application: {
+              select: {
+                applicantName: true,
+                applicantEmail: true,
+                businessName: true,
+                id: true,
+                currentStage: true
+              }
+            }
+          }
+        });
+
+        const application = investmentImplementation?.application;
+
+        if (application) {
+          await EmailNotificationService.sendDisbursementCompletedEmail({
+            applicantName: application.applicantName,
+            applicantEmail: application.applicantEmail,
+            businessName: application.businessName,
+            applicationId: application.id,
+            currentStage: application.currentStage,
+            disbursementAmount: disbursement.amount.toNumber(),
+            transactionReference: transactionReference
+          });
+          console.log("Disbursement completed email sent successfully", {
+            applicationId: application.id,
+            applicantEmail: application.applicantEmail
+          });
+        }
+      } catch (emailError) {
+        console.error("Failed to send disbursement completed email", {
+          disbursementId,
+          error: emailError.message
+        });
+      }
 
       res.status(200).json({
         success: true,

@@ -1,6 +1,7 @@
 //@ts-nocheck
 import { Request, Response } from 'express';
 import { TermSheetService, CreateTermSheetRequest, UpdateTermSheetRequest } from '../services/TermSheetService';
+import { EmailNotificationService } from '../services/EmailNotificationService';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -30,6 +31,40 @@ export class TermSheetController {
       };
 
       const termSheet = await TermSheetService.createTermSheet(termSheetData);
+
+      // Send term sheet created email notification
+      try {
+        // Get application details for email
+        const application = await prisma.application.findUnique({
+          where: { id: applicationId },
+          select: {
+            applicantName: true,
+            applicantEmail: true,
+            businessName: true,
+            id: true
+          }
+        });
+
+        if (application) {
+          await EmailNotificationService.sendTermSheetCreatedEmail({
+            applicantName: application.applicantName,
+            applicantEmail: application.applicantEmail,
+            businessName: application.businessName,
+            applicationId: application.id,
+            currentStage: 'TERM_SHEET_CREATED'
+          });
+          console.log("Term sheet created email sent successfully", {
+            applicationId: application.id,
+            applicantEmail: application.applicantEmail
+          });
+        }
+      } catch (emailError) {
+        console.error("Failed to send term sheet created email", {
+          applicationId,
+          error: emailError.message
+        });
+        // Don't fail the term sheet creation if email fails
+      }
 
       res.status(201).json({
         success: true,
@@ -169,6 +204,27 @@ export class TermSheetController {
       }
 
       const termSheet = await TermSheetService.signTermSheet(applicationId);
+
+      // Send term sheet approved email notification
+      try {
+        await EmailNotificationService.sendTermSheetApprovedEmail({
+          applicantName: application.applicantName,
+          applicantEmail: application.applicantEmail,
+          businessName: application.businessName,
+          applicationId: application.id,
+          currentStage: 'TERM_SHEET_APPROVED'
+        });
+        console.log("Term sheet approved email sent successfully", {
+          applicationId: application.id,
+          applicantEmail: application.applicantEmail
+        });
+      } catch (emailError) {
+        console.error("Failed to send term sheet approved email", {
+          applicationId,
+          error: emailError.message
+        });
+        // Don't fail the term sheet signing if email fails
+      }
 
       res.status(200).json({
         success: true,

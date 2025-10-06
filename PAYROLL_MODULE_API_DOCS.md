@@ -11,6 +11,20 @@ The Payroll Module is a comprehensive, dynamic payroll management system designe
 - **Employee Portal**: Self-service payslip access
 - **Flexible Allowances & Deductions**: Customizable salary components
 
+## 📊 **Payroll Components**
+
+### **Deductions (Non-Tax Items)**
+- **Pension Fund**: Employee retirement contributions
+- **Health Insurance**: Medical coverage premiums
+- **Union Dues**: Membership fees
+- **Employee Loans**: Salary advances
+- **Savings Schemes**: Voluntary savings
+
+### **Tax Rules (Government Taxes)**
+- **PAYE**: Pay As You Earn tax
+- **NSSA**: National Social Security Authority
+- **AIDS Levy**: Health levy for all employees
+
 ---
 
 ## 📋 **API Endpoints**
@@ -528,6 +542,12 @@ GET /api/payroll/allowance-types
 
 ### **7. Deduction Types Management**
 
+> **📝 Important Distinction:**
+> - **Deductions** = Non-tax items (Pension, Health Insurance, Union Dues, Loans, Advances)
+> - **Tax Rules** = Government taxes (PAYE, NSSA, AIDS Levy)
+> 
+> Deductions are separate from tax rules and are calculated before tax rules are applied.
+
 #### **Create Deduction Type**
 ```http
 POST /api/payroll/deduction-types
@@ -536,10 +556,15 @@ POST /api/payroll/deduction-types
 **Request Body:**
 ```json
 {
-  "name": "Union Dues",
-  "code": "UNION",
-  "description": "Monthly union membership dues",
-  "isStatutory": false
+  "name": "Pension Fund",
+  "code": "PENSION",
+  "description": "Employee pension fund contribution",
+  "rate": 5.0,                    // 5% of gross pay
+  "threshold": 1000.00,           // Only if gross > $1000
+  "ceiling": 2000.00,             // Max $2000 deduction
+  "isStatutory": false,           // Not statutory
+  "effectiveDate": "2024-01-01T00:00:00Z",
+  "currencyId": "string"
 }
 ```
 
@@ -550,14 +575,25 @@ POST /api/payroll/deduction-types
   "message": "Deduction type created successfully",
   "data": {
     "id": "string",
-    "name": "Union Dues",
-    "code": "UNION",
-    "description": "Monthly union membership dues",
+    "name": "Pension Fund",
+    "code": "PENSION",
+    "description": "Employee pension fund contribution",
+    "rate": 5.0,
+    "threshold": 1000.00,
+    "ceiling": 2000.00,
     "isStatutory": false,
     "isActive": true,
+    "effectiveDate": "2024-01-01T00:00:00Z",
+    "endDate": null,
+    "currencyId": "string",
     "createdById": "string",
     "createdAt": "2024-01-15T10:00:00Z",
     "updatedAt": "2024-01-15T10:00:00Z",
+    "currency": {
+      "code": "USD",
+      "name": "US Dollar",
+      "symbol": "$"
+    },
     "createdBy": {
       "firstName": "Admin",
       "lastName": "User",
@@ -572,6 +608,59 @@ POST /api/payroll/deduction-types
 GET /api/payroll/deduction-types
 ```
 
+#### **Get Single Deduction Type**
+```http
+GET /api/payroll/deduction-types/{id}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "string",
+    "name": "Pension Fund",
+    "code": "PENSION",
+    "description": "Employee pension fund contribution",
+    "rate": 5.0,
+    "threshold": 1000.00,
+    "ceiling": 2000.00,
+    "isStatutory": false,
+    "isActive": true,
+    "effectiveDate": "2024-01-01T00:00:00Z",
+    "currency": {
+      "code": "USD",
+      "name": "US Dollar",
+      "symbol": "$"
+    },
+    "createdBy": {
+      "firstName": "Admin",
+      "lastName": "User",
+      "email": "admin@company.com"
+    },
+    "employeeDeductions": [
+      {
+        "id": "string",
+        "employeeId": "emp123",
+        "amount": null,
+        "rate": null,
+        "isActive": true,
+        "effectiveDate": "2024-01-01T00:00:00Z",
+        "employee": {
+          "id": "emp123",
+          "employeeNumber": "EMP001",
+          "user": {
+            "firstName": "John",
+            "lastName": "Doe",
+            "email": "john.doe@company.com"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
 **Response:**
 ```json
 {
@@ -579,18 +668,153 @@ GET /api/payroll/deduction-types
   "data": [
     {
       "id": "string",
-      "name": "Union Dues",
-      "code": "UNION",
-      "description": "Monthly union membership dues",
+      "name": "Pension Fund",
+      "code": "PENSION",
+      "description": "Employee pension fund contribution",
+      "rate": 5.0,
+      "threshold": 1000.00,
+      "ceiling": 2000.00,
       "isStatutory": false,
       "isActive": true,
+      "effectiveDate": "2024-01-01T00:00:00Z",
+      "currency": {
+        "code": "USD",
+        "name": "US Dollar",
+        "symbol": "$"
+      },
       "createdBy": {
         "firstName": "Admin",
         "lastName": "User",
         "email": "admin@company.com"
+      },
+      "employeeDeductions": [
+        {
+          "id": "string",
+          "employeeId": "emp123",
+          "amount": null,
+          "rate": null,
+          "isActive": true,
+          "effectiveDate": "2024-01-01T00:00:00Z",
+          "employee": {
+            "id": "emp123",
+            "employeeNumber": "EMP001",
+            "user": {
+              "firstName": "John",
+              "lastName": "Doe",
+              "email": "john.doe@company.com"
+            }
+          }
+        },
+        {
+          "id": "string",
+          "employeeId": "emp456",
+          "amount": 100.00,
+          "rate": null,
+          "isActive": true,
+          "effectiveDate": "2024-01-01T00:00:00Z",
+          "employee": {
+            "id": "emp456",
+            "employeeNumber": "EMP002",
+            "user": {
+              "firstName": "Jane",
+              "lastName": "Smith",
+              "email": "jane.smith@company.com"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### **Assign Employees to Deduction Type**
+```http
+PUT /api/payroll/deduction-types/{deductionTypeId}/employees
+```
+
+**Note:** This endpoint only works for non-statutory deductions. Statutory deductions apply to all employees automatically.
+
+**Request Body:**
+```json
+{
+  "employeeIds": ["emp123", "emp456", "emp789"],
+}
+```
+
+**Note:** 
+- The deduction type's `effectiveDate` is used for when the deduction applies
+- If `amount` is provided, it will be used as a fixed deduction amount
+- If `rate` is provided, it will override the deduction type's default rate for these employees
+- If neither is provided, the deduction type's default rate will be used
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Employees assigned to deduction type successfully",
+  "data": [
+    {
+      "id": "string",
+      "employeeId": "emp123",
+      "deductionTypeId": "string",
+      "amount": 100.00,
+      "rate": 2.5,
+      "isActive": true,
+      "effectiveDate": "2024-01-01T00:00:00Z",
+      "employee": {
+        "id": "emp123",
+        "employeeNumber": "EMP001",
+        "user": {
+          "firstName": "John",
+          "lastName": "Doe"
+        }
       }
     }
   ]
+}
+```
+
+**Error Response (Statutory Deduction):**
+```json
+{
+  "success": false,
+  "message": "Cannot assign employees to statutory deductions. Statutory deductions apply to all employees automatically."
+}
+```
+
+#### **Remove Employees from Deduction Type**
+```http
+DELETE /api/payroll/deduction-types/{deductionTypeId}/employees
+```
+
+**Note:** This endpoint only works for non-statutory deductions. Statutory deductions apply to all employees automatically.
+
+**Request Body:**
+```json
+{
+  "employeeIds": ["emp123", "emp456"]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Employees removed from deduction type successfully",
+  "data": {
+    "removedCount": 2,
+    "remainingEmployees": [
+      {
+        "id": "emp789",
+        "employeeNumber": "EMP003",
+        "user": {
+          "firstName": "Jane",
+          "lastName": "Smith"
+        }
+      }
+    ]
+  }
 }
 ```
 
@@ -765,7 +989,39 @@ curl -X POST http://localhost:3000/api/payroll/allowance-types \
 
 #### **Create Default Deduction Types**
 ```bash
-# Union Dues
+# Pension Fund (Employee-Specific)
+curl -X POST http://localhost:3000/api/payroll/deduction-types \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Pension Fund",
+    "code": "PENSION",
+    "description": "Employee pension fund contribution",
+    "rate": 5.0,
+    "threshold": 1000.00,
+    "ceiling": 2000.00,
+    "isStatutory": false,
+    "effectiveDate": "2024-01-01T00:00:00Z",
+    "currencyId": "USD_CURRENCY_ID"
+  }'
+
+# Health Insurance (Employee-Specific)
+curl -X POST http://localhost:3000/api/payroll/deduction-types \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Health Insurance",
+    "code": "HEALTH",
+    "description": "Employee health insurance premium",
+    "rate": 2.5,
+    "threshold": 500.00,
+    "ceiling": 1500.00,
+    "isStatutory": false,
+    "effectiveDate": "2024-01-01T00:00:00Z",
+    "currencyId": "USD_CURRENCY_ID"
+  }'
+
+# Union Dues (Employee-Specific)
 curl -X POST http://localhost:3000/api/payroll/deduction-types \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
@@ -773,18 +1029,26 @@ curl -X POST http://localhost:3000/api/payroll/deduction-types \
     "name": "Union Dues",
     "code": "UNION",
     "description": "Monthly union membership dues",
-    "isStatutory": false
+    "rate": 2.0,
+    "threshold": 1000.00,
+    "ceiling": 500.00,
+    "isStatutory": false,
+    "effectiveDate": "2024-01-01T00:00:00Z",
+    "currencyId": "USD_CURRENCY_ID"
   }'
 
-# Absent Deduction
+# AIDS Levy (Statutory - Applies to All)
 curl -X POST http://localhost:3000/api/payroll/deduction-types \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Absent Deduction",
-    "code": "ABSENT",
-    "description": "Deduction for absent days",
-    "isStatutory": false
+    "name": "AIDS Levy",
+    "code": "AIDS_LEVY",
+    "description": "Mandatory AIDS levy for all employees",
+    "rate": 3.0,
+    "isStatutory": true,
+    "effectiveDate": "2024-01-01T00:00:00Z",
+    "currencyId": "USD_CURRENCY_ID"
   }'
 ```
 
@@ -813,6 +1077,14 @@ curl -X POST http://localhost:3000/api/payroll/bank-templates \
 
 ## 📊 **Payroll Calculation Example**
 
+### **Effective Date Logic**
+The payroll system uses effective dates to ensure deductions are only applied when they are active:
+
+- **Deduction Type Effective Date**: When the deduction type becomes active
+- **Employee Assignment Effective Date**: When the deduction is assigned to an employee
+- **End Date**: When the deduction expires (null = never expires)
+- **Payroll Period**: Only deductions effective during the payroll period are applied
+
 ### **Sample Employee Data**
 - **Basic Salary**: $130,200.00
 - **Housing Allowance**: $54,250.00
@@ -824,11 +1096,19 @@ curl -X POST http://localhost:3000/api/payroll/bank-templates \
 
 ### **Calculation Results**
 - **Total Earnings**: $242,445.39
-- **PAYE**: $51,100.00
-- **NSSA**: $9,765.00
-- **AIDS Levy**: $7,273.36
-- **Union Dues**: $4,340.00
-- **Absent Deduction**: $4,173.08
+
+**Deductions (Non-Tax):**
+- **Employee-Specific Deductions**:
+  - **Union Dues**: $4,340.00 (2% of gross)
+  - **Pension Fund**: $2,000.00 (fixed amount)
+  - **Health Insurance**: $1,500.00 (fixed amount)
+- **Statutory Deductions**:
+  - **AIDS Levy**: $7,273.36 (3% of gross)
+
+**Tax Rules (Government Taxes):**
+- **PAYE**: $51,100.00 (20% of gross)
+- **NSSA**: $9,765.00 (3% of gross)
+
 - **Total Deductions**: $76,651.44
 - **Net Pay**: $165,793.95
 

@@ -1,6 +1,7 @@
 //@ts-nocheck
 import { Request, Response } from 'express';
 import { DueDiligenceService } from '../services/DueDiligenceService';
+import { EmailNotificationService } from '../services/EmailNotificationService';
 import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 
@@ -27,6 +28,27 @@ export class DueDiligenceController {
         applicationId: id,
         reviewerId: userId
       });
+
+      // Send due diligence started email notification
+      try {
+        await EmailNotificationService.sendDueDiligenceStartedEmail({
+          applicantName: dueDiligence.application.applicantName,
+          applicantEmail: dueDiligence.application.applicantEmail,
+          businessName: dueDiligence.application.businessName,
+          applicationId: dueDiligence.application.id,
+          currentStage: 'UNDER_DUE_DILIGENCE'
+        });
+        logger.info("Due diligence started email sent successfully", {
+          applicationId: id,
+          applicantEmail: dueDiligence.application.applicantEmail
+        });
+      } catch (emailError) {
+        logger.error("Failed to send due diligence started email", {
+          applicationId: id,
+          error: emailError.message
+        });
+        // Don't fail the due diligence initiation if email fails
+      }
 
       logger.info("Due diligence initiated", {
         applicationId: id,
@@ -113,6 +135,27 @@ export class DueDiligenceController {
       }
 
       const dueDiligence = await DueDiligenceService.completeDueDiligence(id);
+
+      // Send due diligence completed email notification
+      try {
+        await EmailNotificationService.sendDueDiligenceCompletedEmail({
+          applicantName: dueDiligence.application.applicantName,
+          applicantEmail: dueDiligence.application.applicantEmail,
+          businessName: dueDiligence.application.businessName,
+          applicationId: dueDiligence.application.id,
+          currentStage: 'DUE_DILIGENCE_COMPLETED'
+        });
+        logger.info("Due diligence completed email sent successfully", {
+          applicationId: id,
+          applicantEmail: dueDiligence.application.applicantEmail
+        });
+      } catch (emailError) {
+        logger.error("Failed to send due diligence completed email", {
+          applicationId: id,
+          error: emailError.message
+        });
+        // Don't fail the due diligence completion if email fails
+      }
 
       logger.info("Due diligence completed", {
         applicationId: id,
