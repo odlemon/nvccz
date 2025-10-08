@@ -1446,4 +1446,255 @@ export class EmailNotificationService {
       </html>
     `;
   }
+
+  /**
+   * Send payslip email to employee
+   */
+  static async sendPayslipEmail(payslipData: any): Promise<void> {
+    try {
+      const subject = `Your Payslip - ${payslipData.payrollRun.payPeriod} - NVCCZ`;
+      const htmlContent = this.getPayslipTemplate(payslipData);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Payroll Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: payslipData.employee.user.email,
+              name: `${payslipData.employee.user.firstName} ${payslipData.employee.user.lastName}`
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`Payslip email sent to ${payslipData.employee.user.email}`);
+    } catch (error) {
+      console.error("Error sending payslip email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get payslip email template
+   */
+  private static getPayslipTemplate(data: any): string {
+    const { employee, payrollRun, grossPay, totalDeductions, netPay, currency, companyName } = data;
+    const employeeName = `${employee.user.firstName} ${employee.user.lastName}`;
+    const currencySymbol = currency?.symbol || currency?.code || '$';
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Payslip</title>
+        <style>
+          body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+          }
+          .container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+            padding: 30px;
+            text-align: center;
+          }
+          .header h1 {
+            margin: 0;
+            font-size: 28px;
+          }
+          .header h2 {
+            margin: 10px 0 0 0;
+            font-size: 18px;
+            font-weight: normal;
+          }
+          .content {
+            padding: 30px;
+          }
+          .payslip-info {
+            margin-bottom: 30px;
+          }
+          .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+          }
+          .info-item {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+          }
+          .info-item strong {
+            display: block;
+            color: #667eea;
+            margin-bottom: 5px;
+            font-size: 12px;
+            text-transform: uppercase;
+          }
+          .info-item span {
+            font-size: 16px;
+            color: #333;
+          }
+          .earnings-section, .deductions-section {
+            margin-top: 30px;
+          }
+          .section-title {
+            background-color: #667eea;
+            color: #ffffff;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: bold;
+          }
+          .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+          }
+          .summary-table td {
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+          }
+          .summary-table td:first-child {
+            font-weight: 500;
+          }
+          .summary-table td:last-child {
+            text-align: right;
+            font-weight: bold;
+          }
+          .total-row {
+            background-color: #f8f9fa;
+            font-size: 18px;
+          }
+          .net-pay-row {
+            background-color: #667eea;
+            color: #ffffff;
+            font-size: 20px;
+          }
+          .amount {
+            color: #667eea;
+            font-weight: bold;
+          }
+          .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+          }
+          @media only screen and (max-width: 600px) {
+            .info-grid {
+              grid-template-columns: 1fr;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>💼 Payslip</h1>
+            <h2>${payrollRun.payPeriod}</h2>
+          </div>
+          <div class="content">
+            <div class="payslip-info">
+              <h3>Employee Information</h3>
+              <div class="info-grid">
+                <div class="info-item">
+                  <strong>Employee Name</strong>
+                  <span>${employeeName}</span>
+                </div>
+                <div class="info-item">
+                  <strong>Employee Number</strong>
+                  <span>${employee.employeeNumber}</span>
+                </div>
+                <div class="info-item">
+                  <strong>Email</strong>
+                  <span>${employee.user.email}</span>
+                </div>
+                <div class="info-item">
+                  <strong>Pay Period</strong>
+                  <span>${payrollRun.payPeriod}</span>
+                </div>
+                <div class="info-item">
+                  <strong>Payment Date</strong>
+                  <span>${new Date(payrollRun.endDate).toLocaleDateString()}</span>
+                </div>
+                <div class="info-item">
+                  <strong>Company</strong>
+                  <span>${companyName}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="earnings-section">
+              <div class="section-title">💰 Earnings</div>
+              <table class="summary-table">
+                <tr>
+                  <td>Basic Salary</td>
+                  <td>${currencySymbol}${employee.basicSalary.toLocaleString()}</td>
+                </tr>
+                <tr class="total-row">
+                  <td>Gross Pay</td>
+                  <td>${currencySymbol}${grossPay.toLocaleString()}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div class="deductions-section">
+              <div class="section-title">📉 Deductions</div>
+              <table class="summary-table">
+                <tr>
+                  <td>Total Deductions</td>
+                  <td>${currencySymbol}${totalDeductions.toLocaleString()}</td>
+                </tr>
+              </table>
+            </div>
+
+            <table class="summary-table" style="margin-top: 30px;">
+              <tr class="net-pay-row">
+                <td>Net Pay</td>
+                <td>${currencySymbol}${netPay.toLocaleString()}</td>
+              </tr>
+            </table>
+
+            <div style="margin-top: 30px; padding: 15px; background-color: #fff3cd; border-left: 4px solid #ffc107; border-radius: 5px;">
+              <p style="margin: 0;"><strong>📍 Bank Details:</strong></p>
+              <p style="margin: 5px 0 0 0;">
+                Bank: ${employee.bankName || 'Not provided'}<br>
+                Account Number: ${employee.accountNumber || 'Not provided'}<br>
+                Branch Code: ${employee.branchCode || 'Not provided'}
+              </p>
+            </div>
+
+            <p style="margin-top: 30px; font-size: 14px; color: #666;">
+              <strong>Note:</strong> This is a computer-generated payslip. For any queries or concerns, please contact the HR department.
+            </p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+            <p>© 2024 ${companyName}. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }

@@ -72,6 +72,7 @@ import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
+import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
 
 
 dotenv.config()
@@ -350,6 +351,9 @@ app.use("/api/procurement", procurementRoutes)
 
 // Approval Workflow routes
 app.use("/api/approval-workflows", approvalWorkflowRoutes)
+
+// Procurement Approval Configuration routes
+app.use("/api/procurement-approval-configs", procurementApprovalConfigRoutes)
 
 
 
