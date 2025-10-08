@@ -110,8 +110,8 @@ model User {
   grnsApproved                  GoodsReceivedNote[]   @relation("GRNApprovedBy")
 
   // Approval Workflow Relations
-  approvalWorkflowsCreated      ApprovalWorkflow[]
-  approvalStepsAssigned         ApprovalStep[]        @relation("ApprovalStepUser")
+  procurementApprovalConfigsCreated ProcurementApprovalConfig[]
+  approvalStagesAssigned         ProcurementApprovalStage[] @relation("ApprovalStageUser")
   approvalRequestsRequested     ApprovalRequest[]      @relation("ApprovalRequestedBy")
   approvalsGiven                Approval[]             @relation("ApprovalApprover")
   approvalsDelegatedTo          Approval[]             @relation("ApprovalDelegatedTo")
@@ -127,7 +127,7 @@ model Role {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   users       User[]
-  approvalSteps ApprovalStep[] @relation("ApprovalStepRole")
+  approvalStages ProcurementApprovalStage[] @relation("ApprovalStageRole")
 
   @@map("roles")
 }
@@ -1204,7 +1204,7 @@ model Department {
   goals                PerformanceGoal[]
   dealSourcingGoals    DealSourcingGoal[]
   purchaseRequisitions PurchaseRequisition[] @relation("RequisitionDepartment")
-  approvalSteps        ApprovalStep[]       @relation("ApprovalStepDepartment")
+  approvalStages       ProcurementApprovalStage[] @relation("ApprovalStageDepartment")
 
   @@map("departments")
 }
@@ -2729,13 +2729,11 @@ model BankFileTemplate {
   @@map("bank_file_templates")
 }
 
-// Approval Workflow Models
-model ApprovalWorkflow {
+// Procurement Approval Configuration
+model ProcurementApprovalConfig {
   id          String   @id @default(cuid())
   name        String
   description String?  @db.Text
-  module      String   // PROCUREMENT, PAYROLL, EXPENSE, etc.
-  entityType  String   // PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, etc.
   isActive    Boolean  @default(true)
   createdById String
   createdAt   DateTime @default(now())
@@ -2743,20 +2741,22 @@ model ApprovalWorkflow {
 
   // Relations
   createdBy User              @relation(fields: [createdById], references: [id])
-  steps     ApprovalStep[]
+  stages    ProcurementApprovalStage[]
   requests  ApprovalRequest[]
 
-  @@map("approval_workflows")
+  @@map("procurement_approval_configs")
 }
 
-model ApprovalStep {
+model ProcurementApprovalStage {
   id         String   @id @default(cuid())
-  workflowId String
-  workflow   ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  configId   String
+  config     ProcurementApprovalConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
   
-  stepNumber Int
+  // Stage identification
+  stageType  String   // PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, GRN
+  stepNumber Int      // Step number within this stage
   stepName   String
-  stepType   String // USER, ROLE, DEPARTMENT, AMOUNT_THRESHOLD
+  stepType   String   // USER, ROLE, DEPARTMENT, AMOUNT_THRESHOLD
   
   // Configuration based on stepType
   userId       String?
@@ -2771,22 +2771,22 @@ model ApprovalStep {
   approvalOrder String  @default("SEQUENTIAL") // SEQUENTIAL, PARALLEL
   
   // Relations
-  user       User?       @relation("ApprovalStepUser", fields: [userId], references: [id])
-  role       Role?       @relation("ApprovalStepRole", fields: [roleId], references: [id])
-  department Department? @relation("ApprovalStepDepartment", fields: [departmentId], references: [id])
+  user       User?       @relation("ApprovalStageUser", fields: [userId], references: [id])
+  role       Role?       @relation("ApprovalStageRole", fields: [roleId], references: [id])
+  department Department? @relation("ApprovalStageDepartment", fields: [departmentId], references: [id])
   approvals  Approval[]
 
-  @@unique([workflowId, stepNumber])
-  @@map("approval_steps")
+  @@unique([configId, stageType, stepNumber])
+  @@map("procurement_approval_stages")
 }
 
 model ApprovalRequest {
   id         String   @id @default(cuid())
-  workflowId String
-  workflow   ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  configId   String
+  config     ProcurementApprovalConfig @relation(fields: [configId], references: [id])
   
   // Entity being approved
-  entityType String // PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, etc.
+  stageType  String // PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, GRN
   entityId   String
   entityData Json? // Snapshot of entity data at time of request
   
@@ -2813,8 +2813,8 @@ model Approval {
   id         String   @id @default(cuid())
   requestId  String
   request    ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  stepId     String
-  step       ApprovalStep @relation(fields: [stepId], references: [id])
+  stageId    String
+  stage      ProcurementApprovalStage @relation(fields: [stageId], references: [id])
   
   // Approver details
   approverId String
@@ -2831,12 +2831,16 @@ model Approval {
   delegatedTo   User?   @relation("ApprovalDelegatedTo", fields: [delegatedToId], references: [id])
   delegatedAt   DateTime?
   
+  // Signature (simple base64 image)
+  signatureData String? @db.Text // Base64 signature image
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([requestId, stepId, approverId])
+  @@unique([requestId, stageId, approverId])
   @@map("approvals")
 }
+
 
 // Enums
 enum PayrollStatus {

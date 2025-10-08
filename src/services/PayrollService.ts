@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { EmailNotificationService } from './EmailNotificationService';
 
 const prisma = new PrismaClient();
 
@@ -133,13 +134,21 @@ export class PayrollService {
           (salaryStructure.endDate === null || salaryStructure.endDate >= effectiveDate);
 
         if (isEffective) {
+          // Currency conversion for allowances
+          let allowanceAmount = salaryStructure.amount;
+          
+          // If allowance has different currency than payroll currency, convert it
+          if (salaryStructure.currencyId && salaryStructure.currencyId !== currencyId) {
+            allowanceAmount = this.convertCurrency(salaryStructure.amount, salaryStructure.currencyId, currencyId);
+          }
+
           const allowance = {
             type: salaryStructure.allowanceType.name,
-            amount: salaryStructure.amount,
+            amount: allowanceAmount,
             isTaxable: salaryStructure.allowanceType.isTaxable
           };
           allowances.push(allowance);
-          totalAllowances = totalAllowances.add(salaryStructure.amount);
+          totalAllowances = totalAllowances.add(allowanceAmount);
         }
       }
 
@@ -171,8 +180,13 @@ export class PayrollService {
           let deductionAmount = new Decimal(0);
 
           if (employeeDeduction.amount) {
-            // Fixed amount deduction
+            // Fixed amount deduction - apply currency conversion if needed
             deductionAmount = employeeDeduction.amount;
+            
+            // If deduction type has different currency than payroll currency, convert it
+            if (deductionType.currencyId && deductionType.currencyId !== currencyId) {
+              deductionAmount = this.convertCurrency(employeeDeduction.amount, deductionType.currencyId, currencyId);
+            }
           } else {
             // Percentage-based deduction
             const rate = employeeDeduction.rate || deductionType.rate;
@@ -468,6 +482,14 @@ export class PayrollService {
           }
         });
 
+        // Send payslip email to employee
+        try {
+          await this.sendPayslipEmail(employee.id, payrollRunId);
+        } catch (emailError) {
+          console.error(`Failed to send payslip email to ${employee.id}:`, emailError);
+          // Continue processing even if email fails
+        }
+
         totalGrossPay = totalGrossPay.add(calculation.grossPay);
         totalDeductions = totalDeductions.add(calculation.totalDeductions);
         totalNetPay = totalNetPay.add(calculation.netPay);
@@ -718,6 +740,90 @@ export class PayrollService {
     }
 
     return deductionAmount;
+  }
+
+  /**
+   * Send payslip email to employee
+   */
+  private static async sendPayslipEmail(employeeId: string, payrollRunId: string): Promise<void> {
+    try {
+      // Fetch payslip data with all required information
+      const payslip = await prisma.payslip.findUnique({
+        where: {
+          employeeId_payrollRunId: {
+            employeeId,
+            payrollRunId
+          }
+        },
+        include: {
+          employee: {
+            include: {
+              user: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              },
+              currency: true
+            }
+          },
+          payrollRun: true,
+          currency: true
+        }
+      });
+
+      if (!payslip) {
+        throw new Error('Payslip not found');
+      }
+
+      // Transform the payslip data for email template
+      const payslipData = {
+        id: payslip.id,
+        employeeId: payslip.employeeId,
+        payrollRunId: payslip.payrollRunId,
+        grossPay: payslip.grossPay,
+        totalDeductions: payslip.totalDeductions,
+        netPay: payslip.netPay,
+        currencyId: payslip.currencyId,
+        createdAt: payslip.createdAt,
+        updatedAt: payslip.updatedAt,
+        employee: payslip.employee,
+        payrollRun: payslip.payrollRun,
+        currency: payslip.currency,
+        companyName: "National Venture Capital Company of Zimbabwe"
+      };
+
+      // Send the email
+      await EmailNotificationService.sendPayslipEmail(payslipData);
+
+      console.log(`Payslip email sent successfully to ${payslip.employee.user.email}`);
+    } catch (error) {
+      console.error('Error sending payslip email:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Convert currency using hardcoded exchange rate
+   * For now, using 1:40 rate where 1 payroll currency = 40 other currency
+   */
+  private static convertCurrency(
+    amount: Decimal,
+    fromCurrencyId: string,
+    toCurrencyId: string
+  ): Decimal {
+    // If same currency, no conversion needed
+    if (fromCurrencyId === toCurrencyId) {
+      return amount;
+    }
+
+    // Hardcoded exchange rate: 1 payroll currency = 40 other currency
+    // This means if we have 40 in other currency, we convert to 1 in payroll currency
+    const exchangeRate = new Decimal(40);
+    
+    // Convert from other currency to payroll currency
+    return amount.div(exchangeRate);
   }
 }
 
