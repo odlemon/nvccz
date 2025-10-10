@@ -22,6 +22,20 @@ export interface CreateExpenseJournalEntryParams {
   createdById: string;
 }
 
+export interface CreateManualJournalEntryParams {
+  transactionDate: Date;
+  referenceNumber: string;
+  description: string;
+  currencyId: string;
+  journalEntryLines: Array<{
+    chartOfAccountId: string;
+    debitAmount: number;
+    creditAmount: number;
+    description: string;
+  }>;
+  createdById: string;
+}
+
 export interface CreateInvoiceJournalEntryParams {
   customerId: string;
   amount: number;
@@ -74,6 +88,72 @@ export class JournalEntryService {
     const timestamp = Date.now();
     const random = Math.floor(Math.random() * 1000);
     return `JE-${timestamp}-${random}`;
+  }
+
+  /**
+   * Create a manual journal entry
+   */
+  static async createManualJournalEntry(params: CreateManualJournalEntryParams): Promise<JournalEntryResult> {
+    try {
+      const {
+        transactionDate,
+        referenceNumber,
+        description,
+        currencyId,
+        journalEntryLines,
+        createdById
+      } = params;
+
+      // Validate that debits equal credits
+      const totalDebits = journalEntryLines.reduce((sum, line) => sum + line.debitAmount, 0);
+      const totalCredits = journalEntryLines.reduce((sum, line) => sum + line.creditAmount, 0);
+
+      if (Math.abs(totalDebits - totalCredits) > 0.01) {
+        throw new Error("Total debits must equal total credits");
+      }
+
+      // Create the journal entry
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate,
+          referenceNumber,
+          description,
+          totalAmount: new Decimal(totalDebits),
+          currencyId,
+          status: "PENDING",
+          createdById
+        }
+      });
+
+      // Create journal entry lines
+      const createdLines = [];
+      for (const line of journalEntryLines) {
+        const journalEntryLine = await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: line.chartOfAccountId,
+            debitAmount: new Decimal(line.debitAmount),
+            creditAmount: new Decimal(line.creditAmount),
+            description: line.description,
+            createdAt: new Date()
+          }
+        });
+        createdLines.push(journalEntryLine);
+      }
+
+      return {
+        success: true,
+        journalEntry,
+        journalEntryLines: createdLines,
+        message: "Manual journal entry created successfully"
+      };
+    } catch (error: any) {
+      console.error("Error creating manual journal entry:", error);
+      return {
+        success: false,
+        error: error.message || "Failed to create manual journal entry"
+      };
+    }
   }
 
   /**
@@ -574,7 +654,6 @@ export class JournalEntryService {
             chartOfAccount: true
           }
         },
-        currency: true,
         createdBy: {
           select: {
             id: true,

@@ -41,6 +41,7 @@ import revenueRoutes from "./routes/revenueRoutes"
 import revenueSourceRoutes from "./routes/revenueSourceRoutes"
 import revenueCategoryRoutes from "./routes/revenueCategoryRoutes"
 import bankReconciliationRoutes from "./routes/bankReconciliationRoutes"
+import trialBalanceRoutes from "./routes/trialBalanceRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
 import portfolioCompanyRoutes from "./routes/portfolioCompanyRoutes"
@@ -73,6 +74,11 @@ import payrollRoutes from "./routes/payrollRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
+import inventoryRoutes from "./routes/inventoryRoutes"
+import assetRoutes from "./routes/assetRoutes"
+import creditNoteRoutes from "./routes/creditNoteRoutes"
+import statementRoutes from "./routes/statementRoutes"
+import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
 
 
 dotenv.config()
@@ -268,6 +274,7 @@ app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
 app.use("/api/accounting/bank-reconciliation", bankReconciliationRoutes)
+app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 
 // Mini-KYC routes
 app.use("/api/mini-kyc", miniKycRoutes)
@@ -354,6 +361,21 @@ app.use("/api/approval-workflows", approvalWorkflowRoutes)
 
 // Procurement Approval Configuration routes
 app.use("/api/procurement-approval-configs", procurementApprovalConfigRoutes)
+
+// Inventory Management routes
+app.use("/api/accounting/inventory", inventoryRoutes)
+
+// Asset Management routes
+app.use("/api/accounting/assets", assetRoutes)
+
+// Credit Note routes
+app.use("/api/accounting/credit-notes", creditNoteRoutes)
+
+// Statement of Accounts routes
+app.use("/api/accounting/statements", statementRoutes)
+
+// Multi-Currency routes
+app.use("/api/accounting/multi-currency", multiCurrencyRoutes)
 
 
 

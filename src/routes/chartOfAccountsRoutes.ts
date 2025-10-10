@@ -272,15 +272,15 @@ router.get("/", authenticate, ChartOfAccountsController.getAllChartOfAccounts);
  *                           type: object
  *                           properties:
  *                             id:
- *                             type: string
+ *                               type: string
  *                             accountNo:
- *                             type: string
+ *                               type: string
  *                             accountName:
- *                             type: string
+ *                               type: string
  *                             accountType:
- *                             type: string
+ *                               type: string
  *                             isActive:
- *                             type: boolean
+ *                               type: boolean
  *                       journalEntryLines:
  *                         type: array
  *                         items:

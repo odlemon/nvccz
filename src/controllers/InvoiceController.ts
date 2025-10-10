@@ -14,21 +14,22 @@ export class InvoiceController {
         customerId,
         amount,
         currencyId,
-        transactionDate,
+        invoiceDate,
+        dueDate,
         description,
         items,
         invoiceNumber,
         isTaxable,
-        exchangeRateAtCreation
+        exchangeRateAtCreation,
+        notes
       } = req.body;
 
       // Validate required fields with specifics
       const missing: string[] = [];
       if (!customerId) missing.push("customerId");
-      if (amount === undefined || amount === null) missing.push("amount");
       if (!currencyId) missing.push("currencyId");
-      if (!transactionDate) missing.push("transactionDate");
-      if (!description) missing.push("description");
+      if (!invoiceDate) missing.push("invoiceDate");
+      if (!items || !Array.isArray(items) || items.length === 0) missing.push("items");
 
       if (missing.length) {
         ResponseHelper.badRequest(
@@ -39,11 +40,27 @@ export class InvoiceController {
         return;
       }
 
+      // Calculate total amount from items
+      let calculatedAmount = 0;
+      if (items && Array.isArray(items)) {
+        calculatedAmount = items.reduce((total, item) => {
+          const itemTotal = (item.quantity || 0) * (item.unitPrice || 0);
+          return total + itemTotal;
+        }, 0);
+      }
+
+      // Use calculated amount if no amount provided, otherwise use provided amount
+      const finalAmount = amount !== undefined ? Number(amount) : calculatedAmount;
+
       // Validate amount
-      if (Number(amount) <= 0) {
+      if (Number(finalAmount) <= 0) {
         ResponseHelper.badRequest(res, "Amount must be greater than zero");
         return;
       }
+
+      // Create description from items if not provided
+      const finalDescription = description || `Invoice with ${items.length} item(s)`;
+      const transactionDate = new Date(invoiceDate);
 
       // Get user ID from request (set by auth middleware)
       const createdById = (req as any).user?.id;
@@ -54,10 +71,10 @@ export class InvoiceController {
 
       const invoiceParams: CreateInvoiceParams = {
         customerId,
-        amount: Number(amount),
+        amount: Number(finalAmount),
         currencyId,
-        transactionDate: new Date(transactionDate),
-        description,
+        transactionDate: transactionDate,
+        description: finalDescription,
         items,
         invoiceNumber,
         isTaxable: Boolean(isTaxable),

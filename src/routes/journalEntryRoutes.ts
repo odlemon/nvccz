@@ -8,6 +8,9 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
+// Create manual journal entry
+router.post("/", JournalEntryController.createJournalEntry);
+
 // Get all journal entries
 router.get("/", JournalEntryController.getJournalEntries);
 

@@ -8,12 +8,28 @@ export class BankReconciliationController {
   async uploadBankStatement(req: AuthRequest, res: Response) {
     try {
       const file = req.file;
-      if (!file) {
-        return ResponseHelper.badRequest(res, 'No file uploaded');
-      }
+      const { accountId, statementDate, openingBalance, closingBalance, transactions } = req.body;
 
-      const result = await BankReconciliationService.uploadAndProcessBankStatement(file, req.user!.id);
-      return ResponseHelper.created(res, 'Bank statement uploaded and processed successfully', result);
+      // Check if it's JSON input first (has required JSON fields)
+      if (accountId && statementDate && openingBalance !== undefined && closingBalance !== undefined && transactions) {
+        // JSON input path
+        const result = await BankReconciliationService.createBankStatementFromJSON({
+          accountId,
+          statementDate: new Date(statementDate),
+          openingBalance: parseFloat(openingBalance),
+          closingBalance: parseFloat(closingBalance),
+          transactions: Array.isArray(transactions) ? transactions : [],
+          createdById: req.user!.id
+        });
+        
+        return ResponseHelper.success(res, 'Bank statement created from JSON successfully', result);
+      } else if (file) {
+        // File upload path
+        const result = await BankReconciliationService.uploadAndProcessBankStatement(file, req.user!.id);
+        return ResponseHelper.created(res, 'Bank statement uploaded and processed successfully', result);
+      } else {
+        return ResponseHelper.badRequest(res, 'Either file upload or JSON data required');
+      }
     } catch (error: any) {
       return ResponseHelper.error(res, 'Failed to upload bank statement', error.message);
     }
@@ -142,6 +158,98 @@ export class BankReconciliationController {
       return ResponseHelper.success(res, 'Reconciliation deleted successfully');
     } catch (error: any) {
       return ResponseHelper.error(res, 'Failed to delete reconciliation', error.message);
+    }
+  }
+
+  async manualReconcile(req: AuthRequest, res: Response) {
+    try {
+      const { statementLineId, journalEntryId } = req.body;
+      
+      if (!statementLineId || !journalEntryId) {
+        return ResponseHelper.badRequest(res, 'Missing required fields: statementLineId, journalEntryId');
+      }
+
+      await BankReconciliationService.manualReconcile(statementLineId, journalEntryId, req.user!.id);
+      
+      return ResponseHelper.success(res, 'Manual reconciliation completed successfully');
+    } catch (error: any) {
+      return ResponseHelper.error(res, 'Failed to perform manual reconciliation', error.message);
+    }
+  }
+
+  async createJournalFromBankStatement(req: AuthRequest, res: Response) {
+    try {
+      const { statementLineId, accountId } = req.body;
+      
+      if (!statementLineId || !accountId) {
+        return ResponseHelper.badRequest(res, 'Missing required fields: statementLineId, accountId');
+      }
+
+      const journalEntryId = await BankReconciliationService.createJournalFromBankStatement(
+        statementLineId, 
+        accountId, 
+        req.user!.id
+      );
+      
+      return ResponseHelper.success(res, 'Journal entry created from bank statement', { journalEntryId });
+    } catch (error: any) {
+      return ResponseHelper.error(res, 'Failed to create journal entry from bank statement', error.message);
+    }
+  }
+
+  async generateReconciliationReport(req: AuthRequest, res: Response) {
+    try {
+      const { reconciliationId } = req.params;
+      
+      const report = await BankReconciliationService.generateReconciliationReport(reconciliationId);
+      
+      return ResponseHelper.success(res, 'Reconciliation report generated successfully', report);
+    } catch (error: any) {
+      return ResponseHelper.error(res, 'Failed to generate reconciliation report', error.message);
+    }
+  }
+
+  async importBankStatement(req: AuthRequest, res: Response) {
+    try {
+      const file = req.file;
+      const { format, accountId, statementDate, openingBalance, closingBalance, transactions } = req.body;
+
+      // Check if it's JSON input first (has required JSON fields)
+      if (accountId && statementDate && openingBalance !== undefined && closingBalance !== undefined && transactions) {
+        // JSON input path
+        const result = await BankReconciliationService.createBankStatementFromJSON({
+          accountId,
+          statementDate: new Date(statementDate),
+          openingBalance: parseFloat(openingBalance),
+          closingBalance: parseFloat(closingBalance),
+          transactions: Array.isArray(transactions) ? transactions : [],
+          createdById: req.user!.id
+        });
+        
+        return ResponseHelper.success(res, 'Bank statement created from JSON successfully', result);
+      } else if (file) {
+        // File upload path
+        if (!format || !accountId) {
+          return ResponseHelper.badRequest(res, 'Missing required fields: format, accountId');
+        }
+
+        if (!['CSV', 'OFX', 'QIF'].includes(format)) {
+          return ResponseHelper.badRequest(res, 'Invalid format. Must be CSV, OFX, or QIF');
+        }
+
+        const result = await BankReconciliationService.importBankStatement(
+          file.buffer, 
+          format, 
+          accountId, 
+          req.user!.id
+        );
+        
+        return ResponseHelper.success(res, 'Bank statement imported successfully', result);
+      } else {
+        return ResponseHelper.badRequest(res, 'Either file upload or JSON data required');
+      }
+    } catch (error: any) {
+      return ResponseHelper.error(res, 'Failed to import bank statement', error.message);
     }
   }
 } 
