@@ -1,4 +1,5 @@
 import swaggerJsdoc from 'swagger-jsdoc';
+import { accountingEndpoints } from './accounting-endpoints';
 
 const options = {
   definition: {
@@ -1358,13 +1359,11 @@ const options = {
 
 let specs: any;
 
-try {
-  specs = swaggerJsdoc(options);
-  
-  // Create fallback spec with all endpoints
-  const fallbackSpec = {
-    ...options.definition,
-    paths: {
+// Create fallback spec with all endpoints
+const fallbackSpec = {
+  ...options.definition,
+  paths: {
+    ...accountingEndpoints,
         // Authentication
         '/auth/login': {
           post: {
@@ -4646,6 +4645,7 @@ try {
   specs = {
     ...options.definition,
     paths: {
+      ...accountingEndpoints,
       // Authentication
       '/auth/login': {
         post: {
