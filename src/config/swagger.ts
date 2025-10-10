@@ -4625,19 +4625,19 @@ const fallbackSpec = {
       }
     }
   };
+
+try {
+  specs = swaggerJsdoc(options);
   
-  // In production, always use fallback spec to ensure all endpoints are included
-  if (process.env.NODE_ENV === 'production') {
+  // Check if specs has paths - if not, use fallback
+  if (!specs || !specs.paths || Object.keys(specs.paths).length === 0) {
+    console.log('Swagger-jsdoc returned empty spec, using fallback');
     specs = fallbackSpec;
   } else {
-    // In development, merge JSDoc-generated paths with fallback paths
-    if (specs.paths && Object.keys(specs.paths).length > 0) {
-      // Merge paths, with fallback taking precedence for missing endpoints
-      specs.paths = { ...fallbackSpec.paths, ...specs.paths };
-    } else {
-      // Use fallback spec if no JSDoc paths found
-      specs = fallbackSpec;
-    }
+    console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
+    // Merge accounting endpoints with generated spec
+    specs.paths = { ...specs.paths, ...accountingEndpoints };
+    console.log(`Added accounting endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
