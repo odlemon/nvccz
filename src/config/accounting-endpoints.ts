@@ -326,9 +326,7 @@ export const accountingEndpoints = {
   // Board Reviews
   '/api/board-reviews/{applicationId}': {
     post: { summary: 'Create a new board review', tags: ['Board Reviews'], security: [{ bearerAuth: [] }] },
-    get: { summary: 'Get board review by application ID', tags: ['Board Reviews'], security: [{ bearerAuth: [] }] }
-  },
-  '/api/board-reviews/{applicationId}': {
+    get: { summary: 'Get board review by application ID', tags: ['Board Reviews'], security: [{ bearerAuth: [] }] },
     put: { summary: 'Update board review', tags: ['Board Reviews'], security: [{ bearerAuth: [] }] }
   },
   '/api/board-reviews/{applicationId}/complete': {
