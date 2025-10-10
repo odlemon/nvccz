@@ -1353,9 +1353,7 @@ const options = {
       }
     ]
   },
-  apis: process.env.NODE_ENV === 'production' 
-    ? [] // In production, don't scan files - use fallback spec only
-    : ['./src/**/*.ts', './src/routes/**/*.ts', './src/controllers/**/*.ts']
+  apis: ['./src/**/*.ts', './src/routes/**/*.ts', './src/controllers/**/*.ts']
 };
 
 let specs: any;
