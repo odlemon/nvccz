@@ -596,4 +596,26 @@ router.delete('/:id',
   controller.deleteReconciliation
 );
 
+// Additional Bank Reconciliation Methods
+router.post('/manual-reconcile', 
+  authenticate, 
+  controller.manualReconcile
+);
+
+router.post('/create-journal', 
+  authenticate, 
+  controller.createJournalFromBankStatement
+);
+
+router.get('/:reconciliationId/report', 
+  authenticate, 
+  controller.generateReconciliationReport
+);
+
+router.post('/import', 
+  authenticate, 
+  upload.single('file'), 
+  controller.importBankStatement
+);
+
 export default router; 

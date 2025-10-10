@@ -115,6 +115,32 @@ model User {
   approvalRequestsRequested     ApprovalRequest[]      @relation("ApprovalRequestedBy")
   approvalsGiven                Approval[]             @relation("ApprovalApprover")
   approvalsDelegatedTo          Approval[]             @relation("ApprovalDelegatedTo")
+  
+  // Event Management Relations
+  eventBudgetApprovals          Event[]                @relation("EventBudgetApprover")
+  eventBudgetItemApprovals     EventBudgetItem[]      @relation("EventBudgetItemApprover")
+  eventExpenseApprovals        EventExpense[]         @relation("EventExpenseApprover")
+  eventCheckIns                EventCheckIn[]         @relation("EventCheckInUser")
+  eventGuestCheckIns           EventGuest[]          @relation("EventGuestCheckIn")
+  eventReportsGenerated         EventReport[]         @relation("EventReportGenerator")
+
+  // Inventory Management Relations
+  stockMovementsCreated        StockMovement[]        @relation("StockMovementCreatedBy")
+
+  // Asset Management Relations
+  assetsCreated                Asset[]                @relation("AssetCreatedBy")
+  depreciationRecordsCreated   DepreciationRecord[]   @relation("DepreciationRecordCreatedBy")
+  assetDisposalRecordsCreated  AssetDisposalRecord[]  @relation("AssetDisposalCreatedBy")
+
+  // Credit Note Relations
+  creditNotesCreated           CreditNote[]           @relation("CreditNoteCreatedBy")
+
+  // Statement Relations
+  statementsGenerated           StatementOfAccount[]   @relation("StatementGeneratedBy")
+
+  // Multi-Currency Relations
+  exchangeRatesCreated         ExchangeRate[]         @relation("ExchangeRateCreatedBy")
+  forexGainLossCreated         ForexGainLoss[]        @relation("ForexGainLossCreatedBy")
 
   @@map("users")
 }
@@ -179,19 +205,274 @@ model Newsletter {
 }
 
 model Event {
-  id          String   @id @default(cuid())
-  title       String
-  description String   @db.Text
-  startDate   DateTime
-  endDate     DateTime
-  location    String?
-  authorId    String
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  title           String
+  description     String        @db.Text
+  startDate       DateTime
+  endDate         DateTime
+  location        String?
+  authorId        String
+  isActive        Boolean       @default(true)
+  
+  // Enhanced fields for EventSync
+  eventType       String?       // CONFERENCE, MEETING, WORKSHOP, SOCIAL, etc.
+  maxAttendees    Int?
+  isPublic        Boolean       @default(false)
+  requiresRSVP    Boolean       @default(true)
+  rsvpDeadline    DateTime?
+  status          EventStatus   @default(PLANNING)
+  
+  // Budget and approval fields
+  estimatedBudget Decimal?      @db.Decimal(15, 2)
+  approvedBudget  Decimal?      @db.Decimal(15, 2)
+  budgetStatus    BudgetStatus  @default(DRAFT)
+  budgetApprovedBy String?
+  budgetApprovedAt DateTime?
+  
+  // Calendar integration
+  googleCalendarEventId String?
+  googleCalendarLink    String?
+  
+  // Event management
+  checkInRequired Boolean       @default(false)
+  feedbackRequired Boolean      @default(false)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  // Relations
+  author          User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  budgetApprover  User?         @relation("EventBudgetApprover", fields: [budgetApprovedBy], references: [id])
+  guests          EventGuest[]
+  budgetItems     EventBudgetItem[]
+  expenses        EventExpense[]
+  feedback        EventFeedback[]
+  checkIns        EventCheckIn[]
+  reports         EventReport[]
 
   @@map("events")
+}
+
+// Event Management Supporting Models
+
+model EventGuest {
+  id              String      @id @default(cuid())
+  eventId         String
+  email           String
+  name            String
+  phone           String?
+  company         String?
+  title           String?
+  
+  // RSVP fields
+  invitationToken String      @unique
+  rsvpStatus      RSVPStatus  @default(PENDING)
+  rsvpRespondedAt DateTime?
+  rsvpNotes       String?     @db.Text
+  
+  // Check-in fields
+  checkedIn       Boolean     @default(false)
+  checkedInAt     DateTime?
+  checkedInBy     String?
+  
+  // Additional fields
+  dietaryRequirements String? @db.Text
+  accessibilityNeeds  String? @db.Text
+  emergencyContact     String?
+  emergencyPhone       String?
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  checkedInUser   User?       @relation("EventGuestCheckIn", fields: [checkedInBy], references: [id])
+  feedback        EventFeedback[]
+  checkIns        EventCheckIn[]
+  
+  @@unique([eventId, email])
+  @@map("event_guests")
+}
+
+model EventBudgetItem {
+  id              String      @id @default(cuid())
+  eventId         String
+  category        String      // VENUE, CATERING, DECORATIONS, ENTERTAINMENT, TRANSPORT, etc.
+  itemName        String
+  description     String?     @db.Text
+  estimatedCost   Decimal     @db.Decimal(15, 2)
+  actualCost      Decimal?    @db.Decimal(15, 2)
+  quantity        Int         @default(1)
+  unit            String?     // pieces, hours, etc.
+  vendor          String?
+  vendorContact   String?
+  notes           String?     @db.Text
+  
+  // Approval fields
+  isApproved      Boolean     @default(false)
+  approvedBy      String?
+  approvedAt      DateTime?
+  approvalNotes   String?     @db.Text
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  approver        User?       @relation("EventBudgetItemApprover", fields: [approvedBy], references: [id])
+  expenses        EventExpense[]
+  
+  @@map("event_budget_items")
+}
+
+model EventExpense {
+  id              String      @id @default(cuid())
+  eventId         String
+  budgetItemId    String?
+  description     String
+  amount          Decimal     @db.Decimal(15, 2)
+  category        String
+  vendor          String?
+  receiptPath     String?
+  paymentMethod   String?     // CASH, CARD, BANK_TRANSFER, etc.
+  paymentDate     DateTime?
+  isReimbursable  Boolean     @default(true)
+  status          ExpenseStatus @default(PENDING)
+  
+  // Approval fields
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectionReason String?     @db.Text
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  budgetItem      EventBudgetItem? @relation(fields: [budgetItemId], references: [id])
+  approver        User?       @relation("EventExpenseApprover", fields: [approvedBy], references: [id])
+  
+  @@map("event_expenses")
+}
+
+model EventFeedback {
+  id              String      @id @default(cuid())
+  eventId         String
+  guestId         String?
+  rating          Int         // 1-5 scale
+  overallSatisfaction Int     // 1-5 scale
+  contentQuality  Int?        // 1-5 scale
+  venueQuality    Int?        // 1-5 scale
+  foodQuality     Int?        // 1-5 scale
+  organization    Int?        // 1-5 scale
+  
+  // Text feedback
+  positiveAspects  String?     @db.Text
+  areasForImprovement String? @db.Text
+  suggestions     String?     @db.Text
+  wouldAttendAgain Boolean?
+  wouldRecommend  Boolean?
+  
+  // Additional feedback
+  additionalComments String?  @db.Text
+  anonymous         Boolean   @default(false)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  guest           EventGuest? @relation(fields: [guestId], references: [id])
+  
+  @@map("event_feedback")
+}
+
+model EventCheckIn {
+  id              String      @id @default(cuid())
+  eventId         String
+  guestId         String
+  checkedInBy     String
+  checkInTime     DateTime    @default(now())
+  notes           String?     @db.Text
+  
+  // Relations
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  guest           EventGuest   @relation(fields: [guestId], references: [id])
+  user            User        @relation("EventCheckInUser", fields: [checkedInBy], references: [id])
+  
+  @@unique([eventId, guestId])
+  @@map("event_check_ins")
+}
+
+model EventReport {
+  id              String      @id @default(cuid())
+  eventId         String
+  reportType      String      // FINANCIAL, ATTENDANCE, FEEDBACK, COMPREHENSIVE
+  generatedBy     String
+  generatedAt     DateTime    @default(now())
+  
+  // Report data
+  totalAttendees  Int?
+  rsvpRate        Decimal?    @db.Decimal(5, 2)
+  checkInRate     Decimal?    @db.Decimal(5, 2)
+  averageRating   Decimal?    @db.Decimal(3, 2)
+  totalBudget     Decimal?    @db.Decimal(15, 2)
+  totalExpenses   Decimal?    @db.Decimal(15, 2)
+  budgetVariance  Decimal?    @db.Decimal(15, 2)
+  costPerAttendee Decimal?    @db.Decimal(15, 2)
+  
+  // Report content
+  summary         String?     @db.Text
+  keyMetrics      Json?
+  recommendations String?     @db.Text
+  reportData      Json?
+  
+  // File paths
+  pdfPath         String?
+  excelPath       String?
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  generator       User        @relation("EventReportGenerator", fields: [generatedBy], references: [id])
+  
+  @@map("event_reports")
+}
+
+// Enums for Event Management
+
+enum EventStatus {
+  PLANNING
+  BUDGET_PENDING
+  BUDGET_APPROVED
+  BUDGET_REJECTED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum BudgetStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  REVISED
+}
+
+enum RSVPStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  MAYBE
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
 }
 
 model Notification {
@@ -238,6 +519,12 @@ model Currency {
   invoices        Invoice[]
   paymentInvoices Invoice[]      @relation("PaymentCurrency")
   revenues        Revenue[]
+  exchangeRatesFrom     ExchangeRate[]         @relation("ExchangeRateFrom")
+  exchangeRatesTo       ExchangeRate[]         @relation("ExchangeRateTo")
+  forexGainLossFrom     ForexGainLoss[]        @relation("ForexFromCurrency")
+  forexGainLossTo       ForexGainLoss[]        @relation("ForexToCurrency")
+  creditNotes           CreditNote[]
+  statements            StatementOfAccount[]
 
   // Payroll Relations
   employees         Employee[]
@@ -273,6 +560,10 @@ model ChartOfAccounts {
   parent             ChartOfAccounts?   @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children           ChartOfAccounts[]  @relation("AccountHierarchy")
   journalEntryLines  JournalEntryLine[]
+  inventoryItems     InventoryItem[]    @relation("InventoryAssetAccount")
+  assets             Asset[]            @relation("AssetAccount")
+  accumulatedDepreciationAssets Asset[] @relation("AccumulatedDepreciationAccount")
+  depreciationExpenseAssets     Asset[] @relation("DepreciationExpenseAccount")
 
   @@map("chart_of_accounts")
 }
@@ -295,6 +586,12 @@ model Vendor {
   purchaseOrders        PurchaseOrder[]           @relation("POVendor")
   procurementInvoices   ProcurementInvoice[]      @relation("InvoiceVendor")
   preferredRequisitions PurchaseRequisitionItem[] @relation("PreferredVendorRequisition")
+
+  // Inventory Relations
+  inventoryItems        InventoryItem[]           @relation("InventorySupplier")
+
+  // Statement Relations
+  statements            StatementOfAccount[]
 
   @@map("vendors")
 }
@@ -334,6 +631,8 @@ model JournalEntry {
   revenues              Revenue[]
   bankTransactions      BankTransaction[]
   reconciliationResults ReconciliationResult[]
+  creditNotes           CreditNote[]           @relation("CreditNoteJournal")
+  forexGainLoss         ForexGainLoss[]        @relation("ForexGainLossJournal")
 
   @@map("journal_entries")
 }
@@ -394,6 +693,8 @@ model Customer {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   invoices      Invoice[]
+  creditNotes   CreditNote[]
+  statements    StatementOfAccount[]
 
   @@map("customers")
 }
@@ -559,6 +860,9 @@ model Invoice {
   paymentCurrency Currency?     @relation("PaymentCurrency", fields: [paymentCurrencyId], references: [id])
   journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
   createdBy       User          @relation(fields: [createdById], references: [id])
+  salesInvoiceItems SalesInvoiceItem[]
+  creditNotes    CreditNote[]   @relation("CreditNoteInvoice")
+  forexGainLoss  ForexGainLoss[] @relation("ForexGainLossInvoice")
 
   @@map("invoices")
 }
@@ -1608,6 +1912,269 @@ model GoodsReceivedNoteItem {
   updatedAt DateTime @updatedAt
 
   @@map("goods_received_note_items")
+}
+
+// ===== INVENTORY MANAGEMENT MODULE =====
+
+model InventoryItem {
+  id                        String                @id @default(cuid())
+  itemName                  String
+  skuNumber                 String                @unique
+  description               String?               @db.Text
+  costOfPurchase            Decimal               @db.Decimal(15, 2)
+  quantityOnHand            Decimal               @default(0.00) @db.Decimal(10, 2)
+  reorderLevel              Decimal               @default(0.00) @db.Decimal(10, 2)
+  unitOfMeasure             String                @default("pieces")
+  supplierId                String?
+  inventoryAssetAccountId   String
+  isActive                  Boolean               @default(true)
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+
+  // Relations
+  supplier                  Vendor?               @relation("InventorySupplier", fields: [supplierId], references: [id])
+  inventoryAssetAccount     ChartOfAccounts       @relation("InventoryAssetAccount", fields: [inventoryAssetAccountId], references: [id])
+  stockMovements            StockMovement[]
+  salesInvoiceItems         SalesInvoiceItem[]
+
+  @@map("inventory_items")
+}
+
+model StockMovement {
+  id                String        @id @default(cuid())
+  itemId            String
+  movementType      String        // IN, OUT, ADJUSTMENT, TRANSFER
+  quantity          Decimal       @db.Decimal(10, 2)
+  unitCost          Decimal       @db.Decimal(15, 2)
+  totalCost         Decimal       @db.Decimal(15, 2)
+  reference         String?       // Invoice number, PO number, etc.
+  description       String?       @db.Text
+  createdById       String
+  createdAt         DateTime      @default(now())
+
+  // Relations
+  item              InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdBy         User          @relation("StockMovementCreatedBy", fields: [createdById], references: [id])
+
+  @@map("stock_movements")
+}
+
+model SalesInvoiceItem {
+  id                String        @id @default(cuid())
+  invoiceId         String
+  itemId            String
+  quantity          Decimal       @db.Decimal(10, 2)
+  unitPrice         Decimal       @db.Decimal(15, 2)
+  totalPrice        Decimal       @db.Decimal(15, 2)
+  unitCost          Decimal       @db.Decimal(15, 2)
+  totalCost         Decimal       @db.Decimal(15, 2)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relations
+  invoice           Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item              InventoryItem @relation(fields: [itemId], references: [id])
+
+  @@map("sales_invoice_items")
+}
+
+// ===== ASSET MANAGEMENT MODULE =====
+
+model Asset {
+  id                              String                @id @default(cuid())
+  assetName                       String
+  assetCode                       String                @unique
+  description                     String?               @db.Text
+  purchaseDate                    DateTime
+  cost                            Decimal                @db.Decimal(15, 2)
+  usefulLifeYears                 Int
+  depreciationMethod              String                // STRAIGHT_LINE, DIMINISHING_BALANCE
+  currentBookValue                Decimal               @db.Decimal(15, 2)
+  salvageValue                    Decimal               @default(0.00) @db.Decimal(15, 2)
+  assetAccountId                  String
+  accumulatedDepreciationAccountId String
+  depreciationExpenseAccountId    String
+  status                          String                @default("IN_USE") // IN_USE, DISPOSED, MAINTENANCE
+  disposalDate                    DateTime?
+  disposalValue                   Decimal?              @db.Decimal(15, 2)
+  disposalGainLoss                Decimal?              @db.Decimal(15, 2)
+  location                        String?
+  serialNumber                    String?
+  warrantyExpiry                  DateTime?
+  isActive                        Boolean               @default(true)
+  createdById                     String
+  createdAt                       DateTime              @default(now())
+  updatedAt                       DateTime              @updatedAt
+
+  // Relations
+  assetAccount                    ChartOfAccounts       @relation("AssetAccount", fields: [assetAccountId], references: [id])
+  accumulatedDepreciationAccount  ChartOfAccounts       @relation("AccumulatedDepreciationAccount", fields: [accumulatedDepreciationAccountId], references: [id])
+  depreciationExpenseAccount      ChartOfAccounts       @relation("DepreciationExpenseAccount", fields: [depreciationExpenseAccountId], references: [id])
+  createdBy                       User                  @relation("AssetCreatedBy", fields: [createdById], references: [id])
+  depreciationRecords             DepreciationRecord[]
+  disposalRecords                 AssetDisposalRecord[]
+
+  @@map("assets")
+}
+
+model DepreciationRecord {
+  id                String        @id @default(cuid())
+  assetId           String
+  period            String        // YYYY-MM format
+  depreciationAmount Decimal       @db.Decimal(15, 2)
+  accumulatedDepreciation Decimal @db.Decimal(15, 2)
+  bookValue         Decimal       @db.Decimal(15, 2)
+  isPosted          Boolean       @default(false)
+  postedAt          DateTime?
+  createdById       String
+  createdAt         DateTime      @default(now())
+
+  // Relations
+  asset             Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdBy         User          @relation("DepreciationRecordCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([assetId, period])
+  @@map("depreciation_records")
+}
+
+model AssetDisposalRecord {
+  id                String        @id @default(cuid())
+  assetId           String
+  disposalDate      DateTime
+  disposalValue     Decimal       @db.Decimal(15, 2)
+  disposalMethod    String        // SALE, SCRAP, DONATION, TRADE_IN
+  gainLoss          Decimal       @db.Decimal(15, 2)
+  description       String?       @db.Text
+  createdById       String
+  createdAt         DateTime      @default(now())
+
+  // Relations
+  asset             Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdBy         User          @relation("AssetDisposalCreatedBy", fields: [createdById], references: [id])
+
+  @@map("asset_disposal_records")
+}
+
+// ===== CREDIT NOTE MODULE =====
+
+model CreditNote {
+  id                String        @id @default(cuid())
+  customerId        String
+  invoiceId         String?       // Original invoice being credited
+  amount            Decimal       @db.Decimal(15, 2)
+  vatAmount         Decimal       @default(0.00) @db.Decimal(15, 2)
+  totalAmount       Decimal       @db.Decimal(15, 2)
+  currencyId        String
+  creditNoteNumber  String        @unique
+  reason            String?       @db.Text
+  status            String        @default("DRAFT") // DRAFT, SENT, APPLIED
+  appliedAmount     Decimal       @default(0.00) @db.Decimal(15, 2)
+  remainingAmount   Decimal       @db.Decimal(15, 2)
+  isActive          Boolean       @default(true)
+  journalEntryId    String?
+  createdById       String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relations
+  customer          Customer      @relation(fields: [customerId], references: [id])
+  originalInvoice   Invoice?      @relation("CreditNoteInvoice", fields: [invoiceId], references: [id])
+  currency          Currency      @relation(fields: [currencyId], references: [id])
+  journalEntry      JournalEntry? @relation("CreditNoteJournal", fields: [journalEntryId], references: [id])
+  createdBy         User          @relation("CreditNoteCreatedBy", fields: [createdById], references: [id])
+
+  @@map("credit_notes")
+}
+
+// ===== STATEMENT OF ACCOUNTS MODULE =====
+
+model StatementOfAccount {
+  id                String        @id @default(cuid())
+  customerId        String?
+  vendorId          String?
+  statementDate     DateTime
+  openingBalance    Decimal       @default(0.00) @db.Decimal(15, 2)
+  closingBalance    Decimal       @db.Decimal(15, 2)
+  totalDebits       Decimal       @default(0.00) @db.Decimal(15, 2)
+  totalCredits      Decimal       @default(0.00) @db.Decimal(15, 2)
+  currencyId        String
+  statementType     String        // CUSTOMER, VENDOR
+  generatedById     String
+  createdAt         DateTime      @default(now())
+
+  // Relations
+  customer          Customer?     @relation(fields: [customerId], references: [id])
+  vendor            Vendor?       @relation(fields: [vendorId], references: [id])
+  currency          Currency      @relation(fields: [currencyId], references: [id])
+  generatedBy       User          @relation("StatementGeneratedBy", fields: [generatedById], references: [id])
+  statementItems    StatementItem[]
+
+  @@map("statement_of_accounts")
+}
+
+model StatementItem {
+  id                String        @id @default(cuid())
+  statementId       String
+  transactionDate   DateTime
+  description       String
+  reference         String?
+  debitAmount       Decimal       @default(0.00) @db.Decimal(15, 2)
+  creditAmount      Decimal       @default(0.00) @db.Decimal(15, 2)
+  balance           Decimal       @db.Decimal(15, 2)
+  transactionType   String        // INVOICE, PAYMENT, CREDIT_NOTE, JOURNAL
+  transactionId     String?
+
+  // Relations
+  statement         StatementOfAccount @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@map("statement_items")
+}
+
+// ===== ENHANCED MULTI-CURRENCY MODULE =====
+
+model ExchangeRate {
+  id                String        @id @default(cuid())
+  date              DateTime
+  fromCurrencyId    String
+  toCurrencyId      String
+  rate              Decimal        @db.Decimal(15, 6)
+  isActive          Boolean       @default(true)
+  createdById       String
+  createdAt         DateTime      @default(now())
+
+  // Relations
+  fromCurrency      Currency      @relation("ExchangeRateFrom", fields: [fromCurrencyId], references: [id])
+  toCurrency        Currency      @relation("ExchangeRateTo", fields: [toCurrencyId], references: [id])
+  createdBy         User          @relation("ExchangeRateCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([date, fromCurrencyId, toCurrencyId])
+  @@map("exchange_rates")
+}
+
+model ForexGainLoss {
+  id                String        @id @default(cuid())
+  invoiceId         String?
+  transactionDate   DateTime
+  fromCurrencyId    String
+  toCurrencyId      String
+  originalAmount    Decimal       @db.Decimal(15, 2)
+  convertedAmount   Decimal       @db.Decimal(15, 2)
+  exchangeRate      Decimal       @db.Decimal(15, 6)
+  gainLossAmount    Decimal       @db.Decimal(15, 2)
+  gainLossType      String        // GAIN, LOSS
+  description       String?       @db.Text
+  journalEntryId    String?
+  createdById       String
+  createdAt         DateTime      @default(now())
+
+  // Relations
+  invoice           Invoice?      @relation("ForexGainLossInvoice", fields: [invoiceId], references: [id])
+  fromCurrency      Currency      @relation("ForexFromCurrency", fields: [fromCurrencyId], references: [id])
+  toCurrency        Currency      @relation("ForexToCurrency", fields: [toCurrencyId], references: [id])
+  journalEntry      JournalEntry? @relation("ForexGainLossJournal", fields: [journalEntryId], references: [id])
+  createdBy         User          @relation("ForexGainLossCreatedBy", fields: [createdById], references: [id])
+
+  @@map("forex_gain_loss")
 }
 
 // ===== STAKEHOLDER MANAGEMENT MODULE =====

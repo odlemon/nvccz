@@ -1697,4 +1697,426 @@ export class EmailNotificationService {
       </html>
     `;
   }
+
+  /**
+   * Send event invitation email
+   */
+  static async sendEventInvitationEmail(data: any): Promise<void> {
+    try {
+      const subject = `You're Invited: ${data.eventTitle} - NVCCZ`;
+      const htmlContent = this.getEventInvitationTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Events Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.guestEmail,
+              name: data.guestName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`Event invitation email sent to ${data.guestEmail}`);
+    } catch (error) {
+      console.error("Error sending event invitation email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send RSVP notification email to organizer
+   */
+  static async sendRSVPNotificationEmail(data: any): Promise<void> {
+    try {
+      const subject = `RSVP Update: ${data.eventTitle} - NVCCZ`;
+      const htmlContent = this.getRSVPNotificationTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Events Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.organizerEmail,
+              name: data.organizerName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`RSVP notification email sent to ${data.organizerEmail}`);
+    } catch (error) {
+      console.error("Error sending RSVP notification email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send budget approval email
+   */
+  static async sendBudgetApprovalEmail(data: any): Promise<void> {
+    try {
+      const subject = `Budget Approved: ${data.eventTitle} - NVCCZ`;
+      const htmlContent = this.getBudgetApprovalTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Finance Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.organizerEmail,
+              name: data.organizerName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`Budget approval email sent to ${data.organizerEmail}`);
+    } catch (error) {
+      console.error("Error sending budget approval email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get event invitation email template
+   */
+  private static getEventInvitationTemplate(data: any): string {
+    const eventDate = new Date(data.eventDate).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Event Invitation</title>
+        <style>
+          body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+          }
+          .container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+            padding: 30px;
+            text-align: center;
+          }
+          .header h1 {
+            margin: 0;
+            font-size: 28px;
+          }
+          .header h2 {
+            margin: 10px 0 0 0;
+            font-size: 18px;
+            font-weight: normal;
+          }
+          .content {
+            padding: 30px;
+          }
+          .event-details {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          }
+          .event-details h3 {
+            margin-top: 0;
+            color: #667eea;
+          }
+          .rsvp-section {
+            background-color: #e8f5e8;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+          }
+          .rsvp-button {
+            display: inline-block;
+            background-color: #28a745;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 10px 5px;
+          }
+          .rsvp-button.decline {
+            background-color: #dc3545;
+          }
+          .rsvp-button.maybe {
+            background-color: #ffc107;
+            color: #333;
+          }
+          .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🎉 You're Invited!</h1>
+            <h2>NVCCZ Event Invitation</h2>
+          </div>
+          <div class="content">
+            <p>Dear ${data.guestName},</p>
+            
+            <p>You have been invited to attend an exciting event organized by NVCCZ!</p>
+            
+            <div class="event-details">
+              <h3>📅 Event Details</h3>
+              <p><strong>Event:</strong> ${data.eventTitle}</p>
+              <p><strong>Date & Time:</strong> ${eventDate}</p>
+              ${data.eventLocation ? `<p><strong>Location:</strong> ${data.eventLocation}</p>` : ''}
+              ${data.rsvpDeadline ? `<p><strong>RSVP Deadline:</strong> ${new Date(data.rsvpDeadline).toLocaleDateString()}</p>` : ''}
+            </div>
+            
+            <div class="rsvp-section">
+              <h3>📝 Please RSVP</h3>
+              <p>Click one of the buttons below to respond to this invitation:</p>
+              <a href="${process.env.FRONTEND_URL}/events/rsvp/${data.invitationToken}?status=accepted" class="rsvp-button">✅ Accept</a>
+              <a href="${process.env.FRONTEND_URL}/events/rsvp/${data.invitationToken}?status=declined" class="rsvp-button decline">❌ Decline</a>
+              <a href="${process.env.FRONTEND_URL}/events/rsvp/${data.invitationToken}?status=maybe" class="rsvp-button maybe">🤔 Maybe</a>
+            </div>
+            
+            <p><strong>Note:</strong> This invitation is personalized for you. Please use the RSVP links above to respond.</p>
+            
+            <p>We look forward to seeing you at the event!</p>
+            
+            <p>Best regards,<br>
+            <strong>NVCCZ Events Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+            <p>© 2024 NVCCZ. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Get RSVP notification email template
+   */
+  private static getRSVPNotificationTemplate(data: any): string {
+    const statusEmoji = {
+      'ACCEPTED': '✅',
+      'DECLINED': '❌',
+      'MAYBE': '🤔'
+    };
+
+    const statusColor = {
+      'ACCEPTED': '#28a745',
+      'DECLINED': '#dc3545',
+      'MAYBE': '#ffc107'
+    };
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>RSVP Update</title>
+        <style>
+          body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+          }
+          .container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+            padding: 30px;
+            text-align: center;
+          }
+          .content {
+            padding: 30px;
+          }
+          .rsvp-update {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid ${statusColor[data.rsvpStatus]};
+          }
+          .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📝 RSVP Update</h1>
+            <h2>NVCCZ Event Management</h2>
+          </div>
+          <div class="content">
+            <p>Dear ${data.organizerName},</p>
+            
+            <p>You have received a new RSVP response for your event:</p>
+            
+            <div class="rsvp-update">
+              <h3>${statusEmoji[data.rsvpStatus]} RSVP Response</h3>
+              <p><strong>Event:</strong> ${data.eventTitle}</p>
+              <p><strong>Guest:</strong> ${data.guestName}</p>
+              <p><strong>Response:</strong> ${data.rsvpStatus}</p>
+              ${data.rsvpNotes ? `<p><strong>Notes:</strong> ${data.rsvpNotes}</p>` : ''}
+            </div>
+            
+            <p>You can view all RSVP responses and manage your event through the NVCCZ platform.</p>
+            
+            <p>Best regards,<br>
+            <strong>NVCCZ Events Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+            <p>© 2024 NVCCZ. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Get budget approval email template
+   */
+  private static getBudgetApprovalTemplate(data: any): string {
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Budget Approved</title>
+        <style>
+          body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+          }
+          .container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+          }
+          .header {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: #ffffff;
+            padding: 30px;
+            text-align: center;
+          }
+          .content {
+            padding: 30px;
+          }
+          .approval-details {
+            background-color: #e8f5e8;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #28a745;
+          }
+          .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>✅ Budget Approved</h1>
+            <h2>NVCCZ Finance Team</h2>
+          </div>
+          <div class="content">
+            <p>Dear ${data.organizerName},</p>
+            
+            <p>Great news! Your event budget has been approved by the finance team.</p>
+            
+            <div class="approval-details">
+              <h3>💰 Budget Approval Details</h3>
+              <p><strong>Event:</strong> ${data.eventTitle}</p>
+              <p><strong>Approved Budget:</strong> $${data.approvedBudget.toLocaleString()}</p>
+              ${data.notes ? `<p><strong>Notes:</strong> ${data.notes}</p>` : ''}
+            </div>
+            
+            <p>You can now proceed with your event planning and start making necessary arrangements. Remember to keep all receipts and documentation for expense tracking.</p>
+            
+            <p>If you have any questions about the approved budget or need assistance with event planning, please don't hesitate to contact the finance team.</p>
+            
+            <p>Best regards,<br>
+            <strong>NVCCZ Finance Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+            <p>© 2024 NVCCZ. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }

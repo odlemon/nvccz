@@ -5,6 +5,56 @@ import { ResponseHelper } from "../utils/responseHelper";
 
 export class JournalEntryController {
   /**
+   * Create a manual journal entry
+   */
+  static async createJournalEntry(req: Request, res: Response) {
+    try {
+      const { 
+        transactionDate, 
+        referenceNumber, 
+        description, 
+        currencyId, 
+        journalEntryLines 
+      } = req.body;
+
+      const userId = (req as any).user?.id;
+
+      if (!transactionDate || !referenceNumber || !description || !currencyId || !journalEntryLines) {
+        return ResponseHelper.badRequest(res, "Missing required fields: transactionDate, referenceNumber, description, currencyId, journalEntryLines");
+      }
+
+      if (!Array.isArray(journalEntryLines) || journalEntryLines.length < 2) {
+        return ResponseHelper.badRequest(res, "Journal entry must have at least 2 lines");
+      }
+
+      // Validate that debits equal credits
+      const totalDebits = journalEntryLines.reduce((sum, line) => sum + (parseFloat(line.debitAmount) || 0), 0);
+      const totalCredits = journalEntryLines.reduce((sum, line) => sum + (parseFloat(line.creditAmount) || 0), 0);
+
+      if (Math.abs(totalDebits - totalCredits) > 0.01) {
+        return ResponseHelper.badRequest(res, "Total debits must equal total credits");
+      }
+
+      const journalEntry = await JournalEntryService.createManualJournalEntry({
+        transactionDate: new Date(transactionDate),
+        referenceNumber,
+        description,
+        currencyId,
+        journalEntryLines,
+        createdById: userId
+      });
+
+      return ResponseHelper.success(res, "Manual journal entry created successfully", journalEntry);
+    } catch (error) {
+      console.error("Error creating manual journal entry:", error);
+      if (error instanceof Error) {
+        return ResponseHelper.badRequest(res, error.message);
+      }
+      return ResponseHelper.error(res, "Failed to create manual journal entry", undefined, 500);
+    }
+  }
+
+  /**
    * Get all journal entries
    */
   static async getJournalEntries(req: Request, res: Response) {

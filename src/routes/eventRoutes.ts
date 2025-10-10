@@ -283,4 +283,33 @@ router.put("/:id", eventController.updateEvent);
  */
 router.delete("/:id", eventController.deleteEvent);
 
+// Enhanced Event Management Routes
+
+// Guest Management
+router.post("/:eventId/guests", eventController.addGuests);
+router.get("/:eventId/guests", eventController.getEventGuests);
+
+// RSVP Management
+router.post("/rsvp/:invitationToken", eventController.handleRSVP);
+
+// Budget Management
+router.post("/:eventId/budget-items", eventController.addBudgetItems);
+router.get("/:eventId/budget-items", eventController.getEventBudgetItems);
+router.post("/:eventId/budget/approve", eventController.approveBudget);
+
+// Expense Management
+router.post("/:eventId/expenses", eventController.recordExpense);
+router.get("/:eventId/expenses", eventController.getEventExpenses);
+
+// Event Day Management
+router.post("/:eventId/guests/:guestId/check-in", eventController.checkInGuest);
+
+// Feedback Management
+router.post("/:eventId/feedback", eventController.submitFeedback);
+router.get("/:eventId/feedback", eventController.getEventFeedback);
+
+// Analytics and Reporting
+router.get("/:eventId/analytics", eventController.getEventAnalytics);
+router.post("/:eventId/reports", eventController.generateEventReport);
+
 export default router; 
