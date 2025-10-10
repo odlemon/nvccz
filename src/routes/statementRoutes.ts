@@ -8,37 +8,367 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
-// Statement Generation (all data - no ID required)
+/**
+ * @swagger
+ * tags:
+ *   name: Statement of Accounts
+ *   description: Statement of accounts management endpoints
+ */
+
+/**
+ * @swagger
+ * /accounting/statements/customer:
+ *   post:
+ *     summary: Generate statements for all customers
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       200:
+ *         description: Customer statements generated successfully
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/customer', StatementOfAccountController.generateAllCustomerStatements);
+
+/**
+ * @swagger
+ * /accounting/statements/vendor:
+ *   post:
+ *     summary: Generate statements for all vendors
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       200:
+ *         description: Vendor statements generated successfully
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/vendor', StatementOfAccountController.generateAllVendorStatements);
 
-// Statement Generation (specific ID)
+/**
+ * @swagger
+ * /accounting/statements/customer/{customerId}:
+ *   post:
+ *     summary: Generate statement for a specific customer
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: customerId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       200:
+ *         description: Customer statement generated successfully
+ *       404:
+ *         description: Customer not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/customer/:customerId', StatementOfAccountController.generateCustomerStatement);
+
+/**
+ * @swagger
+ * /accounting/statements/vendor/{vendorId}:
+ *   post:
+ *     summary: Generate statement for a specific vendor
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: vendorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       200:
+ *         description: Vendor statement generated successfully
+ *       404:
+ *         description: Vendor not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/vendor/:vendorId', StatementOfAccountController.generateVendorStatement);
 
-// Statement Management
+/**
+ * @swagger
+ * /accounting/statements:
+ *   get:
+ *     summary: Get all statements
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of statements
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/', StatementOfAccountController.getStatements);
+
+/**
+ * @swagger
+ * /accounting/statements/{id}:
+ *   get:
+ *     summary: Get statement by ID
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Statement details
+ *       404:
+ *         description: Statement not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/:id', StatementOfAccountController.getStatement);
+
+/**
+ * @swagger
+ * /accounting/statements/{id}:
+ *   delete:
+ *     summary: Delete statement
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Statement deleted successfully
+ *       404:
+ *         description: Statement not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.delete('/:id', StatementOfAccountController.deleteStatement);
 
-// Customer Statements (all data - no ID required)
+/**
+ * @swagger
+ * /accounting/statements/customer:
+ *   get:
+ *     summary: Get all customer statements
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of customer statements
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/customer', StatementOfAccountController.getAllCustomerStatements);
 
-// Vendor Statements (all data - no ID required)
+/**
+ * @swagger
+ * /accounting/statements/vendor:
+ *   get:
+ *     summary: Get all vendor statements
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of vendor statements
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/vendor', StatementOfAccountController.getAllVendorStatements);
 
-// Customer Statements (specific ID)
+/**
+ * @swagger
+ * /accounting/statements/customer/{customerId}:
+ *   get:
+ *     summary: Get statements for a specific customer
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: customerId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Customer statements
+ *       404:
+ *         description: Customer not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/customer/:customerId', StatementOfAccountController.getCustomerStatements);
 
-// Vendor Statements (specific ID)
+/**
+ * @swagger
+ * /accounting/statements/vendor/{vendorId}:
+ *   get:
+ *     summary: Get statements for a specific vendor
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: vendorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Vendor statements
+ *       404:
+ *         description: Vendor not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/vendor/:vendorId', StatementOfAccountController.getVendorStatements);
 
-// Dashboard
+/**
+ * @swagger
+ * /accounting/statements/dashboard:
+ *   get:
+ *     summary: Get statement dashboard
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Statement dashboard data
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/dashboard/statement-dashboard', StatementOfAccountController.getStatementDashboard);
 
-// Statement Operations
+/**
+ * @swagger
+ * /accounting/statements/{statementId}/format:
+ *   get:
+ *     summary: Format statement
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: statementId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Formatted statement
+ *       404:
+ *         description: Statement not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/:statementId/format', StatementOfAccountController.formatStatement);
-router.post('/:customerId/:statementId/email', StatementOfAccountController.emailStatement);
+
+/**
+ * @swagger
+ * /accounting/statements/{statementId}/email:
+ *   post:
+ *     summary: Email statement
+ *     tags: [Statement of Accounts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: statementId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               subject:
+ *                 type: string
+ *               message:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Statement emailed successfully
+ *       404:
+ *         description: Statement not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/:statementId/email', StatementOfAccountController.emailStatement); // Alias for requirements
 
 export default router;
