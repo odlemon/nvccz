@@ -56,12 +56,16 @@ export class JournalEntryController {
 
   /**
    * Get all journal entries
+   * Defaults to POSTED entries only. Use ?status=ALL to see all entries.
    */
   static async getJournalEntries(req: Request, res: Response) {
     try {
+      const status = req.query.status as 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | undefined;
+      
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
         new Date('2020-01-01'), // Default start date
-        new Date() // Current date
+        new Date(), // Current date
+        status // Pass status filter (defaults to POSTED)
       );
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
@@ -130,10 +134,12 @@ export class JournalEntryController {
 
   /**
    * Get journal entries by date range
+   * Defaults to POSTED entries only. Use ?status=ALL to see all entries.
    */
   static async getJournalEntriesByDateRange(req: Request, res: Response) {
     try {
       const { startDate, endDate } = req.query;
+      const status = req.query.status as 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | undefined;
 
       if (!startDate || !endDate) {
         return ResponseHelper.badRequest(res, "Start date and end date are required");
@@ -141,7 +147,8 @@ export class JournalEntryController {
 
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
         new Date(startDate as string),
-        new Date(endDate as string)
+        new Date(endDate as string),
+        status // Pass status filter (defaults to POSTED)
       );
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);

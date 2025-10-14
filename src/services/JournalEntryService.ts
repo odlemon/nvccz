@@ -639,15 +639,28 @@ export class JournalEntryService {
   /**
    * Get all journal entries for a date range
    * Include paymentMethod from related transaction and surface it on each line
+   * @param startDate - Start date for filtering
+   * @param endDate - End date for filtering
+   * @param status - Optional status filter (defaults to 'POSTED' only)
    */
-  static async getJournalEntriesByDateRange(startDate: Date, endDate: Date): Promise<any[]> {
+  static async getJournalEntriesByDateRange(startDate: Date, endDate: Date, status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL'): Promise<any[]> {
+    const whereClause: any = {
+      transactionDate: {
+        gte: startDate,
+        lte: endDate
+      }
+    };
+
+    // Default to POSTED only if no status specified
+    if (!status || status === 'POSTED') {
+      whereClause.status = 'POSTED';
+    } else if (status !== 'ALL') {
+      whereClause.status = status;
+    }
+    // If status is 'ALL', don't add status filter
+
     const entries = await prisma.journalEntry.findMany({
-      where: {
-        transactionDate: {
-          gte: startDate,
-          lte: endDate
-        }
-      },
+      where: whereClause,
       include: {
         journalEntryLines: {
           include: {
