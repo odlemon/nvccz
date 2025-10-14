@@ -436,55 +436,58 @@ export class AssetService {
     try {
       const { assetId, disposalDate, disposalValue, disposalMethod, description, createdById } = params;
 
-      const asset = await prisma.asset.findUnique({
-        where: { id: assetId }
-      });
+      // Wrap in transaction for atomicity
+      await prisma.$transaction(async (tx) => {
+        const asset = await tx.asset.findUnique({
+          where: { id: assetId }
+        });
 
-      if (!asset) {
-        throw new Error('Asset not found');
-      }
-
-      if (asset.status === 'DISPOSED') {
-        throw new Error('Asset already disposed');
-      }
-
-      const bookValue = Number(asset.currentBookValue);
-      const gainLoss = disposalValue - bookValue;
-
-      // Create disposal record
-      const disposalRecord = await prisma.assetDisposalRecord.create({
-        data: {
-          assetId,
-          disposalDate,
-          disposalValue: new Decimal(disposalValue),
-          disposalMethod,
-          gainLoss: new Decimal(gainLoss),
-          description,
-          createdById
+        if (!asset) {
+          throw new Error('Asset not found');
         }
-      });
 
-      // Update asset status
-      await prisma.asset.update({
-        where: { id: assetId },
-        data: {
-          status: 'DISPOSED',
-          disposalDate,
-          disposalValue: new Decimal(disposalValue),
-          disposalGainLoss: new Decimal(gainLoss)
+        if (asset.status === 'DISPOSED') {
+          throw new Error('Asset already disposed');
         }
+
+        const bookValue = Number(asset.currentBookValue);
+        const gainLoss = disposalValue - bookValue;
+
+        // Create disposal record
+        const disposalRecord = await tx.assetDisposalRecord.create({
+          data: {
+            assetId,
+            disposalDate,
+            disposalValue: new Decimal(disposalValue),
+            disposalMethod,
+            gainLoss: new Decimal(gainLoss),
+            description,
+            createdById
+          }
+        });
+
+        // Update asset status
+        await tx.asset.update({
+          where: { id: assetId },
+          data: {
+            status: 'DISPOSED',
+            disposalDate,
+            disposalValue: new Decimal(disposalValue),
+            disposalGainLoss: new Decimal(gainLoss)
+          }
+        });
+
+        // Create disposal journal entry within transaction
+        await this.createAssetDisposalJournalEntryInTransaction(tx, asset, disposalRecord, createdById);
       });
 
-      // Create disposal journal entry
-      await this.createAssetDisposalJournalEntry(asset, disposalRecord, createdById);
-
-      // Audit log
+      // Audit log (outside transaction)
       await AuditService.log({
         userId: createdById,
         action: 'UPDATE',
         entityType: 'Asset',
         entityId: assetId,
-        newValues: { status: 'DISPOSED', disposalDate, disposalValue, disposalGainLoss: gainLoss },
+        newValues: { status: 'DISPOSED', disposalDate, disposalValue },
       });
     } catch (error) {
       console.error('Error disposing asset:', error);
@@ -493,100 +496,168 @@ export class AssetService {
   }
 
   /**
-   * Create asset disposal journal entry
+   * Create asset disposal journal entry (legacy - non-transactional)
+   * @deprecated Use createAssetDisposalJournalEntryInTransaction instead
    */
   private static async createAssetDisposalJournalEntry(asset: Asset, disposalRecord: any, createdById: string): Promise<void> {
-    try {
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: disposalRecord.disposalDate,
-          referenceNumber: `DISPOSAL-${asset.assetCode}`,
-          description: `Asset disposal: ${asset.assetName}`,
-          totalAmount: new Decimal(disposalRecord.disposalValue),
-          currencyId: 'default',
-          status: 'POSTED',
-          createdById
-        }
-      });
+    console.warn('DEPRECATED: Use createAssetDisposalJournalEntryInTransaction for transaction safety');
+    // Legacy method kept for backward compatibility
+    // New code should use the transaction-aware version
+  }
 
+  /**
+   * Create asset disposal journal entry within a transaction
+   * This ensures proper balancing and atomicity
+   */
+  private static async createAssetDisposalJournalEntryInTransaction(
+    tx: any,
+    asset: Asset,
+    disposalRecord: any,
+    createdById: string
+  ): Promise<void> {
+    try {
       // Get accumulated depreciation
-      const totalDepreciation = await prisma.depreciationRecord.aggregate({
+      const totalDepreciation = await tx.depreciationRecord.aggregate({
         where: { assetId: asset.id, isPosted: true },
         _sum: { depreciationAmount: true }
       });
 
-      const accumulatedDepreciation = totalDepreciation._sum.depreciationAmount || new Decimal(0);
+      const accumulatedDepreciation = Number(totalDepreciation._sum.depreciationAmount || 0);
+      const assetCost = Number(asset.cost);
+      const disposalValue = Number(disposalRecord.disposalValue);
+      const bookValue = assetCost - accumulatedDepreciation;
+      const gainLoss = disposalValue - bookValue;
 
-      // Create journal entry lines
-      // Dr Cash/Bank (proceeds)
-      const cashAccount = await prisma.chartOfAccounts.findFirst({
+      // Validate: Total Debits = Disposal Value + Accumulated Depreciation + Loss (if any)
+      // Validate: Total Credits = Asset Cost + Gain (if any)
+      const expectedDebits = disposalValue + accumulatedDepreciation + (gainLoss < 0 ? Math.abs(gainLoss) : 0);
+      const expectedCredits = assetCost + (gainLoss > 0 ? gainLoss : 0);
+      
+      if (Math.abs(expectedDebits - expectedCredits) > 0.01) {
+        throw new Error(
+          `Asset disposal entry would be unbalanced! ` +
+          `Debits: ${expectedDebits.toFixed(2)}, Credits: ${expectedCredits.toFixed(2)}. ` +
+          `Asset Cost: ${assetCost}, Accum Depr: ${accumulatedDepreciation}, ` +
+          `Disposal Value: ${disposalValue}, Gain/Loss: ${gainLoss.toFixed(2)}`
+        );
+      }
+
+      // Get required accounts
+      const cashAccount = await tx.chartOfAccounts.findFirst({
         where: {
           accountName: { contains: 'Cash' },
           isActive: true
         }
       });
 
-      if (cashAccount) {
-        await prisma.journalEntryLine.create({
+      if (!cashAccount) {
+        throw new Error('Cash account not found. Please ensure chart of accounts is properly configured.');
+      }
+
+      // Get or create gain/loss account (REQUIRED for balanced entry)
+      let gainLossAccount = null;
+      if (Math.abs(gainLoss) > 0.01) {
+        const accountType = gainLoss > 0 ? 'Gain' : 'Loss';
+        gainLossAccount = await tx.chartOfAccounts.findFirst({
+          where: {
+            accountName: { contains: accountType },
+            accountType: gainLoss > 0 ? 'Revenue' : 'Expense',
+            isActive: true
+          }
+        });
+
+        if (!gainLossAccount) {
+          throw new Error(
+            `${accountType} on Disposal account not found. ` +
+            `A ${accountType.toLowerCase()} account is required to balance the disposal entry. ` +
+            `Please create a "${accountType} on Asset Disposal" account in your chart of accounts.`
+          );
+        }
+      }
+
+      // Create journal entry
+      const journalEntry = await tx.journalEntry.create({
+        data: {
+          transactionDate: disposalRecord.disposalDate,
+          referenceNumber: `DISPOSAL-${asset.assetCode}`,
+          description: `Asset disposal: ${asset.assetName}`,
+          totalAmount: new Decimal(assetCost), // Total should be asset cost
+          currencyId: 'default',
+          status: 'POSTED',
+          createdById
+        }
+      });
+
+      // Create journal entry lines
+      // 1. Dr Cash/Bank (disposal proceeds)
+      await tx.journalEntryLine.create({
+        data: {
+          journalEntryId: journalEntry.id,
+          chartOfAccountId: cashAccount.id,
+          debitAmount: new Decimal(disposalValue),
+          creditAmount: new Decimal(0),
+          description: `Proceeds from disposal: ${asset.assetName}`,
+          vatAmount: new Decimal(0)
+        }
+      });
+
+      // 2. Dr Accumulated Depreciation (clear it) - only if there is accumulated depreciation
+      if (accumulatedDepreciation > 0.01) {
+        await tx.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            chartOfAccountId: cashAccount.id,
-            debitAmount: disposalRecord.disposalValue,
+            chartOfAccountId: asset.accumulatedDepreciationAccountId,
+            debitAmount: new Decimal(accumulatedDepreciation),
             creditAmount: new Decimal(0),
-            description: `Proceeds from disposal: ${asset.assetName}`,
+            description: `Clear accumulated depreciation: ${asset.assetName}`,
             vatAmount: new Decimal(0)
           }
         });
       }
 
-      // Dr Accumulated Depreciation
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: journalEntry.id,
-          chartOfAccountId: asset.accumulatedDepreciationAccountId,
-          debitAmount: accumulatedDepreciation,
-          creditAmount: new Decimal(0),
-          description: `Clear accumulated depreciation: ${asset.assetName}`,
-          vatAmount: new Decimal(0)
-        }
-      });
+      // 3. Dr Loss on Disposal OR Cr Gain on Disposal (balancing entry - REQUIRED)
+      if (gainLossAccount && Math.abs(gainLoss) > 0.01) {
+        await tx.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: gainLossAccount.id,
+            debitAmount: gainLoss < 0 ? new Decimal(Math.abs(gainLoss)) : new Decimal(0),
+            creditAmount: gainLoss > 0 ? new Decimal(gainLoss) : new Decimal(0),
+            description: `${gainLoss > 0 ? 'Gain' : 'Loss'} on disposal: ${asset.assetName}`,
+            vatAmount: new Decimal(0)
+          }
+        });
+      }
 
-      // Cr Asset Account
-      await prisma.journalEntryLine.create({
+      // 4. Cr Asset Account (remove original cost)
+      await tx.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
           chartOfAccountId: asset.assetAccountId,
           debitAmount: new Decimal(0),
-          creditAmount: asset.cost,
+          creditAmount: new Decimal(assetCost),
           description: `Remove asset: ${asset.assetName}`,
           vatAmount: new Decimal(0)
         }
       });
 
-      // If there's a gain or loss, create additional entry
-      if (Number(disposalRecord.gainLoss) !== 0) {
-        const gainLossAccount = await prisma.chartOfAccounts.findFirst({
-          where: {
-            accountName: { contains: disposalRecord.gainLoss > 0 ? 'Gain' : 'Loss' },
-            isActive: true
-          }
-        });
+      // Verify the entry balances
+      const lines = await tx.journalEntryLine.findMany({
+        where: { journalEntryId: journalEntry.id }
+      });
 
-        if (gainLossAccount) {
-          await prisma.journalEntryLine.create({
-            data: {
-              journalEntryId: journalEntry.id,
-              chartOfAccountId: gainLossAccount.id,
-              debitAmount: disposalRecord.gainLoss < 0 ? Math.abs(disposalRecord.gainLoss) : new Decimal(0),
-              creditAmount: disposalRecord.gainLoss > 0 ? disposalRecord.gainLoss : new Decimal(0),
-              description: `${disposalRecord.gainLoss > 0 ? 'Gain' : 'Loss'} on disposal: ${asset.assetName}`,
-              vatAmount: new Decimal(0)
-            }
-          });
-        }
+      const totalDebits = lines.reduce((sum, line) => sum + Number(line.debitAmount), 0);
+      const totalCredits = lines.reduce((sum, line) => sum + Number(line.creditAmount), 0);
+
+      if (Math.abs(totalDebits - totalCredits) > 0.01) {
+        throw new Error(
+          `CRITICAL: Asset disposal entry is unbalanced! ` +
+          `Debits: ${totalDebits.toFixed(2)}, Credits: ${totalCredits.toFixed(2)}`
+        );
       }
+
     } catch (error) {
-      console.error('Error creating asset disposal journal entry:', error);
+      console.error('Error creating asset disposal journal entry in transaction:', error);
       throw error;
     }
   }

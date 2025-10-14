@@ -50,7 +50,8 @@ export class TrialBalanceService {
             journalEntry: {
               transactionDate: {
                 lte: date
-              }
+              },
+              status: 'POSTED' // Only include POSTED entries (exclude VOID and PENDING)
             }
           },
           include: {
