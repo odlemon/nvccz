@@ -113,57 +113,63 @@ export class CreditNoteService {
       // Generate credit note number
       const creditNoteNumber = await this.generateCreditNoteNumber();
 
-      // Create the credit note
-      const creditNote = await prisma.creditNote.create({
-        data: {
-          customerId: finalCustomerId,
-          invoiceId,
-          amount: new Decimal(amount),
-          vatAmount: new Decimal(vatAmount),
-          totalAmount: new Decimal(totalAmount),
-          currencyId: finalCurrencyId,
-          creditNoteNumber,
-          reason,
-          remainingAmount: new Decimal(totalAmount),
-          createdById
-        },
-        include: {
-          customer: {
-            select: {
-              id: true,
-              name: true,
-              email: true
-            }
+      // Wrap credit note and journal entry creation in a transaction
+      // This ensures atomicity - either both succeed or both fail
+      const creditNote = await prisma.$transaction(async (tx) => {
+        // Create the credit note
+        const newCreditNote = await tx.creditNote.create({
+          data: {
+            customerId: finalCustomerId,
+            invoiceId,
+            amount: new Decimal(amount),
+            vatAmount: new Decimal(vatAmount),
+            totalAmount: new Decimal(totalAmount),
+            currencyId: finalCurrencyId,
+            creditNoteNumber,
+            reason,
+            remainingAmount: new Decimal(totalAmount),
+            createdById
           },
-          originalInvoice: {
-            select: {
-              id: true,
-              invoiceNumber: true,
-              totalAmount: true
-            }
-          },
-          currency: {
-            select: {
-              id: true,
-              code: true,
-              symbol: true
-            }
-          },
-          createdBy: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
+          include: {
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            originalInvoice: {
+              select: {
+                id: true,
+                invoiceNumber: true,
+                totalAmount: true
+              }
+            },
+            currency: {
+              select: {
+                id: true,
+                code: true,
+                symbol: true
+              }
+            },
+            createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
             }
           }
-        }
+        });
+
+        // Create credit note journal entry within the same transaction
+        await this.createCreditNoteJournalEntryInTransaction(tx, newCreditNote, createdById);
+
+        return newCreditNote;
       });
 
-      // Create credit note journal entry
-      await this.createCreditNoteJournalEntry(creditNote, createdById);
-
-      // Audit log
+      // Audit log (outside transaction as it's not critical)
       await AuditService.log({
         userId: createdById,
         action: 'CREATE',
@@ -205,7 +211,8 @@ export class CreditNoteService {
   }
 
   /**
-   * Create credit note journal entry
+   * Create credit note journal entry (legacy method - kept for backward compatibility)
+   * @deprecated Use createCreditNoteJournalEntryInTransaction for new code
    */
   private static async createCreditNoteJournalEntry(creditNote: CreditNote, createdById: string): Promise<void> {
     try {
@@ -282,69 +289,179 @@ export class CreditNoteService {
   }
 
   /**
+   * Create credit note journal entry within a transaction
+   * This ensures atomicity with the credit note creation
+   */
+  private static async createCreditNoteJournalEntryInTransaction(
+    tx: any, 
+    creditNote: CreditNote, 
+    createdById: string
+  ): Promise<void> {
+    try {
+      // Get accounts receivable account
+      const accountsReceivableAccount = await tx.chartOfAccounts.findFirst({
+        where: {
+          accountName: { contains: 'Accounts Receivable' },
+          isActive: true
+        }
+      });
+
+      if (!accountsReceivableAccount) {
+        throw new Error('Accounts Receivable account not found. Please ensure chart of accounts is properly configured.');
+      }
+
+      // Get sales/revenue account (use first available revenue account)
+      const salesAccount = await tx.chartOfAccounts.findFirst({
+        where: {
+          accountType: 'Revenue',
+          isActive: true
+        }
+      });
+
+      if (!salesAccount) {
+        throw new Error('Revenue account not found. Please ensure chart of accounts is properly configured.');
+      }
+
+      // Create journal entry
+      const journalEntry = await tx.journalEntry.create({
+        data: {
+          transactionDate: new Date(),
+          referenceNumber: creditNote.creditNoteNumber,
+          description: `Credit note: ${creditNote.creditNoteNumber}`,
+          totalAmount: creditNote.totalAmount,
+          currencyId: creditNote.currencyId,
+          status: 'POSTED',
+          createdById
+        }
+      });
+
+      // Create journal entry lines
+      // Cr Accounts Receivable (reduce receivable)
+      await tx.journalEntryLine.create({
+        data: {
+          journalEntryId: journalEntry.id,
+          chartOfAccountId: accountsReceivableAccount.id,
+          debitAmount: new Decimal(0),
+          creditAmount: creditNote.totalAmount,
+          description: `Credit note: ${creditNote.creditNoteNumber}`,
+          vatAmount: new Decimal(0)
+        }
+      });
+
+      // Dr Sales/Revenue (reduce revenue)
+      await tx.journalEntryLine.create({
+        data: {
+          journalEntryId: journalEntry.id,
+          chartOfAccountId: salesAccount.id,
+          debitAmount: creditNote.totalAmount,
+          creditAmount: new Decimal(0),
+          description: `Credit note: ${creditNote.creditNoteNumber}`,
+          vatAmount: new Decimal(0)
+        }
+      });
+
+      // Update credit note with journal entry reference
+      await tx.creditNote.update({
+        where: { id: creditNote.id },
+        data: { journalEntryId: journalEntry.id }
+      });
+    } catch (error) {
+      console.error('Error creating credit note journal entry in transaction:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Apply credit note to invoice
    */
   static async applyCreditNote(params: ApplyCreditNoteParams): Promise<void> {
     try {
       const { creditNoteId, invoiceId, amount, appliedById } = params;
 
-      // Get credit note
-      const creditNote = await prisma.creditNote.findUnique({
-        where: { id: creditNoteId }
-      });
+      // Wrap in transaction for atomicity
+      await prisma.$transaction(async (tx) => {
+        // Get credit note
+        const creditNote = await tx.creditNote.findUnique({
+          where: { id: creditNoteId }
+        });
 
-      if (!creditNote) {
-        throw new Error('Credit note not found');
-      }
-
-      if (creditNote.status !== 'SENT') {
-        throw new Error('Only sent credit notes can be applied');
-      }
-
-      if (Number(creditNote.remainingAmount) < amount) {
-        throw new Error('Insufficient credit note balance');
-      }
-
-      // Get invoice
-      const invoice = await prisma.invoice.findUnique({
-        where: { id: invoiceId }
-      });
-
-      if (!invoice) {
-        throw new Error('Invoice not found');
-      }
-
-      if (invoice.customerId !== creditNote.customerId) {
-        throw new Error('Credit note and invoice must belong to the same customer');
-      }
-
-      // Update credit note
-      const newAppliedAmount = Number(creditNote.appliedAmount) + amount;
-      const newRemainingAmount = Number(creditNote.remainingAmount) - amount;
-      const newStatus = newRemainingAmount <= 0 ? 'APPLIED' : 'PARTIALLY_APPLIED';
-
-      await prisma.creditNote.update({
-        where: { id: creditNoteId },
-        data: {
-          appliedAmount: new Decimal(newAppliedAmount),
-          remainingAmount: new Decimal(newRemainingAmount),
-          status: newStatus
+        if (!creditNote) {
+          throw new Error('Credit note not found');
         }
+
+        if (creditNote.status !== 'SENT') {
+          throw new Error('Only sent credit notes can be applied');
+        }
+
+        if (Number(creditNote.remainingAmount) < amount) {
+          throw new Error('Insufficient credit note balance');
+        }
+
+        // Get invoice
+        const invoice = await tx.invoice.findUnique({
+          where: { id: invoiceId }
+        });
+
+        if (!invoice) {
+          throw new Error('Invoice not found');
+        }
+
+        if (invoice.customerId !== creditNote.customerId) {
+          throw new Error('Credit note and invoice must belong to the same customer');
+        }
+
+        // Calculate new amounts
+        const newAppliedAmount = Number(creditNote.appliedAmount) + amount;
+        const newRemainingAmount = Number(creditNote.remainingAmount) - amount;
+        const newStatus = newRemainingAmount <= 0 ? 'APPLIED' : 'PARTIALLY_APPLIED';
+
+        // Update credit note status
+        await tx.creditNote.update({
+          where: { id: creditNoteId },
+          data: {
+            appliedAmount: new Decimal(newAppliedAmount),
+            remainingAmount: new Decimal(newRemainingAmount),
+            status: newStatus
+          }
+        });
+
+        // Update invoice to reduce outstanding amount
+        const newInvoiceOutstanding = Number(invoice.outstandingAmount || invoice.totalAmount) - amount;
+        const newInvoiceStatus = newInvoiceOutstanding <= 0 ? 'PAID' : 'PARTIALLY_PAID';
+
+        await tx.invoice.update({
+          where: { id: invoiceId },
+          data: {
+            outstandingAmount: new Decimal(Math.max(0, newInvoiceOutstanding)),
+            status: newInvoiceStatus
+          }
+        });
+
+        // Create credit note application record for tracking
+        await tx.creditNoteApplication.create({
+          data: {
+            creditNoteId,
+            invoiceId,
+            amount: new Decimal(amount),
+            appliedById,
+            appliedAt: new Date()
+          }
+        }).catch(() => {
+          // Ignore if table doesn't exist yet - this is for future tracking
+          console.log('CreditNoteApplication table not available yet');
+        });
       });
 
-      // Create application journal entry
-      await this.createCreditNoteApplicationJournalEntry(creditNote, invoice, amount, appliedById);
-
-      // Audit log
+      // Audit log (outside transaction)
       await AuditService.log({
         userId: appliedById,
-        action: 'UPDATE',
+        action: 'APPLY',
         entityType: 'CreditNote',
         entityId: creditNoteId,
         newValues: {
-          appliedAmount: newAppliedAmount,
-          remainingAmount: newRemainingAmount,
-          status: newStatus
+          invoiceId,
+          amount,
+          action: 'Applied to invoice'
         },
       });
     } catch (error) {
@@ -355,6 +472,19 @@ export class CreditNoteService {
 
   /**
    * Create credit note application journal entry
+   * @deprecated This method is deprecated and should not be used.
+   * 
+   * ACCOUNTING ISSUE: This method creates a meaningless journal entry that debits 
+   * and credits the SAME account (Accounts Receivable), resulting in a net-zero effect.
+   * 
+   * WHY THIS IS WRONG:
+   * - When a credit note is issued: Dr Revenue, Cr AR (already recorded)
+   * - When an invoice is created: Dr AR, Cr Revenue (already recorded)
+   * - Applying a credit note is just linking them together - NO journal entry needed
+   * 
+   * The new applyCreditNote method correctly updates statuses without creating
+   * meaningless journal entries. This method is kept only for reference and should
+   * NOT be called by any code.
    */
   private static async createCreditNoteApplicationJournalEntry(
     creditNote: CreditNote,
@@ -362,59 +492,16 @@ export class CreditNoteService {
     amount: number,
     appliedById: string
   ): Promise<void> {
-    try {
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: new Date(),
-          referenceNumber: `CN-APPLY-${creditNote.creditNoteNumber}`,
-          description: `Credit note application: ${creditNote.creditNoteNumber} to invoice ${invoice.invoiceNumber || invoice.id}`,
-          totalAmount: new Decimal(amount),
-          currencyId: creditNote.currencyId,
-          status: 'POSTED',
-          createdById: appliedById
-        }
-      });
-
-      // Get accounts receivable account
-      const accountsReceivableAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          accountName: { contains: 'Accounts Receivable' },
-          isActive: true
-        }
-      });
-
-      if (!accountsReceivableAccount) {
-        throw new Error('Accounts Receivable account not found');
-      }
-
-      // Create journal entry lines
-      // Dr Accounts Receivable (reduce receivable by credit note amount)
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: journalEntry.id,
-          chartOfAccountId: accountsReceivableAccount.id,
-          debitAmount: new Decimal(0),
-          creditAmount: new Decimal(amount),
-          description: `Credit note application: ${creditNote.creditNoteNumber}`,
-          vatAmount: new Decimal(0)
-        }
-      });
-
-      // Cr Accounts Receivable (increase receivable by same amount - net effect is zero)
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: journalEntry.id,
-          chartOfAccountId: accountsReceivableAccount.id,
-          debitAmount: new Decimal(amount),
-          creditAmount: new Decimal(0),
-          description: `Credit note application: ${creditNote.creditNoteNumber}`,
-          vatAmount: new Decimal(0)
-        }
-      });
-    } catch (error) {
-      console.error('Error creating credit note application journal entry:', error);
-      throw error;
-    }
+    console.warn('DEPRECATED: createCreditNoteApplicationJournalEntry should not be used. ' +
+                 'Credit note application does not require a journal entry.');
+    
+    // This method intentionally does nothing now
+    // The accounting for credit notes happens at:
+    // 1. Credit note creation (Dr Revenue, Cr AR)
+    // 2. Invoice creation (Dr AR, Cr Revenue)
+    // Application is just status tracking, no additional journal entry needed
+    
+    return;
   }
 
   /**
