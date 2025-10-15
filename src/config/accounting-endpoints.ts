@@ -12,7 +12,7 @@ export const accountingEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['itemName', 'skuNumber', 'costOfPurchase', 'inventoryAssetAccountId'],
+              required: ['itemName', 'skuNumber', 'costOfPurchase'],
               properties: {
                 itemName: { type: 'string', example: 'Product A' },
                 skuNumber: { type: 'string', example: 'SKU-001' },
@@ -20,9 +20,9 @@ export const accountingEndpoints = {
                 costOfPurchase: { type: 'number', example: 50.00 },
                 quantityOnHand: { type: 'number', example: 100 },
                 reorderLevel: { type: 'number', example: 20 },
-                unitOfMeasure: { type: 'string', example: 'pieces' },
-                supplierId: { type: 'string', example: 'supplier-id' },
-                inventoryAssetAccountId: { type: 'string', example: 'account-id' }
+                unitOfMeasure: { type: 'string', example: 'pieces', default: 'pieces' },
+                vendorId: { type: 'string', example: 'vendor-id', description: 'Optional - Link to vendor/supplier' },
+                inventoryAssetAccountId: { type: 'string', example: 'account-id', description: 'Optional - Auto-selected if not provided' }
               }
             }
           }
@@ -72,12 +72,13 @@ export const accountingEndpoints = {
             schema: {
               type: 'object',
               properties: {
-                itemName: { type: 'string' },
-                description: { type: 'string' },
-                costOfPurchase: { type: 'number' },
-                quantityOnHand: { type: 'number' },
-                reorderLevel: { type: 'number' },
-                unitOfMeasure: { type: 'string' }
+                itemName: { type: 'string', example: 'Updated Product Name' },
+                description: { type: 'string', example: 'Updated description' },
+                costOfPurchase: { type: 'number', example: 55.00 },
+                quantityOnHand: { type: 'number', example: 120 },
+                reorderLevel: { type: 'number', example: 25 },
+                unitOfMeasure: { type: 'string', example: 'units' },
+                vendorId: { type: 'string', example: 'vendor-id', description: 'Optional - Link to vendor/supplier' }
               }
             }
           }
@@ -1583,6 +1584,516 @@ export const accountingEndpoints = {
         200: { description: 'Statement emailed successfully' },
         400: { description: 'Bad request' },
         404: { description: 'Statement not found' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+
+  // ========== BALANCE SHEET ==========
+  '/accounting/balance-sheet/generate': {
+    post: {
+      summary: 'Generate Balance Sheet (Assets = Liabilities + Equity)',
+      tags: ['Balance Sheet'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['asOfDate'],
+              properties: {
+                asOfDate: { 
+                  type: 'string', 
+                  format: 'date', 
+                  example: '2025-12-31', 
+                  description: 'As-of date for balance sheet (point in time)' 
+                },
+                currencyId: { 
+                  type: 'string', 
+                  example: 'cmg97k2460000un8w4ejdporz', 
+                  description: 'Optional - Currency ID (defaults to USD if not provided)' 
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { 
+          description: 'Balance sheet generated successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                data: {
+                  asOfDate: '2025-12-31',
+                  assets: {
+                    currentAssets: { accounts: [], total: 0 },
+                    fixedAssets: { accounts: [], total: 0 },
+                    totalAssets: 0
+                  },
+                  liabilities: {
+                    currentLiabilities: { accounts: [], total: 0 },
+                    longTermLiabilities: { accounts: [], total: 0 },
+                    totalLiabilities: 0
+                  },
+                  equity: {
+                    accounts: [],
+                    retainedEarnings: 0,
+                    total: 0
+                  },
+                  isBalanced: true
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - asOfDate required' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/balance-sheet': {
+    get: {
+      summary: 'Get Balance Sheet by query',
+      tags: ['Balance Sheet'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'asOfDate', required: true, schema: { type: 'string', format: 'date' }, description: 'As-of date (YYYY-MM-DD)' },
+        { in: 'query', name: 'currencyId', required: false, schema: { type: 'string' }, description: 'Currency ID (optional)' }
+      ],
+      responses: {
+        200: { description: 'Balance sheet retrieved successfully' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+
+  // ========== INCOME STATEMENT ==========
+  '/accounting/income-statement/generate': {
+    post: {
+      summary: 'Generate Income Statement (Revenue - Expenses = Net Income)',
+      tags: ['Income Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { 
+                  type: 'string', 
+                  format: 'date', 
+                  example: '2025-01-01', 
+                  description: 'Start date of reporting period (YYYY-MM-DD)' 
+                },
+                endDate: { 
+                  type: 'string', 
+                  format: 'date', 
+                  example: '2025-12-31', 
+                  description: 'End date of reporting period (YYYY-MM-DD)' 
+                },
+                currencyId: { 
+                  type: 'string', 
+                  example: 'cmg97k2460000un8w4ejdporz', 
+                  description: 'Optional - Currency ID (defaults to USD)' 
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { 
+          description: 'Income statement generated successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                data: {
+                  period: { startDate: '2025-01-01', endDate: '2025-12-31' },
+                  revenue: { accounts: [], total: 0 },
+                  expenses: { accounts: [], total: 0 },
+                  netIncome: 0,
+                  currency: { code: 'USD', name: 'US Dollar' }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - startDate and endDate required' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/income-statement/detailed': {
+    post: {
+      summary: 'Get detailed Income Statement with transaction breakdown',
+      tags: ['Income Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { type: 'string', format: 'date' },
+                endDate: { type: 'string', format: 'date' },
+                currencyId: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Detailed income statement retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/income-statement/summary': {
+    post: {
+      summary: 'Get Income Statement summary (high-level totals)',
+      tags: ['Income Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { type: 'string', format: 'date' },
+                endDate: { type: 'string', format: 'date' },
+                currencyId: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Income statement summary retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/income-statement/comprehensive': {
+    post: {
+      summary: 'Get comprehensive detailed Income Statement',
+      tags: ['Income Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { type: 'string', format: 'date' },
+                endDate: { type: 'string', format: 'date' },
+                currencyId: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Comprehensive income statement retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/income-statement/vertical': {
+    post: {
+      summary: 'Get vertical Income Statement (traditional format)',
+      tags: ['Income Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { type: 'string', format: 'date' },
+                endDate: { type: 'string', format: 'date' },
+                currencyId: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Vertical income statement retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/income-statement/comparative': {
+    post: {
+      summary: 'Get comparative Income Statement for multiple periods',
+      tags: ['Income Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['periods'],
+              properties: {
+                periods: {
+                  type: 'array',
+                  minItems: 2,
+                  items: {
+                    type: 'object',
+                    required: ['startDate', 'endDate'],
+                    properties: {
+                      startDate: { type: 'string', format: 'date' },
+                      endDate: { type: 'string', format: 'date' },
+                      currencyId: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Comparative income statement retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/income-statement': {
+    get: {
+      summary: 'Get Income Statement by query parameters',
+      tags: ['Income Statement'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'startDate', required: true, schema: { type: 'string', format: 'date' } },
+        { in: 'query', name: 'endDate', required: true, schema: { type: 'string', format: 'date' } },
+        { in: 'query', name: 'currencyId', required: false, schema: { type: 'string' } },
+        { in: 'query', name: 'type', required: false, schema: { type: 'string', enum: ['summary', 'detailed'] }, description: 'Type of statement' }
+      ],
+      responses: {
+        200: { description: 'Income statement retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+
+  // ========== CASH FLOW STATEMENT ==========
+  '/accounting/cash-flow': {
+    post: {
+      summary: 'Generate Cash Flow Statement (Operating + Investing + Financing Activities)',
+      tags: ['Cash Flow Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { 
+                  type: 'string', 
+                  format: 'date', 
+                  example: '2025-01-01', 
+                  description: 'Start date of cash flow period (YYYY-MM-DD)' 
+                },
+                endDate: { 
+                  type: 'string', 
+                  format: 'date', 
+                  example: '2025-12-31', 
+                  description: 'End date of cash flow period (YYYY-MM-DD)' 
+                },
+                currencyId: { 
+                  type: 'string', 
+                  example: 'cmg97k2460000un8w4ejdporz', 
+                  description: 'Optional - Currency ID (defaults to USD)' 
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { 
+          description: 'Cash flow statement generated successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                data: {
+                  period: { startDate: '2025-01-01', endDate: '2025-12-31' },
+                  operatingActivities: { total: 0 },
+                  investingActivities: { total: 0 },
+                  financingActivities: { total: 0 },
+                  netCashFlow: 0,
+                  openingCashBalance: 0,
+                  closingCashBalance: 0,
+                  currency: { code: 'USD' }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - startDate and endDate required' },
+        401: { description: 'Unauthorized' }
+      }
+    },
+    get: {
+      summary: 'Get Cash Flow Statement by query parameters',
+      tags: ['Cash Flow Statement'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'startDate', required: true, schema: { type: 'string', format: 'date' } },
+        { in: 'query', name: 'endDate', required: true, schema: { type: 'string', format: 'date' } },
+        { in: 'query', name: 'currencyId', required: false, schema: { type: 'string' } }
+      ],
+      responses: {
+        200: { description: 'Cash flow statement retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/cash-flow/detailed': {
+    post: {
+      summary: 'Get detailed Cash Flow Statement',
+      tags: ['Cash Flow Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { type: 'string', format: 'date' },
+                endDate: { type: 'string', format: 'date' },
+                currencyId: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Detailed cash flow statement retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/cash-flow/summary': {
+    post: {
+      summary: 'Get Cash Flow Statement summary',
+      tags: ['Cash Flow Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { type: 'string', format: 'date' },
+                endDate: { type: 'string', format: 'date' },
+                currencyId: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Cash flow summary retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/cash-flow/comprehensive': {
+    post: {
+      summary: 'Get comprehensive Cash Flow Statement',
+      tags: ['Cash Flow Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { type: 'string', format: 'date' },
+                endDate: { type: 'string', format: 'date' },
+                currencyId: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Comprehensive cash flow statement retrieved' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/cash-flow/comparative': {
+    post: {
+      summary: 'Get comparative Cash Flow Statement for multiple periods',
+      tags: ['Cash Flow Statement'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['periods'],
+              properties: {
+                periods: {
+                  type: 'array',
+                  minItems: 2,
+                  items: {
+                    type: 'object',
+                    required: ['startDate', 'endDate'],
+                    properties: {
+                      startDate: { type: 'string', format: 'date' },
+                      endDate: { type: 'string', format: 'date' },
+                      currencyId: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Comparative cash flow statement retrieved' },
+        400: { description: 'Bad request' },
         401: { description: 'Unauthorized' }
       }
     }

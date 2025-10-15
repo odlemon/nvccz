@@ -16,6 +16,32 @@
 
 ## ✅ **FIXES IMPLEMENTED**
 
+### **🚀 LATEST UPDATE: Swagger Documentation Complete** ✅
+
+**Problem:** Financial statement endpoints (Balance Sheet, Income Statement, Cash Flow) were not visible in Swagger documentation for production
+
+**Fix (October 15, 2025):**
+- ✅ Updated `src/config/accounting-endpoints.ts` with all missing endpoints
+- ✅ Added complete request body schemas with proper examples
+- ✅ Added response body examples for all financial statements
+- ✅ Updated Inventory endpoints to use `vendorId` instead of `supplierId`
+- ✅ Made `inventoryAssetAccountId` optional (auto-selected)
+- ✅ Added detailed descriptions for all parameters
+- ✅ Added helpful examples with real currency IDs
+
+**What's Now in Swagger:**
+- 📊 Balance Sheet - 2 endpoints with full schemas
+- 💰 Income Statement - 7 endpoints (generate, detailed, summary, comprehensive, vertical, comparative, query)
+- 💵 Cash Flow Statement - 5 endpoints (generate, detailed, summary, comprehensive, comparative)
+- 📦 Inventory - Updated with vendorId and optional fields
+
+**All endpoints are now production-ready and fully documented at:**
+```
+http://localhost:3000/api-docs
+```
+
+---
+
 ### **1. Cash Flow Statement - Routes Not Registered** ✅
 
 **Problem:** Cash flow routes existed but were not registered in `app.ts`
@@ -929,22 +955,36 @@ GET /api/accounting/bank-reconciliation/:id
 
 **All Systems Operational:**
 - ✅ All financial statements working correctly
-- ✅ All endpoints properly documented in Swagger
+- ✅ All endpoints properly documented in Swagger with full request/response examples
 - ✅ All data quality issues identified and fixed
 - ✅ Comprehensive logging added for debugging
-- ✅ Auto-selection features for better UX
-- ✅ Consistent naming conventions (vendorId)
+- ✅ Auto-selection features for better UX (Inventory asset accounts)
+- ✅ Consistent naming conventions (vendorId everywhere)
 - ✅ Proper error handling and validation
+- ✅ **NEW:** Complete Swagger documentation for Balance Sheet, Income Statement, Cash Flow
+- ✅ **NEW:** Detailed request body schemas with examples
+- ✅ **NEW:** Response body examples for all financial statements
+- ✅ **NEW:** Proper descriptions for all parameters and fields
 
 **Access Documentation:**
 ```
 http://localhost:3000/api-docs
 ```
 
-**Total Endpoints:** 281 documented endpoints
+**Swagger Documentation Includes:**
+- 📊 Balance Sheet (2 endpoints) - Full request/response examples
+- 💰 Income Statement (7 endpoints) - All variants documented
+- 💵 Cash Flow Statement (5 endpoints) - Complete cash flow cycle
+- 📈 Trial Balance - Fully documented
+- 📦 Inventory Management - Updated with vendorId
+- 💱 Multi-Currency - Exchange rate management
+- 🏦 Bank Reconciliation - Full workflow
+- 🔧 Assets & Credit Notes - Complete CRUD
+
+**Total Endpoints:** 281+ fully documented endpoints
 **Status:** ✅ **READY FOR PRODUCTION**
 
 ---
 
-**Last Updated:** October 15, 2025, 07:15 UTC
+**Last Updated:** October 15, 2025, 09:30 UTC
 
