@@ -1,7 +1,15 @@
 # 🎯 SWAGGER PRODUCTION DOCUMENTATION - FIXED
 
 ## 📅 **FIX DATE**
-**October 15, 2025, 09:45 UTC**
+**October 15, 2025, 10:00 UTC** (Final Update)
+
+---
+
+## 🚨 **CRITICAL FIXES - DUPLICATE /api PREFIX RESOLVED**
+
+**Root Cause:** Swagger paths had `/api` prefix, but `app.ts` routing also adds `/api`, causing double prefix like `/api/api/accounting/...`
+
+**Solution:** Removed `/api` from ALL Swagger endpoint definitions. The routing in `app.ts` handles the prefix automatically.
 
 ---
 
@@ -17,8 +25,10 @@
 
 **Swagger Endpoint:**
 ```
-POST /api/accounting/cash-flow
+POST /accounting/cash-flow
 ```
+**Full URL:** `http://localhost:3000/api/accounting/cash-flow`
+(Note: `/api` is added by app.ts routing)
 
 **Request Body:**
 ```json
@@ -106,20 +116,20 @@ POST /accounting/income-statement/generate
 POST /api/accounting/inventory/items
 ```
 
-**Request Body (UPDATED):**
+**Request Body (CLEANED UP):**
 ```json
 {
   "itemName": "Laptop",
   "skuNumber": "LAP-001",
-  "description": "Dell Latitude",
+  "description": "Dell Latitude 7490",
   "costOfPurchase": 1000,
   "quantityOnHand": 10,
   "reorderLevel": 5,
   "unitOfMeasure": "pieces",
-  "vendorId": "vendor-uuid"  // Optional
-  // inventoryAssetAccountId is OPTIONAL - auto-selected!
+  "vendorId": "vendor-uuid-here"
 }
 ```
+**Note:** `inventoryAssetAccountId` is completely removed from Swagger example - it's auto-selected!
 
 **Required Fields:**
 - ✅ `itemName`
@@ -136,26 +146,29 @@ POST /api/accounting/inventory/items
 
 ---
 
-### **4. Bank Reconciliation - Already Has /api Prefix** ✅
+### **4. Bank Reconciliation - Fixed Duplicate /api Prefix** ✅
 
-**Problem:** User reported 404 on `/api/accounting/bank-reconciliation`
+**Problem:** User reported 404 on `/api/api/accounting/bank-reconciliation` (duplicate prefix)
 
-**Status:**
-- ✅ Swagger documentation **already has** the correct `/api` prefix
-- ✅ Routes are correctly registered in `app.ts` at `/api/accounting/bank-reconciliation`
-- ✅ Should be working correctly now
+**Fix:**
+- ✅ Removed `/api` prefix from Swagger paths (app.ts already adds it)
+- ✅ Fixed ALL 9 bank reconciliation endpoints
+- ✅ Now works correctly
 
-**Swagger Endpoint:**
+**Swagger Endpoints:**
 ```
-POST /api/accounting/bank-reconciliation/upload
-GET /api/accounting/bank-reconciliation
-GET /api/accounting/bank-reconciliation/:id
+POST /accounting/bank-reconciliation/upload
+GET /accounting/bank-reconciliation
+GET /accounting/bank-reconciliation/summary
+GET /accounting/bank-reconciliation/:id
+GET /accounting/bank-reconciliation/:reconciliationId/unmatched
+GET /accounting/bank-reconciliation/transactions/:bankTransactionId/matches
+POST /accounting/bank-reconciliation/approve-match
+POST /accounting/bank-reconciliation/results/:reconciliationResultId/reject
+GET /accounting/bank-reconciliation/:reconciliationId/audit-trail
 ```
-
-**If still getting 404:**
-1. Clear browser cache
-2. Restart dev server: `npm run dev`
-3. Check Swagger at: `http://localhost:3000/api-docs`
+**Full URLs:** `http://localhost:3000/api/accounting/bank-reconciliation/*`
+(Note: `/api` is added by app.ts routing)
 
 ---
 
@@ -163,12 +176,12 @@ GET /api/accounting/bank-reconciliation/:id
 
 ### **Financial Statements (All Working)**
 
-| Statement | Method | Endpoint | Status |
-|-----------|--------|----------|--------|
-| **Balance Sheet** | POST | `/accounting/balance-sheet/generate` | ✅ Working |
-| **Income Statement** | POST | `/accounting/income-statement/generate` | ✅ Working |
-| **Cash Flow** | POST | `/api/accounting/cash-flow` | ✅ Working |
-| **Trial Balance** | GET | `/accounting/trial-balance` | ✅ Working |
+| Statement | Method | Swagger Path | Full URL | Status |
+|-----------|--------|--------------|----------|--------|
+| **Balance Sheet** | POST | `/accounting/balance-sheet/generate` | `http://localhost:3000/api/accounting/balance-sheet/generate` | ✅ Fixed |
+| **Income Statement** | POST | `/accounting/income-statement/generate` | `http://localhost:3000/api/accounting/income-statement/generate` | ✅ Fixed |
+| **Cash Flow** | POST | `/accounting/cash-flow` | `http://localhost:3000/api/accounting/cash-flow` | ✅ Fixed |
+| **Trial Balance** | GET | `/accounting/trial-balance` | `http://localhost:3000/api/accounting/trial-balance` | ✅ Fixed |
 
 ### **Inventory Management**
 
@@ -207,6 +220,7 @@ Authorization: Bearer YOUR_TOKEN
   "endDate": "2025-12-31"
 }
 ```
+**Swagger Path:** `/accounting/cash-flow` (without /api prefix)
 
 ### **3. Test Income Statement:**
 ```bash
