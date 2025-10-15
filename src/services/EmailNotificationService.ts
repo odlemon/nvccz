@@ -2119,4 +2119,675 @@ export class EmailNotificationService {
       </html>
     `;
   }
+
+  /**
+   * Send RFQ (Request for Quote) to vendor
+   */
+  static async sendRFQToVendor(data: {
+    vendorName: string;
+    vendorEmail: string;
+    rfqNumber: string;
+    rfqDate: Date;
+    title: string;
+    description: string;
+    items: Array<{
+      itemName: string;
+      description?: string;
+      quantity: number;
+      unit?: string;
+      specifications?: any;
+    }>;
+    deliveryAddress?: string;
+    expectedDeliveryDate?: Date;
+    rfqDeadline?: Date;
+    specialRequirements?: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Request for Quote ${data.rfqNumber} - ${data.companyName || 'NVCCZ'}`;
+      const htmlContent = this.getRFQTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Procurement Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.vendorEmail,
+              name: data.vendorName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ RFQ ${data.rfqNumber} sent to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending RFQ email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send Purchase Order to vendor
+   */
+  static async sendPurchaseOrderToVendor(data: {
+    vendorName: string;
+    vendorEmail: string;
+    poNumber: string;
+    poDate: Date;
+    totalAmount: number;
+    currency: string;
+    items: Array<{
+      itemName: string;
+      description?: string;
+      quantity: number;
+      unitPrice: number;
+      total: number;
+    }>;
+    deliveryAddress?: string;
+    expectedDeliveryDate?: Date;
+    paymentTerms?: string;
+    notes?: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Purchase Order ${data.poNumber} - ${data.companyName || 'NVCCZ'}`;
+      const htmlContent = this.getPurchaseOrderTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Procurement Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.vendorEmail,
+              name: data.vendorName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Purchase Order ${data.poNumber} sent to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending purchase order email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate RFQ email template
+   */
+  private static getRFQTemplate(data: {
+    vendorName: string;
+    rfqNumber: string;
+    rfqDate: Date;
+    title: string;
+    description: string;
+    items: Array<{
+      itemName: string;
+      description?: string;
+      quantity: number;
+      unit?: string;
+      specifications?: any;
+    }>;
+    deliveryAddress?: string;
+    expectedDeliveryDate?: Date;
+    rfqDeadline?: Date;
+    specialRequirements?: string;
+    companyName?: string;
+  }): string {
+    const formattedDate = data.rfqDate.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    const expectedDelivery = data.expectedDeliveryDate 
+      ? data.expectedDeliveryDate.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        })
+      : 'To be discussed';
+    const deadline = data.rfqDeadline
+      ? data.rfqDeadline.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        })
+      : 'As soon as possible';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          .container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+          }
+          .header {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+          }
+          .header h1 {
+            margin: 0;
+            font-size: 28px;
+          }
+          .content {
+            padding: 30px;
+          }
+          .rfq-info {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          }
+          .rfq-info table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          .rfq-info td {
+            padding: 8px 0;
+          }
+          .rfq-info td:first-child {
+            font-weight: 600;
+            width: 40%;
+          }
+          .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+          }
+          .items-table th {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+          }
+          .items-table td {
+            padding: 12px;
+            border-bottom: 1px solid #dee2e6;
+          }
+          .items-table tr:hover {
+            background-color: #f8f9fa;
+          }
+          .items-table .item-description {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 4px;
+          }
+          .items-table .item-specs {
+            font-size: 0.85em;
+            color: #888;
+            margin-top: 4px;
+            font-style: italic;
+          }
+          .highlight-box {
+            background-color: #fff3cd;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #ffc107;
+          }
+          .deadline-box {
+            background-color: #ffebee;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #f44336;
+            font-weight: 600;
+          }
+          .requirements {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #007bff;
+          }
+          .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+          }
+          .action-button {
+            display: inline-block;
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-weight: 600;
+          }
+          .instruction-list {
+            background-color: #f0f8ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          }
+          .instruction-list h3 {
+            color: #2196F3;
+            margin-top: 0;
+          }
+          .instruction-list ol {
+            margin: 10px 0;
+            padding-left: 20px;
+          }
+          .instruction-list li {
+            margin: 8px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📋 REQUEST FOR QUOTE</h1>
+            <h2>${data.companyName || 'NVCCZ'}</h2>
+          </div>
+          <div class="content">
+            <p>Dear ${data.vendorName},</p>
+            
+            <p>We are seeking competitive quotes for the following items/services. Please review the details below and provide your best pricing.</p>
+            
+            <div class="rfq-info">
+              <h3 style="margin-top: 0;">📋 RFQ Information</h3>
+              <table>
+                <tr>
+                  <td>RFQ Number:</td>
+                  <td><strong>${data.rfqNumber}</strong></td>
+                </tr>
+                <tr>
+                  <td>Date:</td>
+                  <td>${formattedDate}</td>
+                </tr>
+                <tr>
+                  <td>Project/Title:</td>
+                  <td><strong>${data.title}</strong></td>
+                </tr>
+              </table>
+            </div>
+
+            ${data.description ? `
+            <div>
+              <h3>📝 Description</h3>
+              <p>${data.description}</p>
+            </div>
+            ` : ''}
+
+            <div class="deadline-box">
+              ⏰ <strong>Quote Submission Deadline:</strong> ${deadline}
+            </div>
+
+            <h3>📦 Items/Services Required</h3>
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th style="width: 40%;">Item/Service</th>
+                  <th style="text-align: right;">Quantity</th>
+                  <th style="text-align: right;">Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.items.map(item => `
+                  <tr>
+                    <td>
+                      <strong>${item.itemName}</strong>
+                      ${item.description ? `<div class="item-description">${item.description}</div>` : ''}
+                      ${item.specifications ? `<div class="item-specs">Specs: ${JSON.stringify(item.specifications)}</div>` : ''}
+                    </td>
+                    <td style="text-align: right;">${item.quantity}</td>
+                    <td style="text-align: right;">${item.unit || 'unit'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+
+            ${data.deliveryAddress ? `
+            <div style="margin: 20px 0;">
+              <h3>🚚 Delivery Information</h3>
+              <p><strong>Delivery Address:</strong><br>${data.deliveryAddress}</p>
+              <p><strong>Expected Delivery Date:</strong> ${expectedDelivery}</p>
+            </div>
+            ` : ''}
+
+            ${data.specialRequirements ? `
+            <div class="requirements">
+              <h3 style="margin-top: 0;">⚡ Special Requirements</h3>
+              <p>${data.specialRequirements}</p>
+            </div>
+            ` : ''}
+
+            <div class="instruction-list">
+              <h3>📧 How to Submit Your Quote</h3>
+              <p>Please reply to this email with the following information:</p>
+              <ol>
+                <li><strong>Unit Price</strong> for each item</li>
+                <li><strong>Total Price</strong> including all costs</li>
+                <li><strong>VAT/Tax</strong> amount (if applicable)</li>
+                <li><strong>Delivery Timeline</strong> (how soon you can deliver)</li>
+                <li><strong>Payment Terms</strong> you require</li>
+                <li><strong>Warranty/Guarantee</strong> period (if applicable)</li>
+                <li><strong>Validity Period</strong> of your quote</li>
+                <li>Any <strong>additional notes</strong> or terms</li>
+              </ol>
+            </div>
+
+            <div class="highlight-box">
+              <h3 style="margin-top: 0;">💡 Quote Format Example</h3>
+              <p><strong>Item 1:</strong> Office Rent - $5,000 per month<br>
+              <strong>Item 2:</strong> Cleaning Services - $500 per month<br>
+              <strong>Subtotal:</strong> $5,500<br>
+              <strong>VAT (14.5%):</strong> $797.50<br>
+              <strong>Total:</strong> $6,297.50<br>
+              <strong>Delivery:</strong> Immediate<br>
+              <strong>Payment Terms:</strong> NET 30<br>
+              <strong>Quote Valid Until:</strong> ${deadline}</p>
+            </div>
+
+            <p><strong>Important Notes:</strong></p>
+            <ul>
+              <li>All prices should be in <strong>USD</strong> or <strong>ZWL</strong> (please specify)</li>
+              <li>Include any applicable taxes in your quote</li>
+              <li>Specify delivery costs separately if applicable</li>
+              <li>Attach any relevant product specifications or brochures</li>
+              <li>Provide company registration details</li>
+            </ul>
+
+            <p>We appreciate your prompt response and look forward to receiving your competitive quote. If you have any questions about this RFQ, please don't hesitate to contact our procurement team.</p>
+            
+            <p>Best regards,<br>
+            <strong>Procurement Team</strong><br>
+            ${data.companyName || 'NVCCZ'}</p>
+          </div>
+          <div class="footer">
+            <p>This is an official Request for Quote from ${data.companyName || 'NVCCZ'}.</p>
+            <p>RFQ Reference: ${data.rfqNumber}</p>
+            <p>For any inquiries, please reply to this email or contact procurement@nvccz.com</p>
+            <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Generate Purchase Order email template
+   */
+  private static getPurchaseOrderTemplate(data: {
+    vendorName: string;
+    poNumber: string;
+    poDate: Date;
+    totalAmount: number;
+    currency: string;
+    items: Array<{
+      itemName: string;
+      description?: string;
+      quantity: number;
+      unitPrice: number;
+      total: number;
+    }>;
+    deliveryAddress?: string;
+    expectedDeliveryDate?: Date;
+    paymentTerms?: string;
+    notes?: string;
+    companyName?: string;
+  }): string {
+    const currencySymbol = data.currency === 'USD' ? '$' : data.currency === 'ZWL' ? 'ZWL' : data.currency;
+    const formattedDate = data.poDate.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    const expectedDelivery = data.expectedDeliveryDate 
+      ? data.expectedDeliveryDate.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        })
+      : 'To be confirmed';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          .container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+          }
+          .header h1 {
+            margin: 0;
+            font-size: 28px;
+          }
+          .content {
+            padding: 30px;
+          }
+          .po-info {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          }
+          .po-info table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          .po-info td {
+            padding: 8px 0;
+          }
+          .po-info td:first-child {
+            font-weight: 600;
+            width: 40%;
+          }
+          .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+          }
+          .items-table th {
+            background-color: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+          }
+          .items-table td {
+            padding: 12px;
+            border-bottom: 1px solid #dee2e6;
+          }
+          .items-table tr:hover {
+            background-color: #f8f9fa;
+          }
+          .items-table .item-description {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 4px;
+          }
+          .total-row {
+            background-color: #e8f5e8;
+            font-weight: bold;
+            font-size: 1.1em;
+          }
+          .delivery-info {
+            background-color: #fff3cd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #ffc107;
+          }
+          .notes {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #007bff;
+          }
+          .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+          }
+          .action-button {
+            display: inline-block;
+            background-color: #28a745;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-weight: 600;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📦 Purchase Order</h1>
+            <h2>${data.companyName || 'NVCCZ'}</h2>
+          </div>
+          <div class="content">
+            <p>Dear ${data.vendorName},</p>
+            
+            <p>Please find below our purchase order for your review and processing.</p>
+            
+            <div class="po-info">
+              <h3 style="margin-top: 0;">📋 Order Information</h3>
+              <table>
+                <tr>
+                  <td>PO Number:</td>
+                  <td><strong>${data.poNumber}</strong></td>
+                </tr>
+                <tr>
+                  <td>Date:</td>
+                  <td>${formattedDate}</td>
+                </tr>
+                <tr>
+                  <td>Vendor:</td>
+                  <td>${data.vendorName}</td>
+                </tr>
+                ${data.paymentTerms ? `
+                <tr>
+                  <td>Payment Terms:</td>
+                  <td>${data.paymentTerms}</td>
+                </tr>
+                ` : ''}
+              </table>
+            </div>
+
+            ${data.deliveryAddress ? `
+            <div class="delivery-info">
+              <h3 style="margin-top: 0;">🚚 Delivery Information</h3>
+              <p><strong>Delivery Address:</strong><br>${data.deliveryAddress}</p>
+              <p><strong>Expected Delivery Date:</strong> ${expectedDelivery}</p>
+            </div>
+            ` : ''}
+
+            <h3>📝 Order Items</h3>
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th style="width: 40%;">Item</th>
+                  <th style="text-align: right;">Quantity</th>
+                  <th style="text-align: right;">Unit Price</th>
+                  <th style="text-align: right;">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.items.map(item => `
+                  <tr>
+                    <td>
+                      <strong>${item.itemName}</strong>
+                      ${item.description ? `<div class="item-description">${item.description}</div>` : ''}
+                    </td>
+                    <td style="text-align: right;">${item.quantity}</td>
+                    <td style="text-align: right;">${currencySymbol}${item.unitPrice.toFixed(2)}</td>
+                    <td style="text-align: right;">${currencySymbol}${item.total.toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+                <tr class="total-row">
+                  <td colspan="3" style="text-align: right;">Total Amount:</td>
+                  <td style="text-align: right;">${currencySymbol}${data.totalAmount.toFixed(2)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            ${data.notes ? `
+            <div class="notes">
+              <h3 style="margin-top: 0;">💬 Additional Notes</h3>
+              <p>${data.notes}</p>
+            </div>
+            ` : ''}
+
+            <p>Please confirm receipt of this purchase order and provide us with your acceptance and estimated delivery timeline.</p>
+            
+            <p><strong>Next Steps:</strong></p>
+            <ul>
+              <li>Review the order details carefully</li>
+              <li>Confirm your acceptance of the order</li>
+              <li>Provide delivery timeline confirmation</li>
+              <li>Send your invoice as per the agreed terms</li>
+            </ul>
+
+            <p>If you have any questions or need clarification on any items, please don't hesitate to contact our procurement team.</p>
+            
+            <p>Best regards,<br>
+            <strong>Procurement Team</strong><br>
+            ${data.companyName || 'NVCCZ'}</p>
+          </div>
+          <div class="footer">
+            <p>This is an official purchase order from ${data.companyName || 'NVCCZ'}.</p>
+            <p>For any inquiries, please contact procurement@nvccz.com</p>
+            <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }

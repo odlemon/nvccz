@@ -1,8 +1,7 @@
 // @ts-nocheck
 import express from "express";
-import { userController } from "../controllers/UserController";
 import { authenticate } from "../middleware/authenticate";
-import { authorize } from "../middleware/authenticate";
+import { UserController } from "../controllers/UserController";
 
 const router = express.Router();
 
@@ -11,80 +10,29 @@ router.use(authenticate);
 
 /**
  * @swagger
- * /users:
- *   post:
- *     summary: Create a new user
- *     description: Create a new user with role assignment (Admin only)
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/CreateUserRequest'
- *     responses:
- *       201:
- *         description: User created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: User created successfully
- *                 data:
- *                   $ref: '#/components/schemas/User'
- *       400:
- *         description: Bad request - missing required fields
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       403:
- *         description: Forbidden - insufficient permissions
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       404:
- *         description: Role not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       409:
- *         description: Conflict - email already exists
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-router.post("/", authorize(["admin"]), userController.createUser);
-
-/**
- * @swagger
- * /users:
+ * /api/users/by-department:
  *   get:
- *     summary: Get all users
- *     description: Retrieve a list of all users with their role information (Admin only)
+ *     summary: Get users filtered by department and/or role
+ *     description: Used for approval configuration - get list of users to assign to approval steps
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: department
+ *         schema:
+ *           type: string
+ *           enum: [Finance, Operations, Procurement, "Human Resources", Marketing, Legal, IT]
+ *         description: Filter by hardcoded department
+ *       - in: query
+ *         name: departmentRole
+ *         schema:
+ *           type: string
+ *           enum: [HEAD, DEPUTY, MEMBER]
+ *         description: Filter by department role
  *     responses:
  *       200:
- *         description: Users retrieved successfully
+ *         description: List of users matching the filters
  *         content:
  *           application/json:
  *             schema:
@@ -92,269 +40,30 @@ router.post("/", authorize(["admin"]), userController.createUser);
  *               properties:
  *                 success:
  *                   type: boolean
- *                   example: true
+ *                 message:
+ *                   type: string
+ *                 count:
+ *                   type: number
  *                 data:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/User'
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       firstName:
+ *                         type: string
+ *                       lastName:
+ *                         type: string
+ *                       email:
+ *                         type: string
+ *                       userDepartment:
+ *                         type: string
+ *                       departmentRole:
+ *                         type: string
  *       401:
  *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       403:
- *         description: Forbidden - insufficient permissions
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get("/", authorize(["admin"]), userController.getAllUsers);
-
-/**
- * @swagger
- * /users/{id}:
- *   get:
- *     summary: Get user by ID
- *     description: Retrieve a specific user by their ID (Admin only)
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: User ID
- *         example: clx1234567890abcdef
- *     responses:
- *       200:
- *         description: User retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   $ref: '#/components/schemas/User'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       403:
- *         description: Forbidden - insufficient permissions
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       404:
- *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-router.get("/:id", authorize(["admin"]), userController.getUserById);
-
-/**
- * @swagger
- * /users/{id}:
- *   put:
- *     summary: Update user
- *     description: Update user information and role assignment (Admin only)
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: User ID
- *         example: clx1234567890abcdef
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/UpdateUserRequest'
- *     responses:
- *       200:
- *         description: User updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: User updated successfully
- *                 data:
- *                   $ref: '#/components/schemas/User'
- *       400:
- *         description: Bad request
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       403:
- *         description: Forbidden - insufficient permissions
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       404:
- *         description: User or role not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       409:
- *         description: Conflict - email already exists
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-router.put("/:id", authorize(["admin"]), userController.updateUser);
-
-/**
- * @swagger
- * /users/{id}:
- *   delete:
- *     summary: Delete user
- *     description: Delete a user (Admin only, cannot delete last admin)
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: User ID
- *         example: clx1234567890abcdef
- *     responses:
- *       200:
- *         description: User deleted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: User deleted successfully
- *       400:
- *         description: Bad request - cannot delete last admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       403:
- *         description: Forbidden - insufficient permissions
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       404:
- *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-router.delete("/:id", authorize(["admin"]), userController.deleteUser);
-
-/**
- * @swagger
- * /users/{id}/password:
- *   put:
- *     summary: Change user password
- *     description: Change user password (Admin only)
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: User ID
- *         example: clx1234567890abcdef
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/ChangePasswordRequest'
- *     responses:
- *       200:
- *         description: Password changed successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Password changed successfully
- *       400:
- *         description: Bad request - missing fields or incorrect current password
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       403:
- *         description: Forbidden - insufficient permissions
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       404:
- *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-router.put("/:id/password", authorize(["admin"]), userController.changePassword);
+router.get("/by-department", UserController.getUsersByDepartmentAndRole);
 
 export default router;

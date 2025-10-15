@@ -15,8 +15,8 @@ export interface CreateInventoryItemParams {
   quantityOnHand: number;
   reorderLevel?: number;
   unitOfMeasure?: string;
-  supplierId?: string;
-  inventoryAssetAccountId: string;
+  vendorId?: string; // Link to vendor (supplier)
+  inventoryAssetAccountId?: string; // Optional - will auto-select "Inventory" account if not provided
   createdById: string;
 }
 
@@ -62,18 +62,55 @@ export class InventoryService {
         quantityOnHand,
         reorderLevel = 0,
         unitOfMeasure = 'pieces',
-        supplierId,
+        vendorId,
         inventoryAssetAccountId,
         createdById
       } = params;
 
-      // Validate that the inventory asset account exists
-      const assetAccount = await prisma.chartOfAccounts.findUnique({
-        where: { id: inventoryAssetAccountId }
-      });
+      // Auto-select Inventory account if not provided
+      let finalInventoryAccountId = inventoryAssetAccountId;
+      
+      console.log('📦 Creating inventory item...');
+      console.log('   Received inventoryAssetAccountId:', inventoryAssetAccountId);
+      console.log('   Type:', typeof inventoryAssetAccountId);
+      
+      // Treat empty string as not provided
+      if (!finalInventoryAccountId || (typeof finalInventoryAccountId === 'string' && finalInventoryAccountId.trim() === '')) {
+        finalInventoryAccountId = null;
+      }
+      
+      if (!finalInventoryAccountId) {
+        // Find the Inventory account (Current Asset account for inventory)
+        const inventoryAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountName: { contains: 'Inventory' } },
+              { accountName: { contains: 'Stock' } },
+              { accountName: { contains: 'inventory' } },
+              { accountName: { contains: 'stock' } }
+            ],
+            accountType: 'Current Asset',
+            isActive: true
+          },
+          orderBy: { accountNo: 'asc' } // Get the first inventory account
+        });
 
-      if (!assetAccount) {
-        throw new Error('Inventory asset account not found');
+        if (!inventoryAccount) {
+          throw new Error('No Inventory account found. Please create an Inventory account in Chart of Accounts first.');
+        }
+
+        finalInventoryAccountId = inventoryAccount.id;
+        console.log(`✓ Auto-selected Inventory account: ${inventoryAccount.accountNo} ${inventoryAccount.accountName}`);
+      } else {
+        // Validate that the provided inventory asset account exists
+        const assetAccount = await prisma.chartOfAccounts.findUnique({
+          where: { id: finalInventoryAccountId }
+        });
+
+        if (!assetAccount) {
+          throw new Error(`Inventory asset account not found for ID: ${finalInventoryAccountId}. Please provide a valid inventoryAssetAccountId or omit it to auto-select.`);
+        }
+        console.log(`✓ Using provided Inventory account: ${assetAccount.accountNo} ${assetAccount.accountName}`);
       }
 
       // Create the inventory item
@@ -86,8 +123,8 @@ export class InventoryService {
           quantityOnHand: new Decimal(quantityOnHand),
           reorderLevel: new Decimal(reorderLevel),
           unitOfMeasure,
-          supplierId,
-          inventoryAssetAccountId,
+          supplierId: vendorId, // Map vendorId to supplierId for database
+          inventoryAssetAccountId: finalInventoryAccountId,
         },
         include: {
           supplier: {

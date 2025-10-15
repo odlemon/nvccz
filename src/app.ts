@@ -37,6 +37,8 @@ import chartOfAccountsRoutes from "./routes/chartOfAccountsRoutes"
 import invoiceRoutes from "./routes/invoiceRoutes"
 import customerRoutes from "./routes/customerRoutes"
 import incomeStatementRoutes from "./routes/incomeStatementRoutes"
+import cashFlowRoutes from "./routes/cashFlowRoutes"
+import balanceSheetRoutes from "./routes/balanceSheetRoutes"
 import revenueRoutes from "./routes/revenueRoutes"
 import revenueSourceRoutes from "./routes/revenueSourceRoutes"
 import revenueCategoryRoutes from "./routes/revenueCategoryRoutes"
@@ -74,6 +76,7 @@ import payrollRoutes from "./routes/payrollRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
+import approvalRoutes from "./routes/approvalRoutes"
 import inventoryRoutes from "./routes/inventoryRoutes"
 import assetRoutes from "./routes/assetRoutes"
 import creditNoteRoutes from "./routes/creditNoteRoutes"
@@ -270,6 +273,8 @@ app.use("/api/accounting/chart-of-accounts", chartOfAccountsRoutes)
 app.use("/api/accounting/invoices", invoiceRoutes)
 app.use("/api/accounting/customers", customerRoutes)
 app.use("/api/accounting/income-statement", incomeStatementRoutes)
+app.use("/api/accounting/cash-flow", cashFlowRoutes)
+app.use("/api/accounting/balance-sheet", balanceSheetRoutes)
 app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
@@ -361,6 +366,9 @@ app.use("/api/approval-workflows", approvalWorkflowRoutes)
 
 // Procurement Approval Configuration routes
 app.use("/api/procurement-approval-configs", procurementApprovalConfigRoutes)
+
+// Approval Action routes
+app.use("/api/approvals", approvalRoutes)
 
 // Inventory Management routes
 app.use("/api/accounting/inventory", inventoryRoutes)

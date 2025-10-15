@@ -33,14 +33,14 @@ export class InventoryController {
         quantityOnHand,
         reorderLevel,
         unitOfMeasure,
-        supplierId,
+        vendorId,
         inventoryAssetAccountId
       } = req.body;
 
       // Validation
-      if (!itemName || !skuNumber || !costOfPurchase || !inventoryAssetAccountId) {
+      if (!itemName || !skuNumber || !costOfPurchase) {
         res.status(400).json({
-          error: 'Missing required fields: itemName, skuNumber, costOfPurchase, inventoryAssetAccountId'
+          error: 'Missing required fields: itemName, skuNumber, costOfPurchase'
         });
         return;
       }
@@ -53,7 +53,7 @@ export class InventoryController {
         quantityOnHand: parseFloat(quantityOnHand || 0),
         reorderLevel: parseFloat(reorderLevel || 0),
         unitOfMeasure,
-        supplierId,
+        vendorId,
         inventoryAssetAccountId,
         createdById: userId
       });

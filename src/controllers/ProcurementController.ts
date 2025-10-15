@@ -14,10 +14,9 @@ export class ProcurementController {
       const {
         title,
         description,
-        departmentId,
+        department,
         priority,
         justification,
-        currencyId,
         items
       } = req.body;
 
@@ -37,14 +36,20 @@ export class ProcurementController {
         });
       }
 
+      if (!department) {
+        return res.status(400).json({
+          success: false,
+          message: "Department is required"
+        });
+      }
+
       const requisition = await ProcurementService.createPurchaseRequisition({
         title,
         description,
-        departmentId,
+        department,
         requestedById,
         priority,
         justification,
-        currencyId,
         items
       });
 
@@ -58,6 +63,68 @@ export class ProcurementController {
       res.status(400).json({
         success: false,
         message: error.message || "Failed to create purchase requisition"
+      });
+    }
+  }
+
+  /**
+   * Get my purchase requisitions (created by logged-in user)
+   */
+  static async getMyPurchaseRequisitions(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const requisitions = await ProcurementService.getMyPurchaseRequisitions(userId);
+
+      res.status(200).json({
+        success: true,
+        message: "My purchase requisitions retrieved successfully",
+        data: requisitions,
+        count: requisitions.length
+      });
+    } catch (error: any) {
+      console.error("Error fetching my purchase requisitions:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to fetch my purchase requisitions"
+      });
+    }
+  }
+
+  /**
+   * Get pending requisitions for department head (their department only)
+   */
+  static async getPendingRequisitionsForDepartmentHead(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const requisitions = await ProcurementService.getPendingRequisitionsForDepartmentHead(userId);
+
+      res.status(200).json({
+        success: true,
+        message: "Pending requisitions for your department retrieved successfully",
+        data: requisitions,
+        count: requisitions.length
+      });
+    } catch (error: any) {
+      console.error("Error fetching pending requisitions for department head:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to fetch pending requisitions"
       });
     }
   }
@@ -352,6 +419,107 @@ export class ProcurementController {
   }
 
   /**
+   * Create and send RFQ to multiple vendors
+   */
+  static async createAndSendRFQ(req: Request, res: Response) {
+    try {
+      const createdById = req.user?.id;
+
+      if (!createdById) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const {
+        requisitionId,
+        title,
+        description,
+        vendorIds,
+        priority,
+        expectedDeliveryDate,
+        deliveryAddress,
+        rfqDeadline,
+        specialRequirements,
+        items
+      } = req.body;
+
+      // Validation
+      if (!title || !items || items.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Title and items are required"
+        });
+      }
+
+      if (!vendorIds || vendorIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "At least one vendor must be selected"
+        });
+      }
+
+      const rfqResult = await ProcurementService.createAndSendRFQ({
+        requisitionId,
+        title,
+        description,
+        vendorIds,
+        priority,
+        expectedDeliveryDate: expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined,
+        deliveryAddress,
+        rfqDeadline: rfqDeadline ? new Date(rfqDeadline) : undefined,
+        specialRequirements,
+        createdById,
+        items
+      });
+
+      res.status(201).json({
+        success: true,
+        message: `RFQ sent to ${vendorIds.length} vendor(s) successfully`,
+        data: rfqResult
+      });
+    } catch (error: any) {
+      console.error("Error creating/sending RFQ:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to create/send RFQ"
+      });
+    }
+  }
+
+  /**
+   * Send purchase order to vendor via email
+   */
+  static async sendPurchaseOrder(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const sentById = req.user?.id;
+
+      if (!sentById) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const purchaseOrder = await ProcurementService.sendPurchaseOrder(id, sentById);
+
+      res.status(200).json({
+        success: true,
+        message: "Purchase order sent to vendor successfully",
+        data: purchaseOrder
+      });
+    } catch (error: any) {
+      console.error("Error sending purchase order:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to send purchase order"
+      });
+    }
+  }
+
+  /**
    * Get all purchase orders
    */
   static async getAllPurchaseOrders(req: Request, res: Response) {
@@ -566,6 +734,86 @@ export class ProcurementController {
       res.status(400).json({
         success: false,
         message: error.message || "Failed to approve procurement invoice"
+      });
+    }
+  }
+
+  /**
+   * Process payment for an approved procurement invoice
+   * POST /api/procurement/invoices/:id/payment
+   */
+  static async payProcurementInvoice(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const processedById = req.user?.id;
+
+      if (!processedById) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const {
+        paymentAmount,
+        paymentDate,
+        paymentMethod,
+        bankAccountId,
+        paymentReference,
+        notes
+      } = req.body;
+
+      // Validation
+      if (!paymentAmount || paymentAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Valid payment amount is required"
+        });
+      }
+
+      if (!paymentMethod || !["CASH", "BANK"].includes(paymentMethod)) {
+        return res.status(400).json({
+          success: false,
+          message: "Payment method must be either CASH or BANK"
+        });
+      }
+
+      // Process the payment
+      const result = await ProcurementService.payProcurementInvoice(
+        id,
+        {
+          paymentAmount: Number(paymentAmount),
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          paymentMethod,
+          bankAccountId,
+          paymentReference,
+          notes
+        },
+        processedById
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Payment processed successfully",
+        data: {
+          invoice: result.invoice,
+          journalEntry: {
+            id: result.journalEntry.id,
+            referenceNumber: result.journalEntry.referenceNumber,
+            totalAmount: result.journalEntry.totalAmount
+          },
+          payment: {
+            amount: result.paymentAmount,
+            remainingBalance: result.remainingBalance,
+            status: result.invoice.paymentStatus
+          }
+        }
+      });
+    } catch (error: any) {
+      console.error("Error processing procurement invoice payment:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to process payment"
       });
     }
   }

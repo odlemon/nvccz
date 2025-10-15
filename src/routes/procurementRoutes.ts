@@ -32,9 +32,10 @@ router.use(authenticate);
  *               description:
  *                 type: string
  *                 description: Requisition description
- *               departmentId:
+ *               department:
  *                 type: string
- *                 description: Department ID
+ *                 enum: [Finance, Operations, Procurement, "Human Resources", Marketing, Legal, IT]
+ *                 description: Department (hardcoded values)
  *               priority:
  *                 type: string
  *                 enum: [LOW, MEDIUM, HIGH, URGENT]
@@ -42,9 +43,6 @@ router.use(authenticate);
  *               justification:
  *                 type: string
  *                 description: Business justification
- *               currencyId:
- *                 type: string
- *                 description: Currency ID
  *               items:
  *                 type: array
  *                 items:
@@ -52,7 +50,6 @@ router.use(authenticate);
  *                   required:
  *                     - itemName
  *                     - quantity
- *                     - unitPrice
  *                   properties:
  *                     itemName:
  *                       type: string
@@ -60,11 +57,7 @@ router.use(authenticate);
  *                       type: string
  *                     quantity:
  *                       type: number
- *                     unitPrice:
- *                       type: number
  *                     unit:
- *                       type: string
- *                     preferredVendorId:
  *                       type: string
  *                     specifications:
  *                       type: object
@@ -127,6 +120,69 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  *       401:
  *         description: Unauthorized
  */
+// Note: More specific routes must come BEFORE general routes
+
+/**
+ * @swagger
+ * /api/procurement/requisitions/my:
+ *   get:
+ *     summary: Get my purchase requisitions (created by logged-in user)
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of purchase requisitions created by the logged-in user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                 count:
+ *                   type: number
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/requisitions/my", ProcurementController.getMyPurchaseRequisitions);
+
+/**
+ * @swagger
+ * /api/procurement/requisitions/pending-approval:
+ *   get:
+ *     summary: Get pending requisitions for department head approval (their department only)
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of pending requisitions for the department head's department
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                 count:
+ *                   type: number
+ *       401:
+ *         description: Unauthorized or user is not a department head
+ */
+router.get("/requisitions/pending-approval", ProcurementController.getPendingRequisitionsForDepartmentHead);
 router.get("/requisitions", ProcurementController.getAllPurchaseRequisitions);
 
 /**
@@ -324,6 +380,139 @@ router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
  *         description: Unauthorized
  */
 router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
+
+/**
+ * @swagger
+ * /api/procurement/purchase-orders/{id}/send:
+ *   post:
+ *     summary: Send purchase order to vendor via email
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Purchase Order ID
+ *     responses:
+ *       200:
+ *         description: Purchase order sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Purchase order sent to vendor successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     poNumber:
+ *                       type: string
+ *                       example: "PO-2025-001"
+ *                     status:
+ *                       type: string
+ *                       example: "SENT"
+ *                     sentAt:
+ *                       type: string
+ *                       format: date-time
+ *                     vendor:
+ *                       type: object
+ *                       properties:
+ *                         name:
+ *                           type: string
+ *                         email:
+ *                           type: string
+ *       400:
+ *         description: Bad request (PO already sent, vendor email missing, etc.)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Purchase order not found
+ */
+router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder);
+
+/**
+ * @swagger
+ * /api/procurement/rfq:
+ *   post:
+ *     summary: Create and send RFQ to multiple vendors
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - vendorIds
+ *               - items
+ *             properties:
+ *               requisitionId:
+ *                 type: string
+ *                 description: Link to approved requisition
+ *               title:
+ *                 type: string
+ *                 description: RFQ title
+ *                 example: "Office Supplies RFQ"
+ *               description:
+ *                 type: string
+ *                 description: Detailed description
+ *               vendorIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of vendor IDs to send RFQ to
+ *                 example: ["vendor-id-1", "vendor-id-2"]
+ *               priority:
+ *                 type: string
+ *                 enum: [LOW, MEDIUM, HIGH, URGENT]
+ *               expectedDeliveryDate:
+ *                 type: string
+ *                 format: date
+ *               deliveryAddress:
+ *                 type: string
+ *               rfqDeadline:
+ *                 type: string
+ *                 format: date
+ *                 description: Deadline for vendors to respond
+ *               specialRequirements:
+ *                 type: string
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     itemName:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     quantity:
+ *                       type: number
+ *                     unit:
+ *                       type: string
+ *                     specifications:
+ *                       type: object
+ *     responses:
+ *       201:
+ *         description: RFQ created and sent successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/rfq", ProcurementController.createAndSendRFQ);
 
 /**
  * @swagger
@@ -545,6 +734,131 @@ router.post("/invoices/:invoiceId/ai-matching", ProcurementController.performAIM
  *         description: Unauthorized
  */
 router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvoice);
+
+/**
+ * @swagger
+ * /api/procurement/invoices/{id}/payment:
+ *   post:
+ *     summary: Process payment for an approved procurement invoice
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Invoice ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - paymentAmount
+ *               - paymentMethod
+ *             properties:
+ *               paymentAmount:
+ *                 type: number
+ *                 description: Amount to pay (can be partial or full)
+ *                 example: 5725.00
+ *               paymentDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Date of payment (defaults to current date)
+ *                 example: "2025-10-14T10:00:00Z"
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [CASH, BANK]
+ *                 description: Payment method
+ *                 example: BANK
+ *               bankAccountId:
+ *                 type: string
+ *                 description: Specific bank account ID (e.g., ZIG account). If not provided, uses default.
+ *                 example: "cmg97iy320003ung8aau6zqbv"
+ *               paymentReference:
+ *                 type: string
+ *                 description: Bank transaction reference number
+ *                 example: "TXN-12345-2025"
+ *               notes:
+ *                 type: string
+ *                 description: Additional payment notes
+ *                 example: "Paid via CBZ Bank"
+ *           examples:
+ *             fullPayment:
+ *               summary: Full Payment via Bank
+ *               value:
+ *                 paymentAmount: 5725.00
+ *                 paymentMethod: "BANK"
+ *                 bankAccountId: "cmg97iy320003ung8aau6zqbv"
+ *                 paymentReference: "TXN-12345"
+ *                 notes: "Payment via ZIG account"
+ *             partialPayment:
+ *               summary: Partial Payment
+ *               value:
+ *                 paymentAmount: 3000.00
+ *                 paymentMethod: "BANK"
+ *                 paymentReference: "TXN-67890"
+ *                 notes: "Partial payment - balance to follow"
+ *             cashPayment:
+ *               summary: Cash Payment
+ *               value:
+ *                 paymentAmount: 5725.00
+ *                 paymentMethod: "CASH"
+ *                 notes: "Cash payment from petty cash"
+ *     responses:
+ *       200:
+ *         description: Payment processed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Payment processed successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     invoice:
+ *                       type: object
+ *                       description: Updated invoice details
+ *                     journalEntry:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         referenceNumber:
+ *                           type: string
+ *                           example: "VENDOR-PAY-INV-12345"
+ *                         totalAmount:
+ *                           type: string
+ *                     payment:
+ *                       type: object
+ *                       properties:
+ *                         amount:
+ *                           type: number
+ *                           example: 5725.00
+ *                         remainingBalance:
+ *                           type: number
+ *                           example: 0
+ *                         status:
+ *                           type: string
+ *                           enum: [PAID, PARTIALLY_PAID]
+ *                           example: "PAID"
+ *       400:
+ *         description: Bad request (invalid amount, already paid, etc.)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Invoice not found
+ */
+router.post("/invoices/:id/payment", ProcurementController.payProcurementInvoice);
 
 /**
  * @swagger
