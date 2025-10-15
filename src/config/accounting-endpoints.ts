@@ -14,15 +14,14 @@ export const accountingEndpoints = {
               type: 'object',
               required: ['itemName', 'skuNumber', 'costOfPurchase'],
               properties: {
-                itemName: { type: 'string', example: 'Product A' },
-                skuNumber: { type: 'string', example: 'SKU-001' },
-                description: { type: 'string', example: 'Product description' },
-                costOfPurchase: { type: 'number', example: 50.00 },
-                quantityOnHand: { type: 'number', example: 100 },
-                reorderLevel: { type: 'number', example: 20 },
+                itemName: { type: 'string', example: 'Laptop' },
+                skuNumber: { type: 'string', example: 'LAP-001' },
+                description: { type: 'string', example: 'Dell Latitude 7490' },
+                costOfPurchase: { type: 'number', example: 1000.00 },
+                quantityOnHand: { type: 'number', example: 10 },
+                reorderLevel: { type: 'number', example: 5 },
                 unitOfMeasure: { type: 'string', example: 'pieces', default: 'pieces' },
-                vendorId: { type: 'string', example: 'vendor-id', description: 'Optional - Link to vendor/supplier' },
-                inventoryAssetAccountId: { type: 'string', example: 'account-id', description: 'Optional - Auto-selected if not provided' }
+                vendorId: { type: 'string', example: 'vendor-uuid-here', description: 'Optional - Link to vendor/supplier' }
               }
             }
           }
@@ -737,7 +736,7 @@ export const accountingEndpoints = {
   },
 
   // ========== BANK RECONCILIATION ==========
-  '/api/accounting/bank-reconciliation/upload': {
+  '/accounting/bank-reconciliation/upload': {
     post: {
       summary: 'Upload and process bank statement',
       tags: ['Bank Reconciliation'],
@@ -786,7 +785,7 @@ export const accountingEndpoints = {
       }
     }
   },
-  '/api/accounting/bank-reconciliation': {
+  '/accounting/bank-reconciliation': {
     get: {
       summary: 'Get all bank reconciliations',
       tags: ['Bank Reconciliation'],
@@ -797,7 +796,7 @@ export const accountingEndpoints = {
       }
     }
   },
-  '/api/accounting/bank-reconciliation/summary': {
+  '/accounting/bank-reconciliation/summary': {
     get: {
       summary: 'Get reconciliation summary statistics',
       tags: ['Bank Reconciliation'],
@@ -808,7 +807,7 @@ export const accountingEndpoints = {
       }
     }
   },
-  '/api/accounting/bank-reconciliation/{id}': {
+  '/accounting/bank-reconciliation/{id}': {
     get: {
       summary: 'Get reconciliation by ID',
       tags: ['Bank Reconciliation'],
@@ -836,7 +835,7 @@ export const accountingEndpoints = {
       }
     }
   },
-  '/api/accounting/bank-reconciliation/{reconciliationId}/unmatched': {
+  '/accounting/bank-reconciliation/{reconciliationId}/unmatched': {
     get: {
       summary: 'Get unmatched transactions for manual review',
       tags: ['Bank Reconciliation'],
@@ -851,7 +850,7 @@ export const accountingEndpoints = {
       }
     }
   },
-  '/api/accounting/bank-reconciliation/transactions/{bankTransactionId}/matches': {
+  '/accounting/bank-reconciliation/transactions/{bankTransactionId}/matches': {
     get: {
       summary: 'Get potential matches for a specific transaction',
       tags: ['Bank Reconciliation'],
@@ -866,7 +865,7 @@ export const accountingEndpoints = {
       }
     }
   },
-  '/api/accounting/bank-reconciliation/approve-match': {
+  '/accounting/bank-reconciliation/approve-match': {
     post: {
       summary: 'Approve manual match',
       tags: ['Bank Reconciliation'],
@@ -893,7 +892,7 @@ export const accountingEndpoints = {
       }
     }
   },
-  '/api/accounting/bank-reconciliation/results/{reconciliationResultId}/reject': {
+  '/accounting/bank-reconciliation/results/{reconciliationResultId}/reject': {
     post: {
       summary: 'Reject a reconciliation result',
       tags: ['Bank Reconciliation'],
@@ -908,7 +907,7 @@ export const accountingEndpoints = {
       }
     }
   },
-  '/api/accounting/bank-reconciliation/{reconciliationId}/audit-trail': {
+  '/accounting/bank-reconciliation/{reconciliationId}/audit-trail': {
     get: {
       summary: 'Get audit trail for a reconciliation',
       tags: ['Bank Reconciliation'],
@@ -1732,7 +1731,7 @@ export const accountingEndpoints = {
   },
 
   // ========== CASH FLOW STATEMENT ==========
-  '/api/accounting/cash-flow': {
+  '/accounting/cash-flow': {
     post: {
       summary: 'Generate Cash Flow Statement (Operating + Investing + Financing Activities)',
       tags: ['Cash Flow Statement'],
