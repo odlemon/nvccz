@@ -65,6 +65,24 @@ export class InventoryController {
       });
     } catch (error: any) {
       console.error('Error creating inventory item:', error);
+      
+      // Check for specific error types
+      if (error.message && error.message.includes('already exists')) {
+        res.status(409).json({
+          error: 'Duplicate SKU number',
+          details: error.message
+        });
+        return;
+      }
+      
+      if (error.message && (error.message.includes('not found') || error.message.includes('required'))) {
+        res.status(400).json({
+          error: 'Validation error',
+          details: error.message
+        });
+        return;
+      }
+      
       res.status(500).json({
         error: 'Failed to create inventory item',
         details: error.message

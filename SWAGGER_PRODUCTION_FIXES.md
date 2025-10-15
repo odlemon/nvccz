@@ -25,9 +25,9 @@
 
 **Swagger Endpoint:**
 ```
-POST /accounting/cash-flow
+POST /accounting/cash-flow/generate
 ```
-**Full URL:** `http://localhost:3000/api/accounting/cash-flow`
+**Full URL:** `http://localhost:3000/api/accounting/cash-flow/generate`
 (Note: `/api` is added by app.ts routing)
 
 **Request Body:**
@@ -180,7 +180,7 @@ GET /accounting/bank-reconciliation/:reconciliationId/audit-trail
 |-----------|--------|--------------|----------|--------|
 | **Balance Sheet** | POST | `/accounting/balance-sheet/generate` | `http://localhost:3000/api/accounting/balance-sheet/generate` | ✅ Fixed |
 | **Income Statement** | POST | `/accounting/income-statement/generate` | `http://localhost:3000/api/accounting/income-statement/generate` | ✅ Fixed |
-| **Cash Flow** | POST | `/accounting/cash-flow` | `http://localhost:3000/api/accounting/cash-flow` | ✅ Fixed |
+| **Cash Flow** | POST | `/accounting/cash-flow/generate` | `http://localhost:3000/api/accounting/cash-flow/generate` | ✅ Fixed |
 | **Trial Balance** | GET | `/accounting/trial-balance` | `http://localhost:3000/api/accounting/trial-balance` | ✅ Fixed |
 
 ### **Inventory Management**
@@ -211,7 +211,7 @@ http://localhost:3000/api-docs
 
 ### **2. Test Cash Flow:**
 ```bash
-POST http://localhost:3000/api/accounting/cash-flow
+POST http://localhost:3000/api/accounting/cash-flow/generate
 Content-Type: application/json
 Authorization: Bearer YOUR_TOKEN
 
@@ -220,7 +220,7 @@ Authorization: Bearer YOUR_TOKEN
   "endDate": "2025-12-31"
 }
 ```
-**Swagger Path:** `/accounting/cash-flow` (without /api prefix)
+**Swagger Path:** `/accounting/cash-flow/generate`
 
 ### **3. Test Income Statement:**
 ```bash

@@ -15,7 +15,7 @@ export const accountingEndpoints = {
               required: ['itemName', 'skuNumber', 'costOfPurchase'],
               properties: {
                 itemName: { type: 'string', example: 'Laptop' },
-                skuNumber: { type: 'string', example: 'LAP-001' },
+                skuNumber: { type: 'string', example: 'LAP-001', description: 'Unique SKU number for the item' },
                 description: { type: 'string', example: 'Dell Latitude 7490' },
                 costOfPurchase: { type: 'number', example: 1000.00 },
                 quantityOnHand: { type: 'number', example: 10 },
@@ -28,9 +28,37 @@ export const accountingEndpoints = {
         }
       },
       responses: {
-        201: { description: 'Inventory item created successfully' },
+        201: { 
+          description: 'Inventory item created successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Inventory item created successfully',
+                data: {
+                  id: 'item-id',
+                  itemName: 'Laptop',
+                  skuNumber: 'LAP-001',
+                  costOfPurchase: '1000',
+                  quantityOnHand: '10'
+                }
+              }
+            }
+          }
+        },
         400: { description: 'Bad request - missing required fields' },
-        401: { description: 'Unauthorized' }
+        401: { description: 'Unauthorized' },
+        409: { 
+          description: 'Conflict - SKU number already exists',
+          content: {
+            'application/json': {
+              example: {
+                error: 'Duplicate SKU number',
+                details: "Inventory item with SKU 'LAP-001' already exists. SKU numbers must be unique."
+              }
+            }
+          }
+        }
       }
     },
     get: {
@@ -1731,7 +1759,7 @@ export const accountingEndpoints = {
   },
 
   // ========== CASH FLOW STATEMENT ==========
-  '/accounting/cash-flow': {
+  '/accounting/cash-flow/generate': {
     post: {
       summary: 'Generate Cash Flow Statement (Operating + Investing + Financing Activities)',
       tags: ['Cash Flow Statement'],
