@@ -75,6 +75,21 @@ export interface CreateRevenueJournalEntryParams {
   createdById: string;
 }
 
+export interface CreateVendorPaymentJournalEntryParams {
+  vendorId: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  paymentAmount: number;
+  currencyId: string;
+  transactionDate: Date;
+  description: string;
+  paymentMethod: "CASH" | "BANK";
+  bankAccountId?: string; // Specific bank account (e.g., ZIG account)
+  paymentReference?: string; // Bank transaction reference
+  notes?: string;
+  createdById: string;
+}
+
 export interface JournalEntryResult {
   journalEntry: JournalEntry;
   journalEntryLines: JournalEntryLine[];
@@ -257,6 +272,197 @@ export class JournalEntryService {
       console.error("Error creating journal entry:", error);
       if (error instanceof Error) throw error;
       throw new Error("Failed to create journal entry. Please try again.");
+    }
+  }
+
+  /**
+   * Create a journal entry for vendor payment (Procurement Module)
+   * This clears the Accounts Payable liability and reduces cash/bank balance
+   * 
+   * Journal Entry:
+   *   Dr  Accounts Payable         $XXX
+   *       Cr  Cash/Bank Account     $XXX
+   */
+  static async createVendorPaymentJournalEntry(params: CreateVendorPaymentJournalEntryParams): Promise<JournalEntryResult> {
+    try {
+      const {
+        vendorId,
+        invoiceId,
+        invoiceNumber,
+        paymentAmount,
+        currencyId,
+        transactionDate,
+        description,
+        paymentMethod,
+        bankAccountId,
+        paymentReference,
+        notes,
+        createdById
+      } = params;
+
+      console.log("\n╔════════════════════════════════════════════════════════════════╗");
+      console.log("║  VENDOR PAYMENT JOURNAL ENTRY - CREATION STARTED               ║");
+      console.log("╚════════════════════════════════════════════════════════════════╝");
+      console.log(`📝 Invoice Number: ${invoiceNumber}`);
+      console.log(`💰 Payment Amount: $${paymentAmount.toFixed(2)}`);
+      console.log(`💳 Payment Method: ${paymentMethod}`);
+      console.log(`📅 Transaction Date: ${transactionDate.toISOString().split('T')[0]}`);
+      if (paymentReference) {
+        console.log(`🔖 Payment Reference: ${paymentReference}`);
+      }
+      if (bankAccountId) {
+        console.log(`🏦 Bank Account ID: ${bankAccountId}`);
+      }
+      console.log("");
+
+      // Get Accounts Payable account
+      console.log("🔍 Step 1: Retrieving Accounts Payable account...");
+      const accountsPayableAccount = await this.getAccountsPayableAccount();
+      console.log(`✅ Found: ${accountsPayableAccount.accountNo} - ${accountsPayableAccount.accountName}`);
+
+      // Get the appropriate cash/bank account based on payment method
+      console.log(`\n🔍 Step 2: Retrieving ${paymentMethod} account...`);
+      let paymentAccount: ChartOfAccounts;
+      
+      if (bankAccountId) {
+        // Use specific bank account if provided (e.g., ZIG account)
+        const specificAccount = await prisma.chartOfAccounts.findUnique({
+          where: { id: bankAccountId }
+        });
+        
+        if (!specificAccount) {
+          console.error(`❌ ERROR: Bank account with ID ${bankAccountId} not found`);
+          throw new Error(`Bank account with ID ${bankAccountId} not found`);
+        }
+        
+        paymentAccount = specificAccount;
+        console.log(`✅ Using Specific Account: ${paymentAccount.accountNo} - ${paymentAccount.accountName}`);
+      } else {
+        // Use default based on payment method
+        if (paymentMethod === "CASH") {
+          paymentAccount = await this.getCashAccount();
+        } else {
+          paymentAccount = await this.getBankAccount();
+        }
+        console.log(`✅ Using Default Account: ${paymentAccount.accountNo} - ${paymentAccount.accountName}`);
+      }
+
+      console.log("\n📋 Step 3: Creating Journal Entry Header...");
+      const referenceNumber = `VENDOR-PAY-${invoiceNumber}`;
+      console.log(`   Reference: ${referenceNumber}`);
+      console.log(`   Status: POSTED (immediately posted)`);
+      
+      // Create the journal entry
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate,
+          referenceNumber,
+          description: description || `Payment to vendor for invoice ${invoiceNumber}`,
+          totalAmount: new Decimal(paymentAmount),
+          currencyId,
+          status: "POSTED", // Payment entries are immediately posted
+          createdById
+        }
+      });
+      console.log(`✅ Journal Entry Created: ID = ${journalEntry.id}`);
+
+      // Audit: CREATE JournalEntry (Vendor Payment)
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "JournalEntry",
+        entityId: journalEntry.id,
+        newValues: {
+          ...journalEntry,
+          invoiceId,
+          vendorId,
+          paymentReference,
+          notes
+        },
+      });
+
+      // Create journal entry lines for double-entry bookkeeping
+      console.log("\n📊 Step 4: Creating Journal Entry Lines (Double-Entry)...");
+      console.log("────────────────────────────────────────────────────────────────");
+      const journalEntryLines: JournalEntryLine[] = [];
+
+      // 1. Debit Accounts Payable (clear the liability)
+      console.log(`\n   Line 1: DEBIT`);
+      console.log(`   Account: ${accountsPayableAccount.accountNo} - ${accountsPayableAccount.accountName}`);
+      console.log(`   Amount: $${paymentAmount.toFixed(2)}`);
+      console.log(`   Effect: Clears vendor liability (reduces amount owed)`);
+      
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: accountsPayableAccount.id,
+            debitAmount: new Decimal(paymentAmount),
+            creditAmount: new Decimal(0),
+            description: `Clear liability: ${description || invoiceNumber}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+      console.log(`   ✅ Debit line created`);
+
+      // 2. Credit Cash/Bank Account (reduce cash balance)
+      console.log(`\n   Line 2: CREDIT`);
+      console.log(`   Account: ${paymentAccount.accountNo} - ${paymentAccount.accountName}`);
+      console.log(`   Amount: $${paymentAmount.toFixed(2)}`);
+      console.log(`   Effect: Reduces cash/bank balance (money leaves account)`);
+      
+      journalEntryLines.push(
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: paymentAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: new Decimal(paymentAmount),
+            description: `Payment via ${paymentAccount.accountName}${paymentReference ? ` - Ref: ${paymentReference}` : ''}`,
+            vatAmount: new Decimal(0)
+          }
+        })
+      );
+      console.log(`   ✅ Credit line created`);
+
+      // Verify balance
+      console.log("\n⚖️  Step 5: Verifying Double-Entry Balance...");
+      const totalDebits = journalEntryLines.reduce((sum, line) => sum + Number(line.debitAmount), 0);
+      const totalCredits = journalEntryLines.reduce((sum, line) => sum + Number(line.creditAmount), 0);
+      const difference = Math.abs(totalDebits - totalCredits);
+
+      console.log(`   Total Debits:  $${totalDebits.toFixed(2)}`);
+      console.log(`   Total Credits: $${totalCredits.toFixed(2)}`);
+      console.log(`   Difference:    $${difference.toFixed(2)}`);
+
+      if (difference > 0.01) {
+        console.error(`   ❌ ERROR: Entry is UNBALANCED!`);
+        throw new Error(`Journal entry is unbalanced! Debits: ${totalDebits}, Credits: ${totalCredits}`);
+      }
+      console.log(`   ✅ Entry is BALANCED!`);
+
+      console.log("\n╔════════════════════════════════════════════════════════════════╗");
+      console.log("║  VENDOR PAYMENT JOURNAL ENTRY - CREATED SUCCESSFULLY           ║");
+      console.log("╚════════════════════════════════════════════════════════════════╝");
+      console.log(`📌 Reference Number: ${journalEntry.referenceNumber}`);
+      console.log(`💰 Total Amount: $${paymentAmount.toFixed(2)}`);
+      console.log(`📊 Status: POSTED`);
+      console.log(`🆔 Journal Entry ID: ${journalEntry.id}`);
+      console.log("");
+
+      return {
+        journalEntry,
+        journalEntryLines
+      };
+    } catch (error) {
+      console.error("\n╔════════════════════════════════════════════════════════════════╗");
+      console.error("║  ❌ ERROR CREATING VENDOR PAYMENT JOURNAL ENTRY                ║");
+      console.error("╚════════════════════════════════════════════════════════════════╝");
+      console.error("Error details:", error);
+      console.error("");
+      if (error instanceof Error) throw error;
+      throw new Error("Failed to create vendor payment journal entry. Please try again.");
     }
   }
 

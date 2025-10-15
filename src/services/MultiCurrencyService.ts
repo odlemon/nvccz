@@ -118,9 +118,16 @@ export class MultiCurrencyService {
       const exchangeRate = await prisma.exchangeRate.create({
         data: {
           date,
-          fromCurrencyId,
-          toCurrencyId,
           rate: new Decimal(rate),
+          fromCurrency: {
+            connect: { id: fromCurrencyId }
+          },
+          toCurrency: {
+            connect: { id: toCurrencyId }
+          },
+          createdBy: {
+            connect: { id: createdById }
+          }
         },
         include: {
           fromCurrency: {

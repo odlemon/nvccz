@@ -50,6 +50,11 @@ model User {
   // Performance Management Relations
   departmentId            String?
   department              Department?       @relation("UserDepartment", fields: [departmentId], references: [id])
+  
+  // Procurement Department Assignment (Hardcoded)
+  userDepartment    String? // Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT
+  departmentRole    String? // HEAD, DEPUTY, MEMBER
+  
   performanceGoals        PerformanceGoal[] @relation("GoalAssignee")
   createdPerformanceGoals PerformanceGoal[] @relation("GoalCreator")
   activityLogs            ActivityLog[]
@@ -1504,10 +1509,9 @@ model Department {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  users                User[]                @relation("UserDepartment")
+  users                User[]                     @relation("UserDepartment")
   goals                PerformanceGoal[]
   dealSourcingGoals    DealSourcingGoal[]
-  purchaseRequisitions PurchaseRequisition[] @relation("RequisitionDepartment")
   approvalStages       ProcurementApprovalStage[] @relation("ApprovalStageDepartment")
 
   @@map("departments")
@@ -1630,10 +1634,9 @@ model PurchaseRequisition {
   requisitionNumber String      @unique
   title             String
   description       String?     @db.Text
-  departmentId      String?
+  department        String?     // Hardcoded: Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT
   requestedById     String
   requestedBy       User        @relation("RequisitionRequestedBy", fields: [requestedById], references: [id])
-  department        Department? @relation("RequisitionDepartment", fields: [departmentId], references: [id])
 
   // Status and workflow
   status        String  @default("DRAFT") // DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO
@@ -3330,6 +3333,11 @@ model ProcurementApprovalStage {
   roleId       String?
   departmentId String?
   amountThreshold Decimal? @db.Decimal(15, 2)
+  
+  // Hardcoded department filter (for USER stepType)
+  // Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT
+  requiredUserDepartment String? // When stepType=USER, user must belong to this department
+  requiredDepartmentRole String? // HEAD, DEPUTY, or MEMBER - require specific role
   
   // Approval settings
   isRequired    Boolean @default(true)

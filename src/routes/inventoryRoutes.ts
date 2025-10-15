@@ -33,7 +33,6 @@ router.use(authenticate);
  *               - itemName
  *               - skuNumber
  *               - costOfPurchase
- *               - inventoryAssetAccountId
  *             properties:
  *               itemName:
  *                 type: string
@@ -49,16 +48,21 @@ router.use(authenticate);
  *                 type: number
  *               unitOfMeasure:
  *                 type: string
- *               supplierId:
+ *                 default: pieces
+ *               vendorId:
  *                 type: string
+ *                 description: Optional - Link to vendor/supplier
  *               inventoryAssetAccountId:
  *                 type: string
+ *                 description: Optional - If not provided, system will auto-select the Inventory account
  *     responses:
  *       201:
  *         description: Inventory item created successfully
  *       401:
  *         description: Unauthorized
  */
+router.post('/items', InventoryController.createInventoryItem);
+
 /**
  * @swagger
  * /accounting/inventory/items:
@@ -134,8 +138,9 @@ router.get('/items/:id', InventoryController.getInventoryItem);
  *                 type: number
  *               unitOfMeasure:
  *                 type: string
- *               supplierId:
+ *               vendorId:
  *                 type: string
+ *                 description: Optional - Link to vendor/supplier
  *               inventoryAssetAccountId:
  *                 type: string
  *     responses:

@@ -26,22 +26,23 @@ export class MultiCurrencyController {
       }
 
       const {
-        date,
+        effectiveDate,
         fromCurrencyId,
         toCurrencyId,
-        rate
+        rate,
+        notes
       } = req.body;
 
       // Validation
-      if (!date || !fromCurrencyId || !toCurrencyId || !rate) {
+      if (!effectiveDate || !fromCurrencyId || !toCurrencyId || !rate) {
         res.status(400).json({
-          error: 'Missing required fields: date, fromCurrencyId, toCurrencyId, rate'
+          error: 'Missing required fields: effectiveDate, fromCurrencyId, toCurrencyId, rate'
         });
         return;
       }
 
       const exchangeRate = await MultiCurrencyService.createExchangeRate({
-        date: new Date(date),
+        date: new Date(effectiveDate),
         fromCurrencyId,
         toCurrencyId,
         rate: parseFloat(rate),
