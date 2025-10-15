@@ -913,7 +913,7 @@ POST /accounting/income-statement/generate
 
 ### **💵 Cash Flow Statement** ✅ SIMPLIFIED
 ```http
-POST /api/accounting/cash-flow
+POST /api/accounting/cash-flow/generate
 ```
 
 ### **💱 Multi-Currency**
@@ -963,7 +963,7 @@ http://localhost:3000/api-docs
 **Swagger Documentation Includes:**
 - 📊 Balance Sheet (2 endpoints) - Full request/response examples
 - 💰 Income Statement (**1 endpoint - SIMPLIFIED**) - `/accounting/income-statement/generate`
-- 💵 Cash Flow Statement (**1 endpoint - SIMPLIFIED**) - `/api/accounting/cash-flow`
+- 💵 Cash Flow Statement (**1 endpoint - SIMPLIFIED**) - `/accounting/cash-flow/generate`
 - 📈 Trial Balance - Fully documented
 - 📦 Inventory Management - Updated with vendorId, **inventoryAssetAccountId now OPTIONAL**
 - 💱 Multi-Currency - Exchange rate management

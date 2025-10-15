@@ -113,6 +113,15 @@ export class InventoryService {
         console.log(`✓ Using provided Inventory account: ${assetAccount.accountNo} ${assetAccount.accountName}`);
       }
 
+      // Check if SKU already exists
+      const existingItem = await prisma.inventoryItem.findUnique({
+        where: { skuNumber }
+      });
+
+      if (existingItem) {
+        throw new Error(`Inventory item with SKU '${skuNumber}' already exists. SKU numbers must be unique.`);
+      }
+
       // Create the inventory item
       const inventoryItem = await prisma.inventoryItem.create({
         data: {
