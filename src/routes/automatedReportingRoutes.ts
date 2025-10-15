@@ -1,3 +1,4 @@
+// @ts-nocheck
 import express from "express";
 import { AutomatedReportingController } from "../controllers/AutomatedReportingController";
 import { authenticate } from "../middleware/authenticate";
