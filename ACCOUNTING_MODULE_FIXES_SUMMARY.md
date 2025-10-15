@@ -906,25 +906,14 @@ POST /api/accounting/balance-sheet/generate
 GET /api/accounting/balance-sheet?asOfDate=2025-12-31
 ```
 
-### **💰 Income Statement**
+### **💰 Income Statement** ✅ SIMPLIFIED
 ```http
-POST /api/accounting/income-statement/generate
-POST /api/accounting/income-statement/detailed
-POST /api/accounting/income-statement/summary
-POST /api/accounting/income-statement/comprehensive
-POST /api/accounting/income-statement/vertical
-POST /api/accounting/income-statement/comparative
-GET /api/accounting/income-statement?startDate=2025-01-01&endDate=2025-12-31
+POST /accounting/income-statement/generate
 ```
 
-### **💵 Cash Flow Statement**
+### **💵 Cash Flow Statement** ✅ SIMPLIFIED
 ```http
 POST /api/accounting/cash-flow
-POST /api/accounting/cash-flow/detailed
-POST /api/accounting/cash-flow/summary
-POST /api/accounting/cash-flow/comprehensive
-POST /api/accounting/cash-flow/comparative
-GET /api/accounting/cash-flow?startDate=2025-01-01&endDate=2025-12-31
 ```
 
 ### **💱 Multi-Currency**
@@ -973,16 +962,24 @@ http://localhost:3000/api-docs
 
 **Swagger Documentation Includes:**
 - 📊 Balance Sheet (2 endpoints) - Full request/response examples
-- 💰 Income Statement (7 endpoints) - All variants documented
-- 💵 Cash Flow Statement (5 endpoints) - Complete cash flow cycle
+- 💰 Income Statement (**1 endpoint - SIMPLIFIED**) - `/accounting/income-statement/generate`
+- 💵 Cash Flow Statement (**1 endpoint - SIMPLIFIED**) - `/api/accounting/cash-flow`
 - 📈 Trial Balance - Fully documented
-- 📦 Inventory Management - Updated with vendorId
+- 📦 Inventory Management - Updated with vendorId, **inventoryAssetAccountId now OPTIONAL**
 - 💱 Multi-Currency - Exchange rate management
-- 🏦 Bank Reconciliation - Full workflow
+- 🏦 Bank Reconciliation - Full workflow with `/api` prefix
 - 🔧 Assets & Credit Notes - Complete CRUD
 
-**Total Endpoints:** 281+ fully documented endpoints
-**Status:** ✅ **READY FOR PRODUCTION**
+**Simplified for Production:**
+- ✅ Cash Flow: 1 POST endpoint (removed detailed, summary, comprehensive, comparative)
+- ✅ Income Statement: 1 POST endpoint (removed detailed, summary, comprehensive, vertical, comparative, query)
+- ✅ Inventory: inventoryAssetAccountId auto-selected (optional)
+- ✅ Bank Reconciliation: Correct `/api` prefix
+
+**Total Endpoints:** 250+ fully documented endpoints
+**Status:** ✅ **PRODUCTION-READY & SIMPLIFIED**
+
+**See:** `SWAGGER_PRODUCTION_FIXES.md` for complete testing guide
 
 ---
 
