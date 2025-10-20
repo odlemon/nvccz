@@ -31,7 +31,11 @@ export class BankReconciliationController {
         return ResponseHelper.badRequest(res, 'Either file upload or JSON data required');
       }
     } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to upload bank statement', error.message);
+      // Surface full error where possible for easier debugging in non-prod
+      const errMsg = error?.message || String(error);
+      const details = error?.stack || undefined;
+      console.error('BankReconciliationController.uploadBankStatement error:', errMsg, details);
+      return ResponseHelper.error(res, 'Failed to upload bank statement', errMsg);
     }
   }
 
