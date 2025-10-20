@@ -1,0 +1,11 @@
+TransactionDate,Description,Amount,Reference
+2025-10-01,Opening Balance Adjustment,1500.00,OB001
+2025-10-02,Office Supplies Purchase,-245.50,REF1001
+2025-10-03,Customer Payment,3200.00,REF1002
+2025-10-04,Bank Charges,-12.00,REF1003
+2025-10-05,Electricity Bill,-180.75,REF1004
+2025-10-06,Service Income,950.00,REF1005
+2025-10-07,Card Processing Fees,-8.25,REF1006
+2025-10-08,Client Invoice Payment,2100.00,REF1007
+2025-10-09,Internet Subscription,-65.00,REF1008
+2025-10-10,Refund to Customer,-120.00,REF1009

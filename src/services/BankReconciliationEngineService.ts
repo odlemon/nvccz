@@ -40,6 +40,15 @@ export class BankReconciliationEngineService {
         orderBy: { transactionDate: 'asc' }
       });
 
+      // If there are no transactions, finalize with zeros instead of failing
+      if (!bankTransactions || bankTransactions.length === 0) {
+        return await this.updateReconciliationSummary(
+          reconciliationId,
+          0,
+          0
+        );
+      }
+
       // Get relevant journal entries (Cash and Cash Equivalents)
       const cashAccount = await prisma.chartOfAccounts.findFirst({
         where: { 
@@ -47,9 +56,14 @@ export class BankReconciliationEngineService {
           isActive: true 
         }
       });
-
+      // If cash account isn't configured yet, do a graceful no-op reconciliation
       if (!cashAccount) {
-        throw new Error('Cash and Cash Equivalents account not found');
+        // Mark as completed with zero matches to avoid hard failures in fresh setups
+        return await this.updateReconciliationSummary(
+          reconciliationId,
+          bankTransactions.length,
+          0
+        );
       }
 
       const journalEntries = await prisma.journalEntry.findMany({
@@ -114,6 +128,13 @@ export class BankReconciliationEngineService {
 
     } catch (error) {
       console.error('Error running reconciliation:', error);
+      // Graceful fallback: mark as FAILED but don't crash hard in serverless
+      try {
+        await prisma.bankReconciliation.update({
+          where: { id: reconciliationId },
+          data: { status: 'FAILED' }
+        });
+      } catch (_) {}
       throw new Error('Failed to run reconciliation');
     }
   }
