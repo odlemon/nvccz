@@ -278,7 +278,10 @@ export class ProcurementService {
                 id: true,
                 firstName: true,
                 lastName: true,
-                email: true
+                email: true,
+                userDepartment: true,
+                departmentRole: true,
+                roleCode: true
               }
             },
             items: true
@@ -286,23 +289,10 @@ export class ProcurementService {
         });
         console.log("✅ Requisition status updated to PENDING_APPROVAL");
       } else {
-        // No approval workflow configured - auto-approve
-        updatedRequisition = await prisma.purchaseRequisition.update({
-          where: { id: requisition.id },
-          data: { status: "APPROVED" },
-          include: {
-            requestedBy: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            },
-            items: true
-          }
-        });
-        console.log("✅ No approval workflow configured - Requisition auto-approved");
+        // No approval stages configured - keep as DRAFT
+        updatedRequisition = requisition;
+        console.log("⚠️  No approval stages configured - Requisition remains in DRAFT status");
+        console.log("    Submit the requisition using /submit endpoint to initiate approval");
       }
 
       return updatedRequisition;
@@ -485,13 +475,10 @@ export class ProcurementService {
               id: true,
               firstName: true,
               lastName: true,
-              email: true
-            }
-          },
-          department: {
-            select: {
-              id: true,
-              name: true
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true
             }
           },
           currency: {
@@ -502,16 +489,7 @@ export class ProcurementService {
               symbol: true
             }
           },
-          items: {
-            include: {
-              preferredVendor: {
-                select: {
-                  id: true,
-                  name: true
-                }
-              }
-            }
-          }
+          items: true
         }
       });
 
@@ -694,11 +672,10 @@ export class ProcurementService {
         await prisma.purchaseRequisition.update({
           where: { id: requisitionId },
           data: {
-            status: "RFQ_SENT",
-            notes: JSON.stringify({ rfq: rfqData })
+            status: "RFQ_SENT"
           }
         });
-        console.log("✅ Requisition updated with RFQ details");
+        console.log("✅ Requisition status updated to RFQ_SENT");
       }
 
       // Send RFQ email to all vendors
@@ -1470,6 +1447,26 @@ export class ProcurementService {
         },
       });
       console.log("   ✅ Audit log created");
+
+      // Send email notification to vendor
+      console.log("\n📧 Step 6: Sending payment confirmation email to vendor...");
+      try {
+        const { EmailNotificationService } = await import('./EmailNotificationService');
+        await EmailNotificationService.sendInvoicePaidEmail({
+          vendorName: invoice.vendor.name,
+          vendorEmail: invoice.vendor.email,
+          invoiceNumber: invoice.invoiceNumber,
+          invoiceAmount: paymentData.paymentAmount,
+          currencyCode: invoice.currency?.code || "USD",
+          paymentDate: paymentData.paymentDate,
+          paymentReference: paymentData.paymentReference,
+          paymentMethod: paymentData.paymentMethod
+        });
+        console.log("   ✅ Payment confirmation email sent to vendor");
+      } catch (emailError: any) {
+        console.error("   ⚠️  Failed to send payment confirmation email:", emailError.message);
+        // Don't fail the entire payment if email fails
+      }
 
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("✅ PAYMENT PROCESSED SUCCESSFULLY!");

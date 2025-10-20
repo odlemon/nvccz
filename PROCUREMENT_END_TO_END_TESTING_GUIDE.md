@@ -1,23 +1,25 @@
-# 🚀 PROCUREMENT MODULE - END-TO-END TESTING GUIDE (RFQ-BASED)
+# 🚀 PROCUREMENT MODULE - END-TO-END TESTING GUIDE (RFQ-BASED WITH VENDOR QUOTATIONS)
 
 ## 📋 **TABLE OF CONTENTS**
 1. [Overview](#overview)
 2. [Complete RFQ-Based Procurement Flow](#complete-rfq-based-procurement-flow)
 3. [Prerequisites](#prerequisites)
-4. [Step-by-Step Testing Guide](#step-by-step-testing-guide)
-5. [Accounting Impact Summary](#accounting-impact-summary)
-6. [Troubleshooting](#troubleshooting)
+4. [🏦 Finance Department Workflow - Complete Test](#-finance-department-workflow---complete-test) ⭐ **START HERE!**
+5. [Step-by-Step Testing Guide (General)](#-step-by-step-testing-guide-general)
+6. [Accounting Impact Summary](#accounting-impact-summary)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## 🎯 **OVERVIEW**
 
-This guide walks you through the complete **RFQ (Request for Quote) based procurement cycle**, from creating a requisition to paying a vendor. This is the **correct implementation** where:
+This guide walks you through the complete **RFQ (Request for Quote) based procurement cycle with automated vendor quotations**, from creating a requisition to paying a vendor. This is the **enhanced implementation** where:
 
 ✅ **Requisitions** only list items needed (no prices, no vendors)  
 ✅ **RFQs** are sent to multiple vendors to get competitive quotes  
-✅ **Vendors respond via email** with their quotes (outside the system)  
-✅ **Invoices are created manually** for the winning vendor  
+✅ **Vendors submit quotations ONLINE** through a public form (no login required) 🌟  
+✅ **System automatically creates invoices** from accepted quotations 🌟  
+✅ **Email notifications** sent at every stage (acceptance, rejection, payment) 🌟  
 ✅ **Accounting entries are created automatically** at appropriate stages  
 
 ---
@@ -39,29 +41,38 @@ This guide walks you through the complete **RFQ (Request for Quote) based procur
    ├── Manager reviews and approves
    └── Status: APPROVED
 
-3. 📧 CREATE & SEND RFQ
+3. 📧 CREATE & SEND RFQ (WITH ONLINE QUOTATION LINK) 🌟
    ├── Select MULTIPLE vendors (by vendor IDs)
    ├── System fetches vendor details (name, email)
    ├── RFQ sent to ALL selected vendors via email
+   ├── Email includes "Submit Quotation Online" button 🌟
    └── Status: RFQ_SENT
 
-4. 💌 VENDORS RESPOND (OUTSIDE SYSTEM)
-   ├── Vendors receive RFQ via email
-   ├── Vendors reply with their quotes (via email)
-   └── Procurement team reviews quotes manually
+4. 💻 VENDORS SUBMIT QUOTATIONS ONLINE (NO LOGIN!) 🌟
+   ├── Vendors click link in RFQ email
+   ├── Opens public quotation form (NO AUTHENTICATION)
+   ├── Fill in company details, prices, terms
+   ├── Submit quotation
+   └── Status: SUBMITTED
 
-5. 🏆 SELECT WINNING VENDOR
-   ├── Review all vendor quotes
-   ├── Choose best quote
-   └── Proceed to create invoice
+5. 📊 REVIEW & COMPARE QUOTATIONS 🌟
+   ├── View all submitted quotations in system
+   ├── Compare prices and terms
+   ├── Filter by RFQ number, status, vendor
+   └── Select winning quotation
 
-6. 📄 CREATE INVOICE (MANUAL)
-   ├── Create invoice for winning vendor
-   ├── Enter prices from their quote
-   ├── Include all line items with prices
-   └── Status: DRAFT
+6. ✅ ACCEPT WINNING QUOTATION 🌟
+   ├── Accept the best quotation
+   ├── System AUTOMATICALLY creates invoice from quotation
+   ├── Email notification sent to winning vendor
+   └── Status: ACCEPTED (Invoice: DRAFT)
 
-7. ✅ APPROVE INVOICE
+7. ❌ REJECT OTHER QUOTATIONS 🌟
+   ├── Reject non-winning quotations with reason
+   ├── Email notification sent to rejected vendors
+   └── Status: REJECTED
+
+8. ✅ APPROVE INVOICE (AUTO-CREATED)
    ├── Review invoice details
    ├── Approve invoice
    ├── 💰 ACCOUNTING ENTRY CREATED:
@@ -70,16 +81,17 @@ This guide walks you through the complete **RFQ (Request for Quote) based procur
    │   Cr. Accounts Payable
    └── Status: APPROVED
 
-8. 💳 PROCESS PAYMENT
+9. 💳 PROCESS PAYMENT (WITH EMAIL NOTIFICATION) 🌟
    ├── Select payment method (Bank/Cash)
    ├── Enter payment reference
    ├── 💰 ACCOUNTING ENTRY CREATED:
    │   Dr. Accounts Payable
    │   Cr. Cash/Bank Account
+   ├── Email payment confirmation sent to vendor 🌟
    └── Status: PAID
 
-9. ✅ CYCLE COMPLETE
-   └── Vendor paid, books balanced
+10. ✅ CYCLE COMPLETE
+    └── Vendor paid, quotation archived, books balanced
 ```
 
 ---
@@ -116,7 +128,788 @@ Before testing, ensure you have:
 
 ---
 
-## 🧪 **STEP-BY-STEP TESTING GUIDE**
+## 🏦 **FINANCE DEPARTMENT WORKFLOW - COMPLETE TEST**
+
+This section provides a **ready-to-use, copy-paste Finance department workflow** using your actual configured users!
+
+### 📊 **Finance Team Setup**
+
+Your Finance team is configured as follows:
+
+| User | Email | Department | Dept Role | Role Code | Can Approve Requisitions? | Can Approve Invoices? |
+|------|-------|------------|-----------|-----------|---------------------------|----------------------|
+| **Admin User** | admin@nvccz.co.zw | Finance | HEAD | FIN_MGR | ✅ Yes | ✅ Yes (if configured) |
+| **Jennifer Martinez** | jennifer.martinez@nvccz.co.zw | Finance | DEPUTY | FIN_OFF | ✅ Yes | ✅ Yes (if configured) |
+| **Lisa Anderson** | lisa.anderson@nvccz.co.zw | Finance | MEMBER | ACCOUNTANT | ❌ No | ✅ Yes (if configured) |
+
+---
+
+### 🔧 **STEP 0: Setup Finance Approval Configuration**
+
+**⚠️ CRITICAL:** You MUST create this approval configuration BEFORE creating any requisitions!
+
+Without an approval configuration, requisitions will stay in DRAFT status and cannot be approved.
+
+```bash
+POST http://localhost:3000/api/procurement-approval-configs
+Authorization: Bearer YOUR_ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "name": "Finance Department Procurement Approval",
+  "description": "Two-stage approval process for Finance department: Accountant reviews, then Finance Manager approves",
+  "department": "Finance",
+  "isActive": true,
+  "stages": [
+    {
+      "stageType": "PURCHASE_REQUISITION",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "stepName": "Department Head Approval",
+          "stepType": "ROLE",
+          "roleCode": "FIN_MGR",
+          "isRequired": true,
+          "approvalOrder": "SEQUENTIAL"
+        }
+      ]
+    },
+    {
+      "stageType": "INVOICE",
+      "steps": [
+        {
+          "stepNumber": 1,
+          "stepName": "Accountant Review",
+          "stepType": "ROLE",
+          "roleCode": "ACCOUNTANT",
+          "isRequired": true,
+          "approvalOrder": "SEQUENTIAL"
+        },
+        {
+          "stepNumber": 2,
+          "stepName": "Finance Manager Final Approval",
+          "stepType": "ROLE",
+          "roleCode": "FIN_MGR",
+          "isRequired": true,
+          "approvalOrder": "SEQUENTIAL"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Procurement approval configuration created successfully",
+  "data": {
+    "id": "CONFIG_ID_HERE",
+    "name": "Finance Department Procurement Approval",
+    "department": "Finance",
+    "isActive": true,
+    "stages": [
+      {
+        "stageType": "PURCHASE_REQUISITION",
+        "roleCode": "FIN_MGR"
+      },
+      {
+        "stageType": "INVOICE",
+        "steps": [
+          { "stepNumber": 1, "roleCode": "ACCOUNTANT" },
+          { "stepNumber": 2, "roleCode": "FIN_MGR" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**✅ What This Does:**
+- Creates a Finance-specific approval configuration
+- **Requisition Stage:** Only Finance Manager (Admin User) can approve
+- **Invoice Stage:** 
+  - Step 1: Accountant (Lisa Anderson) reviews first
+  - Step 2: Finance Manager (Admin User) gives final approval
+- This config will ONLY be used for Finance department requisitions/invoices
+
+**💡 Pro Tip:** You can verify the config was created:
+```bash
+GET http://localhost:3000/api/procurement-approval-configs
+Authorization: Bearer YOUR_ADMIN_TOKEN
+```
+
+---
+
+### 🧪 **FINANCE WORKFLOW TEST - COMPLETE CYCLE**
+
+Now let's test the complete Finance procurement workflow!
+
+#### **STEP F1: Login as Lisa Anderson (Accountant)**
+
+```bash
+POST http://localhost:3000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "lisa.anderson@nvccz.co.zw",
+  "password": "YOUR_PASSWORD"
+}
+```
+
+**Save the token as:** `LISA_TOKEN`
+
+---
+
+#### **STEP F2: Create Finance Requisition (as Lisa)**
+
+```bash
+POST http://localhost:3000/api/procurement/requisitions
+Authorization: Bearer LISA_TOKEN
+Content-Type: application/json
+
+  {
+    "title": "Finance Department - Software Licenses Q1 2025",
+    "description": "Accounting software licenses and cloud storage for Finance team",
+    "department": "Finance",
+    "priority": "HIGH",
+    "justification": "Critical software renewals for Finance operations",
+    "items": [
+      {
+        "itemName": "QuickBooks Enterprise License",
+        "description": "Annual subscription for 5 users",
+        "quantity": 1,
+        "unit": "year"
+      },
+      {
+        "itemName": "Cloud Storage - Business Plan",
+        "description": "1TB secure cloud storage for financial records",
+        "quantity": 1,
+        "unit": "year"
+      },
+      {
+        "itemName": "Tax Software Subscription",
+        "description": "Professional tax preparation software",
+        "quantity": 1,
+        "unit": "year"
+      }
+    ]
+  }
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "REQ_FINANCE_ID",
+    "requisitionNumber": "REQ-202501-XXXX",
+    "department": "Finance",
+    "status": "DRAFT",
+    "createdBy": {
+      "firstName": "Lisa",
+      "lastName": "Anderson",
+      "userDepartment": "Finance",
+      "roleCode": "ACCOUNTANT"
+    }
+  }
+}
+```
+
+**📝 SAVE THIS:** Copy the `id` field - this is your `REQ_FINANCE_ID`
+
+---
+
+#### **STEP F3: Submit Requisition for Approval (as Lisa)**
+
+```bash
+PUT http://localhost:3000/api/procurement/requisitions/REQ_FINANCE_ID/submit
+Authorization: Bearer LISA_TOKEN
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Requisition submitted and approval request created",
+  "data": {
+    "status": "PENDING_APPROVAL",
+    "approvalRequest": {
+      "id": "APPROVAL_REQ_ID",
+      "status": "PENDING",
+      "approvers": [
+        {
+          "roleCode": "FIN_MGR",
+          "user": {
+            "firstName": "Admin",
+            "lastName": "User"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+**✅ What Happened:**
+- Requisition status changed to `PENDING_APPROVAL`
+- System created an approval request
+- System identified Admin User (FIN_MGR) as the required approver
+- System used the **Finance department approval config** automatically!
+
+---
+
+#### **STEP F4: Login as Admin User (Finance Manager)**
+
+```bash
+POST http://localhost:3000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@nvccz.co.zw",
+  "password": "YOUR_PASSWORD"
+}
+```
+
+**Save the token as:** `ADMIN_TOKEN`
+
+---
+
+#### **STEP F5: View Pending Requisitions (as Admin)**
+
+```bash
+GET http://localhost:3000/api/procurement/requisitions?status=PENDING_APPROVAL&department=Finance
+Authorization: Bearer ADMIN_TOKEN
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "REQ_FINANCE_ID",
+      "requisitionNumber": "REQ-202501-XXXX",
+      "title": "Finance Department - Software Licenses Q1 2025",
+      "status": "PENDING_APPROVAL",
+      "department": "Finance",
+      "createdBy": {
+        "firstName": "Lisa",
+        "lastName": "Anderson"
+      }
+    }
+  ]
+}
+```
+
+---
+
+#### **STEP F6: Approve Requisition (as Admin - Finance Manager)**
+
+```bash
+PUT http://localhost:3000/api/procurement/requisitions/REQ_FINANCE_ID/approve
+Authorization: Bearer ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "comments": "Approved - These software licenses are essential for our operations"
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Requisition approved successfully",
+  "data": {
+    "status": "APPROVED",
+    "approvedBy": {
+      "firstName": "Admin",
+      "lastName": "User",
+      "roleCode": "FIN_MGR"
+    },
+    "approvedAt": "2025-10-16T09:45:00.000Z"
+  }
+}
+```
+
+**✅ What Happened:**
+- Admin User (as Finance HEAD with FIN_MGR role) approved the requisition
+- Status changed to `APPROVED`
+- Now ready for RFQ process
+
+---
+
+#### **STEP F7: Create & Send RFQ (as Admin)**
+
+First, get some vendor IDs:
+```bash
+GET http://localhost:3000/api/vendors?limit=3
+Authorization: Bearer ADMIN_TOKEN
+```
+
+Then create the RFQ:
+```bash
+POST http://localhost:3000/api/procurement/rfqs
+Authorization: Bearer ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "requisitionId": "REQ_FINANCE_ID",
+  "title": "RFQ - Finance Software Licenses Q1 2025",
+  "description": "Request for quotation for accounting software and cloud storage licenses",
+  "deadline": "2025-10-30T23:59:59.000Z",
+  "vendorIds": ["VENDOR_ID_1", "VENDOR_ID_2", "VENDOR_ID_3"],
+  "terms": "Payment within 30 days. Licenses must be activated within 48 hours of payment.",
+  "items": [
+    {
+      "itemName": "QuickBooks Enterprise License",
+      "description": "Annual subscription for 5 users",
+      "quantity": 1,
+      "unit": "year"
+    },
+    {
+      "itemName": "Cloud Storage - Business Plan",
+      "description": "1TB secure cloud storage",
+      "quantity": 1,
+      "unit": "year"
+    },
+    {
+      "itemName": "Tax Software Subscription",
+      "description": "Professional tax software",
+      "quantity": 1,
+      "unit": "year"
+    }
+  ]
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "RFQ created and sent to 3 vendors",
+  "data": {
+    "id": "RFQ_ID",
+    "rfqNumber": "RFQ-202501-XXXX",
+    "status": "SENT",
+    "emailsSent": 3,
+    "vendors": [
+      { "name": "Vendor A", "email": "vendor-a@example.com" },
+      { "name": "Vendor B", "email": "vendor-b@example.com" },
+      { "name": "Vendor C", "email": "vendor-c@example.com" }
+    ]
+  }
+}
+```
+
+**✅ What Happened:**
+- RFQ created with items from the requisition
+- Emails sent to all 3 vendors
+- Each email includes a unique link to submit quotations online
+- Vendors can submit quotes WITHOUT logging in!
+
+**📧 Email Content (sent to vendors):**
+```
+Subject: RFQ - Finance Software Licenses Q1 2025
+
+Dear Vendor,
+
+You have been invited to submit a quotation for:
+RFQ #RFQ-202501-XXXX
+
+Deadline: October 30, 2025
+
+[Submit Quotation Online] ← Button with unique link
+```
+
+---
+
+#### **STEP F8: Vendor Submits Quotation (NO LOGIN REQUIRED!)**
+
+**Simulate vendor submission** (use the public endpoint - NO authentication):
+
+```bash
+POST http://localhost:3000/api/vendor-quotations/submit
+Content-Type: application/json
+
+{
+  "rfqId": "RFQ_ID",
+  "companyName": "TechSoft Solutions Ltd",
+  "contactPerson": "John Vendor",
+  "email": "john@techsoft.com",
+  "phone": "+263771234567",
+  "taxId": "12345678",
+  "paymentTerms": "Net 30",
+  "deliveryTerms": "Digital delivery within 24 hours",
+  "validityPeriod": 30,
+  "notes": "We offer 24/7 support and training for all licenses",
+  "items": [
+    {
+      "itemName": "QuickBooks Enterprise License",
+      "quantity": 1,
+      "unitPrice": 1200.00,
+      "currency": "USD"
+    },
+    {
+      "itemName": "Cloud Storage - Business Plan",
+      "quantity": 1,
+      "unitPrice": 150.00,
+      "currency": "USD"
+    },
+    {
+      "itemName": "Tax Software Subscription",
+      "quantity": 1,
+      "unitPrice": 450.00,
+      "currency": "USD"
+    }
+  ]
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Quotation submitted successfully",
+  "data": {
+    "id": "QUOTATION_ID",
+    "quotationNumber": "QUO-202501-XXXX",
+    "status": "SUBMITTED",
+    "totalAmount": 1800.00,
+    "currency": "USD",
+    "companyName": "TechSoft Solutions Ltd"
+  }
+}
+```
+
+**📝 SAVE THIS:** Copy the `id` field - this is your `QUOTATION_ID`
+
+**💡 Repeat for other vendors** to get multiple quotations to compare!
+
+---
+
+#### **STEP F9: Review Quotations (as Admin)**
+
+```bash
+GET http://localhost:3000/api/vendor-quotations?rfqId=RFQ_ID
+Authorization: Bearer ADMIN_TOKEN
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "QUOTATION_ID",
+      "quotationNumber": "QUO-202501-XXXX",
+      "companyName": "TechSoft Solutions Ltd",
+      "status": "SUBMITTED",
+      "totalAmount": 1800.00,
+      "currency": "USD"
+    }
+    // ... other quotations
+  ]
+}
+```
+
+---
+
+#### **STEP F10: Accept Winning Quotation (as Admin)**
+
+```bash
+POST http://localhost:3000/api/vendor-quotations/QUOTATION_ID/accept
+Authorization: Bearer ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "acceptanceNotes": "Best price and terms. Approved for purchase."
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Quotation accepted and invoice created automatically",
+  "data": {
+    "quotation": {
+      "status": "ACCEPTED"
+    },
+    "invoice": {
+      "id": "INVOICE_ID",
+      "invoiceNumber": "INV-202501-XXXX",
+      "status": "DRAFT",
+      "department": "Finance",
+      "totalAmount": 1800.00,
+      "vendor": {
+        "companyName": "TechSoft Solutions Ltd"
+      }
+    },
+    "emailSent": true
+  }
+}
+```
+
+**📝 SAVE THIS:** Copy the invoice `id` - this is your `INVOICE_ID`
+
+**✅ What Happened:**
+- Quotation status changed to `ACCEPTED`
+- Invoice **AUTOMATICALLY CREATED** from the quotation
+- Email sent to winning vendor: "Congratulations! Your quotation has been accepted"
+- Invoice is in `DRAFT` status, ready for approval
+
+---
+
+#### **STEP F11: Submit Invoice for Approval (as Admin)**
+
+```bash
+POST http://localhost:3000/api/procurement/invoices/INVOICE_ID/submit
+Authorization: Bearer ADMIN_TOKEN
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Invoice submitted for approval",
+  "data": {
+    "status": "PENDING_APPROVAL",
+    "approvalRequest": {
+      "stage": "INVOICE",
+      "currentStep": 1,
+      "approvers": [
+        {
+          "stepNumber": 1,
+          "roleCode": "ACCOUNTANT",
+          "user": {
+            "firstName": "Lisa",
+            "lastName": "Anderson"
+          }
+        },
+        {
+          "stepNumber": 2,
+          "roleCode": "FIN_MGR",
+          "user": {
+            "firstName": "Admin",
+            "lastName": "User"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+**✅ What Happened:**
+- System found the Finance department approval config
+- Created 2-step approval process:
+  - Step 1: Lisa Anderson (ACCOUNTANT) must approve first
+  - Step 2: Admin User (FIN_MGR) approves second
+- Invoice status: `PENDING_APPROVAL`
+
+---
+
+#### **STEP F12: Login as Lisa (Accountant) Again**
+
+Use the `LISA_TOKEN` from Step F1, or login again if needed.
+
+---
+
+#### **STEP F13: Approve Invoice - Step 1 (as Lisa - Accountant)**
+
+```bash
+GET http://localhost:3000/api/procurement/invoices/INVOICE_ID
+Authorization: Bearer LISA_TOKEN
+```
+
+Check the invoice details, then approve:
+
+```bash
+PUT http://localhost:3000/api/procurement/invoices/INVOICE_ID/approve
+Authorization: Bearer LISA_TOKEN
+Content-Type: application/json
+
+{
+  "comments": "Invoice reviewed and verified. Amounts match quotation. Approved for final sign-off."
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Invoice approval step 1 of 2 completed. Awaiting Finance Manager approval.",
+  "data": {
+    "status": "PENDING_APPROVAL",
+    "currentStep": 2,
+    "nextApprover": {
+      "roleCode": "FIN_MGR",
+      "user": {
+        "firstName": "Admin",
+        "lastName": "User"
+      }
+    }
+  }
+}
+```
+
+**✅ What Happened:**
+- Lisa (ACCOUNTANT) completed Step 1 approval
+- Invoice still in `PENDING_APPROVAL` but moved to Step 2
+- Waiting for Admin User (FIN_MGR) to give final approval
+
+---
+
+#### **STEP F14: Approve Invoice - Step 2 (as Admin - Finance Manager)**
+
+```bash
+PUT http://localhost:3000/api/procurement/invoices/INVOICE_ID/approve
+Authorization: Bearer ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "comments": "Final approval granted. Proceed with payment processing."
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Invoice fully approved. Ready for payment.",
+  "data": {
+    "status": "APPROVED",
+    "approvedAt": "2025-10-16T10:30:00.000Z",
+    "journalEntry": {
+      "id": "JE_ID",
+      "entryNumber": "JE-202501-XXXX",
+      "description": "Invoice INV-202501-XXXX - TechSoft Solutions Ltd",
+      "totalDebit": 1800.00,
+      "totalCredit": 1800.00,
+      "entries": [
+        {
+          "account": "Software Expense",
+          "accountCode": "5030",
+          "debit": 1800.00,
+          "credit": 0
+        },
+        {
+          "account": "Accounts Payable",
+          "accountCode": "2010",
+          "debit": 0,
+          "credit": 1800.00
+        }
+      ]
+    }
+  }
+}
+```
+
+**✅ What Happened:**
+- Admin User (FIN_MGR) completed final approval
+- Invoice status changed to `APPROVED`
+- **ACCOUNTING ENTRY CREATED AUTOMATICALLY:**
+  - Dr. Software Expense $1,800
+  - Cr. Accounts Payable $1,800
+- Ready for payment!
+
+---
+
+#### **STEP F15: Process Payment (as Admin)**
+
+```bash
+POST http://localhost:3000/api/procurement/invoices/INVOICE_ID/pay
+Authorization: Bearer ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "paymentMethod": "BANK_TRANSFER",
+  "paymentReference": "TRF-FIN-202501-001",
+  "paymentDate": "2025-10-16",
+  "paidAmount": 1800.00,
+  "bankAccountId": "YOUR_BANK_ACCOUNT_ID",
+  "notes": "Payment for software licenses Q1 2025"
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Payment processed successfully. Vendor has been notified.",
+  "data": {
+    "status": "PAID",
+    "paidAt": "2025-10-16T10:45:00.000Z",
+    "paidAmount": 1800.00,
+    "journalEntry": {
+      "id": "JE_PAYMENT_ID",
+      "entryNumber": "JE-202501-YYYY",
+      "description": "Payment for INV-202501-XXXX",
+      "entries": [
+        {
+          "account": "Accounts Payable",
+          "accountCode": "2010",
+          "debit": 1800.00,
+          "credit": 0
+        },
+        {
+          "account": "Bank Account - USD",
+          "accountCode": "1030",
+          "debit": 0,
+          "credit": 1800.00
+        }
+      ]
+    },
+    "emailSent": true
+  }
+}
+```
+
+**✅ What Happened:**
+- Payment processed successfully
+- Invoice status changed to `PAID`
+- **PAYMENT ACCOUNTING ENTRY CREATED:**
+  - Dr. Accounts Payable $1,800 (clearing the liability)
+  - Cr. Bank Account $1,800 (money out)
+- **EMAIL SENT TO VENDOR:** "Your invoice has been paid. Payment reference: TRF-FIN-202501-001"
+
+---
+
+### 🎉 **FINANCE WORKFLOW COMPLETE!**
+
+**You just completed a full Finance department procurement cycle:**
+
+✅ Lisa (Accountant) created a requisition  
+✅ Admin (Finance Manager) approved the requisition  
+✅ Admin sent RFQ to vendors  
+✅ Vendor submitted quotation online (no login!)  
+✅ Admin accepted winning quotation  
+✅ Invoice automatically created  
+✅ Lisa (Accountant) reviewed and approved invoice (Step 1)  
+✅ Admin (Finance Manager) gave final approval (Step 2)  
+✅ Admin processed payment  
+✅ All accounting entries created automatically  
+✅ Vendor notified via email at every stage  
+
+**📊 Accounting Impact:**
+```
+1. Invoice Approval:
+   Dr. Software Expense        $1,800
+   Cr. Accounts Payable                $1,800
+
+2. Payment Processing:
+   Dr. Accounts Payable        $1,800
+   Cr. Bank Account                    $1,800
+
+Net Result: Expense recorded, liability cleared, cash reduced ✅
+```
+
+---
+
+## 🧪 **STEP-BY-STEP TESTING GUIDE (GENERAL)**
 
 ### **STEP 1: Create Purchase Requisition**
 
@@ -190,7 +983,7 @@ Content-Type: application/json
 ### **STEP 2: Submit Requisition for Approval**
 
 ```bash
-POST http://localhost:3000/api/procurement/requisitions/REQ_ID_HERE/submit
+PUT http://localhost:3000/api/procurement/requisitions/REQ_ID_HERE/submit
 Authorization: Bearer YOUR_TOKEN_HERE
 ```
 
@@ -211,7 +1004,7 @@ Authorization: Bearer YOUR_TOKEN_HERE
 ### **STEP 3: Approve Requisition**
 
 ```bash
-POST http://localhost:3000/api/procurement/requisitions/REQ_ID_HERE/approve
+PUT http://localhost:3000/api/procurement/requisitions/REQ_ID_HERE/approve
 Authorization: Bearer YOUR_TOKEN_HERE
 ```
 
@@ -230,9 +1023,9 @@ Authorization: Bearer YOUR_TOKEN_HERE
 
 ---
 
-### **STEP 4: Create and Send RFQ to Multiple Vendors** ⭐ **NEW!**
+### **STEP 4: Create and Send RFQ to Multiple Vendors (WITH QUOTATION LINK)** ⭐ **ENHANCED!**
 
-**This is the key step - send RFQ to multiple vendors!**
+**This is the key step - send RFQ to multiple vendors with online quotation link!**
 
 First, get your vendor IDs:
 ```bash
@@ -316,7 +1109,9 @@ Content-Type: application/json
   - Items/services required
   - Quantities and specifications
   - Delivery address and deadline
-  - Instructions on how to submit their quote
+  - **🌟 Prominent "Submit Quotation Online" button with link**
+  - **🌟 Link includes RFQ number for auto-population**
+  - Alternative email submission instructions
 - Requisition status updated to `RFQ_SENT`
 - Console logs show detailed progress
 
@@ -343,87 +1138,259 @@ Items/Services Required:
 2. Office Supplies Bundle
    Quantity: 50 units
 
-How to Submit Your Quote:
-Please reply to this email with:
-1. Unit Price for each item
-2. Total Price including all costs
-3. VAT/Tax amount
-4. Delivery Timeline
-5. Payment Terms
-6. Warranty period (if applicable)
-7. Quote validity period
+🌟 How to Submit Your Quote:
+
+Option 1: Submit Online (Recommended)
+[Submit Your Quotation Online] ← Big Button
+Link: https://nvccz.com/vendor/quotation/submit?rfq=RFQ-202501-0001
+This is the fastest way to submit your quote!
+
+Option 2: Reply by Email
+1. Company Name and Tax EIN
+2. Contact Person and Phone
+3. Unit Price for each item
+4. Total Price including all costs
+5. VAT/Tax amount
+6. Delivery Timeline
+7. Payment Terms
+8. Warranty period (if applicable)
+9. Quote validity period
 
 [Full formatted email with instructions...]
 ```
 
 ---
 
-### **STEP 5: Vendors Respond via Email (Outside System)**
+### **STEP 5: Vendors Submit Quotations Online** 🌟 **NEW!**
 
-**This happens OUTSIDE your system!**
+**Vendors can now submit quotations online without any authentication!**
 
-Vendors will reply to the RFQ email with their quotes. Example:
+When vendors receive the RFQ email, they click the "Submit Quotation Online" button which takes them to a public form.
 
-**Vendor A Reply:**
-```
-From: quotes@abcproperty.com
-To: procurement@nvccz.com
-Subject: RE: Request for Quote RFQ-202501-0001
+**Vendor A Submits Online:**
+```bash
+POST http://localhost:3000/api/vendor-quotations/submit
+Content-Type: application/json
+# NO AUTHORIZATION HEADER NEEDED!
 
-Dear NVCCZ Procurement Team,
-
-Thank you for your RFQ. Please find our quote below:
-
-Item 1: Office Rent - Main Building
-Unit Price: $5,000 per month
-Total: $5,000
-
-Item 2: Office Supplies Bundle
-Unit Price: $45 per unit
-Total: $2,250 (50 units × $45)
-
-Subtotal: $7,250
-VAT (14.5%): $1,051.25
-Total: $8,301.25
-
-Delivery: Immediate
-Payment Terms: NET 30
-Quote Valid Until: January 10, 2025
-
-Best regards,
-ABC Property Management
-```
-
-**Vendor B Reply:**
-```
-From: sales@xyzsupplies.com
-Subject: RE: Request for Quote RFQ-202501-0001
-
-Our Quote:
-
-Item 1: Office Rent - $4,800/month
-Item 2: Office Supplies - $40/unit
-
-Total: $4,800 + $2,000 = $6,800
-VAT: $986
-Grand Total: $7,786
-
-Payment: NET 30
-Delivery: 3 days
-
-XYZ Office Supplies
+{
+  "rfqNumber": "RFQ-202501-0001",
+  "vendorName": "John Doe",
+  "vendorEmail": "quotes@abcproperty.com",
+  "companyName": "ABC Property Management",
+  "taxEIN": "12-3456789",
+  "contactPerson": "John Doe",
+  "phoneNumber": "+263771234567",
+  "currencyCode": "USD",
+  "paymentTerms": "NET 30",
+  "deliveryTime": "Immediate",
+  "items": [
+    {
+      "itemName": "Office Rent - Main Building",
+      "quantity": 1,
+      "unit": "month",
+      "unitPrice": 5000.00
+    },
+    {
+      "itemName": "Office Supplies Bundle",
+      "quantity": 50,
+      "unit": "units",
+      "unitPrice": 45.00
+    }
+  ]
+}
 ```
 
-**📊 You Review and Select Winner:**
-- Vendor A: $8,301.25
-- Vendor B: $7,786.00 ⭐ **WINNER!**
-- Vendor C: (didn't respond)
+**Vendor B Submits Online:**
+```bash
+POST http://localhost:3000/api/vendor-quotations/submit
+Content-Type: application/json
+
+{
+  "rfqNumber": "RFQ-202501-0001",
+  "vendorName": "Jane Smith",
+  "vendorEmail": "sales@xyzsupplies.com",
+  "companyName": "XYZ Office Supplies",
+  "taxEIN": "98-7654321",
+  "currencyCode": "USD",
+  "paymentTerms": "NET 30",
+  "deliveryTime": "3 days",
+  "items": [
+    {
+      "itemName": "Office Rent - Main Building",
+      "quantity": 1,
+      "unit": "month",
+      "unitPrice": 4800.00
+    },
+    {
+      "itemName": "Office Supplies Bundle",
+      "quantity": 50,
+      "unit": "units",
+      "unitPrice": 40.00
+    }
+  ]
+}
+```
+
+**📊 System Calculations:**
+- **Vendor A:** Subtotal: $7,250 → **Total: $7,250** (+ VAT if applicable)
+- **Vendor B:** Subtotal: $6,800 → **Total: $6,800** ⭐ **BEST PRICE!**
+- Vendor C: (didn't submit)
 
 ---
 
-### **STEP 6: Create Invoice for Winning Vendor (Manual)**
+### **STEP 6: View and Compare Quotations** 🌟 **NEW!**
 
-**Now you manually create an invoice with the winning vendor's prices:**
+```bash
+# View all quotations for this RFQ
+GET http://localhost:3000/api/vendor-quotations/rfq/RFQ-202501-0001
+Authorization: Bearer YOUR_TOKEN_HERE
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Quotations retrieved successfully",
+  "data": [
+    {
+      "id": "QUOTE_1",
+      "quotationNumber": "QUOTE-1729012456-789",
+      "companyName": "ABC Property Management",
+      "vendorEmail": "quotes@abcproperty.com",
+      "totalAmount": 7250.00,
+      "status": "SUBMITTED",
+      "paymentTerms": "NET 30",
+      "deliveryTime": "Immediate"
+    },
+    {
+      "id": "QUOTE_2",
+      "quotationNumber": "QUOTE-1729012457-790",
+      "companyName": "XYZ Office Supplies",
+      "vendorEmail": "sales@xyzsupplies.com",
+      "totalAmount": 6800.00,
+      "status": "SUBMITTED",
+      "paymentTerms": "NET 30",
+      "deliveryTime": "3 days"
+    }
+  ],
+  "count": 2
+}
+```
+
+**📊 Compare and Select Winner:**
+- Vendor A (ABC): $7,250.00
+- Vendor B (XYZ): $6,800.00 ⭐ **WINNER! - Best price**
+- Vendor C: (didn't submit)
+
+---
+
+### **STEP 7: Accept Winning Quotation** 🌟 **NEW!**
+
+**Accept the winning quotation - the system will automatically create an invoice!**
+
+```bash
+POST http://localhost:3000/api/vendor-quotations/QUOTE_2/accept
+Authorization: Bearer YOUR_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "reviewNotes": "Best price and delivery time. Vendor has good track record.",
+  "createInvoice": true
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Quotation accepted and invoice created successfully. Vendor has been notified.",
+  "data": {
+    "quotation": {
+      "id": "QUOTE_2",
+      "quotationNumber": "QUOTE-1729012457-790",
+      "status": "ACCEPTED",
+      "reviewedAt": "2025-10-15T14:00:00.000Z"
+    },
+    "invoice": {
+      "id": "INV_AUTO_ID",
+      "invoiceNumber": "INV-QUOTE-1729012457-790",
+      "quotationId": "QUOTE_2",
+      "vendorId": "VENDOR_ID_2",
+      "subtotal": 6800.00,
+      "taxAmount": 0.00,
+      "totalAmount": 6800.00,
+      "status": "DRAFT",
+      "items": [
+        {
+          "itemName": "Office Rent - Main Building",
+          "quantity": 1,
+          "unitPrice": 4800.00,
+          "totalPrice": 4800.00
+        },
+        {
+          "itemName": "Office Supplies Bundle",
+          "quantity": 50,
+          "unitPrice": 40.00,
+          "totalPrice": 2000.00
+        }
+      ]
+    }
+  }
+}
+```
+
+**✅ What Happens:**
+- Quotation status → `ACCEPTED`
+- **Invoice automatically created** from quotation data
+- All line items transferred from quotation to invoice
+- Invoice status: `DRAFT` (ready for approval)
+- **Email sent to vendor** confirming acceptance
+- Audit log created
+
+---
+
+### **STEP 8: Reject Other Quotations** 🌟 **NEW!**
+
+**Reject the other quotations with a reason:**
+
+```bash
+POST http://localhost:3000/api/vendor-quotations/QUOTE_1/reject
+Authorization: Bearer YOUR_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "rejectionReason": "Price exceeds budget. We received a more competitive offer.",
+  "reviewNotes": "Thank you for your submission. Please feel free to participate in future RFQs."
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Quotation rejected successfully. Vendor has been notified.",
+  "data": {
+    "id": "QUOTE_1",
+    "quotationNumber": "QUOTE-1729012456-789",
+    "status": "REJECTED",
+    "rejectionReason": "Price exceeds budget...",
+    "reviewedAt": "2025-10-15T14:05:00.000Z"
+  }
+}
+```
+
+**✅ What Happens:**
+- Quotation status → `REJECTED`
+- **Email sent to vendor** with professional rejection notice
+- Rejection reason included in email
+- Audit log created
+
+---
+
+### **STEP 9: Approve Auto-Generated Invoice** 🌟 **UPDATED!**
+
+**Now approve the invoice that was automatically created:**
 
 ```bash
 POST http://localhost:3000/api/procurement/invoices
@@ -491,10 +1458,8 @@ Content-Type: application/json
 
 ---
 
-### **STEP 7: Approve Invoice** 💰 **ACCOUNTING ENTRY**
-
 ```bash
-POST http://localhost:3000/api/procurement/invoices/INVOICE_ID/approve
+PUT http://localhost:3000/api/procurement/invoices/INV_AUTO_ID/approve
 Authorization: Bearer YOUR_TOKEN_HERE
 ```
 
@@ -590,14 +1555,15 @@ Amount: $7,786.00
 
 ---
 
-### **STEP 8: Process Payment** 💰 **ACCOUNTING ENTRY**
+### **STEP 10: Process Payment (WITH EMAIL NOTIFICATION)** 🌟 **ENHANCED!**
 
 ```bash
-POST http://localhost:3000/api/procurement/invoices/INVOICE_ID/pay
+POST http://localhost:3000/api/procurement/invoices/INV_AUTO_ID/payment
 Authorization: Bearer YOUR_TOKEN_HERE
 Content-Type: application/json
 
 {
+  "paymentAmount": 6800.00,
   "paymentMethod": "BANK",
   "paymentReference": "BANK-TXN-2025-001",
   "paymentDate": "2025-02-08",
@@ -645,8 +1611,10 @@ Content-Type: application/json
 **✅ What Happens:**
 - Invoice status → `PAID`
 - **Journal Entry Created:**
-  - Dr. Accounts Payable $7,786
-  - Cr. Bank Account - USD $7,786
+  - Dr. Accounts Payable $6,800
+  - Cr. Bank Account - USD $6,800
+- **Email confirmation sent to vendor** 🌟
+- Vendor receives payment details and confirmation
 - Liability cleared
 - Cash reduced
 - Detailed console logs show each step

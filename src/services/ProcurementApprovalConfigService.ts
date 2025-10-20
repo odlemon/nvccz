@@ -7,6 +7,7 @@ const prisma = dbConnection.getPrismaClient();
 export interface CreateProcurementApprovalConfigParams {
   name: string;
   description?: string;
+  department?: string;  // NEW! Finance, Operations, Procurement, etc. (null = general/default)
   createdById: string;
   stages: {
     stageType: string; // PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, GRN
@@ -15,7 +16,8 @@ export interface CreateProcurementApprovalConfigParams {
       stepName: string;
       stepType: string; // USER, ROLE, DEPARTMENT, AMOUNT_THRESHOLD
       userId?: string;
-      roleId?: string;
+      roleId?: string;          // DEPRECATED
+      roleCode?: string;        // NEW! Hardcoded role: FIN_MGR, PROC_OFF, etc.
       departmentId?: string;
       amountThreshold?: number;
       isRequired?: boolean;
@@ -50,7 +52,7 @@ export class ProcurementApprovalConfigService {
    */
   static async createProcurementApprovalConfig(params: CreateProcurementApprovalConfigParams) {
     try {
-      const { name, description, createdById, stages } = params;
+      const { name, description, department, createdById, stages } = params;
 
       // Validate stages
       if (!stages || stages.length === 0) {
@@ -72,31 +74,37 @@ export class ProcurementApprovalConfigService {
         }
       }
 
-      // Create configuration with stages and steps
+      // Flatten stages - each step becomes a stage record
+      const allStages: any[] = [];
+      for (const stage of stages) {
+        for (const step of stage.steps) {
+          allStages.push({
+            stageType: stage.stageType,
+            stepNumber: step.stepNumber,
+            stepName: step.stepName,
+            stepType: step.stepType,
+            userId: step.userId,
+            roleId: step.roleId,           // DEPRECATED - keeping for backwards compatibility
+            roleCode: step.roleCode,       // NEW! Hardcoded role
+            departmentId: step.departmentId,
+            amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
+            isRequired: step.isRequired ?? true,
+            canDelegate: step.canDelegate ?? false,
+            autoApprove: step.autoApprove ?? false,
+            approvalOrder: step.approvalOrder ?? 'SEQUENTIAL'
+          });
+        }
+      }
+
+      // Create configuration with stages
       const config = await prisma.procurementApprovalConfig.create({
         data: {
           name,
           description,
+          department,  // NEW! Department-specific config
           createdById,
           stages: {
-            create: stages.map(stage => ({
-              stageType: stage.stageType,
-              steps: {
-                create: stage.steps.map(step => ({
-                  stepNumber: step.stepNumber,
-                  stepName: step.stepName,
-                  stepType: step.stepType,
-                  userId: step.userId,
-                  roleId: step.roleId,
-                  departmentId: step.departmentId,
-                  amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
-                  isRequired: step.isRequired ?? true,
-                  canDelegate: step.canDelegate ?? false,
-                  autoApprove: step.autoApprove ?? false,
-                  approvalOrder: step.approvalOrder ?? 'SEQUENTIAL'
-                }))
-              }
-            }))
+            create: allStages
           }
         },
         include: {
@@ -307,6 +315,23 @@ export class ProcurementApprovalConfigService {
   }
 
   /**
+   * Get config by department
+   */
+  static async getConfigByDepartment(department: string) {
+    try {
+      const config = await prisma.procurementApprovalConfig.findFirst({
+        where: { 
+          department,
+          isActive: true 
+        }
+      });
+      return config;
+    } catch (error: any) {
+      throw new Error(`Failed to get config by department: ${error.message}`);
+    }
+  }
+
+  /**
    * Get active procurement approval configuration
    */
   static async getActiveProcurementApprovalConfig() {
@@ -465,7 +490,15 @@ export class ProcurementApprovalConfigService {
         break;
 
       case 'ROLE':
-        if (stage.roleId) {
+        // Use hardcoded roleCode (NEW!) or fallback to roleId (DEPRECATED)
+        if (stage.roleCode) {
+          const users = await prisma.user.findMany({
+            where: { roleCode: stage.roleCode },
+            select: { id: true }
+          });
+          approvers.push(...users.map(u => u.id));
+        } else if (stage.roleId) {
+          // DEPRECATED: Fallback for backwards compatibility
           const users = await prisma.user.findMany({
             where: { roleId: stage.roleId },
             select: { id: true }
@@ -780,6 +813,19 @@ export class ProcurementApprovalConfigService {
       return stages;
     } catch (error: any) {
       throw new Error(`Failed to get approval steps: ${error.message}`);
+    }
+  }
+
+  /**
+   * Delete all procurement approval configurations
+   */
+  static async deleteAllProcurementApprovalConfigs() {
+    try {
+      // Delete all configs (stages will be cascade deleted)
+      const result = await prisma.procurementApprovalConfig.deleteMany({});
+      return result;
+    } catch (error: any) {
+      throw new Error(`Failed to delete all procurement approval configurations: ${error.message}`);
     }
   }
 }

@@ -157,7 +157,10 @@ export class ProcurementController {
               id: true,
               firstName: true,
               lastName: true,
-              email: true
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true
             }
           },
           approvedBy: {
@@ -165,13 +168,10 @@ export class ProcurementController {
               id: true,
               firstName: true,
               lastName: true,
-              email: true
-            }
-          },
-          department: {
-            select: {
-              id: true,
-              name: true
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true
             }
           },
           currency: {
@@ -182,16 +182,7 @@ export class ProcurementController {
               symbol: true
             }
           },
-          items: {
-            include: {
-              preferredVendor: {
-                select: {
-                  id: true,
-                  name: true
-                }
-              }
-            }
-          }
+          items: true
         },
         orderBy: {
           createdAt: 'desc'
@@ -228,7 +219,10 @@ export class ProcurementController {
               id: true,
               firstName: true,
               lastName: true,
-              email: true
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true
             }
           },
           approvedBy: {
@@ -236,13 +230,10 @@ export class ProcurementController {
               id: true,
               firstName: true,
               lastName: true,
-              email: true
-            }
-          },
-          department: {
-            select: {
-              id: true,
-              name: true
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true
             }
           },
           currency: {
@@ -253,16 +244,7 @@ export class ProcurementController {
               symbol: true
             }
           },
-          items: {
-            include: {
-              preferredVendor: {
-                select: {
-                  id: true,
-                  name: true
-                }
-              }
-            }
-          },
+          items: true,
           purchaseOrders: {
             include: {
               vendor: {
