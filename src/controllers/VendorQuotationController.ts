@@ -1,0 +1,205 @@
+// @ts-nocheck
+import { Request, Response, NextFunction } from "express";
+import { VendorQuotationService } from "../services/VendorQuotationService";
+
+export class VendorQuotationController {
+  /**
+   * Create a vendor quotation (PUBLIC - no auth required)
+   * This is used by vendors to submit their quotes via a public form
+   */
+  static async createVendorQuotation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const quotation = await VendorQuotationService.createVendorQuotation(req.body);
+
+      res.status(201).json({
+        success: true,
+        message: "Quotation submitted successfully. We will review your quote and contact you soon.",
+        data: quotation
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get all quotations (AUTHENTICATED)
+   */
+  static async getAllQuotations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { status, rfqNumber, vendorEmail, limit, offset } = req.query;
+
+      const result = await VendorQuotationService.getAllQuotations({
+        status: status as string,
+        rfqNumber: rfqNumber as string,
+        vendorEmail: vendorEmail as string,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined
+      });
+
+      res.json({
+        success: true,
+        message: "Quotations retrieved successfully",
+        data: result.quotations,
+        count: result.count,
+        limit: result.limit,
+        offset: result.offset
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get quotation by ID (AUTHENTICATED)
+   */
+  static async getQuotationById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+
+      const quotation = await VendorQuotationService.getQuotationById(id);
+
+      res.json({
+        success: true,
+        message: "Quotation retrieved successfully",
+        data: quotation
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get quotations by RFQ number (AUTHENTICATED)
+   */
+  static async getQuotationsByRFQ(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rfqNumber } = req.params;
+
+      const quotations = await VendorQuotationService.getQuotationsByRFQ(rfqNumber);
+
+      res.json({
+        success: true,
+        message: "Quotations retrieved successfully",
+        data: quotations,
+        count: quotations.length
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * Accept a vendor quotation (AUTHENTICATED)
+   * This will automatically create an invoice from the quotation
+   */
+  static async acceptQuotation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { reviewNotes, createInvoice = true } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const result = await VendorQuotationService.reviewQuotation({
+        quotationId: id,
+        action: "ACCEPT",
+        reviewedById: userId,
+        reviewNotes,
+        createInvoice
+      });
+
+      res.json({
+        success: true,
+        message: result.invoice 
+          ? "Quotation accepted and invoice created successfully. Vendor has been notified."
+          : "Quotation accepted successfully. Vendor has been notified.",
+        data: {
+          quotation: result.quotation,
+          invoice: result.invoice
+        }
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * Reject a vendor quotation (AUTHENTICATED)
+   */
+  static async rejectQuotation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { rejectionReason, reviewNotes } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      if (!rejectionReason) {
+        return res.status(400).json({
+          success: false,
+          message: "Rejection reason is required"
+        });
+      }
+
+      const result = await VendorQuotationService.reviewQuotation({
+        quotationId: id,
+        action: "REJECT",
+        reviewedById: userId,
+        reviewNotes,
+        rejectionReason,
+        createInvoice: false
+      });
+
+      res.json({
+        success: true,
+        message: "Quotation rejected successfully. Vendor has been notified.",
+        data: result.quotation
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * Delete a quotation (AUTHENTICATED)
+   * Only allowed if quotation has not been reviewed yet
+   */
+  static async deleteQuotation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      await VendorQuotationService.deleteQuotation(id, userId);
+
+      res.json({
+        success: true,
+        message: "Quotation deleted successfully"
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+}
+
+
+
+
+
+

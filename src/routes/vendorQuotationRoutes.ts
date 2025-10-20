@@ -1,0 +1,419 @@
+// @ts-nocheck
+import express from "express";
+import { VendorQuotationController } from "../controllers/VendorQuotationController";
+import { authenticate } from "../middleware/authenticate";
+
+const router = express.Router();
+
+/**
+ * @swagger
+ * /api/vendor-quotations/submit:
+ *   post:
+ *     summary: Submit a vendor quotation (PUBLIC - no authentication required)
+ *     description: Vendors use this endpoint to submit their quotes in response to an RFQ
+ *     tags: [Vendor Quotations]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - vendorName
+ *               - vendorEmail
+ *               - items
+ *             properties:
+ *               rfqNumber:
+ *                 type: string
+ *                 description: RFQ number this quotation responds to
+ *                 example: "RFQ-1729012345-123"
+ *               requisitionId:
+ *                 type: string
+ *                 description: Requisition ID (optional)
+ *               vendorName:
+ *                 type: string
+ *                 description: Vendor contact name
+ *                 example: "John Doe"
+ *               vendorEmail:
+ *                 type: string
+ *                 format: email
+ *                 description: Vendor email address
+ *                 example: "john@vendor.com"
+ *               companyName:
+ *                 type: string
+ *                 description: Company name
+ *                 example: "ABC Supplies Ltd"
+ *               taxEIN:
+ *                 type: string
+ *                 description: Tax identification number (EIN/VAT)
+ *                 example: "12-3456789"
+ *               contactPerson:
+ *                 type: string
+ *                 description: Primary contact person
+ *               phoneNumber:
+ *                 type: string
+ *                 description: Contact phone number
+ *                 example: "+263771234567"
+ *               address:
+ *                 type: string
+ *                 description: Company address
+ *               validUntil:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Quote validity date
+ *                 example: "2025-11-15T00:00:00Z"
+ *               currencyCode:
+ *                 type: string
+ *                 description: Currency code (USD, ZWL, etc.)
+ *                 default: "USD"
+ *                 example: "USD"
+ *               paymentTerms:
+ *                 type: string
+ *                 description: Payment terms
+ *                 example: "NET 30"
+ *               deliveryTerms:
+ *                 type: string
+ *                 description: Delivery terms
+ *                 example: "FOB"
+ *               deliveryTime:
+ *                 type: string
+ *                 description: Estimated delivery time
+ *                 example: "3-5 business days"
+ *               notes:
+ *                 type: string
+ *                 description: Additional notes
+ *               attachments:
+ *                 type: object
+ *                 description: Attachment URLs/paths (JSON)
+ *               items:
+ *                 type: array
+ *                 description: Quoted items
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - itemName
+ *                     - quantity
+ *                     - unitPrice
+ *                   properties:
+ *                     itemName:
+ *                       type: string
+ *                       example: "Office Desk"
+ *                     description:
+ *                       type: string
+ *                       example: "Executive wooden desk, 1.6m x 0.8m"
+ *                     quantity:
+ *                       type: number
+ *                       example: 10
+ *                     unit:
+ *                       type: string
+ *                       example: "pieces"
+ *                     unitPrice:
+ *                       type: number
+ *                       example: 250.00
+ *                     specifications:
+ *                       type: object
+ *                       description: Technical specifications
+ *                     brand:
+ *                       type: string
+ *                       example: "IKEA"
+ *                     model:
+ *                       type: string
+ *                       example: "BEKANT"
+ *                     warranty:
+ *                       type: string
+ *                       example: "2 years"
+ *           example:
+ *             rfqNumber: "RFQ-1729012345-123"
+ *             vendorName: "John Doe"
+ *             vendorEmail: "john@abcsupplies.com"
+ *             companyName: "ABC Supplies Ltd"
+ *             taxEIN: "12-3456789"
+ *             phoneNumber: "+263771234567"
+ *             validUntil: "2025-11-15T00:00:00Z"
+ *             currencyCode: "USD"
+ *             paymentTerms: "NET 30"
+ *             deliveryTime: "5 business days"
+ *             items:
+ *               - itemName: "Office Desk"
+ *                 description: "Executive wooden desk"
+ *                 quantity: 10
+ *                 unit: "pieces"
+ *                 unitPrice: 250.00
+ *                 brand: "IKEA"
+ *                 warranty: "2 years"
+ *     responses:
+ *       201:
+ *         description: Quotation submitted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Quotation submitted successfully"
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Bad request (validation error)
+ */
+router.post("/submit", VendorQuotationController.createVendorQuotation);
+
+// All routes below require authentication
+router.use(authenticate);
+
+/**
+ * @swagger
+ * /api/vendor-quotations:
+ *   get:
+ *     summary: Get all vendor quotations
+ *     tags: [Vendor Quotations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [SUBMITTED, UNDER_REVIEW, ACCEPTED, REJECTED]
+ *         description: Filter by status
+ *       - in: query
+ *         name: rfqNumber
+ *         schema:
+ *           type: string
+ *         description: Filter by RFQ number
+ *       - in: query
+ *         name: vendorEmail
+ *         schema:
+ *           type: string
+ *         description: Filter by vendor email
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of items to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *         description: Number of items to skip
+ *     responses:
+ *       200:
+ *         description: List of vendor quotations
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                 count:
+ *                   type: number
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/", VendorQuotationController.getAllQuotations);
+
+/**
+ * @swagger
+ * /api/vendor-quotations/rfq/{rfqNumber}:
+ *   get:
+ *     summary: Get all quotations for a specific RFQ
+ *     tags: [Vendor Quotations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: rfqNumber
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: RFQ number
+ *         example: "RFQ-1729012345-123"
+ *     responses:
+ *       200:
+ *         description: List of quotations for the RFQ
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
+
+/**
+ * @swagger
+ * /api/vendor-quotations/{id}:
+ *   get:
+ *     summary: Get quotation by ID
+ *     tags: [Vendor Quotations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quotation ID
+ *     responses:
+ *       200:
+ *         description: Quotation details
+ *       404:
+ *         description: Quotation not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/:id", VendorQuotationController.getQuotationById);
+
+/**
+ * @swagger
+ * /api/vendor-quotations/{id}/accept:
+ *   post:
+ *     summary: Accept a vendor quotation
+ *     description: Accepts a quotation and optionally creates an invoice automatically
+ *     tags: [Vendor Quotations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quotation ID
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reviewNotes:
+ *                 type: string
+ *                 description: Notes about the acceptance
+ *                 example: "Best price and delivery time"
+ *               createInvoice:
+ *                 type: boolean
+ *                 description: Whether to automatically create an invoice
+ *                 default: true
+ *           example:
+ *             reviewNotes: "Best price and delivery time"
+ *             createInvoice: true
+ *     responses:
+ *       200:
+ *         description: Quotation accepted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     quotation:
+ *                       type: object
+ *                     invoice:
+ *                       type: object
+ *                       description: Created invoice (if createInvoice was true)
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Quotation not found
+ */
+router.post("/:id/accept", VendorQuotationController.acceptQuotation);
+
+/**
+ * @swagger
+ * /api/vendor-quotations/{id}/reject:
+ *   post:
+ *     summary: Reject a vendor quotation
+ *     tags: [Vendor Quotations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quotation ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - rejectionReason
+ *             properties:
+ *               rejectionReason:
+ *                 type: string
+ *                 description: Reason for rejection
+ *                 example: "Price too high"
+ *               reviewNotes:
+ *                 type: string
+ *                 description: Additional notes
+ *           example:
+ *             rejectionReason: "Price exceeds budget"
+ *             reviewNotes: "Thank you for your submission"
+ *     responses:
+ *       200:
+ *         description: Quotation rejected successfully
+ *       400:
+ *         description: Bad request (missing rejection reason)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Quotation not found
+ */
+router.post("/:id/reject", VendorQuotationController.rejectQuotation);
+
+/**
+ * @swagger
+ * /api/vendor-quotations/{id}:
+ *   delete:
+ *     summary: Delete a quotation
+ *     description: Delete a quotation (only if not yet reviewed)
+ *     tags: [Vendor Quotations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Quotation ID
+ *     responses:
+ *       200:
+ *         description: Quotation deleted successfully
+ *       400:
+ *         description: Cannot delete reviewed quotation
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Quotation not found
+ */
+router.delete("/:id", VendorQuotationController.deleteQuotation);
+
+export default router;
+
+
+
+
+
+

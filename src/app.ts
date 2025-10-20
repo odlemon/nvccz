@@ -74,6 +74,7 @@ import exitInterviewRoutes from "./routes/exitInterviewRoutes"
 import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
+import vendorQuotationRoutes from "./routes/vendorQuotationRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
 import approvalRoutes from "./routes/approvalRoutes"
@@ -82,6 +83,7 @@ import assetRoutes from "./routes/assetRoutes"
 import creditNoteRoutes from "./routes/creditNoteRoutes"
 import statementRoutes from "./routes/statementRoutes"
 import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
+import hardcodedRoleRoutes from "./routes/hardcodedRoleRoutes"
 
 
 dotenv.config()
@@ -253,6 +255,9 @@ app.use("/api/auth", authRoutes)
 // Role management routes
 app.use("/api/roles", roleRoutes)
 
+// Hardcoded Roles (System roles grouped by department)
+app.use("/api/hardcoded-roles", hardcodedRoleRoutes)
+
 // User management routes
 app.use("/api/users", userRoutes)
 
@@ -360,6 +365,9 @@ app.use("/api/payroll", payrollRoutes)
 
 // Procurement Management routes
 app.use("/api/procurement", procurementRoutes)
+
+// Vendor Quotation routes (some are public/unauthenticated)
+app.use("/api/vendor-quotations", vendorQuotationRoutes)
 
 // Approval Workflow routes
 app.use("/api/approval-workflows", approvalWorkflowRoutes)

@@ -2,6 +2,21 @@
 import { Request, Response } from "express";
 import { ProcurementApprovalConfigService } from "../services/ProcurementApprovalConfigService";
 
+// Helper function to remove null/undefined values recursively
+function removeNullValues(obj: any): any {
+  if (Array.isArray(obj)) {
+    return obj.map(item => removeNullValues(item));
+  } else if (obj !== null && typeof obj === 'object') {
+    return Object.entries(obj).reduce((acc, [key, value]) => {
+      if (value !== null && value !== undefined) {
+        acc[key] = removeNullValues(value);
+      }
+      return acc;
+    }, {} as any);
+  }
+  return obj;
+}
+
 export class ProcurementApprovalConfigController {
   /**
    * Create a new procurement approval configuration
@@ -11,6 +26,7 @@ export class ProcurementApprovalConfigController {
       const {
         name,
         description,
+        department,  // NEW! Optional department field
         stages
       } = req.body;
 
@@ -30,6 +46,28 @@ export class ProcurementApprovalConfigController {
         });
       }
 
+      // Validate department if provided
+      if (department) {
+        const validDepartments = ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'];
+        if (!validDepartments.includes(department)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid department: ${department}. Valid departments are: ${validDepartments.join(', ')}`
+          });
+        }
+      }
+
+      // Check if department already has an active config
+      if (department) {
+        const existingConfig = await ProcurementApprovalConfigService.getConfigByDepartment(department);
+        if (existingConfig) {
+          return res.status(400).json({
+            success: false,
+            message: `Department "${department}" already has an active approval configuration. Please deactivate or delete the existing one first.`
+          });
+        }
+      }
+
       // Validate stage types
       const validStageTypes = ['PURCHASE_REQUISITION', 'PURCHASE_ORDER', 'INVOICE', 'GRN'];
       for (const stage of stages) {
@@ -44,14 +82,18 @@ export class ProcurementApprovalConfigController {
       const config = await ProcurementApprovalConfigService.createProcurementApprovalConfig({
         name,
         description,
+        department,  // NEW! Pass department to service
         createdById,
         stages
       });
 
+      // Remove null values from response
+      const cleanedConfig = removeNullValues(config);
+
       res.status(201).json({
         success: true,
         message: "Procurement approval configuration created successfully",
-        data: config
+        data: cleanedConfig
       });
     } catch (error: any) {
       console.error("Error creating procurement approval configuration:", error);
@@ -69,10 +111,13 @@ export class ProcurementApprovalConfigController {
     try {
       const configs = await ProcurementApprovalConfigService.getAllProcurementApprovalConfigs();
 
+      // Remove null values from response
+      const cleanedConfigs = removeNullValues(configs);
+
       res.status(200).json({
         success: true,
         message: "Procurement approval configurations retrieved successfully",
-        data: configs
+        data: cleanedConfigs
       });
     } catch (error: any) {
       console.error("Error getting procurement approval configurations:", error);
@@ -92,10 +137,13 @@ export class ProcurementApprovalConfigController {
 
       const config = await ProcurementApprovalConfigService.getProcurementApprovalConfigById(id);
 
+      // Remove null values from response
+      const cleanedConfig = removeNullValues(config);
+
       res.status(200).json({
         success: true,
         message: "Procurement approval configuration retrieved successfully",
-        data: config
+        data: cleanedConfig
       });
     } catch (error: any) {
       console.error("Error getting procurement approval configuration:", error);
@@ -120,10 +168,13 @@ export class ProcurementApprovalConfigController {
         });
       }
 
+      // Remove null values from response
+      const cleanedConfig = removeNullValues(config);
+
       res.status(200).json({
         success: true,
         message: "Active procurement approval configuration retrieved successfully",
-        data: config
+        data: cleanedConfig
       });
     } catch (error: any) {
       console.error("Error getting active procurement approval configuration:", error);
@@ -301,6 +352,27 @@ export class ProcurementApprovalConfigController {
       res.status(400).json({
         success: false,
         message: error.message || "Failed to get approval requests"
+      });
+    }
+  }
+
+  /**
+   * Delete all procurement approval configurations
+   */
+  static async deleteAllProcurementApprovalConfigs(req: Request, res: Response) {
+    try {
+      const result = await ProcurementApprovalConfigService.deleteAllProcurementApprovalConfigs();
+
+      res.status(200).json({
+        success: true,
+        message: `Successfully deleted ${result.count} approval configuration(s)`,
+        data: { deletedCount: result.count }
+      });
+    } catch (error: any) {
+      console.error("Error deleting all approval configurations:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to delete all approval configurations"
       });
     }
   }

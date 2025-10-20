@@ -54,6 +54,7 @@ model User {
   // Procurement Department Assignment (Hardcoded)
   userDepartment    String? // Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT
   departmentRole    String? // HEAD, DEPUTY, MEMBER
+  roleCode          String? // NEW! Hardcoded role: FIN_MGR, PROC_OFF, etc.
   
   performanceGoals        PerformanceGoal[] @relation("GoalAssignee")
   createdPerformanceGoals PerformanceGoal[] @relation("GoalCreator")
@@ -113,6 +114,7 @@ model User {
   procurementInvoicesApproved   ProcurementInvoice[]  @relation("InvoiceApprovedBy")
   grnsReceived                  GoodsReceivedNote[]   @relation("GRNReceivedBy")
   grnsApproved                  GoodsReceivedNote[]   @relation("GRNApprovedBy")
+  vendorQuotationsReviewed      VendorQuotation[]     @relation("QuotationReviewedBy")
 
   // Approval Workflow Relations
   procurementApprovalConfigsCreated ProcurementApprovalConfig[]
@@ -1772,11 +1774,102 @@ model PurchaseOrderItem {
   @@map("purchase_order_items")
 }
 
+// ===== VENDOR QUOTATION MODULE =====
+
+model VendorQuotation {
+  id            String  @id @default(cuid())
+  quotationNumber String @unique
+  
+  // RFQ Reference
+  rfqNumber     String? // Reference to the RFQ that this quotation responds to
+  requisitionId String? // Reference to the original requisition
+  
+  // Vendor Information (no auth required - vendor provides these)
+  vendorName    String
+  vendorEmail   String
+  companyName   String?
+  taxEIN        String? // Tax Identification Number
+  contactPerson String?
+  phoneNumber   String?
+  address       String? @db.Text
+  
+  // Quotation Details
+  status        String @default("SUBMITTED") // SUBMITTED, UNDER_REVIEW, ACCEPTED, REJECTED
+  validUntil    DateTime?
+  
+  // Financial
+  subtotal      Decimal   @default(0.00) @db.Decimal(15, 2)
+  taxAmount     Decimal   @default(0.00) @db.Decimal(15, 2)
+  totalAmount   Decimal   @default(0.00) @db.Decimal(15, 2)
+  currencyCode  String    @default("USD") // USD, ZWL, etc.
+  
+  // Payment Terms
+  paymentTerms  String? // e.g., "NET 30", "NET 60"
+  deliveryTerms String? // e.g., "FOB", "CIF"
+  deliveryTime  String? // e.g., "3-5 business days"
+  
+  // Additional Information
+  notes         String? @db.Text
+  attachments   Json? // Array of attachment URLs/paths
+  
+  // Acceptance/Rejection
+  reviewedById  String?
+  reviewedBy    User?     @relation("QuotationReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt    DateTime?
+  reviewNotes   String?   @db.Text
+  rejectionReason String? @db.Text
+  
+  // Invoice created from this quotation
+  invoiceId     String?   @unique
+  invoice       ProcurementInvoice? @relation("QuotationInvoice", fields: [invoiceId], references: [id])
+  
+  // Metadata
+  submittedAt   DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  items         VendorQuotationItem[]
+  
+  @@map("vendor_quotations")
+}
+
+model VendorQuotationItem {
+  id          String @id @default(cuid())
+  quotationId String
+  quotation   VendorQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  
+  // Item Details
+  itemName    String
+  description String? @db.Text
+  quantity    Decimal @db.Decimal(10, 2)
+  unit        String? // e.g., "pieces", "kg", "liters"
+  unitPrice   Decimal @db.Decimal(15, 2)
+  totalPrice  Decimal @db.Decimal(15, 2)
+  
+  // Specifications
+  specifications Json? // Technical specifications
+  brand         String? // Brand/manufacturer
+  model         String? // Model number
+  warranty      String? // Warranty period
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("vendor_quotation_items")
+}
+
+// ===== PROCUREMENT INVOICE MODULE =====
+
 model ProcurementInvoice {
   id              String         @id @default(cuid())
   invoiceNumber   String         @unique
   purchaseOrderId String?
   purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  
+  // Quotation Reference (new field)
+  quotationId     String?
+  quotation       VendorQuotation? @relation("QuotationInvoice")
 
   // Vendor information
   vendorId String
@@ -3305,6 +3398,7 @@ model ProcurementApprovalConfig {
   name        String
   description String?  @db.Text
   isActive    Boolean  @default(true)
+  department  String?  // Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -3330,7 +3424,8 @@ model ProcurementApprovalStage {
   
   // Configuration based on stepType
   userId       String?
-  roleId       String?
+  roleId       String?        // DEPRECATED - use roleCode instead
+  roleCode     String?        // NEW! Hardcoded role: FIN_MGR, PROC_OFF, etc.
   departmentId String?
   amountThreshold Decimal? @db.Decimal(15, 2)
   
@@ -3347,7 +3442,7 @@ model ProcurementApprovalStage {
   
   // Relations
   user       User?       @relation("ApprovalStageUser", fields: [userId], references: [id])
-  role       Role?       @relation("ApprovalStageRole", fields: [roleId], references: [id])
+  role       Role?       @relation("ApprovalStageRole", fields: [roleId], references: [id]) // DEPRECATED
   department Department? @relation("ApprovalStageDepartment", fields: [departmentId], references: [id])
   approvals  Approval[]
 

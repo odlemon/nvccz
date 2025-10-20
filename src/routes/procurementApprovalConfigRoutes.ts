@@ -32,6 +32,10 @@ router.use(authenticate);
  *               description:
  *                 type: string
  *                 description: Configuration description
+ *               department:
+ *                 type: string
+ *                 enum: [Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT]
+ *                 description: Department-specific config (null for general/default config)
  *               stages:
  *                 type: array
  *                 items:
@@ -68,7 +72,10 @@ router.use(authenticate);
  *                             description: User ID (required if stepType is USER)
  *                           roleId:
  *                             type: string
- *                             description: Role ID (required if stepType is ROLE)
+ *                             description: Role ID (DEPRECATED - use roleCode instead)
+ *                           roleCode:
+ *                             type: string
+ *                             description: Hardcoded role code (FIN_MGR, PROC_OFF, etc.) - Use this for stepType ROLE
  *                           departmentId:
  *                             type: string
  *                             description: Department ID (required if stepType is DEPARTMENT)
@@ -301,5 +308,21 @@ router.get("/requests/my", ProcurementApprovalConfigController.getApprovalReques
  *         description: Unauthorized
  */
 router.put("/requests/:requestId/stages/:stageId/approve", ProcurementApprovalConfigController.processApproval);
+
+/**
+ * @swagger
+ * /api/procurement-approval-configs/delete-all:
+ *   delete:
+ *     summary: Delete all procurement approval configurations (Admin only)
+ *     tags: [Procurement Approval Configuration]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All configurations deleted successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.delete("/delete-all", ProcurementApprovalConfigController.deleteAllProcurementApprovalConfigs);
 
 export default router;

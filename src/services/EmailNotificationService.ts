@@ -2172,6 +2172,128 @@ export class EmailNotificationService {
   }
 
   /**
+   * Send quotation accepted email to vendor
+   */
+  static async sendQuotationAcceptedEmail(data: {
+    vendorName: string;
+    vendorEmail: string;
+    quotationNumber: string;
+    quotationAmount: number;
+    currencyCode: string;
+    reviewNotes?: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Quotation Accepted - ${data.quotationNumber}`;
+      const htmlContent = this.getQuotationAcceptedTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Procurement Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.vendorEmail,
+              name: data.vendorName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Quotation accepted email sent to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending quotation accepted email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send quotation rejected email to vendor
+   */
+  static async sendQuotationRejectedEmail(data: {
+    vendorName: string;
+    vendorEmail: string;
+    quotationNumber: string;
+    quotationAmount: number;
+    currencyCode: string;
+    rejectionReason?: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Quotation Status Update - ${data.quotationNumber}`;
+      const htmlContent = this.getQuotationRejectedTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Procurement Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.vendorEmail,
+              name: data.vendorName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Quotation rejected email sent to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending quotation rejected email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send invoice paid notification to vendor
+   */
+  static async sendInvoicePaidEmail(data: {
+    vendorName: string;
+    vendorEmail: string;
+    invoiceNumber: string;
+    invoiceAmount: number;
+    currencyCode: string;
+    paymentDate: Date;
+    paymentReference?: string;
+    paymentMethod: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Payment Confirmation - Invoice ${data.invoiceNumber}`;
+      const htmlContent = this.getInvoicePaidTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Finance Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.vendorEmail,
+              name: data.vendorName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Invoice paid email sent to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending invoice paid email:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Send Purchase Order to vendor
    */
   static async sendPurchaseOrderToVendor(data: {
@@ -2484,8 +2606,22 @@ export class EmailNotificationService {
 
             <div class="instruction-list">
               <h3>📧 How to Submit Your Quote</h3>
-              <p>Please reply to this email with the following information:</p>
+              <p><strong>Option 1: Submit Online (Recommended) 🌟</strong></p>
+              <p>Click the button below to submit your quotation through our secure online form:</p>
+              <div style="text-align: center; margin: 20px 0;">
+                <a href="${process.env.FRONTEND_URL || 'https://nvccz.com'}/vendor/quotation/submit?rfq=${encodeURIComponent(data.rfqNumber)}" class="action-button" style="color: white;">
+                  📝 Submit Your Quotation Online
+                </a>
+              </div>
+              <p style="font-size: 0.9em; color: #666; text-align: center;">
+                This is the fastest way to submit your quote and ensures accuracy!
+              </p>
+              
+              <p><strong>Option 2: Reply by Email</strong></p>
+              <p>Alternatively, you can reply to this email with the following information:</p>
               <ol>
+                <li><strong>Company Name</strong> and <strong>Tax EIN/VAT Number</strong></li>
+                <li><strong>Contact Person</strong> and <strong>Phone Number</strong></li>
                 <li><strong>Unit Price</strong> for each item</li>
                 <li><strong>Total Price</strong> including all costs</li>
                 <li><strong>VAT/Tax</strong> amount (if applicable)</li>
@@ -2785,6 +2921,257 @@ export class EmailNotificationService {
             <p>For any inquiries, please contact procurement@nvccz.com</p>
             <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
           </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Quotation Accepted Email Template
+   */
+  private static getQuotationAcceptedTemplate(data: {
+    vendorName: string;
+    quotationNumber: string;
+    quotationAmount: number;
+    currencyCode: string;
+    reviewNotes?: string;
+    companyName?: string;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #f0fdf4; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .amount { font-size: 24px; font-weight: bold; color: #10b981; margin: 10px 0; }
+          .notes { background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 10px 10px; }
+          .button { display: inline-block; padding: 12px 30px; background: #10b981; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: bold; }
+          ul { padding-left: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 style="margin: 0; font-size: 28px;">✅ Quotation Accepted!</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || 'NVCCZ'}</p>
+        </div>
+        <div class="content">
+          <p>Dear ${data.vendorName},</p>
+          
+          <p>Great news! We are pleased to inform you that your quotation has been <strong>accepted</strong>.</p>
+          
+          <div class="info-box">
+            <p style="margin: 0;"><strong>📋 Quotation Number:</strong> ${data.quotationNumber}</p>
+            <div class="amount">${data.currencyCode} ${data.quotationAmount.toFixed(2)}</div>
+          </div>
+
+          ${data.reviewNotes ? `
+          <div class="notes">
+            <h3 style="margin-top: 0;">💬 Review Notes</h3>
+            <p>${data.reviewNotes}</p>
+          </div>
+          ` : ''}
+
+          <p><strong>Next Steps:</strong></p>
+          <ul>
+            <li>An invoice will be created based on your quotation</li>
+            <li>You will receive the official purchase order shortly</li>
+            <li>Please prepare the items/services as per the agreed specifications</li>
+            <li>Ensure delivery within the timeframe specified in your quote</li>
+          </ul>
+
+          <p>Thank you for your competitive pricing and professional service. We look forward to a successful transaction and continued business relationship.</p>
+          
+          <p>If you have any questions, please don't hesitate to contact our procurement team.</p>
+          
+          <p>Best regards,<br>
+          <strong>Procurement Team</strong><br>
+          ${data.companyName || 'NVCCZ'}</p>
+        </div>
+        <div class="footer">
+          <p>This is an official notification from ${data.companyName || 'NVCCZ'}.</p>
+          <p>For any inquiries, please contact procurement@nvccz.com</p>
+          <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Quotation Rejected Email Template
+   */
+  private static getQuotationRejectedTemplate(data: {
+    vendorName: string;
+    quotationNumber: string;
+    quotationAmount: number;
+    currencyCode: string;
+    rejectionReason?: string;
+    companyName?: string;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .reason { background: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 10px 10px; }
+          ul { padding-left: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 style="margin: 0; font-size: 28px;">📋 Quotation Status Update</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || 'NVCCZ'}</p>
+        </div>
+        <div class="content">
+          <p>Dear ${data.vendorName},</p>
+          
+          <p>Thank you for submitting your quotation for our recent request. After careful review and consideration, we regret to inform you that we will not be proceeding with your quotation at this time.</p>
+          
+          <div class="info-box">
+            <p style="margin: 0;"><strong>📋 Quotation Number:</strong> ${data.quotationNumber}</p>
+            <p style="margin: 10px 0 0 0;"><strong>Amount:</strong> ${data.currencyCode} ${data.quotationAmount.toFixed(2)}</p>
+          </div>
+
+          ${data.rejectionReason ? `
+          <div class="reason">
+            <h3 style="margin-top: 0;">📝 Reason</h3>
+            <p>${data.rejectionReason}</p>
+          </div>
+          ` : ''}
+
+          <p>Please note that this decision does not reflect negatively on your company or services. We receive multiple quotations and must make decisions based on various factors including:</p>
+          <ul>
+            <li>Pricing and budget constraints</li>
+            <li>Delivery timelines</li>
+            <li>Technical specifications</li>
+            <li>Past performance and reliability</li>
+            <li>Overall business requirements</li>
+          </ul>
+
+          <p>We value our relationship with you and hope to have the opportunity to work together on future projects. Please feel free to participate in our future RFQs.</p>
+          
+          <p>Thank you for your time and effort in preparing the quotation.</p>
+          
+          <p>Best regards,<br>
+          <strong>Procurement Team</strong><br>
+          ${data.companyName || 'NVCCZ'}</p>
+        </div>
+        <div class="footer">
+          <p>This is an official notification from ${data.companyName || 'NVCCZ'}.</p>
+          <p>For any inquiries, please contact procurement@nvccz.com</p>
+          <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Invoice Paid Email Template
+   */
+  private static getInvoicePaidTemplate(data: {
+    vendorName: string;
+    invoiceNumber: string;
+    invoiceAmount: number;
+    currencyCode: string;
+    paymentDate: Date;
+    paymentReference?: string;
+    paymentMethod: string;
+    companyName?: string;
+  }): string {
+    const formattedDate = data.paymentDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .payment-amount { font-size: 28px; font-weight: bold; color: #3b82f6; margin: 15px 0; text-align: center; }
+          .payment-details { background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .payment-row { display: flex; justify-content: space-between; margin: 10px 0; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 10px 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 style="margin: 0; font-size: 28px;">💰 Payment Confirmation</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || 'NVCCZ'}</p>
+        </div>
+        <div class="content">
+          <p>Dear ${data.vendorName},</p>
+          
+          <p>We are pleased to confirm that payment for your invoice has been processed successfully.</p>
+          
+          <div class="payment-amount">
+            ${data.currencyCode} ${data.invoiceAmount.toFixed(2)}
+          </div>
+
+          <div class="payment-details">
+            <h3 style="margin-top: 0;">📋 Payment Details</h3>
+            <div class="payment-row">
+              <span><strong>Invoice Number:</strong></span>
+              <span>${data.invoiceNumber}</span>
+            </div>
+            <div class="payment-row">
+              <span><strong>Amount Paid:</strong></span>
+              <span>${data.currencyCode} ${data.invoiceAmount.toFixed(2)}</span>
+            </div>
+            <div class="payment-row">
+              <span><strong>Payment Date:</strong></span>
+              <span>${formattedDate}</span>
+            </div>
+            <div class="payment-row">
+              <span><strong>Payment Method:</strong></span>
+              <span>${data.paymentMethod}</span>
+            </div>
+            ${data.paymentReference ? `
+            <div class="payment-row">
+              <span><strong>Reference Number:</strong></span>
+              <span>${data.paymentReference}</span>
+            </div>
+            ` : ''}
+          </div>
+
+          <div class="info-box">
+            <p style="margin: 0;"><strong>ℹ️ Important:</strong></p>
+            <p style="margin: 5px 0 0 0;">The payment should reflect in your account within 1-3 business days, depending on your bank's processing time.</p>
+          </div>
+
+          <p><strong>If you have any questions:</strong></p>
+          <ul>
+            <li>Please verify the payment against your records</li>
+            <li>Contact our finance team if there are any discrepancies</li>
+            <li>Keep this email for your records</li>
+          </ul>
+
+          <p>Thank you for your excellent service and cooperation. We look forward to continuing our business relationship.</p>
+          
+          <p>Best regards,<br>
+          <strong>Finance Team</strong><br>
+          ${data.companyName || 'NVCCZ'}</p>
+        </div>
+        <div class="footer">
+          <p>This is an official payment confirmation from ${data.companyName || 'NVCCZ'}.</p>
+          <p>For any inquiries, please contact finance@nvccz.com</p>
+          <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
         </div>
       </body>
       </html>

@@ -70,25 +70,35 @@ export class BankReconciliationService {
     userId: string
   ): Promise<any> {
     try {
-      // Step 1: Upload file to S3 and create reconciliation record
-      const uploadResult = await BankStatementUploadService.uploadBankStatement(file, userId);
-      
-      // Step 2: Parse and store transactions
+      // Step 1: Create reconciliation record WITHOUT uploading to S3
+      const timestamp = Date.now();
+      const fileName = `${timestamp}-${file.originalname}`;
+      const reconciliation = await prisma.bankReconciliation.create({
+        data: {
+          fileName: file.originalname,
+          // Mark as inline upload to avoid any external storage dependency
+          fileUrl: 'inline_upload',
+          status: 'PENDING',
+          createdById: userId
+        }
+      });
+
+      // Step 2: Parse CSV content from the in-memory buffer and store transactions
       const transactions = await BankStatementUploadService.parseCSVFile(file.buffer);
       const storedCount = await BankStatementUploadService.storeTransactions(
-        uploadResult.reconciliationId, 
+        reconciliation.id,
         transactions
       );
-      
+
       // Step 3: Run reconciliation engine
       const summary = await BankReconciliationEngineService.runReconciliation(
-        uploadResult.reconciliationId, 
+        reconciliation.id,
         userId
       );
-      
+
       return {
-        reconciliationId: uploadResult.reconciliationId,
-        fileName: uploadResult.fileName,
+        reconciliationId: reconciliation.id,
+        fileName: fileName,
         totalTransactions: storedCount,
         matchedCount: summary.matchedCount,
         unmatchedCount: summary.unmatchedCount,

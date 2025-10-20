@@ -1,6 +1,5 @@
 // @ts-nocheck
 import { PrismaClient } from '@prisma/client';
-import { uploadToS3 } from '../utils/awsS3';
 import { Decimal } from 'decimal.js';
 import csv from 'csv-parser';
 
@@ -22,42 +21,32 @@ interface UploadResult {
 }
 
 export class BankStatementUploadService {
+  // Deprecated: external storage upload path. We now process CSV in-memory.
   static async uploadBankStatement(file: Express.Multer.File, userId: string): Promise<UploadResult> {
-    try {
-      // Validate file
-      if (!file || !file.buffer) {
-        throw new Error('No file provided');
-      }
-
-      // Generate unique filename
-      const timestamp = Date.now();
-      const fileName = `${timestamp}-${file.originalname}`;
-      const key = `bank-statements/${fileName}`;
-
-      // Upload to S3
-      const fileUrl = await uploadToS3(file.buffer, key, file.mimetype);
-
-      // Create reconciliation record
-      const reconciliation = await prisma.bankReconciliation.create({
-        data: {
-          fileName: file.originalname,
-          fileUrl,
-          status: 'PENDING',
-          createdById: userId
-        }
-      });
-
-      return {
-        reconciliationId: reconciliation.id,
-        fileName: file.originalname,
-        fileUrl,
-        success: true,
-        message: 'File uploaded successfully'
-      };
-    } catch (error) {
-      console.error('Error uploading bank statement:', error);
-      throw error;
+    // Keep method for backward compatibility, but avoid S3 usage.
+    if (!file || !file.buffer) {
+      throw new Error('No file provided');
     }
+
+    const timestamp = Date.now();
+    const fileName = `${timestamp}-${file.originalname}`;
+
+    const reconciliation = await prisma.bankReconciliation.create({
+      data: {
+        fileName: file.originalname,
+        fileUrl: 'inline_upload',
+        status: 'PENDING',
+        createdById: userId
+      }
+    });
+
+    return {
+      reconciliationId: reconciliation.id,
+      fileName: file.originalname,
+      fileUrl: 'inline_upload',
+      success: true,
+      message: 'File received and stored inline'
+    };
   }
 
   static async parseCSVFile(fileBuffer: Buffer): Promise<BankTransactionData[]> {

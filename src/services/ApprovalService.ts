@@ -25,9 +25,19 @@ export class ApprovalService {
       console.log(`🏢 Department: ${params.department || 'N/A'}`);
       console.log("");
 
-      // Get active approval configuration
+      // Get active approval configuration for the specific department
+      // Try department-specific config first, then fall back to general config (department = null)
       const config = await prisma.procurementApprovalConfig.findFirst({
-        where: { isActive: true },
+        where: { 
+          isActive: true,
+          OR: [
+            { department: params.department as any },  // Department-specific config
+            { department: null }                       // General/default config
+          ]
+        },
+        orderBy: [
+          { department: params.department ? 'desc' : 'asc' },  // Prioritize department-specific
+        ],
         include: {
           stages: {
             where: { 
@@ -65,8 +75,13 @@ export class ApprovalService {
       });
 
       if (!config) {
-        throw new Error("No active approval configuration found");
+        throw new Error(`No active approval configuration found for ${params.department || 'any'} department`);
       }
+
+      // Log which config is being used
+      console.log(`✅ Using approval config: "${config.name}"`);
+      console.log(`   Config Department: ${config.department || 'General (All Departments)'}`);
+      console.log("");
 
       const stages = config.stages;
 
@@ -123,18 +138,30 @@ export class ApprovalService {
             }
             
             approverIds.push(stage.userId);
-          } else if (stage.stepType === "ROLE" && stage.roleId) {
-            // Get all users with this role
+          } else if (stage.stepType === "ROLE" && (stage.roleCode || stage.roleId)) {
+            // Get all users with this roleCode (preferred) or roleId (deprecated)
             const usersWithRole = await tx.user.findMany({
               where: { 
-                roleId: stage.roleId,
+                ...(stage.roleCode ? { roleCode: stage.roleCode } : { roleId: stage.roleId }),
                 // Filter by department if required
                 ...(stage.requiredUserDepartment ? { userDepartment: stage.requiredUserDepartment } : {}),
                 ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {})
               },
-              select: { id: true }
+              select: { 
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                roleCode: true
+              }
             });
             approverIds = usersWithRole.map(u => u.id);
+            console.log(`   📋 Found ${usersWithRole.length} user(s) with ${stage.roleCode ? `roleCode="${stage.roleCode}"` : `roleId="${stage.roleId}"`}`);
+            if (usersWithRole.length > 0) {
+              usersWithRole.forEach(u => {
+                console.log(`      - ${u.firstName} ${u.lastName} (${u.email}) [${u.roleCode || 'no roleCode'}]`);
+              });
+            }
           } else if (stage.stepType === "DEPARTMENT" && stage.departmentId) {
             // Get department head/deputy
             const deptUsers = await tx.user.findMany({
