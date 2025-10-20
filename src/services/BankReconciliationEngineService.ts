@@ -81,7 +81,7 @@ export class BankReconciliationEngineService {
               chartOfAccount: true
             }
           },
-          currency: true
+          // Do not include currency to avoid failures when some rows have null currency
         },
         orderBy: { transactionDate: 'asc' }
       });
