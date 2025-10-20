@@ -126,8 +126,8 @@ export class BankReconciliationEngineService {
 
       return summary;
 
-    } catch (error) {
-      console.error('Error running reconciliation:', error);
+    } catch (error: any) {
+      console.error('Error running reconciliation:', error?.message || error, error?.stack);
       // Graceful fallback: mark as FAILED but don't crash hard in serverless
       try {
         await prisma.bankReconciliation.update({

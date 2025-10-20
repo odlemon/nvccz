@@ -104,8 +104,8 @@ export class BankReconciliationService {
         unmatchedCount: summary.unmatchedCount,
         overallAccuracy: summary.overallAccuracy
       };
-    } catch (error) {
-      console.error('Error in uploadAndProcessBankStatement:', error);
+    } catch (error: any) {
+      console.error('Error in uploadAndProcessBankStatement:', error?.message || error, error?.stack);
       throw error;
     }
   }
