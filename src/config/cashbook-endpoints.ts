@@ -1,7 +1,7 @@
 // Comprehensive Cashbook endpoints for fallback Swagger spec with full schemas
 export const cashbookEndpoints = {
   // ========== CASHBOOK MANAGEMENT ==========
-  '/api/cashbook/banks': {
+  '/cashbook/banks': {
     get: {
       summary: 'Get all banks for cashbook operations',
       description: 'Retrieve all available banks that can be used for cashbook transactions',
@@ -41,7 +41,7 @@ export const cashbookEndpoints = {
     }
   },
 
-  '/api/cashbook/receipts': {
+  '/cashbook/receipts': {
     post: {
       summary: 'Create cash receipt',
       description: 'Record money received into a bank account (Sage Pastel Receipts Journal)',
@@ -142,7 +142,7 @@ export const cashbookEndpoints = {
     }
   },
 
-  '/api/cashbook/payments': {
+  '/cashbook/payments': {
     post: {
       summary: 'Create cash payment',
       description: 'Record money paid out from a bank account (Sage Pastel Payments Journal)',
@@ -243,7 +243,7 @@ export const cashbookEndpoints = {
     }
   },
 
-  '/api/cashbook/{bankId}/entries': {
+  '/cashbook/{bankId}/entries': {
     get: {
       summary: 'Get cashbook entries for a bank',
       description: 'Retrieve all cashbook entries for a specific bank account',
@@ -323,7 +323,7 @@ export const cashbookEndpoints = {
     }
   },
 
-  '/api/cashbook/{bankId}/position': {
+  '/cashbook/{bankId}/position': {
     get: {
       summary: 'Get cash position for a bank',
       description: 'Get current cash position including opening balance, receipts, payments, and current balance',
@@ -372,7 +372,7 @@ export const cashbookEndpoints = {
     }
   },
 
-  '/api/cashbook/reports/cashflow': {
+  '/cashbook/reports/cashflow': {
     get: {
       summary: 'Get cash flow report',
       description: 'Generate comprehensive cash flow report with detailed transaction breakdowns',
@@ -430,7 +430,7 @@ export const cashbookEndpoints = {
     }
   },
 
-  '/api/cashbook/balance-check': {
+  '/cashbook/balance-check': {
     get: {
       summary: 'Get comprehensive balance check between cashbook and bank reconciliation',
       description: 'Single endpoint to check balance between cashbook entries and bank reconciliation',
