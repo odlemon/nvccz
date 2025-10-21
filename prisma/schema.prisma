@@ -40,6 +40,7 @@ model User {
   fundManagers               FundManager[]
   documents                  Document[]
   auditLogs                  AuditLog[]
+  cashbookEntries            CashbookEntry[]  // NEW: Link to cashbook entries
   dueDiligenceReviews        DueDiligenceReview[]
   boardReviews               BoardReview[]
   termSheets                 TermSheet[]
@@ -528,6 +529,7 @@ model Currency {
   revenues        Revenue[]
   exchangeRatesFrom     ExchangeRate[]         @relation("ExchangeRateFrom")
   exchangeRatesTo       ExchangeRate[]         @relation("ExchangeRateTo")
+  banks                 Bank[]                 // NEW: Link to banks
   forexGainLossFrom     ForexGainLoss[]        @relation("ForexFromCurrency")
   forexGainLossTo       ForexGainLoss[]        @relation("ForexToCurrency")
   creditNotes           CreditNote[]
@@ -571,6 +573,10 @@ model ChartOfAccounts {
   assets             Asset[]            @relation("AssetAccount")
   accumulatedDepreciationAssets Asset[] @relation("AccumulatedDepreciationAccount")
   depreciationExpenseAssets     Asset[] @relation("DepreciationExpenseAccount")
+  
+  // Cashbook Relations
+  bankGLAccounts     Bank[]             @relation("BankGLAccount")           // NEW
+  cashbookGLCounterparties CashbookEntry[] @relation("CashbookGLCounterparty") // NEW
 
   @@map("chart_of_accounts")
 }
@@ -599,6 +605,9 @@ model Vendor {
 
   // Statement Relations
   statements            StatementOfAccount[]
+  
+  // Cashbook Relations
+  cashbookEntries       CashbookEntry[]           // NEW: Link to cashbook entries
 
   @@map("vendors")
 }
@@ -640,6 +649,7 @@ model JournalEntry {
   reconciliationResults ReconciliationResult[]
   creditNotes           CreditNote[]           @relation("CreditNoteJournal")
   forexGainLoss         ForexGainLoss[]        @relation("ForexGainLossJournal")
+  cashbookEntries       CashbookEntry[]        // NEW: Link to cashbook entries
 
   @@map("journal_entries")
 }
@@ -702,6 +712,7 @@ model Customer {
   invoices      Invoice[]
   creditNotes   CreditNote[]
   statements    StatementOfAccount[]
+  cashbookEntries CashbookEntry[]  // NEW: Link to cashbook entries
 
   @@map("customers")
 }
@@ -3512,11 +3523,98 @@ model Approval {
 }
 
 
+// Bank Model (for Cashbook)
+model Bank {
+  id               String   @id @default(cuid())
+  name             String
+  accountNumber    String   @unique
+  currencyId       String
+  currency         Currency @relation(fields: [currencyId], references: [id])
+  
+  // Link to GL control account for this bank
+  glAccountId      String?  @unique
+  glAccount        ChartOfAccounts? @relation("BankGLAccount", fields: [glAccountId], references: [id])
+  
+  // Cashbook entries for this bank
+  cashbookEntries  CashbookEntry[]
+  
+  // Existing fields
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("banks")
+}
+
+// Cashbook Models
+model CashbookEntry {
+  id                 String           @id @default(cuid())
+  bankId             String           // Which bank account (cashbook) this belongs to
+  bank               Bank             @relation(fields: [bankId], references: [id])
+  
+  // Transaction Details
+  transactionDate    DateTime
+  description        String           @db.Text
+  amount             Decimal          @db.Decimal(18, 2)
+  type               CashbookEntryType // RECEIPT or PAYMENT
+  reference          String?          // Cheque number, EFT reference, etc.
+  status             CashbookEntryStatus @default(PENDING)
+  
+  // GCS (General Counterparty Subtype) Implementation
+  counterpartyType   CounterpartyType // G (General), C (Customer), S (Supplier)
+  
+  // For G (General Ledger) transactions
+  glAccountId        String?
+  glAccount          ChartOfAccounts? @relation("CashbookGLCounterparty", fields: [glAccountId], references: [id])
+  
+  // For C (Customer) transactions
+  customerId         String?
+  customer           Customer?        @relation(fields: [customerId], references: [id])
+  
+  // For S (Supplier) transactions  
+  supplierId         String?
+  supplier           Vendor?          @relation(fields: [supplierId], references: [id])
+  
+  // Link to generated Journal Entry
+  journalEntryId     String?          @unique
+  journalEntry       JournalEntry?    @relation(fields: [journalEntryId], references: [id])
+  
+  // Reconciliation tracking
+  isReconciled       Boolean          @default(false)
+  reconciledAt       DateTime?
+  reconciledById     String?
+  
+  // Audit fields
+  createdById        String
+  createdBy          User             @relation(fields: [createdById], references: [id])
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  
+  @@map("cashbook_entries")
+}
+
 // Enums
 enum PayrollStatus {
   DRAFT
   PROCESSING
   COMPLETED
   CANCELLED
+}
+
+enum CashbookEntryType {
+  RECEIPT    // Money coming in
+  PAYMENT    // Money going out
+}
+
+enum CashbookEntryStatus {
+  PENDING    // Not yet posted to GL
+  POSTED     // Posted to GL
+  VOIDED     // Cancelled/voided
+}
+
+enum CounterpartyType {
+  GL         // G - General Ledger account
+  CUSTOMER   // C - Customer/Debtor
+  SUPPLIER   // S - Supplier/Creditor
 }
 

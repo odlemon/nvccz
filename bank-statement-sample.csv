@@ -1,11 +1,9 @@
 TransactionDate,Description,Amount,Reference
-2025-10-01,Opening Balance Adjustment,1500.00,OB001
-2025-10-02,Office Supplies Purchase,-245.50,REF1001
-2025-10-03,Customer Payment,3200.00,REF1002
-2025-10-04,Bank Charges,-12.00,REF1003
-2025-10-05,Electricity Bill,-180.75,REF1004
-2025-10-06,Service Income,950.00,REF1005
-2025-10-07,Card Processing Fees,-8.25,REF1006
-2025-10-08,Client Invoice Payment,2100.00,REF1007
-2025-10-09,Internet Subscription,-65.00,REF1008
-2025-10-10,Refund to Customer,-120.00,REF1009
+2025-10-13,Purhcase moter vehicle,-23000.00,JE-202510-388343
+2025-10-13,Asset acquisition: Audi A4,-5000.00,ASSET-a4-232
+2025-10-13,Asset disposal: Audi A4 (Corrected),1200.00,DISPOSAL-a4-232-FIX
+2025-10-13,Purchase company car from zimoko worth 24000 (CORRECTED),-24000.00,JE-202510-57734-FIX
+2025-10-13,Office supplies purchase (CORRECTED),-500.00,JE-2024-0231-FIX
+2025-10-08,Asset acquisition: Company Car,-23000.00,ASSET-bmt-232
+2025-10-01,Asset disposal: Office Computer (Corrected),100.00,DISPOSAL-COMP-001-FIX
+2025-08-06,Asset acquisition: Laptop,-1200.00,ASSET-patop-43

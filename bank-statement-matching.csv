@@ -1,0 +1,9 @@
+TransactionDate,Description,Amount,Reference
+2025-10-13,Purhcase moter vehicle,-23000.00,JE-202510-388343
+2025-10-13,Asset acquisition: Audi A4,-5000.00,ASSET-a4-232
+2025-10-13,Asset disposal: Audi A4 (Corrected),1200.00,DISPOSAL-a4-232-FIX
+2025-10-13,Purchase company car from zimoko worth 24000 (CORRECTED),-24000.00,JE-202510-57734-FIX
+2025-10-13,Office supplies purchase (CORRECTED),-500.00,JE-2024-0231-FIX
+2025-10-08,Asset acquisition: Company Car,-23000.00,ASSET-bmt-232
+2025-10-01,Asset disposal: Office Computer (Corrected),100.00,DISPOSAL-COMP-001-FIX
+2025-08-06,Asset acquisition: Laptop,-1200.00,ASSET-patop-43
