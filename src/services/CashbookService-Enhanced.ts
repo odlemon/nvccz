@@ -26,7 +26,7 @@ export interface UpdateCashbookEntryParams {
     counterpartyType?: 'GL' | 'CUSTOMER' | 'SUPPLIER';
     glAccountId?: string;
     customerId?: string;
-    supplierId?: string;
+    vendorId?: string;
   };
   userId: string;
 }
@@ -376,7 +376,7 @@ export class CashbookServiceEnhanced {
       },
       include: {
         customer: true,
-        supplier: true,
+        vendor: true,
         glAccount: true,
         journalEntry: true
       },
@@ -418,7 +418,7 @@ export class CashbookServiceEnhanced {
         amount: Number(entry.amount),
         reference: entry.reference,
         status: entry.status,
-        counterparty: entry.customer?.name || entry.supplier?.name || entry.glAccount?.accountName,
+        counterparty: entry.customer?.name || entry.vendor?.name || entry.glAccount?.accountName,
         isReconciled: entry.isReconciled,
         journalEntryRef: entry.journalEntry?.referenceNumber
       }))
@@ -437,7 +437,7 @@ export class CashbookServiceEnhanced {
       },
       include: {
         customer: true,
-        supplier: true,
+        vendor: true,
         glAccount: true,
         journalEntry: true
       },
@@ -462,7 +462,7 @@ export class CashbookServiceEnhanced {
     
     if (entry.counterpartyType === 'CUSTOMER' && entry.customerId) {
       counterpartyAccount = await this.getAccountsReceivableAccount();
-    } else if (entry.counterpartyType === 'SUPPLIER' && entry.supplierId) {
+    } else if (entry.counterpartyType === 'SUPPLIER' && entry.vendorId) {
       counterpartyAccount = await this.getAccountsPayableAccount();
     } else if (entry.counterpartyType === 'GL' && entry.glAccountId) {
       counterpartyAccount = await prisma.chartOfAccounts.findUnique({

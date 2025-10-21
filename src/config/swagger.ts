@@ -1,5 +1,6 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import { accountingEndpoints } from './accounting-endpoints';
+import { cashbookEndpoints } from './cashbook-endpoints';
 
 const options = {
   definition: {
@@ -1364,6 +1365,7 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
+    ...cashbookEndpoints,
         // Authentication
         '/auth/login': {
           post: {
@@ -4635,9 +4637,9 @@ try {
     specs = fallbackSpec;
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
-    // Merge accounting endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints };
-    console.log(`Added accounting endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
+    // Merge accounting and cashbook endpoints with generated spec
+    specs.paths = { ...specs.paths, ...accountingEndpoints, ...cashbookEndpoints };
+    console.log(`Added accounting and cashbook endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
@@ -4646,6 +4648,7 @@ try {
     ...options.definition,
     paths: {
       ...accountingEndpoints,
+      ...cashbookEndpoints,
       // Authentication
       '/auth/login': {
         post: {

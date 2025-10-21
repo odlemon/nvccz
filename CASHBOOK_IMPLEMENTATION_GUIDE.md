@@ -21,28 +21,41 @@ This implementation brings the Sage Pastel Cashbook functionality to your existi
 
 ## 🚀 **Implementation Steps**
 
-### **Step 1: Database Schema Updates**
+### **Step 0: Get Available Banks**
 
-1. **Add the new models** from `prisma/cashbook-schema-addition.prisma` to your main `schema.prisma`
-2. **Run database migration**:
-   ```bash
-   npx prisma migrate dev --name add-cashbook-module
-   ```
+Before creating cashbook entries, you need to know which banks are available:
 
-### **Step 2: Seed Chart of Accounts**
-
-Run the cashbook chart of accounts seeder:
+**Get Available Banks:**
 ```bash
-npx ts-node scripts/seed-cashbook-chart-of-accounts.ts
+GET /api/cashbook/banks
 ```
 
-This creates the required accounts:
-- **Bank Control Accounts** (1000s)
-- **Accounts Receivable Control** (1200s) 
-- **Accounts Payable Control** (2100s)
-- **Revenue Accounts** (4000s)
-- **Expense Accounts** (5000s)
-- **VAT Accounts** (2200s, 1300s)
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Banks retrieved successfully",
+  "data": [
+    {
+      "id": "bank-123",
+      "name": "Main Bank Account - USD",
+      "accountNumber": "USD-001-123456",
+      "currency": {
+        "code": "USD",
+        "name": "US Dollar"
+      },
+      "glAccount": {
+        "id": "gl-123",
+        "accountNo": "1010",
+        "accountName": "Main Bank Account - USD"
+      },
+      "isActive": true
+    }
+  ]
+}
+```
+
+**Use the `id` field as `bankId` in your cashbook operations.**
 
 ### **Step 3: Link Banks to GL Accounts**
 
@@ -61,6 +74,12 @@ await prisma.bank.update({
 
 ### **Test 1: Create a Cash Receipt (Customer Payment)**
 
+**First, get a bank ID:**
+```bash
+GET /api/cashbook/banks
+```
+
+**Then create the receipt:**
 ```bash
 POST /api/cashbook/receipts
 {
@@ -81,8 +100,14 @@ POST /api/cashbook/receipts
   - Cr Accounts Receivable: $5,000
 - ✅ Customer balance updated
 
-### **Test 2: Create a Cash Payment (Supplier Payment)**
+### **Test 2: Create a Cash Payment (Vendor Payment)**
 
+**First, get a bank ID:**
+```bash
+GET /api/cashbook/banks
+```
+
+**Then create the payment:**
 ```bash
 POST /api/cashbook/payments
 {
@@ -92,7 +117,7 @@ POST /api/cashbook/payments
   "amount": 1200.00,
   "reference": "CHQ001",
   "counterpartyType": "SUPPLIER",
-  "supplierId": "supplier-id"
+  "vendorId": "vendor-id"
 }
 ```
 
@@ -164,7 +189,7 @@ const result = await CashbookService.createCashPayment({
   amount: Number(invoice.totalAmount),
   reference: paymentReference,
   counterpartyType: 'SUPPLIER',
-  supplierId: invoice.vendorId,
+  vendorId: invoice.vendorId,
   createdById: userId
 });
 ```
@@ -196,6 +221,19 @@ const cashbookEntries = await prisma.cashbookEntry.findMany({
   }
 });
 ```
+
+### **4. Balance Check Integration**
+Compare cashbook entries with bank reconciliation data:
+```bash
+# Get comprehensive balance check
+GET /api/cashbook/balance-check?bankId=cmh09d2i7000runyglxhf9s77&startDate=2025-01-01&endDate=2025-01-31
+```
+
+**Response includes:**
+- Cashbook totals (receipts, payments, net balance)
+- Bank reconciliation totals
+- Differences and discrepancies
+- Reconciliation status and recommendations
 
 ## 📊 **Key Features**
 
@@ -234,7 +272,7 @@ UPDATE banks SET glAccountId = 'gl-account-id' WHERE id = 'bank-id';
 ```
 
 ### **2. Customer/Supplier Setup**
-Ensure customers and suppliers exist and are properly configured.
+Ensure customers and vendors exist and are properly configured.
 
 ### **3. Chart of Accounts**
 Run the seeder to ensure all required accounts exist.
@@ -245,6 +283,114 @@ Run the seeder to ensure all required accounts exist.
 2. **Balance Updates**: Customer/Supplier balances are updated automatically
 3. **Reconciliation**: Cashbook entries can be marked as reconciled
 4. **Audit Trail**: All transactions are logged for audit purposes
+
+## 🧪 **Testing the Balance Check**
+
+### **Step 1: Create Test Data**
+```bash
+# 1. Create a cash receipt
+POST /api/cashbook/receipts
+{
+  "bankId": "cmh09d2i7000runyglxhf9s77",
+  "amount": 5000,
+  "description": "Payment from ABC Company",
+  "counterpartyType": "CUSTOMER",
+  "customerId": "cmgj4ckz40001unq4vdo5hs4m",
+  "reference": "EFT123456"
+}
+
+# 2. Create a cash payment
+POST /api/cashbook/payments
+{
+  "bankId": "cmh09d2i7000runyglxhf9s77",
+  "amount": 1500,
+  "description": "Office supplies purchase",
+  "counterpartyType": "VENDOR",
+  "vendorId": "your-vendor-id",
+  "reference": "PO123456"
+}
+```
+
+### **Step 2: Test Balance Check**
+```bash
+# Basic balance check (last 30 days)
+GET /api/cashbook/balance-check?bankId=cmh09d2i7000runyglxhf9s77
+
+# Custom date range
+GET /api/cashbook/balance-check?bankId=cmh09d2i7000runyglxhf9s77&startDate=2025-01-01&endDate=2025-01-31
+```
+
+### **Step 3: Expected Response**
+```json
+{
+  "success": true,
+  "message": "Balance check completed successfully",
+  "data": {
+    "bank": {
+      "id": "cmh09d2i7000runyglxhf9s77",
+      "name": "Main Bank Account - USD",
+      "accountNumber": "USD-001-123456",
+      "currency": "USD"
+    },
+    "period": {
+      "startDate": "2025-01-01T00:00:00.000Z",
+      "endDate": "2025-01-31T23:59:59.999Z"
+    },
+    "cashbook": {
+      "totalReceipts": 5000,
+      "totalPayments": 1500,
+      "netBalance": 3500,
+      "entryCount": 2,
+      "reconciledCount": 0,
+      "unreconciledCount": 2
+    },
+    "bankReconciliation": {
+      "totalReceipts": 0,
+      "totalPayments": 0,
+      "netBalance": 0,
+      "reconciliationCount": 0,
+      "matchedTransactions": 0,
+      "unmatchedTransactions": 0
+    },
+    "differences": {
+      "receiptDifference": 5000,
+      "paymentDifference": 1500,
+      "netDifference": 3500,
+      "isBalanced": false
+    },
+    "status": {
+      "isBalanced": false,
+      "hasUnreconciledEntries": true,
+      "hasUnmatchedTransactions": false,
+      "needsAttention": true
+    },
+    "summary": {
+      "message": "⚠️ Differences detected - review required",
+      "recommendations": [
+        "Review cashbook entries and bank transactions for discrepancies",
+        "2 cashbook entries need reconciliation"
+      ]
+    }
+  }
+}
+```
+
+### **Step 4: Debug Information**
+The endpoint includes debug logging that shows:
+- Bank ID being queried
+- Date range used
+- Number of cashbook entries found
+- Calculated totals
+
+Check server logs for output like:
+```
+Balance Check Debug:
+  Bank ID: cmh09d2i7000runyglxhf9s77
+  Date Range: 2025-01-01T00:00:00.000Z to 2025-01-31T23:59:59.999Z
+  Cashbook Entries Found: 2
+  Cashbook Receipts: 5000
+  Cashbook Payments: 1500
+```
 
 ## 📈 **Next Steps**
 

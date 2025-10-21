@@ -3572,8 +3572,8 @@ model CashbookEntry {
   customer           Customer?        @relation(fields: [customerId], references: [id])
   
   // For S (Supplier) transactions  
-  supplierId         String?
-  supplier           Vendor?          @relation(fields: [supplierId], references: [id])
+  vendorId           String?
+  vendor             Vendor?          @relation(fields: [vendorId], references: [id])
   
   // Link to generated Journal Entry
   journalEntryId     String?          @unique

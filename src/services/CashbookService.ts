@@ -19,7 +19,7 @@ export interface CreateCashReceiptParams {
   counterpartyType: 'GL' | 'CUSTOMER' | 'SUPPLIER';
   glAccountId?: string;      // For GL transactions
   customerId?: string;       // For Customer transactions
-  supplierId?: string;      // For Supplier transactions
+  vendorId?: string;        // For Vendor transactions
   createdById: string;
 }
 
@@ -32,7 +32,7 @@ export interface CreateCashPaymentParams {
   counterpartyType: 'GL' | 'CUSTOMER' | 'SUPPLIER';
   glAccountId?: string;      // For GL transactions
   customerId?: string;       // For Customer transactions
-  supplierId?: string;       // For Supplier transactions
+  vendorId?: string;         // For Vendor transactions
   createdById: string;
 }
 
@@ -59,7 +59,9 @@ export class CashbookService {
       // 1. Create CashbookEntry (RECEIPT)
       const cashbookEntry = await prisma.cashbookEntry.create({
         data: {
-          bankId: params.bankId,
+          bank: {
+            connect: { id: params.bankId }
+          },
           transactionDate: params.transactionDate,
           description: params.description,
           amount: new Decimal(params.amount),
@@ -67,10 +69,12 @@ export class CashbookService {
           reference: params.reference,
           status: 'PENDING',
           counterpartyType: params.counterpartyType,
-          glAccountId: params.glAccountId,
-          customerId: params.customerId,
-          supplierId: params.supplierId,
-          createdById: params.createdById
+          glAccount: params.glAccountId ? { connect: { id: params.glAccountId } } : undefined,
+          customer: params.customerId ? { connect: { id: params.customerId } } : undefined,
+          vendor: params.vendorId ? { connect: { id: params.vendorId } } : undefined,
+          createdBy: {
+            connect: { id: params.createdById }
+          }
         }
       });
 
@@ -134,7 +138,9 @@ export class CashbookService {
       // 1. Create CashbookEntry (PAYMENT)
       const cashbookEntry = await prisma.cashbookEntry.create({
         data: {
-          bankId: params.bankId,
+          bank: {
+            connect: { id: params.bankId }
+          },
           transactionDate: params.transactionDate,
           description: params.description,
           amount: new Decimal(params.amount),
@@ -142,10 +148,12 @@ export class CashbookService {
           reference: params.reference,
           status: 'PENDING',
           counterpartyType: params.counterpartyType,
-          glAccountId: params.glAccountId,
-          customerId: params.customerId,
-          supplierId: params.supplierId,
-          createdById: params.createdById
+          glAccount: params.glAccountId ? { connect: { id: params.glAccountId } } : undefined,
+          customer: params.customerId ? { connect: { id: params.customerId } } : undefined,
+          vendor: params.vendorId ? { connect: { id: params.vendorId } } : undefined,
+          createdBy: {
+            connect: { id: params.createdById }
+          }
         }
       });
 
@@ -215,7 +223,7 @@ export class CashbookService {
     if (cashbookEntry.counterpartyType === 'CUSTOMER' && cashbookEntry.customerId) {
       // Customer payment - credit Accounts Receivable
       counterpartyAccount = await this.getAccountsReceivableAccount();
-    } else if (cashbookEntry.counterpartyType === 'SUPPLIER' && cashbookEntry.supplierId) {
+    } else if (cashbookEntry.counterpartyType === 'SUPPLIER' && cashbookEntry.vendorId) {
       // Supplier refund - credit Accounts Payable
       counterpartyAccount = await this.getAccountsPayableAccount();
     } else if (cashbookEntry.counterpartyType === 'GL' && cashbookEntry.glAccountId) {
@@ -237,9 +245,11 @@ export class CashbookService {
         referenceNumber: this.generateReferenceNumber('CR'),
         description: `Cash Receipt: ${cashbookEntry.description}`,
         totalAmount: cashbookEntry.amount,
-        currencyId: bank.currencyId,
+        currency: {
+          connect: { id: bank.currencyId }
+        },
         status: 'POSTED',
-        createdById: cashbookEntry.createdById
+        ...(cashbookEntry.createdById && { createdBy: { connect: { id: cashbookEntry.createdById } } })
       }
     });
 
@@ -286,7 +296,7 @@ export class CashbookService {
     // Get counterparty account
     let counterpartyAccount: ChartOfAccounts;
     
-    if (cashbookEntry.counterpartyType === 'SUPPLIER' && cashbookEntry.supplierId) {
+    if (cashbookEntry.counterpartyType === 'SUPPLIER' && cashbookEntry.vendorId) {
       // Supplier payment - debit Accounts Payable
       counterpartyAccount = await this.getAccountsPayableAccount();
     } else if (cashbookEntry.counterpartyType === 'CUSTOMER' && cashbookEntry.customerId) {
@@ -311,9 +321,11 @@ export class CashbookService {
         referenceNumber: this.generateReferenceNumber('CP'),
         description: `Cash Payment: ${cashbookEntry.description}`,
         totalAmount: cashbookEntry.amount,
-        currencyId: bank.currencyId,
+        currency: {
+          connect: { id: bank.currencyId }
+        },
         status: 'POSTED',
-        createdById: cashbookEntry.createdById
+        ...(cashbookEntry.createdById && { createdBy: { connect: { id: cashbookEntry.createdById } } })
       }
     });
 
@@ -357,14 +369,14 @@ export class CashbookService {
       console.log(`   📊 Customer ${cashbookEntry.customerId} balance adjusted by: $${adjustment}`);
     }
     
-    if (cashbookEntry.counterpartyType === 'SUPPLIER' && cashbookEntry.supplierId) {
+    if (cashbookEntry.counterpartyType === 'SUPPLIER' && cashbookEntry.vendorId) {
       // Update supplier balance (payment reduces A/P, receipt increases A/P)
       const adjustment = cashbookEntry.type === 'PAYMENT'
         ? -Number(cashbookEntry.amount)  // Payment reduces A/P
         : Number(cashbookEntry.amount); // Receipt increases A/P
       
       // This would update supplier balance in your supplier management system
-      console.log(`   📊 Supplier ${cashbookEntry.supplierId} balance adjusted by: $${adjustment}`);
+      console.log(`   📊 Vendor ${cashbookEntry.vendorId} balance adjusted by: $${adjustment}`);
     }
   }
 
@@ -442,7 +454,7 @@ export class CashbookService {
       include: {
         bank: { include: { glAccount: true } },
         customer: true,
-        supplier: true,
+        vendor: true,
         glAccount: true,
         journalEntry: true,
         createdBy: { select: { firstName: true, lastName: true, email: true } }

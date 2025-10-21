@@ -287,7 +287,7 @@ app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
 app.use("/api/accounting/bank-reconciliation", bankReconciliationRoutes)
 app.use("/api/cashbook", cashbookRoutes)
-app.use("/api/cashbook", cashbookRoutesEnhanced)
+// app.use("/api/cashbook", cashbookRoutesEnhanced) // Disabled to avoid route conflicts
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 
 // Mini-KYC routes

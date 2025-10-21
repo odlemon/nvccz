@@ -342,6 +342,65 @@ router.get("/:bankId/entries", CashbookController.getCashbookEntries);
  *       500:
  *         description: Internal server error
  */
+/**
+ * @swagger
+ * /api/cashbook/banks:
+ *   get:
+ *     summary: Get all banks
+ *     description: Retrieve all available banks for cashbook operations
+ *     tags: [Cashbook]
+ *     responses:
+ *       200:
+ *         description: Banks retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Banks retrieved successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         example: "bank-123"
+ *                       name:
+ *                         type: string
+ *                         example: "Main Bank Account - USD"
+ *                       accountNumber:
+ *                         type: string
+ *                         example: "USD-001-123456"
+ *                       currency:
+ *                         type: object
+ *                         properties:
+ *                           code:
+ *                             type: string
+ *                             example: "USD"
+ *                           name:
+ *                             type: string
+ *                             example: "US Dollar"
+ *                       glAccount:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           accountNo:
+ *                             type: string
+ *                           accountName:
+ *                             type: string
+ *                       isActive:
+ *                         type: boolean
+ *                         example: true
+ *       500:
+ *         description: Internal server error
+ */
 router.get("/banks", CashbookController.getBanks);
 
 /**
@@ -414,5 +473,136 @@ router.get("/banks", CashbookController.getBanks);
  *         description: Internal server error
  */
 router.get("/reports/cashflow", CashbookController.getCashFlowReport);
+
+/**
+ * @swagger
+ * /api/cashbook/balance-check:
+ *   get:
+ *     summary: Get comprehensive balance check between cashbook and bank reconciliation
+ *     description: Single endpoint to check balance between cashbook entries and bank reconciliation
+ *     tags: [Cashbook]
+ *     parameters:
+ *       - in: query
+ *         name: bankId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Bank account ID
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Start date (defaults to 30 days ago)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: End date (defaults to today)
+ *     responses:
+ *       200:
+ *         description: Balance check completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bank:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         accountNumber:
+ *                           type: string
+ *                         currency:
+ *                           type: string
+ *                     period:
+ *                       type: object
+ *                       properties:
+ *                         startDate:
+ *                           type: string
+ *                           format: date
+ *                         endDate:
+ *                           type: string
+ *                           format: date
+ *                     cashbook:
+ *                       type: object
+ *                       properties:
+ *                         totalReceipts:
+ *                           type: number
+ *                         totalPayments:
+ *                           type: number
+ *                         netBalance:
+ *                           type: number
+ *                         entryCount:
+ *                           type: number
+ *                         reconciledCount:
+ *                           type: number
+ *                         unreconciledCount:
+ *                           type: number
+ *                     bankReconciliation:
+ *                       type: object
+ *                       properties:
+ *                         totalReceipts:
+ *                           type: number
+ *                         totalPayments:
+ *                           type: number
+ *                         netBalance:
+ *                           type: number
+ *                         reconciliationCount:
+ *                           type: number
+ *                         matchedTransactions:
+ *                           type: number
+ *                         unmatchedTransactions:
+ *                           type: number
+ *                     differences:
+ *                       type: object
+ *                       properties:
+ *                         receiptDifference:
+ *                           type: number
+ *                         paymentDifference:
+ *                           type: number
+ *                         netDifference:
+ *                           type: number
+ *                         isBalanced:
+ *                           type: boolean
+ *                     status:
+ *                       type: object
+ *                       properties:
+ *                         isBalanced:
+ *                           type: boolean
+ *                         hasUnreconciledEntries:
+ *                           type: boolean
+ *                         hasUnmatchedTransactions:
+ *                           type: boolean
+ *                         needsAttention:
+ *                           type: boolean
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         message:
+ *                           type: string
+ *                         recommendations:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *       400:
+ *         description: Bad request - missing required parameters
+ *       404:
+ *         description: Bank account not found
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/balance-check", CashbookController.getBalanceCheck);
 
 export default router;
