@@ -43,6 +43,8 @@ import revenueRoutes from "./routes/revenueRoutes"
 import revenueSourceRoutes from "./routes/revenueSourceRoutes"
 import revenueCategoryRoutes from "./routes/revenueCategoryRoutes"
 import bankReconciliationRoutes from "./routes/bankReconciliationRoutes"
+import cashbookRoutes from "./routes/cashbookRoutes"
+import cashbookRoutesEnhanced from "./routes/cashbookRoutes-Enhanced"
 import trialBalanceRoutes from "./routes/trialBalanceRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
@@ -284,6 +286,8 @@ app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
 app.use("/api/accounting/bank-reconciliation", bankReconciliationRoutes)
+app.use("/api/cashbook", cashbookRoutes)
+// app.use("/api/cashbook", cashbookRoutesEnhanced) // Disabled to avoid route conflicts
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 
 // Mini-KYC routes
