@@ -25,6 +25,7 @@ export interface DepartmentWithRoles {
 // Hardcoded Departments
 export const DEPARTMENTS = [
   "Finance",
+  "Sales",
   "Operations",
   "Procurement",
   "Human Resources",
@@ -70,6 +71,43 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
     level: 1,
     department: "Finance",
     description: "Basic finance access, view and create only"
+  },
+
+  // ===== SALES DEPARTMENT =====
+  {
+    code: "SALES_MGR",
+    name: "Sales Manager",
+    level: 5,
+    department: "Sales",
+    description: "Head of sales department, oversees all sales operations and revenue generation"
+  },
+  {
+    code: "SALES_OFF",
+    name: "Sales Officer",
+    level: 4,
+    department: "Sales",
+    description: "Senior sales role, manages sales processes and client relationships"
+  },
+  {
+    code: "SALES_REP",
+    name: "Sales Representative",
+    level: 3,
+    department: "Sales",
+    description: "Handles direct sales, client acquisition, and revenue generation"
+  },
+  {
+    code: "SALES_COORD",
+    name: "Sales Coordinator",
+    level: 2,
+    department: "Sales",
+    description: "Coordinates sales activities and supports sales team"
+  },
+  {
+    code: "SALES_MEM",
+    name: "Sales Member",
+    level: 1,
+    department: "Sales",
+    description: "Basic sales tasks and support"
   },
 
   // ===== OPERATIONS DEPARTMENT =====

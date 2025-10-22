@@ -19,6 +19,7 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:admin": "ts-node prisma/seed.ts",
     "seed:expense-categories": "ts-node scripts/seed-expense-categories.ts",
+    "fix:cashbook-null-createdby": "ts-node scripts/fix-cashbook-null-createdby.ts",
     "vercel-build": "npm run build"
   },
   "keywords": [

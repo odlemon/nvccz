@@ -450,7 +450,10 @@ export class CashbookService {
     }
 
     return await prisma.cashbookEntry.findMany({
-      where,
+      where: {
+        ...where,
+        createdById: { not: null } // Filter out entries with null createdById
+      },
       include: {
         bank: { include: { glAccount: true } },
         customer: true,
