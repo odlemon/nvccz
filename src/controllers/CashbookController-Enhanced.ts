@@ -239,7 +239,9 @@ export class CashbookControllerEnhanced {
         prisma.cashbookEntry.findMany({
           where: {
             ...where,
-            createdById: { not: null } // Filter out entries with null createdById
+            NOT: {
+              createdById: null
+            }
           },
           include: {
             bank: { include: { glAccount: true, currency: true } },
