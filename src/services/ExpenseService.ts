@@ -10,7 +10,7 @@ const prisma = dbConnection.getPrismaClient();
 
 export interface CreateExpenseParams {
   vendorId: string;
-  categoryId: string;
+  category: string; // Changed from categoryId to category (name)
   amount: number;
   currencyId: string;
   transactionDate: Date;
@@ -40,7 +40,7 @@ export class ExpenseService {
     try {
       const {
         vendorId,
-        categoryId,
+        category,
         amount,
         currencyId,
         transactionDate,
@@ -58,8 +58,19 @@ export class ExpenseService {
       if (!description || description.trim().length === 0) {
         throw new Error("Description is required");
       }
-      // Validate that vendor, category, and currency exist
-      await this.validateExpenseData(vendorId, categoryId, currencyId);
+      // Find or create the category by name
+      const expenseCategory = await prisma.expenseCategory.upsert({
+        where: { name: category },
+        update: { isActive: true },
+        create: {
+          name: category,
+          description: `Auto-created category: ${category}`,
+          isActive: true
+        }
+      });
+
+      // Validate that vendor and currency exist
+      await this.validateExpenseData(vendorId, expenseCategory.id, currencyId);
 
       // Calculate VAT if taxable (as number)
       const vatAmount: number = VATService.isVATEligible(amount, isTaxable)
@@ -71,7 +82,7 @@ export class ExpenseService {
       const expense = await prisma.expense.create({
         data: {
           vendorId,
-          categoryId,
+          categoryId: expenseCategory.id,
           amount: new Decimal(amount),
           vatAmount: new Decimal(vatAmount),
           totalAmount: new Decimal(totalAmount),
@@ -101,7 +112,7 @@ export class ExpenseService {
       // Create journal entry for double-entry bookkeeping
       const journalEntryParams: CreateExpenseJournalEntryParams = {
         vendorId,
-        categoryId,
+        categoryName: category, // Use category name directly
         amount,
         vatAmount,
         totalAmount,
@@ -280,7 +291,7 @@ export class ExpenseService {
    * For DRAFT expenses: Direct update
    * For POSTED expenses: Create reversal entry, update expense, create new entry
    */
-  static async updateExpense(id: string, updateData: Partial<CreateExpenseParams>): Promise<ExpenseWithRelations> {
+  static async updateExpense(id: string, updateData: Partial<CreateExpenseParams>, updatedById: string): Promise<ExpenseWithRelations> {
     const expense = await prisma.expense.findUnique({
       where: { id },
       include: { journalEntry: true }
@@ -395,10 +406,19 @@ export class ExpenseService {
         : 0;
       const newTotalAmount = newAmount + newVatAmount;
 
+      // Get the original category name for reversal
+      const originalCategory = await prisma.expenseCategory.findUnique({
+        where: { id: expense.categoryId }
+      });
+
+      if (!originalCategory) {
+        throw new Error("Original expense category not found");
+      }
+
       // Step 1: Create reversal journal entry using original expense data
       const reversalParams: CreateExpenseJournalEntryParams = {
         vendorId: expense.vendorId,
-        categoryId: expense.categoryId,
+        categoryName: originalCategory.name,
         amount: Number(expense.amount),
         vatAmount: Number(expense.vatAmount),
         totalAmount: Number(expense.totalAmount),
@@ -438,10 +458,19 @@ export class ExpenseService {
         }
       });
 
+      // Get the new category name (if category changed)
+      const newCategory = await prisma.expenseCategory.findUnique({
+        where: { id: newCategoryId }
+      });
+
+      if (!newCategory) {
+        throw new Error("New expense category not found");
+      }
+
       // Step 3: Create new journal entry with updated amounts
       const newJournalEntryParams: CreateExpenseJournalEntryParams = {
         vendorId: updatedExpense.vendorId,
-        categoryId: newCategoryId,
+        categoryName: newCategory.name,
         amount: newAmount,
         vatAmount: newVatAmount,
         totalAmount: newTotalAmount,

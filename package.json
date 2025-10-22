@@ -18,6 +18,7 @@
     "prisma:db:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:admin": "ts-node prisma/seed.ts",
+    "seed:expense-categories": "ts-node scripts/seed-expense-categories.ts",
     "vercel-build": "npm run build"
   },
   "keywords": [

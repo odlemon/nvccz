@@ -9,7 +9,7 @@ const prisma = dbConnection.getPrismaClient();
 
 export interface CreateExpenseJournalEntryParams {
   vendorId: string;
-  categoryId: string;
+  categoryName: string; // Changed from categoryId to categoryName
   amount: number;
   vatAmount: number;
   totalAmount: number;
@@ -178,7 +178,7 @@ export class JournalEntryService {
     try {
       const {
         vendorId,
-        categoryId,
+        categoryName,
         amount,
         vatAmount,
         totalAmount,
@@ -191,7 +191,7 @@ export class JournalEntryService {
         createdById
       } = params;
 
-      const expenseAccount = await this.getExpenseAccount(categoryId);
+      const expenseAccount = await this.getExpenseAccount(categoryName);
       const vatInputAccount = await this.getVATInputAccount();
       const creditAccount = await this.getCreditAccount(paymentMethod);
 
@@ -474,7 +474,7 @@ export class JournalEntryService {
     try {
       const {
         vendorId,
-        categoryId,
+        categoryName,
         amount,
         vatAmount,
         totalAmount,
@@ -487,7 +487,7 @@ export class JournalEntryService {
         createdById
       } = params;
 
-      const expenseAccount = await this.getExpenseAccount(categoryId);
+      const expenseAccount = await this.getExpenseAccount(categoryName);
       const vatInputAccount = await this.getVATInputAccount();
       const creditAccount = await this.getCreditAccount(paymentMethod);
 
@@ -658,20 +658,51 @@ export class JournalEntryService {
   }
 
   /**
-   * Get the expense account based on the category
+   * Get the expense account based on the category name
+   * Maps expense categories to specific chart of accounts for proper journal entries
    */
-  private static async getExpenseAccount(categoryId: string): Promise<ChartOfAccounts> {
-    // For now, we'll use a default expense account
-    // In the future, this could be mapped based on category
+  private static async getExpenseAccount(categoryName: string): Promise<ChartOfAccounts> {
+    // Hardcoded mapping of expense categories to chart of accounts
+    // Updated to match actual chart of accounts
+    const categoryAccountMapping: { [key: string]: string } = {
+      "Salaries and Wages": "5030",        // Account 5030: Salaries and Wages
+      "Travel and Accommodation": "5070",  // Account 5070: Travel Expense
+      "Operations": "5090",                 // Account 5090: Other Operating Expenses
+      "Branding and Marketing": "5060",     // Account 5060: Marketing Expense
+      "Office Equipment": "1100"            // Account 1100: Office Equipment (Fixed Asset)
+    };
+
+    // Get the account number for this category
+    const accountNumber = categoryAccountMapping[categoryName];
+    
+    if (!accountNumber) {
+      // Fallback to default expense account if category not mapped
+      console.warn(`No specific account mapping for category: ${categoryName}. Using default expense account.`);
+      const defaultExpenseAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          accountType: "Expense",
+          isActive: true
+        }
+      });
+
+      if (!defaultExpenseAccount) {
+        throw new Error("No active expense account found in chart of accounts");
+      }
+
+      return defaultExpenseAccount;
+    }
+
+    // Find the specific account for this category
     const expenseAccount = await prisma.chartOfAccounts.findFirst({
       where: {
+        accountNo: accountNumber,
         accountType: "Expense",
         isActive: true
       }
     });
 
     if (!expenseAccount) {
-      throw new Error("No active expense account found in chart of accounts");
+      throw new Error(`Expense account ${accountNumber} not found in chart of accounts`);
     }
 
     return expenseAccount;

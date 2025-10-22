@@ -635,15 +635,20 @@ const options = {
         },
         CreateExpenseRequest: {
           type: 'object',
-          required: ['vendorId', 'categoryId', 'amount', 'currencyId', 'transactionDate', 'description'],
+          required: ['vendorId', 'category', 'amount', 'currencyId', 'transactionDate', 'description'],
           properties: {
             vendorId: { type: 'string', example: 'clx1234567890abcdef' },
-            categoryId: { type: 'string', example: 'clx1234567890abcdef' },
+            category: { 
+              type: 'string', 
+              enum: ['Salaries and Wages', 'Travel and Accommodation', 'Operations', 'Branding and Marketing', 'Office Equipment'],
+              description: 'Expense category name',
+              example: 'Salaries and Wages'
+            },
             amount: { type: 'number', example: 300.00 },
             currencyId: { type: 'string', example: 'clx1234567890abcdef' },
             transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
-            description: { type: 'string', example: 'Legal consultation fees' },
-            receiptNumber: { type: 'string', example: 'INV-001' },
+            description: { type: 'string', example: 'Monthly payroll expense' },
+            receiptNumber: { type: 'string', example: 'PAY-2024-001' },
             isTaxable: { type: 'boolean', example: true },
             paymentMethod: { 
               type: 'string', 
@@ -656,16 +661,34 @@ const options = {
         },
         UpdateExpenseRequest: {
           type: 'object',
+          description: 'Update expense request. Note: Category, vendor, and currency cannot be changed after creation.',
           properties: {
-            vendorId: { type: 'string', example: 'clx1234567890abcdef' },
-            categoryId: { type: 'string', example: 'clx1234567890abcdef' },
-            amount: { type: 'number', example: 300.00 },
-            currencyId: { type: 'string', example: 'clx1234567890abcdef' },
-            transactionDate: { type: 'string', format: 'date', example: '2024-12-01' },
-            description: { type: 'string', example: 'Legal consultation fees' },
-            receiptNumber: { type: 'string', example: 'INV-001' },
-            isTaxable: { type: 'boolean', example: true },
-            isActive: { type: 'boolean', example: true },
+            amount: { 
+              type: 'number', 
+              example: 300.00,
+              description: 'Expense amount (creates reversal + new journal entry if changed)'
+            },
+            transactionDate: { 
+              type: 'string', 
+              format: 'date', 
+              example: '2024-12-01',
+              description: 'Transaction date'
+            },
+            description: { 
+              type: 'string', 
+              example: 'Updated expense description',
+              description: 'Expense description'
+            },
+            receiptNumber: { 
+              type: 'string', 
+              example: 'INV-001',
+              description: 'Receipt number'
+            },
+            isTaxable: { 
+              type: 'boolean', 
+              example: true,
+              description: 'Whether VAT applies (creates reversal + new journal entry if changed)'
+            },
             paymentMethod: { 
               type: 'string', 
               enum: ['CASH', 'BANK', 'CREDIT'],
@@ -2706,7 +2729,7 @@ const fallbackSpec = {
         '/accounting/expense-categories': {
           get: {
             summary: 'Get all expense categories',
-            description: 'Retrieve all expense categories in the system',
+            description: 'Retrieve all expense categories in the system. The system supports 5 hardcoded categories: Salaries and Wages (Account 5030), Travel and Accommodation (Account 5070), Operations (Account 5090), Branding and Marketing (Account 5060), and Office Equipment (Account 1100 - Fixed Asset).',
             tags: ['Accounting - Expense Categories'],
             security: [{ bearerAuth: [] }],
             parameters: [
@@ -2923,14 +2946,59 @@ const fallbackSpec = {
           },
           post: {
             summary: 'Create expense',
-            description: 'Create a new expense with automatic VAT calculation and journal entry generation',
+            description: 'Create a new expense with automatic VAT calculation and journal entry generation. Uses category names directly (Salaries and Wages, Travel and Accommodation, Operations, Branding and Marketing, Office Equipment).',
             tags: ['Accounting - Expenses'],
             security: [{ bearerAuth: [] }],
             requestBody: {
               required: true,
               content: {
                 'application/json': {
-                  schema: { $ref: '#/components/schemas/CreateExpenseRequest' }
+                  schema: { $ref: '#/components/schemas/CreateExpenseRequest' },
+                  examples: {
+                    'Salaries and Wages': {
+                      summary: 'Salaries and Wages Expense',
+                      description: 'Example of creating a salaries expense',
+                      value: {
+                        vendorId: 'cmg97iu9b0000ung8h8u3bg02',
+                        category: 'Salaries and Wages',
+                        amount: 5000,
+                        currencyId: 'usd_currency_id',
+                        transactionDate: '2024-01-15',
+                        description: 'Monthly payroll expense',
+                        isTaxable: true,
+                        paymentMethod: 'BANK',
+                        receiptNumber: 'PAY-2024-001'
+                      }
+                    },
+                    'Office Equipment': {
+                      summary: 'Office Equipment Purchase',
+                      description: 'Example of purchasing office equipment (treated as Fixed Asset)',
+                      value: {
+                        vendorId: 'cmg97iu9b0000ung8h8u3bg02',
+                        category: 'Office Equipment',
+                        amount: 2500,
+                        currencyId: 'usd_currency_id',
+                        transactionDate: '2024-01-15',
+                        description: 'Computer purchase',
+                        isTaxable: true,
+                        paymentMethod: 'BANK'
+                      }
+                    },
+                    'Travel Expense': {
+                      summary: 'Travel and Accommodation',
+                      description: 'Example of travel expense',
+                      value: {
+                        vendorId: 'cmg97iu9b0000ung8h8u3bg02',
+                        category: 'Travel and Accommodation',
+                        amount: 1200,
+                        currencyId: 'usd_currency_id',
+                        transactionDate: '2024-01-15',
+                        description: 'Business travel expenses',
+                        isTaxable: true,
+                        paymentMethod: 'BANK'
+                      }
+                    }
+                  }
                 }
               }
             },
@@ -2985,7 +3053,7 @@ const fallbackSpec = {
           },
           put: {
             summary: 'Update expense',
-            description: 'Update an existing expense',
+            description: 'Update an existing expense. Note: Category, vendor, and currency cannot be changed after creation. Amount and VAT changes will create reversal journal entries.',
             tags: ['Accounting - Expenses'],
             security: [{ bearerAuth: [] }],
             parameters: [

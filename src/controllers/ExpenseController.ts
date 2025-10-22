@@ -11,7 +11,7 @@ export class ExpenseController {
     try {
       const {
         vendorId,
-        categoryId,
+        category,
         amount,
         currencyId,
         transactionDate,
@@ -22,16 +22,32 @@ export class ExpenseController {
       } = req.body;
 
       // Validate required fields
-      if (!vendorId || !categoryId || !amount || !currencyId || !transactionDate || !description) {
+      if (!vendorId || !category || !amount || !currencyId || !transactionDate || !description) {
         return res.status(400).json({
           success: false,
-          message: "Missing required fields: vendorId, categoryId, amount, currencyId, transactionDate, description"
+          message: "Missing required fields: vendorId, category, amount, currencyId, transactionDate, description"
+        });
+      }
+
+      // Validate category name
+      const validCategories = [
+        "Salaries and Wages",
+        "Travel and Accommodation", 
+        "Operations",
+        "Branding and Marketing",
+        "Office Equipment"
+      ];
+
+      if (!validCategories.includes(category)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid category. Must be one of: ${validCategories.join(", ")}`
         });
       }
 
       const expenseParams: CreateExpenseParams = {
         vendorId,
-        categoryId,
+        category,
         amount: parseFloat(amount),
         currencyId,
         transactionDate: new Date(transactionDate),
@@ -151,6 +167,14 @@ export class ExpenseController {
       delete updateData.updatedAt;
       delete updateData.journalEntryId; // Don't allow direct journal entry updates
 
+      // Prevent category changes - category cannot be modified
+      if (updateData.category) {
+        return res.status(400).json({
+          success: false,
+          message: "Category cannot be changed after expense creation. Please create a new expense with the correct category."
+        });
+      }
+
       // Convert amount to number if provided
       if (updateData.amount) {
         updateData.amount = parseFloat(updateData.amount);
@@ -166,7 +190,7 @@ export class ExpenseController {
         updateData.isTaxable = Boolean(updateData.isTaxable);
       }
 
-      const updatedExpense = await ExpenseService.updateExpense(id, updateData);
+      const updatedExpense = await ExpenseService.updateExpense(id, updateData, req.user!.id);
 
       res.status(200).json({
         success: true,
