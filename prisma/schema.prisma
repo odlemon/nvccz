@@ -3617,4 +3617,3 @@ enum CounterpartyType {
   CUSTOMER   // C - Customer/Debtor
   SUPPLIER   // S - Supplier/Creditor
 }
-
