@@ -372,7 +372,9 @@ export default class CashbookController {
         where: {
           bankId: bankId as string,
           transactionDate: { gte: start, lte: end },
-          createdById: { not: null } // Filter out entries with null createdById
+          NOT: {
+            createdById: null
+          }
           // Removed status filter to include all entries
         },
         include: {
