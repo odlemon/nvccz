@@ -2,7 +2,7 @@
 
 ## 🐛 **ISSUE DESCRIPTION**
 
-The cashbook API endpoint `/api/cashbook/{bankId}/entries` was failing with the error:
+The cashbook API endpoints were failing with the error:
 
 ```json
 {
@@ -12,6 +12,10 @@ The cashbook API endpoint `/api/cashbook/{bankId}/entries` was failing with the 
   "timestamp": "2025-10-22T10:36:42.870Z"
 }
 ```
+
+**Affected Endpoints:**
+- `/api/cashbook/{bankId}/entries` - Get cashbook entries
+- `/api/cashbook/balance-check` - Balance check endpoint
 
 ## 🔍 **ROOT CAUSE**
 
@@ -54,25 +58,34 @@ const entries = await prisma.cashbookEntry.findMany({
 #### **B. Service Fix**
 **File**: `src/services/CashbookService.ts`
 
+#### **C. Balance Check Fix**
+**File**: `src/controllers/CashbookController.ts`
+
 ```typescript
 // BEFORE (causing error)
-return await prisma.cashbookEntry.findMany({
-  where,
+const cashbookEntries = await prisma.cashbookEntry.findMany({
+  where: {
+    bankId: bankId as string,
+    transactionDate: { gte: start, lte: end }
+  },
   include: {
-    // ... other includes
-    createdBy: { select: { firstName: true, lastName: true, email: true } }
+    customer: true,
+    vendor: true,
+    glAccount: true
   }
 });
 
 // AFTER (fixed)
-return await prisma.cashbookEntry.findMany({
+const cashbookEntries = await prisma.cashbookEntry.findMany({
   where: {
-    ...where,
+    bankId: bankId as string,
+    transactionDate: { gte: start, lte: end },
     createdById: { not: null } // Filter out entries with null createdById
   },
   include: {
-    // ... other includes
-    createdBy: { select: { firstName: true, lastName: true, email: true } }
+    customer: true,
+    vendor: true,
+    glAccount: true
   }
 });
 ```
@@ -112,14 +125,20 @@ This will:
 - Show a summary of the fix
 
 ### **Step 2: Verify the Fix**
-The API endpoint should now work without errors:
+The API endpoints should now work without errors:
 ```bash
 GET /api/cashbook/{bankId}/entries
+GET /api/cashbook/balance-check?bankId={bankId}&startDate=2024-05-22&endDate=2025-10-22
 ```
 
-### **Step 3: Test the Endpoint**
+### **Step 3: Test the Endpoints**
 ```bash
+# Test entries endpoint
 curl -X GET "http://localhost:3000/api/cashbook/cmh09d2i7000runyglxhf9s77/entries" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Test balance check endpoint
+curl -X GET "http://localhost:3000/api/cashbook/balance-check?bankId=cmh09d2i7000runyglxhf9s77&startDate=2024-05-22&endDate=2025-10-22" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -221,9 +240,10 @@ if (!userId) {
 ## 📝 **FILES MODIFIED**
 
 1. `src/controllers/CashbookController-Enhanced.ts` - Added null filter
-2. `src/services/CashbookService.ts` - Added null filter  
-3. `scripts/fix-cashbook-null-createdby.ts` - New migration script
-4. `package.json` - Added fix script
+2. `src/services/CashbookService.ts` - Added null filter
+3. `src/controllers/CashbookController.ts` - Added null filter to balance check
+4. `scripts/fix-cashbook-null-createdby.ts` - New migration script
+5. `package.json` - Added fix script
 
 ## ✅ **VERIFICATION CHECKLIST**
 
