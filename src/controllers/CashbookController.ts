@@ -377,8 +377,7 @@ export default class CashbookController {
       const cashbookEntries = await prisma.cashbookEntry.findMany({
         where: {
           bankId: bankId as string,
-          transactionDate: { gte: start, lte: end },
-          createdById: { isNot: null }
+          transactionDate: { gte: start, lte: end }
           // Removed status filter to include all entries
         },
         include: {

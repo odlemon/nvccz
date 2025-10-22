@@ -238,8 +238,7 @@ export class CashbookControllerEnhanced {
       const [entries, total] = await Promise.all([
         prisma.cashbookEntry.findMany({
           where: {
-            ...where,
-            createdById: { isNot: null }
+            ...where
           },
           include: {
             bank: { include: { glAccount: true, currency: true } },
