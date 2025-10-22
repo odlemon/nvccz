@@ -45,6 +45,9 @@ export default class CashbookController {
         return ResponseHelper.badRequest(res, 'Missing required fields');
       }
 
+      // Map VENDOR to SUPPLIER for backward compatibility
+      const mappedCounterpartyType = counterpartyType === 'VENDOR' ? 'SUPPLIER' : counterpartyType;
+
       const prisma = dbConnection.getPrismaClient();
 
       // Create cash receipt using CashbookService
@@ -56,7 +59,7 @@ export default class CashbookController {
         description,
         amount: parseFloat(amount),
         reference,
-        counterpartyType,
+        counterpartyType: mappedCounterpartyType,
         glAccountId,
         customerId,
         vendorId,
@@ -100,6 +103,9 @@ export default class CashbookController {
         return ResponseHelper.badRequest(res, 'Missing required fields');
       }
 
+      // Map VENDOR to SUPPLIER for backward compatibility
+      const mappedCounterpartyType = counterpartyType === 'VENDOR' ? 'SUPPLIER' : counterpartyType;
+
       const prisma = dbConnection.getPrismaClient();
 
       // Create cash payment using CashbookService
@@ -111,7 +117,7 @@ export default class CashbookController {
         description,
         amount: parseFloat(amount),
         reference,
-        counterpartyType,
+        counterpartyType: mappedCounterpartyType,
         glAccountId,
         customerId,
         vendorId,
@@ -372,9 +378,7 @@ export default class CashbookController {
         where: {
           bankId: bankId as string,
           transactionDate: { gte: start, lte: end },
-          NOT: {
-            createdById: null
-          }
+          createdById: { isNot: null }
           // Removed status filter to include all entries
         },
         include: {

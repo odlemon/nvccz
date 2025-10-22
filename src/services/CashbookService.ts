@@ -452,9 +452,7 @@ export class CashbookService {
     return await prisma.cashbookEntry.findMany({
       where: {
         ...where,
-        NOT: {
-          createdById: null
-        }
+        createdById: { isNot: null }
       },
       include: {
         bank: { include: { glAccount: true } },
