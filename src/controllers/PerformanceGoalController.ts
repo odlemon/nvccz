@@ -12,22 +12,28 @@ export class PerformanceGoalController {
         type,
         category,
         parentGoalId,
-        departmentId,
-        monetaryValue,
-        percentValue,
+        departmentName,
+        targetValue,
+        targetUnit,
+        currentValue,
         kpiId,
         priority,
         startDate,
         endDate,
         assignedToId,
-        cascadeMode
+        cascadeMode,
+        // NEW: Enhanced Goal Definition Form Fields
+        targetOperator,
+        dataSourceModule,
+        dataSourceField,
+        trackingFrequency
       } = req.body;
       const userId = req.user.id;
 
-      if (!title || !type || !category || !startDate || !endDate) {
+      if (!title || !type || !category || !startDate || !endDate || !targetValue || !targetUnit) {
         return res.status(400).json({
           success: false,
-          message: "Title, type, category, start date, and end date are required"
+          message: "Title, type, category, start date, end date, target value, and target unit are required"
         });
       }
 
@@ -37,15 +43,21 @@ export class PerformanceGoalController {
         type,
         category,
         parentGoalId,
-        departmentId,
-        monetaryValue,
-        percentValue,
+        departmentName,
+        targetValue,
+        targetUnit,
+        currentValue,
         kpiId,
         priority,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
         assignedToId,
-        cascadeMode
+        cascadeMode,
+        // NEW: Enhanced Goal Definition Form Fields
+        targetOperator,
+        dataSourceModule,
+        dataSourceField,
+        trackingFrequency
       }, userId);
 
       res.status(201).json({
@@ -68,7 +80,7 @@ export class PerformanceGoalController {
         type,
         category,
         status,
-        departmentId,
+        departmentName,
         assignedToId,
         parentGoalId,
         search
@@ -197,6 +209,35 @@ export class PerformanceGoalController {
       res.status(200).json({
         success: true,
         statistics
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  // Update goal progress with absolute values
+  static async updateGoalProgress(req: Request, res: Response) {
+    try {
+      const { goalId } = req.params;
+      const { currentValue } = req.body;
+      const userId = req.user.id;
+
+      if (!currentValue && currentValue !== 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Current value is required"
+        });
+      }
+
+      const updatedGoal = await PerformanceGoalService.updateGoalProgress(goalId, currentValue, userId);
+
+      res.json({
+        success: true,
+        message: "Goal progress updated successfully",
+        goal: updatedGoal
       });
     } catch (error: any) {
       res.status(400).json({

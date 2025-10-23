@@ -72,7 +72,7 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     code: "BUDGET_UTILISATION",
     name: "Budget Utilisation",
     department: "Finance",
-    description: "Percentage of budget utilized",
+    description: "Budget utilization target (e.g., $50,000 utilized)",
     accountType: "Expense",
     journalEntryType: "Debit",
     isFinancial: false
@@ -172,7 +172,7 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     code: "PROMOTIONAL_BUDGET_UTILISATION",
     name: "Promotional Budget Utilisation",
     department: "Sales",
-    description: "Percentage of promotional budget utilized",
+    description: "Promotional budget utilization target (e.g., $25,000 utilized)",
     accountType: "Expense",
     accountNumber: "5060", // Marketing Expense
     journalEntryType: "Debit",
@@ -224,7 +224,7 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     code: "HR_BUDGET_UTILISATION",
     name: "HR Budget Utilisation",
     department: "Human Resources",
-    description: "Percentage of HR budget utilized",
+    description: "HR budget utilization target (e.g., $30,000 utilized)",
     accountType: "Expense",
     journalEntryType: "Debit",
     isFinancial: false
@@ -275,7 +275,7 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     code: "PROCUREMENT_BUDGET_UTILISATION",
     name: "Procurement Budget Utilisation",
     department: "Procurement",
-    description: "Percentage of procurement budget utilized",
+    description: "Procurement budget utilization target (e.g., $100,000 utilized)",
     accountType: "Expense",
     journalEntryType: "Debit",
     isFinancial: false

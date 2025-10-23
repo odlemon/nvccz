@@ -1,0 +1,411 @@
+// @ts-nocheck
+import { PrismaClient } from "@prisma/client";
+import { dbConnection } from "../utils/database";
+
+const prisma = dbConnection.getPrismaClient();
+
+export class PerformanceWorkflowService {
+  /**
+   * Automatically assign organizational goals to departments
+   */
+  static async autoAssignGoals(organizationalGoalId: string): Promise<void> {
+    try {
+      console.log(`🔄 Auto-assigning organizational goal ${organizationalGoalId} to departments...`);
+
+      const organizationalGoal = await prisma.performanceGoal.findUnique({
+        where: { id: organizationalGoalId },
+        include: {
+          department: true,
+          createdBy: true
+        }
+      });
+
+      if (!organizationalGoal) {
+        throw new Error("Organizational goal not found");
+      }
+
+      if (organizationalGoal.type !== "company") {
+        throw new Error("Goal must be a company-level goal for auto-assignment");
+      }
+
+      // Get all active departments
+      const departments = await prisma.department.findMany({
+        where: { isActive: true }
+      });
+
+      // Create department goals for each department
+      for (const department of departments) {
+        const departmentGoal = await prisma.performanceGoal.create({
+          data: {
+            title: `Department Goal: ${organizationalGoal.title}`,
+            description: `Department-specific goal based on: ${organizationalGoal.title}`,
+            type: "department",
+            category: organizationalGoal.category,
+            parentGoalId: organizationalGoalId,
+            departmentId: department.id,
+            targetValue: Math.round(organizationalGoal.targetValue / departments.length),
+            targetUnit: organizationalGoal.targetUnit,
+            currentValue: 0,
+            priority: organizationalGoal.priority,
+            startDate: organizationalGoal.startDate,
+            endDate: organizationalGoal.endDate,
+            createdById: organizationalGoal.createdById,
+            status: "active",
+            stage: "planning"
+          }
+        });
+
+        console.log(`✅ Created department goal for ${department.name}: ${departmentGoal.id}`);
+      }
+
+      console.log(`✅ Auto-assigned organizational goal to ${departments.length} departments`);
+    } catch (error) {
+      console.error('❌ Error auto-assigning goals:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Automatically assign department goals to team members
+   */
+  static async autoAssignDepartmentGoals(departmentGoalId: string): Promise<void> {
+    try {
+      console.log(`🔄 Auto-assigning department goal ${departmentGoalId} to team members...`);
+
+      const departmentGoal = await prisma.performanceGoal.findUnique({
+        where: { id: departmentGoalId },
+        include: {
+          department: true,
+          createdBy: true
+        }
+      });
+
+      if (!departmentGoal) {
+        throw new Error("Department goal not found");
+      }
+
+      if (departmentGoal.type !== "department") {
+        throw new Error("Goal must be a department-level goal for auto-assignment");
+      }
+
+      // Get all users in the department
+      const departmentUsers = await prisma.user.findMany({
+        where: {
+          departmentId: departmentGoal.departmentId,
+          isActive: true
+        },
+        include: {
+          role: true
+        }
+      });
+
+      if (departmentUsers.length === 0) {
+        console.log(`⚠️ No users found in department ${departmentGoal.department?.name}`);
+        return;
+      }
+
+      // Create individual goals for each user
+      for (const user of departmentUsers) {
+        const individualGoal = await prisma.performanceGoal.create({
+          data: {
+            title: `Individual Goal: ${departmentGoal.title}`,
+            description: `Individual goal for ${user.firstName} ${user.lastName} based on: ${departmentGoal.title}`,
+            type: "individual",
+            category: departmentGoal.category,
+            parentGoalId: departmentGoalId,
+            departmentName: departmentGoal.departmentName,
+            targetValue: Math.round(departmentGoal.targetValue / departmentUsers.length),
+            targetUnit: departmentGoal.targetUnit,
+            currentValue: 0,
+            priority: departmentGoal.priority,
+            startDate: departmentGoal.startDate,
+            endDate: departmentGoal.endDate,
+            assignedToId: user.id,
+            createdById: departmentGoal.createdById,
+            status: "active",
+            stage: "planning"
+          }
+        });
+
+        console.log(`✅ Created individual goal for ${user.firstName} ${user.lastName}: ${individualGoal.id}`);
+      }
+
+      console.log(`✅ Auto-assigned department goal to ${departmentUsers.length} team members`);
+    } catch (error) {
+      console.error('❌ Error auto-assigning department goals:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update goal progress when a task is completed
+   */
+  static async updateProgressFromTasks(taskId: string): Promise<void> {
+    try {
+      console.log(`🔄 Updating goal progress from task completion: ${taskId}`);
+
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+        include: {
+          goal: true
+        }
+      });
+
+      if (!task) {
+        throw new Error("Task not found");
+      }
+
+      if (!task.goalId || !task.goal) {
+        console.log(`⚠️ Task ${taskId} is not linked to a goal`);
+        return;
+      }
+
+      // Update goal progress based on task completion
+      const goal = task.goal;
+      const newCurrentValue = (goal.currentValue || 0) + (task.currentValue || 0);
+      const progressPercentage = goal.targetValue > 0 ? (newCurrentValue / goal.targetValue) * 100 : 0;
+      const isCompleted = newCurrentValue >= goal.targetValue;
+
+      const updatedGoal = await prisma.performanceGoal.update({
+        where: { id: goal.id },
+        data: {
+          currentValue: newCurrentValue,
+          progressPercentage: Math.min(progressPercentage, 100),
+          status: isCompleted ? "completed" : "active",
+          stage: isCompleted ? "completed" : goal.stage,
+          updatedAt: new Date()
+        }
+      });
+
+      console.log(`✅ Updated goal ${goal.id} progress: ${newCurrentValue}/${goal.targetValue} (${progressPercentage.toFixed(1)}%)`);
+
+      // If goal is completed and has KPI integration, trigger accounting
+      if (isCompleted && goal.kpiId) {
+        await this.triggerAccountingIntegration(goal.id, newCurrentValue);
+      }
+
+      // If this is a sub-goal, update parent goal progress
+      if (goal.parentGoalId) {
+        await this.updateParentGoalProgress(goal.parentGoalId);
+      }
+    } catch (error) {
+      console.error('❌ Error updating progress from tasks:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update parent goal progress when sub-goals are completed
+   */
+  static async updateParentGoalProgress(parentGoalId: string): Promise<void> {
+    try {
+      console.log(`🔄 Updating parent goal progress: ${parentGoalId}`);
+
+      const parentGoal = await prisma.performanceGoal.findUnique({
+        where: { id: parentGoalId },
+        include: {
+          subGoals: true
+        }
+      });
+
+      if (!parentGoal) {
+        throw new Error("Parent goal not found");
+      }
+
+      // Calculate aggregate progress from sub-goals
+      const totalSubGoalProgress = parentGoal.subGoals.reduce((sum, subGoal) => {
+        return sum + (subGoal.progressPercentage || 0);
+      }, 0);
+
+      const averageProgress = parentGoal.subGoals.length > 0 ? totalSubGoalProgress / parentGoal.subGoals.length : 0;
+      const isCompleted = averageProgress >= 100;
+
+      const updatedParentGoal = await prisma.performanceGoal.update({
+        where: { id: parentGoalId },
+        data: {
+          progressPercentage: Math.min(averageProgress, 100),
+          status: isCompleted ? "completed" : "active",
+          stage: isCompleted ? "completed" : parentGoal.stage,
+          updatedAt: new Date()
+        }
+      });
+
+      console.log(`✅ Updated parent goal ${parentGoalId} progress: ${averageProgress.toFixed(1)}%`);
+
+      // If parent goal is completed and has KPI integration, trigger accounting
+      if (isCompleted && parentGoal.kpiId) {
+        await this.triggerAccountingIntegration(parentGoalId, parentGoal.targetValue);
+      }
+
+      // If this parent goal has a parent, update it too
+      if (parentGoal.parentGoalId) {
+        await this.updateParentGoalProgress(parentGoal.parentGoalId);
+      }
+    } catch (error) {
+      console.error('❌ Error updating parent goal progress:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check KPI thresholds and trigger accounting integration
+   */
+  static async checkKPIThresholds(goalId: string): Promise<void> {
+    try {
+      console.log(`🔄 Checking KPI thresholds for goal: ${goalId}`);
+
+      const goal = await prisma.performanceGoal.findUnique({
+        where: { id: goalId },
+        include: {
+          kpi: true
+        }
+      });
+
+      if (!goal || !goal.kpi) {
+        console.log(`⚠️ Goal ${goalId} has no KPI associated`);
+        return;
+      }
+
+      // Check if goal is completed and KPI threshold is met
+      if (goal.status === "completed" && goal.currentValue >= goal.targetValue) {
+        await this.triggerAccountingIntegration(goalId, goal.currentValue);
+      }
+    } catch (error) {
+      console.error('❌ Error checking KPI thresholds:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Trigger accounting integration for KPI achievement
+   */
+  static async triggerAccountingIntegration(goalId: string, achievedValue: number): Promise<void> {
+    try {
+      console.log(`💰 Triggering accounting integration for goal: ${goalId}`);
+
+      const goal = await prisma.performanceGoal.findUnique({
+        where: { id: goalId },
+        include: { kpi: true }
+      });
+
+      if (!goal || !goal.kpi) {
+        console.log(`⚠️ Goal ${goalId} has no KPI associated`);
+        return;
+      }
+
+      // Import the hardcoded KPIs to get accounting details
+      const { HARDCODED_KPIS } = await import("../config/hardcodedKPIs");
+      const kpiConfig = HARDCODED_KPIS.find(k => k.code === goal.kpi.code);
+
+      if (kpiConfig && kpiConfig.isFinancial) {
+        // Create journal entry based on KPI completion
+        const journalEntry = await prisma.journalEntry.create({
+          data: {
+            description: `KPI Achievement: ${goal.title} - ${achievedValue} ${goal.targetUnit}`,
+            totalAmount: achievedValue,
+            currencyId: "USD", // Default currency
+            status: "POSTED",
+            createdById: goal.createdById,
+            journalEntryLines: {
+              create: [
+                {
+                  chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : "1000", // Cash
+                  debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
+                  creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
+                  description: `KPI: ${goal.kpi.name}`
+                },
+                {
+                  chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : "1000", // Cash
+                  debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
+                  creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
+                  description: `KPI: ${goal.kpi.name}`
+                }
+              ]
+            }
+          }
+        });
+
+        console.log(`✅ Accounting integration triggered for goal ${goalId}: Journal Entry ${journalEntry.id} created`);
+      } else {
+        console.log(`⚠️ KPI ${goal.kpi.code} is not financial, no journal entry created`);
+      }
+    } catch (error) {
+      console.error('❌ Error triggering accounting integration:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check for overdue goals and send notifications
+   */
+  static async checkOverdueGoals(): Promise<void> {
+    try {
+      console.log('🔄 Checking for overdue goals...');
+
+      const overdueGoals = await prisma.performanceGoal.findMany({
+        where: {
+          status: "active",
+          endDate: {
+            lt: new Date()
+          }
+        },
+        include: {
+          assignedTo: true,
+          department: true,
+          createdBy: true
+        }
+      });
+
+      if (overdueGoals.length > 0) {
+        console.log(`⚠️ Found ${overdueGoals.length} overdue goals`);
+        
+        for (const goal of overdueGoals) {
+          // Update goal status to overdue
+          await prisma.performanceGoal.update({
+            where: { id: goal.id },
+            data: {
+              status: "overdue",
+              stage: "overdue"
+            }
+          });
+
+          console.log(`✅ Marked goal ${goal.id} as overdue`);
+        }
+      } else {
+        console.log('✅ No overdue goals found');
+      }
+    } catch (error) {
+      console.error('❌ Error checking overdue goals:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Run all workflow automation tasks
+   */
+  static async runWorkflowAutomation(): Promise<void> {
+    try {
+      console.log('🚀 Running Performance Workflow Automation...');
+
+      // Check for overdue goals
+      await this.checkOverdueGoals();
+
+      // Check for goals that need KPI threshold checking
+      const activeGoals = await prisma.performanceGoal.findMany({
+        where: {
+          status: "active",
+          kpiId: { not: null }
+        }
+      });
+
+      for (const goal of activeGoals) {
+        await this.checkKPIThresholds(goal.id);
+      }
+
+      console.log('✅ Performance Workflow Automation completed');
+    } catch (error) {
+      console.error('❌ Performance Workflow Automation failed:', error);
+      throw error;
+    }
+  }
+}

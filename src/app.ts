@@ -60,6 +60,8 @@ import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 import auditRoutes from "./routes/auditRoutes"
 import departmentRoutes from "./routes/departmentRoutes"
 import performanceGoalRoutes from "./routes/performanceGoalRoutes"
+import performanceETLRoutes from "./routes/performanceETLRoutes"
+import performanceWorkflowRoutes from "./routes/performanceWorkflowRoutes"
 import taskRoutes from "./routes/taskRoutes"
 import kpiRoutes from "./routes/kpiRoutes"
 import activityLogRoutes from "./routes/activityLogRoutes"
@@ -74,6 +76,11 @@ import budgetManagementRoutes from "./routes/budgetManagementRoutes"
 import portfolioValuationRoutes from "./routes/portfolioValuationRoutes"
 import exitInterviewRoutes from "./routes/exitInterviewRoutes"
 import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
+import enhancedGoalTrackingRoutes from "./routes/enhancedGoalTrackingRoutes"
+import enhancedETLRoutes from "./routes/enhancedETLRoutes"
+import performanceReviewCycleRoutes from "./routes/performanceReviewCycleRoutes"
+import performanceBreakdownRoutes from "./routes/performanceBreakdownRoutes"
+import individualGoalToTaskRoutes from "./routes/individualGoalToTaskRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import vendorQuotationRoutes from "./routes/vendorQuotationRoutes"
@@ -327,6 +334,8 @@ app.use("/api/audit-logs", auditRoutes)
 // Performance Management routes
 app.use("/api/departments", departmentRoutes)
 app.use("/api/performance/goals", performanceGoalRoutes)
+app.use("/api/performance/etl", performanceETLRoutes)
+app.use("/api/performance/workflow", performanceWorkflowRoutes)
 app.use("/api/tasks", taskRoutes)
 app.use("/api/kpis", kpiRoutes)
 app.use("/api/activity-logs", activityLogRoutes)
@@ -363,6 +372,11 @@ app.use("/api/exit-interviews", exitInterviewRoutes)
 
 // Performance Scorecard routes
 app.use("/api/performance-scorecards", performanceScorecardRoutes)
+app.use("/api/performance/goal-tracking", enhancedGoalTrackingRoutes)
+app.use("/api/performance/enhanced-etl", enhancedETLRoutes)
+app.use("/api/performance/review-cycles", performanceReviewCycleRoutes)
+app.use("/api/performance/breakdown", performanceBreakdownRoutes)
+app.use("/api/performance/individual-goals", individualGoalToTaskRoutes)
 
 // Payroll Management routes
 app.use("/api/payroll", payrollRoutes)
