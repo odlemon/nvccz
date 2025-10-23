@@ -46,8 +46,7 @@ export interface UserScorecardData {
 }
 
 export interface DepartmentScorecardData {
-  departmentId: string;
-  departmentName: string;
+  departmentName: string; // Use hardcoded department names
   totalUsers: number;
   averageScore: number;
   performanceCategory: string;
@@ -142,28 +141,30 @@ export class PerformanceScorecardService {
    */
   static async getAllDepartmentsScorecards(): Promise<DepartmentScorecardData[]> {
     try {
-      const departments = await prisma.department.findMany({
-        where: { isActive: true },
-        include: {
-          users: {
-            include: {
-              createdTasks: true,
-              performanceGoals: true,
-              activityLogs: true,
-              performanceReviewsAsReviewee: {
-                include: {
-                  reviewFeedback: true
-                }
+      // Use hardcoded departments instead of database departments
+      const hardcodedDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+      
+      const departmentScorecards: DepartmentScorecardData[] = [];
+
+      for (const departmentName of hardcodedDepartments) {
+        // Get users by department name
+        const users = await prisma.user.findMany({
+          where: {
+            departmentName: departmentName
+          },
+          include: {
+            createdTasks: true,
+            performanceGoals: true,
+            activityLogs: true,
+            performanceReviewsAsReviewee: {
+              include: {
+                reviewFeedback: true
               }
             }
           }
-        }
-      });
+        });
 
-      const departmentScorecards: DepartmentScorecardData[] = [];
-
-      for (const department of departments) {
-        const scorecard = await this.calculateDepartmentScorecard(department);
+        const scorecard = await this.calculateDepartmentScorecard(departmentName, users);
         departmentScorecards.push(scorecard);
       }
 
@@ -308,14 +309,12 @@ export class PerformanceScorecardService {
   /**
    * Calculate department scorecard
    */
-  private static async calculateDepartmentScorecard(department: any): Promise<DepartmentScorecardData> {
-    const users = department.users;
+  private static async calculateDepartmentScorecard(departmentName: string, users: any[]): Promise<DepartmentScorecardData> {
     const totalUsers = users.length;
 
     if (totalUsers === 0) {
       return {
-        departmentId: department.id,
-        departmentName: department.name,
+        departmentName: departmentName,
         totalUsers: 0,
         averageScore: 0,
         performanceCategory: 'No Users',
@@ -453,8 +452,7 @@ export class PerformanceScorecardService {
     else if (averageScore >= 70) performanceCategory = 'Average Performing Department';
 
     return {
-      departmentId: department.id,
-      departmentName: department.name,
+      departmentName: departmentName,
       totalUsers,
       averageScore,
       performanceCategory,

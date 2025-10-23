@@ -21,9 +21,10 @@ export interface CreateTaskRequest {
   performanceCategory?: string;
   isPerformanceTask?: boolean;
   
-  // Target Values
-  monetaryValue?: number;
-  percentValue?: number;
+  // Target Values (Absolute Value System)
+  targetValue?: number;
+  targetUnit?: string;
+  currentValue?: number;
   
   // KPI Integration
   kpi?: {
@@ -52,11 +53,10 @@ export interface UpdateTaskRequest {
   performanceCategory?: string;
   isPerformanceTask?: boolean;
   
-  // Target Values
-  monetaryValue?: number;
-  percentValue?: number;
-  monetaryValueAchieved?: number;
-  percentValueAchieved?: number;
+  // Target Values (Absolute Value System)
+  targetValue?: number;
+  targetUnit?: string;
+  currentValue?: number;
   
   // KPI Integration
   kpi?: {
@@ -172,11 +172,10 @@ export class TaskService {
           performanceCategory: request.performanceCategory,
           isPerformanceTask: request.isPerformanceTask || false,
           
-          // Target Values
-          monetaryValue: request.monetaryValue,
-          percentValue: request.percentValue,
-          monetaryValueAchieved: 0,
-          percentValueAchieved: 0,
+          // Target Values (Absolute Value System)
+          targetValue: request.targetValue,
+          targetUnit: request.targetUnit,
+          currentValue: request.currentValue || 0,
           
           // KPI Integration
           kpi: kpiData,
@@ -320,11 +319,10 @@ export class TaskService {
           ...(request.performanceCategory !== undefined && { performanceCategory: request.performanceCategory }),
           ...(request.isPerformanceTask !== undefined && { isPerformanceTask: request.isPerformanceTask }),
           
-          // Target Values
-          ...(request.monetaryValue !== undefined && { monetaryValue: request.monetaryValue }),
-          ...(request.percentValue !== undefined && { percentValue: request.percentValue }),
-          ...(request.monetaryValueAchieved !== undefined && { monetaryValueAchieved: request.monetaryValueAchieved }),
-          ...(request.percentValueAchieved !== undefined && { percentValueAchieved: request.percentValueAchieved }),
+          // Target Values (Absolute Value System)
+          ...(request.targetValue !== undefined && { targetValue: request.targetValue }),
+          ...(request.targetUnit !== undefined && { targetUnit: request.targetUnit }),
+          ...(request.currentValue !== undefined && { currentValue: request.currentValue }),
           
           // KPI Integration
           kpi: kpiData
@@ -348,6 +346,11 @@ export class TaskService {
           }
         }
       });
+
+      // If this is a performance task, update the linked goal
+      if (updatedTask.isPerformanceTask && updatedTask.goalId) {
+        await this.updateLinkedGoalProgress(updatedTask.id);
+      }
 
       return updatedTask;
     } catch (error) {
@@ -421,6 +424,11 @@ export class TaskService {
           }
         }
       });
+
+      // If this is a performance task, update the linked goal
+      if (updatedTask.isPerformanceTask && updatedTask.goalId) {
+        await this.updateLinkedGoalProgress(updatedTask.id);
+      }
 
       return updatedTask;
     } catch (error) {
@@ -523,6 +531,11 @@ export class TaskService {
           }
         }
       });
+
+      // If this is a performance task, update the linked goal
+      if (updatedTask.isPerformanceTask && updatedTask.goalId) {
+        await this.updateLinkedGoalProgress(updatedTask.id);
+      }
 
       return updatedTask;
     } catch (error) {
@@ -695,6 +708,169 @@ export class TaskService {
         tasksByPriority
       };
     } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Update linked goal progress when task is updated
+   */
+  static async updateLinkedGoalProgress(taskId: string): Promise<void> {
+    try {
+      console.log(`🔄 Updating linked goal progress for task: ${taskId}`);
+
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+        include: {
+          goal: true
+        }
+      });
+
+      if (!task || !task.goal) {
+        console.log(`⚠️ Task ${taskId} is not linked to a goal`);
+        return;
+      }
+
+      const goal = task.goal;
+      
+      // Calculate new goal progress based on task progress
+      const newCurrentValue = task.currentValue || 0;
+      const progressPercentage = goal.targetValue > 0 ? (newCurrentValue / goal.targetValue) * 100 : 0;
+      const isCompleted = newCurrentValue >= goal.targetValue;
+
+      // Update the goal
+      const updatedGoal = await prisma.performanceGoal.update({
+        where: { id: goal.id },
+        data: {
+          currentValue: newCurrentValue,
+          progressPercentage: Math.min(progressPercentage, 100),
+          status: isCompleted ? "completed" : "active",
+          stage: isCompleted ? "completed" : goal.stage,
+          updatedAt: new Date()
+        }
+      });
+
+      console.log(`✅ Updated goal ${goal.id} progress: ${newCurrentValue}/${goal.targetValue} (${progressPercentage.toFixed(1)}%)`);
+
+      // If goal is completed and has KPI integration, trigger accounting
+      if (isCompleted && goal.kpiId) {
+        await this.triggerAccountingIntegration(goal.id, newCurrentValue);
+      }
+
+      // If this is a sub-goal, update parent goal progress
+      if (goal.parentGoalId) {
+        await this.updateParentGoalProgress(goal.parentGoalId);
+      }
+
+    } catch (error) {
+      console.error('❌ Error updating linked goal progress:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update parent goal progress when sub-goals are completed
+   */
+  static async updateParentGoalProgress(parentGoalId: string): Promise<void> {
+    try {
+      console.log(`🔄 Updating parent goal progress: ${parentGoalId}`);
+
+      const parentGoal = await prisma.performanceGoal.findUnique({
+        where: { id: parentGoalId },
+        include: {
+          subGoals: true
+        }
+      });
+
+      if (!parentGoal) {
+        console.log(`⚠️ Parent goal ${parentGoalId} not found`);
+        return;
+      }
+
+      // Calculate parent goal progress from sub-goals
+      const totalSubGoalProgress = parentGoal.subGoals.reduce((sum, subGoal) => {
+        return sum + (subGoal.progressPercentage || 0);
+      }, 0);
+
+      const averageProgress = parentGoal.subGoals.length > 0 
+        ? totalSubGoalProgress / parentGoal.subGoals.length 
+        : 0;
+
+      const isCompleted = averageProgress >= 100;
+
+      // Update parent goal
+      await prisma.performanceGoal.update({
+        where: { id: parentGoalId },
+        data: {
+          progressPercentage: Math.min(averageProgress, 100),
+          status: isCompleted ? "completed" : "active",
+          stage: isCompleted ? "completed" : parentGoal.stage,
+          updatedAt: new Date()
+        }
+      });
+
+      console.log(`✅ Updated parent goal ${parentGoalId} progress: ${averageProgress.toFixed(1)}%`);
+
+      // If parent goal is completed and has KPI integration, trigger accounting
+      if (isCompleted && parentGoal.kpiId) {
+        await this.triggerAccountingIntegration(parentGoalId, parentGoal.targetValue || 0);
+      }
+
+      // Recursively update grandparent goal if exists
+      if (parentGoal.parentGoalId) {
+        await this.updateParentGoalProgress(parentGoal.parentGoalId);
+      }
+
+    } catch (error) {
+      console.error('❌ Error updating parent goal progress:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Trigger accounting integration when goal is completed
+   */
+  static async triggerAccountingIntegration(goalId: string, achievedValue: number): Promise<void> {
+    try {
+      console.log(`💰 Triggering accounting integration for goal: ${goalId}`);
+
+      const goal = await prisma.performanceGoal.findUnique({
+        where: { id: goalId },
+        include: {
+          kpi: true
+        }
+      });
+
+      if (!goal || !goal.kpi) {
+        console.log(`⚠️ Goal ${goalId} has no KPI integration`);
+        return;
+      }
+
+      // Create journal entry based on KPI
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          entryNumber: `KPI-${goal.kpi.code}-${Date.now()}`,
+          description: `KPI Achievement: ${goal.kpi.name} - ${goal.title}`,
+          entryDate: new Date(),
+          status: 'POSTED',
+          createdById: goal.createdById,
+          entries: {
+            create: [
+              {
+                glAccountId: goal.kpi.accountNumber, // Use KPI account number
+                debitAmount: goal.kpi.journalEntryType === 'Debit' ? achievedValue : 0,
+                creditAmount: goal.kpi.journalEntryType === 'Credit' ? achievedValue : 0,
+                description: `KPI Achievement: ${goal.kpi.name}`
+              }
+            ]
+          }
+        }
+      });
+
+      console.log(`✅ Created journal entry ${journalEntry.id} for KPI ${goal.kpi.code}`);
+
+    } catch (error) {
+      console.error('❌ Error triggering accounting integration:', error);
       throw error;
     }
   }

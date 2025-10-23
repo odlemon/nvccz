@@ -43,6 +43,10 @@ export class TrialBalanceService {
       let totalDebits = 0;
       let totalCredits = 0;
 
+      // Create end of day date to include all entries from the specified date
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
       // Calculate balance for each account
       for (const account of accounts) {
         const journalEntries = await prisma.journalEntryLine.findMany({
@@ -50,7 +54,7 @@ export class TrialBalanceService {
             chartOfAccountId: account.id,
             journalEntry: {
               transactionDate: {
-                lte: date
+                lte: endOfDay
               },
               status: 'POSTED' // Only include POSTED entries (exclude VOID and PENDING)
             }

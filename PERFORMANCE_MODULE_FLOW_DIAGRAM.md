@@ -17,7 +17,7 @@
 │   TEAM          │    │   MANAGER       │    │   MANAGER       │
 │                 │    │                 │    │                 │
 │ Sets Strategic  │    │ Sets Tactical   │    │ Sets Tactical   │
-│ Goals           │    │ Goals           │    │ Goals           │
+│ Goals           │    │ Goals           │    │ Goals           │   
 └─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘
           │                      │                      │
           │                      │                      │
@@ -25,8 +25,8 @@
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           ORGANIZATIONAL GOALS                                  │
 │  • "Achieve $5M Fund I AUM by Q4"                                              │
-│  • "Maintain operating expenses below 20% of revenue"                           │
-│  • "Achieve 15% portfolio IRR"                                                 │
+│  • "Maintain operating expenses below $1M"                                      │
+│  • "Achieve $2M in total revenue"                                               │
 └─────────────────────────────────────────────────────────────────────────────────┘
           │
           │ BREAKDOWN INTO DEPARTMENTAL GOALS
@@ -35,11 +35,11 @@
 │                           DEPARTMENTAL GOALS                                   │
 │                                                                                 │
 │  💰 FINANCE DEPARTMENT                    📦 PROCUREMENT DEPARTMENT             │
-│  • "Improve expense reporting efficiency by 15%"                               │
+│  • "Achieve expense reporting efficiency of 95%"                               │
 │  • "Reduce invoice processing time to 48 hours"                                │
 │                                                                                 │
 │  💼 SALES DEPARTMENT                       ⚙️ OPERATIONS DEPARTMENT             │
-│  • "Increase client acquisition by 25%"                                         │
+│  • "Achieve client acquisition target of 50 new clients"                         │
 │  • "Improve event RSVP rate to 85%"                                            │
 └─────────────────────────────────────────────────────────────────────────────────┘
           │
@@ -49,12 +49,12 @@
 │                           INDIVIDUAL GOALS                                      │
 │                                                                                 │
 │  👤 JANE DOE (Finance)                    👤 JOHN SMITH (Sales)                 │
-│  • "Process 95% of invoices within 48 hours"                                   │
-│  • "Complete expense reports within 24 hours"                                  │
+│  • "Process 100 invoices within 48 hours"                                      │
+│  • "Complete expense reports for $50K in expenses"                             │
 │                                                                                 │
 │  👤 MIKE WILSON (Procurement)             👤 SARAH JONES (Operations)           │
-│  • "Reduce supplier payment time by 20%"                                       │
-│  • "Complete 100% of onboarding tasks"                                         │
+│  • "Process $30K in supplier payments within 5 days"                          │
+│  • "Complete 20 onboarding tasks"                                             │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -65,12 +65,12 @@
 │                           TEAM MEMBER PROGRESS UPDATES                          │
 │                                                                                 │
 │  👤 JANE DOE Updates:                    👤 JOHN SMITH Updates:                  │
-│  • "Completed 90% of invoices in 48hrs" • "Acquired 3 new clients this month" │
+│  • "Completed 95 invoices in 48hrs"     • "Acquired 3 new clients this month" │
 │  • "Processed $50K in expenses"          • "Generated $200K in revenue"         │
 │                                                                                 │
 │  👤 MIKE WILSON Updates:                 👤 SARAH JONES Updates:                │
-│  • "Reduced payment time by 15%"        • "Completed 95% of onboarding tasks"  │
-│  • "Processed $30K in supplier payments" • "Improved process efficiency by 10%" │
+│  • "Processed $30K in supplier payments" • "Completed 18 onboarding tasks"     │
+│  • "Reduced payment time to 4 days"     • "Improved process efficiency to 90%" │
 └─────────────────────────────────────────────────────────────────────────────────┘
           │
           │ SYSTEM CHECKS KPI MAPPING

@@ -373,5 +373,56 @@ router.put("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal
  */
 router.delete("/:id", authenticate, PerformanceGoalController.deletePerformanceGoal);
 
+/**
+ * @swagger
+ * /api/performance/goals/{id}/progress:
+ *   put:
+ *     summary: Update goal progress with absolute values
+ *     tags: [Performance Goals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Performance goal ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentValue
+ *             properties:
+ *               currentValue:
+ *                 type: number
+ *                 description: Current progress value
+ *                 example: 1500000
+ *     responses:
+ *       200:
+ *         description: Goal progress updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 goal:
+ *                   $ref: '#/components/schemas/PerformanceGoal'
+ *       400:
+ *         description: Bad request
+ *       404:
+ *         description: Goal not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.put("/:id/progress", authenticate, PerformanceGoalController.updateGoalProgress);
+
 export default router;
 

@@ -1523,7 +1523,6 @@ model Department {
 
   // Relations
   users                User[]                     @relation("UserDepartment")
-  goals                PerformanceGoal[]
   dealSourcingGoals    DealSourcingGoal[]
   approvalStages       ProcurementApprovalStage[] @relation("ApprovalStageDepartment")
 
@@ -1539,14 +1538,27 @@ model PerformanceGoal {
 
   // Hierarchy
   parentGoalId String?
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id])
+  departmentName String? // Use hardcoded department names: "Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"
 
   // Target Values
   monetaryValue         Decimal? @db.Decimal(15, 2)
   percentValue          Decimal? @db.Decimal(5, 2)
   monetaryValueAchieved Decimal? @default(0.00) @db.Decimal(15, 2)
   percentValueAchieved  Decimal? @default(0.00) @db.Decimal(5, 2)
+
+  // NEW: Enhanced Target Values (Absolute Value System)
+  targetValue    Decimal? @db.Decimal(15, 2) // Absolute target value
+  targetUnit     String?  // "USD", "clients", "invoices", "percentage", "hours", etc.
+  currentValue   Decimal? @default(0.00) @db.Decimal(15, 2) // Current progress value
+  progressPercentage Decimal? @default(0.00) @db.Decimal(5, 2) // Calculated progress percentage
+
+  // NEW: Goal Definition Form Fields
+  targetOperator     String? // ">=", "<=", "=" comparison operators
+  dataSourceModule   String? // "Accounting", "Procurement", "PortfolioManagement", "TaskManagement", "Events", "Manual"
+  dataSourceField    String? @db.Text // Specific field path in source module
+  trackingFrequency  String? // "Daily", "Weekly", "Monthly"
+  lastCheckDate      DateTime?
+  nextCheckDate      DateTime?
 
   // KPI Integration (using existing KPI model)
   kpiId String?
@@ -2416,6 +2428,7 @@ model PerformanceReview {
   id String @id @default(cuid())
 
   // Review Information
+  cycleId       String? // Link to review cycle
   reviewType   String // "ANNUAL", "QUARTERLY", "MONTHLY", "PROJECT_BASED", "GOAL_BASED"
   reviewPeriod String // "Q1_2024", "2024", "JAN_2024", etc.
   title        String
@@ -2464,12 +2477,55 @@ model PerformanceReview {
   updatedAt DateTime @updatedAt
 
   // Relations
+  cycle          PerformanceReviewCycle?     @relation(fields: [cycleId], references: [id])
   reviewee       User                        @relation("PerformanceReviewReviewee", fields: [revieweeId], references: [id])
   reviewer       User                        @relation("PerformanceReviewReviewer", fields: [reviewerId], references: [id])
   stakeholder    Stakeholder?                @relation(fields: [stakeholderId], references: [id])
   reviewFeedback PerformanceReviewFeedback[]
 
   @@map("performance_reviews")
+}
+
+// External Data Collection for ETL Pipeline
+model ExternalData {
+  id          String   @id @default(cuid())
+  module      String   // "performance", "accounting", "portfolio", "procurement", "tasks", "events"
+  entityType  String   // "goal", "kpi", "metric", "transaction", "task", "event"
+  entityId    String?  // ID of the source entity
+  data        Json     // Transformed data object
+  timestamp   DateTime @default(now())
+  status      String   @default("active") // "active", "archived", "error"
+  sourceModule String? // Original source module
+  sourceField  String? // Original source field path
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("external_data")
+}
+
+// Performance Review Cycle Management
+model PerformanceReviewCycle {
+  id                    String   @id @default(cuid())
+  title                 String   // "Q4 2024 Performance Review Cycle"
+  reviewPeriodStart     DateTime // Start date of review period
+  reviewPeriodEnd       DateTime // End date of review period
+  selfAssessmentDeadline DateTime // Self-assessment deadline
+  peerReviewDeadline    DateTime // Peer review deadline
+  managerReviewDeadline DateTime // Manager review deadline
+  availableReviewTypes  Json     // Array of review types: ["Self", "Manager", "Peer"]
+  reviewRatingScale     String   // "1-5 Scale", "Meets/Exceeds/Needs Improvement"
+  isActive              Boolean  @default(true)
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  reviews PerformanceReview[]
+
+  @@map("performance_review_cycles")
 }
 
 model PerformanceReviewFeedback {
