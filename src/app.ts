@@ -303,9 +303,6 @@ app.use("/api/cashbook/batches", cashbookBatchImportRoutes)
 app.use("/api/cashbook/open-items", openItemMatchingRoutes)
 app.use("/api/cashbook/transactions", transactionReversalRoutes)
 app.use("/api/cashbook/transfers", cashbookTransferRoutes)
-app.use("/api/cashbook/entry-types", entryTypeRoutes)
-// app.use("/api/cashbook", cashbookRoutesEnhanced) // Disabled to avoid route conflicts
-
 // Import new cashbook routes
 import contraEntryRoutes from "./routes/contraEntryRoutes"
 import batchImportExportRoutes from "./routes/batchImportExportRoutes"
@@ -313,6 +310,8 @@ import periodLockoutRoutes from "./routes/periodLockoutRoutes"
 
 // Register new cashbook routes
 app.use("/api/cashbook/contra", contraEntryRoutes)
+app.use("/api/cashbook/entry-types", entryTypeRoutes)
+// app.use("/api/cashbook", cashbookRoutesEnhanced) // Disabled to avoid route conflicts
 app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 

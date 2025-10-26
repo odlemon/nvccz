@@ -11,13 +11,24 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
+// ============================================================================
+// CONTRA ENTRIES - Detailed contra management
+// ============================================================================
+
+/**
+ * @swagger
+ * tags:
+ *   name: Contra Entries
+ *   description: Detailed contra management
+ */
+
 /**
  * @swagger
  * /api/cashbook/contra/configure:
  *   post:
  *     summary: Configure contra entry settings
  *     description: Configure contra entry settings for specific entry types and GL accounts
- *     tags: [Cashbook - Contra Entries]
+     *     tags: [Contra Entries]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -75,7 +86,7 @@ router.post('/configure', ContraEntryController.configureContraEntry);
  *   get:
  *     summary: Get contra entry configurations
  *     description: Retrieve contra entry configurations with optional filtering
- *     tags: [Cashbook - Contra Entries]
+     *     tags: [Contra Entries]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -126,7 +137,7 @@ router.get('/configs', ContraEntryController.getContraEntryConfigs);
  *   post:
  *     summary: Generate contra entry for cashbook transaction
  *     description: Generate contra entry for a specific cashbook transaction
- *     tags: [Cashbook - Contra Entries]
+     *     tags: [Contra Entries]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -170,7 +181,7 @@ router.post('/generate', ContraEntryController.generateContraEntry);
  *   get:
  *     summary: Get contra entries for cashbook entry
  *     description: Retrieve all contra entries for a specific cashbook entry
- *     tags: [Cashbook - Contra Entries]
+     *     tags: [Contra Entries]
  *     security:
  *       - bearerAuth: []
  *     parameters:

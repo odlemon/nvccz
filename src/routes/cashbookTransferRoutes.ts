@@ -8,13 +8,24 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
+// ============================================================================
+// CASHBOOK TRANSFERS - Between different bank accounts
+// ============================================================================
+
+/**
+ * @swagger
+ * tags:
+ *   name: Cashbook Transfers
+ *   description: Between different bank accounts
+ */
+
 /**
  * @swagger
  * /api/cashbook/transfers:
  *   post:
  *     summary: Create cashbook transfer
  *     description: Create a transfer between two bank accounts
- *     tags: [Cashbook - Transfers]
+     *     tags: [Cashbook Transfers]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -90,7 +101,7 @@ router.post("/", CashbookTransferController.createTransfer);
  *   get:
  *     summary: Get transfer details
  *     description: Get detailed information about a specific transfer
- *     tags: [Cashbook - Transfers]
+     *     tags: [Cashbook Transfers]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -183,7 +194,7 @@ router.get("/:transferId", CashbookTransferController.getTransfer);
  *   get:
  *     summary: List transfers
  *     description: Get paginated list of transfers for the authenticated user
- *     tags: [Cashbook - Transfers]
+     *     tags: [Cashbook Transfers]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -289,7 +300,7 @@ router.get("/", CashbookTransferController.listTransfers);
  *   get:
  *     summary: Get transfer summary
  *     description: Get summary statistics for transfers
- *     tags: [Cashbook - Transfers]
+     *     tags: [Cashbook Transfers]
  *     security:
  *       - bearerAuth: []
  *     parameters:
