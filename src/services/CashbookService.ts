@@ -749,6 +749,15 @@ export class CashbookService {
       throw new Error('Bank account with this account number already exists');
     }
 
+    // Check if GL account is already used by another bank
+    const existingBankWithGL = await prisma.bank.findFirst({
+      where: { glAccountId }
+    });
+
+    if (existingBankWithGL) {
+      throw new Error(`GL account is already associated with bank account "${existingBankWithGL.name}". Each GL account can only be linked to one bank account.`);
+    }
+
     // Create the bank account
     const bank = await prisma.bank.create({
       data: {

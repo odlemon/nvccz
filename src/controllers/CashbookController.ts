@@ -546,6 +546,23 @@ export default class CashbookController {
       return ResponseHelper.success(res, 'Bank account created successfully', bank);
     } catch (error: any) {
       console.error('Error in CashbookController.createBank:', error);
+      
+      // Handle specific Prisma constraint errors
+      if (error.message.includes('Unique constraint failed')) {
+        if (error.message.includes('glAccountId_key')) {
+          return ResponseHelper.badRequest(res, 'This GL account is already associated with another bank account. Each GL account can only be linked to one bank account.');
+        } else if (error.message.includes('accountNumber')) {
+          return ResponseHelper.badRequest(res, 'A bank account with this account number already exists.');
+        }
+      }
+      
+      // Handle validation errors from service
+      if (error.message.includes('already associated') || 
+          error.message.includes('already exists') ||
+          error.message.includes('not found')) {
+        return ResponseHelper.badRequest(res, error.message);
+      }
+      
       return ResponseHelper.error(res, 'Failed to create bank account', error.message);
     }
   }
@@ -556,11 +573,26 @@ export default class CashbookController {
    */
   static async getAccounts(req: Request, res: Response) {
     try {
-      const { type } = req.query;
+      const { type, availableForBank } = req.query;
       
       const where: any = { isActive: true };
       if (type) {
         where.accountType = type;
+      }
+      
+      // If requesting accounts available for bank creation, exclude those already used
+      if (availableForBank === 'true') {
+        where.accountType = { in: ['Current Asset', 'Fixed Asset'] };
+        
+        // Get GL accounts already used by banks
+        const usedGLAccounts = await prisma.bank.findMany({
+          select: { glAccountId: true }
+        });
+        
+        const usedGLAccountIds = usedGLAccounts.map(bank => bank.glAccountId);
+        if (usedGLAccountIds.length > 0) {
+          where.id = { notIn: usedGLAccountIds };
+        }
       }
       
       const accounts = await prisma.chartOfAccounts.findMany({
