@@ -11,8 +11,24 @@ import { CustomerController } from "../controllers/CustomerController";
 import { VendorController } from "../controllers/VendorController";
 import DiscountController from "../controllers/DiscountController";
 import { authenticate } from "../middleware/authenticate";
+import multer from 'multer';
 
 const router = express.Router();
+
+// Configure multer for file upload
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'));
+    }
+  }
+});
 
 // Apply authentication middleware to all routes
 router.use(authenticate);
@@ -440,7 +456,7 @@ router.post("/batches/:id/post", CashbookController.postBatch);
  *       401:
  *         description: Unauthorized
  */
-router.post("/batches/import", CashbookBatchImportController.importCSV);
+router.post("/batches/import", upload.single('file'), CashbookBatchImportController.importCSV);
 
 /**
  * @swagger
