@@ -17,6 +17,13 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
+/**
+ * @swagger
+ * tags:
+ *   name: Cashbook
+ *   description: Cashbook management endpoints for receipts, payments, and batch processing
+ */
+
 // ============================================================================
 // CORE CASHBOOK TRANSACTIONS
 // ============================================================================
