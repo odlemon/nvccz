@@ -1,6 +1,5 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import { accountingEndpoints } from './accounting-endpoints';
-import { cashbookEndpoints } from './cashbook-endpoints';
 
 const options = {
   definition: {
@@ -4706,7 +4705,7 @@ try {
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
     // Merge accounting and cashbook endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints, ...cashbookEndpoints };
+    specs.paths = { ...specs.paths, ...accountingEndpoints };
     console.log(`Added accounting and cashbook endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error) {
