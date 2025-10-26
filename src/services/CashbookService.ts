@@ -480,12 +480,18 @@ export class CashbookService {
           bank: {
             include: { currency: true }
           },
-          lineItems: {
-            include: {
-              contraGlAccount: true
-            }
-          },
-          journalEntry: true
+          glAccount: true,
+          customer: true,
+          vendor: true,
+          batch: true,
+          createdBy: true,
+          journalEntry: true,
+          entryType: true,
+          transfer: true,
+          originalTransaction: true,
+          reversalTransactions: true,
+          reversedBy: true,
+          postedBy: true
         },
         orderBy: { transactionDate: 'desc' },
         take: filters.limit || 50,

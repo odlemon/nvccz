@@ -683,6 +683,80 @@ router.get("/vendors", VendorController.getVendors);
  */
 router.get("/gl-accounts", CashbookController.getAccounts);
 
+/**
+ * @swagger
+ * /api/cashbook/entries:
+ *   get:
+ *     summary: Get all cashbook entries
+ *     description: Retrieve all cashbook entries with optional filtering
+ *     tags: [Cashbook]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: bankId
+ *         schema:
+ *           type: string
+ *         description: Filter by bank ID
+ *       - in: query
+ *         name: transactionType
+ *         schema:
+ *           type: string
+ *           enum: [RECEIPT, PAYMENT]
+ *         description: Filter by transaction type
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, POSTED, VOIDED]
+ *         description: Filter by status
+ *       - in: query
+ *         name: dateFrom
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter from date (YYYY-MM-DD)
+ *       - in: query
+ *         name: dateTo
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter to date (YYYY-MM-DD)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Number of entries to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *         description: Number of entries to skip
+ *     responses:
+ *       200:
+ *         description: Cashbook entries retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Cashbook entries retrieved successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/CashbookEntry'
+ *       400:
+ *         description: Bad request - invalid parameters
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/entries", CashbookController.getCashbookEntries);
+
 // ============================================================================
 // REFERENCE NUMBER CONFIGURATION
 // ============================================================================

@@ -1717,8 +1717,41 @@ const fallbackSpec = {
         description: 'Retrieve the next available reference number',
         tags: ['Cashbook'],
         security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            in: 'query',
+            name: 'type',
+            required: true,
+            schema: {
+              type: 'string',
+              enum: ['RECEIPT', 'PAYMENT', 'BATCH']
+            },
+            description: 'Reference type'
+          }
+        ],
         responses: {
-          200: { description: 'Next reference number retrieved successfully' },
+          200: { 
+            description: 'Next reference number retrieved successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    message: { type: 'string' },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        referenceNumber: { type: 'string' },
+                        config: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Bad request - invalid type parameter' },
           401: { description: 'Unauthorized' }
         }
       }
@@ -1729,8 +1762,61 @@ const fallbackSpec = {
         description: 'Configure settings for reference numbers',
         tags: ['Cashbook'],
         security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['type', 'prefix', 'currentNumber', 'incrementBy', 'resetPeriod'],
+                properties: {
+                  type: {
+                    type: 'string',
+                    enum: ['RECEIPT', 'PAYMENT', 'BATCH'],
+                    description: 'Reference type'
+                  },
+                  prefix: {
+                    type: 'string',
+                    description: 'Reference prefix',
+                    example: 'RCP'
+                  },
+                  currentNumber: {
+                    type: 'integer',
+                    description: 'Current reference number',
+                    example: 1000
+                  },
+                  incrementBy: {
+                    type: 'integer',
+                    description: 'Increment by value',
+                    example: 1
+                  },
+                  resetPeriod: {
+                    type: 'string',
+                    enum: ['DAILY', 'MONTHLY', 'YEARLY', 'NEVER'],
+                    description: 'Reset period'
+                  }
+                }
+              }
+            }
+          }
+        },
         responses: {
-          200: { description: 'Reference configuration updated successfully' },
+          200: { 
+            description: 'Reference configuration updated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    message: { type: 'string' },
+                    data: { type: 'object' }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Bad request - validation errors' },
           401: { description: 'Unauthorized' }
         }
       }
@@ -1741,8 +1827,75 @@ const fallbackSpec = {
         description: 'Create a new template for cashbook entries',
         tags: ['Cashbook'],
         security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'type', 'bankId', 'amount'],
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Template name',
+                    example: 'Monthly Rent Payment'
+                  },
+                  type: {
+                    type: 'string',
+                    enum: ['RECEIPT', 'PAYMENT'],
+                    description: 'Transaction type'
+                  },
+                  bankId: {
+                    type: 'string',
+                    description: 'Default bank account ID'
+                  },
+                  amount: {
+                    type: 'number',
+                    description: 'Default amount'
+                  },
+                  description: {
+                    type: 'string',
+                    description: 'Default description'
+                  },
+                  counterpartyType: {
+                    type: 'string',
+                    enum: ['GL', 'CUSTOMER', 'SUPPLIER'],
+                    description: 'Default counterparty type'
+                  },
+                  glAccountId: {
+                    type: 'string',
+                    description: 'Default GL account ID'
+                  },
+                  customerId: {
+                    type: 'string',
+                    description: 'Default customer ID'
+                  },
+                  vendorId: {
+                    type: 'string',
+                    description: 'Default vendor ID'
+                  }
+                }
+              }
+            }
+          }
+        },
         responses: {
-          200: { description: 'Template created successfully' },
+          200: { 
+            description: 'Template created successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    message: { type: 'string' },
+                    data: { type: 'object' }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Bad request - validation errors' },
           401: { description: 'Unauthorized' }
         }
       }
@@ -1753,8 +1906,74 @@ const fallbackSpec = {
         description: 'Calculate settlement discounts',
         tags: ['Cashbook'],
         security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['amount', 'paymentDate', 'dueDate', 'counterpartyType'],
+                properties: {
+                  amount: {
+                    type: 'number',
+                    description: 'Transaction amount',
+                    example: 1000.00
+                  },
+                  paymentDate: {
+                    type: 'string',
+                    format: 'date',
+                    description: 'Payment date',
+                    example: '2024-01-15'
+                  },
+                  dueDate: {
+                    type: 'string',
+                    format: 'date',
+                    description: 'Due date',
+                    example: '2024-01-30'
+                  },
+                  counterpartyType: {
+                    type: 'string',
+                    enum: ['CUSTOMER', 'SUPPLIER'],
+                    description: 'Counterparty type'
+                  },
+                  customerId: {
+                    type: 'string',
+                    description: 'Customer ID (if counterpartyType is CUSTOMER)'
+                  },
+                  vendorId: {
+                    type: 'string',
+                    description: 'Vendor ID (if counterpartyType is SUPPLIER)'
+                  }
+                }
+              }
+            }
+          }
+        },
         responses: {
-          200: { description: 'Discounts calculated successfully' },
+          200: { 
+            description: 'Discounts calculated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    message: { type: 'string' },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        discountAmount: { type: 'number' },
+                        netAmount: { type: 'number' },
+                        discountRate: { type: 'number' },
+                        daysEarly: { type: 'integer' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Bad request - validation errors' },
           401: { description: 'Unauthorized' }
         }
       }
@@ -1765,29 +1984,68 @@ const fallbackSpec = {
         description: 'Configure settlement discounts',
         tags: ['Cashbook'],
         security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['counterpartyType', 'counterpartyId', 'discountRate', 'discountDays'],
+                properties: {
+                  counterpartyType: {
+                    type: 'string',
+                    enum: ['CUSTOMER', 'SUPPLIER'],
+                    description: 'Counterparty type'
+                  },
+                  counterpartyId: {
+                    type: 'string',
+                    description: 'Customer or Vendor ID'
+                  },
+                  discountRate: {
+                    type: 'number',
+                    minimum: 0,
+                    maximum: 100,
+                    description: 'Discount rate percentage',
+                    example: 2.5
+                  },
+                  discountDays: {
+                    type: 'integer',
+                    minimum: 0,
+                    description: 'Number of days for discount',
+                    example: 10
+                  },
+                  isActive: {
+                    type: 'boolean',
+                    default: true,
+                    description: 'Whether discount is active'
+                  }
+                }
+              }
+            }
+          }
+        },
         responses: {
-          200: { description: 'Discount configuration updated successfully' },
+          200: { 
+            description: 'Discount configuration updated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    message: { type: 'string' },
+                    data: { type: 'object' }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Bad request - validation errors' },
           401: { description: 'Unauthorized' }
         }
       }
     },
-    // Summary and Reconciliation
-    '/api/cashbook/{bankId}/summary': {
-      get: {
-        summary: 'Get bank summary',
-        description: 'Retrieve a summary for a specific bank account',
-        tags: ['Cashbook'],
-        security: [{ bearerAuth: [] }],
-        parameters: [
-          { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
-        ],
-        responses: {
-          200: { description: 'Bank summary retrieved successfully' },
-          401: { description: 'Unauthorized' },
-          404: { description: 'Bank not found' }
-        }
-      }
-    },
+    // Summary and Reconciliation - Removed non-existent endpoint
     '/api/cashbook/{bankId}/unreconciled': {
       get: {
         summary: 'Get unreconciled entries',
@@ -5536,8 +5794,41 @@ try {
           description: 'Retrieve the next available reference number',
           tags: ['Cashbook'],
           security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'type',
+              required: true,
+              schema: {
+                type: 'string',
+                enum: ['RECEIPT', 'PAYMENT', 'BATCH']
+              },
+              description: 'Reference type'
+            }
+          ],
           responses: {
-            200: { description: 'Next reference number retrieved successfully' },
+            200: { 
+              description: 'Next reference number retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          referenceNumber: { type: 'string' },
+                          config: { type: 'object' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - invalid type parameter' },
             401: { description: 'Unauthorized' }
           }
         }
@@ -5548,8 +5839,61 @@ try {
           description: 'Configure settings for reference numbers',
           tags: ['Cashbook'],
           security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['type', 'prefix', 'currentNumber', 'incrementBy', 'resetPeriod'],
+                  properties: {
+                    type: {
+                      type: 'string',
+                      enum: ['RECEIPT', 'PAYMENT', 'BATCH'],
+                      description: 'Reference type'
+                    },
+                    prefix: {
+                      type: 'string',
+                      description: 'Reference prefix',
+                      example: 'RCP'
+                    },
+                    currentNumber: {
+                      type: 'integer',
+                      description: 'Current reference number',
+                      example: 1000
+                    },
+                    incrementBy: {
+                      type: 'integer',
+                      description: 'Increment by value',
+                      example: 1
+                    },
+                    resetPeriod: {
+                      type: 'string',
+                      enum: ['DAILY', 'MONTHLY', 'YEARLY', 'NEVER'],
+                      description: 'Reset period'
+                    }
+                  }
+                }
+              }
+            }
+          },
           responses: {
-            200: { description: 'Reference configuration updated successfully' },
+            200: { 
+              description: 'Reference configuration updated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - validation errors' },
             401: { description: 'Unauthorized' }
           }
         }
@@ -5560,8 +5904,75 @@ try {
           description: 'Create a new template for cashbook entries',
           tags: ['Cashbook'],
           security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['name', 'type', 'bankId', 'amount'],
+                  properties: {
+                    name: {
+                      type: 'string',
+                      description: 'Template name',
+                      example: 'Monthly Rent Payment'
+                    },
+                    type: {
+                      type: 'string',
+                      enum: ['RECEIPT', 'PAYMENT'],
+                      description: 'Transaction type'
+                    },
+                    bankId: {
+                      type: 'string',
+                      description: 'Default bank account ID'
+                    },
+                    amount: {
+                      type: 'number',
+                      description: 'Default amount'
+                    },
+                    description: {
+                      type: 'string',
+                      description: 'Default description'
+                    },
+                    counterpartyType: {
+                      type: 'string',
+                      enum: ['GL', 'CUSTOMER', 'SUPPLIER'],
+                      description: 'Default counterparty type'
+                    },
+                    glAccountId: {
+                      type: 'string',
+                      description: 'Default GL account ID'
+                    },
+                    customerId: {
+                      type: 'string',
+                      description: 'Default customer ID'
+                    },
+                    vendorId: {
+                      type: 'string',
+                      description: 'Default vendor ID'
+                    }
+                  }
+                }
+              }
+            }
+          },
           responses: {
-            200: { description: 'Template created successfully' },
+            200: { 
+              description: 'Template created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - validation errors' },
             401: { description: 'Unauthorized' }
           }
         }
@@ -5572,8 +5983,74 @@ try {
           description: 'Calculate settlement discounts',
           tags: ['Cashbook'],
           security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['amount', 'paymentDate', 'dueDate', 'counterpartyType'],
+                  properties: {
+                    amount: {
+                      type: 'number',
+                      description: 'Transaction amount',
+                      example: 1000.00
+                    },
+                    paymentDate: {
+                      type: 'string',
+                      format: 'date',
+                      description: 'Payment date',
+                      example: '2024-01-15'
+                    },
+                    dueDate: {
+                      type: 'string',
+                      format: 'date',
+                      description: 'Due date',
+                      example: '2024-01-30'
+                    },
+                    counterpartyType: {
+                      type: 'string',
+                      enum: ['CUSTOMER', 'SUPPLIER'],
+                      description: 'Counterparty type'
+                    },
+                    customerId: {
+                      type: 'string',
+                      description: 'Customer ID (if counterpartyType is CUSTOMER)'
+                    },
+                    vendorId: {
+                      type: 'string',
+                      description: 'Vendor ID (if counterpartyType is SUPPLIER)'
+                    }
+                  }
+                }
+              }
+            }
+          },
           responses: {
-            200: { description: 'Discounts calculated successfully' },
+            200: { 
+              description: 'Discounts calculated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          discountAmount: { type: 'number' },
+                          netAmount: { type: 'number' },
+                          discountRate: { type: 'number' },
+                          daysEarly: { type: 'integer' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - validation errors' },
             401: { description: 'Unauthorized' }
           }
         }
@@ -5584,29 +6061,68 @@ try {
           description: 'Configure settlement discounts',
           tags: ['Cashbook'],
           security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['counterpartyType', 'counterpartyId', 'discountRate', 'discountDays'],
+                  properties: {
+                    counterpartyType: {
+                      type: 'string',
+                      enum: ['CUSTOMER', 'SUPPLIER'],
+                      description: 'Counterparty type'
+                    },
+                    counterpartyId: {
+                      type: 'string',
+                      description: 'Customer or Vendor ID'
+                    },
+                    discountRate: {
+                      type: 'number',
+                      minimum: 0,
+                      maximum: 100,
+                      description: 'Discount rate percentage',
+                      example: 2.5
+                    },
+                    discountDays: {
+                      type: 'integer',
+                      minimum: 0,
+                      description: 'Number of days for discount',
+                      example: 10
+                    },
+                    isActive: {
+                      type: 'boolean',
+                      default: true,
+                      description: 'Whether discount is active'
+                    }
+                  }
+                }
+              }
+            }
+          },
           responses: {
-            200: { description: 'Discount configuration updated successfully' },
+            200: { 
+              description: 'Discount configuration updated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - validation errors' },
             401: { description: 'Unauthorized' }
           }
         }
       },
-      // Summary and Reconciliation
-      '/api/cashbook/{bankId}/summary': {
-        get: {
-          summary: 'Get bank summary',
-          description: 'Retrieve a summary for a specific bank account',
-          tags: ['Cashbook'],
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
-          ],
-          responses: {
-            200: { description: 'Bank summary retrieved successfully' },
-            401: { description: 'Unauthorized' },
-            404: { description: 'Bank not found' }
-          }
-        }
-      },
+      // Summary and Reconciliation - Removed non-existent endpoint
       '/api/cashbook/{bankId}/unreconciled': {
         get: {
           summary: 'Get unreconciled entries',
