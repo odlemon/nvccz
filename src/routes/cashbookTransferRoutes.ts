@@ -15,6 +15,8 @@ router.use(authenticate);
  *     summary: Create cashbook transfer
  *     description: Create a transfer between two bank accounts
  *     tags: [Cashbook - Transfers]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -89,6 +91,8 @@ router.post("/", CashbookTransferController.createTransfer);
  *     summary: Get transfer details
  *     description: Get detailed information about a specific transfer
  *     tags: [Cashbook - Transfers]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: transferId
@@ -180,6 +184,8 @@ router.get("/:transferId", CashbookTransferController.getTransfer);
  *     summary: List transfers
  *     description: Get paginated list of transfers for the authenticated user
  *     tags: [Cashbook - Transfers]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
@@ -284,6 +290,8 @@ router.get("/", CashbookTransferController.listTransfers);
  *     summary: Get transfer summary
  *     description: Get summary statistics for transfers
  *     tags: [Cashbook - Transfers]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: dateFrom
