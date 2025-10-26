@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from 'express';
 import { CashbookTransferService } from '../services/CashbookTransferService';
-import { ResponseHelper } from '../utils/ResponseHelper';
+import { ResponseHelper } from '../utils/responseHelper';
 
 export class CashbookTransferController {
   
