@@ -1387,6 +1387,157 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
+    // Cashbook endpoints for fallback
+    '/api/cashbook/receipts': {
+      post: {
+        summary: 'Create cash receipt',
+        description: 'Create a new cash receipt transaction',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['bankId', 'transactionDate', 'description', 'amount', 'counterpartyType'],
+                properties: {
+                  bankId: { type: 'string', description: 'Bank account ID' },
+                  transactionDate: { type: 'string', format: 'date', description: 'Transaction date' },
+                  description: { type: 'string', description: 'Transaction description' },
+                  amount: { type: 'number', description: 'Transaction amount' },
+                  reference: { type: 'string', description: 'Transaction reference' },
+                  counterpartyType: { type: 'string', enum: ['GL', 'CUSTOMER', 'SUPPLIER'], description: 'Counterparty type' },
+                  glAccountId: { type: 'string', description: 'GL account ID (required for GL transactions)' },
+                  customerId: { type: 'string', description: 'Customer ID (required for customer transactions)' },
+                  vendorId: { type: 'string', description: 'Vendor ID (required for supplier transactions)' },
+                  vatCode: { type: 'string', enum: ['15%', '0%', 'EXEMPT'], default: '15%', description: 'VAT code' },
+                  projectCode: { type: 'string', description: 'Project code' },
+                  discount: { type: 'number', description: 'Settlement discount' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'Cash receipt created successfully' },
+          400: { description: 'Bad request - validation errors' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/payments': {
+      post: {
+        summary: 'Create cash payment',
+        description: 'Create a new cash payment transaction',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['bankId', 'transactionDate', 'description', 'amount', 'counterpartyType'],
+                properties: {
+                  bankId: { type: 'string', description: 'Bank account ID' },
+                  transactionDate: { type: 'string', format: 'date', description: 'Transaction date' },
+                  description: { type: 'string', description: 'Transaction description' },
+                  amount: { type: 'number', description: 'Transaction amount' },
+                  reference: { type: 'string', description: 'Transaction reference' },
+                  counterpartyType: { type: 'string', enum: ['GL', 'CUSTOMER', 'SUPPLIER'], description: 'Counterparty type' },
+                  glAccountId: { type: 'string', description: 'GL account ID (required for GL transactions)' },
+                  customerId: { type: 'string', description: 'Customer ID (required for customer transactions)' },
+                  vendorId: { type: 'string', description: 'Vendor ID (required for supplier transactions)' },
+                  vatCode: { type: 'string', enum: ['15%', '0%', 'EXEMPT'], default: '15%', description: 'VAT code' },
+                  projectCode: { type: 'string', description: 'Project code' },
+                  discount: { type: 'number', description: 'Settlement discount' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'Cash payment created successfully' },
+          400: { description: 'Bad request - validation errors' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/batches/import': {
+      post: {
+        summary: 'Import CSV batch',
+        description: 'Import cashbook transactions from CSV file',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                properties: {
+                  file: { type: 'string', format: 'binary', description: 'CSV file to import' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'CSV imported successfully' },
+          400: { description: 'Bad request - invalid file format' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/batches': {
+      get: {
+        summary: 'List batches',
+        description: 'Get list of cashbook batches',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Batches retrieved successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/banks': {
+      get: {
+        summary: 'List banks',
+        description: 'Get list of bank accounts',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Banks retrieved successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/customers': {
+      get: {
+        summary: 'List customers',
+        description: 'Get list of customers',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Customers retrieved successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/vendors': {
+      get: {
+        summary: 'List vendors',
+        description: 'Get list of vendors',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Vendors retrieved successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
         // Authentication
         '/auth/login': {
           post: {
@@ -4714,6 +4865,157 @@ try {
     ...options.definition,
     paths: {
       ...accountingEndpoints,
+      // Cashbook endpoints for error fallback
+      '/api/cashbook/receipts': {
+        post: {
+          summary: 'Create cash receipt',
+          description: 'Create a new cash receipt transaction',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['bankId', 'transactionDate', 'description', 'amount', 'counterpartyType'],
+                  properties: {
+                    bankId: { type: 'string', description: 'Bank account ID' },
+                    transactionDate: { type: 'string', format: 'date', description: 'Transaction date' },
+                    description: { type: 'string', description: 'Transaction description' },
+                    amount: { type: 'number', description: 'Transaction amount' },
+                    reference: { type: 'string', description: 'Transaction reference' },
+                    counterpartyType: { type: 'string', enum: ['GL', 'CUSTOMER', 'SUPPLIER'], description: 'Counterparty type' },
+                    glAccountId: { type: 'string', description: 'GL account ID (required for GL transactions)' },
+                    customerId: { type: 'string', description: 'Customer ID (required for customer transactions)' },
+                    vendorId: { type: 'string', description: 'Vendor ID (required for supplier transactions)' },
+                    vatCode: { type: 'string', enum: ['15%', '0%', 'EXEMPT'], default: '15%', description: 'VAT code' },
+                    projectCode: { type: 'string', description: 'Project code' },
+                    discount: { type: 'number', description: 'Settlement discount' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Cash receipt created successfully' },
+            400: { description: 'Bad request - validation errors' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/payments': {
+        post: {
+          summary: 'Create cash payment',
+          description: 'Create a new cash payment transaction',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['bankId', 'transactionDate', 'description', 'amount', 'counterpartyType'],
+                  properties: {
+                    bankId: { type: 'string', description: 'Bank account ID' },
+                    transactionDate: { type: 'string', format: 'date', description: 'Transaction date' },
+                    description: { type: 'string', description: 'Transaction description' },
+                    amount: { type: 'number', description: 'Transaction amount' },
+                    reference: { type: 'string', description: 'Transaction reference' },
+                    counterpartyType: { type: 'string', enum: ['GL', 'CUSTOMER', 'SUPPLIER'], description: 'Counterparty type' },
+                    glAccountId: { type: 'string', description: 'GL account ID (required for GL transactions)' },
+                    customerId: { type: 'string', description: 'Customer ID (required for customer transactions)' },
+                    vendorId: { type: 'string', description: 'Vendor ID (required for supplier transactions)' },
+                    vatCode: { type: 'string', enum: ['15%', '0%', 'EXEMPT'], default: '15%', description: 'VAT code' },
+                    projectCode: { type: 'string', description: 'Project code' },
+                    discount: { type: 'number', description: 'Settlement discount' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Cash payment created successfully' },
+            400: { description: 'Bad request - validation errors' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/batches/import': {
+        post: {
+          summary: 'Import CSV batch',
+          description: 'Import cashbook transactions from CSV file',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    file: { type: 'string', format: 'binary', description: 'CSV file to import' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'CSV imported successfully' },
+            400: { description: 'Bad request - invalid file format' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/batches': {
+        get: {
+          summary: 'List batches',
+          description: 'Get list of cashbook batches',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Batches retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/banks': {
+        get: {
+          summary: 'List banks',
+          description: 'Get list of bank accounts',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Banks retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/customers': {
+        get: {
+          summary: 'List customers',
+          description: 'Get list of customers',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Customers retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/vendors': {
+        get: {
+          summary: 'List vendors',
+          description: 'Get list of vendors',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Vendors retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
       // Authentication
       '/auth/login': {
         post: {
