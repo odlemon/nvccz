@@ -19,11 +19,11 @@ const options = {
     },
     servers: [
       {
-        url: 'https://nvccz-pi.vercel.app/api',
+        url: 'https://nvccz-pi.vercel.app',
         description: 'Production server'
       },
       {
-        url: 'http://localhost:3000/api',
+        url: 'http://localhost:3000',
         description: 'Development server'
       }
     ],
