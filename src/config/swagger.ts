@@ -1880,7 +1880,7 @@ const fallbackSpec = {
       }
     },
         // Authentication
-        '/auth/login': {
+        '/api/auth/login': {
           post: {
             summary: 'User login',
             description: 'Authenticate user with email and password',
@@ -1905,7 +1905,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/auth/me': {
+        '/api/auth/me': {
           get: {
             summary: 'Get current user information',
             description: 'Retrieve information about the currently authenticated user',
@@ -5699,7 +5699,7 @@ try {
         }
       },
       // Authentication
-      '/auth/login': {
+      '/api/auth/login': {
         post: {
           summary: 'User login',
           description: 'Authenticate user with email and password',
@@ -5724,7 +5724,7 @@ try {
           }
         }
       },
-      '/auth/me': {
+      '/api/auth/me': {
         get: {
           summary: 'Get current user information',
           description: 'Retrieve information about the currently authenticated user',
