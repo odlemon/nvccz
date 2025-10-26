@@ -14,7 +14,7 @@ router.use(authenticate);
  *   get:
  *     summary: Get open invoices for customer
  *     description: Get all open invoices for a specific customer that can be matched with payments
- *     tags: [Cashbook Open Items]
+ *     tags: [Cashbook - Open Item Matching]
  *     parameters:
  *       - in: path
  *         name: customerId
@@ -75,7 +75,7 @@ router.get("/customers/:customerId", OpenItemMatchingController.getCustomerOpenI
  *   get:
  *     summary: Get open invoices for supplier
  *     description: Get all open invoices for a specific supplier that can be matched with payments
- *     tags: [Cashbook Open Items]
+ *     tags: [Cashbook - Open Item Matching]
  *     parameters:
  *       - in: path
  *         name: supplierId
@@ -136,7 +136,7 @@ router.get("/suppliers/:supplierId", OpenItemMatchingController.getSupplierOpenI
  *   post:
  *     summary: Match payment to invoices
  *     description: Match a payment to specific invoices with allocation amounts
- *     tags: [Cashbook Open Items]
+ *     tags: [Cashbook - Open Item Matching]
  *     parameters:
  *       - in: path
  *         name: paymentId
@@ -211,7 +211,7 @@ router.post("/match/:paymentId", OpenItemMatchingController.matchPaymentToInvoic
  *   post:
  *     summary: Unmatch payment from invoices
  *     description: Remove payment allocations from specific invoices
- *     tags: [Cashbook Open Items]
+ *     tags: [Cashbook - Open Item Matching]
  *     requestBody:
  *       required: true
  *       content:
@@ -246,7 +246,7 @@ router.post("/unmatch", OpenItemMatchingController.unmatchPaymentFromInvoices);
  *   get:
  *     summary: Get payment allocations
  *     description: Get all payment allocations for a specific payment
- *     tags: [Cashbook Open Items]
+ *     tags: [Cashbook - Open Item Matching]
  *     parameters:
  *       - in: path
  *         name: paymentId
@@ -308,7 +308,7 @@ router.get("/allocations/:paymentId", OpenItemMatchingController.getPaymentAlloc
  *   get:
  *     summary: Get matching summary
  *     description: Get summary of open items and matching statistics
- *     tags: [Cashbook Open Items]
+ *     tags: [Cashbook - Open Item Matching]
  *     parameters:
  *       - in: query
  *         name: customerId
