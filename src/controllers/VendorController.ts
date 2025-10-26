@@ -10,7 +10,7 @@ export class VendorController {
   /**
    * Create a new vendor
    */
-  async createVendor(req: AuthRequest, res: Response) {
+  static async createVendor(req: AuthRequest, res: Response) {
     try {
       const { name, taxNumber, contactPerson, email, phone, address, paymentTerms } = req.body;
 
@@ -66,7 +66,7 @@ export class VendorController {
   /**
    * Get all vendors
    */
-  async getVendors(req: AuthRequest, res: Response) {
+  static async getVendors(req: AuthRequest, res: Response) {
     try {
       const { isActive, search } = req.query;
       
@@ -107,7 +107,7 @@ export class VendorController {
   /**
    * Get vendor by ID
    */
-  async getVendorById(req: AuthRequest, res: Response) {
+  static async getVendorById(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
 
@@ -144,7 +144,7 @@ export class VendorController {
   /**
    * Update vendor
    */
-  async updateVendor(req: AuthRequest, res: Response) {
+  static async updateVendor(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
       const { name, taxNumber, contactPerson, email, phone, address, paymentTerms, isActive } = req.body;
@@ -211,7 +211,7 @@ export class VendorController {
   /**
    * Delete vendor (soft delete)
    */
-  async deleteVendor(req: AuthRequest, res: Response) {
+  static async deleteVendor(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
 
@@ -261,7 +261,7 @@ export class VendorController {
   /**
    * Get vendor expenses
    */
-  async getVendorExpenses(req: AuthRequest, res: Response) {
+  static async getVendorExpenses(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
       const { page = 1, limit = 10 } = req.query;
@@ -317,5 +317,3 @@ export class VendorController {
     }
   }
 }
-
-export const vendorController = new VendorController(); 

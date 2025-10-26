@@ -47,6 +47,19 @@ model User {
   investmentImplementations  InvestmentImplementation[]
   fundDisbursementsApproved  FundDisbursement[]         @relation("FundDisbursementApprovedBy")
   fundDisbursementsDisbursed FundDisbursement[]         @relation("FundDisbursementDisbursedBy")
+  
+  // Cashbook additional relations
+  allocations                PaymentAllocation[]
+  templates                  CashbookTemplate[]
+  bankStatementsReconciled   BankStatement[]           @relation("BankStatementReconciledBy")
+  mismatchesResolved         ReconciliationMismatch[]  @relation("MismatchResolvedBy")
+  
+  // New relations for contra entries and period lockout
+  contraEntryConfigs         ContraEntryConfig[]       @relation("ContraEntryCreatedBy")
+  contraEntriesCreated       ContraEntry[]             @relation("ContraEntryCreatedByUser")
+  importBatchesCreated       CashbookImportBatch[]     @relation("ImportBatchCreatedBy")
+  cashbookBatchesCreated    CashbookBatch[]           @relation("CashbookBatchCreatedBy")
+  periodsLocked              AccountingPeriod[]         @relation("PeriodLockedBy")
 
   // Performance Management Relations
   departmentId            String?
@@ -149,6 +162,16 @@ model User {
   // Multi-Currency Relations
   exchangeRatesCreated         ExchangeRate[]         @relation("ExchangeRateCreatedBy")
   forexGainLossCreated         ForexGainLoss[]        @relation("ForexGainLossCreatedBy")
+
+  // Advanced Cashbook Relations
+  entryTypesCreated            CashbookEntryTypeConfig[]    @relation("EntryTypeCreatedBy")
+  entryTypesUpdated            CashbookEntryTypeConfig[]    @relation("EntryTypeUpdatedBy")
+  transfersCreated             CashbookTransfer[]     @relation("TransferCreatedBy")
+  transfersPosted              CashbookTransfer[]     @relation("TransferPostedBy")
+  cashbookPeriodsLocked        PeriodLockout[]        @relation("PeriodLockedBy")
+  cashbookPeriodsCreated       PeriodLockout[]        @relation("PeriodCreatedBy")
+  transactionsReversed         CashbookEntry[]        @relation("TransactionReversedBy")
+  transactionsPosted           CashbookEntry[]        @relation("TransactionPostedBy")
 
   @@map("users")
 }
@@ -577,6 +600,15 @@ model ChartOfAccounts {
   // Cashbook Relations
   bankGLAccounts     Bank[]             @relation("BankGLAccount")           // NEW
   cashbookGLCounterparties CashbookEntry[] @relation("CashbookGLCounterparty") // NEW
+  templates          CashbookTemplate[] @relation("TemplateGLAccount")       // NEW
+  
+  // New relations for contra entries
+  contraEntryConfigs ContraEntryConfig[] @relation("ContraEntryGLAccount")
+  contraEntryDebits ContraEntry[]       @relation("ContraEntryDebitAccount")
+  contraEntryCredits ContraEntry[]      @relation("ContraEntryCreditAccount")
+
+  // Advanced Cashbook Relations
+  entryTypeDefaults  CashbookEntryTypeConfig[] @relation("EntryTypeGLAccount")
 
   @@map("chart_of_accounts")
 }
@@ -605,6 +637,10 @@ model Vendor {
 
   // Statement Relations
   statements            StatementOfAccount[]
+  
+  // Cashbook relations
+  invoices              Invoice[]
+  discountConfigs       DiscountConfig[] @relation("VendorDiscountConfig")
   
   // Cashbook Relations
   cashbookEntries       CashbookEntry[]           // NEW: Link to cashbook entries
@@ -713,6 +749,9 @@ model Customer {
   creditNotes   CreditNote[]
   statements    StatementOfAccount[]
   cashbookEntries CashbookEntry[]  // NEW: Link to cashbook entries
+  
+  // Cashbook relations
+  discountConfigs DiscountConfig[] @relation("CustomerDiscountConfig")
 
   @@map("customers")
 }
@@ -873,6 +912,13 @@ model Invoice {
 
   paymentDate DateTime? // Date when payment was processed
 
+  // Open Item fields for cashbook matching
+  dueDate           DateTime?
+  paidAmount        Decimal  @db.Decimal(15, 2) @default(0)
+  outstandingAmount Decimal  @db.Decimal(15, 2)
+  vendorId          String?  // For supplier invoices
+  vendor            Vendor?  @relation(fields: [vendorId], references: [id])
+
   customer        Customer      @relation(fields: [customerId], references: [id])
   currency        Currency      @relation(fields: [currencyId], references: [id])
   paymentCurrency Currency?     @relation("PaymentCurrency", fields: [paymentCurrencyId], references: [id])
@@ -881,6 +927,7 @@ model Invoice {
   salesInvoiceItems SalesInvoiceItem[]
   creditNotes    CreditNote[]   @relation("CreditNoteInvoice")
   forexGainLoss  ForexGainLoss[] @relation("ForexGainLossInvoice")
+  allocations   PaymentAllocation[]
 
   @@map("invoices")
 }
@@ -3594,6 +3641,13 @@ model Bank {
   // Cashbook entries for this bank
   cashbookEntries  CashbookEntry[]
   
+  // Bank reconciliation
+  statements       BankStatement[]
+  
+  // Transfer relations
+  transfersFrom    CashbookTransfer[] @relation("TransferFromBank")
+  transfersTo      CashbookTransfer[] @relation("TransferToBank")
+  
   // Existing fields
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
@@ -3635,6 +3689,10 @@ model CashbookEntry {
   journalEntryId     String?          @unique
   journalEntry       JournalEntry?    @relation(fields: [journalEntryId], references: [id])
   
+  // Batch processing
+  batchId            String?
+  batch              CashbookBatch?   @relation(fields: [batchId], references: [id])
+  
   // Reconciliation tracking
   isReconciled       Boolean          @default(false)
   reconciledAt       DateTime?
@@ -3646,7 +3704,353 @@ model CashbookEntry {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   
+  // Open Item allocations
+  allocations        PaymentAllocation[]
+  
+  // Bank reconciliation
+  bankStatementItems BankStatementItem[]
+  reconciliationMismatches ReconciliationMismatch[]
+  
+  // Contra entries
+  contraEntries      ContraEntry[]
+  
+  // Advanced Cashbook fields
+  entryTypeId        String?
+  entryType          CashbookEntryTypeConfig? @relation(fields: [entryTypeId], references: [id])
+  transferId         String?
+  transfer           CashbookTransfer? @relation(fields: [transferId], references: [id])
+  originalTransactionId String?
+  originalTransaction CashbookEntry? @relation("TransactionReversal", fields: [originalTransactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reversalTransactions CashbookEntry[] @relation("TransactionReversal")
+  reversalReason     String?
+  reversalDescription String?
+  reversedAt         DateTime?
+  reversedById       String?
+  reversedBy         User? @relation("TransactionReversedBy", fields: [reversedById], references: [id])
+  postedAt           DateTime?
+  postedById         String?
+  postedBy           User? @relation("TransactionPostedBy", fields: [postedById], references: [id])
+  
   @@map("cashbook_entries")
+}
+
+// Cashbook Additional Models
+model PaymentAllocation {
+  id              String   @id @default(cuid())
+  cashbookEntryId String
+  invoiceId       String
+  allocatedAmount Decimal  @db.Decimal(18, 2)
+  discountAmount  Decimal  @db.Decimal(18, 2) @default(0)
+  notes           String?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  cashbookEntry   CashbookEntry @relation(fields: [cashbookEntryId], references: [id], onDelete: Cascade)
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id])
+  createdBy       User          @relation(fields: [createdById], references: [id])
+  
+  @@map("payment_allocations")
+}
+
+model CashbookEntryTypeConfig {
+  id                  String   @id @default(cuid())
+  name                String
+  description         String?
+  transactionType     String   // RECEIPT, PAYMENT
+  counterpartyType    String   // GL, CUSTOMER, SUPPLIER, ANY
+  defaultGlAccountId  String?
+  isActive            Boolean  @default(true)
+  requiresProjectCode Boolean  @default(false)
+  requiresReference   Boolean  @default(false)
+  autoGenerateReference Boolean @default(false)
+  referencePrefix     String?
+  debitCreditLogic    String   @default("AUTO") // AUTO, MANUAL
+  defaultDebitCredit  String   @default("DEBIT") // DEBIT, CREDIT
+  createdById         String
+  updatedById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  createdBy           User             @relation("EntryTypeCreatedBy", fields: [createdById], references: [id])
+  updatedBy           User?            @relation("EntryTypeUpdatedBy", fields: [updatedById], references: [id])
+  defaultGlAccount    ChartOfAccounts? @relation("EntryTypeGLAccount", fields: [defaultGlAccountId], references: [id])
+  cashbookEntries     CashbookEntry[]
+  
+  @@map("cashbook_entry_type_configs")
+}
+
+model CashbookTransfer {
+  id              String   @id @default(cuid())
+  fromBankId      String
+  toBankId        String
+  amount          Decimal  @db.Decimal(18, 2)
+  transferDate    DateTime
+  description     String
+  reference       String?
+  projectCode     String?
+  status          String   @default("POSTED") // DRAFT, POSTED, CANCELLED
+  createdById     String
+  postedById      String?
+  postedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  fromBank        Bank            @relation("TransferFromBank", fields: [fromBankId], references: [id])
+  toBank          Bank            @relation("TransferToBank", fields: [toBankId], references: [id])
+  createdBy       User            @relation("TransferCreatedBy", fields: [createdById], references: [id])
+  postedBy        User?           @relation("TransferPostedBy", fields: [postedById], references: [id])
+  transactions    CashbookEntry[]
+  
+  @@map("cashbook_transfers")
+}
+
+model PeriodLockout {
+  id          String   @id @default(cuid())
+  year        Int
+  month       Int
+  isLocked    Boolean  @default(false)
+  lockedBy    String?
+  lockedAt    DateTime?
+  reason      String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  lockedByUser User? @relation("PeriodLockedBy", fields: [lockedBy], references: [id])
+  createdBy    User @relation("PeriodCreatedBy", fields: [createdById], references: [id])
+  
+  @@unique([year, month])
+  @@map("period_lockouts")
+}
+
+model ReferenceNumberConfig {
+  id              String   @id @default(cuid())
+  type            String   // RECEIPT, PAYMENT, BATCH
+  prefix          String
+  currentNumber   Int      @default(0)
+  incrementBy     Int      @default(1)
+  resetPeriod     String   // DAILY, MONTHLY, YEARLY, NEVER
+  lastResetDate   DateTime @default(now())
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("reference_number_configs")
+}
+
+model CashbookTemplate {
+  id              String   @id @default(cuid())
+  name            String
+  description     String
+  projectCode     String?
+  glAccountId     String?
+  vatCode         String?
+  isActive        Boolean  @default(true)
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  createdBy       User             @relation(fields: [createdById], references: [id])
+  glAccount       ChartOfAccounts? @relation("TemplateGLAccount", fields: [glAccountId], references: [id])
+  
+  @@map("cashbook_templates")
+}
+
+model DiscountConfig {
+  id              String   @id @default(cuid())
+  entityType      String   // CUSTOMER, SUPPLIER
+  entityId        String
+  discountType    String   // PERCENTAGE, FIXED
+  discountValue   Decimal  @db.Decimal(10, 4)
+  minAmount       Decimal? @db.Decimal(18, 2)
+  maxAmount       Decimal? @db.Decimal(18, 2)
+  validFrom       DateTime
+  validTo         DateTime?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  customer        Customer? @relation("CustomerDiscountConfig", fields: [entityId], references: [id], map: "customer_discount_fk")
+  vendor          Vendor?   @relation("VendorDiscountConfig", fields: [entityId], references: [id], map: "vendor_discount_fk")
+  
+  @@map("discount_configs")
+}
+
+model BankStatement {
+  id              String   @id @default(cuid())
+  bankId          String
+  statementDate   DateTime
+  openingBalance  Decimal  @db.Decimal(18, 2)
+  closingBalance  Decimal  @db.Decimal(18, 2)
+  totalDebits     Decimal  @db.Decimal(18, 2)
+  totalCredits    Decimal  @db.Decimal(18, 2)
+  isReconciled    Boolean  @default(false)
+  reconciledAt    DateTime?
+  reconciledById  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  bank            Bank                    @relation(fields: [bankId], references: [id])
+  reconciledBy    User?                   @relation("BankStatementReconciledBy", fields: [reconciledById], references: [id])
+  items           BankStatementItem[]
+  mismatches      ReconciliationMismatch[]
+  
+  @@map("bank_statements")
+}
+
+model BankStatementItem {
+  id                    String   @id @default(cuid())
+  statementId           String
+  transactionDate       DateTime
+  description           String
+  reference             String?
+  debitAmount           Decimal  @db.Decimal(18, 2)
+  creditAmount          Decimal  @db.Decimal(18, 2)
+  balance               Decimal  @db.Decimal(18, 2)
+  isMatched             Boolean  @default(false)
+  matchedTransactionId  String?
+  createdAt             DateTime @default(now())
+  
+  // Relations
+  statement             BankStatement        @relation(fields: [statementId], references: [id])
+  matchedTransaction    CashbookEntry?       @relation(fields: [matchedTransactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  
+  @@map("bank_statement_items")
+}
+
+model ReconciliationMismatch {
+  id              String   @id @default(cuid())
+  statementId     String
+  transactionId   String?
+  type            String   // MISSING_IN_STATEMENT, MISSING_IN_SYSTEM, AMOUNT_MISMATCH, DATE_MISMATCH
+  description     String
+  systemAmount    Decimal? @db.Decimal(18, 2)
+  statementAmount Decimal? @db.Decimal(18, 2)
+  systemDate      DateTime?
+  statementDate   DateTime?
+  severity        String   // LOW, MEDIUM, HIGH
+  isResolved      Boolean  @default(false)
+  resolvedAt      DateTime?
+  resolvedById    String?
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  statement       BankStatement @relation(fields: [statementId], references: [id])
+  transaction     CashbookEntry? @relation(fields: [transactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  resolvedBy      User?         @relation("MismatchResolvedBy", fields: [resolvedById], references: [id])
+  
+  @@map("reconciliation_mismatches")
+}
+
+model ContraEntryConfig {
+  id              String   @id @default(cuid())
+  entryType       String   // RECEIPT, PAYMENT
+  glAccountId     String
+  contraType      String   // DETAILED, SUMMARY
+  isEnabled       Boolean  @default(true)
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  glAccount       ChartOfAccounts @relation("ContraEntryGLAccount", fields: [glAccountId], references: [id])
+  createdBy       User            @relation("ContraEntryCreatedBy", fields: [createdById], references: [id])
+
+  @@map("contra_entry_configs")
+}
+
+model ContraEntry {
+  id              String   @id @default(cuid())
+  cashbookEntryId String
+  contraType      String   // DETAILED, SUMMARY
+  description     String
+  amount          Decimal  @db.Decimal(18, 2)
+  debitAccountId  String
+  creditAccountId String
+  createdById     String
+  createdAt       DateTime @default(now())
+
+  // Relations
+  cashbookEntry   CashbookEntry   @relation(fields: [cashbookEntryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  debitAccount    ChartOfAccounts @relation("ContraEntryDebitAccount", fields: [debitAccountId], references: [id])
+  creditAccount   ChartOfAccounts @relation("ContraEntryCreditAccount", fields: [creditAccountId], references: [id])
+  createdBy       User            @relation("ContraEntryCreatedByUser", fields: [createdById], references: [id])
+
+  @@map("contra_entries")
+}
+
+model CashbookImportBatch {
+  id              String   @id @default(cuid())
+  fileName       String
+  fileSize        Int
+  mapping         Json
+  status          String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  totalRows       Int?
+  validRows       Int?
+  errorRows       Int?
+  errorMessage    String?
+  processedAt     DateTime?
+  createdById     String
+  createdAt       DateTime @default(now())
+
+  // Relations
+  createdBy       User     @relation("ImportBatchCreatedBy", fields: [createdById], references: [id])
+
+  @@map("cashbook_import_batches")
+}
+
+model CashbookBatch {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  status          String   @default("DRAFT") // DRAFT, POSTED
+  totalAmount     Decimal  @default(0)
+  importFileUrl   String?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  createdBy       User     @relation("CashbookBatchCreatedBy", fields: [createdById], references: [id])
+  transactions    CashbookEntry[]
+
+  @@map("cashbook_batches")
+}
+
+model CashbookExport {
+  id              String   @id @default(cuid())
+  batchId         String
+  fileName        String
+  fileSize        Int
+  format          String   // CSV, JSON
+  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  exportedAt      DateTime @default(now())
+
+  @@map("cashbook_exports")
+}
+
+model AccountingPeriod {
+  id              String   @id @default(cuid())
+  period          String   @unique // YYYY-MM format
+  isLocked        Boolean  @default(false)
+  lockedBy        String?
+  lockedAt        DateTime?
+  reason          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  lockedByUser    User?    @relation("PeriodLockedBy", fields: [lockedBy], references: [id])
+
+  @@map("accounting_periods")
 }
 
 // Enums

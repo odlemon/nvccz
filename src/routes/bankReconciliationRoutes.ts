@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { Router } from 'express';
-import { BankReconciliationController } from '../controllers/BankReconciliationController';
+import BankReconciliationController from '../controllers/BankReconciliationController';
 import { authenticate } from '../middleware/authenticate';
 import multer from 'multer';
 
@@ -218,7 +218,7 @@ const upload = multer({
 router.post('/upload', 
   authenticate, 
   upload.single('file'), 
-  controller.uploadBankStatement
+  BankReconciliationController.createBankStatement
 );
 
 /**
@@ -276,7 +276,7 @@ router.post('/upload',
  */
 router.get('/', 
   authenticate, 
-  controller.getReconciliations
+  BankReconciliationController.getReconciliationStatus
 );
 
 /**
@@ -308,7 +308,7 @@ router.get('/',
  */
 router.get('/summary', 
   authenticate, 
-  controller.getReconciliationSummary
+  BankReconciliationController.getReconciliationReport
 );
 
 /**
@@ -349,7 +349,7 @@ router.get('/summary',
  */
 router.get('/:id', 
   authenticate, 
-  controller.getReconciliationById
+  BankReconciliationController.getReconciliationStatus
 );
 
 /**
@@ -396,7 +396,7 @@ router.get('/:id',
  */
 router.get('/:reconciliationId/unmatched', 
   authenticate, 
-  controller.getUnmatchedTransactions
+  BankReconciliationController.getReconciliationMismatches
 );
 
 /**
@@ -443,7 +443,7 @@ router.get('/:reconciliationId/unmatched',
  */
 router.get('/transactions/:bankTransactionId/matches', 
   authenticate, 
-  controller.getPotentialMatches
+  BankReconciliationController.performAutomaticMatching
 );
 
 /**
@@ -478,7 +478,7 @@ router.get('/transactions/:bankTransactionId/matches',
  */
 router.post('/approve-match', 
   authenticate, 
-  controller.approveManualMatch
+  BankReconciliationController.markTransactionReconciled
 );
 
 /**
@@ -518,7 +518,7 @@ router.post('/approve-match',
  */
 router.post('/results/:reconciliationResultId/reject', 
   authenticate, 
-  controller.rejectReconciliationResult
+  BankReconciliationController.resolveMismatch
 );
 
 /**
@@ -559,7 +559,7 @@ router.post('/results/:reconciliationResultId/reject',
  */
 router.get('/:reconciliationId/audit-trail', 
   authenticate, 
-  controller.getAuditTrail
+  BankReconciliationController.getReconciliationReport
 );
 
 /**
@@ -593,29 +593,29 @@ router.get('/:reconciliationId/audit-trail',
  */
 router.delete('/:id', 
   authenticate, 
-  controller.deleteReconciliation
+  BankReconciliationController.completeReconciliation
 );
 
 // Additional Bank Reconciliation Methods
 router.post('/manual-reconcile', 
   authenticate, 
-  controller.manualReconcile
+  BankReconciliationController.markTransactionReconciled
 );
 
 router.post('/create-journal', 
   authenticate, 
-  controller.createJournalFromBankStatement
+  BankReconciliationController.createBankStatement
 );
 
 router.get('/:reconciliationId/report', 
   authenticate, 
-  controller.generateReconciliationReport
+  BankReconciliationController.getReconciliationReport
 );
 
 router.post('/import', 
   authenticate, 
   upload.single('file'), 
-  controller.importBankStatement
+  BankReconciliationController.createBankStatement
 );
 
 export default router; 
