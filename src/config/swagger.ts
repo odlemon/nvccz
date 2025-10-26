@@ -1387,7 +1387,6 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
-    ...cashbookEndpoints,
         // Authentication
         '/auth/login': {
           post: {
@@ -4715,7 +4714,6 @@ try {
     ...options.definition,
     paths: {
       ...accountingEndpoints,
-      ...cashbookEndpoints,
       // Authentication
       '/auth/login': {
         post: {
