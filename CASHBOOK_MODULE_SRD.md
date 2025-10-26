@@ -1,420 +1,178 @@
-# 📋 **CASHBOOK MODULE - SOFTWARE REQUIREMENTS DOCUMENT (SRD)**
-
-## 📋 **DOCUMENT INFORMATION**
-
-| Field | Value |
-|-------|-------|
-| **Document Title** | Cashbook Module - Software Requirements Document |
-| **Version** | 1.0 |
-| **Date** | January 2024 |
-| **Author** | System Architect |
-| **Status** | Production Ready |
-
----
-
-## 🎯 **EXECUTIVE SUMMARY**
-
-The Cashbook Module is a comprehensive financial management system that implements **Sage Pastel-style cashbook functionality** for recording and managing cash receipts and payments. The module provides automatic journal entry generation, counterparty management, and bank reconciliation capabilities.
-
----
-
-## 📊 **BUSINESS REQUIREMENTS**
-
-### **BR-001: Cash Receipt Management**
-- **Description**: System must allow users to record money received into bank accounts
-- **Priority**: High
-- **Acceptance Criteria**:
-  - Users can create cash receipts with transaction details
-  - System automatically generates journal entries
-  - Receipts can be linked to customers, suppliers, or GL accounts
-  - Receipts support multiple counterparty types (GL, CUSTOMER, SUPPLIER)
-
-### **BR-002: Cash Payment Management**
-- **Description**: System must allow users to record money paid out from bank accounts
-- **Priority**: High
-- **Acceptance Criteria**:
-  - Users can create cash payments with transaction details
-  - System automatically generates journal entries
-  - Payments can be linked to customers, suppliers, or GL accounts
-  - Payments support multiple counterparty types (GL, CUSTOMER, SUPPLIER)
-
-### **BR-003: Bank Account Management**
-- **Description**: System must support multiple bank accounts as separate cashbooks
-- **Priority**: High
-- **Acceptance Criteria**:
-  - Each bank account acts as an independent cashbook
-  - Bank accounts are linked to GL control accounts
-  - Users can view cash position for each bank account
-  - Bank accounts support different currencies
-
-### **BR-004: Automatic Journal Entry Generation**
-- **Description**: System must automatically create journal entries for cashbook transactions
-- **Priority**: High
-- **Acceptance Criteria**:
-  - Journal entries are created using double-entry bookkeeping
-  - Bank account is debited for receipts, credited for payments
-  - Counterparty accounts are credited for receipts, debited for payments
-  - Journal entries are properly balanced
-
-### **BR-005: Counterparty Balance Management**
-- **Description**: System must maintain and update customer/supplier balances
-- **Priority**: Medium
-- **Acceptance Criteria**:
-  - Customer balances are updated when receipts are recorded
-  - Supplier balances are updated when payments are recorded
-  - Balance updates are reflected in real-time
-  - Historical balance changes are auditable
-
----
-
-## 🏗️ **FUNCTIONAL REQUIREMENTS**
-
-### **FR-001: Cash Receipt Creation**
-- **Function**: Create cash receipts
-- **Inputs**:
-  - `bankId`: Bank account ID
-  - `transactionDate`: Date of transaction
-  - `description`: Transaction description
-  - `amount`: Amount received
-  - `reference`: Reference number (optional)
-  - `counterpartyType`: GL, CUSTOMER, or SUPPLIER
-  - `glAccountId`: GL account ID (for GL transactions)
-  - `customerId`: Customer ID (for customer transactions)
-  - `vendorId`: Vendor ID (for supplier transactions)
-- **Process**:
-  1. Validate required fields
-  2. Create CashbookEntry record
-  3. Generate corresponding Journal Entry
-  4. Update counterparty balances
-  5. Log audit trail
-- **Outputs**:
-  - CashbookEntry record
-  - Journal Entry record
-  - Updated counterparty balances
-
-### **FR-002: Cash Payment Creation**
-- **Function**: Create cash payments
-- **Inputs**:
-  - `bankId`: Bank account ID
-  - `transactionDate`: Date of transaction
-  - `description`: Transaction description
-  - `amount`: Amount paid
-  - `reference`: Reference number (optional)
-  - `counterpartyType`: GL, CUSTOMER, or SUPPLIER
-  - `glAccountId`: GL account ID (for GL transactions)
-  - `customerId`: Customer ID (for customer transactions)
-  - `vendorId`: Vendor ID (for supplier transactions)
-- **Process**:
-  1. Validate required fields
-  2. Create CashbookEntry record
-  3. Generate corresponding Journal Entry
-  4. Update counterparty balances
-  5. Log audit trail
-- **Outputs**:
-  - CashbookEntry record
-  - Journal Entry record
-  - Updated counterparty balances
-
-### **FR-003: Cash Position Reporting**
-- **Function**: Get current cash position for a bank account
-- **Inputs**:
-  - `bankId`: Bank account ID
-- **Process**:
-  1. Calculate opening balance
-  2. Sum all receipts
-  3. Sum all payments
-  4. Calculate current balance
-  5. Count unreconciled entries
-- **Outputs**:
-  - Bank name
-  - Opening balance
-  - Total receipts
-  - Total payments
-  - Current balance
-  - Unreconciled count
-
-### **FR-004: Cashbook Entry Listing**
-- **Function**: List cashbook entries with filtering
-- **Inputs**:
-  - `bankId`: Bank account ID (optional)
-  - `type`: RECEIPT or PAYMENT (optional)
-  - `status`: PENDING, POSTED, or VOIDED (optional)
-  - `startDate`: Filter from date (optional)
-  - `endDate`: Filter to date (optional)
-  - `page`: Page number (optional)
-  - `limit`: Entries per page (optional)
-- **Process**:
-  1. Apply filters
-  2. Paginate results
-  3. Include related data
-- **Outputs**:
-  - List of cashbook entries
-  - Pagination information
-  - Related counterparty data
-
-### **FR-005: Entry Voiding**
-- **Function**: Void cashbook entries
-- **Inputs**:
-  - `entryId`: Cashbook entry ID
-  - `reason`: Void reason
-- **Process**:
-  1. Validate entry can be voided
-  2. Create reversal journal entries
-  3. Update entry status to VOIDED
-  4. Reverse counterparty balance changes
-- **Outputs**:
-  - Voided entry
-  - Reversal journal entries
-  - Updated balances
-
-### **FR-006: Batch Posting**
-- **Function**: Post multiple pending entries
-- **Inputs**:
-  - `bankId`: Bank account ID
-- **Process**:
-  1. Find all pending entries for bank
-  2. Create journal entries for each
-  3. Update entry statuses
-  4. Update counterparty balances
-- **Outputs**:
-  - Posted entries count
-  - List of posted entries
-  - Success/failure status
-
----
-
-## 🗄️ **DATA REQUIREMENTS**
-
-### **DR-001: Cashbook Entry Data**
-- **Transaction Details**: Date, description, amount, reference number
-- **Transaction Type**: Receipt or Payment
-- **Status Tracking**: Pending, Posted, or Voided
-- **Counterparty Information**: Customer, Supplier, or General Ledger account
-- **Reconciliation Status**: Tracked and auditable
-- **User Tracking**: Created by and modification history
-
-### **DR-002: Bank Account Data**
-- **Bank Information**: Name, account number, currency
-- **GL Integration**: Linked to General Ledger control account
-- **Status Management**: Active/inactive status
-- **Audit Trail**: Creation and modification tracking
-
-### **DR-003: Journal Entry Integration**
-- **Automatic Generation**: Journal entries created automatically
-- **Double-Entry Bookkeeping**: Proper debit/credit entries
-- **Reference Linking**: Cashbook entries linked to journal entries
-- **Status Synchronization**: Status updates reflected in both systems
-
----
-
-## 🔌 **SYSTEM INTERFACE REQUIREMENTS**
-
-### **IR-001: Cash Receipt Interface**
-- **Function**: Record money received into bank accounts
-- **Required Information**: Bank account, transaction date, description, amount, counterparty details
-- **Optional Information**: Reference number, additional notes
-- **Output**: Confirmation of receipt creation and journal entry generation
-
-### **IR-002: Cash Payment Interface**
-- **Function**: Record money paid out from bank accounts
-- **Required Information**: Bank account, transaction date, description, amount, counterparty details
-- **Optional Information**: Reference number, additional notes
-- **Output**: Confirmation of payment creation and journal entry generation
-
-### **IR-003: Cash Position Interface**
-- **Function**: View current cash position for bank accounts
-- **Information Displayed**: Bank name, opening balance, total receipts, total payments, current balance
-- **Additional Data**: Count of unreconciled entries
-- **Update Frequency**: Real-time calculation
-
-### **IR-004: Transaction Listing Interface**
-- **Function**: View and search cashbook transactions
-- **Filtering Options**: Transaction type, status, date range, counterparty type
-- **Display Information**: Transaction details, amounts, status, counterparty information
-- **Navigation**: Pagination support for large datasets
-
----
-
-## 🏛️ **SYSTEM ARCHITECTURE REQUIREMENTS**
-
-### **AR-001: Data Storage**
-- **Transaction Storage**: Secure storage of all cashbook transactions
-- **Bank Account Management**: Centralized bank account information
-- **Integration Database**: Links to existing accounting systems
-- **Audit Trail Storage**: Complete transaction history
-
-### **AR-002: Business Logic Layer**
-- **Transaction Processing**: Core cashbook operations
-- **Journal Entry Integration**: Automatic accounting integration
-- **Balance Management**: Customer and supplier balance tracking
-- **Audit Management**: Complete audit trail functionality
-
-### **AR-003: User Interface Layer**
-- **Transaction Entry**: User-friendly transaction input
-- **Authentication**: Secure user access control
-- **Data Validation**: Input validation and error handling
-- **Error Management**: Comprehensive error reporting
-
-### **AR-004: System Integration**
-- **Accounting System**: Automatic journal entry generation
-- **Chart of Accounts**: General ledger integration
-- **Customer Management**: Customer balance synchronization
-- **Vendor Management**: Supplier balance synchronization
-- **Bank Management**: Bank account integration
-
----
-
-## 🔒 **SECURITY REQUIREMENTS**
-
-### **SR-001: User Authentication**
-- All cashbook operations require user authentication
-- User identity is maintained throughout all operations
-- Complete audit trail includes user information
-
-### **SR-002: Access Control**
-- Users can only access their own cashbook entries
-- Bank account access is controlled by user permissions
-- Void operations require appropriate authorization levels
-
-### **SR-003: Data Validation**
-- All input data is validated before processing
-- Amount fields are validated for positive values
-- Date fields are validated for proper format
-- Required fields are enforced
-
----
-
-## 📊 **PERFORMANCE REQUIREMENTS**
-
-### **PR-001: Response Time**
-- Cash receipt creation: Under 2 seconds
-- Cash payment creation: Under 2 seconds
-- Cash position calculation: Under 1 second
-- Transaction listing: Under 3 seconds
-
-### **PR-002: System Capacity**
-- Support 100 concurrent users
-- Handle 1000 transactions per hour
-- Batch processing of 100 entries in under 10 seconds
-
-### **PR-003: Scalability**
-- Optimized database queries for performance
-- Pagination support for large datasets
-- Caching for frequently accessed data
-
----
-
-## 🧪 **TESTING REQUIREMENTS**
-
-### **TR-001: Functional Testing**
-- All business logic is thoroughly tested
-- Transaction processing is validated
-- Edge cases are covered
-
-### **TR-002: Integration Testing**
-- System interfaces are tested
-- Database operations are validated
-- Journal entry integration is verified
-
-### **TR-003: Performance Testing**
-- Load testing with concurrent users
-- Stress testing with large datasets
-- Response time validation
-
----
-
-## 📋 **DEPLOYMENT REQUIREMENTS**
-
-### **DR-001: Database Setup**
-- Cashbook transaction table creation
-- Bank account table updates
-- Performance optimization
-- Data integrity constraints
-
-### **DR-002: System Configuration**
-- Database connection settings
-- System endpoint configuration
-- Authentication settings
-
-### **DR-003: Monitoring**
-- Application performance monitoring
-- Database performance monitoring
-- Error logging and alerting
-
----
-
-## 🎯 **ACCEPTANCE CRITERIA**
-
-### **AC-001: Cash Receipt Functionality**
-- ✅ Users can create cash receipts with complete transaction details
-- ✅ Journal entries are automatically generated for accounting integration
-- ✅ Customer balances are updated in real-time
-- ✅ Receipts can be voided with proper authorization
-- ✅ Complete audit trail is maintained for all transactions
-
-### **AC-002: Cash Payment Functionality**
-- ✅ Users can create cash payments with complete transaction details
-- ✅ Journal entries are automatically generated for accounting integration
-- ✅ Supplier balances are updated in real-time
-- ✅ Payments can be voided with proper authorization
-- ✅ Complete audit trail is maintained for all transactions
-
-### **AC-003: Cash Position Reporting**
-- ✅ Current balance is calculated accurately
-- ✅ Opening balance is maintained correctly
-- ✅ Receipts and payments are summed properly
-- ✅ Unreconciled entries are counted accurately
-
-### **AC-004: Transaction Management**
-- ✅ Transactions can be listed with comprehensive filtering
-- ✅ Transactions can be searched by date range
-- ✅ Transactions can be filtered by type and status
-- ✅ Pagination works correctly for large datasets
-
-### **AC-005: System Integration**
-- ✅ Journal entries are properly linked to cashbook transactions
-- ✅ Counterparty balances are updated automatically
-- ✅ Bank accounts are properly managed
-- ✅ General ledger accounts are correctly debited/credited
-
----
-
-## 🚀 **IMPLEMENTATION STATUS**
-
-### **✅ COMPLETED FEATURES**
-- ✅ Cash Receipt Creation and Management
-- ✅ Cash Payment Creation and Management
-- ✅ Automatic Journal Entry Generation
-- ✅ Counterparty Balance Management
-- ✅ Cash Position Reporting
-- ✅ Transaction Listing and Filtering
-- ✅ Transaction Voiding Capabilities
-- ✅ Batch Processing Functionality
-- ✅ System Interface Endpoints
-- ✅ Database Schema Implementation
-- ✅ User Authentication and Authorization
-- ✅ Complete Audit Trail
-- ✅ Comprehensive Error Handling
-
-### **📊 MODULE STATISTICS**
-- **System Interfaces**: 8 primary interfaces
-- **Database Components**: 2 main data structures
-- **Business Logic Methods**: 12 core methods
-- **User Interface Components**: 8 main components
-- **Integration Points**: 4 external systems
-
----
-
-## 🎉 **CONCLUSION**
-
-The Cashbook Module is a **production-ready** financial management system that provides:
-
-1. **Complete Cash Management**: Comprehensive receipts and payments with automatic journal entries
-2. **Sage Pastel Compatibility**: Implements industry-standard cashbook functionality
-3. **Multi-Bank Support**: Multiple bank accounts as separate cashbooks
-4. **Counterparty Management**: Customer and supplier balance tracking
-5. **Audit Trail**: Complete transaction history and user tracking
-6. **System Integration**: Seamless integration with existing accounting systems
-7. **Performance Optimized**: Fast response times and scalable architecture
-
-**The module is fully implemented and ready for production use!** 🚀
+SRD: CASHBOOK
+1. Scope
+This SRD covers ONLY the Cashbook. Its objective: track, process, match, and reconcile all
+business cash and bank transactions, following double-entry best practices.
+2. Main Features and Requirements
+2.1 Cashbook Structure
+• Support Multiple Cashbooks: Allow creation and management of multiple cashbook
+accounts (e.g., bank accounts, petty cash, credit card, foreign currency).
+• Cashbook Sides: Each cashbook must support two tabs: Receipts and Payments.
+• Entry Type Logic: Cashbooks use separate entry types for payment and receipt
+transactions; ensure clear D/C designation on entry types for correct posting.
+2.2 Transaction Processing
+2.2.1 Workflow: Receipts
+• Step 1: User selects/creates the cashbook account to work with.
+• Step 2: Select period and transaction date.
+• Step 3: Choose entry type (customer, supplier, GL, etc.):
+o For customer receipt, user selects customer account.
+o For general ledger receipt, user selects relevant GL account.
+• Step 4: Input reference, description, amount, any discount, and project code (if enabled).
+• Step 5: If customer is “Open Item,” show matching screen to allocate payment to
+invoice(s).
+• Step 6: Repeat data entry for multiple receipts as needed (batch mode).
+• Step 7: Post/update batch to general ledger (after review/optional printout/backups).
+Accounting treatment:
+• Bank (Asset) is debited when a receipt is made.
+• Receipts posted credit customer/GL account and debit bank.
+2.2.2 Workflow: Payments
+• Step 1: User selects/creates the cashbook account to work with.
+• Step 2: Select period and transaction date.
+• Step 3: Choose entry type (supplier, GL, etc.):
+o For supplier payment, select supplier account.
+o For general ledger payment, select relevant GL account.
+• Step 4: Input reference, description, amount, any discount, and project code (if enabled).
+• Step 5: If paying an “Open Item” supplier, invoke matching screen for invoice allocation.
+• Step 6: Repeat entries for batch.
+• Step 7: Post/update batch to general ledger after review.
+Accounting treatment:
+• Bank (Asset) is credited when a payment is made.
+• Payments posted debit supplier/GL account and credit bank.
+2.2.3 Batch Processing and Updates
+• All entries (payments/receipts) are initially captured in an unposted batch.
+• System must support batch posting with the following options:
+o Preview/edit batch
+o Print batch
+o Backup before update
+o Post to GL, affecting balances and generating audit trails.
+2.3 Entry Types, D/C Logic, and Account Access
+• Each cashbook side (payments, receipts) must have distinct entry types tied to correct
+D/C designation.
+o Payments: DR by default (system handles banking leg automatically).
+o Receipts: CR by default.
+• Contra accounts (auto-generated): The “other leg” of the double entry is auto-created in
+the background.
+• Account Access Control:
+o Entry types can be limited to customers, suppliers, GL, or allow any.
+o Restricted access by user permissions.
+2.4 Special Features and Configurations
+• Reference Number Handling: System must allow auto-increment of references per
+transaction, with options for always/never/once.
+• Repeated Descriptions/Projects: System must support repeating description and/or
+project fields for rapid batch entry.
+• Settlement Discounts: Must permit entry of settlement discounts (pulled from
+customer/supplier setup if configured).
+• Tax Handling: Tax fields should be locked/grayed out where tax was already processed on
+the source invoice.
+2.5 Contra in Detail
+• Detailed Contra Entries: When enabled, every cashbook entry must generate its own
+contra, aiding detailed auditing.
+• Summary Contra Entries: If not enabled, system may summarize contras in GL.
+• Configurable at entry type/GL account level.
+2.6 Import/Export of Batches
+• Export batch: Users can export all entries (receipts/payments) in a batch (e.g., for backup
+or transfer to another company).
+• Delete batch: Users can delete unposted batches.
+• Import batch: Users can import batches, mapping fields to the cashbook structure.
+o Include error messages and validation on import (date, account match, values,
+etc.).
+o Allow for batch edits post-import before update.
+2.7 Bank Reconciliation
+• System must provide full support for bank reconciliation:
+o Mark transactions as reconciled.
+o Compare to imported or manually entered bank statement.
+o Provide troubleshooting for mismatches and out-of-balance.
+o Reversal of entries if errors are detected in posted entries.
+2.8 Reporting & Audit Trail
+• Audit Trail: Every batch update/post to GL leaves a full audit trail.
+• Support export, print, and save of batch/reporting logs.
+3. Frontend Requirements
+3.1 User Interface
+• Web/mobile-friendly screens for:
+o List/create/select cashbooks
+o Receipt and Payment entry (tabular batch entry grid)
+o Batch review/edit screens
+o Import/export batch dialogs
+o Matching screens (for open item customers/suppliers)
+o Bank reconciliation “wizard”
+• Real-time validation (required fields, correct accounts, live bank balance calculation).
+• Search/filter for past transactions by reference, date, value, description,
+customer/supplier.
+3.2 UX Considerations
+• Rapid batch entry possible via keyboard (tab + arrow key navigation).
+• Tooltips or help sections for each column (including D/C and expected debit/credit).
+4. Step-by-Step Example
+Capture a cashbook receipt for a customer (Open Item):
+1. Select correct cashbook account.
+2. Go to Receipts tab.
+3. Set accounting period, input transaction date.
+4. Select entry type “Customer Receipt.”
+5. Select customer account (e.g., Kanika Enterprises, via code or description).
+6. Enter reference number (auto-increments), description (“Payment for INV1234”), and
+amount.
+7. If customer is open item: matching dialog appears, allocate receipt to the relevant
+invoice(s).
+8. Input discount/project as appropriate.
+9. (Repeat steps 4-8 for batch entries.)
+10. Review/Edit batch, print or save for review.
+11. Update/Post batch to General Ledger – system applies double-entry logic (debits bank,
+credits customer).
+12. Transaction reflected in both cashbook and customer ledger.
+Similar workflow for payments, reversing debits/credits, and using supplier or GL accounts as
+“contra.”
+5. Technical/Backend Requirements
+5.1 Database
+• Structure to maintain cashbooks, entry types, unposted/posted batches, transactions,
+open item matchings, reconciliations, user logs, audit trail.
+• Each entry preserves:
+o Cashbook_account, transaction_type (receipt/payment), reference, date, period,
+amount, debit_account, credit_account, contra_id (where detailed).
+• Full integrity checks on batch update/post.
+5.2 Security
+• User roles for entry, review, approval, and admin.
+• Logging of all updates, batch posts, imports/exports, and reversals.
+• Configuration of account access/control per user group.
+5.3 Integration Points
+• General Ledger
+• Customers/Suppliers Master Data
+• Tax modules
+• Bank Statement imports for reconciliation
+6. Accounting Standards
+• All postings and processing must comply with GAAP/IAS double-entry standards.
+• Retain lockout ability for closed periods.
+7. Non-Functional Requirements
+• Performance: Responsive data entry, batch posting within seconds for up to 10,000
+transactions.
+• Reliability: Data integrity checked before every post; restore on error.
+• Auditability: Full audit logs for all entries/postings/edits.
+8. Special Enhancements (from Demo Video and Additional Source)
+• Batch Export/Import: Users can save cashbook and journal batches for later re-use or
+transfer; import should allow for mapping and preview.
+• Deletion: Unposted batches can be deleted directly in the interface, but this action is
+logged and requires separate permission.
+Summary Table: Debits & Credits by Transaction
+Cashbook
+Side
+Transaction
+Type
+Debit
+Account
+Credit
+Account
+Notes
+Receipts Customer
+Payment
+Bank Customer Open item allocation possible
+Receipts GL Receipt Bank GL Account E.g. share capital, loan received
+Payments Supplier
+Payment
+Supplier Bank Open item allocation possible
+Payments GL Payment GL
+Account
+Bank E.g. accounting fees, business
+expenses
+Transfer Between
+Cashbooks
+Dest. Bank Source
+Bank
+Via cashbook transfer tool for
+reconciliation

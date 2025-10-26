@@ -1,0 +1,12 @@
+bankId,transactionDate,description,amount,reference,counterpartyType,customerId,vendorId,glAccountId,vatCode,projectCode,discount
+cmh6uttcj0001un0o61btp3ns,2025-01-15,Customer Payment - Invoice #INV-001,1500.00,RCP-001,CUSTOMER,cmh3c8jk60000un0ke5broxit,,,15%,PROJ-001,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,GL Receipt - Share Capital,5000.00,RCP-002,GL,,,,cmh3c1toy000dunxkn03z31zv,15%,,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,Supplier Payment - Office Supplies,250.00,PAY-001,SUPPLIER,,cmh3c8jk60000un0ke5broxit,,15%,PROJ-002,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,GL Payment - Accounting Fees,300.00,PAY-002,GL,,,,cmh3c1toy000dunxkn03z31zv,15%,,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,Customer Payment - Invoice #INV-002,2200.00,RCP-003,CUSTOMER,cmh3c8jk60000un0ke5broxit,,,15%,PROJ-001,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,Supplier Payment - Marketing,800.00,PAY-003,SUPPLIER,,cmh3c8jk60000un0ke5broxit,,15%,PROJ-003,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,GL Receipt - Loan Received,10000.00,RCP-004,GL,,,,cmh3c1toy000dunxkn03z31zv,0%,,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,Supplier Payment - Equipment,1500.00,PAY-004,SUPPLIER,,cmh3c8jk60000un0ke5broxit,,15%,PROJ-004,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,Customer Payment - Invoice #INV-003,1800.00,RCP-005,CUSTOMER,cmh3c8jk60000un0ke5broxit,,,15%,PROJ-001,0
+cmh6uttcj0001un0o61btp3ns,2025-01-15,GL Payment - Rent,1200.00,PAY-005,GL,,,,cmh3c1toy000dunxkn03z31zv,15%,,0
+

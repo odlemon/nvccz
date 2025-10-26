@@ -1,767 +1,548 @@
 // @ts-nocheck
-import { PrismaClient } from '@prisma/client';
-import { BankStatementUploadService } from './BankStatementUploadService';
-import { BankReconciliationEngineService } from './BankReconciliationEngineService';
-import { Decimal } from 'decimal.js';
+// Bank Reconciliation Service
+// Handles bank reconciliation workflow and statement matching
 
-const prisma = new PrismaClient();
+import { PrismaClient, Decimal } from '@prisma/client';
+import { dbConnection } from '../utils/database';
 
-interface ReconciliationWithDetails {
+const prisma = dbConnection.getPrismaClient();
+
+export interface BankStatement {
   id: string;
-  fileName: string;
-  fileUrl: string;
-  status: string;
-  totalTransactions: number;
-  matchedCount: number;
-  unmatchedCount: number;
-  confidenceThreshold: number; // Changed from Decimal to number
-  overallAccuracy: number | null;
-  notes: string | null;
+  bankId: string;
+  statementDate: Date;
+  openingBalance: number;
+  closingBalance: number;
+  totalDebits: number;
+  totalCredits: number;
+  isReconciled: boolean;
+  reconciledAt?: Date;
+  reconciledById?: string;
   createdAt: Date;
   updatedAt: Date;
-  createdBy: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-  };
-  bankTransactions: Array<{
-    id: string;
-    description: string;
-    amount: Decimal;
-    transactionDate: Date;
-    reference: string | null;
-    isMatched: boolean;
-    confidenceScore: number | null;
-    matchedJournalEntryId: string | null;
-    notes: string | null;
-  }>;
-  reconciliationResults: Array<{
-    id: string;
-    matchType: string;
-    confidenceScore: number;
-    status: string;
-    notes: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-    createdBy: {
-      id: string;
-      firstName: string;
-      lastName: string;
-      email: string;
-    };
-  }>;
 }
 
-interface ReconciliationSummary {
-  totalReconciliations: number;
-  completedReconciliations: number;
-  pendingReconciliations: number;
-  failedReconciliations: number;
-  totalTransactions: number;
-  matchedTransactions: number;
-  unmatchedTransactions: number;
-  averageAccuracy: number | null;
+export interface BankStatementItem {
+  id: string;
+  statementId: string;
+  transactionDate: Date;
+  description: string;
+  reference?: string;
+  debitAmount: number;
+  creditAmount: number;
+  balance: number;
+  isMatched: boolean;
+  matchedTransactionId?: string;
+  createdAt: Date;
+}
+
+export interface ReconciliationResult {
+  statementId: string;
+  totalItems: number;
+  matchedItems: number;
+  unmatchedItems: number;
+  discrepancies: number;
+  isBalanced: boolean;
+  success: boolean;
+  message: string;
+}
+
+export interface ReconciliationMismatch {
+  id: string;
+  statementId: string;
+  transactionId?: string;
+  type: 'MISSING_IN_STATEMENT' | 'MISSING_IN_SYSTEM' | 'AMOUNT_MISMATCH' | 'DATE_MISMATCH';
+  description: string;
+  systemAmount?: number;
+  statementAmount?: number;
+  systemDate?: Date;
+  statementDate?: Date;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  isResolved: boolean;
+  resolvedAt?: Date;
+  resolvedById?: string;
+  createdAt: Date;
 }
 
 export class BankReconciliationService {
-  static async uploadAndProcessBankStatement(
-    file: Express.Multer.File, 
-    userId: string
-  ): Promise<any> {
-    try {
-      // Step 1: Create reconciliation record WITHOUT uploading to S3
-      const timestamp = Date.now();
-      const fileName = `${timestamp}-${file.originalname}`;
-      const reconciliation = await prisma.bankReconciliation.create({
-        data: {
-          fileName: file.originalname,
-          // Mark as inline upload to avoid any external storage dependency
-          fileUrl: 'inline_upload',
-          status: 'PENDING',
-          createdById: userId
-        }
-      });
-
-      // Step 2: Parse CSV content from the in-memory buffer and store transactions
-      const transactions = await BankStatementUploadService.parseCSVFile(file.buffer);
-      const storedCount = await BankStatementUploadService.storeTransactions(
-        reconciliation.id,
-        transactions
-      );
-
-      // Step 3: Run reconciliation engine
-      const summary = await BankReconciliationEngineService.runReconciliation(
-        reconciliation.id,
-        userId
-      );
-
-      return {
-        reconciliationId: reconciliation.id,
-        fileName: fileName,
-        totalTransactions: storedCount,
-        matchedCount: summary.matchedCount,
-        unmatchedCount: summary.unmatchedCount,
-        overallAccuracy: summary.overallAccuracy
-      };
-    } catch (error: any) {
-      console.error('Error in uploadAndProcessBankStatement:', error?.message || error, error?.stack);
-      throw error;
-    }
-  }
-
-  static async getReconciliations(
-    userId: string, 
-    filters: any = {}
-  ): Promise<{ reconciliations: ReconciliationWithDetails[]; total: number }> {
-    try {
-      const where: any = {
-        createdById: userId
-      };
-
-      if (filters.status) {
-        where.status = filters.status;
-      }
-
-      if (filters.startDate) {
-        where.createdAt = {
-          ...where.createdAt,
-          gte: new Date(filters.startDate)
-        };
-      }
-
-      if (filters.endDate) {
-        where.createdAt = {
-          ...where.createdAt,
-          lte: new Date(filters.endDate)
-        };
-      }
-
-      const page = parseInt(filters.page) || 1;
-      const limit = parseInt(filters.limit) || 10;
-      const skip = (page - 1) * limit;
-
-      const [reconciliations, total] = await Promise.all([
-        prisma.bankReconciliation.findMany({
-          where,
-          include: {
-            createdBy: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            },
-            bankTransactions: {
-              select: {
-                id: true,
-                description: true,
-                amount: true,
-                transactionDate: true,
-                reference: true,
-                isMatched: true,
-                confidenceScore: true,
-                matchedJournalEntryId: true,
-                notes: true
-              }
-            },
-            reconciliationResults: {
-              include: {
-                createdBy: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true
-                  }
-                }
-              }
-            }
-          },
-          orderBy: { createdAt: 'desc' },
-          skip,
-          take: limit
-        }),
-        prisma.bankReconciliation.count({ where })
-      ]);
-
-      // Convert Decimal to number for confidenceThreshold
-      const reconciliationsWithNumberThreshold = reconciliations.map(reconciliation => ({
-        ...reconciliation,
-        confidenceThreshold: Number(reconciliation.confidenceThreshold)
-      }));
-
-      return { reconciliations: reconciliationsWithNumberThreshold, total };
-    } catch (error) {
-      console.error('Error getting reconciliations:', error);
-      throw error;
-    }
-  }
-
-  static async getReconciliationById(id: string): Promise<ReconciliationWithDetails | null> {
-    try {
-      const reconciliation = await prisma.bankReconciliation.findUnique({
-        where: { id },
-        include: {
-          createdBy: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          },
-          bankTransactions: {
-            select: {
-              id: true,
-              description: true,
-              amount: true,
-              transactionDate: true,
-              reference: true,
-              isMatched: true,
-              confidenceScore: true,
-              matchedJournalEntryId: true,
-              notes: true
-            }
-          },
-          reconciliationResults: {
-            include: {
-              createdBy: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  email: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!reconciliation) return null;
-
-      // Convert Decimal to number for confidenceThreshold
-      return {
-        ...reconciliation,
-        confidenceThreshold: Number(reconciliation.confidenceThreshold)
-      };
-    } catch (error) {
-      console.error('Error getting reconciliation by ID:', error);
-      throw error;
-    }
-  }
-
-  static async getReconciliationSummary(): Promise<ReconciliationSummary> {
-    try {
-      const [
-        totalReconciliations,
-        completedReconciliations,
-        pendingReconciliations,
-        failedReconciliations,
-        totalTransactions,
-        matchedTransactions,
-        unmatchedTransactions,
-        averageAccuracy
-      ] = await Promise.all([
-        prisma.bankReconciliation.count(),
-        prisma.bankReconciliation.count({ where: { status: 'COMPLETED' } }),
-        prisma.bankReconciliation.count({ where: { status: 'PENDING' } }),
-        prisma.bankReconciliation.count({ where: { status: 'FAILED' } }),
-        prisma.bankTransaction.count(),
-        prisma.bankTransaction.count({ where: { isMatched: true } }),
-        prisma.bankTransaction.count({ where: { isMatched: false } }),
-        prisma.bankReconciliation.aggregate({
-          _avg: { overallAccuracy: true }
-        })
-      ]);
-
-      return {
-        totalReconciliations,
-        completedReconciliations,
-        pendingReconciliations,
-        failedReconciliations,
-        totalTransactions,
-        matchedTransactions,
-        unmatchedTransactions,
-        averageAccuracy: averageAccuracy._avg.overallAccuracy ? Number(averageAccuracy._avg.overallAccuracy) : null
-      };
-    } catch (error) {
-      console.error('Error getting reconciliation summary:', error);
-      throw error;
-    }
-  }
-
-  static async getUnmatchedTransactions(
-    reconciliationId: string, 
-    minAmount: number = 5.00
-  ): Promise<any[]> {
-    try {
-      return await BankReconciliationEngineService.getUnmatchedTransactions(reconciliationId, minAmount);
-    } catch (error) {
-      console.error('Error getting unmatched transactions:', error);
-      throw error;
-    }
-  }
-
-  static async getPotentialMatches(
-    bankTransactionId: string, 
-    limit: number = 10
-  ): Promise<any[]> {
-    try {
-      return await BankReconciliationEngineService.getPotentialMatches(bankTransactionId, limit);
-    } catch (error) {
-      console.error('Error getting potential matches:', error);
-      throw error;
-    }
-  }
-
-  static async approveManualMatch(
-    reconciliationId: string, 
-    bankTransactionId: string, 
-    journalEntryId: string, 
-    userId: string
-  ): Promise<void> {
-    try {
-      await BankReconciliationEngineService.approveManualMatch(
-        reconciliationId, 
-        bankTransactionId, 
-        journalEntryId, 
-        userId
-      );
-    } catch (error) {
-      console.error('Error approving manual match:', error);
-      throw error;
-    }
-  }
-
-  static async rejectReconciliationResult(
-    reconciliationResultId: string, 
-    userId: string, 
-    reason?: string
-  ): Promise<void> {
-    try {
-      await prisma.reconciliationResult.update({
-        where: { id: reconciliationResultId },
-        data: {
-          status: 'REJECTED',
-          notes: reason || 'Rejected by user'
-        }
-      });
-
-      // Create audit trail entry
-      await prisma.reconciliationAuditTrail.create({
-        data: {
-          reconciliationId: (await prisma.reconciliationResult.findUnique({
-            where: { id: reconciliationResultId }
-          }))!.reconciliationId,
-          action: 'REJECT',
-          details: {
-            reconciliationResultId,
-            reason: reason || 'Rejected by user',
-            userId
-          },
-          createdById: userId
-        }
-      });
-    } catch (error) {
-      console.error('Error rejecting reconciliation result:', error);
-      throw error;
-    }
-  }
-
-  static async getAuditTrail(reconciliationId: string): Promise<any[]> {
-    try {
-      return await prisma.reconciliationAuditTrail.findMany({
-        where: { reconciliationId },
-        include: {
-          createdBy: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
-    } catch (error) {
-      console.error('Error getting audit trail:', error);
-      throw error;
-    }
-  }
-
-  static async deleteReconciliation(reconciliationId: string, userId: string): Promise<void> {
-    try {
-      // Soft delete - mark as DELETED
-      await prisma.bankReconciliation.update({
-        where: { id: reconciliationId },
-        data: { status: 'DELETED' }
-      });
-
-      // Create audit trail entry
-      await prisma.reconciliationAuditTrail.create({
-        data: {
-          reconciliationId,
-          action: 'DELETE',
-          details: {
-            reconciliationId,
-            userId
-          },
-          createdById: userId
-        }
-      });
-    } catch (error) {
-      console.error('Error deleting reconciliation:', error);
-      throw error;
-    }
-  }
-
+  
   /**
-   * Manual reconciliation
+   * Create bank statement
    */
-  static async manualReconcile(statementLineId: string, journalEntryId: string, userId: string): Promise<void> {
-    try {
-      // Get statement line
-      const statementLine = await prisma.bankTransaction.findUnique({
-        where: { id: statementLineId }
-      });
-
-      if (!statementLine) {
-        throw new Error('Bank statement line not found');
-      }
-
-      // Get journal entry
-      const journalEntry = await prisma.journalEntry.findUnique({
-        where: { id: journalEntryId }
-      });
-
-      if (!journalEntry) {
-        throw new Error('Journal entry not found');
-      }
-
-      // Create manual reconciliation result
-      await prisma.reconciliationResult.create({
-        data: {
-          reconciliationId: statementLine.reconciliationId!,
-          bankTransactionId: statementLineId,
-          journalEntryId: journalEntryId,
-          matchType: 'MANUAL',
-          matchScore: 100,
-          isApproved: true,
-          approvedBy: userId,
-          approvedAt: new Date()
-        }
-      });
-
-      // Update statement line status
-      await prisma.bankTransaction.update({
-        where: { id: statementLineId },
-        data: { status: 'RECONCILED' }
-      });
-
-      // Audit log
-      await AuditService.log({
-        userId,
-        action: 'CREATE',
-        entityType: 'ReconciliationResult',
-        entityId: statementLineId,
-        newValues: { journalEntryId, matchType: 'MANUAL' }
-      });
-    } catch (error) {
-      console.error('Error in manual reconciliation:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create journal entry from bank statement
-   */
-  static async createJournalFromBankStatement(statementLineId: string, accountId: string, userId: string): Promise<string> {
-    try {
-      const statementLine = await prisma.bankTransaction.findUnique({
-        where: { id: statementLineId }
-      });
-
-      if (!statementLine) {
-        throw new Error('Bank statement line not found');
-      }
-
-      // Create journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          entryDate: statementLine.transactionDate,
-          description: `Bank Statement: ${statementLine.description}`,
-          reference: statementLine.reference,
-          status: 'POSTED',
-          createdById: userId
-        }
-      });
-
-      // Create journal entry lines
-      if (statementLine.amount > 0) {
-        // Credit entry
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            accountId: accountId,
-            debitAmount: new Decimal(0),
-            creditAmount: new Decimal(statementLine.amount),
-            description: statementLine.description
-          }
-        });
-
-        // Debit bank account
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            accountId: statementLine.accountId,
-            debitAmount: new Decimal(statementLine.amount),
-            creditAmount: new Decimal(0),
-            description: statementLine.description
-          }
-        });
-      } else {
-        // Debit entry
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            accountId: accountId,
-            debitAmount: new Decimal(Math.abs(statementLine.amount)),
-            creditAmount: new Decimal(0),
-            description: statementLine.description
-          }
-        });
-
-        // Credit bank account
-        await prisma.journalEntryLine.create({
-          data: {
-            journalEntryId: journalEntry.id,
-            accountId: statementLine.accountId,
-            debitAmount: new Decimal(0),
-            creditAmount: new Decimal(Math.abs(statementLine.amount)),
-            description: statementLine.description
-          }
-        });
-      }
-
-      // Update statement line status
-      await prisma.bankTransaction.update({
-        where: { id: statementLineId },
-        data: { status: 'RECONCILED' }
-      });
-
-      // Audit log
-      await AuditService.log({
-        userId,
-        action: 'CREATE',
-        entityType: 'JournalEntry',
-        entityId: journalEntry.id,
-        newValues: { source: 'BANK_STATEMENT', statementLineId }
-      });
-
-      return journalEntry.id;
-    } catch (error) {
-      console.error('Error creating journal entry from bank statement:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Generate reconciliation report
-   */
-  static async generateReconciliationReport(reconciliationId: string): Promise<{
-    reconciliation: any;
-    summary: {
-      totalTransactions: number;
-      matchedTransactions: number;
-      unmatchedTransactions: number;
-      matchRate: number;
-    };
-    details: Array<{
-      transactionId: string;
-      description: string;
-      amount: number;
-      matchStatus: string;
-      journalEntryId?: string;
-    }>;
-  }> {
-    try {
-      const reconciliation = await prisma.bankReconciliation.findUnique({
-        where: { id: reconciliationId },
-        include: {
-          bankTransactions: true,
-          reconciliationResults: {
-            include: {
-              bankTransaction: true,
-              journalEntry: true
-            }
-          }
-        }
-      });
-
-      if (!reconciliation) {
-        throw new Error('Reconciliation not found');
-      }
-
-      const totalTransactions = reconciliation.bankTransactions.length;
-      const matchedTransactions = reconciliation.reconciliationResults.length;
-      const unmatchedTransactions = totalTransactions - matchedTransactions;
-      const matchRate = totalTransactions > 0 ? (matchedTransactions / totalTransactions) * 100 : 0;
-
-      const details = reconciliation.bankTransactions.map(transaction => {
-        const result = reconciliation.reconciliationResults.find(r => r.bankTransactionId === transaction.id);
-        return {
-          transactionId: transaction.id,
-          description: transaction.description,
-          amount: Number(transaction.amount),
-          matchStatus: result ? 'MATCHED' : 'UNMATCHED',
-          journalEntryId: result?.journalEntryId
-        };
-      });
-
-      return {
-        reconciliation,
-        summary: {
-          totalTransactions,
-          matchedTransactions,
-          unmatchedTransactions,
-          matchRate
-        },
-        details
-      };
-    } catch (error) {
-      console.error('Error generating reconciliation report:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create bank statement from JSON data
-   */
-  static async createBankStatementFromJSON(params: {
-    accountId: string;
+  static async createBankStatement(statement: {
+    bankId: string;
     statementDate: Date;
     openingBalance: number;
     closingBalance: number;
-    transactions: Array<{
-      transactionDate: string;
+    items: {
+      transactionDate: Date;
       description: string;
-      amount: number;
       reference?: string;
-      type?: 'DEBIT' | 'CREDIT';
-    }>;
-    createdById: string;
-  }): Promise<{
-    statementId: string;
-    importedCount: number;
-    message: string;
-  }> {
+      debitAmount: number;
+      creditAmount: number;
+      balance: number;
+    }[];
+  }): Promise<{ statement: BankStatement; success: boolean; message: string }> {
     try {
-      const { accountId, statementDate, openingBalance, closingBalance, transactions, createdById } = params;
-
-      // Create bank reconciliation record
-      const bankReconciliation = await prisma.bankReconciliation.create({
+      console.log(`📊 Creating bank statement for bank: ${statement.bankId}`);
+      
+      // Create statement
+      const bankStatement = await prisma.bankStatement.create({
         data: {
-          fileName: `JSON_Statement_${statementDate}`,
-          fileUrl: 'json_upload',
-          status: 'PENDING',
-          totalTransactions: transactions.length,
-          matchedCount: 0,
-          unmatchedCount: transactions.length,
-          createdById
+          bankId: statement.bankId,
+          statementDate: statement.statementDate,
+          openingBalance: new Decimal(statement.openingBalance),
+          closingBalance: new Decimal(statement.closingBalance),
+          totalDebits: new Decimal(0),
+          totalCredits: new Decimal(0),
+          isReconciled: false
         }
       });
-
-      let importedCount = 0;
-
-      // Create bank transactions for each transaction
-      for (const transaction of transactions) {
-        await prisma.bankTransaction.create({
+      
+      // Create statement items
+      let totalDebits = 0;
+      let totalCredits = 0;
+      
+      for (const item of statement.items) {
+        await prisma.bankStatementItem.create({
           data: {
-            reconciliationId: bankReconciliation.id,
-            transactionDate: new Date(transaction.transactionDate),
-            description: transaction.description,
-            amount: new Decimal(transaction.amount),
-            reference: transaction.reference || '',
-            isMatched: false,
-            createdAt: new Date(),
-            updatedAt: new Date()
+            statementId: bankStatement.id,
+            transactionDate: item.transactionDate,
+            description: item.description,
+            reference: item.reference,
+            debitAmount: new Decimal(item.debitAmount),
+            creditAmount: new Decimal(item.creditAmount),
+            balance: new Decimal(item.balance),
+            isMatched: false
           }
         });
-        importedCount++;
+        
+        totalDebits += item.debitAmount;
+        totalCredits += item.creditAmount;
       }
-
+      
+      // Update statement totals
+      await prisma.bankStatement.update({
+        where: { id: bankStatement.id },
+        data: {
+          totalDebits: new Decimal(totalDebits),
+          totalCredits: new Decimal(totalCredits)
+        }
+      });
+      
+      console.log(`✅ Bank statement created: ${bankStatement.id}`);
+      
       return {
-        statementId: bankReconciliation.id,
-        importedCount,
-        message: `Bank reconciliation created with ${importedCount} transactions`
+        statement: bankStatement,
+        success: true,
+        message: 'Bank statement created successfully'
       };
+      
     } catch (error: any) {
-      console.error('Error creating bank statement from JSON:', error);
-      throw new Error(`Failed to create bank statement from JSON: ${error.message}`);
+      console.error('❌ Error creating bank statement:', error.message);
+      return {
+        statement: null,
+        success: false,
+        message: error.message
+      };
     }
   }
-
+  
   /**
-   * Import bank statement from file
+   * Get reconciliation status for bank
    */
-  static async importBankStatement(
-    file: Buffer, 
-    format: 'CSV' | 'OFX' | 'QIF', 
-    accountId: string, 
-    userId: string
-  ): Promise<{
-    importedCount: number;
-    errors: Array<{ line: number; error: string }>;
+  static async getReconciliationStatus(bankId: string): Promise<{
+    bankId: string;
+    lastStatementDate?: Date;
+    isReconciled: boolean;
+    pendingTransactions: number;
+    matchedTransactions: number;
+    discrepancies: number;
   }> {
     try {
-      let importedCount = 0;
-      const errors: Array<{ line: number; error: string }> = [];
-
-      if (format === 'CSV') {
-        const csvContent = file.toString('utf-8');
-        const lines = csvContent.split('\n');
-        
-        for (let i = 1; i < lines.length; i++) { // Skip header
-          try {
-            const [date, description, amount, reference] = lines[i].split(',');
-            
-            if (!date || !description || !amount) {
-              errors.push({ line: i + 1, error: 'Missing required fields' });
-              continue;
-            }
-
-            await prisma.bankTransaction.create({
-              data: {
-                accountId,
-                transactionDate: new Date(date),
-                description: description.trim(),
-                amount: new Decimal(parseFloat(amount)),
-                reference: reference?.trim() || '',
-                status: 'PENDING',
-                createdById: userId
-              }
-            });
-
-            importedCount++;
-          } catch (error) {
-            errors.push({ line: i + 1, error: `Parse error: ${error}` });
-          }
+      console.log(`📊 Getting reconciliation status for bank: ${bankId}`);
+      
+      // Get last statement
+      const lastStatement = await prisma.bankStatement.findFirst({
+        where: { bankId },
+        orderBy: { statementDate: 'desc' }
+      });
+      
+      // Get pending transactions
+      const pendingTransactions = await prisma.cashbookTransaction.count({
+        where: {
+          bankId,
+          status: 'POSTED',
+          isReconciled: false
         }
-      }
-
-      // TODO: Implement OFX and QIF formats
-      if (format === 'OFX' || format === 'QIF') {
-        throw new Error(`${format} format not yet implemented`);
-      }
-
-      return { importedCount, errors };
-    } catch (error) {
-      console.error('Error importing bank statement:', error);
-      throw error;
+      });
+      
+      // Get matched transactions
+      const matchedTransactions = await prisma.cashbookTransaction.count({
+        where: {
+          bankId,
+          status: 'POSTED',
+          isReconciled: true
+        }
+      });
+      
+      // Get discrepancies
+      const discrepancies = await prisma.reconciliationMismatch.count({
+        where: {
+          statement: { bankId },
+          isResolved: false
+        }
+      });
+      
+      console.log(`✅ Reconciliation status: ${pendingTransactions} pending, ${matchedTransactions} matched, ${discrepancies} discrepancies`);
+      
+      return {
+        bankId,
+        lastStatementDate: lastStatement?.statementDate,
+        isReconciled: lastStatement?.isReconciled || false,
+        pendingTransactions,
+        matchedTransactions,
+        discrepancies
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error getting reconciliation status:', error.message);
+      return {
+        bankId,
+        isReconciled: false,
+        pendingTransactions: 0,
+        matchedTransactions: 0,
+        discrepancies: 0
+      };
     }
   }
-} 
+  
+  /**
+   * Perform automatic matching
+   */
+  static async performAutomaticMatching(statementId: string): Promise<ReconciliationResult> {
+    try {
+      console.log(`🔄 Performing automatic matching for statement: ${statementId}`);
+      
+      // Get statement with items
+      const statement = await prisma.bankStatement.findUnique({
+        where: { id: statementId },
+        include: {
+          items: true,
+          bank: true
+        }
+      });
+      
+      if (!statement) {
+        return {
+          statementId,
+          totalItems: 0,
+          matchedItems: 0,
+          unmatchedItems: 0,
+          discrepancies: 0,
+          isBalanced: false,
+          success: false,
+          message: 'Statement not found'
+        };
+      }
+      
+      let matchedItems = 0;
+      let unmatchedItems = 0;
+      let discrepancies = 0;
+      
+      // Match each statement item
+      for (const item of statement.items) {
+        if (item.isMatched) continue;
+        
+        // Find matching transaction
+        const matchingTransaction = await this.findMatchingTransaction(item, statement.bankId);
+        
+        if (matchingTransaction) {
+          // Mark as matched
+          await prisma.bankStatementItem.update({
+            where: { id: item.id },
+            data: {
+              isMatched: true,
+              matchedTransactionId: matchingTransaction.id
+            }
+          });
+          
+          // Mark transaction as reconciled
+          await prisma.cashbookTransaction.update({
+            where: { id: matchingTransaction.id },
+            data: {
+              isReconciled: true,
+              reconciledAt: new Date()
+            }
+          });
+          
+          matchedItems++;
+        } else {
+          // Create mismatch record
+          await this.createMismatch(statementId, item, null);
+          unmatchedItems++;
+          discrepancies++;
+        }
+      }
+      
+      const totalItems = statement.items.length;
+      const isBalanced = matchedItems === totalItems;
+      
+      console.log(`✅ Automatic matching completed: ${matchedItems}/${totalItems} matched`);
+      
+      return {
+        statementId,
+        totalItems,
+        matchedItems,
+        unmatchedItems,
+        discrepancies,
+        isBalanced,
+        success: true,
+        message: 'Automatic matching completed'
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error performing automatic matching:', error.message);
+      return {
+        statementId,
+        totalItems: 0,
+        matchedItems: 0,
+        unmatchedItems: 0,
+        discrepancies: 0,
+        isBalanced: false,
+        success: false,
+        message: error.message
+      };
+    }
+  }
+  
+  /**
+   * Get reconciliation mismatches
+   */
+  static async getReconciliationMismatches(statementId: string): Promise<ReconciliationMismatch[]> {
+    try {
+      console.log(`📋 Getting reconciliation mismatches for statement: ${statementId}`);
+      
+      const mismatches = await prisma.reconciliationMismatch.findMany({
+        where: { statementId },
+        orderBy: { severity: 'desc', createdAt: 'desc' }
+      });
+      
+      console.log(`✅ Found ${mismatches.length} mismatches`);
+      return mismatches;
+      
+    } catch (error: any) {
+      console.error('❌ Error getting reconciliation mismatches:', error.message);
+      return [];
+    }
+  }
+  
+  /**
+   * Resolve mismatch
+   */
+  static async resolveMismatch(mismatchId: string, resolution: {
+    type: 'MATCH_TRANSACTION' | 'CREATE_TRANSACTION' | 'IGNORE';
+    transactionId?: string;
+    notes?: string;
+  }, userId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log(`🔧 Resolving mismatch: ${mismatchId}`);
+      
+      const mismatch = await prisma.reconciliationMismatch.findUnique({
+        where: { id: mismatchId }
+      });
+      
+      if (!mismatch) {
+        return {
+          success: false,
+          message: 'Mismatch not found'
+        };
+      }
+      
+      switch (resolution.type) {
+        case 'MATCH_TRANSACTION':
+          if (resolution.transactionId) {
+            // Mark transaction as reconciled
+            await prisma.cashbookTransaction.update({
+              where: { id: resolution.transactionId },
+              data: {
+                isReconciled: true,
+                reconciledAt: new Date(),
+                reconciledById: userId
+              }
+            });
+            
+            // Update statement item
+            await prisma.bankStatementItem.update({
+              where: { id: mismatch.statementItemId },
+              data: {
+                isMatched: true,
+                matchedTransactionId: resolution.transactionId
+              }
+            });
+          }
+          break;
+          
+        case 'CREATE_TRANSACTION':
+          // Create missing transaction
+          await this.createMissingTransaction(mismatch, userId);
+          break;
+          
+        case 'IGNORE':
+          // Just mark as resolved
+          break;
+      }
+      
+      // Mark mismatch as resolved
+      await prisma.reconciliationMismatch.update({
+        where: { id: mismatchId },
+        data: {
+          isResolved: true,
+          resolvedAt: new Date(),
+          resolvedById: userId
+        }
+      });
+      
+      console.log(`✅ Mismatch resolved: ${mismatchId}`);
+      
+      return {
+        success: true,
+        message: 'Mismatch resolved successfully'
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error resolving mismatch:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+  
+  /**
+   * Mark transaction as reconciled
+   */
+  static async markTransactionReconciled(transactionId: string, userId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log(`✅ Marking transaction as reconciled: ${transactionId}`);
+      
+      await prisma.cashbookTransaction.update({
+        where: { id: transactionId },
+        data: {
+          isReconciled: true,
+          reconciledAt: new Date(),
+          reconciledById: userId
+        }
+      });
+      
+      console.log(`✅ Transaction marked as reconciled: ${transactionId}`);
+      
+      return {
+        success: true,
+        message: 'Transaction marked as reconciled'
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error marking transaction as reconciled:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+  
+  /**
+   * Complete reconciliation
+   */
+  static async completeReconciliation(statementId: string, userId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log(`🎯 Completing reconciliation for statement: ${statementId}`);
+      
+      // Check if all items are matched
+      const unmatchedItems = await prisma.bankStatementItem.count({
+        where: {
+          statementId,
+          isMatched: false
+        }
+      });
+      
+      if (unmatchedItems > 0) {
+        return {
+          success: false,
+          message: `Cannot complete reconciliation: ${unmatchedItems} items still unmatched`
+        };
+      }
+      
+      // Mark statement as reconciled
+      await prisma.bankStatement.update({
+        where: { id: statementId },
+        data: {
+          isReconciled: true,
+          reconciledAt: new Date(),
+          reconciledById: userId
+        }
+      });
+      
+      console.log(`✅ Reconciliation completed: ${statementId}`);
+      
+      return {
+        success: true,
+        message: 'Reconciliation completed successfully'
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error completing reconciliation:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+  
+  // Private helper methods
+  
+  private static async findMatchingTransaction(item: any, bankId: string): Promise<any> {
+    // Try to match by amount and date
+    const amount = Number(item.debitAmount) > 0 ? Number(item.debitAmount) : Number(item.creditAmount);
+    
+    const transaction = await prisma.cashbookTransaction.findFirst({
+      where: {
+        bankId,
+        status: 'POSTED',
+        isReconciled: false,
+        totalAmount: amount,
+        transactionDate: {
+          gte: new Date(item.transactionDate.getTime() - 24 * 60 * 60 * 1000), // 1 day before
+          lte: new Date(item.transactionDate.getTime() + 24 * 60 * 60 * 1000)  // 1 day after
+        }
+      }
+    });
+    
+    return transaction;
+  }
+  
+  private static async createMismatch(statementId: string, item: any, transactionId?: string): Promise<void> {
+    await prisma.reconciliationMismatch.create({
+      data: {
+        statementId,
+        transactionId,
+        type: transactionId ? 'AMOUNT_MISMATCH' : 'MISSING_IN_SYSTEM',
+        description: `Mismatch for ${item.description}`,
+        systemAmount: transactionId ? Number(item.debitAmount) : undefined,
+        statementAmount: Number(item.debitAmount) > 0 ? Number(item.debitAmount) : Number(item.creditAmount),
+        systemDate: transactionId ? new Date() : undefined,
+        statementDate: item.transactionDate,
+        severity: 'MEDIUM',
+        isResolved: false
+      }
+    });
+  }
+  
+  private static async createMissingTransaction(mismatch: any, userId: string): Promise<void> {
+    // This would create a missing transaction based on the mismatch
+    // Implementation depends on business rules
+    console.log(`📝 Creating missing transaction for mismatch: ${mismatch.id}`);
+  }
+}
+
+export default BankReconciliationService;

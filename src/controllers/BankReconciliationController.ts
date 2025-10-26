@@ -1,259 +1,275 @@
 // @ts-nocheck
-import { Request, Response } from 'express';
-import { AuthRequest } from '../middleware/authenticate';
-import { BankReconciliationService } from '../services/BankReconciliationService';
-import { ResponseHelper } from '../utils/responseHelper';
+// Bank Reconciliation Controller
+// Handles bank reconciliation endpoints
 
-export class BankReconciliationController {
-  async uploadBankStatement(req: AuthRequest, res: Response) {
+import { Request, Response } from "express";
+import { ResponseHelper } from "../utils/responseHelper";
+import BankReconciliationService from "../services/BankReconciliationService";
+
+interface AuthRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    roleId: string;
+  };
+}
+
+export default class BankReconciliationController {
+  
+  /**
+   * Create bank statement
+   * POST /api/cashbook/reconciliation/statements
+   */
+  static async createBankStatement(req: Request, res: Response) {
     try {
-      const file = req.file;
-      const { accountId, statementDate, openingBalance, closingBalance, transactions } = req.body;
-
-      // Check if it's JSON input first (has required JSON fields)
-      if (accountId && statementDate && openingBalance !== undefined && closingBalance !== undefined && transactions) {
-        // JSON input path
-        const result = await BankReconciliationService.createBankStatementFromJSON({
-          accountId,
-          statementDate: new Date(statementDate),
-          openingBalance: parseFloat(openingBalance),
-          closingBalance: parseFloat(closingBalance),
-          transactions: Array.isArray(transactions) ? transactions : [],
-          createdById: req.user!.id
-        });
-        
-        return ResponseHelper.success(res, 'Bank statement created from JSON successfully', result);
-      } else if (file) {
-        // File upload path
-        const result = await BankReconciliationService.uploadAndProcessBankStatement(file, req.user!.id);
-        return ResponseHelper.created(res, 'Bank statement uploaded and processed successfully', result);
+      const {
+        bankId,
+        statementDate,
+        openingBalance,
+        closingBalance,
+        items
+      } = req.body;
+      
+      if (!bankId || !statementDate || !openingBalance || !closingBalance || !items) {
+        return ResponseHelper.badRequest(res, 'Missing required fields: bankId, statementDate, openingBalance, closingBalance, items');
+      }
+      
+      const result = await BankReconciliationService.createBankStatement({
+        bankId,
+        statementDate: new Date(statementDate),
+        openingBalance: parseFloat(openingBalance),
+        closingBalance: parseFloat(closingBalance),
+        items: items.map((item: any) => ({
+          transactionDate: new Date(item.transactionDate),
+          description: item.description,
+          reference: item.reference,
+          debitAmount: parseFloat(item.debitAmount),
+          creditAmount: parseFloat(item.creditAmount),
+          balance: parseFloat(item.balance)
+        }))
+      });
+      
+      if (result.success) {
+        return ResponseHelper.success(res, 'Bank statement created successfully', result.statement);
       } else {
-        return ResponseHelper.badRequest(res, 'Either file upload or JSON data required');
-      }
-    } catch (error: any) {
-      // Surface full error where possible for easier debugging in non-prod
-      const errMsg = error?.message || String(error);
-      const details = error?.stack || undefined;
-      console.error('BankReconciliationController.uploadBankStatement error:', errMsg, details);
-      return ResponseHelper.error(res, 'Failed to upload bank statement', errMsg);
-    }
-  }
-
-  async getReconciliations(req: AuthRequest, res: Response) {
-    try {
-      const filters = req.query;
-      const result = await BankReconciliationService.getReconciliations(req.user!.id, filters);
-      return ResponseHelper.success(res, 'Reconciliations retrieved successfully', result);
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to retrieve reconciliations', error.message);
-    }
-  }
-
-  async getReconciliationById(req: AuthRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      const reconciliation = await BankReconciliationService.getReconciliationById(id);
-      
-      if (!reconciliation) {
-        return ResponseHelper.notFound(res, 'Reconciliation not found');
+        return ResponseHelper.badRequest(res, result.message);
       }
       
-      return ResponseHelper.success(res, 'Reconciliation retrieved successfully', reconciliation);
     } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to retrieve reconciliation', error.message);
+      console.error('Error in BankReconciliationController.createBankStatement:', error);
+      return ResponseHelper.error(res, 'Failed to create bank statement', error.message);
     }
   }
-
-  async getReconciliationSummary(req: AuthRequest, res: Response) {
+  
+  /**
+   * Get reconciliation status
+   * GET /api/cashbook/reconciliation/status/:bankId
+   */
+  static async getReconciliationStatus(req: Request, res: Response) {
     try {
-      const summary = await BankReconciliationService.getReconciliationSummary();
-      return ResponseHelper.success(res, 'Reconciliation summary retrieved successfully', summary);
+      const { bankId } = req.params;
+      
+      const status = await BankReconciliationService.getReconciliationStatus(bankId);
+      
+      return ResponseHelper.success(res, 'Reconciliation status retrieved successfully', status);
+      
     } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to retrieve reconciliation summary', error.message);
+      console.error('Error in BankReconciliationController.getReconciliationStatus:', error);
+      return ResponseHelper.error(res, 'Failed to get reconciliation status', error.message);
     }
   }
-
-  async getUnmatchedTransactions(req: AuthRequest, res: Response) {
+  
+  /**
+   * Perform automatic matching
+   * POST /api/cashbook/reconciliation/match/:statementId
+   */
+  static async performAutomaticMatching(req: Request, res: Response) {
     try {
-      const { reconciliationId } = req.params;
-      const { minAmount = 5.00 } = req.query;
+      const { statementId } = req.params;
       
-      const transactions = await BankReconciliationService.getUnmatchedTransactions(
-        reconciliationId, 
-        parseFloat(minAmount as string)
-      );
+      const result = await BankReconciliationService.performAutomaticMatching(statementId);
       
-      return ResponseHelper.success(res, 'Unmatched transactions retrieved successfully', transactions);
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to retrieve unmatched transactions', error.message);
-    }
-  }
-
-  async getPotentialMatches(req: AuthRequest, res: Response) {
-    try {
-      const { bankTransactionId } = req.params;
-      const { limit = 10 } = req.query;
-      
-      const matches = await BankReconciliationService.getPotentialMatches(
-        bankTransactionId, 
-        parseInt(limit as string)
-      );
-      
-      return ResponseHelper.success(res, 'Potential matches retrieved successfully', matches);
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to retrieve potential matches', error.message);
-    }
-  }
-
-  async approveManualMatch(req: AuthRequest, res: Response) {
-    try {
-      const { reconciliationId, bankTransactionId, journalEntryId } = req.body;
-      
-      if (!reconciliationId || !bankTransactionId || !journalEntryId) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: reconciliationId, bankTransactionId, journalEntryId');
-      }
-      
-      await BankReconciliationService.approveManualMatch(
-        reconciliationId, 
-        bankTransactionId, 
-        journalEntryId, 
-        req.user!.id
-      );
-      
-      return ResponseHelper.success(res, 'Manual match approved successfully');
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to approve manual match', error.message);
-    }
-  }
-
-  async rejectReconciliationResult(req: AuthRequest, res: Response) {
-    try {
-      const { reconciliationResultId } = req.params;
-      const { reason } = req.body;
-      
-      await BankReconciliationService.rejectReconciliationResult(
-        reconciliationResultId, 
-        req.user!.id, 
-        reason
-      );
-      
-      return ResponseHelper.success(res, 'Reconciliation result rejected successfully');
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to reject reconciliation result', error.message);
-    }
-  }
-
-  async getAuditTrail(req: AuthRequest, res: Response) {
-    try {
-      const { reconciliationId } = req.params;
-      const auditTrail = await BankReconciliationService.getAuditTrail(reconciliationId);
-      
-      return ResponseHelper.success(res, 'Audit trail retrieved successfully', auditTrail);
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to retrieve audit trail', error.message);
-    }
-  }
-
-  async deleteReconciliation(req: AuthRequest, res: Response) {
-    try {
-      const { id } = req.params;
-      await BankReconciliationService.deleteReconciliation(id, req.user!.id);
-      
-      return ResponseHelper.success(res, 'Reconciliation deleted successfully');
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to delete reconciliation', error.message);
-    }
-  }
-
-  async manualReconcile(req: AuthRequest, res: Response) {
-    try {
-      const { statementLineId, journalEntryId } = req.body;
-      
-      if (!statementLineId || !journalEntryId) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: statementLineId, journalEntryId');
-      }
-
-      await BankReconciliationService.manualReconcile(statementLineId, journalEntryId, req.user!.id);
-      
-      return ResponseHelper.success(res, 'Manual reconciliation completed successfully');
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to perform manual reconciliation', error.message);
-    }
-  }
-
-  async createJournalFromBankStatement(req: AuthRequest, res: Response) {
-    try {
-      const { statementLineId, accountId } = req.body;
-      
-      if (!statementLineId || !accountId) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: statementLineId, accountId');
-      }
-
-      const journalEntryId = await BankReconciliationService.createJournalFromBankStatement(
-        statementLineId, 
-        accountId, 
-        req.user!.id
-      );
-      
-      return ResponseHelper.success(res, 'Journal entry created from bank statement', { journalEntryId });
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to create journal entry from bank statement', error.message);
-    }
-  }
-
-  async generateReconciliationReport(req: AuthRequest, res: Response) {
-    try {
-      const { reconciliationId } = req.params;
-      
-      const report = await BankReconciliationService.generateReconciliationReport(reconciliationId);
-      
-      return ResponseHelper.success(res, 'Reconciliation report generated successfully', report);
-    } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to generate reconciliation report', error.message);
-    }
-  }
-
-  async importBankStatement(req: AuthRequest, res: Response) {
-    try {
-      const file = req.file;
-      const { format, accountId, statementDate, openingBalance, closingBalance, transactions } = req.body;
-
-      // Check if it's JSON input first (has required JSON fields)
-      if (accountId && statementDate && openingBalance !== undefined && closingBalance !== undefined && transactions) {
-        // JSON input path
-        const result = await BankReconciliationService.createBankStatementFromJSON({
-          accountId,
-          statementDate: new Date(statementDate),
-          openingBalance: parseFloat(openingBalance),
-          closingBalance: parseFloat(closingBalance),
-          transactions: Array.isArray(transactions) ? transactions : [],
-          createdById: req.user!.id
-        });
-        
-        return ResponseHelper.success(res, 'Bank statement created from JSON successfully', result);
-      } else if (file) {
-        // File upload path
-        if (!format || !accountId) {
-          return ResponseHelper.badRequest(res, 'Missing required fields: format, accountId');
-        }
-
-        if (!['CSV', 'OFX', 'QIF'].includes(format)) {
-          return ResponseHelper.badRequest(res, 'Invalid format. Must be CSV, OFX, or QIF');
-        }
-
-        const result = await BankReconciliationService.importBankStatement(
-          file.buffer, 
-          format, 
-          accountId, 
-          req.user!.id
-        );
-        
-        return ResponseHelper.success(res, 'Bank statement imported successfully', result);
+      if (result.success) {
+        return ResponseHelper.success(res, 'Automatic matching completed successfully', result);
       } else {
-        return ResponseHelper.badRequest(res, 'Either file upload or JSON data required');
+        return ResponseHelper.badRequest(res, result.message);
       }
+      
     } catch (error: any) {
-      return ResponseHelper.error(res, 'Failed to import bank statement', error.message);
+      console.error('Error in BankReconciliationController.performAutomaticMatching:', error);
+      return ResponseHelper.error(res, 'Failed to perform automatic matching', error.message);
     }
   }
-} 
+  
+  /**
+   * Get reconciliation mismatches
+   * GET /api/cashbook/reconciliation/mismatches/:statementId
+   */
+  static async getReconciliationMismatches(req: Request, res: Response) {
+    try {
+      const { statementId } = req.params;
+      
+      const mismatches = await BankReconciliationService.getReconciliationMismatches(statementId);
+      
+      return ResponseHelper.success(res, 'Reconciliation mismatches retrieved successfully', mismatches);
+      
+    } catch (error: any) {
+      console.error('Error in BankReconciliationController.getReconciliationMismatches:', error);
+      return ResponseHelper.error(res, 'Failed to get reconciliation mismatches', error.message);
+    }
+  }
+  
+  /**
+   * Resolve mismatch
+   * POST /api/cashbook/reconciliation/mismatches/:mismatchId/resolve
+   */
+  static async resolveMismatch(req: Request, res: Response) {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      const { mismatchId } = req.params;
+      const { type, transactionId, notes } = req.body;
+      
+      if (!userId) {
+        return ResponseHelper.unauthorized(res, 'User not authenticated.');
+      }
+      
+      if (!type || !['MATCH_TRANSACTION', 'CREATE_TRANSACTION', 'IGNORE'].includes(type)) {
+        return ResponseHelper.badRequest(res, 'Resolution type must be MATCH_TRANSACTION, CREATE_TRANSACTION, or IGNORE');
+      }
+      
+      const result = await BankReconciliationService.resolveMismatch(mismatchId, {
+        type: type as 'MATCH_TRANSACTION' | 'CREATE_TRANSACTION' | 'IGNORE',
+        transactionId,
+        notes
+      }, userId);
+      
+      if (result.success) {
+        return ResponseHelper.success(res, 'Mismatch resolved successfully');
+      } else {
+        return ResponseHelper.badRequest(res, result.message);
+      }
+      
+    } catch (error: any) {
+      console.error('Error in BankReconciliationController.resolveMismatch:', error);
+      return ResponseHelper.error(res, 'Failed to resolve mismatch', error.message);
+    }
+  }
+  
+  /**
+   * Mark transaction as reconciled
+   * POST /api/cashbook/reconciliation/mark/:transactionId
+   */
+  static async markTransactionReconciled(req: Request, res: Response) {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      const { transactionId } = req.params;
+      
+      if (!userId) {
+        return ResponseHelper.unauthorized(res, 'User not authenticated.');
+      }
+      
+      const result = await BankReconciliationService.markTransactionReconciled(transactionId, userId);
+      
+      if (result.success) {
+        return ResponseHelper.success(res, 'Transaction marked as reconciled successfully');
+      } else {
+        return ResponseHelper.badRequest(res, result.message);
+      }
+      
+    } catch (error: any) {
+      console.error('Error in BankReconciliationController.markTransactionReconciled:', error);
+      return ResponseHelper.error(res, 'Failed to mark transaction as reconciled', error.message);
+    }
+  }
+  
+  /**
+   * Complete reconciliation
+   * POST /api/cashbook/reconciliation/complete/:statementId
+   */
+  static async completeReconciliation(req: Request, res: Response) {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      const { statementId } = req.params;
+      
+      if (!userId) {
+        return ResponseHelper.unauthorized(res, 'User not authenticated.');
+      }
+      
+      const result = await BankReconciliationService.completeReconciliation(statementId, userId);
+      
+      if (result.success) {
+        return ResponseHelper.success(res, 'Reconciliation completed successfully');
+      } else {
+        return ResponseHelper.badRequest(res, result.message);
+      }
+      
+    } catch (error: any) {
+      console.error('Error in BankReconciliationController.completeReconciliation:', error);
+      return ResponseHelper.error(res, 'Failed to complete reconciliation', error.message);
+    }
+  }
+  
+  /**
+   * Get reconciliation report
+   * GET /api/cashbook/reconciliation/report/:statementId
+   */
+  static async getReconciliationReport(req: Request, res: Response) {
+    try {
+      const { statementId } = req.params;
+      
+      // Get statement details
+      const statement = await prisma.bankStatement.findUnique({
+        where: { id: statementId },
+        include: {
+          bank: {
+            include: { currency: true }
+          },
+          items: {
+            include: {
+              matchedTransaction: {
+                include: {
+                  lineItems: {
+                    include: {
+                      contraGlAccount: true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          mismatches: {
+            where: { isResolved: false }
+          }
+        }
+      });
+      
+      if (!statement) {
+        return ResponseHelper.notFound(res, 'Bank statement not found');
+      }
+      
+      const report = {
+        statementId: statement.id,
+        bankName: statement.bank.name,
+        statementDate: statement.statementDate,
+        openingBalance: statement.openingBalance,
+        closingBalance: statement.closingBalance,
+        totalItems: statement.items.length,
+        matchedItems: statement.items.filter(item => item.isMatched).length,
+        unmatchedItems: statement.items.filter(item => !item.isMatched).length,
+        totalMismatches: statement.mismatches.length,
+        isReconciled: statement.isReconciled,
+        reconciledAt: statement.reconciledAt
+      };
+      
+      return ResponseHelper.success(res, 'Reconciliation report retrieved successfully', report);
+      
+    } catch (error: any) {
+      console.error('Error in BankReconciliationController.getReconciliationReport:', error);
+      return ResponseHelper.error(res, 'Failed to get reconciliation report', error.message);
+    }
+  }
+}
+
+// Import prisma for direct database access
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();

@@ -45,6 +45,11 @@ import revenueCategoryRoutes from "./routes/revenueCategoryRoutes"
 import bankReconciliationRoutes from "./routes/bankReconciliationRoutes"
 import cashbookRoutes from "./routes/cashbookRoutes"
 import cashbookRoutesEnhanced from "./routes/cashbookRoutes-Enhanced"
+import cashbookBatchImportRoutes from "./routes/cashbookBatchImportRoutes"
+import openItemMatchingRoutes from "./routes/openItemMatchingRoutes"
+import transactionReversalRoutes from "./routes/transactionReversalRoutes"
+import cashbookTransferRoutes from "./routes/cashbookTransferRoutes"
+import entryTypeRoutes from "./routes/entryTypeRoutes"
 import trialBalanceRoutes from "./routes/trialBalanceRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
@@ -294,7 +299,21 @@ app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
 app.use("/api/accounting/bank-reconciliation", bankReconciliationRoutes)
 app.use("/api/cashbook", cashbookRoutes)
+app.use("/api/cashbook/batches", cashbookBatchImportRoutes)
+app.use("/api/cashbook/open-items", openItemMatchingRoutes)
+app.use("/api/cashbook/transactions", transactionReversalRoutes)
+app.use("/api/cashbook/transfers", cashbookTransferRoutes)
+app.use("/api/cashbook/entry-types", entryTypeRoutes)
 // app.use("/api/cashbook", cashbookRoutesEnhanced) // Disabled to avoid route conflicts
+
+// Import new cashbook routes
+import contraEntryRoutes from "./routes/contraEntryRoutes"
+import batchImportExportRoutes from "./routes/batchImportExportRoutes"
+import periodLockoutRoutes from "./routes/periodLockoutRoutes"
+
+// Register new cashbook routes
+app.use("/api/cashbook/contra", contraEntryRoutes)
+app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 
 // Mini-KYC routes

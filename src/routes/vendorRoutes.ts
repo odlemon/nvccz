@@ -1,6 +1,6 @@
 // @ts-nocheck
 import express from "express";
-import { vendorController } from "../controllers/VendorController";
+import { VendorController } from "../controllers/VendorController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
@@ -75,7 +75,7 @@ router.use(authenticate);
  *       401:
  *         description: Unauthorized
  */
-router.post("/", vendorController.createVendor);
+router.post("/", VendorController.createVendor);
 
 /**
  * @swagger
@@ -115,7 +115,7 @@ router.post("/", vendorController.createVendor);
  *       401:
  *         description: Unauthorized
  */
-router.get("/", vendorController.getVendors);
+router.get("/", VendorController.getVendors);
 
 /**
  * @swagger
@@ -151,7 +151,7 @@ router.get("/", vendorController.getVendors);
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id", vendorController.getVendorById);
+router.get("/:id", VendorController.getVendorById);
 
 /**
  * @swagger
@@ -208,7 +208,7 @@ router.get("/:id", vendorController.getVendorById);
  *       401:
  *         description: Unauthorized
  */
-router.put("/:id", vendorController.updateVendor);
+router.put("/:id", VendorController.updateVendor);
 
 /**
  * @swagger
@@ -236,7 +236,7 @@ router.put("/:id", vendorController.updateVendor);
  *       401:
  *         description: Unauthorized
  */
-router.delete("/:id", vendorController.deleteVendor);
+router.delete("/:id", VendorController.deleteVendor);
 
 /**
  * @swagger
@@ -291,6 +291,6 @@ router.delete("/:id", vendorController.deleteVendor);
  *       401:
  *         description: Unauthorized
  */
-router.get("/:id/expenses", vendorController.getVendorExpenses);
+router.get("/:id/expenses", VendorController.getVendorExpenses);
 
 export default router; 

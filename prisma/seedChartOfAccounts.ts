@@ -451,6 +451,29 @@ async function seedChartOfAccounts() {
       }
     });
 
+    // VAT ACCOUNTS - CRITICAL FOR CASHBOOK MODULE
+    console.log("📊 Creating VAT accounts for cashbook module...");
+    
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "2100",
+        accountName: "VAT Output",
+        accountType: "Current Liability",
+        financialStatement: "Balance Sheet",
+        notes: "VAT collected on sales and receipts - Zimbabwe 15% standard rate"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "2110",
+        accountName: "VAT Input",
+        accountType: "Current Asset",
+        financialStatement: "Balance Sheet",
+        notes: "VAT paid on purchases and payments - Zimbabwe 15% standard rate"
+      }
+    });
+
     console.log("🎉 Comprehensive chart of accounts seeded successfully!");
     console.log("");
     console.log("Created account categories:");
