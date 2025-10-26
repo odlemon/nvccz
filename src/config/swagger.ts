@@ -5724,6 +5724,130 @@ const fallbackSpec = {
           }
         }
       },
+      '/api/cashbook/transactions/{transactionId}/reversal-history': {
+        get: {
+          summary: 'Get reversal history for a transaction',
+          description: 'Get all reversal transactions for a specific original transaction',
+          tags: ['Transaction Reversal'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'transactionId',
+              required: true,
+              schema: { type: 'string' },
+              description: 'Original transaction ID'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Reversal history retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'array', items: { type: 'object' } }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/reversals': {
+        get: {
+          summary: 'Get all reversals for a user',
+          description: 'Get paginated list of all reversal transactions created by the user',
+          tags: ['Transaction Reversal'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'page',
+              schema: { type: 'integer', default: 1 },
+              description: 'Page number'
+            },
+            {
+              in: 'query',
+              name: 'limit',
+              schema: { type: 'integer', default: 50 },
+              description: 'Number of items per page'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Reversals retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          reversals: { type: 'array', items: { type: 'object' } },
+                          pagination: { type: 'object' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/transactions/{transactionId}/can-reverse': {
+        get: {
+          summary: 'Check if transaction can be reversed',
+          description: 'Check if a transaction is eligible for reversal',
+          tags: ['Transaction Reversal'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'transactionId',
+              required: true,
+              schema: { type: 'string' },
+              description: 'Transaction ID to check'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Reversal eligibility checked successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          canReverse: { type: 'boolean' },
+                          reason: { type: 'string', enum: ['OK', 'Not posted', 'Already reversed', 'Period locked'] }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
 
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - CASHBOOK TRANSFERS
@@ -5773,6 +5897,150 @@ const fallbackSpec = {
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' }
           }
+        },
+        get: {
+          summary: 'List transfers',
+          description: 'Get paginated list of transfers for the authenticated user',
+          tags: ['Cashbook Transfers'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'page',
+              schema: { type: 'integer', default: 1 },
+              description: 'Page number'
+            },
+            {
+              in: 'query',
+              name: 'limit',
+              schema: { type: 'integer', default: 50 },
+              description: 'Number of items per page'
+            },
+            {
+              in: 'query',
+              name: 'fromBankId',
+              schema: { type: 'string' },
+              description: 'Filter by source bank ID'
+            },
+            {
+              in: 'query',
+              name: 'toBankId',
+              schema: { type: 'string' },
+              description: 'Filter by destination bank ID'
+            },
+            {
+              in: 'query',
+              name: 'dateFrom',
+              schema: { type: 'string', format: 'date' },
+              description: 'Filter from date'
+            },
+            {
+              in: 'query',
+              name: 'dateTo',
+              schema: { type: 'string', format: 'date' },
+              description: 'Filter to date'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Transfers retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          transfers: { type: 'array', items: { type: 'object' } },
+                          pagination: { type: 'object' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/transfers/{transferId}': {
+        get: {
+          summary: 'Get transfer details',
+          description: 'Get detailed information about a specific transfer',
+          tags: ['Cashbook Transfers'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'transferId',
+              required: true,
+              schema: { type: 'string' },
+              description: 'Transfer ID'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Transfer details retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/transfers/summary': {
+        get: {
+          summary: 'Get transfer summary',
+          description: 'Get summary statistics for transfers',
+          tags: ['Cashbook Transfers'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'dateFrom',
+              schema: { type: 'string', format: 'date' },
+              description: 'Filter from date'
+            },
+            {
+              in: 'query',
+              name: 'dateTo',
+              schema: { type: 'string', format: 'date' },
+              description: 'Filter to date'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Transfer summary retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: 'Unauthorized' }
+          }
         }
       },
 
@@ -5798,7 +6066,13 @@ const fallbackSpec = {
                     transactionType: { type: 'string', enum: ['RECEIPT', 'PAYMENT'], description: 'Transaction type' },
                     counterpartyType: { type: 'string', enum: ['GL', 'CUSTOMER', 'SUPPLIER', 'ANY'], description: 'Allowed counterparty type' },
                     defaultGlAccountId: { type: 'string', description: 'Default GL account ID' },
-                    isActive: { type: 'boolean', default: true, description: 'Whether entry type is active' }
+                    isActive: { type: 'boolean', default: true, description: 'Whether entry type is active' },
+                    requiresProjectCode: { type: 'boolean', default: false, description: 'Whether project code is required' },
+                    requiresReference: { type: 'boolean', default: false, description: 'Whether reference is required' },
+                    autoGenerateReference: { type: 'boolean', default: false, description: 'Whether to auto-generate reference' },
+                    referencePrefix: { type: 'string', description: 'Reference prefix for auto-generation', example: 'CR' },
+                    debitCreditLogic: { type: 'string', enum: ['AUTO', 'MANUAL'], default: 'AUTO', description: 'Debit/credit logic' },
+                    defaultDebitCredit: { type: 'string', enum: ['DEBIT', 'CREDIT'], default: 'DEBIT', description: 'Default debit/credit designation' }
                   }
                 }
               }
@@ -5820,6 +6094,124 @@ const fallbackSpec = {
                 }
               }
             },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        get: {
+          summary: 'Get all entry types',
+          description: 'Get all cashbook entry types with optional filtering',
+          tags: ['Entry Types Management'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'transactionType',
+              schema: { type: 'string', enum: ['RECEIPT', 'PAYMENT'] },
+              description: 'Filter by transaction type'
+            },
+            {
+              in: 'query',
+              name: 'isActive',
+              schema: { type: 'boolean' },
+              description: 'Filter by active status'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Entry types retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'array', items: { type: 'object' } }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/entry-types/{entryTypeId}': {
+        get: {
+          summary: 'Get entry type by ID',
+          description: 'Get detailed information about a specific entry type',
+          tags: ['Entry Types Management'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'entryTypeId',
+              required: true,
+              schema: { type: 'string' },
+              description: 'Entry type ID'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Entry type retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        put: {
+          summary: 'Update entry type',
+          description: 'Update an existing entry type',
+          tags: ['Entry Types Management'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'entryTypeId',
+              required: true,
+              schema: { type: 'string' },
+              description: 'Entry type ID'
+            }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: 'Entry type name' },
+                    description: { type: 'string', description: 'Entry type description' },
+                    transactionType: { type: 'string', enum: ['RECEIPT', 'PAYMENT'], description: 'Transaction type' },
+                    counterpartyType: { type: 'string', enum: ['GL', 'CUSTOMER', 'SUPPLIER', 'ANY'], description: 'Allowed counterparty type' },
+                    defaultGlAccountId: { type: 'string', description: 'Default GL account ID' },
+                    isActive: { type: 'boolean', description: 'Whether entry type is active' },
+                    requiresProjectCode: { type: 'boolean', description: 'Whether project code is required' },
+                    requiresReference: { type: 'boolean', description: 'Whether reference is required' },
+                    autoGenerateReference: { type: 'boolean', description: 'Whether to auto-generate reference' },
+                    referencePrefix: { type: 'string', description: 'Reference prefix for auto-generation' },
+                    debitCreditLogic: { type: 'string', enum: ['AUTO', 'MANUAL'], description: 'Debit/credit logic' },
+                    defaultDebitCredit: { type: 'string', enum: ['DEBIT', 'CREDIT'], description: 'Default debit/credit designation' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Entry type updated successfully' },
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' }
           }
@@ -5873,6 +6265,189 @@ const fallbackSpec = {
           }
         }
       },
+      '/api/cashbook/periods/{period}/status': {
+        get: {
+          summary: 'Get period lockout status',
+          description: 'Check if a specific accounting period is locked',
+          tags: ['Period Lockout'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'period',
+              required: true,
+              schema: { type: 'string', pattern: '^\\d{4}-\\d{2}$' },
+              description: 'Accounting period in YYYY-MM format',
+              example: '2024-01'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Period status retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          period: { type: 'string' },
+                          isLocked: { type: 'boolean' },
+                          lockedAt: { type: 'string', format: 'date-time' },
+                          lockedBy: { type: 'object' },
+                          reason: { type: 'string' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - Invalid period format' },
+            401: { description: 'Unauthorized' },
+            500: { description: 'Internal server error' }
+          }
+        }
+      },
+      '/api/cashbook/periods': {
+        get: {
+          summary: 'Get all periods with lockout status',
+          description: 'Retrieve all accounting periods with their lockout status',
+          tags: ['Period Lockout'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'year',
+              schema: { type: 'integer' },
+              description: 'Filter by year',
+              example: 2024
+            },
+            {
+              in: 'query',
+              name: 'isLocked',
+              schema: { type: 'boolean' },
+              description: 'Filter by lockout status'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Periods retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'array', items: { type: 'object' } }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
+            500: { description: 'Internal server error' }
+          }
+        }
+      },
+      '/api/cashbook/periods/validate-date': {
+        post: {
+          summary: 'Validate transaction date against period lockout',
+          description: 'Check if a transaction can be created on a specific date',
+          tags: ['Period Lockout'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['transactionDate'],
+                  properties: {
+                    transactionDate: { type: 'string', format: 'date-time', description: 'Transaction date to validate' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Transaction date is valid',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            },
+            403: {
+              description: 'Forbidden - Period is locked',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: false },
+                      message: { type: 'string', example: 'Cannot create transaction in locked period: 2024-01' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - Invalid date format' },
+            401: { description: 'Unauthorized' },
+            500: { description: 'Internal server error' }
+          }
+        }
+      },
+      '/api/cashbook/periods/{period}/history': {
+        get: {
+          summary: 'Get lockout history for a period',
+          description: 'Retrieve the lockout/unlock history for a specific period',
+          tags: ['Period Lockout'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'period',
+              required: true,
+              schema: { type: 'string', pattern: '^\\d{4}-\\d{2}$' },
+              description: 'Accounting period in YYYY-MM format',
+              example: '2024-01'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Lockout history retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'array', items: { type: 'object' } }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - Invalid period format' },
+            401: { description: 'Unauthorized' },
+            500: { description: 'Internal server error' }
+          }
+        }
+      },
 
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - CONTRA ENTRIES
@@ -5918,6 +6493,133 @@ const fallbackSpec = {
             },
             400: { description: 'Bad request - Missing required fields' },
             401: { description: 'Unauthorized - Authentication required' },
+            500: { description: 'Internal server error' }
+          }
+        }
+      },
+      '/api/cashbook/contra/configs': {
+        get: {
+          summary: 'Get contra entry configurations',
+          description: 'Retrieve contra entry configurations with optional filtering',
+          tags: ['Contra Entries'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'query',
+              name: 'entryType',
+              schema: { type: 'string', enum: ['RECEIPT', 'PAYMENT'] },
+              description: 'Filter by entry type'
+            },
+            {
+              in: 'query',
+              name: 'glAccountId',
+              schema: { type: 'string' },
+              description: 'Filter by GL Account ID'
+            },
+            {
+              in: 'query',
+              name: 'isEnabled',
+              schema: { type: 'boolean' },
+              description: 'Filter by enabled status'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Contra entry configurations retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'array', items: { type: 'object' } }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
+            500: { description: 'Internal server error' }
+          }
+        }
+      },
+      '/api/cashbook/contra/generate': {
+        post: {
+          summary: 'Generate contra entry for cashbook transaction',
+          description: 'Generate contra entry for a specific cashbook transaction',
+          tags: ['Contra Entries'],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['cashbookEntryId'],
+                  properties: {
+                    cashbookEntryId: { type: 'string', description: 'ID of the cashbook entry' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: 'Contra entry generated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - Missing required fields' },
+            401: { description: 'Unauthorized' },
+            500: { description: 'Internal server error' }
+          }
+        }
+      },
+      '/api/cashbook/contra/entries/{cashbookEntryId}': {
+        get: {
+          summary: 'Get contra entries for cashbook entry',
+          description: 'Retrieve all contra entries for a specific cashbook entry',
+          tags: ['Contra Entries'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: 'path',
+              name: 'cashbookEntryId',
+              required: true,
+              schema: { type: 'string' },
+              description: 'ID of the cashbook entry'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Contra entries retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'array', items: { type: 'object' } }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
             500: { description: 'Internal server error' }
           }
         }
