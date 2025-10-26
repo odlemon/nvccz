@@ -14,7 +14,7 @@ router.use(authenticate);
  *   post:
  *     summary: Create entry type
  *     description: Create a new cashbook entry type with D/C designation and account access control
- *     tags: [Cashbook Entry Types]
+ *     tags: [Cashbook - Entry Types]
  *     requestBody:
  *       required: true
  *       content:
@@ -118,7 +118,7 @@ router.post("/", EntryTypeController.createEntryType);
  *   get:
  *     summary: Get all entry types
  *     description: Get all cashbook entry types with optional filtering
- *     tags: [Cashbook Entry Types]
+ *     tags: [Cashbook - Entry Types]
  *     parameters:
  *       - in: query
  *         name: transactionType
@@ -178,7 +178,7 @@ router.get("/", EntryTypeController.getEntryTypes);
  *   get:
  *     summary: Get entry type by ID
  *     description: Get detailed information about a specific entry type
- *     tags: [Cashbook Entry Types]
+ *     tags: [Cashbook - Entry Types]
  *     parameters:
  *       - in: path
  *         name: entryTypeId
@@ -250,7 +250,7 @@ router.get("/:entryTypeId", EntryTypeController.getEntryType);
  *   put:
  *     summary: Update entry type
  *     description: Update an existing entry type
- *     tags: [Cashbook Entry Types]
+ *     tags: [Cashbook - Entry Types]
  *     parameters:
  *       - in: path
  *         name: entryTypeId
@@ -321,7 +321,7 @@ router.put("/:entryTypeId", EntryTypeController.updateEntryType);
  *   delete:
  *     summary: Delete entry type
  *     description: Delete an entry type (only if not used in transactions)
- *     tags: [Cashbook Entry Types]
+ *     tags: [Cashbook - Entry Types]
  *     parameters:
  *       - in: path
  *         name: entryTypeId
@@ -345,7 +345,7 @@ router.delete("/:entryTypeId", EntryTypeController.deleteEntryType);
  *   get:
  *     summary: Get entry types for transaction
  *     description: Get entry types available for creating a specific transaction type
- *     tags: [Cashbook Entry Types]
+ *     tags: [Cashbook - Entry Types]
  *     parameters:
  *       - in: path
  *         name: transactionType
@@ -410,7 +410,7 @@ router.get("/transaction/:transactionType", EntryTypeController.getEntryTypesFor
  *   get:
  *     summary: Get entry type statistics
  *     description: Get statistics about entry types
- *     tags: [Cashbook Entry Types]
+ *     tags: [Cashbook - Entry Types]
  *     responses:
  *       200:
  *         description: Statistics retrieved successfully
@@ -461,7 +461,7 @@ router.get("/statistics", EntryTypeController.getEntryTypeStatistics);
  *   get:
  *     summary: Validate entry type configuration
  *     description: Validate an entry type configuration for issues
- *     tags: [Cashbook Entry Types]
+ *     tags: [Cashbook - Entry Types]
  *     parameters:
  *       - in: path
  *         name: entryTypeId

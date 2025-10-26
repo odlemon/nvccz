@@ -14,7 +14,7 @@ router.use(authenticate);
  *   post:
  *     summary: Reverse a posted transaction
  *     description: Create a reversal transaction for a posted cashbook entry
- *     tags: [Cashbook Reversal]
+ *     tags: [Cashbook - Transaction Reversal]
  *     parameters:
  *       - in: path
  *         name: transactionId
@@ -81,7 +81,7 @@ router.post("/:transactionId/reverse", TransactionReversalController.reverseTran
  *   get:
  *     summary: Get reversal history for a transaction
  *     description: Get all reversal transactions for a specific original transaction
- *     tags: [Cashbook Reversal]
+ *     tags: [Cashbook - Transaction Reversal]
  *     parameters:
  *       - in: path
  *         name: transactionId
@@ -143,7 +143,7 @@ router.get("/:transactionId/reversal-history", TransactionReversalController.get
  *   get:
  *     summary: Get all reversals for a user
  *     description: Get paginated list of all reversal transactions created by the user
- *     tags: [Cashbook Reversal]
+ *     tags: [Cashbook - Transaction Reversal]
  *     parameters:
  *       - in: query
  *         name: page
@@ -225,7 +225,7 @@ router.get("/", TransactionReversalController.getAllReversals);
  *   get:
  *     summary: Check if transaction can be reversed
  *     description: Check if a transaction is eligible for reversal
- *     tags: [Cashbook Reversal]
+ *     tags: [Cashbook - Transaction Reversal]
  *     parameters:
  *       - in: path
  *         name: transactionId
