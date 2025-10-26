@@ -1531,15 +1531,56 @@ const fallbackSpec = {
       },
       put: {
         summary: 'Update batch',
-        description: 'Update an existing cashbook batch',
+        description: 'Update batch details (name, description, status)',
         tags: ['Cashbook'],
         security: [{ bearerAuth: [] }],
         parameters: [
           { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
         ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Batch name'
+                  },
+                  description: {
+                    type: 'string',
+                    description: 'Batch description'
+                  },
+                  status: {
+                    type: 'string',
+                    enum: ['DRAFT', 'POSTED'],
+                    description: 'Batch status'
+                  }
+                }
+              }
+            }
+          }
+        },
         responses: {
-          200: { description: 'Batch updated successfully' },
+          200: { 
+            description: 'Batch updated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    message: { type: 'string' },
+                    data: { type: 'object' }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Bad request - validation errors' },
           401: { description: 'Unauthorized' },
+          403: { description: 'Forbidden' },
           404: { description: 'Batch not found' }
         }
       },
@@ -1619,22 +1660,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/{bankId}/post-batch': {
-      post: {
-        summary: 'Post batch by bank',
-        description: 'Post a cashbook batch associated with a specific bank ID',
-        tags: ['Cashbook'],
-        security: [{ bearerAuth: [] }],
-        parameters: [
-          { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
-        ],
-        responses: {
-          200: { description: 'Batch posted successfully' },
-          401: { description: 'Unauthorized' },
-          404: { description: 'Bank not found' }
-        }
-      }
-    },
+    // Removed non-existent /api/cashbook/{bankId}/post-batch endpoint
     // Cashbook Entry Operations
     '/api/cashbook/entries': {
       get: {
@@ -2076,11 +2102,74 @@ const fallbackSpec = {
       },
       post: {
         summary: 'Create bank account',
-        description: 'Create a new bank account',
+        description: 'Create a new bank account for cashbook',
         tags: ['Cashbook'],
         security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'accountNumber', 'currencyId', 'glAccountId'],
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Bank account name',
+                    example: 'Main Operating Account'
+                  },
+                  accountNumber: {
+                    type: 'string',
+                    description: 'Bank account number',
+                    example: '1234567890'
+                  },
+                  currencyId: {
+                    type: 'string',
+                    description: 'Currency ID',
+                    example: 'cmh3bymy70000una4yk8leusu'
+                  },
+                  glAccountId: {
+                    type: 'string',
+                    description: 'GL account ID',
+                    example: 'cmh3c1fdt0001unxkqzzihy55'
+                  },
+                  bankCode: {
+                    type: 'string',
+                    description: 'Bank code',
+                    example: 'CBZ'
+                  },
+                  branchCode: {
+                    type: 'string',
+                    description: 'Branch code',
+                    example: '001'
+                  },
+                  isActive: {
+                    type: 'boolean',
+                    default: true,
+                    description: 'Whether account is active'
+                  }
+                }
+              }
+            }
+          }
+        },
         responses: {
-          200: { description: 'Bank account created successfully' },
+          200: { 
+            description: 'Bank account created successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean' },
+                    message: { type: 'string' },
+                    data: { type: 'object' }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Bad request - validation errors' },
           401: { description: 'Unauthorized' }
         }
       }
@@ -5608,15 +5697,56 @@ try {
         },
         put: {
           summary: 'Update batch',
-          description: 'Update an existing cashbook batch',
+          description: 'Update batch details (name, description, status)',
           tags: ['Cashbook'],
           security: [{ bearerAuth: [] }],
           parameters: [
             { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
           ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    name: {
+                      type: 'string',
+                      description: 'Batch name'
+                    },
+                    description: {
+                      type: 'string',
+                      description: 'Batch description'
+                    },
+                    status: {
+                      type: 'string',
+                      enum: ['DRAFT', 'POSTED'],
+                      description: 'Batch status'
+                    }
+                  }
+                }
+              }
+            }
+          },
           responses: {
-            200: { description: 'Batch updated successfully' },
+            200: { 
+              description: 'Batch updated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - validation errors' },
             401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' },
             404: { description: 'Batch not found' }
           }
         },
@@ -5696,22 +5826,7 @@ try {
           }
         }
       },
-      '/api/cashbook/{bankId}/post-batch': {
-        post: {
-          summary: 'Post batch by bank',
-          description: 'Post a cashbook batch associated with a specific bank ID',
-          tags: ['Cashbook'],
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
-          ],
-          responses: {
-            200: { description: 'Batch posted successfully' },
-            401: { description: 'Unauthorized' },
-            404: { description: 'Bank not found' }
-          }
-        }
-      },
+      // Removed non-existent /api/cashbook/{bankId}/post-batch endpoint
       // Cashbook Entry Operations
       '/api/cashbook/entries': {
         get: {
@@ -6153,11 +6268,74 @@ try {
         },
         post: {
           summary: 'Create bank account',
-          description: 'Create a new bank account',
+          description: 'Create a new bank account for cashbook',
           tags: ['Cashbook'],
           security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['name', 'accountNumber', 'currencyId', 'glAccountId'],
+                  properties: {
+                    name: {
+                      type: 'string',
+                      description: 'Bank account name',
+                      example: 'Main Operating Account'
+                    },
+                    accountNumber: {
+                      type: 'string',
+                      description: 'Bank account number',
+                      example: '1234567890'
+                    },
+                    currencyId: {
+                      type: 'string',
+                      description: 'Currency ID',
+                      example: 'cmh3bymy70000una4yk8leusu'
+                    },
+                    glAccountId: {
+                      type: 'string',
+                      description: 'GL account ID',
+                      example: 'cmh3c1fdt0001unxkqzzihy55'
+                    },
+                    bankCode: {
+                      type: 'string',
+                      description: 'Bank code',
+                      example: 'CBZ'
+                    },
+                    branchCode: {
+                      type: 'string',
+                      description: 'Branch code',
+                      example: '001'
+                    },
+                    isActive: {
+                      type: 'boolean',
+                      default: true,
+                      description: 'Whether account is active'
+                    }
+                  }
+                }
+              }
+            }
+          },
           responses: {
-            200: { description: 'Bank account created successfully' },
+            200: { 
+              description: 'Bank account created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      data: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - validation errors' },
             401: { description: 'Unauthorized' }
           }
         }
