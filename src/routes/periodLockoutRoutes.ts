@@ -11,13 +11,24 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
+// ============================================================================
+// PERIOD LOCKOUT - Data integrity protection
+// ============================================================================
+
+/**
+ * @swagger
+ * tags:
+ *   name: Period Lockout
+ *   description: Data integrity protection
+ */
+
 /**
  * @swagger
  * /api/cashbook/periods/lock:
  *   post:
  *     summary: Lock/unlock accounting period
  *     description: Lock or unlock an accounting period to prevent transactions
- *     tags: [Cashbook - Period Lockout]
+     *     tags: [Period Lockout]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -70,7 +81,7 @@ router.post('/lock', PeriodLockoutController.lockPeriod);
  *   get:
  *     summary: Get period lockout status
  *     description: Check if a specific accounting period is locked
- *     tags: [Cashbook - Period Lockout]
+     *     tags: [Period Lockout]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -123,7 +134,7 @@ router.get('/:period/status', PeriodLockoutController.getPeriodStatus);
  *   get:
  *     summary: Get all periods with lockout status
  *     description: Retrieve all accounting periods with their lockout status
- *     tags: [Cashbook - Period Lockout]
+     *     tags: [Period Lockout]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -169,7 +180,7 @@ router.get('/', PeriodLockoutController.getAllPeriods);
  *   post:
  *     summary: Validate transaction date against period lockout
  *     description: Check if a transaction can be created on a specific date
- *     tags: [Cashbook - Period Lockout]
+     *     tags: [Period Lockout]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -225,7 +236,7 @@ router.post('/validate-date', PeriodLockoutController.validateTransactionDate);
  *   get:
  *     summary: Get lockout history for a period
  *     description: Retrieve the lockout/unlock history for a specific period
- *     tags: [Cashbook - Period Lockout]
+     *     tags: [Period Lockout]
  *     security:
  *       - bearerAuth: []
  *     parameters:

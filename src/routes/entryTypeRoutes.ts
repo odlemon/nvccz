@@ -8,13 +8,24 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
+// ============================================================================
+// ENTRY TYPES MANAGEMENT - D/C designation and account access control
+// ============================================================================
+
+/**
+ * @swagger
+ * tags:
+ *   name: Entry Types Management
+ *   description: D/C designation and account access control
+ */
+
 /**
  * @swagger
  * /api/cashbook/entry-types:
  *   post:
  *     summary: Create entry type
  *     description: Create a new cashbook entry type with D/C designation and account access control
- *     tags: [Cashbook - Entry Types]
+     *     tags: [Entry Types Management]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -120,7 +131,7 @@ router.post("/", EntryTypeController.createEntryType);
  *   get:
  *     summary: Get all entry types
  *     description: Get all cashbook entry types with optional filtering
- *     tags: [Cashbook - Entry Types]
+     *     tags: [Entry Types Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -182,7 +193,7 @@ router.get("/", EntryTypeController.getEntryTypes);
  *   get:
  *     summary: Get entry type by ID
  *     description: Get detailed information about a specific entry type
- *     tags: [Cashbook - Entry Types]
+     *     tags: [Entry Types Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -256,7 +267,7 @@ router.get("/:entryTypeId", EntryTypeController.getEntryType);
  *   put:
  *     summary: Update entry type
  *     description: Update an existing entry type
- *     tags: [Cashbook - Entry Types]
+     *     tags: [Entry Types Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -329,7 +340,7 @@ router.put("/:entryTypeId", EntryTypeController.updateEntryType);
  *   delete:
  *     summary: Delete entry type
  *     description: Delete an entry type (only if not used in transactions)
- *     tags: [Cashbook - Entry Types]
+     *     tags: [Entry Types Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -355,7 +366,7 @@ router.delete("/:entryTypeId", EntryTypeController.deleteEntryType);
  *   get:
  *     summary: Get entry types for transaction
  *     description: Get entry types available for creating a specific transaction type
- *     tags: [Cashbook - Entry Types]
+     *     tags: [Entry Types Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -422,7 +433,7 @@ router.get("/transaction/:transactionType", EntryTypeController.getEntryTypesFor
  *   get:
  *     summary: Get entry type statistics
  *     description: Get statistics about entry types
- *     tags: [Cashbook - Entry Types]
+     *     tags: [Entry Types Management]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -475,7 +486,7 @@ router.get("/statistics", EntryTypeController.getEntryTypeStatistics);
  *   get:
  *     summary: Validate entry type configuration
  *     description: Validate an entry type configuration for issues
- *     tags: [Cashbook - Entry Types]
+     *     tags: [Entry Types Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:

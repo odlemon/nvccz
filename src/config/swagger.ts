@@ -7413,7 +7413,7 @@ try {
         get: {
           summary: 'Get open invoices for customer',
           description: 'Get all open invoices for a specific customer that can be matched with payments',
-          tags: ['Cashbook - Open Item Matching'],
+          tags: ['Open Item Matching'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -7466,7 +7466,7 @@ try {
         get: {
           summary: 'Get open invoices for supplier',
           description: 'Get all open invoices for a specific supplier that can be matched with payments',
-          tags: ['Cashbook - Open Item Matching'],
+          tags: ['Open Item Matching'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -7519,7 +7519,7 @@ try {
         post: {
           summary: 'Match payment to invoices',
           description: 'Match a payment to specific invoices with allocation amounts',
-          tags: ['Cashbook - Open Item Matching'],
+          tags: ['Open Item Matching'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -7593,7 +7593,7 @@ try {
         post: {
           summary: 'Reverse a posted transaction',
           description: 'Create a reversal transaction for a posted cashbook entry',
-          tags: ['Cashbook - Transaction Reversal'],
+          tags: ['Transaction Reversal'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -7654,7 +7654,7 @@ try {
         get: {
           summary: 'Get reversal history for a transaction',
           description: 'Get all reversal transactions for a specific original transaction',
-          tags: ['Cashbook - Transaction Reversal'],
+          tags: ['Transaction Reversal'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -7708,7 +7708,7 @@ try {
         get: {
           summary: 'Get all reversals for a user',
           description: 'Get paginated list of all reversal transactions created by the user',
-          tags: ['Cashbook - Transaction Reversal'],
+          tags: ['Transaction Reversal'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -7781,7 +7781,7 @@ try {
         get: {
           summary: 'Check if transaction can be reversed',
           description: 'Check if a transaction is eligible for reversal',
-          tags: ['Cashbook - Transaction Reversal'],
+          tags: ['Transaction Reversal'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -7827,7 +7827,7 @@ try {
         post: {
           summary: 'Create cashbook transfer',
           description: 'Create a transfer between two bank accounts',
-          tags: ['Cashbook - Transfers'],
+          tags: ['Cashbook Transfers'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -7881,7 +7881,7 @@ try {
         get: {
           summary: 'List transfers',
           description: 'Get paginated list of transfers for the authenticated user',
-          tags: ['Cashbook - Transfers'],
+          tags: ['Cashbook Transfers'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -7978,7 +7978,7 @@ try {
         get: {
           summary: 'Get transfer details',
           description: 'Get detailed information about a specific transfer',
-          tags: ['Cashbook - Transfers'],
+          tags: ['Cashbook Transfers'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8054,7 +8054,7 @@ try {
         get: {
           summary: 'Get transfer summary',
           description: 'Get summary statistics for transfers',
-          tags: ['Cashbook - Transfers'],
+          tags: ['Cashbook Transfers'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8114,7 +8114,7 @@ try {
         post: {
           summary: 'Create entry type',
           description: 'Create a new cashbook entry type with D/C designation and account access control',
-          tags: ['Cashbook - Entry Types'],
+          tags: ['Entry Types Management'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -8175,7 +8175,7 @@ try {
         get: {
           summary: 'Get all entry types',
           description: 'Get all cashbook entry types with optional filtering',
-          tags: ['Cashbook - Entry Types'],
+          tags: ['Entry Types Management'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8231,7 +8231,7 @@ try {
         get: {
           summary: 'Get entry type by ID',
           description: 'Get detailed information about a specific entry type',
-          tags: ['Cashbook - Entry Types'],
+          tags: ['Entry Types Management'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8286,7 +8286,7 @@ try {
         put: {
           summary: 'Update entry type',
           description: 'Update an existing entry type',
-          tags: ['Cashbook - Entry Types'],
+          tags: ['Entry Types Management'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8336,7 +8336,7 @@ try {
         post: {
           summary: 'Lock/unlock accounting period',
           description: 'Lock or unlock an accounting period to prevent transactions',
-          tags: ['Cashbook - Period Lockout'],
+          tags: ['Period Lockout'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -8380,7 +8380,7 @@ try {
         get: {
           summary: 'Get period lockout status',
           description: 'Check if a specific accounting period is locked',
-          tags: ['Cashbook - Period Lockout'],
+          tags: ['Period Lockout'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8427,7 +8427,7 @@ try {
         get: {
           summary: 'Get all periods with lockout status',
           description: 'Retrieve all accounting periods with their lockout status',
-          tags: ['Cashbook - Period Lockout'],
+          tags: ['Period Lockout'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8470,7 +8470,7 @@ try {
         post: {
           summary: 'Validate transaction date against period lockout',
           description: 'Check if a transaction can be created on a specific date',
-          tags: ['Cashbook - Period Lockout'],
+          tags: ['Period Lockout'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -8525,7 +8525,7 @@ try {
         get: {
           summary: 'Get lockout history for a period',
           description: 'Retrieve the lockout/unlock history for a specific period',
-          tags: ['Cashbook - Period Lockout'],
+          tags: ['Period Lockout'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8567,7 +8567,7 @@ try {
         post: {
           summary: 'Configure contra entry settings',
           description: 'Configure contra entry settings for specific entry types and GL accounts',
-          tags: ['Cashbook - Contra Entries'],
+          tags: ['Contra Entries'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -8612,7 +8612,7 @@ try {
         get: {
           summary: 'Get contra entry configurations',
           description: 'Retrieve contra entry configurations with optional filtering',
-          tags: ['Cashbook - Contra Entries'],
+          tags: ['Contra Entries'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8660,7 +8660,7 @@ try {
         post: {
           summary: 'Generate contra entry for cashbook transaction',
           description: 'Generate contra entry for a specific cashbook transaction',
-          tags: ['Cashbook - Contra Entries'],
+          tags: ['Contra Entries'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -8702,7 +8702,7 @@ try {
         get: {
           summary: 'Get contra entries for cashbook entry',
           description: 'Retrieve all contra entries for a specific cashbook entry',
-          tags: ['Cashbook - Contra Entries'],
+          tags: ['Contra Entries'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
