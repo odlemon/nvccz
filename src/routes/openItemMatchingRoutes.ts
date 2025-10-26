@@ -15,6 +15,8 @@ router.use(authenticate);
  *     summary: Get open invoices for customer
  *     description: Get all open invoices for a specific customer that can be matched with payments
  *     tags: [Cashbook - Open Item Matching]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: customerId
@@ -76,6 +78,8 @@ router.get("/customers/:customerId", OpenItemMatchingController.getCustomerOpenI
  *     summary: Get open invoices for supplier
  *     description: Get all open invoices for a specific supplier that can be matched with payments
  *     tags: [Cashbook - Open Item Matching]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: supplierId
@@ -137,6 +141,8 @@ router.get("/suppliers/:supplierId", OpenItemMatchingController.getSupplierOpenI
  *     summary: Match payment to invoices
  *     description: Match a payment to specific invoices with allocation amounts
  *     tags: [Cashbook - Open Item Matching]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: paymentId
@@ -212,6 +218,8 @@ router.post("/match/:paymentId", OpenItemMatchingController.matchPaymentToInvoic
  *     summary: Unmatch payment from invoices
  *     description: Remove payment allocations from specific invoices
  *     tags: [Cashbook - Open Item Matching]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -247,6 +255,8 @@ router.post("/unmatch", OpenItemMatchingController.unmatchPaymentFromInvoices);
  *     summary: Get payment allocations
  *     description: Get all payment allocations for a specific payment
  *     tags: [Cashbook - Open Item Matching]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: paymentId
@@ -309,6 +319,8 @@ router.get("/allocations/:paymentId", OpenItemMatchingController.getPaymentAlloc
  *     summary: Get matching summary
  *     description: Get summary of open items and matching statistics
  *     tags: [Cashbook - Open Item Matching]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: customerId
