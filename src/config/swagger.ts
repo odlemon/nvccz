@@ -1387,7 +1387,8 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
-    // Cashbook endpoints for fallback
+    // Cashbook endpoints for fallback - Complete set
+    // Core Transactions
     '/api/cashbook/receipts': {
       post: {
         summary: 'Create cash receipt',
@@ -1464,6 +1465,7 @@ const fallbackSpec = {
         }
       }
     },
+    // Batch Operations
     '/api/cashbook/batches/import': {
       post: {
         summary: 'Import CSV batch',
@@ -1500,8 +1502,309 @@ const fallbackSpec = {
           200: { description: 'Batches retrieved successfully' },
           401: { description: 'Unauthorized' }
         }
+      },
+      post: {
+        summary: 'Create batch',
+        description: 'Create a new cashbook batch',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Batch created successfully' },
+          401: { description: 'Unauthorized' }
+        }
       }
     },
+    '/api/cashbook/batches/{batchId}': {
+      get: {
+        summary: 'Get batch details',
+        description: 'Retrieve details for a specific cashbook batch',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+        ],
+        responses: {
+          200: { description: 'Batch details retrieved successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Batch not found' }
+        }
+      },
+      put: {
+        summary: 'Update batch',
+        description: 'Update an existing cashbook batch',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+        ],
+        responses: {
+          200: { description: 'Batch updated successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Batch not found' }
+        }
+      },
+      delete: {
+        summary: 'Delete batch',
+        description: 'Delete a specific cashbook batch',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+        ],
+        responses: {
+          200: { description: 'Batch deleted successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Batch not found' }
+        }
+      }
+    },
+    '/api/cashbook/batches/{batchId}/post': {
+      post: {
+        summary: 'Post batch',
+        description: 'Post a specific cashbook batch to the General Ledger (GL)',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+        ],
+        responses: {
+          200: { description: 'Batch posted successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Batch not found' }
+        }
+      }
+    },
+    '/api/cashbook/batches/{batchId}/export': {
+      get: {
+        summary: 'Export batch to CSV',
+        description: 'Export a single cashbook batch to a CSV file',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+        ],
+        responses: {
+          200: { description: 'Batch exported successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Batch not found' }
+        }
+      }
+    },
+    '/api/cashbook/batches/export/all': {
+      get: {
+        summary: 'Export all batches',
+        description: 'Export all cashbook batches to a CSV file',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'All batches exported successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/batches/{batchId}/transactions/{transactionId}': {
+      post: {
+        summary: 'Add transaction to batch',
+        description: 'Add a transaction to a specific batch',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' },
+          { name: 'transactionId', in: 'path', required: true, schema: { type: 'string' }, description: 'Transaction ID' }
+        ],
+        responses: {
+          200: { description: 'Transaction added to batch successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Batch or transaction not found' }
+        }
+      }
+    },
+    '/api/cashbook/{bankId}/post-batch': {
+      post: {
+        summary: 'Post batch by bank',
+        description: 'Post a cashbook batch associated with a specific bank ID',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
+        ],
+        responses: {
+          200: { description: 'Batch posted successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Bank not found' }
+        }
+      }
+    },
+    // Cashbook Entry Operations
+    '/api/cashbook/entries': {
+      get: {
+        summary: 'Get all entries',
+        description: 'Retrieve all cashbook entries with support for advanced filtering',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Entries retrieved successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/entries/{id}': {
+      get: {
+        summary: 'Get entry by ID',
+        description: 'Retrieve a specific cashbook entry by its ID',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Entry ID' }
+        ],
+        responses: {
+          200: { description: 'Entry retrieved successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Entry not found' }
+        }
+      },
+      put: {
+        summary: 'Update entry',
+        description: 'Update an existing cashbook entry',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Entry ID' }
+        ],
+        responses: {
+          200: { description: 'Entry updated successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Entry not found' }
+        }
+      }
+    },
+    '/api/cashbook/entries/{id}/void': {
+      put: {
+        summary: 'Void entry',
+        description: 'Void a specific cashbook entry',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Entry ID' }
+        ],
+        responses: {
+          200: { description: 'Entry voided successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Entry not found' }
+        }
+      }
+    },
+    '/api/cashbook/entries/{id}/reconcile': {
+      put: {
+        summary: 'Reconcile entry',
+        description: 'Mark a cashbook entry as reconciled',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Entry ID' }
+        ],
+        responses: {
+          200: { description: 'Entry reconciled successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Entry not found' }
+        }
+      }
+    },
+    // Reference and Configuration
+    '/api/cashbook/reference/next': {
+      get: {
+        summary: 'Get next reference number',
+        description: 'Retrieve the next available reference number',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Next reference number retrieved successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/reference/configure': {
+      post: {
+        summary: 'Configure reference numbers',
+        description: 'Configure settings for reference numbers',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Reference configuration updated successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/templates': {
+      post: {
+        summary: 'Create template',
+        description: 'Create a new template for cashbook entries',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Template created successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/discounts/calculate': {
+      post: {
+        summary: 'Calculate settlement discounts',
+        description: 'Calculate settlement discounts',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Discounts calculated successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/discounts/configure': {
+      post: {
+        summary: 'Configure settlement discounts',
+        description: 'Configure settlement discounts',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Discount configuration updated successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    // Summary and Reconciliation
+    '/api/cashbook/{bankId}/summary': {
+      get: {
+        summary: 'Get bank summary',
+        description: 'Retrieve a summary for a specific bank account',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
+        ],
+        responses: {
+          200: { description: 'Bank summary retrieved successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Bank not found' }
+        }
+      }
+    },
+    '/api/cashbook/{bankId}/unreconciled': {
+      get: {
+        summary: 'Get unreconciled entries',
+        description: 'Retrieve unreconciled entries for a specific bank account',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
+        ],
+        responses: {
+          200: { description: 'Unreconciled entries retrieved successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Bank not found' }
+        }
+      }
+    },
+    // Reference Data
     '/api/cashbook/banks': {
       get: {
         summary: 'List banks',
@@ -1510,6 +1813,16 @@ const fallbackSpec = {
         security: [{ bearerAuth: [] }],
         responses: {
           200: { description: 'Banks retrieved successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      },
+      post: {
+        summary: 'Create bank account',
+        description: 'Create a new bank account',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'Bank account created successfully' },
           401: { description: 'Unauthorized' }
         }
       }
@@ -1526,6 +1839,22 @@ const fallbackSpec = {
         }
       }
     },
+    '/api/cashbook/customers/{id}': {
+      get: {
+        summary: 'Get customer details',
+        description: 'Get customer details by ID',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Customer ID' }
+        ],
+        responses: {
+          200: { description: 'Customer details retrieved successfully' },
+          401: { description: 'Unauthorized' },
+          404: { description: 'Customer not found' }
+        }
+      }
+    },
     '/api/cashbook/vendors': {
       get: {
         summary: 'List vendors',
@@ -1534,6 +1863,18 @@ const fallbackSpec = {
         security: [{ bearerAuth: [] }],
         responses: {
           200: { description: 'Vendors retrieved successfully' },
+          401: { description: 'Unauthorized' }
+        }
+      }
+    },
+    '/api/cashbook/gl-accounts': {
+      get: {
+        summary: 'Get chart of accounts',
+        description: 'Get chart of accounts for cashbook transactions',
+        tags: ['Cashbook'],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: { description: 'GL accounts retrieved successfully' },
           401: { description: 'Unauthorized' }
         }
       }
@@ -4865,7 +5206,8 @@ try {
     ...options.definition,
     paths: {
       ...accountingEndpoints,
-      // Cashbook endpoints for error fallback
+      // Cashbook endpoints for error fallback - Complete set
+      // Core Transactions
       '/api/cashbook/receipts': {
         post: {
           summary: 'Create cash receipt',
@@ -4942,6 +5284,7 @@ try {
           }
         }
       },
+      // Batch Operations
       '/api/cashbook/batches/import': {
         post: {
           summary: 'Import CSV batch',
@@ -4978,8 +5321,309 @@ try {
             200: { description: 'Batches retrieved successfully' },
             401: { description: 'Unauthorized' }
           }
+        },
+        post: {
+          summary: 'Create batch',
+          description: 'Create a new cashbook batch',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Batch created successfully' },
+            401: { description: 'Unauthorized' }
+          }
         }
       },
+      '/api/cashbook/batches/{batchId}': {
+        get: {
+          summary: 'Get batch details',
+          description: 'Retrieve details for a specific cashbook batch',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+          ],
+          responses: {
+            200: { description: 'Batch details retrieved successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Batch not found' }
+          }
+        },
+        put: {
+          summary: 'Update batch',
+          description: 'Update an existing cashbook batch',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+          ],
+          responses: {
+            200: { description: 'Batch updated successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Batch not found' }
+          }
+        },
+        delete: {
+          summary: 'Delete batch',
+          description: 'Delete a specific cashbook batch',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+          ],
+          responses: {
+            200: { description: 'Batch deleted successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Batch not found' }
+          }
+        }
+      },
+      '/api/cashbook/batches/{batchId}/post': {
+        post: {
+          summary: 'Post batch',
+          description: 'Post a specific cashbook batch to the General Ledger (GL)',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+          ],
+          responses: {
+            200: { description: 'Batch posted successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Batch not found' }
+          }
+        }
+      },
+      '/api/cashbook/batches/{batchId}/export': {
+        get: {
+          summary: 'Export batch to CSV',
+          description: 'Export a single cashbook batch to a CSV file',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' }
+          ],
+          responses: {
+            200: { description: 'Batch exported successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Batch not found' }
+          }
+        }
+      },
+      '/api/cashbook/batches/export/all': {
+        get: {
+          summary: 'Export all batches',
+          description: 'Export all cashbook batches to a CSV file',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'All batches exported successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/batches/{batchId}/transactions/{transactionId}': {
+        post: {
+          summary: 'Add transaction to batch',
+          description: 'Add a transaction to a specific batch',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'batchId', in: 'path', required: true, schema: { type: 'string' }, description: 'Batch ID' },
+            { name: 'transactionId', in: 'path', required: true, schema: { type: 'string' }, description: 'Transaction ID' }
+          ],
+          responses: {
+            200: { description: 'Transaction added to batch successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Batch or transaction not found' }
+          }
+        }
+      },
+      '/api/cashbook/{bankId}/post-batch': {
+        post: {
+          summary: 'Post batch by bank',
+          description: 'Post a cashbook batch associated with a specific bank ID',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
+          ],
+          responses: {
+            200: { description: 'Batch posted successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Bank not found' }
+          }
+        }
+      },
+      // Cashbook Entry Operations
+      '/api/cashbook/entries': {
+        get: {
+          summary: 'Get all entries',
+          description: 'Retrieve all cashbook entries with support for advanced filtering',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Entries retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/entries/{id}': {
+        get: {
+          summary: 'Get entry by ID',
+          description: 'Retrieve a specific cashbook entry by its ID',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Entry ID' }
+          ],
+          responses: {
+            200: { description: 'Entry retrieved successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Entry not found' }
+          }
+        },
+        put: {
+          summary: 'Update entry',
+          description: 'Update an existing cashbook entry',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Entry ID' }
+          ],
+          responses: {
+            200: { description: 'Entry updated successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Entry not found' }
+          }
+        }
+      },
+      '/api/cashbook/entries/{id}/void': {
+        put: {
+          summary: 'Void entry',
+          description: 'Void a specific cashbook entry',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Entry ID' }
+          ],
+          responses: {
+            200: { description: 'Entry voided successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Entry not found' }
+          }
+        }
+      },
+      '/api/cashbook/entries/{id}/reconcile': {
+        put: {
+          summary: 'Reconcile entry',
+          description: 'Mark a cashbook entry as reconciled',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Entry ID' }
+          ],
+          responses: {
+            200: { description: 'Entry reconciled successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Entry not found' }
+          }
+        }
+      },
+      // Reference and Configuration
+      '/api/cashbook/reference/next': {
+        get: {
+          summary: 'Get next reference number',
+          description: 'Retrieve the next available reference number',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Next reference number retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/reference/configure': {
+        post: {
+          summary: 'Configure reference numbers',
+          description: 'Configure settings for reference numbers',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Reference configuration updated successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/templates': {
+        post: {
+          summary: 'Create template',
+          description: 'Create a new template for cashbook entries',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Template created successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/discounts/calculate': {
+        post: {
+          summary: 'Calculate settlement discounts',
+          description: 'Calculate settlement discounts',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Discounts calculated successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/discounts/configure': {
+        post: {
+          summary: 'Configure settlement discounts',
+          description: 'Configure settlement discounts',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Discount configuration updated successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      // Summary and Reconciliation
+      '/api/cashbook/{bankId}/summary': {
+        get: {
+          summary: 'Get bank summary',
+          description: 'Retrieve a summary for a specific bank account',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
+          ],
+          responses: {
+            200: { description: 'Bank summary retrieved successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Bank not found' }
+          }
+        }
+      },
+      '/api/cashbook/{bankId}/unreconciled': {
+        get: {
+          summary: 'Get unreconciled entries',
+          description: 'Retrieve unreconciled entries for a specific bank account',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'bankId', in: 'path', required: true, schema: { type: 'string' }, description: 'Bank ID' }
+          ],
+          responses: {
+            200: { description: 'Unreconciled entries retrieved successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Bank not found' }
+          }
+        }
+      },
+      // Reference Data
       '/api/cashbook/banks': {
         get: {
           summary: 'List banks',
@@ -4988,6 +5632,16 @@ try {
           security: [{ bearerAuth: [] }],
           responses: {
             200: { description: 'Banks retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        post: {
+          summary: 'Create bank account',
+          description: 'Create a new bank account',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Bank account created successfully' },
             401: { description: 'Unauthorized' }
           }
         }
@@ -5004,6 +5658,22 @@ try {
           }
         }
       },
+      '/api/cashbook/customers/{id}': {
+        get: {
+          summary: 'Get customer details',
+          description: 'Get customer details by ID',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Customer ID' }
+          ],
+          responses: {
+            200: { description: 'Customer details retrieved successfully' },
+            401: { description: 'Unauthorized' },
+            404: { description: 'Customer not found' }
+          }
+        }
+      },
       '/api/cashbook/vendors': {
         get: {
           summary: 'List vendors',
@@ -5012,6 +5682,18 @@ try {
           security: [{ bearerAuth: [] }],
           responses: {
             200: { description: 'Vendors retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/cashbook/gl-accounts': {
+        get: {
+          summary: 'Get chart of accounts',
+          description: 'Get chart of accounts for cashbook transactions',
+          tags: ['Cashbook'],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'GL accounts retrieved successfully' },
             401: { description: 'Unauthorized' }
           }
         }
