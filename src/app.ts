@@ -302,6 +302,7 @@ app.use("/api/cashbook", cashbookRoutes)
 app.use("/api/cashbook/batches", cashbookBatchImportRoutes)
 app.use("/api/cashbook/open-items", openItemMatchingRoutes)
 app.use("/api/cashbook/transactions", transactionReversalRoutes)
+app.use("/api/cashbook/reversals", transactionReversalRoutes)
 app.use("/api/cashbook/transfers", cashbookTransferRoutes)
 // Import new cashbook routes
 import contraEntryRoutes from "./routes/contraEntryRoutes"
