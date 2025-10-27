@@ -7,6 +7,9 @@ import CashbookController from "../controllers/CashbookController";
 import CashbookBatchImportController from "../controllers/CashbookBatchImportController";
 import ReferenceNumberController from "../controllers/ReferenceNumberController";
 import TemplateController from "../controllers/TemplateController";
+import { CashbookCustomerController } from "../controllers/CashbookCustomerController";
+import { CashbookVendorController } from "../controllers/CashbookVendorController";
+import { CashbookInvoiceController } from "../controllers/CashbookInvoiceController";
 import DiscountController from "../controllers/DiscountController";
 import { authenticate } from "../middleware/authenticate";
 import multer from 'multer';
@@ -625,7 +628,7 @@ router.post("/banks", CashbookController.createBank);
  *       200:
  *         description: Customers retrieved successfully
  */
-router.get("/customers", CustomerController.getCustomers);
+router.get("/customers", CashbookCustomerController.getCustomers);
 
 /**
  * @swagger
@@ -647,7 +650,7 @@ router.get("/customers", CustomerController.getCustomers);
  *       404:
  *         description: Customer not found
  */
-router.get("/customers/:id", CustomerController.getCustomerById);
+router.get("/customers/:id", CashbookCustomerController.getCustomerById);
 
 /**
  * @swagger
@@ -660,7 +663,42 @@ router.get("/customers/:id", CustomerController.getCustomerById);
  *       200:
  *         description: Vendors retrieved successfully
  */
-router.get("/vendors", VendorController.getVendors);
+router.get("/vendors", CashbookVendorController.getVendors);
+
+/**
+ * @swagger
+ * /api/cashbook/invoices:
+ *   get:
+ *     summary: Get invoices
+ *     description: Get list of invoices for cashbook
+ *     tags: [Cashbook]
+ *     responses:
+ *       200:
+ *         description: Invoices retrieved successfully
+ */
+router.get("/invoices", CashbookInvoiceController.getInvoices);
+
+/**
+ * @swagger
+ * /api/cashbook/invoices/{id}:
+ *   get:
+ *     summary: Get invoice details
+ *     description: Get details of a specific invoice
+ *     tags: [Cashbook]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Invoice ID
+ *     responses:
+ *       200:
+ *         description: Invoice details retrieved successfully
+ *       404:
+ *         description: Invoice not found
+ */
+router.get("/invoices/:id", CashbookInvoiceController.getInvoiceById);
 
 /**
  * @swagger
