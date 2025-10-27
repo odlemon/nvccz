@@ -113,21 +113,36 @@ app.use(helmet({
   contentSecurityPolicy: false
 }))
 app.use(cors({
-  origin: [ 
-    "https://nvcczz.vercel.app",
-    "https://nvccz-frontend.vercel.app",
-    "https://arcus-eight.vercel.app",
-    "https://nvccz-new.vercel.app",
-    "https://nvcc.vercel.app",
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
-    "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io",
-    "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
-    "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io"
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
     
-  ],
-  credentials: true
+    const allowedOrigins = [
+      "https://nvcczz.vercel.app",
+      "https://nvccz-frontend.vercel.app", 
+      "https://arcus-eight.vercel.app",
+      "https://nvccz-new.vercel.app",
+      "https://nvcc.vercel.app",
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
+      "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io",
+      "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io"
+    ];
+    
+    // Check if origin is allowed
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      // Log the blocked origin for debugging
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
