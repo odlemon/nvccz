@@ -127,19 +127,10 @@ app.use(cors({
     "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io"
     
   ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200
+  credentials: true
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
-
-// Handle CORS preflight requests
-app.options('*', (req, res) => {
-  console.log(`🔄 OPTIONS preflight for ${req.path}`);
-  res.status(200).end();
-});
 
 // Request logging middleware
 app.use((req, res, next) => {
