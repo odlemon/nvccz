@@ -3,7 +3,8 @@ import { PrismaClient, Prisma, Decimal } from "@prisma/client";
 import { AuditService } from "./AuditService";
 import { EmailNotificationService } from "./EmailNotificationService";
 
-const prisma = new PrismaClient();
+import { dbConnection } from '../utils/database';
+const prisma = dbConnection.getPrismaClient();
 
 export interface CreateVendorQuotationParams {
   rfqNumber?: string;

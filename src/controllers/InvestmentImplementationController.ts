@@ -4,7 +4,8 @@ import { EmailNotificationService } from '../services/EmailNotificationService';
 import { InvestmentImplementationService } from '../services/InvestmentImplementationService';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { dbConnection } from '../utils/database';
+const prisma = dbConnection.getPrismaClient();
 
 export class InvestmentImplementationController {
   /**

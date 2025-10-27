@@ -4,7 +4,8 @@ import { AuthRequest } from "../middleware/authenticate";
 import { PrismaClient } from "@prisma/client";
 import { ResponseHelper } from "../utils/responseHelper";
 
-const prisma = new PrismaClient();
+import { dbConnection } from '../utils/database';
+const prisma = dbConnection.getPrismaClient();
 
 export class RevenueSourceController {
   /**

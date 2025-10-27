@@ -2,7 +2,8 @@
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from 'decimal.js';
 
-const prisma = new PrismaClient();
+import { dbConnection } from '../utils/database';
+const prisma = dbConnection.getPrismaClient();
 
 export interface TrialBalanceAccount {
   accountId: string;
