@@ -5,7 +5,7 @@ import helmet from "helmet"
 import dotenv from "dotenv"
 
 import { errorMiddleware } from "./middleware/error"
-import { prisma } from "./utils/database"
+import { prisma, checkDatabaseConnection } from "./utils/database"
 import { envConfig } from "./utils/env"
 import { logger } from "./utils/logger"
 let specs: any = { openapi: '3.0.0', info: { title: 'NVCCZ API', version: '1.0.0' }, paths: {} };
@@ -132,14 +132,25 @@ app.use(cors({
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
-// Request logging middleware
-app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`, {
-    ip: req.ip,
-    userAgent: req.get("User-Agent"),
-  })
-  next()
-})
+// Database connection error handling middleware
+app.use(async (req, res, next) => {
+  try {
+    // Check database connection before processing request
+    const isConnected = await checkDatabaseConnection();
+    if (!isConnected) {
+      logger.warn("Database connection lost, attempting to reconnect");
+      await prisma.$connect();
+    }
+    next();
+  } catch (error: any) {
+    logger.error("Database connection error in middleware", { error: error.message });
+    res.status(503).json({
+      success: false,
+      message: "Database temporarily unavailable",
+      error: "Service temporarily unavailable"
+    });
+  }
+});
 
 // Attach request metadata (ip, user-agent) for audit logging
 import { attachRequestMeta } from "./middleware/requestMeta"
@@ -440,7 +451,32 @@ app.use(errorMiddleware)
 
 const startServer = async (): Promise<void> => {
   try {
-    await prisma.$connect()
+    // Add retry mechanism for database connection
+    let retries = 3;
+    let connected = false;
+    
+    while (retries > 0 && !connected) {
+      try {
+        await prisma.$connect();
+        connected = await checkDatabaseConnection();
+        
+        if (connected) {
+          logger.info("✅ Connected to MySQL database successfully");
+          break;
+        }
+      } catch (error: any) {
+        retries--;
+        logger.warn(`Database connection attempt failed, ${retries} retries left`, { error: error.message });
+        
+        if (retries > 0) {
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+        }
+      }
+    }
+    
+    if (!connected) {
+      throw new Error("Failed to connect to database after 3 attempts");
+    }
 
     app.listen(port, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${port}`, {

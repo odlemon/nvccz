@@ -4,23 +4,34 @@ import { PrismaClient } from '@prisma/client';
 // Prevent hot reloading from creating new instances in development
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
-// Create connection parameters
-const connectionLimit = process.env.DB_MAX_POOL_SIZE || '10';
-const poolTimeout = process.env.DB_SERVER_SELECTION_TIMEOUT ? 
-  (parseInt(process.env.DB_SERVER_SELECTION_TIMEOUT) / 1000).toString() : '20';
+// Create connection parameters with hardcoded values for Aiven Cloud
+const connectionLimit = '15'; // Hardcoded to 15 connections
+const poolTimeout = '30'; // 30 seconds timeout
 
-// Create the single PrismaClient instance
+// Create the single PrismaClient instance with better connection management
 export const prisma =
   globalForPrisma.prisma || new PrismaClient({
     datasources: {
       db: {
-        url: process.env.DATABASE_URL + `&connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}`
+        url: process.env.DATABASE_URL + `&connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}&connect_timeout=60&socket_timeout=60`
       }
-    }
+    },
+    log: ['error', 'warn'], // Enable logging for debugging
   });
 
 // Store in global to prevent hot reload issues in development
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
+// Add connection health check
+export const checkDatabaseConnection = async () => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch (error) {
+    console.error('Database connection check failed:', error);
+    return false;
+  }
+};
 
 // Export default for convenience
 export default prisma;
