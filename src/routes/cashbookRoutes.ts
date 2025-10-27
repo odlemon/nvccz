@@ -7,8 +7,6 @@ import CashbookController from "../controllers/CashbookController";
 import CashbookBatchImportController from "../controllers/CashbookBatchImportController";
 import ReferenceNumberController from "../controllers/ReferenceNumberController";
 import TemplateController from "../controllers/TemplateController";
-import { CustomerController } from "../controllers/CustomerController";
-import { VendorController } from "../controllers/VendorController";
 import DiscountController from "../controllers/DiscountController";
 import { authenticate } from "../middleware/authenticate";
 import multer from 'multer';
