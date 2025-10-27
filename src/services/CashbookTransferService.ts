@@ -37,11 +37,11 @@ export class CashbookTransferService {
       const prisma = dbConnection.getPrismaClient();
       
       // Validate banks
-      const fromBank = await prisma.bankAccount.findUnique({
+      const fromBank = await prisma.bank.findUnique({
         where: { id: transferRequest.fromBankId }
       });
       
-      const toBank = await prisma.bankAccount.findUnique({
+      const toBank = await prisma.bank.findUnique({
         where: { id: transferRequest.toBankId }
       });
       
@@ -178,16 +178,13 @@ export class CashbookTransferService {
       // Create journal entry for outgoing transaction
       const fromJournalEntry = await prisma.journalEntry.create({
         data: {
-          entryNumber: `TR-${fromTransaction.reference}`,
-          entryDate: fromTransaction.transactionDate,
+          transactionDate: fromTransaction.transactionDate,
+          referenceNumber: `TR-${fromTransaction.reference}`,
           description: `Transfer out to ${toBank.name}`,
-          totalDebit: fromTransaction.amount,
-          totalCredit: fromTransaction.amount,
+          totalAmount: fromTransaction.amount,
+          currencyId: fromBank.currencyId,
           status: 'POSTED',
-          cashbookEntryId: fromTransaction.id,
-          createdById: userId,
-          postedAt: new Date(),
-          postedById: userId
+          createdById: userId
         }
       });
       
@@ -216,16 +213,13 @@ export class CashbookTransferService {
       // Create journal entry for incoming transaction
       const toJournalEntry = await prisma.journalEntry.create({
         data: {
-          entryNumber: `TR-${toTransaction.reference}`,
-          entryDate: toTransaction.transactionDate,
+          transactionDate: toTransaction.transactionDate,
+          referenceNumber: `TR-${toTransaction.reference}`,
           description: `Transfer in from ${fromBank.name}`,
-          totalDebit: toTransaction.amount,
-          totalCredit: toTransaction.amount,
+          totalAmount: toTransaction.amount,
+          currencyId: toBank.currencyId,
           status: 'POSTED',
-          cashbookEntryId: toTransaction.id,
-          createdById: userId,
-          postedAt: new Date(),
-          postedById: userId
+          createdById: userId
         }
       });
       
@@ -266,7 +260,7 @@ export class CashbookTransferService {
     try {
       const prisma = dbConnection.getPrismaClient();
       
-      await prisma.auditTrail.create({
+      await prisma.auditLog.create({
         data: {
           entityType: 'CASHBOOK_TRANSFER',
           entityId: transfer.id,
@@ -279,9 +273,7 @@ export class CashbookTransferService {
             description: transfer.description,
             reference: transfer.reference
           },
-          userId: userId,
-          timestamp: new Date(),
-          description: `Transfer created: ${transfer.reference}`
+          userId: userId
         }
       });
       
