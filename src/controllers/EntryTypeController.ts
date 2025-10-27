@@ -3,6 +3,14 @@ import { Request, Response } from 'express';
 import { EntryTypeService } from '../services/EntryTypeService';
 import { ResponseHelper } from '../utils/responseHelper';
 
+interface AuthRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    roleId: string;
+  };
+}
+
 export class EntryTypeController {
   
   /**
@@ -25,7 +33,7 @@ export class EntryTypeController {
         defaultDebitCredit
       } = req.body;
       
-      const userId = (req as any).user?.id;
+      const userId = (req as AuthRequest).user?.id;
       
       if (!name) {
         ResponseHelper.badRequest(res, 'Entry type name is required');
@@ -131,7 +139,7 @@ export class EntryTypeController {
     try {
       const { entryTypeId } = req.params;
       const updateData = req.body;
-      const userId = (req as any).user?.id;
+      const userId = (req as AuthRequest).user?.id;
       
       if (!entryTypeId) {
         ResponseHelper.badRequest(res, 'Entry type ID is required');
@@ -163,7 +171,7 @@ export class EntryTypeController {
   static async deleteEntryType(req: Request, res: Response): Promise<void> {
     try {
       const { entryTypeId } = req.params;
-      const userId = (req as any).user?.id;
+      const userId = (req as AuthRequest).user?.id;
       
       if (!entryTypeId) {
         ResponseHelper.badRequest(res, 'Entry type ID is required');

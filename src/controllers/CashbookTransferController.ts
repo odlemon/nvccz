@@ -3,6 +3,14 @@ import { Request, Response } from 'express';
 import { CashbookTransferService } from '../services/CashbookTransferService';
 import { ResponseHelper } from '../utils/responseHelper';
 
+interface AuthRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    roleId: string;
+  };
+}
+
 export class CashbookTransferController {
   
   /**
@@ -11,7 +19,7 @@ export class CashbookTransferController {
   static async createTransfer(req: Request, res: Response): Promise<void> {
     try {
       const { fromBankId, toBankId, amount, transferDate, description, reference, projectCode } = req.body;
-      const userId = (req as any).user?.id;
+      const userId = (req as AuthRequest).user?.id;
       
       if (!fromBankId) {
         ResponseHelper.badRequest(res, 'Source bank ID is required');
@@ -93,7 +101,7 @@ export class CashbookTransferController {
    */
   static async listTransfers(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).user?.id;
+      const userId = (req as AuthRequest).user?.id;
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 50;
       const fromBankId = req.query.fromBankId as string;
@@ -133,7 +141,7 @@ export class CashbookTransferController {
    */
   static async getTransferSummary(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).user?.id;
+      const userId = (req as AuthRequest).user?.id;
       const dateFrom = req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined;
       const dateTo = req.query.dateTo ? new Date(req.query.dateTo as string) : undefined;
       
