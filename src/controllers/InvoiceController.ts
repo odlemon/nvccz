@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { Request, Response } from "express";
+import { AuthRequest } from "../middleware/authenticate";
 import { InvoiceService, CreateInvoiceParams } from "../services/InvoiceService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
@@ -8,7 +9,7 @@ export class InvoiceController {
   /**
    * Create a new invoice
    */
-  static async createInvoice(req: Request, res: Response): Promise<void> {
+  static async createInvoice(req: AuthRequest, res: Response): Promise<void> {
     try {
       const {
         customerId,
@@ -101,7 +102,7 @@ export class InvoiceController {
   /**
    * Get invoice by ID
    */
-  static async getInvoiceById(req: Request, res: Response): Promise<void> {
+  static async getInvoiceById(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -127,7 +128,7 @@ export class InvoiceController {
   /**
    * Get invoices with filtering and pagination
    */
-  static async getInvoices(req: Request, res: Response): Promise<void> {
+  static async getInvoices(req: AuthRequest, res: Response): Promise<void> {
     try {
       const {
         page = 1,
@@ -161,7 +162,7 @@ export class InvoiceController {
   /**
    * Update an invoice
    */
-  static async updateInvoice(req: Request, res: Response): Promise<void> {
+  static async updateInvoice(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const updateData = req.body;
@@ -205,7 +206,7 @@ export class InvoiceController {
   /**
    * Delete an invoice
    */
-  static async deleteInvoice(req: Request, res: Response): Promise<void> {
+  static async deleteInvoice(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -231,7 +232,7 @@ export class InvoiceController {
   /**
    * Get invoice summary statistics
    */
-  static async getInvoiceSummary(req: Request, res: Response): Promise<void> {
+  static async getInvoiceSummary(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { startDate, endDate, currencyId } = req.query;
 
@@ -252,7 +253,7 @@ export class InvoiceController {
   /**
    * Send invoice to customer (DRAFT -> SENT)
    */
-  static async sendInvoice(req: Request, res: Response): Promise<void> {
+  static async sendInvoice(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
 
@@ -279,7 +280,7 @@ export class InvoiceController {
   /**
    * Mark invoice as paid (SENT -> PAID)
    */
-  static async markAsPaid(req: Request, res: Response): Promise<void> {
+  static async markAsPaid(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const { 
@@ -314,7 +315,7 @@ export class InvoiceController {
   /**
    * Void invoice (any status -> VOID)
    */
-  static async voidInvoice(req: Request, res: Response): Promise<void> {
+  static async voidInvoice(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const { reason } = req.body; // Optional reason for voiding
