@@ -2,7 +2,8 @@
 import { PrismaClient, InvestmentImplementation, InvestmentMilestone, FundDisbursement } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
-const prisma = new PrismaClient();
+import { dbConnection } from '../utils/database';
+const prisma = dbConnection.getPrismaClient();
 
 export interface CreateInvestmentImplementationRequest {
   portfolioCompanyId: string;

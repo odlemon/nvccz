@@ -3,7 +3,8 @@ import { Request, Response } from 'express';
 import { StatementOfAccountService } from '../services/StatementOfAccountService';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { dbConnection } from '../utils/database';
+const prisma = dbConnection.getPrismaClient();
 
 interface AuthRequest extends Request {
   user?: {

@@ -3,7 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import { Decimal } from 'decimal.js';
 import csv from 'csv-parser';
 
-const prisma = new PrismaClient();
+import { dbConnection } from '../utils/database';
+const prisma = dbConnection.getPrismaClient();
 
 interface BankTransactionData {
   transactionDate: Date;

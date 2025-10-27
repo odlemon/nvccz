@@ -7,7 +7,8 @@ import { JournalEntryService, CreateExpenseJournalEntryParams } from './JournalE
 import VATService from './VATService';
 import crypto from 'crypto';
 
-const prisma = new PrismaClient();
+import { dbConnection } from '../utils/database';
+const prisma = dbConnection.getPrismaClient();
 const googleCalendarService = new GoogleCalendarService();
 
 export interface EventCreationData {

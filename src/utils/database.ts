@@ -6,7 +6,13 @@ export class DatabaseConnection {
   private prisma: PrismaClient;
   
   private constructor() {
-    this.prisma = new PrismaClient();
+    this.prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL + '?connection_limit=5&pool_timeout=20'
+        }
+      }
+    });
   }
   
   public static getInstance(): DatabaseConnection {
