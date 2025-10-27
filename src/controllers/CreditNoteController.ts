@@ -1,18 +1,11 @@
 // @ts-nocheck
 import { Request, Response } from 'express';
+import { AuthRequest } from '../middleware/authenticate';
 import { CreditNoteService } from '../services/CreditNoteService';
 import { PrismaClient } from '@prisma/client';
 
 import { dbConnection } from '../utils/database';
 const prisma = dbConnection.getPrismaClient();
-
-interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
 
 export class CreditNoteController {
   /**
