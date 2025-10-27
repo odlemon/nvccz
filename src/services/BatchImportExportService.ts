@@ -2,7 +2,7 @@
 // Batch Import/Export Service
 // Handles batch import and export functionality
 
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 import { ResponseHelper } from '../utils/responseHelper';
 
 export default class BatchImportExportService {
@@ -16,10 +16,9 @@ export default class BatchImportExportService {
     createdById: string;
   }) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Create import batch record
-      const importBatch = await dbConnection.getPrismaClient().cashbookImportBatch.create({
+      const importBatch = await prisma.cashbookImportBatch.create({
         data: {
           fileName: data.file.originalname,
           fileSize: data.file.size,
@@ -41,7 +40,7 @@ export default class BatchImportExportService {
 
       if (importResult.success) {
         // Update batch status
-        await dbConnection.getPrismaClient().cashbookImportBatch.update({
+        await prisma.cashbookImportBatch.update({
           where: { id: importBatch.id },
           data: {
             status: 'COMPLETED',
@@ -58,7 +57,7 @@ export default class BatchImportExportService {
         }, 'Batch imported successfully');
       } else {
         // Update batch status to failed
-        await dbConnection.getPrismaClient().cashbookImportBatch.update({
+        await prisma.cashbookImportBatch.update({
           where: { id: importBatch.id },
           data: {
             status: 'FAILED',
@@ -79,10 +78,9 @@ export default class BatchImportExportService {
    */
   static async exportBatch(batchId: string, format: 'CSV' | 'JSON' = 'CSV') {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get batch with entries
-      const batch = await dbConnection.getPrismaClient().cashbookBatch.findUnique({
+      const batch = await prisma.cashbookBatch.findUnique({
         where: { id: batchId },
         include: {
           entries: {
@@ -142,7 +140,7 @@ export default class BatchImportExportService {
       }
 
       // Create export record
-      const exportRecord = await dbConnection.getPrismaClient().cashbookExport.create({
+      const exportRecord = await prisma.cashbookExport.create({
         data: {
           batchId: batchId,
           fileName: fileName,
@@ -172,9 +170,8 @@ export default class BatchImportExportService {
    */
   static async getImportStatus(batchId: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
-      const importBatch = await dbConnection.getPrismaClient().cashbookImportBatch.findUnique({
+      const importBatch = await prisma.cashbookImportBatch.findUnique({
         where: { id: batchId },
         include: {
           createdBy: {
@@ -204,9 +201,8 @@ export default class BatchImportExportService {
    */
   static async getExportHistory(batchId: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
-      const exports = await dbConnection.getPrismaClient().cashbookExport.findMany({
+      const exports = await prisma.cashbookExport.findMany({
         where: { batchId },
         orderBy: { exportedAt: 'desc' }
       });
@@ -223,10 +219,9 @@ export default class BatchImportExportService {
    */
   static async deleteUnpostedBatch(batchId: string, userId: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Check if batch exists and is unposted
-      const batch = await dbConnection.getPrismaClient().cashbookBatch.findUnique({
+      const batch = await prisma.cashbookBatch.findUnique({
         where: { id: batchId },
         include: { entries: true }
       });
@@ -240,16 +235,16 @@ export default class BatchImportExportService {
       }
 
       // Delete batch and all related entries
-      await dbConnection.getPrismaClient().cashbookEntry.deleteMany({
+      await prisma.cashbookEntry.deleteMany({
         where: { batchId: batchId }
       });
 
-      await dbConnection.getPrismaClient().cashbookBatch.delete({
+      await prisma.cashbookBatch.delete({
         where: { id: batchId }
       });
 
       // Log the deletion
-      await dbConnection.getPrismaClient().auditLog.create({
+      await prisma.auditLog.create({
         data: {
           action: 'DELETE_BATCH',
           resourceType: 'CASHBOOK_BATCH',

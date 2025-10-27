@@ -1,11 +1,9 @@
 // @ts-nocheck
 import { Request, Response } from 'express';
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
-
-const prisma = dbConnection.getPrismaClient();
 
 export class CashbookVendorController {
   

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 
 export interface TransferRequest {
   fromBankId: string;
@@ -34,7 +34,6 @@ export class CashbookTransferService {
     userId: string
   ): Promise<TransferResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Validate banks
       const fromBank = await prisma.bank.findUnique({
@@ -173,7 +172,6 @@ export class CashbookTransferService {
     userId: string
   ): Promise<void> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Create journal entry for outgoing transaction
       const fromJournalEntry = await prisma.journalEntry.create({
@@ -258,7 +256,6 @@ export class CashbookTransferService {
    */
   private static async createTransferAuditTrail(transfer: any, userId: string): Promise<void> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       await prisma.auditLog.create({
         data: {
@@ -288,7 +285,6 @@ export class CashbookTransferService {
    */
   private static async generateTransferReference(): Promise<string> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get the last transfer reference
       const lastTransfer = await prisma.cashbookTransfer.findFirst({
@@ -317,7 +313,6 @@ export class CashbookTransferService {
    */
   private static async isPeriodLocked(transferDate: Date): Promise<boolean> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const year = transferDate.getFullYear();
       const month = transferDate.getMonth() + 1;
@@ -343,7 +338,6 @@ export class CashbookTransferService {
    */
   static async getTransfer(transferId: string): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const transfer = await prisma.cashbookTransfer.findUnique({
         where: { id: transferId },
@@ -395,7 +389,6 @@ export class CashbookTransferService {
     dateTo?: Date
   ): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const offset = (page - 1) * limit;
       
@@ -473,7 +466,6 @@ export class CashbookTransferService {
     dateTo?: Date
   ): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       let whereClause: any = {
         createdById: userId

@@ -272,5 +272,4 @@ export default class BankReconciliationController {
 
 // Import prisma for direct database access
 import { PrismaClient } from '@prisma/client';
-import { dbConnection } from '../utils/database';
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';

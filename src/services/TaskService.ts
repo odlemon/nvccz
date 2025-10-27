@@ -1,8 +1,6 @@
 // @ts-nocheck
 import { PrismaClient, Json } from "@prisma/client";
-import { dbConnection } from "../utils/database";
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 
 export interface CreateTaskRequest {
   title: string;

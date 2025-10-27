@@ -4,8 +4,7 @@ import { AuthRequest } from '../middleware/authenticate';
 import { CreditNoteService } from '../services/CreditNoteService';
 import { PrismaClient } from '@prisma/client';
 
-import { dbConnection } from '../utils/database';
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export class CreditNoteController {
   /**

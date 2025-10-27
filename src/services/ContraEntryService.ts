@@ -2,7 +2,7 @@
 // Contra Entry Service
 // Handles contra entry configuration and generation
 
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 import { ResponseHelper } from '../utils/responseHelper';
 
 export default class ContraEntryService {
@@ -20,7 +20,7 @@ export default class ContraEntryService {
     try {
       
       // Check if configuration already exists
-      const existingConfig = await this.dbConnection.getPrismaClient().contraEntryConfig.findFirst({
+      const existingConfig = await prisma.contraEntryConfig.findFirst({
         where: {
           entryType: data.entryType,
           glAccountId: data.glAccountId
@@ -30,7 +30,7 @@ export default class ContraEntryService {
       let contraConfig;
       if (existingConfig) {
         // Update existing configuration
-        contraConfig = await this.dbConnection.getPrismaClient().contraEntryConfig.update({
+        contraConfig = await prisma.contraEntryConfig.update({
           where: { id: existingConfig.id },
           data: {
             contraType: data.contraType,
@@ -40,7 +40,7 @@ export default class ContraEntryService {
         });
       } else {
         // Create new configuration
-        contraConfig = await this.dbConnection.getPrismaClient().contraEntryConfig.create({
+        contraConfig = await prisma.contraEntryConfig.create({
           data: {
             entryType: data.entryType,
             glAccountId: data.glAccountId,
@@ -67,9 +67,8 @@ export default class ContraEntryService {
     isEnabled?: boolean;
   } = {}) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
-      const configs = await dbConnection.getPrismaClient().contraEntryConfig.findMany({
+      const configs = await prisma.contraEntryConfig.findMany({
         where: {
           ...(filters.entryType && { entryType: filters.entryType }),
           ...(filters.glAccountId && { glAccountId: filters.glAccountId }),
@@ -110,10 +109,9 @@ export default class ContraEntryService {
    */
   static async generateContraEntry(cashbookEntryId: string, createdById: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get cashbook entry with related data
-      const cashbookEntry = await dbConnection.getPrismaClient().cashbookEntry.findUnique({
+      const cashbookEntry = await prisma.cashbookEntry.findUnique({
         where: { id: cashbookEntryId },
         include: {
           bank: true,
@@ -128,7 +126,7 @@ export default class ContraEntryService {
       }
 
       // Get contra configuration
-      const contraConfig = await dbConnection.getPrismaClient().contraEntryConfig.findFirst({
+      const contraConfig = await prisma.contraEntryConfig.findFirst({
         where: {
           entryType: cashbookEntry.type,
           glAccountId: cashbookEntry.glAccountId,
@@ -144,7 +142,7 @@ export default class ContraEntryService {
       let contraEntry;
       if (contraConfig.contraType === 'DETAILED') {
         // Create detailed contra entry
-        contraEntry = await dbConnection.getPrismaClient().contraEntry.create({
+        contraEntry = await prisma.contraEntry.create({
           data: {
             cashbookEntryId: cashbookEntryId,
             contraType: 'DETAILED',
@@ -157,7 +155,7 @@ export default class ContraEntryService {
         });
       } else {
         // Create summary contra entry
-        contraEntry = await dbConnection.getPrismaClient().contraEntry.create({
+        contraEntry = await prisma.contraEntry.create({
           data: {
             cashbookEntryId: cashbookEntryId,
             contraType: 'SUMMARY',
@@ -182,9 +180,8 @@ export default class ContraEntryService {
    */
   static async getContraEntries(cashbookEntryId: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
-      const contraEntries = await dbConnection.getPrismaClient().contraEntry.findMany({
+      const contraEntries = await prisma.contraEntry.findMany({
         where: { cashbookEntryId },
         include: {
           debitAccount: {

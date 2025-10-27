@@ -6,7 +6,7 @@ import { Request, Response } from "express";
 import { ResponseHelper } from "../utils/responseHelper";
 import BatchImportExportService from "../services/BatchImportExportService";
 import multer from "multer";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 
 interface AuthRequest extends Request {
   user?: {
@@ -231,7 +231,6 @@ export default class BatchImportExportController {
       }
 
       // Get export record
-      const prisma = dbConnection.getPrismaClient();
       const exportRecord = await prisma.cashbookExport.findUnique({
         where: { id: exportId }
       });

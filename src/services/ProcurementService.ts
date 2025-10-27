@@ -1,11 +1,9 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from "@prisma/client";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import JournalEntryService from "./JournalEntryService";
 import AuditService from "./AuditService";
 import { ApprovalService } from "./ApprovalService";
-
-const prisma = dbConnection.getPrismaClient();
 
 // Hardcoded departments
 export enum Department {

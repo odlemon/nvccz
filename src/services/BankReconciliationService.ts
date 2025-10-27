@@ -3,9 +3,7 @@
 // Handles bank reconciliation workflow and statement matching
 
 import { PrismaClient, Decimal } from '@prisma/client';
-import { dbConnection } from '../utils/database';
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export interface BankStatement {
   id: string;

@@ -1,9 +1,7 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import bcrypt from "bcryptjs";
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface CreatePortfolioCompanyRequest {
   // User details

@@ -3,9 +3,7 @@
 // Handles repeated descriptions and projects for rapid batch entry
 
 import { PrismaClient } from '@prisma/client';
-import { dbConnection } from '../utils/database';
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export interface CashbookTemplate {
   id: string;

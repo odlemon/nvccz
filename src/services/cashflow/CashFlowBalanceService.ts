@@ -1,9 +1,7 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../../utils/database";
+import { prisma } from "../../utils/database";
 import { CashFlowAccount } from "./types";
-
-const prisma = dbConnection.getPrismaClient();
 
 export class CashFlowBalanceService {
   /**

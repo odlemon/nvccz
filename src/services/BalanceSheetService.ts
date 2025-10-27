@@ -1,8 +1,6 @@
 // @ts-nocheck
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client";
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface BalanceSheetParams {
   asOfDate: Date;

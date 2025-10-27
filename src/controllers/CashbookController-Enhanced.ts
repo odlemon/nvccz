@@ -6,6 +6,7 @@ import { Request, Response } from "express";
 import { CashbookService } from "../services/CashbookService";
 import { CashbookServiceEnhanced } from "../services/CashbookService-Enhanced";
 import ResponseHelper from "../utils/responseHelper";
+import { prisma } from '../utils/database';
 
 interface AuthRequest extends Request {
   user?: {
@@ -163,8 +164,6 @@ export class CashbookControllerEnhanced {
   static async getEntryById(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { dbConnection } = require('../utils/database');
-      const prisma = dbConnection.getPrismaClient();
 
       const entry = await prisma.cashbookEntry.findUnique({
         where: { id },
@@ -216,8 +215,6 @@ export class CashbookControllerEnhanced {
         limit = 50
       } = req.query;
 
-      const { dbConnection } = require('../utils/database');
-      const prisma = dbConnection.getPrismaClient();
 
       const where: any = {};
       

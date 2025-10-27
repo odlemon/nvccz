@@ -1,10 +1,8 @@
 // @ts-nocheck
 import { PrismaClient, StatementOfAccount, StatementItem } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 import AuditService from './AuditService';
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface GenerateStatementParams {
   customerId?: string;

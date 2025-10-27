@@ -5,7 +5,7 @@ import helmet from "helmet"
 import dotenv from "dotenv"
 
 import { errorMiddleware } from "./middleware/error"
-import { dbConnection } from "./utils/database"
+import { prisma } from "./utils/database"
 import { envConfig } from "./utils/env"
 import { logger } from "./utils/logger"
 let specs: any = { openapi: '3.0.0', info: { title: 'NVCCZ API', version: '1.0.0' }, paths: {} };
@@ -246,7 +246,6 @@ app.get("/health", (req, res) => {
 // Database test endpoint
 app.get("/test-db", async (req, res) => {
   try {
-    const prisma = dbConnection.getPrismaClient();
     await prisma.$connect();
     
     // Try a simple query
@@ -441,7 +440,7 @@ app.use(errorMiddleware)
 
 const startServer = async (): Promise<void> => {
   try {
-    await dbConnection.connect()
+    await prisma.$connect()
 
     app.listen(port, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${port}`, {
@@ -461,7 +460,7 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info(`Received ${signal}. Shutting down gracefully...`)
 
   try {
-    await dbConnection.disconnect()
+    await prisma.$disconnect()
     logger.info("Server shut down successfully")
     process.exit(0)
   } catch (error: any) {

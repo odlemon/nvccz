@@ -2,10 +2,7 @@
 import { Request, Response } from "express";
 import { CEODashboardService } from "../services/CEODashboardService";
 import { DataIntegrationService } from "../services/DataIntegrationService";
-import { DatabaseConnection } from "../utils/database";
-
-const dbConnection = DatabaseConnection.getInstance();
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 
 export class CEODashboardController {
   /**

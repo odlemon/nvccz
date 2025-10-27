@@ -1,9 +1,6 @@
 // @ts-nocheck
-import { DatabaseConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
-
-const dbConnection = DatabaseConnection.getInstance();
-const prisma = dbConnection.getPrismaClient();
 
 export interface CreatePerformanceReviewRequest {
   reviewType: string;

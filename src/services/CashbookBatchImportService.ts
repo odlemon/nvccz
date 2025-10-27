@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 import { initializeApp } from 'firebase/app';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -52,7 +52,6 @@ export class CashbookBatchImportService {
    */
   static async importCSV(file: Buffer, fileName: string, userId: string): Promise<BatchImportResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       console.log(`📁 Processing CSV import: ${fileName}`);
       
       // 1. Upload file to Firebase
@@ -179,7 +178,6 @@ export class CashbookBatchImportService {
     validTransactions: CSVTransaction[];
     errors: string[];
   }> {
-    const prisma = dbConnection.getPrismaClient();
     const validTransactions: CSVTransaction[] = [];
     const errors: string[] = [];
     
@@ -265,7 +263,6 @@ export class CashbookBatchImportService {
    */
   static async postBatch(batchId: string, userId: string): Promise<any> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       console.log(`📤 Posting batch: ${batchId}`);
       
       // 1. Get batch with all transactions
@@ -325,7 +322,6 @@ export class CashbookBatchImportService {
    * Create journal entry for transaction
    */
   private static async createJournalEntry(transaction: any, userId: string): Promise<any> {
-    const prisma = dbConnection.getPrismaClient();
     const referenceNumber = `CB-${transaction.id.substring(transaction.id.length - 8).toUpperCase()}`;
     
     // Fetch bank details
@@ -433,7 +429,6 @@ export class CashbookBatchImportService {
    * Get batch details with transactions
    */
   static async getBatchDetails(batchId: string): Promise<any> {
-    const prisma = dbConnection.getPrismaClient();
     const batch = await prisma.cashbookBatch.findUnique({
       where: { id: batchId },
       include: {
@@ -470,7 +465,6 @@ export class CashbookBatchImportService {
     currentPage: number;
   }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       const skip = (page - 1) * limit;
       
       const whereClause: any = {};
@@ -538,7 +532,6 @@ export class CashbookBatchImportService {
     userId: string
   ): Promise<any> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       // Check if batch exists and user has permission
       const existingBatch = await prisma.cashbookBatch.findUnique({
         where: { id: batchId }
@@ -588,7 +581,6 @@ export class CashbookBatchImportService {
    */
   static async deleteBatch(batchId: string, userId: string): Promise<any> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       // Check if batch exists and user has permission
       const existingBatch = await prisma.cashbookBatch.findUnique({
         where: { id: batchId },
@@ -631,7 +623,6 @@ export class CashbookBatchImportService {
    */
   static async exportBatch(batchId: string, userId: string): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get batch with all transactions and related data
       const batch = await prisma.cashbookBatch.findUnique({
@@ -741,7 +732,6 @@ export class CashbookBatchImportService {
    */
   static async exportAllBatches(userId: string): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get all batches for the user
       const batches = await prisma.cashbookBatch.findMany({

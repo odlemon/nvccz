@@ -4,8 +4,7 @@ import { TermSheetService, CreateTermSheetRequest, UpdateTermSheetRequest } from
 import { EmailNotificationService } from '../services/EmailNotificationService';
 import { PrismaClient } from '@prisma/client';
 
-import { dbConnection } from '../utils/database';
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export class TermSheetController {
   /**

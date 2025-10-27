@@ -1,9 +1,7 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../utils/database";
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 
 export class RoleController {
   // Create a new role
