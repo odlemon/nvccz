@@ -103,11 +103,19 @@ export class TransactionReversalService {
       });
       
       // Create reversal journal entry
-      await this.createReversalJournalEntry(
+      const reversalJournalEntryId = await this.createReversalJournalEntry(
         originalTransaction, 
         reversalTransaction, 
         userId
       );
+      
+      // Link reversal transaction to journal entry if one was created
+      if (reversalJournalEntryId) {
+        await prisma.cashbookEntry.update({
+          where: { id: reversalTransaction.id },
+          data: { journalEntryId: reversalJournalEntryId }
+        });
+      }
       
       // Update original transaction status
       await prisma.cashbookEntry.update({
@@ -154,14 +162,14 @@ export class TransactionReversalService {
     originalTransaction: any, 
     reversalTransaction: any, 
     userId: string
-  ): Promise<void> {
+  ): Promise<string | null> {
     try {
       const prisma = dbConnection.getPrismaClient();
       
       // Get the original journal entry
-      const originalJournalEntry = await prisma.journalEntry.findFirst({
+      const originalJournalEntry = await prisma.journalEntry.findUnique({
         where: { 
-          cashbookEntryId: originalTransaction.id 
+          id: originalTransaction.journalEntryId 
         },
         include: {
           journalEntryLines: {
@@ -174,22 +182,19 @@ export class TransactionReversalService {
       
       if (!originalJournalEntry) {
         console.warn('⚠️ No journal entry found for original transaction');
-        return;
+        return null;
       }
       
       // Create reversal journal entry
       const reversalJournalEntry = await prisma.journalEntry.create({
         data: {
-          entryNumber: `REV-${originalJournalEntry.entryNumber}`,
-          entryDate: reversalTransaction.transactionDate,
+          transactionDate: reversalTransaction.transactionDate,
+          referenceNumber: `REV-${originalJournalEntry.referenceNumber}`,
           description: `Reversal of ${originalJournalEntry.description}`,
-          totalDebit: originalJournalEntry.totalCredit, // Swap debit/credit
-          totalCredit: originalJournalEntry.totalDebit,
+          totalAmount: originalJournalEntry.totalAmount,
+          currencyId: originalJournalEntry.currencyId,
           status: 'POSTED',
-          cashbookEntryId: reversalTransaction.id,
-          createdById: userId,
-          postedAt: new Date(),
-          postedById: userId
+          createdById: userId
         }
       });
       
@@ -208,6 +213,7 @@ export class TransactionReversalService {
       }
       
       console.log(`✅ Reversal journal entry created: ${reversalJournalEntry.id}`);
+      return reversalJournalEntry.id;
       
     } catch (error: any) {
       console.error('❌ Error creating reversal journal entry:', error.message);
