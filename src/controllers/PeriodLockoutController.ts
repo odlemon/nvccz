@@ -29,23 +29,17 @@ export default class PeriodLockoutController {
       } = req.body;
 
       if (!period || typeof isLocked !== 'boolean') {
-        return res.status(400).json(
-          ResponseHelper.error('Missing required fields: period, isLocked')
-        );
+        return ResponseHelper.badRequest(res, 'Missing required fields: period, isLocked');
       }
 
       if (!req.user?.id) {
-        return res.status(401).json(
-          ResponseHelper.error('User authentication required')
-        );
+        return ResponseHelper.unauthorized(res, 'User authentication required');
       }
 
       // Validate period format (YYYY-MM)
       const periodRegex = /^\d{4}-\d{2}$/;
       if (!periodRegex.test(period)) {
-        return res.status(400).json(
-          ResponseHelper.error('Invalid period format. Use YYYY-MM')
-        );
+        return ResponseHelper.badRequest(res, 'Invalid period format. Use YYYY-MM');
       }
 
       const result = await PeriodLockoutService.lockPeriod({
@@ -56,15 +50,13 @@ export default class PeriodLockoutController {
       });
 
       if (result.success) {
-        return res.status(200).json(result);
+        return ResponseHelper.success(res, result.message, result.data);
       } else {
-        return res.status(400).json(result);
+        return ResponseHelper.badRequest(res, result.message);
       }
     } catch (error) {
       console.error('Error in lockPeriod:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 
@@ -77,31 +69,25 @@ export default class PeriodLockoutController {
       const { period } = req.params;
 
       if (!period) {
-        return res.status(400).json(
-          ResponseHelper.error('Missing required parameter: period')
-        );
+        return ResponseHelper.badRequest(res, 'Missing required parameter: period');
       }
 
       // Validate period format
       const periodRegex = /^\d{4}-\d{2}$/;
       if (!periodRegex.test(period)) {
-        return res.status(400).json(
-          ResponseHelper.error('Invalid period format. Use YYYY-MM')
-        );
+        return ResponseHelper.badRequest(res, 'Invalid period format. Use YYYY-MM');
       }
 
       const result = await PeriodLockoutService.getPeriodStatus(period);
 
       if (result.success) {
-        return res.status(200).json(result);
+        return ResponseHelper.success(res, result.message, result.data);
       } else {
-        return res.status(400).json(result);
+        return ResponseHelper.badRequest(res, result.message);
       }
     } catch (error) {
       console.error('Error in getPeriodStatus:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 
@@ -120,15 +106,13 @@ export default class PeriodLockoutController {
       const result = await PeriodLockoutService.getAllPeriods(filters);
 
       if (result.success) {
-        return res.status(200).json(result);
+        return ResponseHelper.success(res, result.message, result.data);
       } else {
-        return res.status(400).json(result);
+        return ResponseHelper.badRequest(res, result.message);
       }
     } catch (error) {
       console.error('Error in getAllPeriods:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 
@@ -141,36 +125,28 @@ export default class PeriodLockoutController {
       const { transactionDate } = req.body;
 
       if (!transactionDate) {
-        return res.status(400).json(
-          ResponseHelper.error('Missing required field: transactionDate')
-        );
+        return ResponseHelper.badRequest(res, 'Missing required field: transactionDate');
       }
 
       if (!req.user?.id) {
-        return res.status(401).json(
-          ResponseHelper.error('User authentication required')
-        );
+        return ResponseHelper.unauthorized(res, 'User authentication required');
       }
 
       const date = new Date(transactionDate);
       if (isNaN(date.getTime())) {
-        return res.status(400).json(
-          ResponseHelper.error('Invalid date format')
-        );
+        return ResponseHelper.badRequest(res, 'Invalid date format');
       }
 
       const result = await PeriodLockoutService.validateTransactionDate(date, req.user.id);
 
       if (result.success) {
-        return res.status(200).json(result);
+        return ResponseHelper.success(res, result.message, result.data);
       } else {
-        return res.status(403).json(result);
+        return ResponseHelper.forbidden(res, result.message);
       }
     } catch (error) {
       console.error('Error in validateTransactionDate:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 
@@ -183,31 +159,25 @@ export default class PeriodLockoutController {
       const { period } = req.params;
 
       if (!period) {
-        return res.status(400).json(
-          ResponseHelper.error('Missing required parameter: period')
-        );
+        return ResponseHelper.badRequest(res, 'Missing required parameter: period');
       }
 
       // Validate period format
       const periodRegex = /^\d{4}-\d{2}$/;
       if (!periodRegex.test(period)) {
-        return res.status(400).json(
-          ResponseHelper.error('Invalid period format. Use YYYY-MM')
-        );
+        return ResponseHelper.badRequest(res, 'Invalid period format. Use YYYY-MM');
       }
 
       const result = await PeriodLockoutService.getLockoutHistory(period);
 
       if (result.success) {
-        return res.status(200).json(result);
+        return ResponseHelper.success(res, result.message, result.data);
       } else {
-        return res.status(400).json(result);
+        return ResponseHelper.badRequest(res, result.message);
       }
     } catch (error) {
       console.error('Error in getLockoutHistory:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 }

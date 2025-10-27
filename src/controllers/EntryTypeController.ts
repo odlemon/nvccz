@@ -25,7 +25,7 @@ export class EntryTypeController {
         defaultDebitCredit
       } = req.body;
       
-      const userId = (req as any).user?.userId;
+      const userId = (req as any).user?.id;
       
       if (!name) {
         ResponseHelper.badRequest(res, 'Entry type name is required');
@@ -131,7 +131,7 @@ export class EntryTypeController {
     try {
       const { entryTypeId } = req.params;
       const updateData = req.body;
-      const userId = (req as any).user?.userId;
+      const userId = (req as any).user?.id;
       
       if (!entryTypeId) {
         ResponseHelper.badRequest(res, 'Entry type ID is required');
@@ -163,7 +163,7 @@ export class EntryTypeController {
   static async deleteEntryType(req: Request, res: Response): Promise<void> {
     try {
       const { entryTypeId } = req.params;
-      const userId = (req as any).user?.userId;
+      const userId = (req as any).user?.id;
       
       if (!entryTypeId) {
         ResponseHelper.badRequest(res, 'Entry type ID is required');

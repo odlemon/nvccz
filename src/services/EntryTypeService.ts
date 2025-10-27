@@ -36,7 +36,7 @@ export class EntryTypeService {
       const prisma = dbConnection.getPrismaClient();
       
       // Check if entry type with same name already exists
-      const existingEntryType = await prisma.cashbookEntryTypeConfigConfig.findFirst({
+      const existingEntryType = await prisma.cashbookEntryTypeConfig.findFirst({
         where: {
           name: entryTypeRequest.name,
           transactionType: entryTypeRequest.transactionType
