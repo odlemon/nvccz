@@ -84,11 +84,14 @@ export class TransactionReversalController {
    */
   static async getAllReversals(req: Request, res: Response): Promise<void> {
     try {
+      console.log('🔍 getAllReversals - req.user:', (req as any).user);
       const userId = (req as any).user?.id;
+      console.log('🔍 getAllReversals - userId:', userId);
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 50;
       
       if (!userId) {
+        console.log('❌ getAllReversals - No userId found');
         ResponseHelper.unauthorized(res, 'User not authenticated');
         return;
       }
