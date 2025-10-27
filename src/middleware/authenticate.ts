@@ -23,10 +23,14 @@ export function createToken(userId: string): string {
 }
 
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
+  console.log(`🔐 Auth check for ${req.method} ${req.path}`);
+  console.log(`📋 Headers:`, req.headers.authorization ? 'Authorization header present' : 'No Authorization header');
+  
   const authHeader = req.headers.authorization;
   
   // Check if authorization header exists and has correct format
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.log(`❌ No valid auth header for ${req.path}`);
     res.status(401).json({ 
       success: false,
       message: "Unauthorized" 
@@ -49,6 +53,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     
     console.log("the user", user);
     if (!user) {
+      console.log(`❌ User not found for ${req.path}`);
       res.status(401).json({ 
         success: false,
         message: "Unauthorized" 
@@ -57,11 +62,11 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     }
     
     req.user = user;
-    
-
+    console.log(`✅ Auth successful for ${req.path}`);
     
     next();
   } catch (err) {
+    console.log(`❌ JWT error for ${req.path}:`, err.message);
     // All JWT errors (expired, invalid, malformed) return the same message
     res.status(401).json({ 
       success: false,
