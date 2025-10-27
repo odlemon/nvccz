@@ -1,8 +1,6 @@
 // @ts-nocheck
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { Department, DepartmentRole } from "./ProcurementService";
-
-const prisma = dbConnection.getPrismaClient();
 
 export class ApprovalService {
   /**

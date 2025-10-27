@@ -1,11 +1,9 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { uploadToS3 } from "../utils/awsS3";
-
-const prisma = dbConnection.getPrismaClient();
 
 export const newsletterController = {
   // Create a new newsletter

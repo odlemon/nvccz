@@ -1,11 +1,9 @@
 // @ts-nocheck
 import { PrismaClient, InventoryItem, StockMovement, SalesInvoiceItem } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 import { JournalEntryService } from './JournalEntryService';
 import AuditService from './AuditService';
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface CreateInventoryItemParams {
   itemName: string;

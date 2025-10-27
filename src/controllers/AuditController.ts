@@ -1,9 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { ResponseHelper } from "../utils/responseHelper";
-
-const prisma = dbConnection.getPrismaClient();
 
 export class AuditController {
   /**

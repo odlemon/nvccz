@@ -3,12 +3,10 @@
 // Extends the existing CashbookService with void, edit, batch posting, and reconciliation features
 
 import { PrismaClient, CashbookEntry, JournalEntry, ChartOfAccounts } from "@prisma/client";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 import AuditService from "./AuditService";
 import JournalEntryService from "./JournalEntryService";
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface VoidCashbookEntryParams {
   entryId: string;

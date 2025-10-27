@@ -6,8 +6,7 @@ import { PrismaClient } from "@prisma/client";
 import { AuthRequest } from "../middleware/authenticate";
 import { ResponseHelper } from "../utils/responseHelper";
 
-import { dbConnection } from '../utils/database';
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export class ChartOfAccountsController {
   /**

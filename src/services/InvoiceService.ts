@@ -1,12 +1,10 @@
 // @ts-nocheck
 import { PrismaClient, Invoice, Customer, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import VATService from "./VATService";
 import JournalEntryService, { CreateInvoiceJournalEntryParams } from "./JournalEntryService";
 import AuditService from "./AuditService";
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface CreateInvoiceParams {
   customerId: string;

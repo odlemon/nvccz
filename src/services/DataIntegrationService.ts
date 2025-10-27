@@ -1,8 +1,5 @@
 // @ts-nocheck
-import { DatabaseConnection } from "../utils/database";
-
-const dbConnection = DatabaseConnection.getInstance();
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 
 export interface FundPerformanceMetrics {

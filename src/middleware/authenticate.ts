@@ -3,10 +3,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../utils/database";
-
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
 
 export interface AuthRequest extends Request {

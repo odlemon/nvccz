@@ -1,8 +1,6 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../utils/database";
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 
 export interface CreateKPIRequest {
   name: string;

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 
 export interface OpenItem {
   id: string;
@@ -41,7 +41,6 @@ export class OpenItemMatchingService {
    */
   static async getCustomerOpenItems(customerId: string): Promise<{ success: boolean; data?: OpenItem[]; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get customer invoices that are not fully paid
       const openItems = await prisma.invoice.findMany({
@@ -114,7 +113,6 @@ export class OpenItemMatchingService {
    */
   static async getSupplierOpenItems(supplierId: string): Promise<{ success: boolean; data?: OpenItem[]; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get supplier invoices that are not fully paid
       const openItems = await prisma.invoice.findMany({
@@ -191,7 +189,6 @@ export class OpenItemMatchingService {
     userId: string
   ): Promise<MatchingResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get the payment
       const payment = await prisma.cashbookEntry.findUnique({
@@ -308,7 +305,6 @@ export class OpenItemMatchingService {
     userId: string
   ): Promise<{ success: boolean; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Delete payment allocations
       await prisma.paymentAllocation.deleteMany({
@@ -375,7 +371,6 @@ export class OpenItemMatchingService {
    */
   static async getPaymentAllocations(paymentId: string): Promise<{ success: boolean; data?: any[]; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const allocations = await prisma.paymentAllocation.findMany({
         where: { cashbookEntryId: paymentId },
@@ -407,7 +402,6 @@ export class OpenItemMatchingService {
    */
   static async getMatchingSummary(customerId?: string, supplierId?: string): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       let whereClause: any = {};
       

@@ -2,8 +2,7 @@
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
 
-import { dbConnection } from '../utils/database';
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export interface CreateMiniKycRequest {
   ID: string;

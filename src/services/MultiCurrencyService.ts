@@ -1,11 +1,9 @@
 // @ts-nocheck
 import { PrismaClient, ExchangeRate, ForexGainLoss } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 import { JournalEntryService } from './JournalEntryService';
 import AuditService from './AuditService';
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface CreateExchangeRateParams {
   date: Date;

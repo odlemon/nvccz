@@ -1,10 +1,8 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import emailService from "../services/EmailService";
-
-const prisma = dbConnection.getPrismaClient();
 
 // Available newsletter topics
 const AVAILABLE_TOPICS = [

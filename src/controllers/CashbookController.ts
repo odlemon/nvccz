@@ -5,9 +5,7 @@
 import { Request, Response } from "express";
 import { ResponseHelper } from "../utils/responseHelper";
 import CashbookService from "../services/CashbookService";
-import { dbConnection } from "../utils/database";
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 
 interface AuthRequest extends Request {
   user?: {

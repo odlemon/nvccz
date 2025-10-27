@@ -4,9 +4,7 @@ import { Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
-import { dbConnection } from "../utils/database";
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 
 export class AuthController {

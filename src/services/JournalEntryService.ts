@@ -1,11 +1,9 @@
 // @ts-nocheck
 import { PrismaClient, JournalEntry, JournalEntryLine, ChartOfAccounts } from "@prisma/client";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import VATService from "./VATService";
 import { Decimal } from "@prisma/client/runtime/library";
 import AuditService from "./AuditService";
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface CreateExpenseJournalEntryParams {
   vendorId: string;

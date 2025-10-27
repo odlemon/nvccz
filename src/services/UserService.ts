@@ -1,7 +1,5 @@
 // @ts-nocheck
-import { dbConnection } from "../utils/database";
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 
 export class UserService {
   /**

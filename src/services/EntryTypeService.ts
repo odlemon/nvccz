@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 
 export interface EntryTypeRequest {
   name: string;
@@ -33,7 +33,6 @@ export class EntryTypeService {
     userId: string
   ): Promise<EntryTypeResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Check if entry type with same name already exists
       const existingEntryType = await prisma.cashbookEntryTypeConfig.findFirst({
@@ -102,7 +101,6 @@ export class EntryTypeService {
     isActive?: boolean
   ): Promise<EntryTypeResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       let whereClause: any = {};
       
@@ -157,7 +155,6 @@ export class EntryTypeService {
    */
   static async getEntryType(entryTypeId: string): Promise<EntryTypeResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const entryType = await prisma.cashbookEntryTypeConfig.findUnique({
         where: { id: entryTypeId },
@@ -206,7 +203,6 @@ export class EntryTypeService {
     userId: string
   ): Promise<EntryTypeResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Check if entry type exists
       const existingEntryType = await prisma.cashbookEntryTypeConfig.findUnique({
@@ -293,7 +289,6 @@ export class EntryTypeService {
    */
   static async deleteEntryType(entryTypeId: string, userId: string): Promise<EntryTypeResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Check if entry type exists
       const existingEntryType = await prisma.cashbookEntryTypeConfig.findUnique({
@@ -342,7 +337,6 @@ export class EntryTypeService {
     counterpartyType?: 'GL' | 'CUSTOMER' | 'SUPPLIER'
   ): Promise<EntryTypeResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       let whereClause: any = {
         transactionType: transactionType,
@@ -388,7 +382,6 @@ export class EntryTypeService {
    */
   static async getEntryTypeStatistics(): Promise<EntryTypeResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const totalEntryTypes = await prisma.cashbookEntryTypeConfig.count();
       const activeEntryTypes = await prisma.cashbookEntryTypeConfig.count({
@@ -450,7 +443,6 @@ export class EntryTypeService {
    */
   static async validateEntryTypeConfiguration(entryTypeId: string): Promise<EntryTypeResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const entryType = await prisma.cashbookEntryTypeConfig.findUnique({
         where: { id: entryTypeId },

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 
 export interface ReversalRequest {
   transactionId: string;
@@ -31,7 +31,6 @@ export class TransactionReversalService {
     userId: string
   ): Promise<ReversalResult> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get the original transaction
       const originalTransaction = await prisma.cashbookEntry.findUnique({
@@ -164,7 +163,6 @@ export class TransactionReversalService {
     userId: string
   ): Promise<string | null> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Get the original journal entry
       const originalJournalEntry = await prisma.journalEntry.findUnique({
@@ -231,7 +229,6 @@ export class TransactionReversalService {
     reason: string
   ): Promise<void> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       await prisma.auditTrail.create({
         data: {
@@ -265,7 +262,6 @@ export class TransactionReversalService {
    */
   private static async isPeriodLocked(transactionDate: Date): Promise<boolean> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const year = transactionDate.getFullYear();
       const month = transactionDate.getMonth() + 1;
@@ -291,7 +287,6 @@ export class TransactionReversalService {
    */
   static async getReversalHistory(transactionId: string): Promise<{ success: boolean; data?: any[]; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const reversals = await prisma.cashbookEntry.findMany({
         where: { originalTransactionId: transactionId },
@@ -325,7 +320,6 @@ export class TransactionReversalService {
     limit: number = 50
   ): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const offset = (page - 1) * limit;
       
@@ -384,7 +378,6 @@ export class TransactionReversalService {
    */
   static async canReverseTransaction(transactionId: string): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const transaction = await prisma.cashbookEntry.findUnique({
         where: { id: transactionId },

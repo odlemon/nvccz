@@ -1,12 +1,10 @@
 // @ts-nocheck
 import { PrismaClient, Expense, Vendor, ExpenseCategory, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import VATService from "./VATService";
 import JournalEntryService, { CreateExpenseJournalEntryParams } from "./JournalEntryService";
 import AuditService from "./AuditService";
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface CreateExpenseParams {
   vendorId: string;

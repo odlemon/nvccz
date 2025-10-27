@@ -1,12 +1,10 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { EventService } from "../services/EventService";
 import { GoogleCalendarService } from "../services/GoogleCalendarService";
-
-const prisma = dbConnection.getPrismaClient();
 const googleCalendarService = new GoogleCalendarService();
 
 export const eventController = {

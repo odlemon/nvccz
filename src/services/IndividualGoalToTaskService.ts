@@ -1,8 +1,6 @@
 // @ts-nocheck
-import { dbConnection } from "../utils/database";
+import { prisma } from "../utils/database";
 import { TaskService } from "./TaskService";
-
-const prisma = dbConnection.getPrismaClient();
 
 export class IndividualGoalToTaskService {
   /**

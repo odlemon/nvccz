@@ -3,9 +3,7 @@
 // Handles Open Item matching for customer receipts and supplier payments
 
 import { PrismaClient, Decimal } from '@prisma/client';
-import { dbConnection } from '../utils/database';
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export interface OpenItemInvoice {
   id: string;

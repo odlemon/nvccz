@@ -2,7 +2,7 @@
 // Period Lockout Service
 // Handles accounting period lockout functionality
 
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 import { ResponseHelper } from '../utils/responseHelper';
 
 export default class PeriodLockoutService {
@@ -17,17 +17,16 @@ export default class PeriodLockoutService {
     reason?: string;
   }) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Check if period already exists
-      const existingPeriod = await dbConnection.getPrismaClient().accountingPeriod.findFirst({
+      const existingPeriod = await prisma.accountingPeriod.findFirst({
         where: { period: data.period }
       });
 
       let period;
       if (existingPeriod) {
         // Update existing period
-        period = await dbConnection.getPrismaClient().accountingPeriod.update({
+        period = await prisma.accountingPeriod.update({
           where: { id: existingPeriod.id },
           data: {
             isLocked: data.isLocked,
@@ -38,7 +37,7 @@ export default class PeriodLockoutService {
         });
       } else {
         // Create new period
-        period = await dbConnection.getPrismaClient().accountingPeriod.create({
+        period = await prisma.accountingPeriod.create({
           data: {
             period: data.period,
             isLocked: data.isLocked,
@@ -50,7 +49,7 @@ export default class PeriodLockoutService {
       }
 
       // Log the lockout action
-      await dbConnection.getPrismaClient().auditLog.create({
+      await prisma.auditLog.create({
         data: {
           action: data.isLocked ? 'LOCK_PERIOD' : 'UNLOCK_PERIOD',
           resourceType: 'ACCOUNTING_PERIOD',
@@ -75,9 +74,8 @@ export default class PeriodLockoutService {
    */
   static async isPeriodLocked(period: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
-      const periodRecord = await dbConnection.getPrismaClient().accountingPeriod.findFirst({
+      const periodRecord = await prisma.accountingPeriod.findFirst({
         where: { period }
       });
 
@@ -93,9 +91,8 @@ export default class PeriodLockoutService {
    */
   static async getPeriodStatus(period: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
-      const periodRecord = await dbConnection.getPrismaClient().accountingPeriod.findFirst({
+      const periodRecord = await prisma.accountingPeriod.findFirst({
         where: { period },
         include: {
           lockedByUser: {
@@ -140,7 +137,6 @@ export default class PeriodLockoutService {
     isLocked?: boolean;
   } = {}) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       const whereClause: any = {};
       
@@ -154,7 +150,7 @@ export default class PeriodLockoutService {
         whereClause.isLocked = filters.isLocked;
       }
 
-      const periods = await dbConnection.getPrismaClient().accountingPeriod.findMany({
+      const periods = await prisma.accountingPeriod.findMany({
         where: whereClause,
         include: {
           lockedByUser: {
@@ -183,7 +179,6 @@ export default class PeriodLockoutService {
    */
   static async validateTransactionDate(transactionDate: Date, userId: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
       // Extract period from transaction date (YYYY-MM format)
       const year = transactionDate.getFullYear();
@@ -195,7 +190,7 @@ export default class PeriodLockoutService {
       
       if (isLocked) {
         // Log the attempt to create transaction in locked period
-        await dbConnection.getPrismaClient().auditLog.create({
+        await prisma.auditLog.create({
           data: {
             action: 'ATTEMPT_LOCKED_PERIOD_TRANSACTION',
             resourceType: 'CASHBOOK_ENTRY',
@@ -224,9 +219,8 @@ export default class PeriodLockoutService {
    */
   static async getLockoutHistory(period: string) {
     try {
-      const prisma = dbConnection.getPrismaClient();
       
-      const history = await dbConnection.getPrismaClient().auditLog.findMany({
+      const history = await prisma.auditLog.findMany({
         where: {
           action: {
             in: ['LOCK_PERIOD', 'UNLOCK_PERIOD']

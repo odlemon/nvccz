@@ -2,8 +2,7 @@
 import { PrismaClient, TermSheet, Application } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
-import { dbConnection } from '../utils/database';
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export interface CreateTermSheetRequest {
   applicationId: string;

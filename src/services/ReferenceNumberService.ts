@@ -3,9 +3,7 @@
 // Handles auto-increment reference numbers for cashbook transactions
 
 import { PrismaClient } from '@prisma/client';
-import { dbConnection } from '../utils/database';
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export interface ReferenceNumberConfig {
   id: string;

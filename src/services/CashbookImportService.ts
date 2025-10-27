@@ -3,11 +3,9 @@
 // Handles CSV file uploads, processing, and cashbook transaction creation
 
 import { PrismaClient } from '@prisma/client';
-import { dbConnection } from '../utils/database';
+import { prisma } from '../utils/database';
 import FirebaseStorageService from './FirebaseStorageService';
 import { Decimal } from '@prisma/client/runtime/library';
-
-const prisma = dbConnection.getPrismaClient();
 
 export interface ImportTransaction {
   date: string;

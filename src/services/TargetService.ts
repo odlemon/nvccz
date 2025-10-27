@@ -1,9 +1,7 @@
 // @ts-nocheck
 import { PrismaClient, Target, User } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
-import { dbConnection } from "../utils/database";
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 
 export interface CreateTargetParams {
   type: "Sales" | "Revenue" | "Expenses" | "Profit";

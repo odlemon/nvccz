@@ -3,9 +3,7 @@
 // Handles settlement discounts for customers and suppliers
 
 import { PrismaClient } from '@prisma/client';
-import { dbConnection } from '../utils/database';
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from '../utils/database';
 
 export interface DiscountConfig {
   id: string;

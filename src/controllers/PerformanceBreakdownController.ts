@@ -1,9 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { PerformanceGoalService } from "../services/PerformanceGoalService";
-import { dbConnection } from "../utils/database";
-
-const prisma = dbConnection.getPrismaClient();
+import { prisma } from "../utils/database";
 
 export class PerformanceBreakdownController {
   /**
