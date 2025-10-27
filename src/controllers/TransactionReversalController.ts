@@ -12,7 +12,7 @@ export class TransactionReversalController {
     try {
       const { transactionId } = req.params;
       const { reason, description, reverseDate } = req.body;
-      const userId = (req as any).user?.userId;
+      const userId = (req as any).user?.id;
       
       if (!transactionId) {
         ResponseHelper.badRequest(res, 'Transaction ID is required');
@@ -84,7 +84,7 @@ export class TransactionReversalController {
    */
   static async getAllReversals(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).user?.userId;
+      const userId = (req as any).user?.id;
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 50;
       

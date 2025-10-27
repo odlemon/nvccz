@@ -183,6 +183,9 @@ app.get('/api-docs', (req, res) => {
         .swagger-ui .opblock.opblock-get { border-color: #61affe; background: rgba(97, 175, 254, 0.1); }
         .swagger-ui .opblock.opblock-put { border-color: #fca130; background: rgba(252, 161, 48, 0.1); }
         .swagger-ui .opblock.opblock-delete { border-color: #f93e3e; background: rgba(249, 62, 62, 0.1); }
+        .swagger-ui .filter-container { display: none !important; }
+        .swagger-ui .filter { display: none !important; }
+        .swagger-ui .search-properties { display: none !important; }
       </style>
     </head>
     <body>
@@ -205,12 +208,14 @@ app.get('/api-docs', (req, res) => {
             layout: "StandaloneLayout",
             persistAuthorization: true,
             displayRequestDuration: true,
-            filter: true,
+            filter: false,
             showRequestHeaders: true,
             docExpansion: 'list',
             defaultModelsExpandDepth: 1,
             defaultModelExpandDepth: 1,
-            tryItOutEnabled: true
+            tryItOutEnabled: true,
+            supportedSubmitMethods: ['get', 'post', 'put', 'delete', 'patch'],
+            validatorUrl: null
           });
         };
       </script>
