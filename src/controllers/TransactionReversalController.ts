@@ -59,9 +59,15 @@ export class TransactionReversalController {
   static async getReversalHistory(req: Request, res: Response): Promise<void> {
     try {
       const { transactionId } = req.params;
+      const userId = (req as any).user?.id;
       
       if (!transactionId) {
         ResponseHelper.badRequest(res, 'Transaction ID is required');
+        return;
+      }
+      
+      if (!userId) {
+        ResponseHelper.unauthorized(res, 'User not authenticated');
         return;
       }
       
@@ -116,9 +122,15 @@ export class TransactionReversalController {
   static async canReverseTransaction(req: Request, res: Response): Promise<void> {
     try {
       const { transactionId } = req.params;
+      const userId = (req as any).user?.id;
       
       if (!transactionId) {
         ResponseHelper.badRequest(res, 'Transaction ID is required');
+        return;
+      }
+      
+      if (!userId) {
+        ResponseHelper.unauthorized(res, 'User not authenticated');
         return;
       }
       
