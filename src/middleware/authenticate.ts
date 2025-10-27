@@ -2,7 +2,6 @@
 // src/middleware/authenticate.ts
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
 

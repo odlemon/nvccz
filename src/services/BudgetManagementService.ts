@@ -1,5 +1,4 @@
 // @ts-nocheck
-import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 
 export interface CreateBudgetRequest {

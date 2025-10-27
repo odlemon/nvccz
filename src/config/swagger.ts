@@ -5544,10 +5544,10 @@ const fallbackSpec = {
             {
               in: 'path',
               name: 'customerId',
-              required: true,
+            required: true,
               schema: { type: 'string' },
               description: 'Customer ID'
-            }
+              }
           ],
           responses: {
             200: {
@@ -5596,16 +5596,16 @@ const fallbackSpec = {
                       success: { type: 'boolean' },
                       message: { type: 'string' },
                       data: { type: 'array', items: { type: 'object' } }
+                      }
                     }
                   }
                 }
-              }
             },
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' }
+            }
           }
-        }
-      },
+        },
       '/api/cashbook/open-items/match/{paymentId}': {
         post: {
           summary: 'Match payment to invoices',
@@ -5623,12 +5623,12 @@ const fallbackSpec = {
           ],
           requestBody: {
             required: true,
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
                   required: ['allocations'],
-                  properties: {
+                    properties: {
                     allocations: {
                       type: 'array',
                       items: {
@@ -5639,14 +5639,14 @@ const fallbackSpec = {
                           allocatedAmount: { type: 'number', description: 'Amount to allocate to this invoice' },
                           discountAmount: { type: 'number', description: 'Discount amount applied' },
                           description: { type: 'string', description: 'Allocation description' }
-                        }
-                      }
                     }
                   }
                 }
               }
             }
-          },
+          }
+        }
+      },
           responses: {
             200: {
               description: 'Payment matched successfully',
@@ -5658,16 +5658,16 @@ const fallbackSpec = {
                       success: { type: 'boolean' },
                       message: { type: 'string' },
                       data: { type: 'object' }
+                      }
                     }
                   }
                 }
-              }
             },
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' }
+            }
           }
-        }
-      },
+        },
 
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - TRANSACTION REVERSAL
@@ -5795,11 +5795,11 @@ const fallbackSpec = {
                         properties: {
                           reversals: { type: 'array', items: { type: 'object' } },
                           pagination: { type: 'object' }
-                        }
-                      }
                     }
                   }
                 }
+              }
+            }
               }
             },
             401: { description: 'Unauthorized' }
@@ -5836,18 +5836,18 @@ const fallbackSpec = {
                         properties: {
                           canReverse: { type: 'boolean' },
                           reason: { type: 'string', enum: ['OK', 'Not posted', 'Already reversed', 'Period locked'] }
-                        }
                       }
                     }
                   }
                 }
               }
+              }
             },
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' }
+            }
           }
-        }
-      },
+        },
 
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - CASHBOOK TRANSFERS
@@ -5956,11 +5956,11 @@ const fallbackSpec = {
                         properties: {
                           transfers: { type: 'array', items: { type: 'object' } },
                           pagination: { type: 'object' }
-                        }
                       }
                     }
                   }
                 }
+              }
               }
             },
             401: { description: 'Unauthorized' }
@@ -5977,10 +5977,10 @@ const fallbackSpec = {
             {
               in: 'path',
               name: 'transferId',
-              required: true,
+            required: true,
               schema: { type: 'string' },
               description: 'Transfer ID'
-            }
+              }
           ],
           responses: {
             200: {
@@ -6147,7 +6147,7 @@ const fallbackSpec = {
             {
               in: 'path',
               name: 'entryTypeId',
-              required: true,
+            required: true,
               schema: { type: 'string' },
               description: 'Entry type ID'
             }
@@ -6299,13 +6299,13 @@ const fallbackSpec = {
                           lockedAt: { type: 'string', format: 'date-time' },
                           lockedBy: { type: 'object' },
                           reason: { type: 'string' }
-                        }
-                      }
-                    }
                   }
                 }
               }
-            },
+            }
+          }
+        }
+      },
             400: { description: 'Bad request - Invalid period format' },
             401: { description: 'Unauthorized' },
             500: { description: 'Internal server error' }
@@ -6344,11 +6344,11 @@ const fallbackSpec = {
                       success: { type: 'boolean' },
                       message: { type: 'string' },
                       data: { type: 'array', items: { type: 'object' } }
-                    }
-                  }
                 }
               }
-            },
+            }
+          }
+        },
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' },
             500: { description: 'Internal server error' }
@@ -6363,18 +6363,18 @@ const fallbackSpec = {
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
                   required: ['transactionDate'],
-                  properties: {
+                    properties: {
                     transactionDate: { type: 'string', format: 'date-time', description: 'Transaction date to validate' }
-                  }
                 }
               }
             }
-          },
+          }
+        },
           responses: {
             200: {
               description: 'Transaction date is valid',
@@ -6385,11 +6385,11 @@ const fallbackSpec = {
                     properties: {
                       success: { type: 'boolean' },
                       message: { type: 'string' }
-                    }
-                  }
-                }
               }
-            },
+            }
+          }
+        }
+      },
             403: {
               description: 'Forbidden - Period is locked',
               content: {
@@ -6494,9 +6494,9 @@ const fallbackSpec = {
             400: { description: 'Bad request - Missing required fields' },
             401: { description: 'Unauthorized - Authentication required' },
             500: { description: 'Internal server error' }
+            }
           }
-        }
-      },
+        },
       '/api/cashbook/contra/configs': {
         get: {
           summary: 'Get contra entry configurations',
@@ -6553,18 +6553,18 @@ const fallbackSpec = {
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
                   required: ['cashbookEntryId'],
-                  properties: {
+                    properties: {
                     cashbookEntryId: { type: 'string', description: 'ID of the cashbook entry' }
-                  }
                 }
               }
             }
-          },
+          }
+        },
           responses: {
             200: {
               description: 'Contra entry generated successfully',
@@ -6597,10 +6597,10 @@ const fallbackSpec = {
             {
               in: 'path',
               name: 'cashbookEntryId',
-              required: true,
+            required: true,
               schema: { type: 'string' },
               description: 'ID of the cashbook entry'
-            }
+              }
           ],
           responses: {
             200: {
@@ -6646,4 +6646,4 @@ try {
   specs = fallbackSpec;
 }
 
-export { specs };
+export { specs }; 
