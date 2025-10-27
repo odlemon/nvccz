@@ -6,10 +6,14 @@ export class DatabaseConnection {
   private prisma: PrismaClient;
   
   private constructor() {
+    const connectionLimit = process.env.DB_MAX_POOL_SIZE || '10';
+    const poolTimeout = process.env.DB_SERVER_SELECTION_TIMEOUT ? 
+      (parseInt(process.env.DB_SERVER_SELECTION_TIMEOUT) / 1000).toString() : '20';
+    
     this.prisma = new PrismaClient({
       datasources: {
         db: {
-          url: process.env.DATABASE_URL + '?connection_limit=5&pool_timeout=20'
+          url: process.env.DATABASE_URL + `&connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}`
         }
       }
     });
