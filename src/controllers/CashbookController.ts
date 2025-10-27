@@ -28,7 +28,7 @@ export default class CashbookController {
       if (!userId) {
         return ResponseHelper.unauthorized(res, 'User not authenticated.');
       }
-      
+
       const {
         bankId,
         transactionDate,
@@ -43,7 +43,7 @@ export default class CashbookController {
         projectCode,
         discount
       } = req.body;
-      
+
       // Validate required fields
       if (!bankId || !transactionDate || !description || !amount || !counterpartyType) {
         return ResponseHelper.badRequest(res, 'Missing required fields: bankId, transactionDate, description, amount, counterpartyType');
@@ -75,19 +75,19 @@ export default class CashbookController {
         discount: discount ? parseFloat(discount) : undefined,
         createdById: userId
       });
-      
+
       if (result.success) {
-        return ResponseHelper.success(res, 'Cash receipt created successfully', result);
+      return ResponseHelper.success(res, 'Cash receipt created successfully', result);
       } else {
         return ResponseHelper.badRequest(res, result.message);
       }
-      
+
     } catch (error: any) {
       console.error('Error in CashbookController.createReceipt:', error);
       return ResponseHelper.error(res, 'Failed to create cash receipt', error.message);
     }
   }
-  
+
   /**
    * Create Cash Payment
    * POST /api/cashbook/payments
@@ -99,7 +99,7 @@ export default class CashbookController {
       if (!userId) {
         return ResponseHelper.unauthorized(res, 'User not authenticated.');
       }
-      
+
       const {
         bankId,
         transactionDate,
@@ -114,7 +114,7 @@ export default class CashbookController {
         projectCode,
         discount
       } = req.body;
-      
+
       // Validate required fields
       if (!bankId || !transactionDate || !description || !amount || !counterpartyType) {
         return ResponseHelper.badRequest(res, 'Missing required fields: bankId, transactionDate, description, amount, counterpartyType');
@@ -146,19 +146,19 @@ export default class CashbookController {
         discount: discount ? parseFloat(discount) : undefined,
         createdById: userId
       });
-      
+
       if (result.success) {
-        return ResponseHelper.success(res, 'Cash payment created successfully', result);
+      return ResponseHelper.success(res, 'Cash payment created successfully', result);
       } else {
         return ResponseHelper.badRequest(res, result.message);
       }
-      
+
     } catch (error: any) {
       console.error('Error in CashbookController.createPayment:', error);
       return ResponseHelper.error(res, 'Failed to create cash payment', error.message);
     }
   }
-  
+
   /**
    * Post Transaction to GL
    * POST /api/cashbook/transactions/:id/post
@@ -267,13 +267,13 @@ export default class CashbookController {
       const cashPosition = await CashbookService.getCashPosition();
       
       return ResponseHelper.success(res, 'Cash position retrieved successfully', cashPosition);
-      
+
     } catch (error: any) {
       console.error('Error in CashbookController.getCashPosition:', error);
       return ResponseHelper.error(res, 'Failed to get cash position', error.message);
     }
   }
-  
+
   /**
    * Get Cashbook Entries
    * GET /api/cashbook/entries
@@ -301,15 +301,15 @@ export default class CashbookController {
       if (offset) filters.offset = parseInt(offset as string);
       
       const entries = await CashbookService.getCashbookEntries(filters);
-      
+
       return ResponseHelper.success(res, 'Cashbook entries retrieved successfully', entries);
-      
+
     } catch (error: any) {
       console.error('Error in CashbookController.getCashbookEntries:', error);
       return ResponseHelper.error(res, 'Failed to get cashbook entries', error.message);
     }
   }
-  
+
   /**
    * Get Transaction Details
    * GET /api/cashbook/transactions/:id
@@ -317,7 +317,7 @@ export default class CashbookController {
   static async getTransaction(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      
+
       const transaction = await prisma.cashbookTransaction.findUnique({
         where: { id },
         include: {
@@ -344,13 +344,13 @@ export default class CashbookController {
       }
       
       return ResponseHelper.success(res, 'Transaction retrieved successfully', transaction);
-      
+
     } catch (error: any) {
       console.error('Error in CashbookController.getTransaction:', error);
       return ResponseHelper.error(res, 'Failed to get transaction', error.message);
     }
   }
-  
+
   /**
    * Get Batch Details
    * GET /api/cashbook/batches/:id
@@ -419,13 +419,13 @@ export default class CashbookController {
       });
       
       return ResponseHelper.success(res, 'Batches retrieved successfully', batches);
-      
+
     } catch (error: any) {
       console.error('Error in CashbookController.listBatches:', error);
       return ResponseHelper.error(res, 'Failed to list batches', error.message);
     }
   }
-  
+
   /**
    * Void Transaction
    * POST /api/cashbook/transactions/:id/void
@@ -435,11 +435,11 @@ export default class CashbookController {
       const userId = (req as AuthRequest).user?.id;
       const { id } = req.params;
       const { reason } = req.body;
-      
+
       if (!userId) {
         return ResponseHelper.unauthorized(res, 'User not authenticated.');
       }
-      
+
       if (!reason) {
         return ResponseHelper.badRequest(res, 'Void reason is required');
       }
@@ -606,7 +606,7 @@ export default class CashbookController {
       });
       
       return ResponseHelper.success(res, 'Accounts retrieved successfully', accounts);
-      
+
     } catch (error: any) {
       console.error('Error in CashbookController.getAccounts:', error);
       return ResponseHelper.error(res, 'Failed to get accounts', error.message);

@@ -1,6 +1,5 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
-import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 
