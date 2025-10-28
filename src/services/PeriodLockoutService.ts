@@ -3,7 +3,6 @@
 // Handles accounting period lockout functionality
 
 import { prisma } from '../utils/database';
-import { ResponseHelper } from '../utils/responseHelper';
 
 export default class PeriodLockoutService {
   
@@ -62,10 +61,18 @@ export default class PeriodLockoutService {
         }
       });
 
-      return ResponseHelper.success(period, `Period ${data.isLocked ? 'locked' : 'unlocked'} successfully`);
+      return {
+        success: true,
+        message: `Period ${data.isLocked ? 'locked' : 'unlocked'} successfully`,
+        data: period
+      };
     } catch (error) {
       console.error('Error locking period:', error);
-      return ResponseHelper.error('Failed to lock period', error);
+      return {
+        success: false,
+        message: 'Failed to lock period',
+        error: error.message
+      };
     }
   }
 
@@ -107,25 +114,37 @@ export default class PeriodLockoutService {
       });
 
       if (!periodRecord) {
-        return ResponseHelper.success({
-          period,
-          isLocked: false,
-          lockedAt: null,
-          lockedBy: null,
-          reason: null
-        }, 'Period status retrieved successfully');
+        return {
+          success: true,
+          message: 'Period status retrieved successfully',
+          data: {
+            period,
+            isLocked: false,
+            lockedAt: null,
+            lockedBy: null,
+            reason: null
+          }
+        };
       }
 
-      return ResponseHelper.success({
-        period: periodRecord.period,
-        isLocked: periodRecord.isLocked,
-        lockedAt: periodRecord.lockedAt,
-        lockedBy: periodRecord.lockedByUser,
-        reason: periodRecord.reason
-      }, 'Period status retrieved successfully');
+      return {
+        success: true,
+        message: 'Period status retrieved successfully',
+        data: {
+          period: periodRecord.period,
+          isLocked: periodRecord.isLocked,
+          lockedAt: periodRecord.lockedAt,
+          lockedBy: periodRecord.lockedByUser,
+          reason: periodRecord.reason
+        }
+      };
     } catch (error) {
       console.error('Error getting period status:', error);
-      return ResponseHelper.error('Failed to get period status', error);
+      return {
+        success: false,
+        message: 'Failed to get period status',
+        error: error.message
+      };
     }
   }
 
@@ -167,10 +186,18 @@ export default class PeriodLockoutService {
         }
       });
 
-      return ResponseHelper.success(periods, 'Periods retrieved successfully');
+      return {
+        success: true,
+        message: 'Periods retrieved successfully',
+        data: periods
+      };
     } catch (error) {
       console.error('Error getting periods:', error);
-      return ResponseHelper.error('Failed to get periods', error);
+      return {
+        success: false,
+        message: 'Failed to get periods',
+        error: error.message
+      };
     }
   }
 
@@ -204,13 +231,24 @@ export default class PeriodLockoutService {
           }
         });
 
-        return ResponseHelper.error(`Cannot create transaction in locked period: ${period}`);
+        return {
+          success: false,
+          message: `Cannot create transaction in locked period: ${period}`
+        };
       }
 
-      return ResponseHelper.success(null, 'Transaction date is valid');
+      return {
+        success: true,
+        message: 'Transaction date is valid',
+        data: null
+      };
     } catch (error) {
       console.error('Error validating transaction date:', error);
-      return ResponseHelper.error('Failed to validate transaction date', error);
+      return {
+        success: false,
+        message: 'Failed to validate transaction date',
+        error: error.message
+      };
     }
   }
 
@@ -245,10 +283,18 @@ export default class PeriodLockoutService {
         }
       });
 
-      return ResponseHelper.success(history, 'Lockout history retrieved successfully');
+      return {
+        success: true,
+        message: 'Lockout history retrieved successfully',
+        data: history
+      };
     } catch (error) {
       console.error('Error getting lockout history:', error);
-      return ResponseHelper.error('Failed to get lockout history', error);
+      return {
+        success: false,
+        message: 'Failed to get lockout history',
+        error: error.message
+      };
     }
   }
 }

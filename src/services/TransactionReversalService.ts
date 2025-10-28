@@ -134,17 +134,20 @@ export class TransactionReversalService {
         reversalRequest.reason
       );
       
-      console.log(`✅ Transaction reversed: ${reversalRequest.transactionId} -> ${reversalTransaction.id}`);
+      console.log(`✅ Transaction reversed: ${reversalRequest.transactionId} -> ${reversalTransaction.id}${reversalJournalEntryId ? ' (with journal entry)' : ' (without journal entry)'}`);
       
       return {
         success: true,
-        message: 'Transaction successfully reversed',
+        message: reversalJournalEntryId 
+          ? 'Transaction successfully reversed with journal entry'
+          : 'Transaction successfully reversed (original had no journal entry)',
         data: {
           originalTransactionId: reversalRequest.transactionId,
           reversalTransactionId: reversalTransaction.id,
           reversalAmount: reversalTransaction.amount,
           reversalDate: reversalDate,
-          reason: reversalRequest.reason
+          reason: reversalRequest.reason,
+          hasJournalEntry: !!reversalJournalEntryId
         }
       };
       
@@ -164,15 +167,22 @@ export class TransactionReversalService {
   ): Promise<string | null> {
     try {
       
-      // Get the original journal entry
-      const originalJournalEntry = await prisma.journalEntry.findUnique({
-        where: { 
-          id: originalTransaction.journalEntryId 
+      // Get the original journal entry by cashbook entry ID
+      const originalJournalEntry = await prisma.journalEntry.findFirst({
+        where: {
+          cashbookEntryId: originalTransaction.id
         },
         include: {
           journalEntryLines: {
             include: {
-              chartOfAccount: true
+              chartOfAccount: {
+                select: {
+                  id: true,
+                  accountNo: true,
+                  accountName: true,
+                  accountType: true
+                }
+              }
             }
           }
         }
