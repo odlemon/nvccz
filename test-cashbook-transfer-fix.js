@@ -7,10 +7,10 @@ const API_BASE_URL = 'http://localhost:3000'; // Adjust if your server runs on d
 const testTransferData = {
   fromBankId: "cmh5u1h3y0001unagy8qtrkng", // Replace with actual bank ID
   toBankId: "cmh5u1h3y0002unagy8qtrkng",   // Replace with actual bank ID
-  amount: 1000.00,
-  description: "Test transfer between accounts",
+  amount: 500.00, // Reduced amount for testing
+  description: "Test transfer between accounts - Fixed Version",
   transferDate: "2025-10-28",
-  reference: "TEST-TRANSFER-001",
+  reference: "TEST-TRANSFER-FIXED-001",
   projectCode: "TEST-PROJECT"
 };
 
