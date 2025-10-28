@@ -138,8 +138,12 @@ export class CashbookTransferService {
         userId
       );
       
-      // Create audit trail
-      await this.createTransferAuditTrail(transfer, userId);
+      // Create audit trail (non-critical, don't fail if this fails)
+      try {
+        await this.createTransferAuditTrail(transfer, userId);
+      } catch (auditError: any) {
+        console.warn('⚠️ Failed to create audit trail (non-critical):', auditError.message);
+      }
       
       console.log(`✅ Transfer created: ${transfer.id} - ${transferRequest.amount} from ${fromBank.name} to ${toBank.name}`);
       
@@ -157,12 +161,39 @@ export class CashbookTransferService {
       
     } catch (error: any) {
       console.error('❌ Error creating transfer:', error.message);
-      return { success: false, message: `Failed to create transfer: ${error.message}` };
+      
+      // Provide more specific error messages
+      if (error.message.includes('Unique constraint failed') && error.message.includes('referenceNumber_key')) {
+        return { 
+          success: false, 
+          message: 'Transfer creation failed due to reference number conflict. Please try again.' 
+        };
+      } else if (error.message.includes('Cannot transfer to the same bank account')) {
+        return { 
+          success: false, 
+          message: 'Cannot transfer to the same bank account. Please select different accounts.' 
+        };
+      } else if (error.message.includes('bank account not found')) {
+        return { 
+          success: false, 
+          message: 'One or both bank accounts not found. Please verify account selection.' 
+        };
+      } else if (error.message.includes('locked period')) {
+        return { 
+          success: false, 
+          message: 'Cannot create transfer in locked period. Please contact administrator.' 
+        };
+      } else {
+        return { 
+          success: false, 
+          message: `Failed to create transfer: ${error.message}` 
+        };
+      }
     }
   }
   
   /**
-   * Create journal entries for transfer
+   * Create journal entries for transfer with retry logic
    */
   private static async createTransferJournalEntries(
     fromTransaction: any,
@@ -171,81 +202,104 @@ export class CashbookTransferService {
     toBank: any,
     userId: string
   ): Promise<void> {
-    try {
-      
-      // Create journal entry for outgoing transaction
-      const fromJournalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: fromTransaction.transactionDate,
-          referenceNumber: `TR-OUT-${fromTransaction.reference}`,
-          description: `Transfer out to ${toBank.name}`,
-          totalAmount: fromTransaction.amount,
-          currencyId: fromBank.currencyId,
-          status: 'POSTED',
-          createdById: userId
+    const maxRetries = 3;
+    let attempts = 0;
+    
+    while (attempts < maxRetries) {
+      try {
+        const timestamp = Date.now();
+        const random = Math.floor(Math.random() * 10000);
+        
+        // Create journal entry for outgoing transaction
+        const fromJournalEntry = await prisma.journalEntry.create({
+          data: {
+            transactionDate: fromTransaction.transactionDate,
+            referenceNumber: `TR-OUT-${timestamp}-${random}`,
+            description: `Transfer out to ${toBank.name}`,
+            totalAmount: fromTransaction.amount,
+            currencyId: fromBank.currencyId,
+            status: 'POSTED',
+            createdById: userId
+          }
+        });
+        
+        // Create journal entry lines for outgoing transaction
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: fromJournalEntry.id,
+            chartOfAccountId: fromBank.glAccountId,
+            description: `Transfer out to ${toBank.name}`,
+            debitAmount: fromTransaction.amount,
+            creditAmount: new Decimal(0)
+          }
+        });
+        
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: fromJournalEntry.id,
+            chartOfAccountId: toBank.glAccountId,
+            description: `Transfer out to ${toBank.name}`,
+            debitAmount: new Decimal(0),
+            creditAmount: fromTransaction.amount
+          }
+        });
+        
+        // Create journal entry for incoming transaction
+        const toJournalEntry = await prisma.journalEntry.create({
+          data: {
+            transactionDate: toTransaction.transactionDate,
+            referenceNumber: `TR-IN-${timestamp}-${random}`,
+            description: `Transfer in from ${fromBank.name}`,
+            totalAmount: toTransaction.amount,
+            currencyId: toBank.currencyId,
+            status: 'POSTED',
+            createdById: userId
+          }
+        });
+        
+        // Create journal entry lines for incoming transaction
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: toJournalEntry.id,
+            chartOfAccountId: toBank.glAccountId,
+            description: `Transfer in from ${fromBank.name}`,
+            debitAmount: toTransaction.amount,
+            creditAmount: new Decimal(0)
+          }
+        });
+        
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: toJournalEntry.id,
+            chartOfAccountId: fromBank.glAccountId,
+            description: `Transfer in from ${fromBank.name}`,
+            debitAmount: new Decimal(0),
+            creditAmount: toTransaction.amount
+          }
+        });
+        
+        console.log(`✅ Transfer journal entries created: ${fromJournalEntry.id}, ${toJournalEntry.id}`);
+        return; // Success, exit the retry loop
+        
+      } catch (error: any) {
+        attempts++;
+        console.error(`❌ Error creating transfer journal entries (attempt ${attempts}):`, error.message);
+        
+        // Check if it's a unique constraint error
+        if (error.message.includes('Unique constraint failed') && error.message.includes('referenceNumber_key')) {
+          if (attempts < maxRetries) {
+            console.log(`⚠️ Reference number conflict, retrying... (attempt ${attempts})`);
+            // Add delay before retry
+            await new Promise(resolve => setTimeout(resolve, 50));
+            continue;
+          } else {
+            throw new Error(`Failed to create journal entries after ${maxRetries} attempts due to reference number conflicts`);
+          }
+        } else {
+          // For other errors, don't retry
+          throw error;
         }
-      });
-      
-      // Create journal entry lines for outgoing transaction
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: fromJournalEntry.id,
-          chartOfAccountId: fromBank.glAccountId,
-          description: `Transfer out to ${toBank.name}`,
-          debitAmount: fromTransaction.amount,
-          creditAmount: new Decimal(0)
-        }
-      });
-      
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: fromJournalEntry.id,
-          chartOfAccountId: toBank.glAccountId,
-          description: `Transfer out to ${toBank.name}`,
-          debitAmount: new Decimal(0),
-          creditAmount: fromTransaction.amount
-        }
-      });
-      
-      // Create journal entry for incoming transaction
-      const toJournalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: toTransaction.transactionDate,
-          referenceNumber: `TR-IN-${toTransaction.reference}`,
-          description: `Transfer in from ${fromBank.name}`,
-          totalAmount: toTransaction.amount,
-          currencyId: toBank.currencyId,
-          status: 'POSTED',
-          createdById: userId
-        }
-      });
-      
-      // Create journal entry lines for incoming transaction
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: toJournalEntry.id,
-          chartOfAccountId: toBank.glAccountId,
-          description: `Transfer in from ${fromBank.name}`,
-          debitAmount: toTransaction.amount,
-          creditAmount: new Decimal(0)
-        }
-      });
-      
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: toJournalEntry.id,
-          chartOfAccountId: fromBank.glAccountId,
-          description: `Transfer in from ${fromBank.name}`,
-          debitAmount: new Decimal(0),
-          creditAmount: toTransaction.amount
-        }
-      });
-      
-      console.log(`✅ Transfer journal entries created: ${fromJournalEntry.id}, ${toJournalEntry.id}`);
-      
-    } catch (error: any) {
-      console.error('❌ Error creating transfer journal entries:', error.message);
-      throw error;
+      }
     }
   }
   
@@ -279,17 +333,46 @@ export class CashbookTransferService {
   }
   
   /**
-   * Generate transfer reference
+   * Generate transfer reference with retry logic for uniqueness
    */
   private static async generateTransferReference(): Promise<string> {
-    try {
-      const timestamp = Date.now();
-      const random = Math.floor(Math.random() * 1000);
-      return `TR-${timestamp}-${random}`;
-    } catch (error: any) {
-      console.error('❌ Error generating transfer reference:', error.message);
-      return `TR-${Date.now()}`;
+    const maxRetries = 5;
+    let attempts = 0;
+    
+    while (attempts < maxRetries) {
+      try {
+        const timestamp = Date.now();
+        const random = Math.floor(Math.random() * 10000); // Increased randomness
+        const reference = `TR-${timestamp}-${random}`;
+        
+        // Check if this reference already exists
+        const existingTransfer = await prisma.cashbookTransfer.findFirst({
+          where: { reference: reference }
+        });
+        
+        if (!existingTransfer) {
+          return reference;
+        }
+        
+        attempts++;
+        console.log(`⚠️ Reference ${reference} already exists, retrying... (attempt ${attempts})`);
+        
+        // Add small delay to ensure different timestamp
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
+      } catch (error: any) {
+        console.error('❌ Error generating transfer reference:', error.message);
+        attempts++;
+        
+        if (attempts >= maxRetries) {
+          // Fallback to UUID-based reference
+          return `TR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        }
+      }
     }
+    
+    // Final fallback
+    return `TR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
   
   /**
