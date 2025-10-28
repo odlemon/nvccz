@@ -177,7 +177,7 @@ export class CashbookTransferService {
       const fromJournalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate: fromTransaction.transactionDate,
-          referenceNumber: `TR-${fromTransaction.reference}`,
+          referenceNumber: `TR-OUT-${fromTransaction.reference}`,
           description: `Transfer out to ${toBank.name}`,
           totalAmount: fromTransaction.amount,
           currencyId: fromBank.currencyId,
@@ -211,7 +211,7 @@ export class CashbookTransferService {
       const toJournalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate: toTransaction.transactionDate,
-          referenceNumber: `TR-${toTransaction.reference}`,
+          referenceNumber: `TR-IN-${toTransaction.reference}`,
           description: `Transfer in from ${fromBank.name}`,
           totalAmount: toTransaction.amount,
           currencyId: toBank.currencyId,
@@ -283,23 +283,9 @@ export class CashbookTransferService {
    */
   private static async generateTransferReference(): Promise<string> {
     try {
-      
-      // Get the last transfer reference
-      const lastTransfer = await prisma.cashbookTransfer.findFirst({
-        orderBy: { createdAt: 'desc' },
-        select: { reference: true }
-      });
-      
-      let nextNumber = 1;
-      if (lastTransfer?.reference) {
-        const match = lastTransfer.reference.match(/TR-(\d+)/);
-        if (match) {
-          nextNumber = parseInt(match[1]) + 1;
-        }
-      }
-      
-      return `TR-${nextNumber.toString().padStart(6, '0')}`;
-      
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 1000);
+      return `TR-${timestamp}-${random}`;
     } catch (error: any) {
       console.error('❌ Error generating transfer reference:', error.message);
       return `TR-${Date.now()}`;
