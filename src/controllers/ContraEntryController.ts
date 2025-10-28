@@ -30,15 +30,11 @@ export default class ContraEntryController {
       } = req.body;
 
       if (!entryType || !glAccountId || !contraType) {
-        return res.status(400).json(
-          ResponseHelper.error('Missing required fields: entryType, glAccountId, contraType')
-        );
+        return ResponseHelper.badRequest(res, 'Missing required fields: entryType, glAccountId, contraType');
       }
 
       if (!req.user?.id) {
-        return res.status(401).json(
-          ResponseHelper.error('User authentication required')
-        );
+        return ResponseHelper.unauthorized(res, 'User authentication required');
       }
 
       const result = await ContraEntryService.configureContraEntry({
@@ -56,9 +52,7 @@ export default class ContraEntryController {
       }
     } catch (error) {
       console.error('Error in configureContraEntry:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 
@@ -84,9 +78,7 @@ export default class ContraEntryController {
       }
     } catch (error) {
       console.error('Error in getContraEntryConfigs:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 
@@ -99,15 +91,11 @@ export default class ContraEntryController {
       const { cashbookEntryId } = req.body;
 
       if (!cashbookEntryId) {
-        return res.status(400).json(
-          ResponseHelper.error('Missing required field: cashbookEntryId')
-        );
+        return ResponseHelper.badRequest(res, 'Missing required field: cashbookEntryId');
       }
 
       if (!req.user?.id) {
-        return res.status(401).json(
-          ResponseHelper.error('User authentication required')
-        );
+        return ResponseHelper.unauthorized(res, 'User authentication required');
       }
 
       const result = await ContraEntryService.generateContraEntry(
@@ -122,9 +110,7 @@ export default class ContraEntryController {
       }
     } catch (error) {
       console.error('Error in generateContraEntry:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 
@@ -137,9 +123,7 @@ export default class ContraEntryController {
       const { cashbookEntryId } = req.params;
 
       if (!cashbookEntryId) {
-        return res.status(400).json(
-          ResponseHelper.error('Missing required parameter: cashbookEntryId')
-        );
+        return ResponseHelper.badRequest(res, 'Missing required parameter: cashbookEntryId');
       }
 
       const result = await ContraEntryService.getContraEntries(cashbookEntryId);
@@ -151,9 +135,7 @@ export default class ContraEntryController {
       }
     } catch (error) {
       console.error('Error in getContraEntries:', error);
-      return res.status(500).json(
-        ResponseHelper.error('Internal server error')
-      );
+      return ResponseHelper.error(res, 'Internal server error');
     }
   }
 }
