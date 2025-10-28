@@ -51,10 +51,12 @@ export default class PeriodLockoutService {
       await prisma.auditLog.create({
         data: {
           action: data.isLocked ? 'LOCK_PERIOD' : 'UNLOCK_PERIOD',
-          resourceType: 'ACCOUNTING_PERIOD',
-          resourceId: period.id,
+          entityType: 'ACCOUNTING_PERIOD',
+          entityId: period.id,
           userId: data.lockedBy,
-          details: {
+          oldValues: data.isLocked ? null : { isLocked: true },
+          newValues: { 
+            isLocked: data.isLocked,
             period: data.period,
             reason: data.reason
           }
@@ -220,10 +222,11 @@ export default class PeriodLockoutService {
         await prisma.auditLog.create({
           data: {
             action: 'ATTEMPT_LOCKED_PERIOD_TRANSACTION',
-            resourceType: 'CASHBOOK_ENTRY',
-            resourceId: null,
+            entityType: 'CASHBOOK_ENTRY',
+            entityId: 'locked-period-attempt',
             userId: userId,
-            details: {
+            oldValues: null,
+            newValues: {
               transactionDate: transactionDate,
               period: period,
               message: 'Transaction attempted in locked period'
