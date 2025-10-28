@@ -53,7 +53,7 @@ async function testContraEntryEndpoint() {
       
       if (error.response.data?.message?.includes('res.status is not a function')) {
         console.error('\n🚨 Still getting "res.status is not a function" error!');
-        console.error('The fix may not have been deployed yet. Please redeploy your application.');
+        console.error('The service layer fix may not have been deployed yet. Please redeploy your application.');
       }
     } else if (error.request) {
       console.error('No response received:', error.message);

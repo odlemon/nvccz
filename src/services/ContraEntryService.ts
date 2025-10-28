@@ -3,7 +3,6 @@
 // Handles contra entry configuration and generation
 
 import { prisma } from '../utils/database';
-import { ResponseHelper } from '../utils/responseHelper';
 
 export default class ContraEntryService {
   
@@ -51,10 +50,18 @@ export default class ContraEntryService {
         });
       }
 
-      return ResponseHelper.success(contraConfig, 'Contra entry configuration updated successfully');
+      return {
+        success: true,
+        message: 'Contra entry configuration updated successfully',
+        data: contraConfig
+      };
     } catch (error) {
       console.error('Error configuring contra entry:', error);
-      return ResponseHelper.error('Failed to configure contra entry', error);
+      return {
+        success: false,
+        message: 'Failed to configure contra entry',
+        error: error.message
+      };
     }
   }
 
@@ -97,10 +104,18 @@ export default class ContraEntryService {
         }
       });
 
-      return ResponseHelper.success(configs, 'Contra entry configurations retrieved successfully');
+      return {
+        success: true,
+        message: 'Contra entry configurations retrieved successfully',
+        data: configs
+      };
     } catch (error) {
       console.error('Error getting contra entry configs:', error);
-      return ResponseHelper.error('Failed to get contra entry configurations', error);
+      return {
+        success: false,
+        message: 'Failed to get contra entry configurations',
+        error: error.message
+      };
     }
   }
 
@@ -122,7 +137,10 @@ export default class ContraEntryService {
       });
 
       if (!cashbookEntry) {
-        return ResponseHelper.error('Cashbook entry not found');
+        return {
+          success: false,
+          message: 'Cashbook entry not found'
+        };
       }
 
       // Get contra configuration
@@ -135,7 +153,10 @@ export default class ContraEntryService {
       });
 
       if (!contraConfig) {
-        return ResponseHelper.error('No contra configuration found for this entry type');
+        return {
+          success: false,
+          message: 'No contra configuration found for this entry type'
+        };
       }
 
       // Generate contra entry based on configuration
@@ -168,10 +189,18 @@ export default class ContraEntryService {
         });
       }
 
-      return ResponseHelper.success(contraEntry, 'Contra entry generated successfully');
+      return {
+        success: true,
+        message: 'Contra entry generated successfully',
+        data: contraEntry
+      };
     } catch (error) {
       console.error('Error generating contra entry:', error);
-      return ResponseHelper.error('Failed to generate contra entry', error);
+      return {
+        success: false,
+        message: 'Failed to generate contra entry',
+        error: error.message
+      };
     }
   }
 
@@ -212,10 +241,18 @@ export default class ContraEntryService {
         }
       });
 
-      return ResponseHelper.success(contraEntries, 'Contra entries retrieved successfully');
+      return {
+        success: true,
+        message: 'Contra entries retrieved successfully',
+        data: contraEntries
+      };
     } catch (error) {
       console.error('Error getting contra entries:', error);
-      return ResponseHelper.error('Failed to get contra entries', error);
+      return {
+        success: false,
+        message: 'Failed to get contra entries',
+        error: error.message
+      };
     }
   }
 }
