@@ -21,29 +21,24 @@ export class CashbookTransferController {
       const { fromBankId, toBankId, amount, transferDate, description, reference, projectCode } = req.body;
       const userId = (req as AuthRequest).user?.id;
       
+      if (!userId) {
+        return ResponseHelper.unauthorized(res, 'User not authenticated.');
+      }
+      
       if (!fromBankId) {
-        ResponseHelper.badRequest(res, 'Source bank ID is required');
-        return;
+        return ResponseHelper.badRequest(res, 'Source bank ID is required');
       }
       
       if (!toBankId) {
-        ResponseHelper.badRequest(res, 'Destination bank ID is required');
-        return;
+        return ResponseHelper.badRequest(res, 'Destination bank ID is required');
       }
       
       if (!amount || amount <= 0) {
-        ResponseHelper.badRequest(res, 'Valid amount is required');
-        return;
+        return ResponseHelper.badRequest(res, 'Valid amount is required');
       }
       
       if (!description) {
-        ResponseHelper.badRequest(res, 'Description is required');
-        return;
-      }
-      
-      if (!userId) {
-        ResponseHelper.unauthorized(res, 'User not authenticated');
-        return;
+        return ResponseHelper.badRequest(res, 'Description is required');
       }
       
       const transferRequest = {
@@ -59,14 +54,14 @@ export class CashbookTransferController {
       const result = await CashbookTransferService.createTransfer(transferRequest, userId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        return ResponseHelper.success(res, 'Transfer created successfully', result.data);
       } else {
-        ResponseHelper.badRequest(res, result.message);
+        return ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
-      console.error('❌ Error in createTransfer:', error.message);
-      ResponseHelper.internalError(res, 'Failed to create transfer');
+      console.error('Error in CashbookTransferController.createTransfer:', error);
+      return ResponseHelper.error(res, 'Failed to create transfer', error.message);
     }
   }
   
@@ -78,21 +73,20 @@ export class CashbookTransferController {
       const { transferId } = req.params;
       
       if (!transferId) {
-        ResponseHelper.badRequest(res, 'Transfer ID is required');
-        return;
+        return ResponseHelper.badRequest(res, 'Transfer ID is required');
       }
       
       const result = await CashbookTransferService.getTransfer(transferId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        return ResponseHelper.success(res, 'Transfer retrieved successfully', result.data);
       } else {
-        ResponseHelper.badRequest(res, result.message);
+        return ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
-      console.error('❌ Error in getTransfer:', error.message);
-      ResponseHelper.internalError(res, 'Failed to get transfer');
+      console.error('Error in CashbookTransferController.getTransfer:', error);
+      return ResponseHelper.error(res, 'Failed to get transfer', error.message);
     }
   }
   
@@ -110,8 +104,7 @@ export class CashbookTransferController {
       const dateTo = req.query.dateTo ? new Date(req.query.dateTo as string) : undefined;
       
       if (!userId) {
-        ResponseHelper.unauthorized(res, 'User not authenticated');
-        return;
+        return ResponseHelper.unauthorized(res, 'User not authenticated');
       }
       
       const result = await CashbookTransferService.listTransfers(
@@ -125,14 +118,14 @@ export class CashbookTransferController {
       );
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        return ResponseHelper.success(res, 'Transfers retrieved successfully', result.data);
       } else {
-        ResponseHelper.badRequest(res, result.message);
+        return ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
-      console.error('❌ Error in listTransfers:', error.message);
-      ResponseHelper.internalError(res, 'Failed to list transfers');
+      console.error('Error in CashbookTransferController.listTransfers:', error);
+      return ResponseHelper.error(res, 'Failed to list transfers', error.message);
     }
   }
   
@@ -146,21 +139,20 @@ export class CashbookTransferController {
       const dateTo = req.query.dateTo ? new Date(req.query.dateTo as string) : undefined;
       
       if (!userId) {
-        ResponseHelper.unauthorized(res, 'User not authenticated');
-        return;
+        return ResponseHelper.unauthorized(res, 'User not authenticated');
       }
       
       const result = await CashbookTransferService.getTransferSummary(userId, dateFrom, dateTo);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        return ResponseHelper.success(res, 'Transfer summary retrieved successfully', result.data);
       } else {
-        ResponseHelper.badRequest(res, result.message);
+        return ResponseHelper.badRequest(res, result.message);
       }
       
     } catch (error: any) {
-      console.error('❌ Error in getTransferSummary:', error.message);
-      ResponseHelper.internalError(res, 'Failed to get transfer summary');
+      console.error('Error in CashbookTransferController.getTransferSummary:', error);
+      return ResponseHelper.error(res, 'Failed to get transfer summary', error.message);
     }
   }
 }
