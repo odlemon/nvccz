@@ -328,21 +328,24 @@ app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
 app.use("/api/accounting/bank-reconciliation", bankReconciliationRoutes)
-app.use("/api/cashbook", cashbookRoutes)
+
+// Cashbook specific routes (must be BEFORE general /api/cashbook route)
 app.use("/api/cashbook/batches", cashbookBatchImportRoutes)
 app.use("/api/cashbook/open-items", openItemMatchingRoutes)
 app.use("/api/cashbook/transactions", transactionReversalRoutes)
 app.use("/api/cashbook/reversals", transactionReversalRoutes)
 app.use("/api/cashbook/transfers", cashbookTransferRoutes)
+
+// General cashbook routes (must be AFTER specific routes)
+app.use("/api/cashbook", cashbookRoutes)
 // Import new cashbook routes
 import contraEntryRoutes from "./routes/contraEntryRoutes"
 import batchImportExportRoutes from "./routes/batchImportExportRoutes"
 import periodLockoutRoutes from "./routes/periodLockoutRoutes"
 
-// Register new cashbook routes
+// Register new cashbook routes (must be BEFORE general /api/cashbook route)
 app.use("/api/cashbook/contra", contraEntryRoutes)
 app.use("/api/cashbook/entry-types", entryTypeRoutes)
-// app.use("/api/cashbook", cashbookRoutesEnhanced) // Disabled to avoid route conflicts
 app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 
