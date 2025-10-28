@@ -3,15 +3,15 @@ const axios = require('axios');
 
 const API_BASE_URL = 'http://localhost:3000'; // Adjust if your server runs on different port
 
-// Test data for creating a transfer
+// Test data for creating a transfer with proper values
 const testTransferData = {
   fromBankId: "cmh5u1h3y0001unagy8qtrkng", // Replace with actual bank ID
-  toBankId: "cmh5u1h3y0002unagy8qtrkng",   // Replace with actual bank ID
-  amount: 500.00, // Reduced amount for testing
-  description: "Test transfer between accounts - Fixed Version",
-  transferDate: "2025-10-28",
-  reference: "TEST-TRANSFER-FIXED-001",
-  projectCode: "TEST-PROJECT"
+  toBankId: "cmh6uttcj0001un0o61btp3ns",   // Replace with actual bank ID
+  amount: 750.00, // Different amount for testing
+  description: "Test transfer between Cash and Main Bank Account - Proper Test Data",
+  transferDate: "2025-10-28", // Current date
+  // Don't provide reference - let the system generate it
+  projectCode: "TEST-PROJECT-001"
 };
 
 // You'll need to replace this with a valid JWT token
