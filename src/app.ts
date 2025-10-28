@@ -123,12 +123,18 @@ app.use(cors({
       "https://arcus-eight.vercel.app",
       "https://nvccz-new.vercel.app",
       "https://nvcc.vercel.app",
+      "https://nvccz-pi.vercel.app",  // Added Swagger UI origin
       "http://localhost:3000",
       "http://localhost:3001",
       "http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io",
       "http://yoogo0gw888okwwsgk0s88og.31.220.82.129.sslip.io",
       "http://rk0kkk0wok0c4c8s48wc04k0.31.220.82.129.sslip.io"
     ];
+    
+    // Allow all Vercel preview deployments for development
+    if (origin && origin.includes('.vercel.app')) {
+      return callback(null, true);
+    }
     
     // Check if origin is allowed
     if (allowedOrigins.indexOf(origin) !== -1) {
