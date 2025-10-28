@@ -187,25 +187,24 @@ export class CashbookTransferService {
       });
       
       // Create journal entry lines for outgoing transaction
-      await prisma.journalEntryLine.createMany({
-        data: [
-          {
-            journalEntryId: fromJournalEntry.id,
-            chartOfAccountId: fromBank.glAccountId,
-            description: `Transfer out to ${toBank.name}`,
-            debitAmount: fromTransaction.amount,
-            creditAmount: new Decimal(0),
-            createdById: userId
-          },
-          {
-            journalEntryId: fromJournalEntry.id,
-            chartOfAccountId: toBank.glAccountId,
-            description: `Transfer out to ${toBank.name}`,
-            debitAmount: new Decimal(0),
-            creditAmount: fromTransaction.amount,
-            createdById: userId
-          }
-        ]
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: fromJournalEntry.id,
+          chartOfAccountId: fromBank.glAccountId,
+          description: `Transfer out to ${toBank.name}`,
+          debitAmount: fromTransaction.amount,
+          creditAmount: new Decimal(0)
+        }
+      });
+      
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: fromJournalEntry.id,
+          chartOfAccountId: toBank.glAccountId,
+          description: `Transfer out to ${toBank.name}`,
+          debitAmount: new Decimal(0),
+          creditAmount: fromTransaction.amount
+        }
       });
       
       // Create journal entry for incoming transaction
@@ -222,25 +221,24 @@ export class CashbookTransferService {
       });
       
       // Create journal entry lines for incoming transaction
-      await prisma.journalEntryLine.createMany({
-        data: [
-          {
-            journalEntryId: toJournalEntry.id,
-            chartOfAccountId: toBank.glAccountId,
-            description: `Transfer in from ${fromBank.name}`,
-            debitAmount: toTransaction.amount,
-            creditAmount: new Decimal(0),
-            createdById: userId
-          },
-          {
-            journalEntryId: toJournalEntry.id,
-            chartOfAccountId: fromBank.glAccountId,
-            description: `Transfer in from ${fromBank.name}`,
-            debitAmount: new Decimal(0),
-            creditAmount: toTransaction.amount,
-            createdById: userId
-          }
-        ]
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: toJournalEntry.id,
+          chartOfAccountId: toBank.glAccountId,
+          description: `Transfer in from ${fromBank.name}`,
+          debitAmount: toTransaction.amount,
+          creditAmount: new Decimal(0)
+        }
+      });
+      
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: toJournalEntry.id,
+          chartOfAccountId: fromBank.glAccountId,
+          description: `Transfer in from ${fromBank.name}`,
+          debitAmount: new Decimal(0),
+          creditAmount: toTransaction.amount
+        }
       });
       
       console.log(`✅ Transfer journal entries created: ${fromJournalEntry.id}, ${toJournalEntry.id}`);
