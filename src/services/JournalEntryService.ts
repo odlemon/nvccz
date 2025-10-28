@@ -842,7 +842,14 @@ export class JournalEntryService {
       include: {
         journalEntryLines: {
           include: {
-            chartOfAccount: true
+            chartOfAccount: {
+              select: {
+                id: true,
+                accountNo: true,
+                accountName: true,
+                accountType: true
+              }
+            }
           }
         },
         // Include related transactions to infer payment method
@@ -899,7 +906,14 @@ export class JournalEntryService {
       include: {
         journalEntryLines: {
           include: {
-            chartOfAccount: true
+            chartOfAccount: {
+              select: {
+                id: true,
+                accountNo: true,
+                accountName: true,
+                accountType: true
+              }
+            }
           }
         },
         createdBy: {
