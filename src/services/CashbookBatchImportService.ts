@@ -270,7 +270,7 @@ export class CashbookBatchImportService {
         where: { id: batchId },
         include: {
           transactions: {
-            where: { status: 'DRAFT' }
+            where: { status: 'PENDING' }
           }
         }
       });

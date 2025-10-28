@@ -308,7 +308,7 @@ export class CashbookImportService {
             totalAmount: new Decimal(transaction.amount),
             reference: transaction.reference,
             description: transaction.description,
-            status: 'DRAFT',
+            status: 'PENDING',
             counterpartyType: transaction.customer ? 'CUSTOMER' : 
                             transaction.supplier ? 'SUPPLIER' : 'GL',
             glAccountId: contraAccount!.id,
