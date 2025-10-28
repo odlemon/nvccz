@@ -186,7 +186,60 @@ router.post("/", CashbookTransferController.createTransfer);
  *       401:
  *         description: Unauthorized
  */
-router.get("/:transferId", CashbookTransferController.getTransfer);
+/**
+ * @swagger
+ * /api/cashbook/transfers/summary:
+ *   get:
+ *     summary: Get transfer summary
+ *     description: Get summary statistics for transfers
+     *     tags: [Cashbook Transfers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: dateFrom
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter from date
+ *       - in: query
+ *         name: dateTo
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter to date
+ *     responses:
+ *       200:
+ *         description: Transfer summary retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalTransfers:
+ *                       type: number
+ *                     totalAmount:
+ *                       type: number
+ *                     bankSummary:
+ *                       type: object
+ *                       additionalProperties:
+ *                         type: object
+ *                         properties:
+ *                           out:
+ *                             type: number
+ *                           in:
+ *                             type: number
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/summary", CashbookTransferController.getTransferSummary);
 
 /**
  * @swagger
@@ -294,60 +347,7 @@ router.get("/:transferId", CashbookTransferController.getTransfer);
  */
 router.get("/", CashbookTransferController.listTransfers);
 
-/**
- * @swagger
- * /api/cashbook/transfers/summary:
- *   get:
- *     summary: Get transfer summary
- *     description: Get summary statistics for transfers
-     *     tags: [Cashbook Transfers]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: dateFrom
- *         schema:
- *           type: string
- *           format: date
- *         description: Filter from date
- *       - in: query
- *         name: dateTo
- *         schema:
- *           type: string
- *           format: date
- *         description: Filter to date
- *     responses:
- *       200:
- *         description: Transfer summary retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 data:
- *                   type: object
- *                   properties:
- *                     totalTransfers:
- *                       type: number
- *                     totalAmount:
- *                       type: number
- *                     bankSummary:
- *                       type: object
- *                       additionalProperties:
- *                         type: object
- *                         properties:
- *                           out:
- *                             type: number
- *                           in:
- *                             type: number
- *       401:
- *         description: Unauthorized
- */
-router.get("/summary", CashbookTransferController.getTransferSummary);
+router.get("/:transferId", CashbookTransferController.getTransfer);
 
 export default router;
 

@@ -71,8 +71,15 @@ export class CashbookTransferService {
         return { success: false, message: 'Cannot create transfer in locked period' };
       }
       
-      // Generate reference if not provided
-      const reference = transferRequest.reference || await this.generateTransferReference();
+      // Generate reference if not provided or if it's a placeholder
+      const reference = (transferRequest.reference && transferRequest.reference !== 'string') 
+        ? transferRequest.reference 
+        : await this.generateTransferReference();
+      
+      console.log(`🔢 Transfer reference: ${reference}`);
+      console.log(`📝 Transfer description: ${transferRequest.description}`);
+      console.log(`💰 Transfer amount: ${transferRequest.amount}`);
+      console.log(`📅 Transfer date: ${transferRequest.transferDate}`);
       
       // Create transfer record
       const transfer = await prisma.cashbookTransfer.create({
@@ -339,11 +346,15 @@ export class CashbookTransferService {
     const maxRetries = 5;
     let attempts = 0;
     
+    console.log('🔢 Starting transfer reference generation...');
+    
     while (attempts < maxRetries) {
       try {
         const timestamp = Date.now();
         const random = Math.floor(Math.random() * 10000); // Increased randomness
         const reference = `TR-${timestamp}-${random}`;
+        
+        console.log(`🔍 Checking reference: ${reference} (attempt ${attempts + 1})`);
         
         // Check if this reference already exists
         const existingTransfer = await prisma.cashbookTransfer.findFirst({
@@ -351,6 +362,7 @@ export class CashbookTransferService {
         });
         
         if (!existingTransfer) {
+          console.log(`✅ Unique reference generated: ${reference}`);
           return reference;
         }
         
@@ -366,13 +378,17 @@ export class CashbookTransferService {
         
         if (attempts >= maxRetries) {
           // Fallback to UUID-based reference
-          return `TR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const fallbackRef = `TR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          console.log(`🔄 Using fallback reference: ${fallbackRef}`);
+          return fallbackRef;
         }
       }
     }
     
     // Final fallback
-    return `TR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const finalRef = `TR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    console.log(`🔄 Using final fallback reference: ${finalRef}`);
+    return finalRef;
   }
   
   /**
