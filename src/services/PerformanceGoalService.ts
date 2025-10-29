@@ -450,12 +450,6 @@ export class PerformanceGoalService {
               unitPosition: true
             }
           },
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          },
           assignedTo: {
             select: {
               id: true,
