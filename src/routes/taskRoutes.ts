@@ -242,6 +242,125 @@ router.get("/", authenticate, TaskController.getAllTasks);
 
 /**
  * @swagger
+ * /api/tasks/my:
+ *   get:
+ *     summary: Get current user's tasks
+ *     description: Retrieve all tasks assigned to the current user
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: stage
+ *         schema:
+ *           type: string
+ *           enum: [todo, in_progress, completed, overdue]
+ *         description: Filter by task stage
+ *       - in: query
+ *         name: priority
+ *         schema:
+ *           type: string
+ *           enum: [low, medium, high, critical]
+ *         description: Filter by task priority
+ *       - in: query
+ *         name: department
+ *         schema:
+ *           type: string
+ *         description: Filter by department
+ *       - in: query
+ *         name: performanceCategory
+ *         schema:
+ *           type: string
+ *           enum: [business, performance, operational]
+ *         description: Filter by performance category
+ *       - in: query
+ *         name: isPerformanceTask
+ *         schema:
+ *           type: boolean
+ *         description: Filter by performance task flag
+ *       - in: query
+ *         name: goalId
+ *         schema:
+ *           type: string
+ *         description: Filter by performance goal ID
+ *       - in: query
+ *         name: isOverdue
+ *         schema:
+ *           type: boolean
+ *         description: Filter by overdue status
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search in title, stage, and priority
+ *     responses:
+ *       200:
+ *         description: User's tasks retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Your tasks retrieved successfully"
+ *                 count:
+ *                   type: number
+ *                   example: 5
+ *                 tasks:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       title:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       stage:
+ *                         type: string
+ *                       priority:
+ *                         type: string
+ *                       isOverdue:
+ *                         type: boolean
+ *                       goal:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           title:
+ *                             type: string
+ *                           type:
+ *                             type: string
+ *                           category:
+ *                             type: string
+ *                           parentGoal:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               title:
+ *                                 type: string
+ *                               parentGoal:
+ *                                 type: object
+ *                                 properties:
+ *                                   id:
+ *                                     type: string
+ *                                   title:
+ *                                     type: string
+ *       401:
+ *         description: Unauthorized
+ *       400:
+ *         description: Bad request
+ */
+router.get("/my", authenticate, TaskController.getMyTasks);
+
+/**
+ * @swagger
  * /api/tasks/statistics:
  *   get:
  *     summary: Get task statistics
