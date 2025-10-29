@@ -150,10 +150,10 @@ export class PerformanceBreakdownController {
         });
       }
 
-      // Get users by department name (assuming you have a departmentName field in User model)
+      // Get users by department name using userDepartment field
       const users = await prisma.user.findMany({
         where: {
-          departmentName: departmentName,
+          userDepartment: departmentName,
           role: {
             name: { not: "admin" } // Exclude admins from individual goals
           }

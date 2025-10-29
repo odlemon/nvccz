@@ -329,6 +329,38 @@ export class PerformanceGoalService {
             dataSourceModule: departmentData.dataSourceModule,
             dataSourceField: departmentData.dataSourceField,
             trackingFrequency: departmentData.trackingFrequency
+          },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            type: true,
+            category: true,
+            parentGoalId: true,
+            departmentName: true,
+            targetValue: true,
+            targetUnit: true,
+            currentValue: true,
+            progressPercentage: true,
+            targetOperator: true,
+            dataSourceModule: true,
+            dataSourceField: true,
+            trackingFrequency: true,
+            lastCheckDate: true,
+            nextCheckDate: true,
+            kpiId: true,
+            status: true,
+            priority: true,
+            stage: true,
+            startDate: true,
+            endDate: true,
+            completedAt: true,
+            assignedToId: true,
+            createdById: true,
+            activities: true,
+            createdAt: true,
+            updatedAt: true
+            // Exclude monetaryValue, percentValue, monetaryValueAchieved, percentValueAchieved
           }
         });
 
