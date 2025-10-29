@@ -1,5 +1,6 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import { accountingEndpoints } from './accounting-endpoints';
+import { performanceEndpoints } from './performance-endpoints';
 
 const options = {
   definition: {
@@ -1387,6 +1388,7 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
+    ...performanceEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/api/cashbook/receipts': {
@@ -6633,16 +6635,18 @@ try {
   // Check if specs has paths - if not, use fallback
   if (!specs || !specs.paths || Object.keys(specs.paths).length === 0) {
     console.log('Swagger-jsdoc returned empty spec, using fallback');
+    console.log(`Fallback spec includes ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + cashbook)`);
     specs = fallbackSpec;
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
-    // Merge accounting and cashbook endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints };
-    console.log(`Added accounting and cashbook endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
+    // Merge accounting, cashbook, and performance endpoints with generated spec
+    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints };
+    console.log(`Added accounting, cashbook, and performance endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
   console.log('Using fallback spec due to error');
+  console.log(`Fallback spec includes ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + cashbook)`);
   specs = fallbackSpec;
 }
 
