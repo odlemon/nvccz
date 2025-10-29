@@ -139,7 +139,8 @@ export class InvoiceService {
           isTaxable,
           status: "DRAFT",
           createdById,
-          exchangeRateAtCreation: params.exchangeRateAtCreation ? new Decimal(params.exchangeRateAtCreation) : null
+          exchangeRateAtCreation: params.exchangeRateAtCreation ? new Decimal(params.exchangeRateAtCreation) : null,
+          outstandingAmount: new Decimal(totalAmount) // Initially, outstanding amount equals total amount
         },
         include: {
           customer: true,
