@@ -793,6 +793,392 @@ export const performanceEndpoints = {
   },
 
   // ==========================================
+  // ACTIVITY MANAGEMENT (Task & Goal Progress Tracking)
+  // ==========================================
+
+  '/api/activities': {
+    post: {
+      tags: ['📋 Task Management Integration'],
+      summary: 'Create Activity - Track Progress on Task or Goal',
+      description: `**Who uses this:** All users (individuals and managers)\n\n**What it does:** Create an activity to track progress on a task or departmental goal. Automatically updates task/goal stage based on value collected vs target.\n\n**For Individual Tasks:** Use type='task' - Updates task progress and automatically marks task as 'completed' if valueCollected >= target.\n\n**For Department Goals:** Use type='goal' - Updates goal progress and automatically updates stage based on currentValue vs targetValue.`,
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['title', 'activityType'],
+              properties: {
+                title: {
+                  type: 'string',
+                  example: 'Completed client meeting',
+                  description: 'Title of the activity'
+                },
+                description: {
+                  type: 'string',
+                  example: 'Met with 3 potential clients to discuss investment opportunities',
+                  description: 'Detailed description of what was accomplished'
+                },
+                activityType: {
+                  type: 'string',
+                  enum: ['task', 'goal'],
+                  example: 'task',
+                  description: "'task' for individual task updates, 'goal' for departmental goal updates"
+                },
+                taskId: {
+                  type: 'string',
+                  example: 'cmhbzxtvo0003jm04lt2q8htu',
+                  description: "Required if activityType is 'task' - The ID of the task being updated"
+                },
+                goalId: {
+                  type: 'string',
+                  example: 'cmhbzxqxz0001jm04vgtxkmvx',
+                  description: "Required if activityType is 'goal' - The ID of the departmental goal being updated"
+                },
+                valueCollected: {
+                  type: 'number',
+                  example: 50000,
+                  description: 'Value collected/achieved in this activity (e.g., $50,000 in revenue). Used to automatically update progress and stage.'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: {
+          description: 'Activity created successfully. Task/goal stage automatically updated if target is met.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Activity created successfully' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      title: { type: 'string' },
+                      description: { type: 'string' },
+                      activityType: { type: 'string' },
+                      monetaryValueAchieved: { type: 'string' },
+                      createdAt: { type: 'string', format: 'date-time' },
+                      user: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          firstName: { type: 'string' },
+                          lastName: { type: 'string' },
+                          email: { type: 'string' }
+                        }
+                      },
+                      task: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          title: { type: 'string' },
+                          stage: { type: 'string', description: 'Automatically updated if valueCollected >= target' }
+                        }
+                      },
+                      goal: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          title: { type: 'string' },
+                          currentValue: { type: 'string' },
+                          stage: { type: 'string', description: 'Automatically updated based on progress' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: {
+          description: 'Bad request - validation error (missing required fields or incorrect activityType)'
+        },
+        401: {
+          description: 'Unauthorized'
+        },
+        500: {
+          description: 'Internal server error'
+        }
+      }
+    }
+  },
+
+  '/api/activities/task/{taskId}': {
+    get: {
+      tags: ['📋 Task Management Integration'],
+      summary: 'Get Task Activities - View Progress History',
+      description: `**Who uses this:** All users (individuals and managers)\n\n**What it does:** Retrieve all activities/progress updates associated with a specific task. Shows the complete history of progress tracking for a task.`,
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'taskId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Task ID to get activities for'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Task activities retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Task activities retrieved successfully' },
+                  data: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        title: { type: 'string' },
+                        description: { type: 'string' },
+                        activityType: { type: 'string', example: 'task_completion' },
+                        monetaryValueAchieved: { type: 'string' },
+                        createdAt: { type: 'string', format: 'date-time' },
+                        user: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            firstName: { type: 'string' },
+                            lastName: { type: 'string' },
+                            email: { type: 'string' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: {
+          description: 'Bad request - taskId is required'
+        },
+        401: {
+          description: 'Unauthorized'
+        },
+        500: {
+          description: 'Internal server error'
+        }
+      }
+    }
+  },
+
+  '/api/activities/goal/{goalId}': {
+    get: {
+      tags: ['📋 Task Management Integration'],
+      summary: 'Get Goal Activities - View Progress History',
+      description: `**Who uses this:** Department managers, officers, and admins\n\n**What it does:** Retrieve all activities/progress updates associated with a specific departmental goal. Shows the complete history of progress tracking for a goal.`,
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'goalId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Goal ID to get activities for'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Goal activities retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Goal activities retrieved successfully' },
+                  data: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        title: { type: 'string' },
+                        description: { type: 'string' },
+                        activityType: { type: 'string', example: 'goal_update' },
+                        monetaryValueAchieved: { type: 'string' },
+                        createdAt: { type: 'string', format: 'date-time' },
+                        user: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            firstName: { type: 'string' },
+                            lastName: { type: 'string' },
+                            email: { type: 'string' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: {
+          description: 'Bad request - goalId is required'
+        },
+        401: {
+          description: 'Unauthorized'
+        },
+        500: {
+          description: 'Internal server error'
+        }
+      }
+    }
+  },
+
+  '/api/activities/department/{department}/goals': {
+    get: {
+      tags: ['📋 Task Management Integration'],
+      summary: 'Get Department Goals - For Managers and Officers',
+      description: `**Who uses this:** Department managers (_MGR role code), officers (_OFF role code), and admins\n\n**What it does:** Retrieve all departmental goals for a specific department. Only users who are managers or officers in that department can access this endpoint.\n\n**Authorization:** User must be in the same department AND have role code ending in '_MGR' (Manager) or '_OFF' (Officer), or be an admin.`,
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'department',
+          in: 'path',
+          required: true,
+          schema: {
+            type: 'string',
+            enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT']
+          },
+          description: 'Department name (must match your assigned department)'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Department goals retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Department goals retrieved successfully' },
+                  data: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        title: { type: 'string' },
+                        description: { type: 'string' },
+                        type: { type: 'string', example: 'department' },
+                        category: { type: 'string' },
+                        targetValue: { type: 'string' },
+                        currentValue: { type: 'string' },
+                        stage: { type: 'string' },
+                        departmentName: { type: 'string' },
+                        createdBy: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            firstName: { type: 'string' },
+                            lastName: { type: 'string' },
+                            email: { type: 'string' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: {
+          description: 'Bad request - department name is required'
+        },
+        401: {
+          description: 'Unauthorized'
+        },
+        403: {
+          description: 'Forbidden - You do not have permission to view this department\'s goals. Only department managers, officers, or admins can access this.'
+        },
+        500: {
+          description: 'Internal server error'
+        }
+      }
+    }
+  },
+
+  '/api/activities/manager/tasks': {
+    get: {
+      tags: ['📋 Task Management Integration'],
+      summary: 'Get Manager Created Tasks - View Tasks You Created',
+      description: `**Who uses this:** Department managers (_MGR role code), officers (_OFF role code), and admins\n\n**What it does:** Retrieve all performance tasks that you created for your department. Shows tasks you assigned to individuals in your department during goal breakdown.\n\n**Authorization:** User must have role code ending in '_MGR' (Manager) or '_OFF' (Officer), or be an admin.`,
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Manager created tasks retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Manager created tasks retrieved successfully' },
+                  data: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        title: { type: 'string' },
+                        description: { type: 'string' },
+                        stage: { type: 'string' },
+                        priority: { type: 'string' },
+                        department: { type: 'string' },
+                        isPerformanceTask: { type: 'boolean', example: true },
+                        monetaryValue: { type: 'string' },
+                        monetaryValueAchieved: { type: 'string' },
+                        goal: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            title: { type: 'string' },
+                            type: { type: 'string' },
+                            category: { type: 'string' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        401: {
+          description: 'Unauthorized'
+        },
+        403: {
+          description: 'Forbidden - You do not have permission to view created tasks. Only department managers, officers, or admins can access this.'
+        },
+        500: {
+          description: 'Internal server error'
+        }
+      }
+    }
+  },
+
+  // ==========================================
   // HARDCODED KPIs (via existing KPI routes)
   // ==========================================
 
