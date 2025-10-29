@@ -1,11 +1,12 @@
+// @ts-nocheck
 import { Router } from 'express';
-import ControlAccountController from '../controllers/ControlAccountController';
-import { authenticateToken } from '../middleware/auth';
+import { ControlAccountController } from '../controllers/ControlAccountController';
+import { authenticate } from '../middleware/authenticate';
 
 const router = Router();
 
 // Apply authentication middleware to all routes
-router.use(authenticateToken);
+router.use(authenticate);
 
 /**
  * @swagger

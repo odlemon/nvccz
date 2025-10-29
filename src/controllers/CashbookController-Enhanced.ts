@@ -5,7 +5,7 @@
 import { Request, Response } from "express";
 import { CashbookService } from "../services/CashbookService";
 import { CashbookServiceEnhanced } from "../services/CashbookService-Enhanced";
-import ResponseHelper from "../utils/responseHelper";
+import { ResponseHelper } from "../utils/responseHelper";
 import { prisma } from '../utils/database';
 
 interface AuthRequest extends Request {
