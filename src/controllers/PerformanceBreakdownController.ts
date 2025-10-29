@@ -62,26 +62,26 @@ export class PerformanceBreakdownController {
    */
   static async createIndividualBreakdown(req: Request, res: Response) {
     try {
-      const { departmentGoalId, selectedUsers, individualData } = req.body;
+      const { departmentGoalId, selectedUsers, breakdownData } = req.body;
 
-      if (!departmentGoalId || !selectedUsers || !individualData) {
+      if (!departmentGoalId || !selectedUsers || !breakdownData) {
         return res.status(400).json({
           success: false,
-          message: "Department goal ID, selected users, and individual data are required"
+          message: "Department goal ID, selected users, and breakdown data are required"
         });
       }
 
-      if (selectedUsers.length !== individualData.length) {
+      if (selectedUsers.length !== breakdownData.length) {
         return res.status(400).json({
           success: false,
-          message: "Number of selected users must match individual data length"
+          message: "Number of selected users must match breakdown data length"
         });
       }
 
       const createdGoals = await PerformanceGoalService.createIndividualGoals(
         departmentGoalId,
         selectedUsers,
-        individualData
+        breakdownData
       );
 
       res.status(201).json({
