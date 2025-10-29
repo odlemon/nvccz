@@ -98,7 +98,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/departments': {
+  '/api/performance/breakdown/departments/available': {
     get: {
       tags: ['🏢 Hardcoded Departments'],
       summary: 'Get All Hardcoded Departments',
@@ -138,44 +138,6 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/departments/{department}/roles': {
-    get: {
-      tags: ['🏢 Hardcoded Departments'],
-      summary: 'Get Department Roles',
-      description: 'Get all 5 hardcoded roles for a specific department',
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        {
-          name: 'department',
-          in: 'path',
-          required: true,
-          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
-          description: 'Department name'
-        }
-      ],
-      responses: {
-        200: {
-          description: 'Department roles retrieved successfully',
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: { type: 'boolean' },
-                  message: { type: 'string' },
-                  data: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    example: ['Manager', 'Officer', 'Coordinator', 'Assistant', 'Member']
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
 
   '/api/performance/breakdown/departments/available': {
     get: {
@@ -838,18 +800,18 @@ export const performanceEndpoints = {
   },
 
   // ==========================================
-  // HARDCODED KPIs
+  // HARDCODED KPIs (via existing KPI routes)
   // ==========================================
 
   '/api/performance/kpis': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get All Hardcoded KPIs',
-      description: 'Get complete list of all 25 hardcoded KPIs with accounting integration details',
+      description: 'Get all 25 hardcoded KPIs with accounting integration details',
       security: [{ bearerAuth: [] }],
       responses: {
         200: {
-          description: 'KPIs retrieved successfully',
+          description: 'Hardcoded KPIs retrieved successfully',
           content: {
             'application/json': {
               schema: {
@@ -857,26 +819,80 @@ export const performanceEndpoints = {
                 properties: {
                   success: { type: 'boolean' },
                   message: { type: 'string' },
-                  data: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        name: { type: 'string', example: 'SALES_REVENUE' },
-                        description: { type: 'string', example: 'Total sales revenue generated' },
-                        category: { type: 'string', example: 'financial' },
-                        hasAccountingIntegration: { type: 'boolean', example: true },
-                        accountMapping: {
-                          type: 'object',
-                          properties: {
-                            accountNo: { type: 'string', example: '4000' },
-                            accountName: { type: 'string', example: 'Sales Revenue' },
-                            accountType: { type: 'string', example: 'Revenue' }
-                          }
-                        }
-                      }
-                    }
-                  }
+                  data: { type: 'array', items: { type: 'object' } },
+                  total: { type: 'number' }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  '/api/performance/kpis/department/{department}': {
+    get: {
+      tags: ['📊 Hardcoded KPIs'],
+      summary: 'Get KPIs by Department',
+      description: 'Get all KPIs for a specific department',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'department',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          description: 'Department name'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Department KPIs retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: { type: 'array', items: { type: 'object' } },
+                  total: { type: 'number' },
+                  department: { type: 'string' }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  '/api/performance/kpis/code/{code}': {
+    get: {
+      tags: ['📊 Hardcoded KPIs'],
+      summary: 'Get KPI by Code',
+      description: 'Get a specific KPI by its code',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'code',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'KPI code (e.g., TOTAL_REVENUE)'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'KPI retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: { type: 'object' }
                 }
               }
             }
@@ -890,7 +906,7 @@ export const performanceEndpoints = {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get Financial KPIs',
-      description: 'Get all 22 financial KPIs that generate journal entries',
+      description: 'Get all 22 financial KPIs that affect financial statements',
       security: [{ bearerAuth: [] }],
       responses: {
         200: {
@@ -902,7 +918,8 @@ export const performanceEndpoints = {
                 properties: {
                   success: { type: 'boolean' },
                   message: { type: 'string' },
-                  data: { type: 'array', items: { type: 'object' } }
+                  data: { type: 'array', items: { type: 'object' } },
+                  total: { type: 'number' }
                 }
               }
             }
@@ -912,15 +929,24 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/non-financial': {
+  '/api/performance/kpis/account-type/{accountType}': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
-      summary: 'Get Non-Financial KPIs',
-      description: 'Get all 3 non-financial KPIs (tracking only, no journal entries)',
+      summary: 'Get KPIs by Account Type',
+      description: 'Get KPIs filtered by chart of accounts account type',
       security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'accountType',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', enum: ['Revenue', 'Expense', 'Asset', 'Liability', 'Equity'] },
+          description: 'Chart of accounts account type'
+        }
+      ],
       responses: {
         200: {
-          description: 'Non-financial KPIs retrieved successfully',
+          description: 'KPIs by account type retrieved successfully',
           content: {
             'application/json': {
               schema: {
@@ -928,7 +954,44 @@ export const performanceEndpoints = {
                 properties: {
                   success: { type: 'boolean' },
                   message: { type: 'string' },
-                  data: { type: 'array', items: { type: 'object' } }
+                  data: { type: 'array', items: { type: 'object' } },
+                  total: { type: 'number' },
+                  accountType: { type: 'string' }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  '/api/performance/kpis/statistics': {
+    get: {
+      tags: ['📊 Hardcoded KPIs'],
+      summary: 'Get KPI Statistics',
+      description: 'Get comprehensive statistics about hardcoded KPIs',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'KPI statistics retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      total: { type: 'number' },
+                      financial: { type: 'number' },
+                      nonFinancial: { type: 'number' },
+                      byDepartment: { type: 'array', items: { type: 'object' } },
+                      byAccountType: { type: 'array', items: { type: 'object' } }
+                    }
+                  }
                 }
               }
             }

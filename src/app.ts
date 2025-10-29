@@ -68,6 +68,7 @@ import performanceETLRoutes from "./routes/performanceETLRoutes"
 import performanceWorkflowRoutes from "./routes/performanceWorkflowRoutes"
 import taskRoutes from "./routes/taskRoutes"
 import kpiRoutes from "./routes/kpiRoutes"
+import hardcodedKPIRoutes from "./routes/hardcodedKPIRoutes"
 import activityLogRoutes from "./routes/activityLogRoutes"
 import ceoDashboardRoutes from "./routes/ceoDashboardRoutes"
 import stakeholderRoutes from "./routes/stakeholderRoutes"
@@ -394,6 +395,7 @@ app.use("/api/performance/etl", performanceETLRoutes)
 app.use("/api/performance/workflow", performanceWorkflowRoutes)
 app.use("/api/tasks", taskRoutes)
 app.use("/api/kpis", kpiRoutes)
+app.use("/api/performance/kpis", hardcodedKPIRoutes)
 app.use("/api/activity-logs", activityLogRoutes)
 
 // CEO Dashboard routes
