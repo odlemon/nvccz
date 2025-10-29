@@ -28,6 +28,11 @@ export const performanceEndpoints = {
                 category: { type: 'string', enum: ['financial', 'operational', 'strategic'], example: 'financial' },
                 targetValue: { type: 'number', example: 5000000 },
                 targetUnit: { type: 'string', example: 'USD' },
+                kpiName: { 
+                  type: 'string', 
+                  example: 'Total Revenue',
+                  description: 'KPI name to link to this goal (optional for financial goals)'
+                },
                 dataSourceModule: { type: 'string', example: 'PortfolioManagement' },
                 dataSourceField: { type: 'string', example: 'Fund.CurrentAUM' },
                 description: { type: 'string', example: 'Strategic goal to achieve $5M AUM by Q4' },

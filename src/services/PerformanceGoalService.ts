@@ -13,7 +13,7 @@ export interface CreatePerformanceGoalRequest {
   targetValue: number; // Absolute target value
   targetUnit: string; // "USD", "clients", "invoices", "percentage", "hours", etc.
   currentValue?: number; // Current progress value
-  kpiId?: string;
+  kpiName?: string; // KPI name instead of ID
   priority?: string;
   startDate: Date;
   endDate: Date;
@@ -163,15 +163,19 @@ export class PerformanceGoalService {
   // Create a new performance goal
   static async createPerformanceGoal(request: CreatePerformanceGoalRequest, createdById: string) {
     try {
-      // Validate KPI if provided
-      if (request.kpiId) {
-        const kpi = await prisma.kPI.findUnique({
-          where: { id: request.kpiId }
+      let kpiId = null;
+      
+      // Validate KPI if provided by name
+      if (request.kpiName) {
+        const kpi = await prisma.kPI.findFirst({
+          where: { name: request.kpiName }
         });
 
         if (!kpi) {
-          throw new Error("KPI not found");
+          throw new Error(`KPI '${request.kpiName}' not found`);
         }
+        
+        kpiId = kpi.id;
       }
 
       // Validate department if provided
@@ -207,7 +211,7 @@ export class PerformanceGoalService {
           targetValue: request.targetValue,
           targetUnit: request.targetUnit,
           currentValue: request.currentValue || 0,
-          kpiId: request.kpiId,
+          kpiId: kpiId,
           priority: request.priority || "medium",
           startDate: request.startDate,
           endDate: request.endDate,
