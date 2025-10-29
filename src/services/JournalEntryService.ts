@@ -885,7 +885,7 @@ export class JournalEntryService {
    * @param endDate - End date for filtering
    * @param status - Optional status filter (defaults to 'POSTED' only)
    */
-  static async getJournalEntriesByDateRange(startDate: Date, endDate: Date, status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL'): Promise<any[]> {
+  static async getJournalEntriesByDateRange(startDate: Date, endDate: Date, status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | 'POSTED_AND_PENDING'): Promise<any[]> {
     const whereClause: any = {
       transactionDate: {
         gte: startDate,
@@ -893,9 +893,13 @@ export class JournalEntryService {
       }
     };
 
-    // Default to POSTED only if no status specified
+    // Handle different status filters
     if (!status || status === 'POSTED') {
       whereClause.status = 'POSTED';
+    } else if (status === 'POSTED_AND_PENDING') {
+      whereClause.status = {
+        in: ['POSTED', 'PENDING']
+      };
     } else if (status !== 'ALL') {
       whereClause.status = status;
     }

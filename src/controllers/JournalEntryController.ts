@@ -56,16 +56,19 @@ export class JournalEntryController {
 
   /**
    * Get all journal entries
-   * Defaults to POSTED entries only. Use ?status=ALL to see all entries.
+   * Defaults to POSTED and PENDING entries only. Use ?status=ALL to see all entries including VOID.
    */
   static async getJournalEntries(req: Request, res: Response) {
     try {
       const status = req.query.status as 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | undefined;
       
+      // Default to POSTED and PENDING only if no status specified
+      const filterStatus = status || 'POSTED_AND_PENDING';
+      
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
         new Date('2020-01-01'), // Default start date
         new Date(), // Current date
-        status // Pass status filter (defaults to POSTED)
+        filterStatus // Pass status filter (defaults to POSTED_AND_PENDING)
       );
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
