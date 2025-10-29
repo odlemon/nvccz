@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { PerformanceGoalService } from "../services/PerformanceGoalService";
 import { prisma } from "../utils/database";
+import { getRoleByCode } from "../config/hardcodedRoles";
 
 export class PerformanceBreakdownController {
   /**
@@ -151,11 +152,17 @@ export class PerformanceBreakdownController {
       }
 
       // Get users by department name using userDepartment field
+      // Exclude admins and applicants, only include users with hardcoded role codes
       const users = await prisma.user.findMany({
         where: {
           userDepartment: departmentName,
           role: {
-            name: { not: "admin" } // Exclude admins from individual goals
+            name: { 
+              notIn: ["admin", "applicant"] // Exclude admins and applicants
+            }
+          },
+          roleCode: {
+            not: null // Only include users with hardcoded role codes assigned
           }
         },
         select: {
@@ -163,19 +170,39 @@ export class PerformanceBreakdownController {
           firstName: true,
           lastName: true,
           email: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true, // Include the hardcoded role code
           role: {
             select: {
+              id: true,
               name: true,
-              level: true
+              description: true
             }
           }
         }
       });
 
+      // Enrich users with hardcoded role details
+      const enrichedUsers = users.map(user => {
+        const hardcodedRole = user.roleCode ? getRoleByCode(user.roleCode) : null;
+        return {
+          ...user,
+          hardcodedRole: hardcodedRole ? {
+            code: hardcodedRole.code,
+            name: hardcodedRole.name,
+            level: hardcodedRole.level,
+            department: hardcodedRole.department,
+            description: hardcodedRole.description
+          } : null
+        };
+      });
+
       res.json({
         success: true,
         message: `Users in ${departmentName} department retrieved successfully`,
-        users
+        users: enrichedUsers,
+        count: enrichedUsers.length
       });
     } catch (error) {
       console.error("Error getting users by department:", error);
