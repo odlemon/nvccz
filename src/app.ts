@@ -63,7 +63,6 @@ import clientRoutes from "./routes/clientRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
 import auditRoutes from "./routes/auditRoutes"
-import departmentRoutes from "./routes/departmentRoutes"
 import performanceGoalRoutes from "./routes/performanceGoalRoutes"
 import performanceETLRoutes from "./routes/performanceETLRoutes"
 import performanceWorkflowRoutes from "./routes/performanceWorkflowRoutes"
@@ -390,7 +389,6 @@ app.use("/api/target-tracking", targetTrackingRoutes)
 app.use("/api/audit-logs", auditRoutes)
 
 // Performance Management routes
-app.use("/api/departments", departmentRoutes)
 app.use("/api/performance/goals", performanceGoalRoutes)
 app.use("/api/performance/etl", performanceETLRoutes)
 app.use("/api/performance/workflow", performanceWorkflowRoutes)

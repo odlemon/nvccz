@@ -98,10 +98,89 @@ export const performanceEndpoints = {
     }
   },
 
+  '/api/performance/departments': {
+    get: {
+      tags: ['🏢 Hardcoded Departments'],
+      summary: 'Get All Hardcoded Departments',
+      description: 'Get complete list of all 8 hardcoded departments with their details',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Departments retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        name: { type: 'string', example: 'Finance' },
+                        description: { type: 'string', example: 'Financial management and accounting' },
+                        roles: {
+                          type: 'array',
+                          items: { type: 'string' },
+                          example: ['Manager', 'Officer', 'Coordinator', 'Assistant', 'Member']
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  '/api/performance/departments/{department}/roles': {
+    get: {
+      tags: ['🏢 Hardcoded Departments'],
+      summary: 'Get Department Roles',
+      description: 'Get all 5 hardcoded roles for a specific department',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'department',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          description: 'Department name'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Department roles retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    example: ['Manager', 'Officer', 'Coordinator', 'Assistant', 'Member']
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
   '/api/performance/breakdown/departments/available': {
     get: {
       tags: ['🎯 Stage 1: Goal Setting'],
-      summary: 'Get Available Departments',
+      summary: 'Get Available Departments for Breakdown',
       description: 'Get list of hardcoded departments available for goal breakdown',
       security: [{ bearerAuth: [] }],
       responses: {
@@ -749,6 +828,107 @@ export const performanceEndpoints = {
                   success: { type: 'boolean' },
                   message: { type: 'string' },
                   tasks: { type: 'array', items: { type: 'object' } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  // ==========================================
+  // HARDCODED KPIs
+  // ==========================================
+
+  '/api/performance/kpis': {
+    get: {
+      tags: ['📊 Hardcoded KPIs'],
+      summary: 'Get All Hardcoded KPIs',
+      description: 'Get complete list of all 25 hardcoded KPIs with accounting integration details',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'KPIs retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        name: { type: 'string', example: 'SALES_REVENUE' },
+                        description: { type: 'string', example: 'Total sales revenue generated' },
+                        category: { type: 'string', example: 'financial' },
+                        hasAccountingIntegration: { type: 'boolean', example: true },
+                        accountMapping: {
+                          type: 'object',
+                          properties: {
+                            accountNo: { type: 'string', example: '4000' },
+                            accountName: { type: 'string', example: 'Sales Revenue' },
+                            accountType: { type: 'string', example: 'Revenue' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  '/api/performance/kpis/financial': {
+    get: {
+      tags: ['📊 Hardcoded KPIs'],
+      summary: 'Get Financial KPIs',
+      description: 'Get all 22 financial KPIs that generate journal entries',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Financial KPIs retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: { type: 'array', items: { type: 'object' } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  '/api/performance/kpis/non-financial': {
+    get: {
+      tags: ['📊 Hardcoded KPIs'],
+      summary: 'Get Non-Financial KPIs',
+      description: 'Get all 3 non-financial KPIs (tracking only, no journal entries)',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Non-financial KPIs retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: { type: 'array', items: { type: 'object' } }
                 }
               }
             }
