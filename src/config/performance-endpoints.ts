@@ -139,36 +139,6 @@ export const performanceEndpoints = {
   },
 
 
-  '/api/performance/breakdown/departments/available': {
-    get: {
-      tags: ['🎯 Stage 1: Goal Setting'],
-      summary: 'Get Available Departments for Breakdown',
-      description: 'Get list of hardcoded departments available for goal breakdown',
-      security: [{ bearerAuth: [] }],
-      responses: {
-        200: {
-          description: 'Available departments retrieved successfully',
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: { type: 'boolean' },
-                  message: { type: 'string' },
-                  data: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    example: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT']
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-
   '/api/performance/breakdown/departments': {
     post: {
       tags: ['🎯 Stage 1: Goal Setting'],
