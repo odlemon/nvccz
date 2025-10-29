@@ -621,7 +621,7 @@ export class TaskService {
       const where: any = {
         isTrashed: false,
         team: {
-          has: userId // Check if userId is in the team array
+          array_contains: userId // Check if userId is in the team array
         }
       };
 
