@@ -104,6 +104,49 @@ export class TaskController {
     }
   }
 
+  // Get current user's tasks
+  static async getMyTasks(req: Request, res: Response) {
+    try {
+      const userId = req.user.id;
+      const {
+        stage,
+        priority,
+        department,
+        performanceCategory,
+        isPerformanceTask,
+        goalId,
+        isOverdue,
+        search
+      } = req.query;
+
+      const filters: any = {
+        userId // Filter by current user
+      };
+      if (stage) filters.stage = stage as string;
+      if (priority) filters.priority = priority as string;
+      if (department) filters.department = department as string;
+      if (performanceCategory) filters.performanceCategory = performanceCategory as string;
+      if (isPerformanceTask !== undefined) filters.isPerformanceTask = isPerformanceTask === 'true';
+      if (goalId) filters.goalId = goalId as string;
+      if (isOverdue !== undefined) filters.isOverdue = isOverdue === 'true';
+      if (search) filters.search = search as string;
+
+      const tasks = await TaskService.getUserTasks(userId, filters);
+
+      res.status(200).json({
+        success: true,
+        message: "Your tasks retrieved successfully",
+        count: tasks.length,
+        tasks
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
   // Get task by ID
   static async getTaskById(req: Request, res: Response) {
     try {

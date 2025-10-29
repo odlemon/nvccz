@@ -615,6 +615,95 @@ export class TaskService {
     }
   }
 
+  // Get tasks for a specific user
+  static async getUserTasks(userId: string, filters: any = {}) {
+    try {
+      const where: any = {
+        isTrashed: false,
+        team: {
+          has: userId // Check if userId is in the team array
+        }
+      };
+
+      if (filters.stage) {
+        where.stage = filters.stage;
+      }
+
+      if (filters.priority) {
+        where.priority = filters.priority;
+      }
+
+      if (filters.department) {
+        where.department = filters.department;
+      }
+
+      if (filters.performanceCategory) {
+        where.performanceCategory = filters.performanceCategory;
+      }
+
+      if (filters.isPerformanceTask !== undefined) {
+        where.isPerformanceTask = filters.isPerformanceTask;
+      }
+
+      if (filters.goalId) {
+        where.goalId = filters.goalId;
+      }
+
+      if (filters.isOverdue !== undefined) {
+        where.isOverdue = filters.isOverdue;
+      }
+
+      if (filters.search) {
+        where.OR = [
+          { title: { contains: filters.search, mode: 'insensitive' } },
+          { stage: { contains: filters.search, mode: 'insensitive' } },
+          { priority: { contains: filters.search, mode: 'insensitive' } }
+        ];
+      }
+
+      const tasks = await prisma.task.findMany({
+        where,
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              category: true,
+              parentGoal: {
+                select: {
+                  id: true,
+                  title: true,
+                  parentGoal: {
+                    select: {
+                      id: true,
+                      title: true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      return tasks;
+    } catch (error) {
+      throw error;
+    }
+  }
+
   // Get task by ID
   static async getTaskById(id: string) {
     try {

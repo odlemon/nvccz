@@ -424,6 +424,16 @@ export class PerformanceGoalService {
 
         createdGoals.push(individualGoal);
         console.log(`✅ Created individual goal for user ${userId}: ${individualGoal.id}`);
+
+        // Automatically create task for the individual goal
+        try {
+          const { IndividualGoalToTaskService } = await import('./IndividualGoalToTaskService');
+          await IndividualGoalToTaskService.convertIndividualGoalsToTasks(individualGoal.id);
+          console.log(`✅ Automatically created task for individual goal: ${individualGoal.id}`);
+        } catch (taskError) {
+          console.error(`❌ Failed to create task for individual goal ${individualGoal.id}:`, taskError);
+          // Don't throw error - goal creation should still succeed even if task creation fails
+        }
       }
 
       return createdGoals;

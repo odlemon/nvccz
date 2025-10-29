@@ -4,6 +4,7 @@
 
 import { PrismaClient, Decimal } from '@prisma/client';
 import { prisma } from '../utils/database';
+import ControlAccountIntegrationService from './ControlAccountIntegrationService';
 
 export interface CreateCashReceiptParams {
   bankId: string;
@@ -40,6 +41,7 @@ export interface CreateCashPaymentParams {
 export interface CashbookResult {
   transaction: any;
   journalEntry?: any;
+  controlAccountResult?: any;
   success: boolean;
   message: string;
 }
@@ -112,9 +114,28 @@ export class CashbookService {
         }
       });
       
+      // 7. Apply Control Account Integration for customer payments
+      let controlAccountResult = null;
+      if (params.counterpartyType === 'CUSTOMER' && params.customerId) {
+        try {
+          controlAccountResult = await ControlAccountIntegrationService.applyCustomerPayment(
+            updatedTransaction.id,
+            params.customerId,
+            params.amount,
+            params.createdById,
+            false // Set to true for auto-allocation
+          );
+          console.log(`📊 Control Account Integration: ${controlAccountResult.message}`);
+        } catch (error: any) {
+          console.warn(`⚠️ Control Account Integration failed (non-critical): ${error.message}`);
+          // Don't fail the transaction if control account integration fails
+        }
+      }
+      
       return {
         transaction: updatedTransaction,
         journalEntry,
+        controlAccountResult,
         success: true,
         message: 'Cash receipt created and posted successfully'
       };
@@ -187,9 +208,28 @@ export class CashbookService {
         }
       });
       
+      // 7. Apply Control Account Integration for supplier payments
+      let controlAccountResult = null;
+      if (params.counterpartyType === 'SUPPLIER' && params.vendorId) {
+        try {
+          controlAccountResult = await ControlAccountIntegrationService.applySupplierPayment(
+            updatedTransaction.id,
+            params.vendorId,
+            params.amount,
+            params.createdById,
+            false // Set to true for auto-allocation
+          );
+          console.log(`📊 Control Account Integration: ${controlAccountResult.message}`);
+        } catch (error: any) {
+          console.warn(`⚠️ Control Account Integration failed (non-critical): ${error.message}`);
+          // Don't fail the transaction if control account integration fails
+        }
+      }
+      
       return {
         transaction: updatedTransaction,
         journalEntry,
+        controlAccountResult,
         success: true,
         message: 'Cash payment created and posted successfully'
       };

@@ -774,6 +774,128 @@ export const performanceEndpoints = {
     }
   },
 
+  '/api/tasks/my': {
+    get: {
+      tags: ['📋 Task Management Integration'],
+      summary: 'Get My Tasks',
+      description: 'Get all tasks assigned to the current user with filtering options',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'stage',
+          in: 'query',
+          schema: { type: 'string', enum: ['todo', 'in_progress', 'completed', 'overdue'] },
+          description: 'Filter by task stage'
+        },
+        {
+          name: 'priority',
+          in: 'query',
+          schema: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+          description: 'Filter by task priority'
+        },
+        {
+          name: 'department',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Filter by department'
+        },
+        {
+          name: 'performanceCategory',
+          in: 'query',
+          schema: { type: 'string', enum: ['business', 'performance', 'operational'] },
+          description: 'Filter by performance category'
+        },
+        {
+          name: 'isPerformanceTask',
+          in: 'query',
+          schema: { type: 'boolean' },
+          description: 'Filter by performance task flag'
+        },
+        {
+          name: 'goalId',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Filter by performance goal ID'
+        },
+        {
+          name: 'isOverdue',
+          in: 'query',
+          schema: { type: 'boolean' },
+          description: 'Filter by overdue status'
+        },
+        {
+          name: 'search',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Search in title, stage, and priority'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'User tasks retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Your tasks retrieved successfully' },
+                  count: { type: 'number', example: 5 },
+                  tasks: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        title: { type: 'string' },
+                        description: { type: 'string' },
+                        stage: { type: 'string', enum: ['todo', 'in_progress', 'completed', 'overdue'] },
+                        priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+                        isOverdue: { type: 'boolean' },
+                        targetValue: { type: 'string' },
+                        targetUnit: { type: 'string' },
+                        currentValue: { type: 'string' },
+                        goal: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            title: { type: 'string' },
+                            type: { type: 'string' },
+                            category: { type: 'string' },
+                            parentGoal: {
+                              type: 'object',
+                              properties: {
+                                id: { type: 'string' },
+                                title: { type: 'string' },
+                                parentGoal: {
+                                  type: 'object',
+                                  properties: {
+                                    id: { type: 'string' },
+                                    title: { type: 'string' }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        401: {
+          description: 'Unauthorized'
+        },
+        400: {
+          description: 'Bad request'
+        }
+      }
+    }
+  },
+
   // ==========================================
   // HARDCODED KPIs (via existing KPI routes)
   // ==========================================
