@@ -45,9 +45,7 @@ export class IndividualGoalToTaskService {
         goalId: individualGoal.id, // Link to individual goal
         performanceCategory: individualGoal.category,
         isPerformanceTask: true,
-        targetValue: individualGoal.targetValue,
-        targetUnit: individualGoal.targetUnit,
-        currentValue: individualGoal.currentValue || 0,
+        monetaryValue: individualGoal.targetValue ? parseFloat(individualGoal.targetValue.toString()) : null,
         kpi: individualGoal.kpiId ? { id: individualGoal.kpiId } : null
       };
 
@@ -131,7 +129,7 @@ export class IndividualGoalToTaskService {
       const tasks = await prisma.task.findMany({
         where: {
           team: {
-            has: userId
+            array_contains: userId
           },
           isPerformanceTask: true
         },

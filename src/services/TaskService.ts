@@ -171,9 +171,7 @@ export class TaskService {
           isPerformanceTask: request.isPerformanceTask || false,
           
           // Target Values (Absolute Value System)
-          targetValue: request.targetValue,
-          targetUnit: request.targetUnit,
-          currentValue: request.currentValue || 0,
+          monetaryValue: request.targetValue ? parseFloat(request.targetValue.toString()) : null,
           
           // KPI Integration
           kpi: kpiData,
