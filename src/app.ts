@@ -98,6 +98,7 @@ import creditNoteRoutes from "./routes/creditNoteRoutes"
 import statementRoutes from "./routes/statementRoutes"
 import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
 import hardcodedRoleRoutes from "./routes/hardcodedRoleRoutes"
+import activityRoutes from "./routes/activityRoutes"
 
 
 dotenv.config()
@@ -394,6 +395,7 @@ app.use("/api/performance/goals", performanceGoalRoutes)
 app.use("/api/performance/etl", performanceETLRoutes)
 app.use("/api/performance/workflow", performanceWorkflowRoutes)
 app.use("/api/tasks", taskRoutes)
+app.use("/api/activities", activityRoutes)
 app.use("/api/kpis", kpiRoutes)
 app.use("/api/performance/kpis", hardcodedKPIRoutes)
 app.use("/api/activity-logs", activityLogRoutes)

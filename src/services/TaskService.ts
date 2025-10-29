@@ -661,7 +661,31 @@ export class TaskService {
 
       const tasks = await prisma.task.findMany({
         where,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          team: true,
+          stage: true,
+          date: true,
+          priority: true,
+          department: true,
+          goalId: true,
+          performanceCategory: true,
+          isPerformanceTask: true,
+          isOverdue: true,
+          overdueStatus: true,
+          originalStage: true,
+          monetaryValue: true,
+          monetaryValueAchieved: true,
+          percentValueAchieved: true,
+          kpi: true,
+          activities: true,
+          status: true,
+          isTrashed: true,
+          createdBy: true,
+          createdAt: true,
+          updatedAt: true,
           creator: {
             select: {
               id: true,
