@@ -80,7 +80,7 @@ export class PerformanceGoalController {
         type,
         category,
         status,
-        departmentName,
+        department,
         assignedToId,
         parentGoalId,
         search
@@ -90,7 +90,7 @@ export class PerformanceGoalController {
       if (type) filters.type = type as string;
       if (category) filters.category = category as string;
       if (status) filters.status = status as string;
-      if (departmentId) filters.departmentId = departmentId as string;
+      if (department) filters.department = department as string;
       if (assignedToId) filters.assignedToId = assignedToId as string;
       if (parentGoalId) filters.parentGoalId = parentGoalId as string;
       if (search) filters.search = search as string;

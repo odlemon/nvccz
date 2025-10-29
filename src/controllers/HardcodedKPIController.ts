@@ -11,18 +11,7 @@ export class HardcodedKPIController {
     try {
       const kpis = await prisma.kPI.findMany({
         where: { isActive: true },
-        include: {
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          }
-        },
-        orderBy: [
-          { department: { name: 'asc' } },
-          { name: 'asc' }
-        ]
+        orderBy: { name: 'asc' }
       });
 
       // Enrich with hardcoded KPI details from config
@@ -70,20 +59,22 @@ export class HardcodedKPIController {
         });
       }
 
+      // First get the department ID
+      const departmentRecord = await prisma.department.findFirst({
+        where: { name: department }
+      });
+
+      if (!departmentRecord) {
+        return res.status(404).json({
+          success: false,
+          message: `Department '${department}' not found`
+        });
+      }
+
       const kpis = await prisma.kPI.findMany({
         where: { 
           isActive: true,
-          department: {
-            name: department
-          }
-        },
-        include: {
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          }
+          departmentId: departmentRecord.id
         },
         orderBy: { name: 'asc' }
       });
@@ -149,14 +140,6 @@ export class HardcodedKPIController {
         where: { 
           name: hardcodedKPI.name,
           isActive: true
-        },
-        include: {
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          }
         }
       });
 
@@ -209,18 +192,7 @@ export class HardcodedKPIController {
             in: financialKPINames
           }
         },
-        include: {
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          }
-        },
-        orderBy: [
-          { department: { name: 'asc' } },
-          { name: 'asc' }
-        ]
+        orderBy: { name: 'asc' }
       });
 
       // Enrich with hardcoded KPI details from config
@@ -286,18 +258,7 @@ export class HardcodedKPIController {
             in: accountTypeKPINames
           }
         },
-        include: {
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          }
-        },
-        orderBy: [
-          { department: { name: 'asc' } },
-          { name: 'asc' }
-        ]
+        orderBy: { name: 'asc' }
       });
 
       // Enrich with hardcoded KPI details from config
@@ -338,15 +299,7 @@ export class HardcodedKPIController {
   static async getKPIStatistics(req: Request, res: Response) {
     try {
       const allKPIs = await prisma.kPI.findMany({
-        where: { isActive: true },
-        include: {
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          }
-        }
+        where: { isActive: true }
       });
 
       // Get hardcoded KPI details for statistics
@@ -356,13 +309,12 @@ export class HardcodedKPIController {
       const financialKPIs = allKPIs.filter(kpi => financialKPINames.includes(kpi.name));
       const nonFinancialKPIs = allKPIs.filter(kpi => !financialKPINames.includes(kpi.name));
       
-      // Group by department
-      const byDepartment = allKPIs.reduce((acc, kpi) => {
-        const deptName = kpi.department?.name || 'Unknown';
-        if (!acc[deptName]) {
-          acc[deptName] = [];
+      // Group by department using hardcoded data
+      const byDepartment = hardcodedKPIs.reduce((acc, kpi) => {
+        if (!acc[kpi.department]) {
+          acc[kpi.department] = [];
         }
-        acc[deptName].push(kpi);
+        acc[kpi.department].push(kpi);
         return acc;
       }, {} as Record<string, any[]>);
 
