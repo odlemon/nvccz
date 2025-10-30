@@ -55,6 +55,7 @@ import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
 import portfolioCompanyRoutes from "./routes/portfolioCompanyRoutes"
 import applicationRoutes from "./routes/applicationRoutes"
+import applicantPortalRoutes from "./routes/applicantPortalRoutes"
 import boardReviewRoutes from "./routes/boardReviewRoutes"
 import termSheetRoutes from "./routes/termSheetRoutes"
 import investmentImplementationRoutes from "./routes/investmentImplementationRoutes"
@@ -369,6 +370,9 @@ app.use("/api/portfolio-companies", portfolioCompanyRoutes)
 
 // Application routes
 app.use("/api/applications", applicationRoutes)
+
+// Applicant Portal routes
+app.use("/api/applicant", applicantPortalRoutes)
 
 // Board Review routes
 app.use("/api/board-reviews", boardReviewRoutes)

@@ -31,7 +31,12 @@ export class AuthController {
           password: true,
           userDepartment: true,
           roleCode: true,
-          roleId: true
+          roleId: true,
+          role: {
+            select: {
+              name: true
+            }
+          }
         }
       });
 
@@ -61,6 +66,9 @@ export class AuthController {
         roleCode: user.roleCode
       }, JWT_SECRET, { expiresIn: "7d" });
 
+      // Check if user is an applicant
+      const isApplicant = user.role?.name === 'applicant';
+
       return res.status(200).json({
         success: true,
         message: "Logged in successfully",
@@ -71,7 +79,8 @@ export class AuthController {
           firstName: user.firstName,
           lastName: user.lastName,
           department: user.userDepartment,
-          role: user.roleCode
+          role: user.roleCode,
+          isApplicant: isApplicant
         }
       });
     } catch (error) {
