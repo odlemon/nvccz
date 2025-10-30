@@ -702,8 +702,9 @@ export class TaskService {
                     select: {
                       id: true,
                       name: true,
-                      code: true,
-                      description: true
+                      type: true,
+                      unitSymbol: true,
+                      unitPosition: true
                     }
                   }
                 }
