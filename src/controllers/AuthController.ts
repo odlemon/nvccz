@@ -23,8 +23,15 @@ export class AuthController {
       
       const user = await prisma.user.findUnique({
         where: { email: normalizedEmail },
-        include: {
-          role: true
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          password: true,
+          userDepartment: true,
+          roleCode: true,
+          roleId: true
         }
       });
 
@@ -46,11 +53,12 @@ export class AuthController {
       const token = jwt.sign({
         userId: user.id,
         roleId: user.roleId,
-        roleName: user.role.name,
+        roleName: user.roleCode,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        permissions: user.role.permissions
+        department: user.userDepartment,
+        roleCode: user.roleCode
       }, JWT_SECRET, { expiresIn: "7d" });
 
       return res.status(200).json({
@@ -62,8 +70,8 @@ export class AuthController {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          role: user.role.name,
-          permissions: user.role.permissions
+          department: user.userDepartment,
+          role: user.roleCode
         }
       });
     } catch (error) {
@@ -77,8 +85,13 @@ export class AuthController {
       
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        include: {
-          role: true
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          userDepartment: true,
+          roleCode: true
         }
       });
 
@@ -96,8 +109,8 @@ export class AuthController {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          role: user.role.name,
-          permissions: user.role.permissions
+          department: user.userDepartment,
+          role: user.roleCode
         },
       });
     } catch (error) {
