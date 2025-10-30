@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Router } from "express";
 import { applicantPortalController } from "../controllers/ApplicantPortalController";
-import { authenticateToken } from "../middleware/auth";
+import { authenticate } from "../middleware/authenticate";
 
 const router = Router();
 
@@ -376,7 +376,7 @@ const router = Router();
  *       404:
  *         description: User not found
  */
-router.get("/profile", authenticateToken, applicantPortalController.getProfile);
+router.get("/profile", authenticate, applicantPortalController.getProfile);
 
 /**
  * @swagger
@@ -414,7 +414,7 @@ router.get("/profile", authenticateToken, applicantPortalController.getProfile);
  *       404:
  *         description: User not found
  */
-router.put("/profile", authenticateToken, applicantPortalController.updateProfile);
+router.put("/profile", authenticate, applicantPortalController.updateProfile);
 
 /**
  * @swagger
@@ -446,7 +446,7 @@ router.put("/profile", authenticateToken, applicantPortalController.updateProfil
  *       404:
  *         description: No application found for this user
  */
-router.get("/application", authenticateToken, applicantPortalController.getApplication);
+router.get("/application", authenticate, applicantPortalController.getApplication);
 
 /**
  * @swagger
@@ -478,7 +478,7 @@ router.get("/application", authenticateToken, applicantPortalController.getAppli
  *       404:
  *         description: No portfolio company found for this user
  */
-router.get("/company", authenticateToken, applicantPortalController.getCompany);
+router.get("/company", authenticate, applicantPortalController.getCompany);
 
 /**
  * @swagger
@@ -550,7 +550,7 @@ router.get("/company", authenticateToken, applicantPortalController.getCompany);
  *       404:
  *         description: No portfolio company found for this user
  */
-router.put("/company", authenticateToken, applicantPortalController.updateCompany);
+router.put("/company", authenticate, applicantPortalController.updateCompany);
 
 /**
  * @swagger
@@ -582,7 +582,7 @@ router.put("/company", authenticateToken, applicantPortalController.updateCompan
  *       404:
  *         description: User not found
  */
-router.get("/dashboard", authenticateToken, applicantPortalController.getDashboard);
+router.get("/dashboard", authenticate, applicantPortalController.getDashboard);
 
 /**
  * @swagger
@@ -614,7 +614,7 @@ router.get("/dashboard", authenticateToken, applicantPortalController.getDashboa
  *       404:
  *         description: No application found for this user
  */
-router.get("/application/timeline", authenticateToken, applicantPortalController.getApplicationTimeline);
+router.get("/application/timeline", authenticate, applicantPortalController.getApplicationTimeline);
 
 /**
  * @swagger
@@ -646,7 +646,7 @@ router.get("/application/timeline", authenticateToken, applicantPortalController
  *       404:
  *         description: No portfolio company found for this user
  */
-router.get("/investment", authenticateToken, applicantPortalController.getInvestmentDetails);
+router.get("/investment", authenticate, applicantPortalController.getInvestmentDetails);
 
 /**
  * @swagger
@@ -719,7 +719,7 @@ router.get("/investment", authenticateToken, applicantPortalController.getInvest
  *       404:
  *         description: No portfolio company found for this user
  */
-router.get("/valuations", authenticateToken, applicantPortalController.getPortfolioValuations);
+router.get("/valuations", authenticate, applicantPortalController.getPortfolioValuations);
 
 /**
  * @swagger
@@ -751,6 +751,6 @@ router.get("/valuations", authenticateToken, applicantPortalController.getPortfo
  *       404:
  *         description: No portfolio company found for this user
  */
-router.get("/reports", authenticateToken, applicantPortalController.getPerformanceReports);
+router.get("/reports", authenticate, applicantPortalController.getPerformanceReports);
 
 export default router;
