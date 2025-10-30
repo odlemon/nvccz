@@ -84,10 +84,7 @@ export class ActivityService {
               kpi: {
                 select: {
                   id: true,
-                  name: true,
-                  type: true,
-                  unitSymbol: true,
-                  unitPosition: true
+                  name: true
                 }
               }
             }
@@ -230,10 +227,7 @@ export class ActivityService {
               kpi: {
                 select: {
                   id: true,
-                  name: true,
-                  type: true,
-                  unitSymbol: true,
-                  unitPosition: true
+                  name: true
                 }
               }
             }

@@ -701,10 +701,7 @@ export class TaskService {
                   kpi: {
                     select: {
                       id: true,
-                      name: true,
-                      type: true,
-                      unitSymbol: true,
-                      unitPosition: true
+                      name: true
                     }
                   }
                 }
@@ -737,14 +734,12 @@ export class TaskService {
               currentValue: true,
               stage: true,
               kpiId: true,
-              kpi: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  description: true
-                }
-              },
+        kpi: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
               parentGoal: {
                 select: {
                   id: true,
