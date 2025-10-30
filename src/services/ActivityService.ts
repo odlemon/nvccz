@@ -105,6 +105,18 @@ export class ActivityService {
         }
       }
 
+      // 🚀 NEW: Trigger automatic roll-up calculations
+      if (finalGoalId) {
+        try {
+          const { RollupCalculationService } = await import('./RollupCalculationService');
+          await RollupCalculationService.recalculateAllRollups(finalGoalId);
+          console.log(`✅ Automatic roll-up triggered for goal: ${finalGoalId}`);
+        } catch (rollupError) {
+          console.error(`❌ Roll-up calculation failed for goal ${finalGoalId}:`, rollupError);
+          // Don't throw error - activity creation should still succeed
+        }
+      }
+
       return activity;
     } catch (error) {
       console.error('Error creating activity:', error);
@@ -180,17 +192,20 @@ export class ActivityService {
       }
 
       // Update current value
-      const newCurrentValue = (goal.currentValue || 0) + valueCollected;
+      const currentValue = goal.currentValue ? parseFloat(goal.currentValue.toString()) : 0;
+      const newCurrentValue = currentValue + valueCollected;
+      
+      const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
       
       await prisma.performanceGoal.update({
         where: { id: goalId },
         data: {
           currentValue: newCurrentValue,
-          stage: newCurrentValue >= (goal.targetValue || 0) ? 'completed' : 'in_progress'
+          stage: newCurrentValue >= targetValue ? 'completed' : 'in_progress'
         }
       });
 
-      console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${goal.targetValue}`);
+      console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue}`);
     } catch (error) {
       console.error('Error updating goal progress:', error);
       throw error;

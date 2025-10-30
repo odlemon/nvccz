@@ -911,6 +911,15 @@ export class TaskService {
         await this.updateParentGoalProgress(goal.parentGoalId);
       }
 
+      // 🚀 NEW: Trigger automatic roll-up calculations
+      try {
+        const { RollupCalculationService } = await import('./RollupCalculationService');
+        await RollupCalculationService.recalculateAllRollups(goal.id);
+        console.log(`✅ Automatic roll-up triggered for task goal: ${goal.id}`);
+      } catch (rollupError) {
+        console.error(`❌ Roll-up calculation failed for task goal ${goal.id}:`, rollupError);
+      }
+
     } catch (error) {
       console.error('❌ Error updating linked goal progress:', error);
       throw error;
@@ -963,6 +972,15 @@ export class TaskService {
       // If parent goal is completed and has KPI integration, trigger accounting
       if (isCompleted && parentGoal.kpiId) {
         await this.triggerAccountingIntegration(parentGoalId, parentGoal.targetValue || 0);
+      }
+
+      // 🚀 NEW: Trigger automatic roll-up calculations
+      try {
+        const { RollupCalculationService } = await import('./RollupCalculationService');
+        await RollupCalculationService.recalculateAllRollups(parentGoalId);
+        console.log(`✅ Automatic roll-up triggered for parent goal: ${parentGoalId}`);
+      } catch (rollupError) {
+        console.error(`❌ Roll-up calculation failed for parent goal ${parentGoalId}:`, rollupError);
       }
 
       // Recursively update grandparent goal if exists
