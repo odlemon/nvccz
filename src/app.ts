@@ -80,7 +80,6 @@ import riskAssessmentRoutes from "./routes/riskAssessmentRoutes"
 import budgetManagementRoutes from "./routes/budgetManagementRoutes"
 import portfolioValuationRoutes from "./routes/portfolioValuationRoutes"
 import exitInterviewRoutes from "./routes/exitInterviewRoutes"
-import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import enhancedGoalTrackingRoutes from "./routes/enhancedGoalTrackingRoutes"
 import enhancedETLRoutes from "./routes/enhancedETLRoutes"
 import performanceReviewCycleRoutes from "./routes/performanceReviewCycleRoutes"
@@ -100,7 +99,6 @@ import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
 import hardcodedRoleRoutes from "./routes/hardcodedRoleRoutes"
 import activityRoutes from "./routes/activityRoutes"
 import rollupCalculationRoutes from "./routes/rollupCalculationRoutes"
-import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
 
 
@@ -436,8 +434,6 @@ app.use("/api/portfolio-valuations", portfolioValuationRoutes)
 // Exit Interview routes
 app.use("/api/exit-interviews", exitInterviewRoutes)
 
-// Performance Scorecard routes
-app.use("/api/performance-scorecards", performanceScorecardRoutes)
 app.use("/api/performance/goal-tracking", enhancedGoalTrackingRoutes)
 app.use("/api/performance/enhanced-etl", enhancedETLRoutes)
 app.use("/api/performance/review-cycles", performanceReviewCycleRoutes)
