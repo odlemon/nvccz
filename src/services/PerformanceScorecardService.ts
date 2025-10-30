@@ -1,503 +1,311 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
-
-export interface UserScorecardData {
-  userId: string;
-  userName: string;
-  department: string;
-  role: string;
-  overallScore: number;
-  performanceCategory: string;
-  taskMetrics: {
-    totalTasks: number;
-    completedTasks: number;
-    overdueTasks: number;
-    completionRate: number;
-    averageCompletionTime: number;
-    overdueRate: number;
-    qualityScore: number;
-  };
-  goalMetrics: {
-    totalGoals: number;
-    achievedGoals: number;
-    overdueGoals: number;
-    completionRate: number;
-    progressSpeed: number;
-    overdueRate: number;
-    averageProgress: number;
-  };
-  activityMetrics: {
-    totalActivities: number;
-    logFrequency: number;
-    engagementScore: number;
-    responseTime: number;
-    proactiveActions: number;
-  };
-  reviewMetrics: {
-    totalReviews: number;
-    averageScore: number;
-    latestScore: number;
-    improvementTrend: string;
-    lastReviewDate: string | null;
-  };
-}
-
-export interface DepartmentScorecardData {
-  departmentName: string; // Use hardcoded department names
-  totalUsers: number;
-  averageScore: number;
-  performanceCategory: string;
-  taskMetrics: {
-    totalTasks: number;
-    completedTasks: number;
-    overdueTasks: number;
-    completionRate: number;
-    averageCompletionTime: number;
-    overdueRate: number;
-    qualityScore: number;
-  };
-  goalMetrics: {
-    totalGoals: number;
-    achievedGoals: number;
-    overdueGoals: number;
-    completionRate: number;
-    progressSpeed: number;
-    overdueRate: number;
-    averageProgress: number;
-  };
-  activityMetrics: {
-    totalActivities: number;
-    averageLogFrequency: number;
-    engagementScore: number;
-    averageResponseTime: number;
-    proactiveActions: number;
-  };
-  reviewMetrics: {
-    totalReviews: number;
-    averageScore: number;
-    completionRate: number;
-    improvementTrend: string;
-    lastReviewDate: string | null;
-  };
-  performanceDistribution: {
-    highPerformers: number;
-    averagePerformers: number;
-    needsImprovement: number;
-    highPerformerPercentage: number;
-    averagePerformerPercentage: number;
-    needsImprovementPercentage: number;
-  };
-  comparison: {
-    rankInCompany: number;
-    vsCompanyAverage: string;
-    vsBestDepartment: string;
-    vsWorstDepartment: string;
-  };
-}
+import { Decimal } from "@prisma/client/runtime/library";
 
 export class PerformanceScorecardService {
   /**
-   * Get performance scorecards for all users
+   * Get user performance scorecard
    */
-  static async getAllUsersScorecards(): Promise<UserScorecardData[]> {
+  static async getUserScorecard(userId: string) {
     try {
-      const users = await prisma.user.findMany({
-        include: {
-          department: {
-            select: { id: true, name: true }
-          },
-          role: {
-            select: { name: true }
-          },
-          createdTasks: true,
-          performanceGoals: true,
-          activityLogs: true,
-          performanceReviewsAsReviewee: {
-            include: {
-              reviewFeedback: true
-            }
-          }
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true
         }
       });
 
-      const userScorecards: UserScorecardData[] = [];
-
-      for (const user of users) {
-        const scorecard = await this.calculateUserScorecard(user);
-        userScorecards.push(scorecard);
+      if (!user) {
+        throw new Error("User not found");
       }
 
-      return userScorecards;
-    } catch (error: any) {
-      throw new Error(`Failed to get users scorecards: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get performance scorecards for all departments
-   */
-  static async getAllDepartmentsScorecards(): Promise<DepartmentScorecardData[]> {
-    try {
-      // Use hardcoded departments instead of database departments
-      const hardcodedDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
-      
-      const departmentScorecards: DepartmentScorecardData[] = [];
-
-      for (const departmentName of hardcodedDepartments) {
-        // Get users by department name
-        const users = await prisma.user.findMany({
-          where: {
-            departmentName: departmentName
+      // Get user's individual goals
+      const individualGoals = await prisma.performanceGoal.findMany({
+        where: {
+          type: 'individual',
+          assignedToId: userId
+        },
+        include: {
+          kpi: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              unitSymbol: true,
+              unitPosition: true
+            }
           },
-          include: {
-            createdTasks: true,
-            performanceGoals: true,
-            activityLogs: true,
-            performanceReviewsAsReviewee: {
-              include: {
-                reviewFeedback: true
+          parentGoal: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              parentGoal: {
+                select: {
+                  id: true,
+                  title: true,
+                  type: true
+                }
               }
             }
           }
-        });
-
-        const scorecard = await this.calculateDepartmentScorecard(departmentName, users);
-        departmentScorecards.push(scorecard);
-      }
-
-      // Calculate rankings and comparisons
-      const sortedDepartments = departmentScorecards.sort((a, b) => b.averageScore - a.averageScore);
-      const companyAverage = departmentScorecards.reduce((sum, dept) => sum + dept.averageScore, 0) / departmentScorecards.length;
-
-      return sortedDepartments.map((dept, index) => ({
-        ...dept,
-        comparison: {
-          rankInCompany: index + 1,
-          vsCompanyAverage: `${dept.averageScore > companyAverage ? '+' : ''}${(dept.averageScore - companyAverage).toFixed(1)}%`,
-          vsBestDepartment: index === 0 ? '0.0%' : `-${(sortedDepartments[0].averageScore - dept.averageScore).toFixed(1)}%`,
-          vsWorstDepartment: index === sortedDepartments.length - 1 ? '0.0%' : `+${(dept.averageScore - sortedDepartments[sortedDepartments.length - 1].averageScore).toFixed(1)}%`
         }
-      }));
-    } catch (error: any) {
-      throw new Error(`Failed to get departments scorecards: ${error.message}`);
+      });
+
+      // Get user's tasks
+      const tasks = await prisma.task.findMany({
+        where: {
+          team: {
+            array_contains: userId
+          },
+          isPerformanceTask: true
+        },
+        include: {
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              type: true
+            }
+          }
+        }
+      });
+
+      // Calculate performance metrics
+      const metrics = this.calculateUserMetrics(individualGoals, tasks);
+
+      return {
+        user: {
+          id: user.id,
+          name: `${user.firstName} ${user.lastName}`,
+          email: user.email,
+          department: user.userDepartment,
+          role: user.departmentRole,
+          roleCode: user.roleCode
+        },
+        goals: individualGoals.map(goal => ({
+          id: goal.id,
+          title: goal.title,
+          type: goal.type,
+          category: goal.category,
+          targetValue: goal.targetValue,
+          currentValue: goal.currentValue,
+          progressPercentage: goal.targetValue ? 
+            ((goal.currentValue || 0) / parseFloat(goal.targetValue.toString()) * 100).toFixed(2) : "0",
+          stage: goal.stage,
+          kpi: goal.kpi,
+          parentGoal: goal.parentGoal
+        })),
+        tasks: tasks.map(task => ({
+          id: task.id,
+          title: task.title,
+          stage: task.stage,
+          priority: task.priority,
+          isOverdue: task.isOverdue,
+          goal: task.goal
+        })),
+        metrics
+      };
+    } catch (error) {
+      console.error("Error getting user scorecard:", error);
+      throw error;
     }
   }
 
   /**
-   * Calculate individual user scorecard
+   * Get department performance scorecard
    */
-  private static async calculateUserScorecard(user: any): Promise<UserScorecardData> {
-    // Task Metrics
-    const totalTasks = user.createdTasks.length;
-    const completedTasks = user.createdTasks.filter((task: any) => task.stage === 'completed').length;
-    const overdueTasks = user.createdTasks.filter((task: any) => 
-      task.stage !== 'completed' && task.isOverdue === true
-    ).length;
-    const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-    const overdueRate = totalTasks > 0 ? (overdueTasks / totalTasks) * 100 : 0;
-
-    // Calculate average completion time
-    const completedTaskTimes = user.createdTasks
-      .filter((task: any) => task.stage === 'completed')
-      .map((task: any) => {
-        const start = new Date(task.createdAt);
-        const end = new Date(task.updatedAt);
-        return (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24); // days
-      });
-    const averageCompletionTime = completedTaskTimes.length > 0 
-      ? completedTaskTimes.reduce((sum: number, time: number) => sum + time, 0) / completedTaskTimes.length 
-      : 0;
-
-    // Goal Metrics
-    const totalGoals = user.performanceGoals.length;
-    const achievedGoals = user.performanceGoals.filter((goal: any) => goal.status === 'completed').length;
-    const overdueGoals = user.performanceGoals.filter((goal: any) => 
-      goal.status !== 'completed' && new Date(goal.endDate) < new Date()
-    ).length;
-    const goalCompletionRate = totalGoals > 0 ? (achievedGoals / totalGoals) * 100 : 0;
-    const goalOverdueRate = totalGoals > 0 ? (overdueGoals / totalGoals) * 100 : 0;
-
-    // Calculate average progress from achieved values
-    const averageProgress = user.performanceGoals.length > 0 
-      ? user.performanceGoals.reduce((sum: number, goal: any) => {
-          if (goal.percentValue && goal.percentValueAchieved) {
-            return sum + (Number(goal.percentValueAchieved) / Number(goal.percentValue)) * 100;
-          } else if (goal.monetaryValue && goal.monetaryValueAchieved) {
-            return sum + (Number(goal.monetaryValueAchieved) / Number(goal.monetaryValue)) * 100;
+  static async getDepartmentScorecard(departmentName: string) {
+    try {
+      // Get department goals
+      const departmentGoals = await prisma.performanceGoal.findMany({
+        where: {
+          type: 'department',
+          departmentName: departmentName
+        },
+        include: {
+          kpi: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              unitSymbol: true,
+              unitPosition: true
+            }
+          },
+          subGoals: {
+            include: {
+              assignedTo: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          },
+          parentGoal: {
+            select: {
+              id: true,
+              title: true,
+              type: true
+            }
           }
-          return sum + (goal.status === 'completed' ? 100 : 0);
-        }, 0) / user.performanceGoals.length 
-      : 0;
+        }
+      });
 
-    // Activity Metrics
-    const totalActivities = user.activityLogs.length;
-    // Calculate log frequency based on user's account age (more realistic)
-    const accountAgeInWeeks = Math.max(1, (new Date().getTime() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 7));
-    const logFrequency = totalActivities > 0 ? totalActivities / accountAgeInWeeks : 0; // activities per week
-    const proactiveActions = user.createdTasks.length; // All created tasks are proactive
+      // Get department users
+      const departmentUsers = await prisma.user.findMany({
+        where: {
+          userDepartment: departmentName,
+          role: {
+            name: {
+              notIn: ["admin", "applicant"]
+            }
+          }
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          departmentRole: true,
+          roleCode: true
+        }
+      });
 
-    // Review Metrics
-    const totalReviews = user.performanceReviewsAsReviewee.length;
-    const averageScore = user.performanceReviewsAsReviewee.length > 0 
-      ? user.performanceReviewsAsReviewee.reduce((sum: number, review: any) => sum + (review.overallScore || 0), 0) / user.performanceReviewsAsReviewee.length 
-      : 0;
-    const latestScore = user.performanceReviewsAsReviewee.length > 0 
-      ? user.performanceReviewsAsReviewee.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0].overallScore || 0 
-      : 0;
-    const lastReviewDate = user.performanceReviewsAsReviewee.length > 0 
-      ? user.performanceReviewsAsReviewee.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0].createdAt 
-      : null;
+      // Calculate department metrics
+      const metrics = this.calculateDepartmentMetrics(departmentGoals, departmentUsers);
 
-    // Calculate overall score
-    const overallScore = Math.round(
-      (completionRate * 0.3) +
-      (goalCompletionRate * 0.25) +
-      (averageScore * 0.25) +
-      (logFrequency * 2 * 0.2) // Scale log frequency
-    );
+      return {
+        department: departmentName,
+        goals: departmentGoals.map(goal => ({
+          id: goal.id,
+          title: goal.title,
+          type: goal.type,
+          category: goal.category,
+          targetValue: goal.targetValue,
+          currentValue: goal.currentValue,
+          progressPercentage: goal.targetValue ? 
+            ((goal.currentValue || 0) / parseFloat(goal.targetValue.toString()) * 100).toFixed(2) : "0",
+          stage: goal.stage,
+          kpi: goal.kpi,
+          parentGoal: goal.parentGoal,
+          individualGoals: goal.subGoals.map(indGoal => ({
+            id: indGoal.id,
+            title: indGoal.title,
+            assignedTo: indGoal.assignedTo,
+            targetValue: indGoal.targetValue,
+            currentValue: indGoal.currentValue,
+            progressPercentage: indGoal.targetValue ? 
+              ((indGoal.currentValue || 0) / parseFloat(indGoal.targetValue.toString()) * 100).toFixed(2) : "0",
+            stage: indGoal.stage
+          }))
+        })),
+        users: departmentUsers.map(user => ({
+          id: user.id,
+          name: `${user.firstName} ${user.lastName}`,
+          email: user.email,
+          role: user.departmentRole,
+          roleCode: user.roleCode
+        })),
+        metrics
+      };
+    } catch (error) {
+      console.error("Error getting department scorecard:", error);
+      throw error;
+    }
+  }
 
-    // Determine performance category
-    let performanceCategory = 'Needs Improvement';
-    if (overallScore >= 85) performanceCategory = 'High Performer';
-    else if (overallScore >= 70) performanceCategory = 'Average Performer';
+  /**
+   * Calculate user performance metrics
+   */
+  private static calculateUserMetrics(goals: any[], tasks: any[]) {
+    const totalGoals = goals.length;
+    const completedGoals = goals.filter(g => g.stage === 'completed').length;
+    const inProgressGoals = goals.filter(g => g.stage === 'in_progress').length;
+    const notStartedGoals = goals.filter(g => g.stage === 'planning').length;
+
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(t => t.stage === 'completed').length;
+    const overdueTasks = tasks.filter(t => t.isOverdue).length;
+
+    const totalTargetValue = goals.reduce((sum, goal) => 
+      sum + parseFloat(goal.targetValue?.toString() || '0'), 0);
+    const totalCurrentValue = goals.reduce((sum, goal) => 
+      sum + parseFloat(goal.currentValue?.toString() || '0'), 0);
 
     return {
-      userId: user.id,
-      userName: `${user.firstName} ${user.lastName}`,
-      department: user.department?.name || 'No Department',
-      role: user.role?.name || 'No Role',
-      overallScore,
-      performanceCategory,
-      taskMetrics: {
-        totalTasks,
-        completedTasks,
-        overdueTasks,
-        completionRate: Math.round(completionRate * 100) / 100,
-        averageCompletionTime: Math.round(averageCompletionTime * 100) / 100,
-        overdueRate: Math.round(overdueRate * 100) / 100,
-        qualityScore: Math.round(averageScore) // Using review score as quality proxy
+      goals: {
+        total: totalGoals,
+        completed: completedGoals,
+        inProgress: inProgressGoals,
+        notStarted: notStartedGoals,
+        completionRate: totalGoals > 0 ? ((completedGoals / totalGoals) * 100).toFixed(2) : "0"
       },
-      goalMetrics: {
-        totalGoals,
-        achievedGoals,
-        overdueGoals,
-        completionRate: Math.round(goalCompletionRate * 100) / 100,
-        progressSpeed: Math.round(averageProgress * 100) / 100,
-        overdueRate: Math.round(goalOverdueRate * 100) / 100,
-        averageProgress: Math.round(averageProgress * 100) / 100
+      tasks: {
+        total: totalTasks,
+        completed: completedTasks,
+        overdue: overdueTasks,
+        completionRate: totalTasks > 0 ? ((completedTasks / totalTasks) * 100).toFixed(2) : "0"
       },
-      activityMetrics: {
-        totalActivities,
-        logFrequency: Math.round(logFrequency * 100) / 100,
-        engagementScore: Math.round(averageScore), // Using review score as engagement proxy
-        responseTime: Math.round(averageCompletionTime * 100) / 100,
-        proactiveActions
-      },
-      reviewMetrics: {
-        totalReviews,
-        averageScore: Math.round(averageScore * 100) / 100,
-        latestScore: Math.round(latestScore * 100) / 100,
-        improvementTrend: 'Stable', // Could be calculated from historical data
-        lastReviewDate: lastReviewDate ? new Date(lastReviewDate).toISOString().split('T')[0] : null
+      progress: {
+        totalTargetValue,
+        totalCurrentValue,
+        progressPercentage: totalTargetValue > 0 ? 
+          ((totalCurrentValue / totalTargetValue) * 100).toFixed(2) : "0"
       }
     };
   }
 
   /**
-   * Calculate department scorecard
+   * Calculate department performance metrics
    */
-  private static async calculateDepartmentScorecard(departmentName: string, users: any[]): Promise<DepartmentScorecardData> {
-    const totalUsers = users.length;
+  private static calculateDepartmentMetrics(goals: any[], users: any[]) {
+    const totalGoals = goals.length;
+    const completedGoals = goals.filter(g => g.stage === 'completed').length;
+    const inProgressGoals = goals.filter(g => g.stage === 'in_progress').length;
 
-    if (totalUsers === 0) {
-      return {
-        departmentName: departmentName,
-        totalUsers: 0,
-        averageScore: 0,
-        performanceCategory: 'No Users',
-        taskMetrics: {
-          totalTasks: 0,
-          completedTasks: 0,
-          overdueTasks: 0,
-          completionRate: 0,
-          averageCompletionTime: 0,
-          overdueRate: 0,
-          qualityScore: 0
-        },
-        goalMetrics: {
-          totalGoals: 0,
-          achievedGoals: 0,
-          overdueGoals: 0,
-          completionRate: 0,
-          progressSpeed: 0,
-          overdueRate: 0,
-          averageProgress: 0
-        },
-        activityMetrics: {
-          totalActivities: 0,
-          averageLogFrequency: 0,
-          engagementScore: 0,
-          averageResponseTime: 0,
-          proactiveActions: 0
-        },
-        reviewMetrics: {
-          totalReviews: 0,
-          averageScore: 0,
-          completionRate: 0,
-          improvementTrend: 'No Data',
-          lastReviewDate: null
-        },
-        performanceDistribution: {
-          highPerformers: 0,
-          averagePerformers: 0,
-          needsImprovement: 0,
-          highPerformerPercentage: 0,
-          averagePerformerPercentage: 0,
-          needsImprovementPercentage: 0
-        },
-        comparison: {
-          rankInCompany: 0,
-          vsCompanyAverage: '0.0%',
-          vsBestDepartment: '0.0%',
-          vsWorstDepartment: '0.0%'
-        }
-      };
-    }
+    const totalIndividualGoals = goals.reduce((sum, goal) => sum + goal.subGoals.length, 0);
+    const completedIndividualGoals = goals.reduce((sum, goal) => 
+      sum + goal.subGoals.filter((sg: any) => sg.stage === 'completed').length, 0);
 
-    // Calculate department metrics
-    let totalTasks = 0;
-    let completedTasks = 0;
-    let overdueTasks = 0;
-    let totalGoals = 0;
-    let achievedGoals = 0;
-    let overdueGoals = 0;
-    let totalActivities = 0;
-    let totalReviews = 0;
-    let totalReviewScore = 0;
-    let highPerformers = 0;
-    let averagePerformers = 0;
-    let needsImprovement = 0;
-
-    for (const user of users) {
-      // Task metrics
-      const userTasks = user.createdTasks.length;
-      const userCompletedTasks = user.createdTasks.filter((task: any) => task.stage === 'completed').length;
-      const userOverdueTasks = user.createdTasks.filter((task: any) => 
-        task.stage !== 'completed' && task.isOverdue === true
-      ).length;
-
-      totalTasks += userTasks;
-      completedTasks += userCompletedTasks;
-      overdueTasks += userOverdueTasks;
-
-      // Goal metrics
-      const userGoals = user.performanceGoals.length;
-      const userAchievedGoals = user.performanceGoals.filter((goal: any) => goal.status === 'completed').length;
-      const userOverdueGoals = user.performanceGoals.filter((goal: any) => 
-        goal.status !== 'completed' && new Date(goal.endDate) < new Date()
-      ).length;
-
-      totalGoals += userGoals;
-      achievedGoals += userAchievedGoals;
-      overdueGoals += userOverdueGoals;
-
-      // Activity metrics
-      totalActivities += user.activityLogs.length;
-
-      // Review metrics
-      const userReviews = user.performanceReviewsAsReviewee.length;
-      const userReviewScore = user.performanceReviewsAsReviewee.reduce((sum: number, review: any) => sum + (review.overallScore || 0), 0);
-      
-      totalReviews += userReviews;
-      totalReviewScore += userReviewScore;
-
-      // Calculate user score for distribution
-      const userCompletionRate = userTasks > 0 ? (userCompletedTasks / userTasks) * 100 : 0;
-      const userGoalCompletionRate = userGoals > 0 ? (userAchievedGoals / userGoals) * 100 : 0;
-      const userAverageScore = userReviews > 0 ? userReviewScore / userReviews : 0;
-      const userAccountAgeInWeeks = Math.max(1, (new Date().getTime() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 7));
-      const userLogFrequency = user.activityLogs.length / userAccountAgeInWeeks;
-
-      const userOverallScore = Math.round(
-        (userCompletionRate * 0.3) +
-        (userGoalCompletionRate * 0.25) +
-        (userAverageScore * 0.25) +
-        (userLogFrequency * 2 * 0.2)
-      );
-
-      if (userOverallScore >= 85) highPerformers++;
-      else if (userOverallScore >= 70) averagePerformers++;
-      else needsImprovement++;
-    }
-
-    const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-    const overdueRate = totalTasks > 0 ? (overdueTasks / totalTasks) * 100 : 0;
-    const goalCompletionRate = totalGoals > 0 ? (achievedGoals / totalGoals) * 100 : 0;
-    const goalOverdueRate = totalGoals > 0 ? (overdueGoals / totalGoals) * 100 : 0;
-    const averageReviewScore = totalReviews > 0 ? totalReviewScore / totalReviews : 0;
-    const averageLogFrequency = totalUsers > 0 ? totalActivities / totalUsers : 0; // Average activities per user
-
-    const averageScore = Math.round(
-      (completionRate * 0.3) +
-      (goalCompletionRate * 0.25) +
-      (averageReviewScore * 0.25) +
-      (averageLogFrequency * 2 * 0.2)
-    );
-
-    let performanceCategory = 'Needs Improvement';
-    if (averageScore >= 85) performanceCategory = 'High Performing Department';
-    else if (averageScore >= 70) performanceCategory = 'Average Performing Department';
+    const totalTargetValue = goals.reduce((sum, goal) => 
+      sum + parseFloat(goal.targetValue?.toString() || '0'), 0);
+    const totalCurrentValue = goals.reduce((sum, goal) => 
+      sum + parseFloat(goal.currentValue?.toString() || '0'), 0);
 
     return {
-      departmentName: departmentName,
-      totalUsers,
-      averageScore,
-      performanceCategory,
-      taskMetrics: {
-        totalTasks,
-        completedTasks,
-        overdueTasks,
-        completionRate: Math.round(completionRate * 100) / 100,
-        averageCompletionTime: Math.round(averageLogFrequency * 100) / 100, // Using activity frequency as proxy
-        overdueRate: Math.round(overdueRate * 100) / 100,
-        qualityScore: Math.round(averageReviewScore * 100) / 100
+      goals: {
+        total: totalGoals,
+        completed: completedGoals,
+        inProgress: inProgressGoals,
+        completionRate: totalGoals > 0 ? ((completedGoals / totalGoals) * 100).toFixed(2) : "0"
       },
-      goalMetrics: {
-        totalGoals,
-        achievedGoals,
-        overdueGoals,
-        completionRate: Math.round(goalCompletionRate * 100) / 100,
-        progressSpeed: Math.round(goalCompletionRate * 100) / 100, // Using completion rate as progress speed
-        overdueRate: Math.round(goalOverdueRate * 100) / 100,
-        averageProgress: Math.round(goalCompletionRate * 100) / 100 // Using completion rate as average progress
+      individualGoals: {
+        total: totalIndividualGoals,
+        completed: completedIndividualGoals,
+        completionRate: totalIndividualGoals > 0 ? 
+          ((completedIndividualGoals / totalIndividualGoals) * 100).toFixed(2) : "0"
       },
-      activityMetrics: {
-        totalActivities,
-        averageLogFrequency: Math.round(averageLogFrequency * 100) / 100,
-        engagementScore: Math.round(averageReviewScore * 100) / 100,
-        averageResponseTime: Math.round(averageLogFrequency * 100) / 100, // Using activity frequency as proxy
-        proactiveActions: Math.round(totalTasks * 0.3) // Estimate 30% of tasks are proactive
+      users: {
+        total: users.length,
+        managers: users.filter(u => u.roleCode?.includes('_MGR')).length,
+        officers: users.filter(u => u.roleCode?.includes('_OFF')).length,
+        members: users.filter(u => u.roleCode?.includes('_MEM')).length
       },
-      reviewMetrics: {
-        totalReviews,
-        averageScore: Math.round(averageReviewScore * 100) / 100,
-        completionRate: 100, // Assuming all reviews are completed
-        improvementTrend: 'Stable',
-        lastReviewDate: null // Would need to find latest review date
-      },
-      performanceDistribution: {
-        highPerformers,
-        averagePerformers,
-        needsImprovement,
-        highPerformerPercentage: Math.round((highPerformers / totalUsers) * 100 * 100) / 100,
-        averagePerformerPercentage: Math.round((averagePerformers / totalUsers) * 100 * 100) / 100,
-        needsImprovementPercentage: Math.round((needsImprovement / totalUsers) * 100 * 100) / 100
-      },
-      comparison: {
-        rankInCompany: 0, // Will be set later
-        vsCompanyAverage: '0.0%', // Will be set later
-        vsBestDepartment: '0.0%', // Will be set later
-        vsWorstDepartment: '0.0%' // Will be set later
+      progress: {
+        totalTargetValue,
+        totalCurrentValue,
+        progressPercentage: totalTargetValue > 0 ? 
+          ((totalCurrentValue / totalTargetValue) * 100).toFixed(2) : "0"
       }
     };
   }

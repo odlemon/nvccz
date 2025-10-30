@@ -1428,5 +1428,516 @@ export const performanceEndpoints = {
         }
       }
     }
+  },
+
+  // ==========================================
+  // 📈 ROLL-UP CALCULATIONS
+  // ==========================================
+
+  '/api/performance/rollup/{goalId}': {
+    get: {
+      tags: ['📈 Roll-up Calculations'],
+      summary: 'Get Goal with Roll-up Data',
+      description: 'Retrieve goal details with comprehensive roll-up calculations from all child goals',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'goalId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Goal ID to get roll-up data for'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Goal roll-up data retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Goal roll-up data retrieved successfully' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      goal: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          title: { type: 'string' },
+                          type: { type: 'string' },
+                          category: { type: 'string' },
+                          targetValue: { type: 'string' },
+                          currentValue: { type: 'string' },
+                          progressPercentage: { type: 'string' },
+                          stage: { type: 'string' },
+                          kpi: { type: 'object' }
+                        }
+                      },
+                      rollup: {
+                        type: 'object',
+                        properties: {
+                          totalSubGoals: { type: 'number' },
+                          completedSubGoals: { type: 'number' },
+                          inProgressSubGoals: { type: 'number' },
+                          notStartedSubGoals: { type: 'number' },
+                          totalTargetValue: { type: 'number' },
+                          totalCurrentValue: { type: 'number' },
+                          overallProgressPercentage: { type: 'string' },
+                          departmentBreakdown: { type: 'array', items: { type: 'object' } },
+                          individualBreakdown: { type: 'array', items: { type: 'object' } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - goalId is required' },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
+
+  '/api/performance/rollup/{goalId}/recalculate': {
+    post: {
+      tags: ['📈 Roll-up Calculations'],
+      summary: 'Recalculate All Roll-up Data',
+      description: 'Recalculate roll-up data for a goal hierarchy from bottom up',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'goalId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Goal ID to recalculate roll-up data for'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Roll-up data recalculated successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Roll-up data recalculated successfully' },
+                  data: { type: 'object' }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - goalId is required' },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
+
+  // ==========================================
+  // 📊 PERFORMANCE SCORECARDS
+  // ==========================================
+
+  '/api/performance/scorecards/user': {
+    get: {
+      tags: ['📊 Performance Scorecards'],
+      summary: 'Get User Performance Scorecard',
+      description: 'Retrieve comprehensive performance scorecard for the current user including goals, tasks, and metrics',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'User scorecard retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'User scorecard retrieved successfully' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      user: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          name: { type: 'string' },
+                          email: { type: 'string' },
+                          department: { type: 'string' },
+                          role: { type: 'string' },
+                          roleCode: { type: 'string' }
+                        }
+                      },
+                      goals: { type: 'array', items: { type: 'object' } },
+                      tasks: { type: 'array', items: { type: 'object' } },
+                      metrics: {
+                        type: 'object',
+                        properties: {
+                          goals: {
+                            type: 'object',
+                            properties: {
+                              total: { type: 'number' },
+                              completed: { type: 'number' },
+                              inProgress: { type: 'number' },
+                              notStarted: { type: 'number' },
+                              completionRate: { type: 'string' }
+                            }
+                          },
+                          tasks: {
+                            type: 'object',
+                            properties: {
+                              total: { type: 'number' },
+                              completed: { type: 'number' },
+                              overdue: { type: 'number' },
+                              completionRate: { type: 'string' }
+                            }
+                          },
+                          progress: {
+                            type: 'object',
+                            properties: {
+                              totalTargetValue: { type: 'number' },
+                              totalCurrentValue: { type: 'number' },
+                              progressPercentage: { type: 'string' }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
+
+  '/api/performance/scorecards/department/{department}': {
+    get: {
+      tags: ['📊 Performance Scorecards'],
+      summary: 'Get Department Performance Scorecard',
+      description: 'Retrieve comprehensive performance scorecard for a specific department including goals, users, and metrics',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'department',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          description: 'Department name'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Department scorecard retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Department scorecard retrieved successfully' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      department: { type: 'string' },
+                      goals: { type: 'array', items: { type: 'object' } },
+                      users: { type: 'array', items: { type: 'object' } },
+                      metrics: {
+                        type: 'object',
+                        properties: {
+                          goals: {
+                            type: 'object',
+                            properties: {
+                              total: { type: 'number' },
+                              completed: { type: 'number' },
+                              inProgress: { type: 'number' },
+                              completionRate: { type: 'string' }
+                            }
+                          },
+                          individualGoals: {
+                            type: 'object',
+                            properties: {
+                              total: { type: 'number' },
+                              completed: { type: 'number' },
+                              completionRate: { type: 'string' }
+                            }
+                          },
+                          users: {
+                            type: 'object',
+                            properties: {
+                              total: { type: 'number' },
+                              managers: { type: 'number' },
+                              officers: { type: 'number' },
+                              members: { type: 'number' }
+                            }
+                          },
+                          progress: {
+                            type: 'object',
+                            properties: {
+                              totalTargetValue: { type: 'number' },
+                              totalCurrentValue: { type: 'number' },
+                              progressPercentage: { type: 'string' }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - department name is required' },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
+
+  // ==========================================
+  // 📊 PERFORMANCE ANALYTICS
+  // ==========================================
+
+  '/api/performance/analytics/kpi': {
+    get: {
+      tags: ['📊 Performance Analytics'],
+      summary: 'Get KPI Performance Analysis',
+      description: 'Analyze KPI performance across goals with detailed metrics and trends',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'kpiId',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Filter by specific KPI ID'
+        },
+        {
+          name: 'department',
+          in: 'query',
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          description: 'Filter by department'
+        },
+        {
+          name: 'startDate',
+          in: 'query',
+          schema: { type: 'string', format: 'date' },
+          description: 'Start date for analysis period'
+        },
+        {
+          name: 'endDate',
+          in: 'query',
+          schema: { type: 'string', format: 'date' },
+          description: 'End date for analysis period'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'KPI analysis retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'KPI analysis retrieved successfully' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      kpiAnalytics: { type: 'array', items: { type: 'object' } },
+                      summary: {
+                        type: 'object',
+                        properties: {
+                          totalKPIs: { type: 'number' },
+                          totalGoals: { type: 'number' },
+                          averageProgress: { type: 'string' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
+
+  '/api/performance/analytics/dashboard': {
+    get: {
+      tags: ['📊 Performance Analytics'],
+      summary: 'Get Performance Dashboard Data',
+      description: 'Retrieve comprehensive performance dashboard with key metrics and overview',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Performance dashboard retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Performance dashboard retrieved successfully' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      overview: {
+                        type: 'object',
+                        properties: {
+                          totalCompanyGoals: { type: 'number' },
+                          totalDepartments: { type: 'number' },
+                          totalUsers: { type: 'number' },
+                          totalTasks: { type: 'number' },
+                          completedTasks: { type: 'number' },
+                          overallProgress: { type: 'string' }
+                        }
+                      },
+                      companyGoals: { type: 'array', items: { type: 'object' } },
+                      departmentBreakdown: { type: 'array', items: { type: 'object' } },
+                      userBreakdown: { type: 'array', items: { type: 'object' } },
+                      taskBreakdown: { type: 'array', items: { type: 'object' } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
+
+  '/api/performance/analytics/reports': {
+    get: {
+      tags: ['📊 Performance Analytics'],
+      summary: 'Get Goal Progress Reports',
+      description: 'Generate comprehensive goal progress reports with filtering options',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'type',
+          in: 'query',
+          schema: { type: 'string', enum: ['company', 'department', 'individual'] },
+          description: 'Filter by goal type'
+        },
+        {
+          name: 'department',
+          in: 'query',
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          description: 'Filter by department'
+        },
+        {
+          name: 'stage',
+          in: 'query',
+          schema: { type: 'string', enum: ['planning', 'in_progress', 'completed'] },
+          description: 'Filter by goal stage'
+        },
+        {
+          name: 'startDate',
+          in: 'query',
+          schema: { type: 'string', format: 'date' },
+          description: 'Start date for report period'
+        },
+        {
+          name: 'endDate',
+          in: 'query',
+          schema: { type: 'string', format: 'date' },
+          description: 'End date for report period'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Goal progress reports retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Goal progress reports retrieved successfully' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      reports: { type: 'array', items: { type: 'object' } },
+                      summary: {
+                        type: 'object',
+                        properties: {
+                          total: { type: 'number' },
+                          completed: { type: 'number' },
+                          inProgress: { type: 'number' },
+                          planning: { type: 'number' },
+                          averageProgress: { type: 'string' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
+
+  '/api/performance/analytics/departments/comparison': {
+    get: {
+      tags: ['📊 Performance Analytics'],
+      summary: 'Get Department Performance Comparison',
+      description: 'Compare performance metrics across all departments',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Department comparison retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  message: { type: 'string', example: 'Department comparison retrieved successfully' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      departments: { type: 'array', items: { type: 'object' } },
+                      summary: {
+                        type: 'object',
+                        properties: {
+                          totalDepartments: { type: 'number' },
+                          averageProgress: { type: 'string' },
+                          bestPerformingDepartment: { type: 'object' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' },
+        500: { description: 'Internal server error' }
+      }
+    }
   }
 };

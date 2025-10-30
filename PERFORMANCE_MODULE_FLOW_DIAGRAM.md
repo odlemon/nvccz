@@ -78,7 +78,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           KPI ACCOUNTING INTEGRATION                            │
 │                                                                                 │
-│  📊 KPI ANALYSIS:                                                               │
+│  📊 KPI ANALYSIS:                                                               │ 
 │                                                                                 │
 │  ✅ FINANCIAL KPIs (22 out of 25):                                             │
 │  • SALES_REVENUE → Credit Sales Revenue (4000)                                 │
