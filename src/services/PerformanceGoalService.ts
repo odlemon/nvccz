@@ -318,6 +318,7 @@ export class PerformanceGoalService {
             targetValue: departmentData.targetValue,
             targetUnit: departmentData.targetUnit || parentGoal.targetUnit,
             currentValue: 0,
+            kpiId: parentGoal.kpiId, // Copy KPI from parent goal
             priority: departmentData.priority || parentGoal.priority,
             startDate: departmentData.startDate || parentGoal.startDate,
             endDate: departmentData.endDate || parentGoal.endDate,
@@ -407,6 +408,7 @@ export class PerformanceGoalService {
             targetValue: userData.targetValue,
             targetUnit: userData.targetUnit || departmentGoal.targetUnit,
             currentValue: 0,
+            kpiId: departmentGoal.kpiId, // Copy KPI from department goal
             priority: userData.priority || departmentGoal.priority,
             startDate: userData.startDate || departmentGoal.startDate,
             endDate: userData.endDate || departmentGoal.endDate,
