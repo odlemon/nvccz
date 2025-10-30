@@ -99,6 +99,7 @@ import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
 import hardcodedRoleRoutes from "./routes/hardcodedRoleRoutes"
 import activityRoutes from "./routes/activityRoutes"
 import rollupCalculationRoutes from "./routes/rollupCalculationRoutes"
+import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
 
 
