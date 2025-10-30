@@ -800,7 +800,7 @@ export const performanceEndpoints = {
     post: {
       tags: ['📋 Task Management Integration'],
       summary: 'Create Activity - Track Progress on Task or Goal',
-      description: `**Who uses this:** All users (individuals and managers)\n\n**What it does:** Create an activity to track progress on a task or departmental goal. Automatically updates task/goal stage based on value collected vs target.\n\n**For Individual Tasks:** Use type='task' - Updates task progress and automatically marks task as 'completed' if valueCollected >= target.\n\n**For Department Goals:** Use type='goal' - Updates goal progress and automatically updates stage based on currentValue vs targetValue.`,
+      description: `**Who uses this:** All users (individuals and managers)\n\n**What it does:** Create an activity to track progress on a task or departmental goal. Automatically updates task/goal stage based on value collected vs target.\n\n**For Individual Tasks:** Use type='task' - Updates task progress and automatically marks task as 'completed' if valueCollected >= target. Goal is automatically found from the task.\n\n**For Department Goals:** Use type='goal' - Updates goal progress and automatically updates stage based on currentValue vs targetValue.\n\n**Example Request Body:**\n\`\`\`json\n{\n  "title": "Completed client meeting",\n  "description": "Met with 3 potential clients to discuss investment opportunities",\n  "activityType": "task",\n  "taskId": "cmhbzxtvo0003jm04lt2q8htu",\n  "valueCollected": 50000\n}\n\`\`\``,
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -829,7 +829,7 @@ export const performanceEndpoints = {
                 taskId: {
                   type: 'string',
                   example: 'cmhbzxtvo0003jm04lt2q8htu',
-                  description: "Required if activityType is 'task' - The ID of the task being updated"
+                  description: "Required if activityType is 'task' - The ID of the task being updated. Goal will be automatically found from the task."
                 },
                 goalId: {
                   type: 'string',

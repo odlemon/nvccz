@@ -40,7 +40,7 @@ router.use(authenticate);
  *               taskId:
  *                 type: string
  *                 example: "cmhbzxtvo0003jm04lt2q8htu"
- *                 description: "Required if activityType is 'task'"
+ *                 description: "Required if activityType is 'task' - The ID of the task being updated. Goal will be automatically found from the task."
  *               goalId:
  *                 type: string
  *                 example: "cmhbzxqxz0001jm04vgtxkmvx"

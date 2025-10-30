@@ -24,6 +24,26 @@ export class ActivityService {
         throw new Error("Goal ID is required for goal activities");
       }
 
+      let finalGoalId = activityData.goalId;
+
+      // If activityType is 'task', automatically find the goal from the task
+      if (activityData.activityType === 'task' && activityData.taskId) {
+        const task = await prisma.task.findUnique({
+          where: { id: activityData.taskId },
+          select: { goalId: true }
+        });
+
+        if (!task) {
+          throw new Error("Task not found");
+        }
+
+        if (!task.goalId) {
+          throw new Error("Task is not linked to any goal");
+        }
+
+        finalGoalId = task.goalId;
+      }
+
       // Create the activity
       const activity = await prisma.activityLog.create({
         data: {
@@ -31,7 +51,7 @@ export class ActivityService {
           description: activityData.description,
           activityType: activityData.activityType === 'task' ? 'task_completion' : 'goal_update',
           taskId: activityData.taskId,
-          goalId: activityData.goalId,
+          goalId: finalGoalId,
           userId: activityData.userId,
           monetaryValueAchieved: activityData.valueCollected ? new Decimal(activityData.valueCollected) : null,
           percentValueAchieved: null // We'll calculate this if needed
@@ -69,6 +89,10 @@ export class ActivityService {
       if (activityData.valueCollected !== undefined) {
         if (activityData.activityType === 'task' && activityData.taskId) {
           await this.updateTaskStageBasedOnProgress(activityData.taskId, activityData.valueCollected);
+          // Also update the linked goal progress
+          if (finalGoalId) {
+            await this.updateGoalProgressBasedOnActivity(finalGoalId, activityData.valueCollected);
+          }
         } else if (activityData.activityType === 'goal' && activityData.goalId) {
           await this.updateGoalProgressBasedOnActivity(activityData.goalId, activityData.valueCollected);
         }
