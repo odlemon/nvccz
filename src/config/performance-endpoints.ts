@@ -303,47 +303,6 @@ export const performanceEndpoints = {
   // STAGE 2: PROGRESS TRACKING
   // ==========================================
 
-  '/api/performance/goal-tracking/check-goal': {
-    post: {
-      tags: ['📊 Stage 2: Progress Tracking'],
-      summary: 'Check Individual Goal Progress',
-      description: 'Check and update progress for a specific individual goal',
-      security: [{ bearerAuth: [] }],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['goalId'],
-              properties: {
-                goalId: { type: 'string', example: 'INDIVIDUAL_GOAL_ID' },
-                forceUpdate: { type: 'boolean', example: false }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        200: {
-          description: 'Goal progress checked successfully',
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: { type: 'boolean' },
-                  message: { type: 'string' },
-                  data: { type: 'object' }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-
   '/api/performance/goal-tracking/check-all-due-goals': {
     post: {
       tags: ['📊 Stage 2: Progress Tracking'],

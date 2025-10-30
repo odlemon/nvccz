@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { EnhancedGoalTrackingService } from "../services/EnhancedGoalTrackingService";
+import { prisma } from "../utils/database";
 
 export class EnhancedGoalTrackingController {
   /**
@@ -79,16 +80,39 @@ export class EnhancedGoalTrackingController {
    */
   static async getGoalTrackingStats(req: Request, res: Response) {
     try {
-      const results = await EnhancedGoalTrackingService.checkAllDueGoals();
-      
+      // Get all goals instead of just "due" goals
+      const allGoals = await prisma.performanceGoal.findMany({
+        where: {
+          status: { not: 'deleted' } // Exclude deleted goals
+        },
+        include: {
+          kpi: true
+        }
+      });
+
+      // Calculate statistics from all goals
       const stats = {
-        totalGoals: results.length,
-        achievedGoals: results.filter(r => r.isSuccess).length,
-        behindGoals: results.filter(r => r.status === 'behind').length,
-        aheadGoals: results.filter(r => r.status === 'ahead').length,
-        averageProgress: results.length > 0 
-          ? results.reduce((sum, r) => sum + r.progressPercentage, 0) / results.length 
-          : 0
+        totalGoals: allGoals.length,
+        achievedGoals: allGoals.filter(g => g.stage === 'completed').length,
+        inProgressGoals: allGoals.filter(g => g.stage === 'in_progress').length,
+        planningGoals: allGoals.filter(g => g.stage === 'planning').length,
+        averageProgress: allGoals.length > 0 
+          ? allGoals.reduce((sum, g) => {
+              const progress = g.targetValue ? 
+                ((g.currentValue || 0) / parseFloat(g.targetValue.toString()) * 100) : 0;
+              return sum + progress;
+            }, 0) / allGoals.length 
+          : 0,
+        goalsByType: {
+          company: allGoals.filter(g => g.type === 'company').length,
+          department: allGoals.filter(g => g.type === 'department').length,
+          individual: allGoals.filter(g => g.type === 'individual').length
+        },
+        goalsByStage: {
+          planning: allGoals.filter(g => g.stage === 'planning').length,
+          in_progress: allGoals.filter(g => g.stage === 'in_progress').length,
+          completed: allGoals.filter(g => g.stage === 'completed').length
+        }
       };
       
       res.status(200).json({
@@ -97,6 +121,7 @@ export class EnhancedGoalTrackingController {
         data: stats
       });
     } catch (error: any) {
+      console.error("Error getting goal tracking stats:", error);
       res.status(400).json({
         success: false,
         message: error.message
