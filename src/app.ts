@@ -99,6 +99,9 @@ import statementRoutes from "./routes/statementRoutes"
 import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
 import hardcodedRoleRoutes from "./routes/hardcodedRoleRoutes"
 import activityRoutes from "./routes/activityRoutes"
+import rollupCalculationRoutes from "./routes/rollupCalculationRoutes"
+import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
+import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
 
 
 dotenv.config()
@@ -399,6 +402,9 @@ app.use("/api/activities", activityRoutes)
 app.use("/api/kpis", kpiRoutes)
 app.use("/api/performance/kpis", hardcodedKPIRoutes)
 app.use("/api/activity-logs", activityLogRoutes)
+app.use("/api/performance/rollup", rollupCalculationRoutes)
+app.use("/api/performance/scorecards", performanceScorecardRoutes)
+app.use("/api/performance/analytics", performanceAnalyticsRoutes)
 
 // CEO Dashboard routes
 app.use("/api/ceo-dashboard", ceoDashboardRoutes)

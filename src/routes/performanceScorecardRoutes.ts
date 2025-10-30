@@ -1,206 +1,25 @@
 // @ts-nocheck
 import express from "express";
-import { PerformanceScorecardController } from "../controllers/PerformanceScorecardController";
 import { authenticate } from "../middleware/authenticate";
-import { authorize } from "../middleware/permissionAuth";
+import { PerformanceScorecardController } from "../controllers/PerformanceScorecardController";
 
 const router = express.Router();
 
-/**
- * @swagger
- * components:
- *   schemas:
- *     UserScorecardData:
- *       type: object
- *       properties:
- *         userId:
- *           type: string
- *         userName:
- *           type: string
- *         department:
- *           type: string
- *         role:
- *           type: string
- *         overallScore:
- *           type: number
- *         performanceCategory:
- *           type: string
- *         taskMetrics:
- *           type: object
- *           properties:
- *             totalTasks:
- *               type: integer
- *             completedTasks:
- *               type: integer
- *             overdueTasks:
- *               type: integer
- *             completionRate:
- *               type: number
- *             averageCompletionTime:
- *               type: number
- *             overdueRate:
- *               type: number
- *             qualityScore:
- *               type: number
- *         goalMetrics:
- *           type: object
- *           properties:
- *             totalGoals:
- *               type: integer
- *             achievedGoals:
- *               type: integer
- *             overdueGoals:
- *               type: integer
- *             completionRate:
- *               type: number
- *             progressSpeed:
- *               type: number
- *             overdueRate:
- *               type: number
- *             averageProgress:
- *               type: number
- *         activityMetrics:
- *           type: object
- *           properties:
- *             totalActivities:
- *               type: integer
- *             logFrequency:
- *               type: number
- *             engagementScore:
- *               type: number
- *             responseTime:
- *               type: number
- *             proactiveActions:
- *               type: integer
- *         reviewMetrics:
- *           type: object
- *           properties:
- *             totalReviews:
- *               type: integer
- *             averageScore:
- *               type: number
- *             latestScore:
- *               type: number
- *             improvementTrend:
- *               type: string
- *             lastReviewDate:
- *               type: string
- *               format: date
- *     
- *     DepartmentScorecardData:
- *       type: object
- *       properties:
- *         departmentId:
- *           type: string
- *         departmentName:
- *           type: string
- *         totalUsers:
- *           type: integer
- *         averageScore:
- *           type: number
- *         performanceCategory:
- *           type: string
- *         taskMetrics:
- *           type: object
- *           properties:
- *             totalTasks:
- *               type: integer
- *             completedTasks:
- *               type: integer
- *             overdueTasks:
- *               type: integer
- *             completionRate:
- *               type: number
- *             averageCompletionTime:
- *               type: number
- *             overdueRate:
- *               type: number
- *             qualityScore:
- *               type: number
- *         goalMetrics:
- *           type: object
- *           properties:
- *             totalGoals:
- *               type: integer
- *             achievedGoals:
- *               type: integer
- *             overdueGoals:
- *               type: integer
- *             completionRate:
- *               type: number
- *             progressSpeed:
- *               type: number
- *             overdueRate:
- *               type: number
- *             averageProgress:
- *               type: number
- *         activityMetrics:
- *           type: object
- *           properties:
- *             totalActivities:
- *               type: integer
- *             averageLogFrequency:
- *               type: number
- *             engagementScore:
- *               type: number
- *             averageResponseTime:
- *               type: number
- *             proactiveActions:
- *               type: integer
- *         reviewMetrics:
- *           type: object
- *           properties:
- *             totalReviews:
- *               type: integer
- *             averageScore:
- *               type: number
- *             completionRate:
- *               type: number
- *             improvementTrend:
- *               type: string
- *             lastReviewDate:
- *               type: string
- *               format: date
- *         performanceDistribution:
- *           type: object
- *           properties:
- *             highPerformers:
- *               type: integer
- *             averagePerformers:
- *               type: integer
- *             needsImprovement:
- *               type: integer
- *             highPerformerPercentage:
- *               type: number
- *             averagePerformerPercentage:
- *               type: number
- *             needsImprovementPercentage:
- *               type: number
- *         comparison:
- *           type: object
- *           properties:
- *             rankInCompany:
- *               type: integer
- *             vsCompanyAverage:
- *               type: string
- *             vsBestDepartment:
- *               type: string
- *             vsWorstDepartment:
- *               type: string
- */
+// All routes require authentication
+router.use(authenticate);
 
 /**
  * @swagger
- * /api/performance-scorecards/users:
+ * /api/performance/scorecards/user:
  *   get:
- *     summary: Get performance scorecards for all users
- *     description: Retrieve detailed performance metrics for all users including task completion, goal achievement, activity engagement, and review scores
- *     tags: [Performance Scorecards]
+ *     summary: Get user performance scorecard
+ *     description: Retrieve comprehensive performance scorecard for the current user including goals, tasks, and metrics
+ *     tags: [📊 Performance Scorecards]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Users performance scorecards retrieved successfully
+ *         description: User scorecard retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -211,30 +30,130 @@ const router = express.Router();
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Users performance scorecards retrieved successfully
+ *                   example: "User scorecard retrieved successfully"
  *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/UserScorecardData'
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         email:
+ *                           type: string
+ *                         department:
+ *                           type: string
+ *                         role:
+ *                           type: string
+ *                         roleCode:
+ *                           type: string
+ *                     goals:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           title:
+ *                             type: string
+ *                           type:
+ *                             type: string
+ *                           category:
+ *                             type: string
+ *                           targetValue:
+ *                             type: string
+ *                           currentValue:
+ *                             type: string
+ *                           progressPercentage:
+ *                             type: string
+ *                           stage:
+ *                             type: string
+ *                           kpi:
+ *                             type: object
+ *                           parentGoal:
+ *                             type: object
+ *                     tasks:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           title:
+ *                             type: string
+ *                           stage:
+ *                             type: string
+ *                           priority:
+ *                             type: string
+ *                           isOverdue:
+ *                             type: boolean
+ *                           goal:
+ *                             type: object
+ *                     metrics:
+ *                       type: object
+ *                       properties:
+ *                         goals:
+ *                           type: object
+ *                           properties:
+ *                             total:
+ *                               type: number
+ *                             completed:
+ *                               type: number
+ *                             inProgress:
+ *                               type: number
+ *                             notStarted:
+ *                               type: number
+ *                             completionRate:
+ *                               type: string
+ *                         tasks:
+ *                           type: object
+ *                           properties:
+ *                             total:
+ *                               type: number
+ *                             completed:
+ *                               type: number
+ *                             overdue:
+ *                               type: number
+ *                             completionRate:
+ *                               type: string
+ *                         progress:
+ *                           type: object
+ *                           properties:
+ *                             totalTargetValue:
+ *                               type: number
+ *                             totalCurrentValue:
+ *                               type: number
+ *                             progressPercentage:
+ *                               type: string
  *       401:
  *         description: Unauthorized
  *       500:
  *         description: Internal server error
  */
-router.get("/users", authenticate, authorize(["admin", "ceo", "hr_manager"]), PerformanceScorecardController.getAllUsersScorecards);
+router.get("/user", PerformanceScorecardController.getUserScorecard);
 
 /**
  * @swagger
- * /api/performance-scorecards/departments:
+ * /api/performance/scorecards/department/{department}:
  *   get:
- *     summary: Get performance scorecards for all departments
- *     description: Retrieve detailed performance metrics for all departments including aggregated user metrics, performance distribution, and company comparisons
- *     tags: [Performance Scorecards]
+ *     summary: Get department performance scorecard
+ *     description: Retrieve comprehensive performance scorecard for a specific department including goals, users, and metrics
+ *     tags: [📊 Performance Scorecards]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: department
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [Finance, Sales, Operations, Procurement, "Human Resources", Marketing, Legal, IT]
+ *         description: Department name
  *     responses:
  *       200:
- *         description: Departments performance scorecards retrieved successfully
+ *         description: Department scorecard retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -245,17 +164,106 @@ router.get("/users", authenticate, authorize(["admin", "ceo", "hr_manager"]), Pe
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Departments performance scorecards retrieved successfully
+ *                   example: "Department scorecard retrieved successfully"
  *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/DepartmentScorecardData'
+ *                   type: object
+ *                   properties:
+ *                     department:
+ *                       type: string
+ *                     goals:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           title:
+ *                             type: string
+ *                           type:
+ *                             type: string
+ *                           category:
+ *                             type: string
+ *                           targetValue:
+ *                             type: string
+ *                           currentValue:
+ *                             type: string
+ *                           progressPercentage:
+ *                             type: string
+ *                           stage:
+ *                             type: string
+ *                           kpi:
+ *                             type: object
+ *                           parentGoal:
+ *                             type: object
+ *                           individualGoals:
+ *                             type: array
+ *                             items:
+ *                               type: object
+ *                     users:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                           role:
+ *                             type: string
+ *                           roleCode:
+ *                             type: string
+ *                     metrics:
+ *                       type: object
+ *                       properties:
+ *                         goals:
+ *                           type: object
+ *                           properties:
+ *                             total:
+ *                               type: number
+ *                             completed:
+ *                               type: number
+ *                             inProgress:
+ *                               type: number
+ *                             completionRate:
+ *                               type: string
+ *                         individualGoals:
+ *                           type: object
+ *                           properties:
+ *                             total:
+ *                               type: number
+ *                             completed:
+ *                               type: number
+ *                             completionRate:
+ *                               type: string
+ *                         users:
+ *                           type: object
+ *                           properties:
+ *                             total:
+ *                               type: number
+ *                             managers:
+ *                               type: number
+ *                             officers:
+ *                               type: number
+ *                             members:
+ *                               type: number
+ *                         progress:
+ *                           type: object
+ *                           properties:
+ *                             totalTargetValue:
+ *                               type: number
+ *                             totalCurrentValue:
+ *                               type: number
+ *                             progressPercentage:
+ *                               type: string
+ *       400:
+ *         description: Bad request - department name is required
  *       401:
  *         description: Unauthorized
  *       500:
  *         description: Internal server error
  */
-router.get("/departments", authenticate, authorize(["admin", "ceo", "hr_manager"]), PerformanceScorecardController.getAllDepartmentsScorecards);
+router.get("/department/:department", PerformanceScorecardController.getDepartmentScorecard);
 
 export default router;
-
