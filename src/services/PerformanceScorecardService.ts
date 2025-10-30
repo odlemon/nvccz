@@ -235,7 +235,7 @@ export class PerformanceScorecardService {
     const budgetPerformance = this.calculateBudgetPerformance(goals);
     
     // Calculate final score
-    const totalScore = resultsDelivery.totalScore + budgetPerformance.totalScore;
+    const totalScore = parseFloat(resultsDelivery.totalScore) + parseFloat(budgetPerformance.totalScore);
     const performanceBand = this.getPerformanceBand(totalScore);
     
     return {
@@ -278,8 +278,8 @@ export class PerformanceScorecardService {
     const crossCutting = this.calculateCrossCutting(goals, users);
     
     // Calculate final score
-    const totalScore = outcomes.totalScore + outputs.totalScore + serviceDelivery.totalScore + 
-                      management.totalScore + crossCutting.totalScore;
+    const totalScore = parseFloat(outcomes.totalScore) + parseFloat(outputs.totalScore) + parseFloat(serviceDelivery.totalScore) + 
+                      parseFloat(management.totalScore) + parseFloat(crossCutting.totalScore);
     const performanceBand = this.getPerformanceBand(totalScore);
     
     return {
