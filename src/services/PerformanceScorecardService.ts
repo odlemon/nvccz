@@ -66,7 +66,7 @@ export class PerformanceScorecardService {
           },
           isPerformanceTask: true
         },
-        include: {
+            include: {
           goal: {
             select: {
               id: true,
@@ -125,11 +125,11 @@ export class PerformanceScorecardService {
     try {
       // Get department goals
       const departmentGoals = await prisma.performanceGoal.findMany({
-        where: {
+          where: {
           type: 'department',
-          departmentName: departmentName
-        },
-        include: {
+            departmentName: departmentName
+          },
+          include: {
           kpi: {
             select: {
               id: true,
@@ -140,7 +140,7 @@ export class PerformanceScorecardService {
             }
           },
           subGoals: {
-            include: {
+              include: {
               assignedTo: {
                 select: {
                   id: true,
@@ -156,10 +156,10 @@ export class PerformanceScorecardService {
               id: true,
               title: true,
               type: true
+              }
             }
           }
-        }
-      });
+        });
 
       // Get department users
       const departmentUsers = await prisma.user.findMany({
@@ -237,7 +237,7 @@ export class PerformanceScorecardService {
     // Calculate final score
     const totalScore = parseFloat(resultsDelivery.totalScore) + parseFloat(budgetPerformance.totalScore);
     const performanceBand = this.getPerformanceBand(totalScore);
-    
+
     return {
       sections: {
         resultsDelivery,
@@ -282,7 +282,7 @@ export class PerformanceScorecardService {
                       parseFloat(management.totalScore) + parseFloat(crossCutting.totalScore);
     const performanceBand = this.getPerformanceBand(totalScore);
     
-    return {
+      return {
       sections: {
         outcomes,
         outputs,
@@ -431,7 +431,7 @@ export class PerformanceScorecardService {
     const organizationalScore = this.calculateOrganizationalCapacity(goals, users);
     
     const totalScore = financialScore + organizationalScore;
-    
+
     return {
       maxScore: 25,
       totalScore: totalScore.toFixed(2),
