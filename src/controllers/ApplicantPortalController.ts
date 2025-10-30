@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { ApplicantPortalService } from "../services/ApplicantPortalService";
-import { ResponseHelper } from "../utils/ResponseHelper";
+import { ResponseHelper } from "../utils/responseHelper";
 
 export class ApplicantPortalController {
   /**
