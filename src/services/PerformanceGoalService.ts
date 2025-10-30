@@ -557,12 +557,6 @@ export class PerformanceGoalService {
               unitPosition: true
             }
           },
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          },
           assignedTo: {
             select: {
               id: true,
@@ -673,12 +667,6 @@ export class PerformanceGoalService {
               type: true,
               unitSymbol: true,
               unitPosition: true
-            }
-          },
-          department: {
-            select: {
-              id: true,
-              name: true
             }
           },
           assignedTo: {
