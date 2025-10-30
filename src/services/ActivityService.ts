@@ -85,8 +85,9 @@ export class ActivityService {
                 select: {
                   id: true,
                   name: true,
-                  code: true,
-                  description: true
+                  type: true,
+                  unitSymbol: true,
+                  unitPosition: true
                 }
               }
             }
@@ -230,8 +231,9 @@ export class ActivityService {
                 select: {
                   id: true,
                   name: true,
-                  code: true,
-                  description: true
+                  type: true,
+                  unitSymbol: true,
+                  unitPosition: true
                 }
               }
             }
