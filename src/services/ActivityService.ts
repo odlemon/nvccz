@@ -79,7 +79,16 @@ export class ActivityService {
               title: true,
               targetValue: true,
               currentValue: true,
-              stage: true
+              stage: true,
+              kpiId: true,
+              kpi: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  description: true
+                }
+              }
             }
           }
         }
@@ -207,6 +216,24 @@ export class ActivityService {
               firstName: true,
               lastName: true,
               email: true
+            }
+          },
+          goal: {
+            select: {
+              id: true,
+              title: true,
+              targetValue: true,
+              currentValue: true,
+              stage: true,
+              kpiId: true,
+              kpi: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  description: true
+                }
+              }
             }
           }
         },

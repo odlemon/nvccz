@@ -680,7 +680,39 @@ export class TaskService {
           monetaryValueAchieved: true,
           percentValueAchieved: true,
           kpi: true,
-          activities: true,
+          activityLogs: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              },
+              goal: {
+                select: {
+                  id: true,
+                  title: true,
+                  targetValue: true,
+                  currentValue: true,
+                  stage: true,
+                  kpiId: true,
+                  kpi: {
+                    select: {
+                      id: true,
+                      name: true,
+                      code: true,
+                      description: true
+                    }
+                  }
+                }
+              }
+            },
+            orderBy: {
+              createdAt: 'desc'
+            }
+          },
           status: true,
           isTrashed: true,
           createdBy: true,
@@ -700,6 +732,18 @@ export class TaskService {
               title: true,
               type: true,
               category: true,
+              targetValue: true,
+              currentValue: true,
+              stage: true,
+              kpiId: true,
+              kpi: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  description: true
+                }
+              },
               parentGoal: {
                 select: {
                   id: true,
