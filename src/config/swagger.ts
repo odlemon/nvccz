@@ -109,14 +109,28 @@ const options = {
         },
         CreateUserRequest: {
           type: 'object',
-          required: ['firstName', 'lastName', 'email', 'password', 'roleId'],
+          required: ['firstName', 'lastName', 'email', 'department', 'roleCode', 'departmentRole'],
           properties: {
-            firstName: { type: 'string', example: 'John' },
-            lastName: { type: 'string', example: 'Doe' },
-            email: { type: 'string', format: 'email', example: 'john@example.com' },
-            password: { type: 'string', example: 'password123' },
-            roleId: { type: 'string', example: 'clx1234567890abcdef' },
-            backgroundImage: { type: 'string', example: 'https://example.com/backgrounds/tech-background.jpg' }
+            firstName: { type: 'string', example: 'John', description: "User's first name" },
+            lastName: { type: 'string', example: 'Doe', description: "User's last name" },
+            email: { type: 'string', format: 'email', example: 'john.doe@nvccz.co.zw', description: 'Valid email address (will be converted to lowercase automatically)' },
+            department: { 
+              type: 'string', 
+              enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'],
+              example: 'Finance',
+              description: "User's department (must match one of the allowed values)"
+            },
+            roleCode: { 
+              type: 'string', 
+              example: 'FIN_OFF',
+              description: 'Hardcoded role code (e.g., FIN_MGR, FIN_OFF, SALES_OFF, PROC_MGR, OPS_MGR, etc.)'
+            },
+            departmentRole: { 
+              type: 'string', 
+              enum: ['HEAD', 'DEPUTY', 'MEMBER', 'OFFICER', 'SPECIALIST', 'ASSISTANT'],
+              example: 'OFFICER',
+              description: "User's role within the department"
+            }
           }
         },
         UpdateUserRequest: {
