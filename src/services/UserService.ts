@@ -395,6 +395,17 @@ This is an automated message. Please do not reply to this email.
         }
       }
 
+      // Validate roleId if provided
+      if (userData.roleId) {
+        const role = await prisma.role.findUnique({
+          where: { id: userData.roleId }
+        });
+
+        if (!role) {
+          throw new Error("Role not found");
+        }
+      }
+
       // Update user
       const updateData: any = {};
       if (userData.firstName) updateData.firstName = userData.firstName;
@@ -408,27 +419,34 @@ This is an automated message. Please do not reply to this email.
       const user = await prisma.user.update({
         where: { id },
         data: updateData,
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          userDepartment: true,
-          departmentRole: true,
-          roleCode: true,
+        include: {
           role: {
             select: {
               id: true,
               name: true,
               description: true
             }
-          },
-          createdAt: true,
-          updatedAt: true
+          }
         }
       });
 
-      return user;
+      // Return only the fields we want, with role as optional
+      return {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        userDepartment: user.userDepartment,
+        departmentRole: user.departmentRole,
+        roleCode: user.roleCode,
+        role: user.role ? {
+          id: user.role.id,
+          name: user.role.name,
+          description: user.role.description
+        } : null,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      };
     } catch (error) {
       console.error("Error updating user:", error);
       throw error;
