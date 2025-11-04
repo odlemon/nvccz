@@ -276,6 +276,66 @@ export class CashbookServiceEnhanced {
   }
 
   /**
+   * Unreconcile a cashbook entry
+   */
+  static async markAsUnreconciled(entryId: string, userId: string): Promise<CashbookResult> {
+    try {
+      console.log(`\n🔓 Unreconciling Cashbook Entry: ${entryId}`);
+
+      // 1. Get the cashbook entry
+      const entry = await prisma.cashbookEntry.findUnique({
+        where: { id: entryId }
+      });
+
+      if (!entry) {
+        throw new Error('Cashbook entry not found');
+      }
+
+      if (!entry.isReconciled) {
+        throw new Error('Entry is not reconciled');
+      }
+
+      // 2. Update reconciliation status to unreconciled
+      const updatedEntry = await prisma.cashbookEntry.update({
+        where: { id: entryId },
+        data: {
+          isReconciled: false,
+          reconciledAt: null,
+          reconciledById: null
+        }
+      });
+
+      // Audit log
+      await AuditService.log({
+        userId: userId,
+        action: "UNRECONCILE",
+        entityType: "CashbookEntry",
+        entityId: entry.id,
+        oldValues: {
+          isReconciled: true,
+          reconciledAt: entry.reconciledAt
+        },
+        newValues: {
+          isReconciled: false,
+          reconciledAt: null
+        }
+      });
+
+      console.log(`   ✅ Entry marked as unreconciled`);
+
+      return {
+        cashbookEntry: updatedEntry,
+        success: true,
+        message: 'Cashbook entry unreconciled successfully'
+      };
+
+    } catch (error: any) {
+      console.error('Error unreconciling cashbook entry:', error);
+      throw new Error(`Failed to unreconcile cashbook entry: ${error.message}`);
+    }
+  }
+
+  /**
    * Mark cashbook entry as reconciled with bank statement
    */
   static async markAsReconciled(params: ReconciliationParams): Promise<CashbookResult> {
@@ -441,6 +501,186 @@ export class CashbookServiceEnhanced {
       },
       orderBy: { transactionDate: 'asc' }
     });
+  }
+
+  /**
+   * Get reconciliation display with running balance
+   * Returns: GL Bank Balance, Total Un-ticked Items, Calculated Cleared Balance
+   */
+  static async getReconciliationDisplay(params: {
+    bankId: string;
+    periodEndDate: Date;
+    tickedEntryIds?: string[]; // Array of entry IDs that are currently ticked/checked
+  }): Promise<{
+    glBankBalance: number;
+    totalUntickedItems: number;
+    clearedBalance: number;
+    unreconciledEntries: any[];
+    bankInfo: {
+      id: string;
+      name: string;
+      accountNumber: string;
+      glAccountNo: string;
+      glAccountName: string;
+    };
+  }> {
+    try {
+      console.log(`📊 Getting reconciliation display for bank: ${params.bankId}, period end: ${params.periodEndDate}`);
+      
+      // Get bank with GL account
+      const bank = await prisma.bank.findUnique({
+        where: { id: params.bankId },
+        include: {
+          glAccount: true,
+          currency: true
+        }
+      });
+
+      if (!bank) {
+        throw new Error('Bank not found');
+      }
+
+      if (!bank.glAccount) {
+        throw new Error('Bank GL account not configured');
+      }
+
+      // Calculate GL Bank Balance up to period end date
+      // This is the sum of all journal entry lines for the bank's GL account
+      const periodEnd = new Date(params.periodEndDate);
+      periodEnd.setHours(23, 59, 59, 999); // End of day
+
+      const journalEntryLines = await prisma.journalEntryLine.findMany({
+        where: {
+          chartOfAccountId: bank.glAccount.id,
+          journalEntry: {
+            transactionDate: {
+              lte: periodEnd
+            },
+            status: 'POSTED'
+          }
+        },
+        include: {
+          journalEntry: {
+            select: {
+              transactionDate: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      // Calculate GL Bank Balance (DR - CR for asset accounts)
+      let glBankBalance = 0;
+      for (const line of journalEntryLines) {
+        const debit = parseFloat(line.debitAmount?.toString() || '0');
+        const credit = parseFloat(line.creditAmount?.toString() || '0');
+        glBankBalance += (debit - credit);
+      }
+
+      // Get unreconciled entries up to period end date
+      const unreconciledEntries = await prisma.cashbookEntry.findMany({
+        where: {
+          bankId: params.bankId,
+          status: 'POSTED',
+          isReconciled: false,
+          transactionDate: {
+            lte: periodEnd
+          }
+        },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          vendor: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          glAccount: {
+            select: {
+              id: true,
+              accountNo: true,
+              accountName: true
+            }
+          },
+          bank: {
+            select: {
+              id: true,
+              name: true,
+              accountNumber: true
+            }
+          }
+        },
+        orderBy: { transactionDate: 'asc' }
+      });
+
+      // Calculate Total Un-ticked Items (sum of unticked transactions)
+      const tickedIds = params.tickedEntryIds || [];
+      let totalUntickedItems = 0;
+
+      const entriesWithTickedStatus = unreconciledEntries.map(entry => {
+        const isTicked = tickedIds.includes(entry.id);
+        const amount = parseFloat(entry.amount?.toString() || '0');
+        
+        // For receipts, amount increases balance (positive)
+        // For payments, amount decreases balance (negative)
+        const signedAmount = entry.type === 'RECEIPT' ? amount : -amount;
+        
+        if (!isTicked) {
+          totalUntickedItems += signedAmount;
+        }
+
+        return {
+          id: entry.id,
+          transactionDate: entry.transactionDate,
+          type: entry.type,
+          description: entry.description,
+          reference: entry.reference,
+          amount: amount,
+          signedAmount: signedAmount, // Positive for receipts, negative for payments
+          status: entry.status,
+          isTicked: isTicked,
+          counterpartyType: entry.counterpartyType,
+          counterparty: entry.counterpartyType === 'CUSTOMER' 
+            ? entry.customer?.name 
+            : entry.counterpartyType === 'SUPPLIER' 
+            ? entry.vendor?.name 
+            : entry.glAccount?.accountName || 'N/A',
+          bank: entry.bank
+        };
+      });
+
+      // Calculate Cleared Balance (GL Balance - Total Un-ticked Items)
+      const clearedBalance = glBankBalance - totalUntickedItems;
+
+      console.log(`✅ Reconciliation display calculated:`);
+      console.log(`   GL Bank Balance: ${glBankBalance.toFixed(2)}`);
+      console.log(`   Total Un-ticked Items: ${totalUntickedItems.toFixed(2)}`);
+      console.log(`   Cleared Balance: ${clearedBalance.toFixed(2)}`);
+      console.log(`   Unreconciled entries: ${unreconciledEntries.length}`);
+
+      return {
+        glBankBalance: parseFloat(glBankBalance.toFixed(2)),
+        totalUntickedItems: parseFloat(totalUntickedItems.toFixed(2)),
+        clearedBalance: parseFloat(clearedBalance.toFixed(2)),
+        unreconciledEntries: entriesWithTickedStatus,
+        bankInfo: {
+          id: bank.id,
+          name: bank.name,
+          accountNumber: bank.accountNumber,
+          glAccountNo: bank.glAccount.accountNo,
+          glAccountName: bank.glAccount.accountName
+        }
+      };
+
+    } catch (error: any) {
+      console.error('❌ Error getting reconciliation display:', error.message);
+      throw new Error(`Failed to get reconciliation display: ${error.message}`);
+    }
   }
 
   // Helper methods (reuse from existing CashbookService)

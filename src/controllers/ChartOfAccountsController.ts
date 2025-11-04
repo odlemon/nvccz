@@ -10,6 +10,57 @@ import { prisma } from '../utils/database';
 
 export class ChartOfAccountsController {
   /**
+   * Validate that account number range matches account type
+   * Account Number Ranges:
+   * - 1000s = Assets (Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset)
+   * - 2000s = Liabilities (Current Liability, Long-Term Liability)
+   * - 3000s = Equity
+   * - 4000s = Revenue (Revenue, Income)
+   * - 5000s = Expenses (Expense)
+   */
+  private static validateAccountNumberType(accountNo: string, accountType: string): { valid: boolean; message?: string } {
+    // Extract first digit of account number
+    const firstDigit = accountNo.charAt(0);
+    
+    // Define valid account types for each number range
+    const accountTypeMappings: { [key: string]: string[] } = {
+      '1': ['Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Contra-Asset'],
+      '2': ['Current Liability', 'Long-Term Liability'],
+      '3': ['Equity'],
+      '4': ['Revenue', 'Income'],
+      '5': ['Expense']
+    };
+
+    // Check if first digit is valid (1-5)
+    if (!['1', '2', '3', '4', '5'].includes(firstDigit)) {
+      return {
+        valid: false,
+        message: `Invalid account number range. Account numbers must start with 1-5 (1000s=Assets, 2000s=Liabilities, 3000s=Equity, 4000s=Revenue, 5000s=Expenses).`
+      };
+    }
+
+    // Check if account type matches the number range
+    const validTypesForRange = accountTypeMappings[firstDigit];
+    if (!validTypesForRange.includes(accountType)) {
+      const expectedTypes = validTypesForRange.join(', ');
+      const rangeDescription = {
+        '1': '1000s (Assets)',
+        '2': '2000s (Liabilities)',
+        '3': '3000s (Equity)',
+        '4': '4000s (Revenue)',
+        '5': '5000s (Expenses)'
+      }[firstDigit];
+      
+      return {
+        valid: false,
+        message: `Account number conflict: Account number "${accountNo}" is in the ${rangeDescription} range, but Account Type "${accountType}" is selected. Valid account types for ${rangeDescription} are: ${expectedTypes}`
+      };
+    }
+
+    return { valid: true };
+  }
+
+  /**
    * Create a new chart of accounts entry
    */
   static async createChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
@@ -25,6 +76,12 @@ export class ChartOfAccountsController {
       const validAccountTypes = ["Current Asset", "Fixed Asset", "Long-Term Asset", "Contra-Asset", "Current Liability", "Long-Term Liability", "Equity", "Revenue", "Expense", "Income"];
       if (!validAccountTypes.includes(accountType)) {
         return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income");
+      }
+
+      // Validate that account number range matches account type
+      const accountNumberValidation = ChartOfAccountsController.validateAccountNumberType(accountNo, accountType);
+      if (!accountNumberValidation.valid) {
+        return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
       }
 
       // Validate financial statement
@@ -152,6 +209,14 @@ export class ChartOfAccountsController {
         if (!validAccountTypes.includes(accountType)) {
           return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income");
         }
+      }
+
+      // Validate that account number range matches account type (if either is being updated)
+      const accountNoToValidate = accountNo || existingAccount.accountNo;
+      const accountTypeToValidate = accountType || existingAccount.accountType;
+      const accountNumberValidation = ChartOfAccountsController.validateAccountNumberType(accountNoToValidate, accountTypeToValidate);
+      if (!accountNumberValidation.valid) {
+        return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
       }
 
       // Validate financial statement if provided

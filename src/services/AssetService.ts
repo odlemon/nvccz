@@ -21,6 +21,9 @@ export interface CreateAssetParams {
   serialNumber?: string;
   warrantyExpiry?: Date;
   createdById: string;
+  // Optional: Link to creditor bill or cashbook payment
+  invoiceId?: string; // Link to creditor bill (procurement invoice)
+  cashbookEntryId?: string; // Link to cashbook payment
 }
 
 export interface DepreciationCalculationParams {
@@ -156,7 +159,7 @@ export class AssetService {
       });
 
       // Create initial journal entry for asset acquisition
-      await this.createAssetAcquisitionJournalEntry(asset, createdById);
+      await this.createAssetAcquisitionJournalEntry(asset, createdById, params.invoiceId, params.cashbookEntryId);
 
       // Audit log
       await AuditService.log({
@@ -176,23 +179,35 @@ export class AssetService {
 
   /**
    * Create asset acquisition journal entry
+   * Supports linking to creditor bills (Accounts Payable) or cashbook payments (Bank Account)
    */
-  private static async createAssetAcquisitionJournalEntry(asset: Asset, createdById: string): Promise<void> {
+  private static async createAssetAcquisitionJournalEntry(
+    asset: Asset, 
+    createdById: string,
+    invoiceId?: string,
+    cashbookEntryId?: string
+  ): Promise<void> {
     try {
+      // Get default currency
+      const defaultCurrency = await prisma.currency.findFirst({
+        where: { code: 'USD' }
+      });
+      const currencyId = defaultCurrency?.id || 'default';
+
       const journalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate: asset.purchaseDate,
           referenceNumber: `ASSET-${asset.assetCode}`,
           description: `Asset acquisition: ${asset.assetName}`,
           totalAmount: asset.cost,
-          currencyId: 'default', // You might want to get this from a default currency
+          currencyId: currencyId,
           status: 'POSTED',
           createdById
         }
       });
 
       // Create journal entry lines
-      // Dr Asset Account
+      // DR Fixed Asset Account (12xx)
       await prisma.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
@@ -204,26 +219,90 @@ export class AssetService {
         }
       });
 
-      // Cr Cash/Bank (assuming cash purchase - you might want to make this configurable)
-      const cashAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          accountName: { contains: 'Cash' },
-          isActive: true
-        }
-      });
+      // Determine credit account based on payment method
+      let creditAccountId: string | null = null;
+      let creditDescription = '';
 
-      if (cashAccount) {
+      if (invoiceId) {
+        // Linked to Creditor Bill - CR Accounts Payable
+        const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountName: { contains: 'Accounts Payable' } },
+              { accountName: { contains: 'Creditors Control' } },
+              { accountNo: { startsWith: '2000' } } // Typically in 2000s range
+            ],
+            isActive: true
+          }
+        });
+
+        if (!accountsPayableAccount) {
+          throw new Error('Accounts Payable account not found. Please configure it in Chart of Accounts.');
+        }
+
+        creditAccountId = accountsPayableAccount.id;
+        creditDescription = `Creditor bill for asset: ${asset.assetName}`;
+      } else if (cashbookEntryId) {
+        // Linked to Cashbook Payment - Get bank's GL account from cashbook entry
+        const cashbookEntry = await prisma.cashbookEntry.findUnique({
+          where: { id: cashbookEntryId },
+          include: {
+            bank: {
+              include: {
+                glAccount: true
+              }
+            }
+          }
+        });
+
+        if (!cashbookEntry) {
+          throw new Error('Cashbook entry not found');
+        }
+
+        if (!cashbookEntry.bank.glAccount) {
+          throw new Error('Bank GL account not configured');
+        }
+
+        creditAccountId = cashbookEntry.bank.glAccount.id;
+        creditDescription = `Cashbook payment for asset: ${asset.assetName}`;
+      } else {
+        // No link - assume cash purchase (CR Cash/Bank)
+        const cashAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountName: { contains: 'Cash' } },
+              { accountName: { contains: 'Bank' } },
+              { accountNo: { startsWith: '1000' } } // Typically in 1000s range
+            ],
+            isActive: true
+          }
+        });
+
+        if (!cashAccount) {
+          throw new Error('Cash/Bank account not found. Please configure it in Chart of Accounts.');
+        }
+
+        creditAccountId = cashAccount.id;
+        creditDescription = `Cash payment for asset: ${asset.assetName}`;
+      }
+
+      // CR Creditors Control/Bank Account
+      if (creditAccountId) {
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            chartOfAccountId: cashAccount.id,
+            chartOfAccountId: creditAccountId,
             debitAmount: new Decimal(0),
             creditAmount: asset.cost,
-            description: `Payment for asset: ${asset.assetName}`,
+            description: creditDescription,
             vatAmount: new Decimal(0)
           }
         });
       }
+
+      console.log(`✅ Asset acquisition journal entry created: ${journalEntry.referenceNumber}`);
+      console.log(`   DR Fixed Asset: $${asset.cost}`);
+      console.log(`   CR ${invoiceId ? 'Accounts Payable' : cashbookEntryId ? 'Bank Account' : 'Cash/Bank'}: $${asset.cost}`);
     } catch (error) {
       console.error('Error creating asset acquisition journal entry:', error);
       throw error;

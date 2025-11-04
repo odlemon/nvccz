@@ -346,6 +346,9 @@ app.use("/api/cashbook/transactions", transactionReversalRoutes)
 app.use("/api/cashbook/reversals", transactionReversalRoutes)
 app.use("/api/cashbook/transfers", cashbookTransferRoutes)
 
+// Enhanced cashbook routes (void, reconcile, etc.)
+app.use("/api/cashbook", cashbookRoutesEnhanced)
+
 // General cashbook routes (must be AFTER specific routes)
 app.use("/api/cashbook", cashbookRoutes)
 // Import new cashbook routes

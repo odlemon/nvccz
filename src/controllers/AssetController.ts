@@ -39,7 +39,9 @@ export class AssetController {
         depreciationExpenseAccountId,
         location,
         serialNumber,
-        warrantyExpiry
+        warrantyExpiry,
+        invoiceId, // Optional: Link to creditor bill (procurement invoice)
+        cashbookEntryId // Optional: Link to cashbook payment
       } = req.body;
 
       // Validation
@@ -72,7 +74,9 @@ export class AssetController {
         location,
         serialNumber,
         warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : undefined,
-        createdById: userId
+        createdById: userId,
+        invoiceId, // Optional: Link to creditor bill
+        cashbookEntryId // Optional: Link to cashbook payment
       });
 
       res.status(201).json({

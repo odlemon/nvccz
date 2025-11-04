@@ -10,7 +10,7 @@ router.use(authenticate);
 
 /**
  * @swagger
- * /api/users/by-department:
+ * /users/by-department:
  *   get:
  *     summary: Get users filtered by department and/or role
  *     description: Used for approval configuration - get list of users to assign to approval steps
@@ -68,7 +68,7 @@ router.get("/by-department", UserController.getUsersByDepartmentAndRole);
 
 /**
  * @swagger
- * /api/users:
+ * /users:
  *   post:
  *     summary: Create a new user with auto-generated password
  *     description: Creates a new user account and sends login credentials via email
