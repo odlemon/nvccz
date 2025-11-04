@@ -132,5 +132,50 @@ router.get("/", controller.getAllRoles.bind(controller));
  */
 router.get("/departments-with-roles", controller.getAllDepartmentsWithRoles.bind(controller));
 
+/**
+ * @swagger
+ * /hardcoded-roles/departments:
+ *   get:
+ *     summary: Get all departments
+ *     description: Retrieve a list of all 7 departments without their roles
+ *     tags: [Hardcoded Roles]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Departments retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: All departments retrieved successfully
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       name:
+ *                         type: string
+ *                         example: Finance
+ *                       code:
+ *                         type: string
+ *                         example: FINANCE
+ *                       description:
+ *                         type: string
+ *                         example: Finance Department
+ *                 count:
+ *                   type: integer
+ *                   example: 7
+ *       401:
+ *         description: Unauthorized - missing or invalid token
+ */
+router.get("/departments", controller.getAllDepartments.bind(controller));
+
 export default router;
 
