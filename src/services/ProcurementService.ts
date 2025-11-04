@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { PrismaClient, Decimal } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import JournalEntryService from "./JournalEntryService";
 import AuditService from "./AuditService";
@@ -1727,6 +1728,235 @@ export class ProcurementService {
       return grn;
     } catch (error) {
       console.error("Error creating goods received note:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Convert a Purchase Order to a Creditor Bill (Invoice) in the Accounting module
+   */
+  static async convertPOToBill(poId: string, createdById: string) {
+    try {
+      console.log('\n===============================================================');
+      console.log('CONVERTING PURCHASE ORDER TO CREDITOR BILL');
+      console.log('===============================================================');
+      console.log('PO ID: ' + poId);
+      console.log('Created By: ' + createdById);
+      console.log('');
+
+      // Step 1: Fetch Purchase Order with all details
+      console.log('Step 1: Fetching Purchase Order details...');
+      const purchaseOrder = await prisma.purchaseOrder.findUnique({
+        where: { id: poId },
+        include: {
+          vendor: true,
+          currency: true,
+          items: true,
+          createdBy: true
+        }
+      });
+
+      if (!purchaseOrder) {
+        throw new Error('Purchase order not found');
+      }
+
+      console.log('[OK] Purchase Order found: ' + purchaseOrder.poNumber);
+      console.log('   Vendor: ' + purchaseOrder.vendor.name);
+      console.log('   Total Amount: $' + Number(purchaseOrder.totalAmount).toFixed(2));
+      console.log('   Status: ' + purchaseOrder.status);
+
+      // Step 2: Find or create a generic customer for supplier bills
+      // (Invoices require customerId, but we'll mark it as a supplier bill with vendorId)
+      console.log('\nStep 2: Finding or creating generic customer for supplier bills...');
+      let genericCustomer = await prisma.customer.findFirst({
+        where: {
+          name: 'Generic Supplier - Internal Use'
+        }
+      });
+
+      if (!genericCustomer) {
+        // Create a generic customer for supplier bills
+        genericCustomer = await prisma.customer.create({
+          data: {
+            name: 'Generic Supplier - Internal Use',
+            email: 'suppliers@nvccz.co.zw',
+            phone: '+263-XXX-XXX-XXXX',
+            address: 'Internal Use Only',
+            isActive: true
+          }
+        });
+        console.log('[OK] Created generic customer: ' + genericCustomer.name);
+      } else {
+        console.log('[OK] Using existing generic customer: ' + genericCustomer.name);
+      }
+
+      // Step 3: Calculate invoice amounts
+      console.log('\nStep 3: Calculating invoice amounts...');
+      const subtotal = Number(purchaseOrder.subtotal);
+      const taxAmount = Number(purchaseOrder.taxAmount);
+      const totalAmount = Number(purchaseOrder.totalAmount);
+      const amount = subtotal; // Base amount before VAT
+
+      console.log('   Subtotal: $' + subtotal.toFixed(2));
+      console.log('   Tax Amount: $' + taxAmount.toFixed(2));
+      console.log('   Total Amount: $' + totalAmount.toFixed(2));
+
+      // Step 4: Prepare invoice items from PO items
+      console.log('\nStep 4: Preparing invoice items from PO items...');
+      const invoiceItems = purchaseOrder.items.map(item => ({
+        description: item.itemName + (item.description ? ' - ' + item.description : ''),
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        vatRate: taxAmount > 0 ? 15 : 0 // Assuming 15% VAT if tax exists
+      }));
+
+      console.log('   Items prepared: ' + invoiceItems.length);
+
+      // Step 5: Create Invoice (Creditor Bill) in Accounting module
+      console.log('\nStep 5: Creating Creditor Bill (Invoice) in Accounting module...');
+      
+      // Ensure we have a currency ID
+      if (!purchaseOrder.currencyId) {
+        // Try to find USD currency as fallback
+        const usdCurrency = await prisma.currency.findFirst({
+          where: { code: 'USD' }
+        });
+        if (!usdCurrency) {
+          throw new Error('Purchase Order has no currency and USD currency not found. Please set currency on PO.');
+        }
+        purchaseOrder.currencyId = usdCurrency.id;
+        console.log('[OK] Using USD currency as fallback');
+      }
+
+      // Generate invoice number
+      const invoiceNumber = 'BILL-' + purchaseOrder.poNumber;
+      const invoiceDescription = 'Creditor Bill from PO: ' + purchaseOrder.poNumber + ' - ' + purchaseOrder.vendor.name;
+
+      // Create invoice directly (not using InvoiceService which is for sales invoices)
+      const invoice = await prisma.invoice.create({
+        data: {
+          customerId: genericCustomer.id,
+          vendorId: purchaseOrder.vendorId, // Mark as supplier bill
+          amount: new Decimal(amount),
+          vatAmount: new Decimal(taxAmount),
+          totalAmount: new Decimal(totalAmount),
+          currencyId: purchaseOrder.currencyId,
+          transactionDate: purchaseOrder.orderDate,
+          description: invoiceDescription,
+          items: invoiceItems,
+          invoiceNumber: invoiceNumber,
+          isTaxable: taxAmount > 0,
+          status: 'DRAFT', // Start as DRAFT, will be posted when approved
+          outstandingAmount: new Decimal(totalAmount),
+          paidAmount: new Decimal(0),
+          createdById
+        },
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          currency: {
+            select: {
+              id: true,
+              code: true,
+              symbol: true
+            }
+          }
+        }
+      });
+
+      console.log('[OK] Invoice created: ' + invoice.invoiceNumber);
+      console.log('   Invoice ID: ' + invoice.id);
+      console.log('   Total Amount: $' + Number(invoice.totalAmount).toFixed(2));
+      console.log('   Vendor: ' + purchaseOrder.vendor.name);
+
+      // Step 6: Update invoice status to SENT (optional, can be done later)
+      console.log('\nStep 6: Updating invoice status to SENT...');
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: 'SENT' // Mark as SENT so it's available for payment
+        },
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          currency: {
+            select: {
+              id: true,
+              code: true,
+              symbol: true
+            }
+          }
+        }
+      });
+
+      console.log('[OK] Invoice status updated to SENT');
+
+      // Step 7: Create audit log
+      console.log('\nStep 7: Creating audit log...');
+      await AuditService.log({
+        userId: createdById,
+        action: 'CONVERT_PO_TO_BILL',
+        entityType: 'Invoice',
+        entityId: updatedInvoice.id,
+        newValues: {
+          source: 'PurchaseOrder',
+          purchaseOrderId: poId,
+          purchaseOrderNumber: purchaseOrder.poNumber,
+          vendorId: purchaseOrder.vendorId,
+          invoiceNumber: updatedInvoice.invoiceNumber
+        }
+      });
+      console.log('[OK] Audit log created');
+
+      console.log('\n===============================================================');
+      console.log('SUCCESS: PURCHASE ORDER CONVERTED TO CREDITOR BILL');
+      console.log('===============================================================');
+      console.log('Purchase Order: ' + purchaseOrder.poNumber);
+      console.log('Creditor Bill: ' + updatedInvoice.invoiceNumber);
+      console.log('Vendor: ' + purchaseOrder.vendor.name);
+      console.log('Total Amount: $' + Number(updatedInvoice.totalAmount).toFixed(2));
+      console.log('Status: ' + updatedInvoice.status);
+      console.log('===============================================================\n');
+
+      return {
+        success: true,
+        invoice: updatedInvoice,
+        purchaseOrder: {
+          id: purchaseOrder.id,
+          poNumber: purchaseOrder.poNumber,
+          vendor: purchaseOrder.vendor.name
+        },
+        message: 'Purchase Order converted to Creditor Bill successfully'
+      };
+    } catch (error: any) {
+      console.error('\n===============================================================');
+      console.error('ERROR: FAILED TO CONVERT PO TO BILL');
+      console.error('===============================================================');
+      console.error('Error: ' + error.message);
+      console.error('Stack: ' + error.stack);
+      console.error('===============================================================\n');
       throw error;
     }
   }

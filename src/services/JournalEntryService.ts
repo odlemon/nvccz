@@ -1016,11 +1016,22 @@ export class JournalEntryService {
 
   /**
    * Void a journal entry (change status to VOID)
+   * Creates a reversing journal entry if the original was POSTED
+   * Comprehensive audit log includes original transaction details, void timestamp, user ID, and reversing journal entry reference
    */
   static async voidJournalEntry(journalEntryId: string, performedById?: string): Promise<JournalEntry> {
     try {
+      // Fetch complete journal entry with lines for comprehensive audit trail
       const journalEntry = await prisma.journalEntry.findUnique({
-        where: { id: journalEntryId }
+        where: { id: journalEntryId },
+        include: {
+          journalEntryLines: {
+            include: {
+              chartOfAccount: true
+            }
+          },
+          currency: true
+        }
       });
 
       if (!journalEntry) {
@@ -1031,23 +1042,111 @@ export class JournalEntryService {
         throw new Error("Journal entry is already voided");
       }
 
+      const originalStatus = journalEntry.status;
+      const voidTimestamp = new Date();
+      const userId = performedById ?? journalEntry.createdById;
+
+      // Create reversing journal entry if original was POSTED
+      let reversalJournalEntry = null;
+      if (originalStatus === "POSTED" && journalEntry.journalEntryLines && journalEntry.journalEntryLines.length > 0) {
+        try {
+          // Create reversal journal entry with opposite CR/DR balance
+          reversalJournalEntry = await prisma.journalEntry.create({
+            data: {
+              transactionDate: voidTimestamp,
+              referenceNumber: `VR-${journalEntry.referenceNumber}`,
+              description: `REVERSAL of Journal Entry ${journalEntry.referenceNumber}: ${journalEntry.description}`,
+              totalAmount: journalEntry.totalAmount,
+              currencyId: journalEntry.currencyId,
+              status: "POSTED", // Auto-post the reversal
+              createdById: userId
+            }
+          });
+
+          // Create reversal journal entry lines (opposite debits/credits)
+          for (const line of journalEntry.journalEntryLines) {
+            await prisma.journalEntryLine.create({
+              data: {
+                journalEntryId: reversalJournalEntry.id,
+                chartOfAccountId: line.chartOfAccountId,
+                debitAmount: line.creditAmount, // Swap: original credit becomes debit
+                creditAmount: line.debitAmount, // Swap: original debit becomes credit
+                description: `REVERSAL: ${line.description}`,
+                vatAmount: line.vatAmount || null
+              }
+            });
+          }
+
+          console.log(`✅ Reversing journal entry created: ${reversalJournalEntry.referenceNumber}`);
+        } catch (reversalError: any) {
+          console.error("❌ Error creating reversing journal entry:", reversalError);
+          // Don't fail the void if reversal fails - log it
+        }
+      }
+
       // Update the status to VOID
       const updatedJournalEntry = await prisma.journalEntry.update({
         where: { id: journalEntryId },
         data: {
           status: "VOID",
-          updatedAt: new Date()
+          updatedAt: voidTimestamp
         }
       });
 
-      // Audit: VOID journal entry
+      // Comprehensive audit log with all required fields:
+      // 1. Original transaction details (complete)
+      // 2. Date/time of void
+      // 3. User ID who performed the void
+      // 4. Reference to Reversing Journal ID
       await AuditService.log({
-        userId: performedById ?? journalEntry.createdById,
+        userId: userId,
         action: "VOID",
         entityType: "JournalEntry",
         entityId: journalEntryId,
-        oldValues: journalEntry,
-        newValues: updatedJournalEntry,
+        oldValues: {
+          // Complete original transaction details
+          journalEntry: {
+            id: journalEntry.id,
+            referenceNumber: journalEntry.referenceNumber,
+            description: journalEntry.description,
+            transactionDate: journalEntry.transactionDate,
+            totalAmount: journalEntry.totalAmount,
+            currencyId: journalEntry.currencyId,
+            status: originalStatus,
+            createdAt: journalEntry.createdAt,
+            createdById: journalEntry.createdById
+          },
+          journalEntryLines: journalEntry.journalEntryLines.map(line => ({
+            id: line.id,
+            chartOfAccountId: line.chartOfAccountId,
+            chartOfAccountName: line.chartOfAccount?.accountName,
+            debitAmount: line.debitAmount,
+            creditAmount: line.creditAmount,
+            description: line.description,
+            vatAmount: line.vatAmount
+          }))
+        },
+        newValues: {
+          // Updated transaction with void status
+          journalEntry: {
+            id: updatedJournalEntry.id,
+            referenceNumber: updatedJournalEntry.referenceNumber,
+            status: updatedJournalEntry.status,
+            updatedAt: updatedJournalEntry.updatedAt
+          },
+          // Audit trail metadata
+          voidDetails: {
+            voidedAt: voidTimestamp.toISOString(),
+            voidedBy: userId,
+            originalStatus: originalStatus,
+            reversalJournalEntry: reversalJournalEntry ? {
+              id: reversalJournalEntry.id,
+              referenceNumber: reversalJournalEntry.referenceNumber,
+              description: reversalJournalEntry.description,
+              transactionDate: reversalJournalEntry.transactionDate
+            } : null
+          }
+        }
       });
 
       return updatedJournalEntry;

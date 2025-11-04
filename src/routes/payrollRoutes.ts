@@ -23,6 +23,7 @@ router.get('/payroll-runs', authenticate, PayrollController.getAllPayrollRuns);
 router.put('/payroll-runs/:payrollRunId', authenticate, PayrollController.updatePayrollRun);
 router.delete('/payroll-runs/:payrollRunId', authenticate, PayrollController.deletePayrollRun);
 router.post('/payroll-runs/:payrollRunId/process', authenticate, PayrollController.processPayrollRun);
+router.post('/payroll-runs/:payrollRunId/payment', authenticate, PayrollController.processPayrollPayment);
 router.get('/payroll-runs/:payrollRunId', authenticate, PayrollController.getPayrollRunSummary);
 
 // ===== BANK FILE GENERATION =====
