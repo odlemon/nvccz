@@ -719,6 +719,38 @@ export class ProcurementController {
   }
 
   /**
+   * Convert a Purchase Order to a Creditor Bill (Invoice)
+   * POST /api/procurement/purchase-orders/:id/convert-to-bill
+   */
+  static async convertPOToBill(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const createdById = req.user?.id;
+
+      if (!createdById) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const result = await ProcurementService.convertPOToBill(id, createdById);
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result
+      });
+    } catch (error: any) {
+      console.error("Error converting PO to bill:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to convert purchase order to creditor bill"
+      });
+    }
+  }
+
+  /**
    * Process payment for an approved procurement invoice
    * POST /api/procurement/invoices/:id/payment
    */

@@ -262,13 +262,17 @@ export class ActivityService {
 
   /**
    * Get activities for a specific goal
+   * Includes both direct goal activities and task activities linked to the goal
    */
   static async getGoalActivities(goalId: string) {
     try {
       const activities = await prisma.activityLog.findMany({
         where: {
           goalId: goalId,
-          activityType: 'goal_update'
+          // Include both goal updates and task completions that are linked to this goal
+          activityType: {
+            in: ['goal_update', 'task_completion']
+          }
         },
         include: {
           user: {
@@ -277,6 +281,14 @@ export class ActivityService {
               firstName: true,
               lastName: true,
               email: true
+            }
+          },
+          task: {
+            select: {
+              id: true,
+              title: true,
+              monetaryValue: true,
+              stage: true
             }
           }
         },

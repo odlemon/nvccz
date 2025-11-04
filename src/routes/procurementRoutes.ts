@@ -442,6 +442,81 @@ router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder
 
 /**
  * @swagger
+ * /api/procurement/purchase-orders/{id}/convert-to-bill:
+ *   post:
+ *     summary: Convert a Purchase Order to a Creditor Bill (Invoice) in the Accounting module
+ *     tags: [Procurement]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Purchase Order ID
+ *     responses:
+ *       200:
+ *         description: Purchase Order converted to Creditor Bill successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Purchase Order converted to Creditor Bill successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                     invoice:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         invoiceNumber:
+ *                           type: string
+ *                           example: "BILL-PO-2025-001"
+ *                         totalAmount:
+ *                           type: string
+ *                           example: "500.00"
+ *                         vendor:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: string
+ *                             name:
+ *                               type: string
+ *                             email:
+ *                               type: string
+ *                         status:
+ *                           type: string
+ *                           example: "SENT"
+ *                     purchaseOrder:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         poNumber:
+ *                           type: string
+ *                         vendor:
+ *                           type: string
+ *       400:
+ *         description: Bad request (PO not found, conversion failed, etc.)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Purchase order not found
+ */
+router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.convertPOToBill);
+
+/**
+ * @swagger
  * /api/procurement/rfq:
  *   post:
  *     summary: Create and send RFQ to multiple vendors

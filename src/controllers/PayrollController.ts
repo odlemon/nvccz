@@ -2077,6 +2077,55 @@ export class PayrollController {
   }
 
   /**
+   * Process Payroll Payment - Wages Clearing
+   * POST /api/payroll/payroll-runs/:payrollRunId/payment
+   */
+  static async processPayrollPayment(req: Request, res: Response) {
+    try {
+      const { payrollRunId } = req.params;
+      const { bankId, paymentDate } = req.body;
+      const createdById = (req as any).user.id;
+
+      if (!bankId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bank ID is required'
+        });
+      }
+
+      if (!paymentDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Payment date is required'
+        });
+      }
+
+      const result = await PayrollService.processPayrollPayment(
+        payrollRunId,
+        bankId,
+        new Date(paymentDate),
+        createdById
+      );
+
+      res.json({
+        success: true,
+        message: result.message,
+        data: {
+          cashbookEntry: result.cashbookEntry,
+          journalEntry: result.journalEntry
+        }
+      });
+    } catch (error) {
+      console.error('Error processing payroll payment:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to process payroll payment',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
    * Delete payroll run
    */
   static async deletePayrollRun(req: Request, res: Response) {

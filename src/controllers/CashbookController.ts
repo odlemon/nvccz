@@ -6,6 +6,7 @@ import { Request, Response } from "express";
 import { ResponseHelper } from "../utils/responseHelper";
 import CashbookService from "../services/CashbookService";
 import { prisma } from "../utils/database";
+import AuditService from "../services/AuditService";
 
 interface AuthRequest extends Request {
   user?: {
@@ -520,12 +521,81 @@ export default class CashbookController {
         }
       }
       
+      const voidTimestamp = new Date();
+      
       // Update transaction status to VOIDED (after creating reversal)
-      await prisma.cashbookEntry.update({
+      const updatedTransaction = await prisma.cashbookEntry.update({
         where: { id },
         data: {
           status: 'VOIDED',
           description: `${transaction.description} [VOIDED: ${reason}]`
+        }
+      });
+
+      // Comprehensive audit log with all required fields:
+      // 1. Original transaction details (complete)
+      // 2. Date/time of void
+      // 3. User ID who performed the void
+      // 4. Reference to Reversing Journal ID
+      await AuditService.log({
+        userId: userId,
+        action: "VOID",
+        entityType: "CashbookEntry",
+        entityId: id,
+        oldValues: {
+          // Complete original transaction details
+          cashbookEntry: {
+            id: transaction.id,
+            referenceNumber: transaction.referenceNumber,
+            description: transaction.description,
+            transactionDate: transaction.transactionDate,
+            transactionType: transaction.transactionType,
+            amount: transaction.amount,
+            status: originalStatus,
+            isReconciled: transaction.isReconciled,
+            createdAt: transaction.createdAt,
+            createdById: transaction.createdById
+          },
+          journalEntry: transaction.journalEntry ? {
+            id: transaction.journalEntry.id,
+            referenceNumber: transaction.journalEntry.referenceNumber,
+            description: transaction.journalEntry.description,
+            transactionDate: transaction.journalEntry.transactionDate,
+            totalAmount: transaction.journalEntry.totalAmount,
+            status: transaction.journalEntry.status
+          } : null,
+          journalEntryLines: transaction.journalEntry?.journalEntryLines ? transaction.journalEntry.journalEntryLines.map(line => ({
+            id: line.id,
+            chartOfAccountId: line.chartOfAccountId,
+            chartOfAccountName: line.chartOfAccount?.accountName,
+            debitAmount: line.debitAmount,
+            creditAmount: line.creditAmount,
+            description: line.description,
+            vatAmount: line.vatAmount
+          })) : []
+        },
+        newValues: {
+          // Updated transaction with void status
+          cashbookEntry: {
+            id: updatedTransaction.id,
+            referenceNumber: updatedTransaction.referenceNumber,
+            status: updatedTransaction.status,
+            description: updatedTransaction.description,
+            updatedAt: updatedTransaction.updatedAt
+          },
+          // Audit trail metadata
+          voidDetails: {
+            voidedAt: voidTimestamp.toISOString(),
+            voidedBy: userId,
+            voidReason: reason,
+            originalStatus: originalStatus,
+            reversalJournalEntry: reversalJournalEntry ? {
+              id: reversalJournalEntry.id,
+              referenceNumber: reversalJournalEntry.referenceNumber,
+              description: reversalJournalEntry.description,
+              transactionDate: reversalJournalEntry.transactionDate
+            } : null
+          }
         }
       });
       

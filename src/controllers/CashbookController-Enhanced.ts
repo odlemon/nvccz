@@ -188,7 +188,7 @@ export class CashbookControllerEnhanced {
         include: {
           bank: { include: { glAccount: true, currency: true } },
           customer: true,
-          supplier: true,
+          vendor: true,
           glAccount: true,
           journalEntry: {
             include: {
