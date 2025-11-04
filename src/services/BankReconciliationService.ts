@@ -424,21 +424,37 @@ export class BankReconciliationService {
     try {
       console.log(`✅ Marking transaction as reconciled: ${transactionId}`);
       
-      await prisma.cashbookTransaction.update({
-        where: { id: transactionId },
-        data: {
-          isReconciled: true,
-          reconciledAt: new Date(),
-          reconciledById: userId
-        }
-      });
-      
-      console.log(`✅ Transaction marked as reconciled: ${transactionId}`);
-      
-      return {
-        success: true,
-        message: 'Transaction marked as reconciled'
-      };
+      // Try CashbookEntry first (used by receipts/payments)
+      try {
+        await prisma.cashbookEntry.update({
+          where: { id: transactionId },
+          data: {
+            isReconciled: true,
+            reconciledAt: new Date(),
+            reconciledById: userId
+          }
+        });
+        console.log(`✅ CashbookEntry marked as reconciled: ${transactionId}`);
+        return {
+          success: true,
+          message: 'Transaction marked as reconciled'
+        };
+      } catch (entryError) {
+        // Fallback to cashbookTransaction if CashbookEntry doesn't exist
+        await prisma.cashbookTransaction.update({
+          where: { id: transactionId },
+          data: {
+            isReconciled: true,
+            reconciledAt: new Date(),
+            reconciledById: userId
+          }
+        });
+        console.log(`✅ CashbookTransaction marked as reconciled: ${transactionId}`);
+        return {
+          success: true,
+          message: 'Transaction marked as reconciled'
+        };
+      }
       
     } catch (error: any) {
       console.error('❌ Error marking transaction as reconciled:', error.message);

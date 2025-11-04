@@ -301,6 +301,32 @@ router.put("/entries/:id/reconcile", CashbookControllerEnhanced.reconcileEntry);
 
 /**
  * @swagger
+ * /api/cashbook/entries/{id}/unreconcile:
+ *   put:
+ *     summary: Unreconcile a cashbook entry
+ *     description: Mark a cashbook entry as unreconciled (allows voiding)
+ *     tags: [Cashbook]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Cashbook entry ID
+ *     responses:
+ *       200:
+ *         description: Cashbook entry unreconciled successfully
+ *       400:
+ *         description: Bad request - entry is not reconciled
+ *       404:
+ *         description: Cashbook entry not found
+ *       500:
+ *         description: Internal server error
+ */
+router.put("/entries/:id/unreconcile", CashbookControllerEnhanced.unreconcileEntry);
+
+/**
+ * @swagger
  * /api/cashbook/{bankId}/summary:
  *   get:
  *     summary: Get cashbook summary
@@ -437,5 +463,107 @@ router.get("/:bankId/summary", CashbookControllerEnhanced.getSummary);
  *         description: Internal server error
  */
 router.get("/:bankId/unreconciled", CashbookControllerEnhanced.getUnreconciledEntries);
+
+/**
+ * @swagger
+ * /api/cashbook/reconciliation/display:
+ *   get:
+ *     summary: Get bank reconciliation display with running balance
+ *     description: Get reconciliation display showing GL Bank Balance, Total Un-ticked Items, and Calculated Cleared Balance. Updates in real-time as items are ticked/unticked.
+ *     tags: [Cashbook]
+ *     parameters:
+ *       - in: query
+ *         name: bankId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Bank ID
+ *       - in: query
+ *         name: periodEndDate
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Period end date for reconciliation
+ *       - in: query
+ *         name: tickedEntryIds
+ *         schema:
+ *           type: array
+ *           items:
+ *             type: string
+ *         description: Array of entry IDs that are currently ticked/checked
+ *     responses:
+ *       200:
+ *         description: Reconciliation display retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     glBankBalance:
+ *                       type: number
+ *                       description: GL Bank Balance (from journal entries)
+ *                     totalUntickedItems:
+ *                       type: number
+ *                       description: Sum of all unticked transaction amounts
+ *                     clearedBalance:
+ *                       type: number
+ *                       description: Calculated Cleared Balance (GL Balance - Total Un-ticked Items)
+ *                     unreconciledEntries:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           transactionDate:
+ *                             type: string
+ *                             format: date-time
+ *                           type:
+ *                             type: string
+ *                             enum: [RECEIPT, PAYMENT]
+ *                           description:
+ *                             type: string
+ *                           reference:
+ *                             type: string
+ *                           amount:
+ *                             type: number
+ *                           signedAmount:
+ *                             type: number
+ *                             description: Positive for receipts, negative for payments
+ *                           status:
+ *                             type: string
+ *                           isTicked:
+ *                             type: boolean
+ *                           counterpartyType:
+ *                             type: string
+ *                           counterparty:
+ *                             type: string
+ *                     bankInfo:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         accountNumber:
+ *                           type: string
+ *                         glAccountNo:
+ *                           type: string
+ *                         glAccountName:
+ *                           type: string
+ *       400:
+ *         description: Bad request - missing required parameters
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/reconciliation/display", CashbookControllerEnhanced.getReconciliationDisplay);
 
 export default router;

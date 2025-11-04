@@ -444,10 +444,21 @@ export default class CashbookController {
         return ResponseHelper.badRequest(res, 'Void reason is required');
       }
       
-      // Get transaction
-      const transaction = await prisma.cashbookTransaction.findUnique({
+      // Get transaction with journal entry and lines
+      const transaction = await prisma.cashbookEntry.findUnique({
         where: { id },
-        include: { journalEntry: true }
+        include: { 
+          journalEntry: {
+            include: {
+              journalEntryLines: {
+                include: {
+                  chartOfAccount: true
+                }
+              },
+              currency: true
+            }
+          }
+        }
       });
       
       if (!transaction) {
@@ -458,8 +469,59 @@ export default class CashbookController {
         return ResponseHelper.badRequest(res, 'Transaction already voided');
       }
       
-      // Update transaction status
-      await prisma.cashbookTransaction.update({
+      // UAT Requirement: Prevent voiding reconciled transactions
+      if (transaction.isReconciled) {
+        return ResponseHelper.badRequest(res, 'Transaction must be unreconciled before voiding.');
+      }
+      
+      // Store original status before updating
+      const originalStatus = transaction.status;
+      
+      // UAT Requirement: Create reversing journal entry with opposite CR/DR balance
+      let reversalJournalEntry = null;
+      // Create reversal if transaction was posted (has journal entry with lines)
+      if (transaction.journalEntry && originalStatus === 'POSTED' && transaction.journalEntry.journalEntryLines && transaction.journalEntry.journalEntryLines.length > 0) {
+        try {
+          const originalEntry = transaction.journalEntry;
+          const originalLines = originalEntry.journalEntryLines;
+          
+          // Create reversal journal entry
+          reversalJournalEntry = await prisma.journalEntry.create({
+            data: {
+              transactionDate: new Date(),
+              referenceNumber: `VR-${originalEntry.referenceNumber}`,
+              description: `REVERSAL of CB Transaction ${id}: ${originalEntry.description}`,
+              totalAmount: originalEntry.totalAmount,
+              currencyId: originalEntry.currencyId,
+              status: 'POSTED', // Auto-post the reversal
+              createdById: userId,
+              cashbookEntryId: id // Link to the voided cashbook entry
+            }
+          });
+          
+          // Create reversal journal entry lines (opposite debits/credits)
+          for (const line of originalLines) {
+            await prisma.journalEntryLine.create({
+              data: {
+                journalEntryId: reversalJournalEntry.id,
+                chartOfAccountId: line.chartOfAccountId,
+                debitAmount: line.creditAmount, // Swap: original credit becomes debit
+                creditAmount: line.debitAmount, // Swap: original debit becomes credit
+                description: `REVERSAL: ${line.description}`,
+                vatAmount: line.vatAmount ? line.vatAmount : null
+              }
+            });
+          }
+          
+          console.log(`✅ Reversing journal entry created: ${reversalJournalEntry.referenceNumber}`);
+        } catch (reversalError: any) {
+          console.error('❌ Error creating reversing journal entry:', reversalError);
+          // Don't fail the void if reversal fails - log it
+        }
+      }
+      
+      // Update transaction status to VOIDED (after creating reversal)
+      await prisma.cashbookEntry.update({
         where: { id },
         data: {
           status: 'VOIDED',
@@ -467,13 +529,15 @@ export default class CashbookController {
         }
       });
       
-      // If transaction was posted, create reversing journal entry
-      if (transaction.journalEntry) {
-        // Create reversing journal entry logic here
-        // This would create a new journal entry with opposite debits/credits
-      }
-      
-      return ResponseHelper.success(res, 'Transaction voided successfully');
+      return ResponseHelper.success(res, 'Transaction voided successfully', {
+        transactionId: id,
+        status: 'VOIDED',
+        reversalJournalEntry: reversalJournalEntry ? {
+          id: reversalJournalEntry.id,
+          referenceNumber: reversalJournalEntry.referenceNumber,
+          description: reversalJournalEntry.description
+        } : null
+      });
       
     } catch (error: any) {
       console.error('Error in CashbookController.voidTransaction:', error);

@@ -79,7 +79,7 @@ export class ChartOfAccountsController {
       }
 
       // Validate that account number range matches account type
-      const accountNumberValidation = this.validateAccountNumberType(accountNo, accountType);
+      const accountNumberValidation = ChartOfAccountsController.validateAccountNumberType(accountNo, accountType);
       if (!accountNumberValidation.valid) {
         return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
       }
@@ -214,7 +214,7 @@ export class ChartOfAccountsController {
       // Validate that account number range matches account type (if either is being updated)
       const accountNoToValidate = accountNo || existingAccount.accountNo;
       const accountTypeToValidate = accountType || existingAccount.accountType;
-      const accountNumberValidation = this.validateAccountNumberType(accountNoToValidate, accountTypeToValidate);
+      const accountNumberValidation = ChartOfAccountsController.validateAccountNumberType(accountNoToValidate, accountTypeToValidate);
       if (!accountNumberValidation.valid) {
         return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
       }

@@ -196,17 +196,24 @@ export class CashbookService {
       
       console.log(`✅ Cash Payment created: ${transaction.id}`);
       
-      // 5. Create journal entry for double-entry accounting
-      const journalEntry = await this.createJournalEntry(transaction, params.createdById);
-      
-      // 6. Update transaction with journal entry reference
-      const updatedTransaction = await prisma.cashbookEntry.update({
-        where: { id: transaction.id },
-        data: { 
-          journalEntryId: journalEntry.id,
-          status: 'POSTED'
-        }
-      });
+      // 5. For SUPPLIER and CUSTOMER payments, keep as PENDING to allow allocations before posting
+      // GL payments can be auto-posted if needed
+      let updatedTransaction;
+      if (params.counterpartyType === 'SUPPLIER' || params.counterpartyType === 'CUSTOMER') {
+        // Keep payment as PENDING - user must allocate and post manually
+        updatedTransaction = transaction;
+        console.log(`ℹ️  Payment kept as PENDING - allocate to invoices before posting`);
+      } else {
+        // For GL payments, auto-post as before
+        const journalEntry = await this.createJournalEntry(transaction, params.createdById);
+        updatedTransaction = await prisma.cashbookEntry.update({
+          where: { id: transaction.id },
+          data: { 
+            journalEntryId: journalEntry.id,
+            status: 'POSTED'
+          }
+        });
+      }
       
       // 7. Apply Control Account Integration for supplier payments
       let controlAccountResult = null;
@@ -228,10 +235,12 @@ export class CashbookService {
       
       return {
         transaction: updatedTransaction,
-        journalEntry,
+        journalEntry: updatedTransaction.status === 'POSTED' ? await prisma.journalEntry.findUnique({ where: { id: updatedTransaction.journalEntryId } }) : null,
         controlAccountResult,
         success: true,
-        message: 'Cash payment created and posted successfully'
+        message: updatedTransaction.status === 'POSTED' 
+          ? 'Cash payment created and posted successfully'
+          : 'Cash payment created successfully - allocate to invoices and post when ready'
       };
       
     } catch (error: any) {
@@ -252,7 +261,7 @@ export class CashbookService {
     try {
       console.log(`📝 Posting transaction to GL: ${transactionId}`);
       
-      // 1. Get transaction with related data
+      // 1. Get transaction with related data and allocations
       const transaction = await prisma.cashbookEntry.findUnique({
         where: { id: transactionId },
         include: {
@@ -265,6 +274,15 @@ export class CashbookService {
         }
       });
       
+      // Fetch allocations separately (they're linked via PaymentAllocation model)
+      const allocations = await prisma.paymentAllocation.findMany({
+        where: { cashbookEntryId: transactionId }
+      });
+      
+      // Attach allocations to transaction object
+      (transaction as any).allocations = allocations;
+      console.log(`📋 Allocations found: ${allocations.length} for transaction ${transactionId}`);
+      
       if (!transaction) {
         throw new Error(`Transaction not found: ${transactionId}`);
       }
@@ -273,10 +291,30 @@ export class CashbookService {
         throw new Error('Transaction already posted');
       }
       
-      // 2. Create journal entry
+      // 2. Validate multi-line allocation for PAYMENT transactions
+      // For SUPPLIER and CUSTOMER payments, ensure all allocations sum to the payment amount
+      if (transaction.type === 'PAYMENT' && 
+          (transaction.counterpartyType === 'SUPPLIER' || transaction.counterpartyType === 'CUSTOMER')) {
+        
+        const allocations = transaction.allocations || [];
+        const totalAllocated = allocations.reduce((sum, alloc) => 
+          sum + parseFloat(alloc.allocatedAmount.toString()), 0
+        );
+        const paymentAmount = parseFloat(transaction.amount.toString());
+        const remainingToAllocate = paymentAmount - totalAllocated;
+        
+        // For supplier/customer payments, require full allocation (allow small rounding differences)
+        if (Math.abs(remainingToAllocate) > 0.01) {
+          const errorMessage = `Cannot post payment: Payment total is $${paymentAmount.toFixed(2)}, but allocated amount is $${totalAllocated.toFixed(2)}. Outstanding balance required: $${Math.abs(remainingToAllocate).toFixed(2)}. Please allocate the remaining amount before posting.`;
+          console.error(`❌ Allocation validation failed: ${errorMessage}`);
+          throw new Error(errorMessage);
+        }
+      }
+      
+      // 3. Create journal entry
       const journalEntry = await this.createJournalEntry(transaction, userId);
       
-      // 3. Update transaction status
+      // 4. Update transaction status
       await prisma.cashbookEntry.update({
         where: { id: transactionId },
         data: {
@@ -664,48 +702,236 @@ export class CashbookService {
       });
       
     } else if (transaction.type === 'PAYMENT') {
-      // Payment: Dr. Supplier/GL Account, Cr. Bank
+      // Payment: For SUPPLIER/CUSTOMER with allocations, use Net + VAT breakdown
+      // Otherwise, use Accounts Payable for supplier or GL account for GL payments
       
-      // 1. Debit Supplier/GL Account
-      let contraAccountId: string;
-      if (transaction.counterpartyType === 'SUPPLIER' && transaction.vendorId) {
-        // Use Accounts Payable account for vendor payments
-        const apAccount = await prisma.chartOfAccounts.findFirst({
-          where: { 
-            accountNo: '2000', // Accounts Payable
-            isActive: true 
+      if ((transaction.counterpartyType === 'SUPPLIER' || transaction.counterpartyType === 'CUSTOMER') && 
+          transaction.allocations && transaction.allocations.length > 0) {
+        // UAT Requirement: DR entries (Net + VAT) totaling payment amount
+        
+        console.log(`📊 Creating Net + VAT breakdown for payment with ${transaction.allocations.length} allocations`);
+        
+        // Calculate Net and VAT from allocations based on invoice VAT rates
+        let totalNet = new Decimal(0);
+        let totalVAT = new Decimal(0);
+        
+        for (const allocation of transaction.allocations) {
+          console.log(`   Processing allocation: ${allocation.invoiceId}, Amount: ${allocation.allocatedAmount}`);
+          // Get invoice to determine VAT rate
+          const invoice = await prisma.invoice.findUnique({
+            where: { id: allocation.invoiceId }
+          });
+          
+          if (invoice) {
+            // Invoice has items stored in JSON field and VAT info
+            const invoiceItems = invoice.items && typeof invoice.items === 'object' 
+              ? (Array.isArray(invoice.items) ? invoice.items : [invoice.items])
+              : [];
+            
+            if (invoiceItems.length > 0) {
+              // Calculate invoice totals: Net and VAT separately from items
+              let invoiceNet = new Decimal(0);
+              let invoiceVAT = new Decimal(0);
+              
+              for (const item of invoiceItems) {
+                const itemUnitPrice = typeof item.unitPrice === 'number' ? item.unitPrice : parseFloat(item.unitPrice || 0);
+                const itemQuantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity || 1);
+                const itemVATRate = typeof item.vatRate === 'number' ? item.vatRate : parseFloat(item.vatRate || 0);
+                
+                const itemNet = new Decimal(itemUnitPrice).times(itemQuantity);
+                const itemVAT = itemNet.times(itemVATRate);
+                
+                invoiceNet = invoiceNet.add(itemNet);
+                invoiceVAT = invoiceVAT.add(itemVAT);
+              }
+              
+              const invoiceTotal = invoiceNet.add(invoiceVAT);
+              
+              // Prorate allocation amount based on invoice Net/VAT structure
+              if (invoiceTotal.gt(0)) {
+                const allocationAmount = new Decimal(allocation.allocatedAmount);
+                // Calculate proportion: allocation / invoice total
+                const proportion = allocationAmount.div(invoiceTotal);
+                
+                // Apply proportion to Net and VAT
+                const netPortion = invoiceNet.times(proportion);
+                const vatPortion = invoiceVAT.times(proportion);
+                
+                totalNet = totalNet.add(netPortion);
+                totalVAT = totalVAT.add(vatPortion);
+                
+                console.log(`     Invoice: Net=${invoiceNet}, VAT=${invoiceVAT}, Total=${invoiceTotal}`);
+                console.log(`     Allocation: Net=${netPortion}, VAT=${vatPortion}, Total=${allocationAmount}`);
+              } else {
+                // If invoice has no total, treat entire allocation as net
+                console.log(`     Invoice has zero total, treating as net: ${allocation.allocatedAmount}`);
+                totalNet = totalNet.add(new Decimal(allocation.allocatedAmount));
+              }
+            } else {
+              // If invoice has no items, use invoice's stored VAT amount
+              const invoiceVATAmount = invoice.vatAmount ? parseFloat(invoice.vatAmount.toString()) : 0;
+              const invoiceNetAmount = invoice.amount ? parseFloat(invoice.amount.toString()) : 0;
+              const invoiceTotalAmount = invoice.totalAmount ? parseFloat(invoice.totalAmount.toString()) : 0;
+              
+              if (invoiceTotalAmount > 0) {
+                const allocationAmount = new Decimal(allocation.allocatedAmount);
+                const proportion = allocationAmount.div(new Decimal(invoiceTotalAmount));
+                
+                const netPortion = new Decimal(invoiceNetAmount).times(proportion);
+                const vatPortion = new Decimal(invoiceVATAmount).times(proportion);
+                
+                totalNet = totalNet.add(netPortion);
+                totalVAT = totalVAT.add(vatPortion);
+                
+                console.log(`     Invoice (from totals): Net=${invoiceNetAmount}, VAT=${invoiceVATAmount}, Total=${invoiceTotalAmount}`);
+                console.log(`     Allocation: Net=${netPortion}, VAT=${vatPortion}, Total=${allocationAmount}`);
+              } else {
+                console.log(`     Invoice has no total amount, treating as net: ${allocation.allocatedAmount}`);
+                totalNet = totalNet.add(new Decimal(allocation.allocatedAmount));
+              }
+            }
+          } else {
+            // If invoice not found, treat as net (conservative)
+            console.log(`     Invoice not found, treating as net: ${allocation.allocatedAmount}`);
+            totalNet = totalNet.add(new Decimal(allocation.allocatedAmount));
+          }
+        }
+        
+        console.log(`   ✅ Total Net: $${totalNet.toString()}, Total VAT: $${totalVAT.toString()}`);
+        
+        // If we have VAT, create separate DR entries for Net and VAT Input
+        const totalVATValue = parseFloat(totalVAT.toString());
+        console.log(`   Checking if VAT > 0.01: ${totalVATValue} > 0.01 = ${totalVATValue > 0.01}`);
+        
+        if (totalVATValue > 0.01) {
+          console.log(`   ✅ Creating Net + VAT breakdown: Net=$${totalNet.toString()}, VAT=$${totalVAT.toString()}`);
+          // 1. Debit Expense/Net Account (use Accounts Payable as expense for supplier payments)
+          const expenseAccount = await prisma.chartOfAccounts.findFirst({
+            where: { 
+              accountNo: '2000', // Accounts Payable
+              isActive: true 
+            }
+          });
+          if (!expenseAccount) {
+            throw new Error('Accounts Payable account (2000) not found. Please create account code 2000.');
+          }
+          
+          await prisma.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: expenseAccount.id,
+              debitAmount: totalNet,
+              creditAmount: new Decimal(0),
+              description: `Payment Net: ${transaction.description}`
+            }
+          });
+          
+          // 2. Debit VAT Input Account
+          const vatInputAccount = await prisma.chartOfAccounts.findFirst({
+            where: {
+              accountName: { contains: 'VAT Input' },
+              isActive: true
+            }
+          });
+          
+          if (!vatInputAccount) {
+            // Fallback to Accounts Payable if VAT Input not found
+            await prisma.journalEntryLine.create({
+              data: {
+                journalEntryId: journalEntry.id,
+                chartOfAccountId: expenseAccount.id,
+                debitAmount: totalVAT,
+                creditAmount: new Decimal(0),
+                description: `Payment VAT (no VAT Input account): ${transaction.description}`
+              }
+            });
+          } else {
+            await prisma.journalEntryLine.create({
+              data: {
+                journalEntryId: journalEntry.id,
+                chartOfAccountId: vatInputAccount.id,
+                debitAmount: totalVAT,
+                creditAmount: new Decimal(0),
+                description: `VAT Input: ${transaction.description}`
+              }
+            });
+          }
+        } else {
+          // No VAT - single DR entry for Net
+          const expenseAccount = await prisma.chartOfAccounts.findFirst({
+            where: { 
+              accountNo: '2000', // Accounts Payable
+              isActive: true 
+            }
+          });
+          if (!expenseAccount) {
+            throw new Error('Accounts Payable account (2000) not found. Please create account code 2000.');
+          }
+          
+          await prisma.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: expenseAccount.id,
+              debitAmount: transaction.amount,
+              creditAmount: new Decimal(0),
+              description: `Payment: ${transaction.description}`
+            }
+          });
+        }
+        
+        // 3. Credit Bank Account
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: bank.glAccountId,
+            debitAmount: new Decimal(0),
+            creditAmount: transaction.amount,
+            description: `Bank payment: ${transaction.description}`
           }
         });
-        if (!apAccount) {
-          throw new Error('Accounts Payable account not found. Please create account code 2000.');
-        }
-        contraAccountId = apAccount.id;
-      } else if (transaction.counterpartyType === 'GL' && transaction.glAccountId) {
-        contraAccountId = transaction.glAccountId;
+        
       } else {
-        throw new Error('Invalid counterparty for payment');
+        // For GL payments or payments without allocations, use simple structure
+        let contraAccountId: string;
+        if (transaction.counterpartyType === 'SUPPLIER' && transaction.vendorId) {
+          // Use Accounts Payable account for vendor payments
+          const apAccount = await prisma.chartOfAccounts.findFirst({
+            where: { 
+              accountNo: '2000', // Accounts Payable
+              isActive: true 
+            }
+          });
+          if (!apAccount) {
+            throw new Error('Accounts Payable account not found. Please create account code 2000.');
+          }
+          contraAccountId = apAccount.id;
+        } else if (transaction.counterpartyType === 'GL' && transaction.glAccountId) {
+          contraAccountId = transaction.glAccountId;
+        } else {
+          throw new Error('Invalid counterparty for payment');
+        }
+        
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: contraAccountId,
+            debitAmount: transaction.amount,
+            creditAmount: new Decimal(0),
+            description: `Payment to: ${transaction.description}`
+          }
+        });
+        
+        // Credit Bank Account
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: bank.glAccountId,
+            debitAmount: new Decimal(0),
+            creditAmount: transaction.amount,
+            description: `Bank payment: ${transaction.description}`
+          }
+        });
       }
-      
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: journalEntry.id,
-          chartOfAccountId: contraAccountId,
-          debitAmount: transaction.amount,
-          creditAmount: new Decimal(0),
-          description: `Payment to: ${transaction.description}`
-        }
-      });
-      
-      // 2. Credit Bank Account
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: journalEntry.id,
-          chartOfAccountId: bank.glAccountId,
-          debitAmount: new Decimal(0),
-          creditAmount: transaction.amount,
-          description: `Bank payment: ${transaction.description}`
-        }
-      });
     }
     
     return journalEntry;

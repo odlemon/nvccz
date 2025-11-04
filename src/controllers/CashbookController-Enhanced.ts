@@ -114,6 +114,24 @@ export class CashbookControllerEnhanced {
   }
 
   /**
+   * Mark entry as unreconciled
+   * PUT /api/cashbook/entries/:id/unreconcile
+   */
+  static async unreconcileEntry(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const result = await CashbookServiceEnhanced.markAsUnreconciled(id, req.user!.id);
+
+      return ResponseHelper.success(res, 'Cashbook entry unreconciled successfully', result);
+
+    } catch (error: any) {
+      console.error('Error in CashbookControllerEnhanced.unreconcileEntry:', error);
+      return ResponseHelper.error(res, 'Failed to unreconcile cashbook entry', error.message);
+    }
+  }
+
+  /**
    * Get cashbook summary
    * GET /api/cashbook/:bankId/summary
    */
@@ -194,6 +212,68 @@ export class CashbookControllerEnhanced {
     } catch (error: any) {
       console.error('Error in CashbookControllerEnhanced.getEntryById:', error);
       return ResponseHelper.error(res, 'Failed to get cashbook entry', error.message);
+    }
+  }
+
+  /**
+   * Get reconciliation display with running balance
+   * GET /api/cashbook/reconciliation/display
+   */
+  static async getReconciliationDisplay(req: AuthRequest, res: Response) {
+    try {
+      const { bankId, periodEndDate, tickedEntryIds } = req.query;
+
+      if (!bankId || !periodEndDate) {
+        return ResponseHelper.badRequest(res, 'bankId and periodEndDate are required');
+      }
+
+      // Parse tickedEntryIds - handle multiple formats:
+      // 1. Array from query params: tickedEntryIds[]=id1&tickedEntryIds[]=id2
+      // 2. Single value: tickedEntryIds=id1
+      // 3. JSON string array: tickedEntryIds=["id1","id2"]
+      // 4. Also check for tickedEntryIds[] (with brackets) format
+      let parsedTickedIds: string[] | undefined = undefined;
+      
+      // Check for bracket notation first (tickedEntryIds[])
+      const tickedEntryIdsWithBrackets = (req.query as any)['tickedEntryIds[]'];
+      if (tickedEntryIdsWithBrackets) {
+        if (Array.isArray(tickedEntryIdsWithBrackets)) {
+          parsedTickedIds = tickedEntryIdsWithBrackets as string[];
+        } else {
+          parsedTickedIds = [tickedEntryIdsWithBrackets as string];
+        }
+      } else if (tickedEntryIds) {
+        if (Array.isArray(tickedEntryIds)) {
+          parsedTickedIds = tickedEntryIds as string[];
+        } else if (typeof tickedEntryIds === 'string') {
+          // Try to parse as JSON array first (for frontend usage)
+          try {
+            const parsed = JSON.parse(tickedEntryIds);
+            if (Array.isArray(parsed)) {
+              parsedTickedIds = parsed;
+            } else {
+              parsedTickedIds = [tickedEntryIds];
+            }
+          } catch {
+            // Not JSON, treat as single value
+            parsedTickedIds = [tickedEntryIds];
+          }
+        }
+      }
+
+      console.log(`📊 Reconciliation display request: bankId=${bankId}, periodEndDate=${periodEndDate}, tickedEntryIds=${JSON.stringify(parsedTickedIds)}`);
+
+      const result = await CashbookServiceEnhanced.getReconciliationDisplay({
+        bankId: bankId as string,
+        periodEndDate: new Date(periodEndDate as string),
+        tickedEntryIds: parsedTickedIds
+      });
+
+      return ResponseHelper.success(res, 'Reconciliation display retrieved successfully', result);
+
+    } catch (error: any) {
+      console.error('Error in CashbookControllerEnhanced.getReconciliationDisplay:', error);
+      return ResponseHelper.error(res, 'Failed to get reconciliation display', error.message);
     }
   }
 

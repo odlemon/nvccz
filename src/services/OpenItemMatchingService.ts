@@ -204,8 +204,11 @@ export class OpenItemMatchingService {
         return { success: false, message: 'Payment not found' };
       }
       
-      if (payment.status !== 'POSTED') {
-        return { success: false, message: 'Payment must be posted before matching' };
+      // Allow allocations for PENDING payments (allocations happen before posting per UAT)
+      if (payment.status === 'POSTED' || payment.status === 'PENDING') {
+        // Both statuses are allowed for allocations
+      } else {
+        return { success: false, message: 'Payment must be PENDING or POSTED to create allocations' };
       }
       
       // Validate allocations
@@ -252,6 +255,19 @@ export class OpenItemMatchingService {
           allocatedAmount: allocation.allocatedAmount,
           discountAmount: allocation.discountAmount,
           description: allocation.description
+        });
+        
+        // Update invoice paid amount and outstanding amount
+        await prisma.invoice.update({
+          where: { id: allocation.openItemId },
+          data: {
+            paidAmount: {
+              increment: new Decimal(allocation.allocatedAmount)
+            },
+            outstandingAmount: {
+              decrement: new Decimal(allocation.allocatedAmount)
+            }
+          }
         });
         
         // Update invoice status if fully paid
