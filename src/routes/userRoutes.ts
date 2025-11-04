@@ -322,27 +322,48 @@ router.post("/", UserController.createUser);
  *               firstName:
  *                 type: string
  *                 example: "John"
+ *                 description: "User's first name"
  *               lastName:
  *                 type: string
  *                 example: "Doe"
+ *                 description: "User's last name"
  *               email:
  *                 type: string
  *                 format: email
- *                 example: "john.doe@company.com"
+ *                 example: "john.doe@nvccz.co.zw"
+ *                 description: "Valid email address (will be converted to lowercase automatically)"
  *               department:
  *                 type: string
- *                 enum: [Finance, Sales, Operations, Procurement, "Human Resources", Marketing, Legal, IT]
+ *                 enum:
+ *                   - Finance
+ *                   - Sales
+ *                   - Operations
+ *                   - Procurement
+ *                   - "Human Resources"
+ *                   - Marketing
+ *                   - Legal
+ *                   - IT
  *                 example: "Finance"
+ *                 description: "User's department (must match one of the allowed values)"
  *               roleCode:
  *                 type: string
  *                 example: "FIN_OFF"
+ *                 description: "Hardcoded role code (e.g., FIN_MGR, FIN_OFF, SALES_OFF, PROC_MGR, OPS_MGR, etc.)"
  *               departmentRole:
  *                 type: string
- *                 enum: [HEAD, DEPUTY, MEMBER, OFFICER, SPECIALIST, ASSISTANT]
+ *                 enum:
+ *                   - HEAD
+ *                   - DEPUTY
+ *                   - MEMBER
+ *                   - OFFICER
+ *                   - SPECIALIST
+ *                   - ASSISTANT
  *                 example: "OFFICER"
+ *                 description: "User's role within the department"
  *               roleId:
  *                 type: string
- *                 description: Role ID to assign to user
+ *                 example: "clx1234567890abcdef"
+ *                 description: "Optional: Role ID to assign to user (if provided, will override roleCode)"
  *     responses:
  *       200:
  *         description: User updated successfully
