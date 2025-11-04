@@ -127,14 +127,40 @@ export class IncomeStatementService {
 
   /**
    * Calculate account balances from journal entries
+   * Excludes VAT accounts (VAT Input/Output) as VAT is a Balance Sheet liability, not P&L
    */
   private static async calculateAccountBalances(journalEntries: any[]): Promise<IncomeStatementAccount[]> {
     const accountBalances = new Map<string, IncomeStatementAccount>();
 
-    // Process all journal entry lines
+    // Identify VAT accounts to exclude from P&L
+    // Note: VAT accounts should appear on Balance Sheet, not P&L
+    const vatAccounts = await prisma.chartOfAccounts.findMany({
+      where: {
+        OR: [
+          { accountName: { contains: 'VAT Input' } },
+          { accountName: { contains: 'VAT Output' } },
+          { accountNo: { in: ['2100', '2110'] } }, // Common VAT account numbers
+          { 
+            accountName: { contains: 'VAT' },
+            accountType: { in: ['Current Liability', 'Current Asset'] }
+          }
+        ],
+        isActive: true
+      }
+    });
+
+    const vatAccountIds = new Set(vatAccounts.map(acc => acc.id));
+    console.log(`📊 Excluding ${vatAccounts.length} VAT accounts from P&L: ${vatAccounts.map(a => `${a.accountNo} - ${a.accountName}`).join(', ')}`);
+
+    // Process all journal entry lines (excluding VAT accounts)
     for (const journalEntry of journalEntries) {
       for (const line of journalEntry.journalEntryLines) {
         const accountId = line.chartOfAccount.id;
+        
+        // Skip VAT accounts - they belong on Balance Sheet, not P&L
+        if (vatAccountIds.has(accountId)) {
+          continue;
+        }
         
         if (!accountBalances.has(accountId)) {
           accountBalances.set(accountId, {

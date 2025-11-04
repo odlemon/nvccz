@@ -102,6 +102,8 @@ import activityRoutes from "./routes/activityRoutes"
 import rollupCalculationRoutes from "./routes/rollupCalculationRoutes"
 import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
+import vatReportRoutes from "./routes/vatReportRoutes"
+import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
 
 
 dotenv.config()
@@ -338,6 +340,8 @@ app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)
 app.use("/api/accounting/bank-reconciliation", bankReconciliationRoutes)
+app.use("/api/vat", vatReportRoutes)
+app.use("/api/accounting/gl-ledger-detail", glLedgerDetailRoutes)
 
 // Cashbook specific routes (must be BEFORE general /api/cashbook route)
 app.use("/api/cashbook/batches", cashbookBatchImportRoutes)
