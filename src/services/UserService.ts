@@ -269,6 +269,215 @@ This is an automated message. Please do not reply to this email.
       throw error;
     }
   }
+
+  /**
+   * Get all users
+   */
+  static async getAllUsers() {
+    try {
+      const users = await prisma.user.findMany({
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              description: true
+            }
+          },
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: [
+          { firstName: 'asc' },
+          { lastName: 'asc' }
+        ]
+      });
+
+      return users;
+    } catch (error) {
+      console.error("Error getting all users:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get user by ID
+   */
+  static async getUserById(id: string) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              permissions: true
+            }
+          },
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      return user;
+    } catch (error) {
+      console.error("Error getting user by ID:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update user
+   */
+  static async updateUser(id: string, userData: {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    department?: string;
+    roleCode?: string;
+    departmentRole?: string;
+    roleId?: string;
+  }) {
+    try {
+      // Check if user exists
+      const existingUser = await prisma.user.findUnique({
+        where: { id }
+      });
+
+      if (!existingUser) {
+        throw new Error("User not found");
+      }
+
+      // If email is being updated, check if it's already taken
+      if (userData.email && userData.email !== existingUser.email) {
+        const emailTaken = await prisma.user.findUnique({
+          where: { email: userData.email }
+        });
+
+        if (emailTaken) {
+          throw new Error("Email already taken by another user");
+        }
+      }
+
+      // Validate department if provided
+      if (userData.department) {
+        const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+        if (!validDepartments.includes(userData.department)) {
+          throw new Error(`Invalid department. Valid departments: ${validDepartments.join(", ")}`);
+        }
+      }
+
+      // Validate email format if provided
+      if (userData.email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(userData.email)) {
+          throw new Error("Invalid email format");
+        }
+      }
+
+      // Update user
+      const updateData: any = {};
+      if (userData.firstName) updateData.firstName = userData.firstName;
+      if (userData.lastName) updateData.lastName = userData.lastName;
+      if (userData.email) updateData.email = userData.email.toLowerCase().trim();
+      if (userData.department) updateData.userDepartment = userData.department;
+      if (userData.roleCode) updateData.roleCode = userData.roleCode;
+      if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
+      if (userData.roleId) updateData.roleId = userData.roleId;
+
+      const user = await prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              description: true
+            }
+          },
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      return user;
+    } catch (error) {
+      console.error("Error updating user:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete user
+   */
+  static async deleteUser(id: string) {
+    try {
+      // Check if user exists
+      const user = await prisma.user.findUnique({
+        where: { id },
+        include: {
+          role: true
+        }
+      });
+
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      // Check if this is the last admin user
+      if (user.role?.name === "admin") {
+        const adminCount = await prisma.user.count({
+          where: {
+            role: {
+              name: "admin"
+            }
+          }
+        });
+
+        if (adminCount <= 1) {
+          throw new Error("Cannot delete the last admin user");
+        }
+      }
+
+      // Delete user
+      await prisma.user.delete({
+        where: { id }
+      });
+
+      return { message: "User deleted successfully" };
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      throw error;
+    }
+  }
 }
 
 
