@@ -9,8 +9,8 @@ const router = express.Router();
 // All routes require authentication
 router.use(authenticate);
 
-/**
- * @swagger
+/*
+ * @swagger - DISABLED
  * /roles:
  *   post:
  *     summary: Create a new role
@@ -67,8 +67,8 @@ router.use(authenticate);
  */
 router.post("/", authorize(["admin"]), roleController.createRole);
 
-/**
- * @swagger
+/*
+ * @swagger - DISABLED
  * /roles:
  *   get:
  *     summary: Get all roles
@@ -115,8 +115,8 @@ router.post("/", authorize(["admin"]), roleController.createRole);
  */
 router.get("/", authorize(["admin"]), roleController.getAllRoles);
 
-/**
- * @swagger
+/*
+ * @swagger - DISABLED
  * /roles/{id}:
  *   get:
  *     summary: Get role by ID
@@ -195,8 +195,8 @@ router.get("/", authorize(["admin"]), roleController.getAllRoles);
  */
 router.get("/:id", authorize(["admin"]), roleController.getRoleById);
 
-/**
- * @swagger
+/*
+ * @swagger - DISABLED
  * /roles/{id}:
  *   put:
  *     summary: Update role
@@ -267,8 +267,8 @@ router.get("/:id", authorize(["admin"]), roleController.getRoleById);
  */
 router.put("/:id", authorize(["admin"]), roleController.updateRole);
 
-/**
- * @swagger
+/*
+ * @swagger - DISABLED
  * /roles/{id}:
  *   delete:
  *     summary: Delete role
@@ -325,8 +325,8 @@ router.put("/:id", authorize(["admin"]), roleController.updateRole);
  */
 router.delete("/:id", authorize(["admin"]), roleController.deleteRole);
 
-/**
- * @swagger
+/*
+ * @swagger - DISABLED
  * /roles/{id}/permissions:
  *   get:
  *     summary: Get role permissions
