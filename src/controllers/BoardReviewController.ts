@@ -185,26 +185,45 @@ export class BoardReviewController {
 
       const boardReview = await BoardReviewService.completeBoardReview(applicationId);
 
-      // Send investment decision email notification
-      try {
-        await EmailNotificationService.sendInvestmentDecisionEmail({
-          applicantName: boardReview.application.applicantName,
-          applicantEmail: boardReview.application.applicantEmail,
-          businessName: boardReview.application.businessName,
-          applicationId: boardReview.application.id,
-          currentStage: boardReview.application.currentStage
-        });
-        logger.info("Investment decision email sent successfully", {
+      // Check if user was created (for BOARD_APPROVED which includes both approved and conditional approval)
+      // If user was created, the credentials email was already sent from createUserAndPortfolioCompany
+      // We only need to send the generic decision email if no user was created (rejected)
+      const { prisma } = await import('../utils/database');
+      const userWasCreated = await prisma.user.findUnique({
+        where: { email: boardReview.application.applicantEmail }
+      });
+
+      // Only send generic decision email if user wasn't created (e.g., rejected)
+      // For BOARD_APPROVED (both approved and conditional), user is created and credentials email is sent
+      // So we should NOT send the generic email if user was created
+      if (!userWasCreated && boardReview.application.currentStage === 'BOARD_REJECTED') {
+        try {
+          await EmailNotificationService.sendInvestmentDecisionEmail({
+            applicantName: boardReview.application.applicantName,
+            applicantEmail: boardReview.application.applicantEmail,
+            businessName: boardReview.application.businessName,
+            applicationId: boardReview.application.id,
+            currentStage: boardReview.application.currentStage
+          });
+          logger.info("Investment decision email sent successfully", {
+            applicationId: boardReview.applicationId,
+            applicantEmail: boardReview.application.applicantEmail,
+            decision: boardReview.application.currentStage
+          });
+        } catch (emailError) {
+          logger.error("Failed to send investment decision email", {
+            applicationId: boardReview.applicationId,
+            error: emailError.message
+          });
+          // Don't fail the board review completion if email fails
+        }
+      } else if (userWasCreated) {
+        logger.info("User account created - credentials email already sent from createUserAndPortfolioCompany", {
           applicationId: boardReview.applicationId,
           applicantEmail: boardReview.application.applicantEmail,
-          decision: boardReview.application.currentStage
+          userId: userWasCreated.id,
+          stage: boardReview.application.currentStage
         });
-      } catch (emailError) {
-        logger.error("Failed to send investment decision email", {
-          applicationId: boardReview.applicationId,
-          error: emailError.message
-        });
-        // Don't fail the board review completion if email fails
       }
 
       logger.info("Board review completed successfully", {
