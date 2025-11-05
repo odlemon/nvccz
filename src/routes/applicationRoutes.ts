@@ -42,7 +42,7 @@ const upload = multer({
  *   post:
  *     summary: Create a new investment application (PUBLIC)
  *     description: Create a new investment application. Supports both multipart/form-data (with files) and application/json (with document URLs). Files are automatically uploaded to Firebase Storage.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     requestBody:
  *       required: true
  *       content:
@@ -222,7 +222,7 @@ router.post("/", upload.fields([
  *   post:
  *     summary: Upload application documents (PUBLIC)
  *     description: Upload documents for an application. Files are uploaded to Firebase Storage. Can be used before or after application creation.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     requestBody:
  *       required: true
  *       content:
@@ -290,7 +290,7 @@ router.post("/upload-documents", upload.array('files', 10), ApplicationControlle
  *   get:
  *     summary: Get application status (PUBLIC)
  *     description: Get the current status of an application. No authentication required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     parameters:
  *       - in: path
  *         name: id
@@ -332,7 +332,7 @@ router.get("/:id/status", ApplicationController.getApplicationStatus);
  *   post:
  *     summary: Submit application (PUBLIC)
  *     description: Submit a draft application for review. No authentication required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     parameters:
  *       - in: path
  *         name: id
@@ -361,7 +361,7 @@ router.use(authenticate);
  *   get:
  *     summary: Get all applications (PROTECTED)
  *     description: Get all applications with filtering and pagination. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -403,7 +403,7 @@ router.get("/", authorize(["admin", "fund_manager"]), ApplicationController.getA
  *   get:
  *     summary: Get application by ID (PROTECTED)
  *     description: Get detailed information about an application. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -431,7 +431,7 @@ router.get("/:id", authorize(["admin", "fund_manager"]), ApplicationController.g
  *   put:
  *     summary: Update application (PROTECTED)
  *     description: Update an application. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -491,7 +491,7 @@ router.put("/:id", authorize(["admin", "fund_manager"]), ApplicationController.u
  *   post:
  *     summary: Change application stage (PROTECTED)
  *     description: Change the stage of an application. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -537,7 +537,7 @@ router.post("/:id/change-stage", authorize(["admin", "fund_manager"]), Applicati
  *   delete:
  *     summary: Delete application (PROTECTED)
  *     description: Delete an application. Admin access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -568,7 +568,7 @@ router.delete("/:id", authorize(["admin"]), ApplicationController.deleteApplicat
  *   post:
  *     summary: Initiate due diligence for an application (PROTECTED)
  *     description: Start the due diligence process for an application. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -598,7 +598,7 @@ router.post("/:id/due-diligence/initiate", authorize(["admin", "fund_manager"]),
  *   put:
  *     summary: Update due diligence data (PROTECTED)
  *     description: Update the due diligence assessment data. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -681,7 +681,7 @@ router.put("/:id/due-diligence", authorize(["admin", "fund_manager"]), DueDilige
  *   get:
  *     summary: Get due diligence report (PROTECTED)
  *     description: Get the due diligence report for an application. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -709,7 +709,7 @@ router.get("/:id/due-diligence", authorize(["admin", "fund_manager"]), DueDilige
  *   post:
  *     summary: Complete due diligence (PROTECTED)
  *     description: Mark due diligence as completed and move application to next stage. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -739,7 +739,7 @@ router.post("/:id/due-diligence/complete", authorize(["admin", "fund_manager"]),
  *   get:
  *     summary: Get all due diligence reviews (PROTECTED)
  *     description: Get all due diligence reviews with pagination and filtering. Admin/Fund Manager access required.
- *     tags: [Applications]
+ *     tags: [Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
