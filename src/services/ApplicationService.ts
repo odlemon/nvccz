@@ -538,7 +538,21 @@ export class ApplicationService {
       const skip = (page - 1) * limit;
       
       const where: any = {};
-      if (stage) where.currentStage = stage;
+      
+      // Filter by stage - default behavior: exclude REJECTED applications
+      if (stage) {
+        // If stage is explicitly requested, use it (including REJECTED if requested)
+        where.currentStage = stage;
+      } else {
+        // Default: exclude rejected applications
+        where.currentStage = { not: 'REJECTED' };
+      }
+      
+      // Also filter by screeningOutcome to exclude rejected applications (unless REJECTED is explicitly requested)
+      if (stage !== 'REJECTED') {
+        where.screeningOutcome = { not: 'REJECTED' };
+      }
+      
       if (fundId) where.fundId = fundId;
 
       const [applications, total] = await Promise.all([
