@@ -164,6 +164,57 @@ const router = express.Router();
  *       403:
  *         description: Forbidden
  */
+/**
+ * @swagger
+ * /api/term-sheets/my:
+ *   get:
+ *     summary: Get my term sheets
+ *     tags: [Term Sheets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: My term sheets retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     termSheets:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/TermSheet'
+ *                     total:
+ *                       type: integer
+ *                     page:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/my', authenticate, TermSheetController.getMyTermSheets);
+
 router.post('/:applicationId', authenticate, authorize(['admin', 'fund_manager']), TermSheetController.createTermSheet);
 
 /**
@@ -378,56 +429,5 @@ router.post('/:applicationId/sign', authenticate, authorize(['applicant']), Term
  *         description: Forbidden
  */
 router.get('/', authenticate, authorize(['admin', 'fund_manager']), TermSheetController.getAllTermSheets);
-
-/**
- * @swagger
- * /api/term-sheets/my:
- *   get:
- *     summary: Get my term sheets
- *     tags: [Term Sheets]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Page number
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *         description: Number of items per page
- *     responses:
- *       200:
- *         description: My term sheets retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 data:
- *                   type: object
- *                   properties:
- *                     termSheets:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/TermSheet'
- *                     total:
- *                       type: integer
- *                     page:
- *                       type: integer
- *                     totalPages:
- *                       type: integer
- *       401:
- *         description: Unauthorized
- */
-router.get('/my', authenticate, TermSheetController.getMyTermSheets);
 
 export default router;

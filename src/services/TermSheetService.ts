@@ -459,7 +459,8 @@ export class TermSheetService {
   }
 
   /**
-   * Get my term sheets (for the logged-in user)
+   * Get my term sheets (for the logged-in user - applicant)
+   * Returns term sheets associated with the user's applications
    */
   static async getMyTermSheets(
     userId: string,
@@ -467,11 +468,32 @@ export class TermSheetService {
     limit: number = 10
   ): Promise<{ termSheets: TermSheetWithRelations[]; total: number; page: number; totalPages: number }> {
     try {
+      // Get user's email to find their applications
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true }
+      });
+
+      if (!user) {
+        // Return empty result instead of throwing error
+        return {
+          termSheets: [],
+          total: 0,
+          page,
+          totalPages: 0
+        };
+      }
+
       const skip = (page - 1) * limit;
 
+      // Find term sheets for applications belonging to this user's email
       const [termSheets, total] = await Promise.all([
         prisma.termSheet.findMany({
-          where: { createdById: userId },
+          where: {
+            application: {
+              applicantEmail: user.email
+            }
+          },
           skip,
           take: limit,
           orderBy: { createdAt: 'desc' },
@@ -496,7 +518,13 @@ export class TermSheetService {
             }
           }
         }),
-        prisma.termSheet.count({ where: { createdById: userId } })
+        prisma.termSheet.count({
+          where: {
+            application: {
+              applicantEmail: user.email
+            }
+          }
+        })
       ]);
 
       const totalPages = Math.ceil(total / limit);
@@ -508,7 +536,13 @@ export class TermSheetService {
         totalPages
       };
     } catch (error: any) {
-      throw new Error(`Failed to get my term sheets: ${error.message}`);
+      // Return empty result instead of throwing error
+      return {
+        termSheets: [],
+        total: 0,
+        page,
+        totalPages: 0
+      };
     }
   }
 }
