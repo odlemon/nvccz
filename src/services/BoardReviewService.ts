@@ -496,52 +496,69 @@ export class BoardReviewService {
   static async createUserAndPortfolioCompany(application: any): Promise<void> {
     try {
       // Check if user already exists
-      const existingUser = await prisma.user.findUnique({
+      let user = await prisma.user.findUnique({
         where: { email: application.applicantEmail }
       });
 
-      if (existingUser) {
-        console.log(`User with email ${application.applicantEmail} already exists, skipping user creation`);
-        return;
-      }
+      // Check if portfolio company already exists for this user
+      if (user) {
+        console.log(`User with email ${application.applicantEmail} already exists (ID: ${user.id})`);
+        const existingCompany = await prisma.portfolioCompany.findUnique({
+          where: { userId: user.id }
+        });
+        
+        if (existingCompany) {
+          console.log(`Portfolio company already exists for user ${user.id}, skipping company creation`);
+          return;
+        }
+        
+        // User exists but no portfolio company - we'll create it below
+        console.log(`User exists but no portfolio company found, creating portfolio company...`);
+      } else {
+        // User doesn't exist - create user first
+        console.log(`Creating new user account for ${application.applicantEmail}...`);
+        
+        // Generate a secure temporary password
+        const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase();
+        
+        // Hash password
+        const bcrypt = require('bcryptjs');
+        const hashedPassword = await bcrypt.hash(tempPassword, 12);
 
-      // Generate a secure temporary password
-      const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase();
-      
-      // Hash password
-      const bcrypt = require('bcryptjs');
-      const hashedPassword = await bcrypt.hash(tempPassword, 12);
+        // Get applicant role (create if doesn't exist)
+        let applicantRole = await prisma.role.findUnique({
+          where: { name: "applicant" }
+        });
 
-      // Get applicant role (create if doesn't exist)
-      let applicantRole = await prisma.role.findUnique({
-        where: { name: "applicant" }
-      });
-
-      if (!applicantRole) {
-        applicantRole = await prisma.role.create({
-          data: {
-            name: "applicant",
-            description: "Applicant user role - can create and manage company profiles",
-            permissions: {
-              "portfolio_company": ["read", "write"],
-              "profile": ["read", "write"],
-              "applications": ["read", "write"],
-              "term_sheets": ["read", "write"]
+        if (!applicantRole) {
+          applicantRole = await prisma.role.create({
+            data: {
+              name: "applicant",
+              description: "Applicant user role - can create and manage company profiles",
+              permissions: {
+                "portfolio_company": ["read", "write"],
+                "profile": ["read", "write"],
+                "applications": ["read", "write"],
+                "term_sheets": ["read", "write"]
+              }
             }
+          });
+        }
+
+        // Create user account
+        user = await prisma.user.create({
+          data: {
+            firstName: application.applicantName.split(' ')[0] || application.applicantName,
+            lastName: application.applicantName.split(' ').slice(1).join(' ') || '',
+            email: application.applicantEmail,
+            password: hashedPassword,
+            roleId: applicantRole.id
           }
         });
+        
+        console.log(`Created user account: ${user.id}`);
+        console.log(`Temporary password: ${tempPassword}`);
       }
-
-      // Create user account
-      const user = await prisma.user.create({
-        data: {
-          firstName: application.applicantName.split(' ')[0] || application.applicantName,
-          lastName: application.applicantName.split(' ').slice(1).join(' ') || '',
-          email: application.applicantEmail,
-          password: hashedPassword,
-          roleId: applicantRole.id
-        }
-      });
 
       // Create portfolio company
       const portfolioCompany = await prisma.portfolioCompany.create({
