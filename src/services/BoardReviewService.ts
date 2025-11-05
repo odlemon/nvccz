@@ -341,8 +341,14 @@ export class BoardReviewService {
               businessName: true,
               applicantName: true,
               applicantEmail: true,
+              applicantPhone: true,
+              applicantAddress: true,
               currentStage: true,
-              requestedAmount: true
+              requestedAmount: true,
+              industry: true,
+              foundingDate: true,
+              businessDescription: true,
+              businessStage: true
             }
           }
         }
@@ -362,7 +368,30 @@ export class BoardReviewService {
 
       // If moving to BOARD_APPROVED stage, create user account and portfolio company
       if (nextStage === 'BOARD_APPROVED') {
-        await BoardReviewService.createUserAndPortfolioCompany(boardReview.application);
+        // Fetch full application data with all required fields
+        const fullApplication = await prisma.application.findUnique({
+          where: { id: applicationId },
+          select: {
+            id: true,
+            businessName: true,
+            applicantName: true,
+            applicantEmail: true,
+            applicantPhone: true,
+            applicantAddress: true,
+            currentStage: true,
+            requestedAmount: true,
+            industry: true,
+            foundingDate: true,
+            businessDescription: true,
+            businessStage: true
+          }
+        });
+
+        if (!fullApplication) {
+          throw new Error("Application not found when creating user and portfolio company");
+        }
+
+        await BoardReviewService.createUserAndPortfolioCompany(fullApplication);
       }
 
       // Create notification for the applicant
@@ -495,6 +524,8 @@ export class BoardReviewService {
    */
   static async createUserAndPortfolioCompany(application: any): Promise<void> {
     try {
+      let tempPassword: string | undefined;
+      
       // Check if user already exists
       let user = await prisma.user.findUnique({
         where: { email: application.applicantEmail }
@@ -503,8 +534,11 @@ export class BoardReviewService {
       // Check if portfolio company already exists for this user
       if (user) {
         console.log(`User with email ${application.applicantEmail} already exists (ID: ${user.id})`);
-        const existingCompany = await prisma.portfolioCompany.findUnique({
-          where: { userId: user.id }
+        const existingCompany = await prisma.portfolioCompany.findFirst({
+          where: { 
+            userId: user.id,
+            contactEmail: application.applicantEmail
+          }
         });
         
         if (existingCompany) {
@@ -519,7 +553,7 @@ export class BoardReviewService {
         console.log(`Creating new user account for ${application.applicantEmail}...`);
         
         // Generate a secure temporary password
-        const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase();
+        tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase();
         
         // Hash password
         const bcrypt = require('bcryptjs');
@@ -587,42 +621,48 @@ export class BoardReviewService {
 
       console.log(`Created user account and portfolio company for application ${application.id}`);
       console.log(`User ID: ${user.id}, Portfolio Company ID: ${portfolioCompany.id}`);
-      console.log(`Temporary password: ${tempPassword}`);
-
-      // Send investment approved and account created email
-      try {
-        const { EmailNotificationService } = await import('../services/EmailNotificationService');
-        await EmailNotificationService.sendInvestmentApprovedAccountCreatedEmail({
-          applicantName: application.applicantName,
-          applicantEmail: application.applicantEmail,
-          businessName: application.businessName,
-          applicationId: application.id,
-          currentStage: 'BOARD_APPROVED',
-          tempPassword: tempPassword
-        });
-        console.log("Investment approved account created email sent successfully", {
-          applicationId: application.id,
-          applicantEmail: application.applicantEmail
-        });
-      } catch (emailError) {
-        console.error("Failed to send investment approved account created email", {
-          applicationId: application.id,
-          error: emailError.message
-        });
-        // Don't fail the account creation if email fails
+      if (tempPassword) {
+        console.log(`Temporary password: ${tempPassword}`);
       }
 
-      // Create notification about account creation
-      await prisma.applicationNotification.create({
-        data: {
-          applicationId: application.id,
-          recipientEmail: application.applicantEmail,
-          recipientPhone: application.applicantPhone,
-          notificationType: "ACCOUNT_CREATED",
-          title: "Account Created",
-          message: `Your account has been created successfully. You can now log in to view and sign the term sheet. Your password is: ${tempPassword}. Please change your password after logging in.`
+      // Send investment approved and account created email (only if user was just created)
+      if (tempPassword) {
+        try {
+          const { EmailNotificationService } = await import('../services/EmailNotificationService');
+          await EmailNotificationService.sendInvestmentApprovedAccountCreatedEmail({
+            applicantName: application.applicantName,
+            applicantEmail: application.applicantEmail,
+            businessName: application.businessName,
+            applicationId: application.id,
+            currentStage: 'BOARD_APPROVED',
+            tempPassword: tempPassword
+          });
+          console.log("Investment approved account created email sent successfully", {
+            applicationId: application.id,
+            applicantEmail: application.applicantEmail
+          });
+        } catch (emailError) {
+          console.error("Failed to send investment approved account created email", {
+            applicationId: application.id,
+            error: emailError.message
+          });
+          // Don't fail the account creation if email fails
         }
-      });
+
+        // Create notification about account creation
+        await prisma.applicationNotification.create({
+          data: {
+            applicationId: application.id,
+            recipientEmail: application.applicantEmail,
+            recipientPhone: application.applicantPhone,
+            notificationType: "ACCOUNT_CREATED",
+            title: "Account Created",
+            message: `Your account has been created successfully. You can now log in to view and sign the term sheet. Your password is: ${tempPassword}. Please change your password after logging in.`
+          }
+        });
+      } else {
+        console.log(`User ${user.id} already existed, skipping email notification`);
+      }
 
     } catch (error: any) {
       console.error(`Failed to create user and portfolio company: ${error.message}`);
