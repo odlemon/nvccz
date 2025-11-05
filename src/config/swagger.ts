@@ -6634,6 +6634,134 @@ const fallbackSpec = {
             500: { description: 'Internal server error' }
           }
         }
+      },
+      // Applicant Term Sheet Endpoints
+      '/api/term-sheets/{applicationId}/sign': {
+        post: {
+          tags: ['🏢 Portfolio Management'],
+          summary: 'Sign term sheet (Applicant)',
+          description: 'Sign the term sheet for an application. This endpoint is available to applicants only. The term sheet must be in FINAL status before it can be signed.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'applicationId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'Application ID'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Term sheet signed successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      message: { type: 'string', example: 'Term sheet signed successfully' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          applicationId: { type: 'string' },
+                          status: { type: 'string', example: 'SIGNED' },
+                          isSigned: { type: 'boolean', example: true },
+                          signedAt: { type: 'string', format: 'date-time' },
+                          investmentAmount: { type: 'number' },
+                          equityPercentage: { type: 'number' },
+                          valuation: { type: 'number' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request - term sheet must be in FINAL status or already signed' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden - you are not authorized to sign this term sheet' },
+            404: { description: 'Term sheet not found' }
+          }
+        }
+      },
+      '/api/term-sheets/my': {
+        get: {
+          tags: ['🏢 Portfolio Management'],
+          summary: 'Get my term sheets (Applicant)',
+          description: 'Retrieve all term sheets associated with the authenticated applicant\'s applications',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'page',
+              in: 'query',
+              schema: { type: 'integer', default: 1 },
+              description: 'Page number'
+            },
+            {
+              name: 'limit',
+              in: 'query',
+              schema: { type: 'integer', default: 10 },
+              description: 'Number of items per page'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'My term sheets retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      message: { type: 'string', example: 'My term sheets retrieved successfully' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          termSheets: {
+                            type: 'array',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                id: { type: 'string' },
+                                applicationId: { type: 'string' },
+                                title: { type: 'string', example: 'Investment Term Sheet v1.0' },
+                                version: { type: 'string', example: '1.0' },
+                                status: { type: 'string', enum: ['DRAFT', 'FINAL', 'SIGNED'], example: 'FINAL' },
+                                investmentAmount: { type: 'number', example: 500000 },
+                                equityPercentage: { type: 'number', example: 15.5 },
+                                valuation: { type: 'number', example: 3200000 },
+                                isDraft: { type: 'boolean', example: false },
+                                isFinal: { type: 'boolean', example: true },
+                                isSigned: { type: 'boolean', example: false },
+                                signedAt: { type: 'string', format: 'date-time' },
+                                createdAt: { type: 'string', format: 'date-time' },
+                                application: {
+                                  type: 'object',
+                                  properties: {
+                                    id: { type: 'string' },
+                                    businessName: { type: 'string' },
+                                    applicantName: { type: 'string' },
+                                    currentStage: { type: 'string' }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          total: { type: 'integer', example: 1 },
+                          page: { type: 'integer', example: 1 },
+                          totalPages: { type: 'integer', example: 1 }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: 'Unauthorized' }
+          }
+        }
       }
     }
   };
