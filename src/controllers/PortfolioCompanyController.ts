@@ -269,6 +269,20 @@ export class PortfolioCompanyController {
     }
   }
 
+  // Get all portfolio companies with investment amounts
+  static async getAllPortfolioCompaniesWithInvestments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const portfolioCompanies = await PortfolioCompanyService.getAllPortfolioCompaniesWithInvestments();
+
+      res.status(200).json({
+        success: true,
+        data: portfolioCompanies
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
   // Delete portfolio company
   static async deletePortfolioCompany(req: Request, res: Response, next: NextFunction) {
     try {

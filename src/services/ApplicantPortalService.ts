@@ -166,6 +166,31 @@ export class ApplicantPortalService {
               name: true,
               description: true
             }
+          },
+          investmentImplementation: {
+            include: {
+              fund: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true
+                }
+              },
+              fundDisbursements: {
+                select: {
+                  id: true,
+                  amount: true,
+                  disbursementDate: true,
+                  disbursementType: true,
+                  status: true,
+                  notes: true,
+                  transactionReference: true,
+                  approvedAt: true,
+                  disbursedAt: true
+                },
+                orderBy: { disbursementDate: 'desc' }
+              }
+            }
           }
         }
       });
@@ -174,7 +199,17 @@ export class ApplicantPortalService {
         throw new Error("No portfolio company found for this user");
       }
 
-      return portfolioCompany;
+      // Extract disbursements from investment implementation
+      const disbursements = portfolioCompany.investmentImplementation?.fundDisbursements || [];
+      
+      // Use fund from investmentImplementation if available, otherwise from portfolioCompany
+      const fund = portfolioCompany.investmentImplementation?.fund || portfolioCompany.fund;
+
+      return {
+        ...portfolioCompany,
+        fund: fund,
+        disbursements: disbursements
+      };
     } catch (error) {
       throw error;
     }
@@ -411,7 +446,34 @@ export class ApplicantPortalService {
       const portfolioCompany = await prisma.portfolioCompany.findFirst({
         where: { userId: userId },
         include: {
-          fund: true
+          fund: true,
+          investmentImplementation: {
+            include: {
+              fund: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  totalAmount: true,
+                  remainingAmount: true
+                }
+              },
+              fundDisbursements: {
+                select: {
+                  id: true,
+                  amount: true,
+                  disbursementDate: true,
+                  disbursementType: true,
+                  status: true,
+                  notes: true,
+                  transactionReference: true,
+                  approvedAt: true,
+                  disbursedAt: true
+                },
+                orderBy: { disbursementDate: 'desc' }
+              }
+            }
+          }
         }
       });
 
@@ -441,15 +503,20 @@ export class ApplicantPortalService {
         }
       });
 
+      // Use fund from investmentImplementation if available, otherwise from portfolioCompany
+      const fund = portfolioCompany.investmentImplementation?.fund || portfolioCompany.fund;
+      const disbursements = portfolioCompany.investmentImplementation?.fundDisbursements || [];
+
       return {
         portfolioCompany: portfolioCompany,
         termSheet: termSheet,
         investment: {
-          fund: portfolioCompany.fund,
+          fund: fund,
           startDate: portfolioCompany.startDate,
           endDate: portfolioCompany.endDate,
           capTable: portfolioCompany.capTable,
-          financialKpis: portfolioCompany.financialKpis
+          financialKpis: portfolioCompany.financialKpis,
+          disbursements: disbursements
         }
       };
     } catch (error) {

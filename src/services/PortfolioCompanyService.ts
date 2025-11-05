@@ -658,6 +658,93 @@ export class PortfolioCompanyService {
     }
   }
 
+  /**
+   * Get all portfolio companies with investment amounts (total disbursed)
+   */
+  static async getAllPortfolioCompaniesWithInvestments() {
+    try {
+      const portfolioCompanies = await prisma.portfolioCompany.findMany({
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              description: true
+            }
+          },
+          investmentImplementation: {
+            include: {
+              fund: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true
+                }
+              },
+              fundDisbursements: {
+                select: {
+                  id: true,
+                  amount: true,
+                  disbursementDate: true,
+                  disbursementType: true,
+                  status: true
+                },
+                orderBy: { disbursementDate: 'desc' }
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      // Calculate total investment for each company
+      const companiesWithInvestments = portfolioCompanies.map(company => {
+        // Get ALL disbursements (not filtered)
+        const allDisbursements = company.investmentImplementation?.fundDisbursements || [];
+        
+        // Calculate total invested from APPROVED and DISBURSED only
+        const totalInvested = allDisbursements
+          .filter(d => d.status === 'APPROVED' || d.status === 'DISBURSED')
+          .reduce((sum, d) => {
+            return sum + Number(d.amount);
+          }, 0);
+
+        // Use fund from investmentImplementation if available, otherwise from portfolioCompany
+        const fund = company.investmentImplementation?.fund || company.fund;
+
+        return {
+          id: company.id,
+          name: company.name,
+          registrationNumber: company.registrationNumber,
+          industry: company.industry,
+          status: company.status,
+          fund: fund,
+          user: company.user,
+          totalInvested: totalInvested,
+          disbursements: allDisbursements, // Return ALL disbursements, not just approved/disbursed
+          startDate: company.startDate,
+          endDate: company.endDate,
+          createdAt: company.createdAt,
+          updatedAt: company.updatedAt
+        };
+      });
+
+      return companiesWithInvestments;
+    } catch (error) {
+      throw error;
+    }
+  }
+
   // Delete portfolio company
   static async deletePortfolioCompany(id: string) {
     try {
