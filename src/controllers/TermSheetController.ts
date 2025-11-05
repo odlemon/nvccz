@@ -8,6 +8,25 @@ import { prisma } from '../utils/database';
 
 export class TermSheetController {
   /**
+   * Check if user is an applicant
+   * Applicants are identified by having an application, not by roles
+   */
+  private static async isApplicant(user: any): Promise<boolean> {
+    if (!user || !user.email) return false;
+    
+    // Applicants don't have roles - they are identified by having an application
+    try {
+      const application = await prisma.application.findFirst({
+        where: { applicantEmail: user.email }
+      });
+      return !!application;
+    } catch (error) {
+      // If check fails, user is not an applicant
+      return false;
+    }
+  }
+
+  /**
    * Create a new term sheet
    */
   static async createTermSheet(req: Request, res: Response): Promise<void> {
@@ -175,7 +194,27 @@ export class TermSheetController {
   static async signTermSheet(req: Request, res: Response): Promise<void> {
     try {
       const { applicationId } = req.params;
-      const userId = (req as any).user.id;
+      const reqUser = (req as any).user;
+      
+      if (!reqUser) {
+        res.status(401).json({
+          success: false,
+          message: 'User not found in request'
+        });
+        return;
+      }
+
+      // Check if user is applicant
+      const isApplicant = await TermSheetController.isApplicant(reqUser);
+      if (!isApplicant) {
+        res.status(403).json({
+          success: false,
+          message: 'Access denied. This endpoint is only available to applicants.'
+        });
+        return;
+      }
+
+      const userId = reqUser.id || reqUser.userId;
 
       // Validate that the user is the applicant for this application
       const application = await prisma.application.findUnique({
@@ -273,6 +312,16 @@ export class TermSheetController {
         res.status(401).json({
           success: false,
           message: 'User not found in request'
+        });
+        return;
+      }
+
+      // Check if user is applicant
+      const isApplicant = await TermSheetController.isApplicant(user);
+      if (!isApplicant) {
+        res.status(403).json({
+          success: false,
+          message: 'Access denied. This endpoint is only available to applicants.'
         });
         return;
       }
