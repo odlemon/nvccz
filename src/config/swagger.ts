@@ -6635,10 +6635,1171 @@ const fallbackSpec = {
           }
         }
       },
-      // Applicant Term Sheet Endpoints
+      // ==========================================
+      // PORTFOLIO WORKFLOW - STAGE 1: APPLICATION SUBMISSION
+      // ==========================================
+      '/api/applications': {
+        post: {
+          tags: ['📝 Stage 1: Application Submission'],
+          summary: 'Create a new investment application (PUBLIC)',
+          description: 'Create a new investment application. No authentication required.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['applicantName', 'applicantEmail', 'businessName', 'requestedAmount'],
+                  properties: {
+                    applicantName: { type: 'string', example: 'John Doe' },
+                    applicantEmail: { type: 'string', format: 'email', example: 'john.doe@example.com' },
+                    applicantPhone: { type: 'string', example: '+1234567890' },
+                    applicantAddress: { type: 'string', example: '123 Main Street, City, Country' },
+                    businessName: { type: 'string', example: 'TechStart Inc.' },
+                    businessDescription: { type: 'string', example: 'A technology startup focused on AI solutions' },
+                    industry: { type: 'string', example: 'Technology' },
+                    businessStage: { type: 'string', enum: ['IDEA', 'STARTUP', 'OPERATIONAL'], example: 'STARTUP' },
+                    foundingDate: { type: 'string', format: 'date', example: '2023-01-15' },
+                    requestedAmount: { type: 'number', example: 100000 },
+                    fundId: { type: 'string', example: 'clx1234567890abcdef' },
+                    documents: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          documentType: {
+                            type: 'string',
+                            enum: ['BUSINESS_PLAN', 'PROOF_OF_CONCEPT', 'MARKET_RESEARCH', 'PROJECTED_CASH_FLOWS', 'HISTORICAL_FINANCIALS']
+                          },
+                          fileName: { type: 'string' },
+                          fileUrl: { type: 'string' },
+                          fileSize: { type: 'integer' },
+                          isRequired: { type: 'boolean' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Application created successfully' },
+            400: { description: 'Bad request - validation error' },
+            500: { description: 'Internal server error' }
+          }
+        },
+        get: {
+          tags: ['📝 Stage 1: Application Submission'],
+          summary: 'Get all applications (Investor)',
+          description: 'Get all applications with filtering and pagination. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 10 } },
+            { name: 'stage', in: 'query', schema: { type: 'string' } },
+            { name: 'fundId', in: 'query', schema: { type: 'string' } }
+          ],
+          responses: {
+            200: { description: 'Applications retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/applications/upload-documents': {
+        post: {
+          tags: ['📝 Stage 1: Application Submission'],
+          summary: 'Upload application documents (PUBLIC)',
+          description: 'Upload documents for an application. Files are uploaded to Firebase Storage. Can be used before or after application creation.',
+          requestBody: {
+            required: true,
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    files: {
+                      type: 'array',
+                      items: { type: 'string', format: 'binary' },
+                      description: 'Document files (PDF, DOCX, XLSX, images)'
+                    },
+                    applicationId: { type: 'string', description: 'Application ID (optional)' },
+                    documentTypes: {
+                      type: 'string',
+                      description: 'JSON array of document types matching files order',
+                      example: '["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]'
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Documents uploaded successfully' },
+            400: { description: 'Bad request - no files or invalid format' },
+            500: { description: 'Internal server error' }
+          }
+        }
+      },
+      '/api/applications/{id}': {
+        get: {
+          tags: ['📝 Stage 1: Application Submission'],
+          summary: 'Get application by ID (Investor)',
+          description: 'Get detailed information about an application. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Application retrieved successfully' },
+            404: { description: 'Application not found' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        put: {
+          tags: ['📝 Stage 1: Application Submission'],
+          summary: 'Update application (Investor)',
+          description: 'Update an application. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    applicantName: { type: 'string' },
+                    applicantEmail: { type: 'string' },
+                    businessName: { type: 'string' },
+                    requestedAmount: { type: 'number' },
+                    fundId: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Application updated successfully' },
+            400: { description: 'Bad request' },
+            404: { description: 'Application not found' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        delete: {
+          tags: ['📝 Stage 1: Application Submission'],
+          summary: 'Delete application (Investor)',
+          description: 'Delete an application. Admin access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Application deleted successfully' },
+            404: { description: 'Application not found' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/applications/{id}/status': {
+        get: {
+          tags: ['📝 Stage 1: Application Submission'],
+          summary: 'Get application status (PUBLIC)',
+          description: 'Get the current status of an application. No authentication required.',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Application status retrieved successfully' },
+            404: { description: 'Application not found' }
+          }
+        }
+      },
+      '/api/applications/{id}/change-stage': {
+        post: {
+          tags: ['📝 Stage 1: Application Submission'],
+          summary: 'Change application stage (Investor)',
+          description: 'Change the stage of an application. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['newStage'],
+                  properties: {
+                    newStage: {
+                      type: 'string',
+                      enum: ['UNDER_DUE_DILIGENCE', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'BOARD_REJECTED', 'BOARD_CONDITIONAL', 'TERM_SHEET_NEGOTIATION', 'IMPLEMENTATION', 'FUNDED', 'REJECTED']
+                    },
+                    notes: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Application stage changed successfully' },
+            400: { description: 'Bad request - invalid stage transition' },
+            404: { description: 'Application not found' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      // ==========================================
+      // PORTFOLIO WORKFLOW - STAGE 2: DUE DILIGENCE
+      // ==========================================
+      '/api/applications/{id}/due-diligence/initiate': {
+        post: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Initiate due diligence (Investor)',
+          description: 'Start the due diligence process for an application. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Due diligence initiated successfully' },
+            400: { description: 'Bad request - application not in correct stage' },
+            404: { description: 'Application not found' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/applications/{id}/due-diligence': {
+        get: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Get due diligence report (Investor)',
+          description: 'Get the due diligence report for an application. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Due diligence report retrieved successfully' },
+            404: { description: 'Due diligence report not found' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        put: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Update due diligence data (Investor)',
+          description: 'Update the due diligence assessment data. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    marketResearchViable: { type: 'boolean' },
+                    financialViable: { type: 'boolean' },
+                    competitiveOpportunities: { type: 'boolean' },
+                    managementTeamQualified: { type: 'boolean' },
+                    legalCompliant: { type: 'boolean' },
+                    riskTolerable: { type: 'boolean' },
+                    overallScore: { type: 'number' },
+                    recommendation: { type: 'string', enum: ['APPROVE', 'REJECT', 'CONDITIONAL'] },
+                    finalComments: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Due diligence updated successfully' },
+            400: { description: 'Bad request' },
+            404: { description: 'Application not found' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/applications/{id}/due-diligence/complete': {
+        post: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Complete due diligence (Investor)',
+          description: 'Mark due diligence as completed and move application to next stage. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Due diligence completed successfully' },
+            400: { description: 'Bad request - missing required fields' },
+            404: { description: 'Due diligence not found' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/applications/due-diligence': {
+        get: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Get all due diligence reviews (Investor)',
+          description: 'Get all due diligence reviews with pagination and filtering. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 10 } },
+            { name: 'status', in: 'query', schema: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED'] } }
+          ],
+          responses: {
+            200: { description: 'Due diligence reviews retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      // ==========================================
+      // PORTFOLIO WORKFLOW - STAGE 3: BOARD REVIEW
+      // ==========================================
+      '/api/board-reviews/{applicationId}': {
+        post: {
+          tags: ['🏛️ Stage 3: Board Review'],
+          summary: 'Create board review (Investor)',
+          description: 'Create a board review for an application that has completed due diligence',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    investmentApproved: { type: 'boolean' },
+                    investmentRejected: { type: 'boolean' },
+                    conditionalApproval: { type: 'boolean' },
+                    recommendationReport: { type: 'string' },
+                    decisionReason: { type: 'string' },
+                    overallScore: { type: 'number' },
+                    finalComments: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Board review created successfully' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        get: {
+          tags: ['🏛️ Stage 3: Board Review'],
+          summary: 'Get board review by application ID (Investor)',
+          description: 'Retrieve board review details for a specific application',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Board review retrieved successfully' },
+            404: { description: 'Board review not found' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        put: {
+          tags: ['🏛️ Stage 3: Board Review'],
+          summary: 'Update board review (Investor)',
+          description: 'Update an existing board review',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    investmentApproved: { type: 'boolean' },
+                    investmentRejected: { type: 'boolean' },
+                    conditionalApproval: { type: 'boolean' },
+                    recommendationReport: { type: 'string' },
+                    decisionReason: { type: 'string' },
+                    overallScore: { type: 'number' },
+                    finalComments: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Board review updated successfully' },
+            404: { description: 'Board review not found' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/board-reviews/{applicationId}/complete': {
+        post: {
+          tags: ['🏛️ Stage 3: Board Review'],
+          summary: 'Complete board review (Investor)',
+          description: 'Complete a board review and update application stage',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Board review completed successfully' },
+            404: { description: 'Board review not found' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/board-reviews': {
+        get: {
+          tags: ['🏛️ Stage 3: Board Review'],
+          summary: 'Get all board reviews (Investor)',
+          description: 'Retrieve all board reviews with pagination and filtering',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 10 } },
+            { name: 'status', in: 'query', schema: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED'] } }
+          ],
+          responses: {
+            200: { description: 'Board reviews retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/board-reviews/my': {
+        get: {
+          tags: ['🏛️ Stage 3: Board Review'],
+          summary: 'Get my board reviews (Investor)',
+          description: 'Retrieve board reviews assigned to the current user',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 10 } }
+          ],
+          responses: {
+            200: { description: 'My board reviews retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/board-reviews/summary': {
+        get: {
+          tags: ['🏛️ Stage 3: Board Review'],
+          summary: 'Get board review summary (Investor)',
+          description: 'Get summary statistics for board reviews',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Board review summary retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      // ==========================================
+      // PORTFOLIO WORKFLOW - STAGE 4: TERM SHEET
+      // ==========================================
+      '/api/term-sheets/{applicationId}': {
+        post: {
+          tags: ['📋 Stage 4: Term Sheet'],
+          summary: 'Create term sheet (Investor)',
+          description: 'Create a new term sheet for an application',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['title', 'investmentAmount'],
+                  properties: {
+                    title: { type: 'string', example: 'Investment Term Sheet v1.0' },
+                    investmentAmount: { type: 'number', example: 500000 },
+                    equityPercentage: { type: 'number', example: 15.5 },
+                    valuation: { type: 'number', example: 3200000 },
+                    keyTerms: { type: 'string' },
+                    conditions: { type: 'string' },
+                    timeline: { type: 'string' },
+                    documentUrl: { type: 'string' },
+                    documentFileName: { type: 'string' },
+                    documentSize: { type: 'number' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Term sheet created successfully' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        },
+        get: {
+          tags: ['📋 Stage 4: Term Sheet'],
+          summary: 'Get term sheet by application ID (Investor)',
+          description: 'Retrieve term sheet details for a specific application',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Term sheet retrieved successfully' },
+            404: { description: 'Term sheet not found' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        put: {
+          tags: ['📋 Stage 4: Term Sheet'],
+          summary: 'Update term sheet (Investor)',
+          description: 'Update an existing term sheet',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    title: { type: 'string' },
+                    investmentAmount: { type: 'number' },
+                    equityPercentage: { type: 'number' },
+                    valuation: { type: 'number' },
+                    keyTerms: { type: 'string' },
+                    conditions: { type: 'string' },
+                    timeline: { type: 'string' },
+                    status: { type: 'string', enum: ['DRAFT', 'FINAL', 'SIGNED'] }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Term sheet updated successfully' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        }
+      },
+      '/api/term-sheets/{applicationId}/finalize': {
+        post: {
+          tags: ['📋 Stage 4: Term Sheet'],
+          summary: 'Finalize term sheet (Investor)',
+          description: 'Mark term sheet as final (ready for signing)',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Term sheet marked as final successfully' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        }
+      },
+      '/api/term-sheets': {
+        get: {
+          tags: ['📋 Stage 4: Term Sheet'],
+          summary: 'Get all term sheets (Investor)',
+          description: 'Retrieve all term sheets with pagination and filtering',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 10 } },
+            { name: 'status', in: 'query', schema: { type: 'string', enum: ['DRAFT', 'FINAL', 'SIGNED'] } }
+          ],
+          responses: {
+            200: { description: 'Term sheets retrieved successfully' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        }
+      },
+      // ==========================================
+      // PORTFOLIO WORKFLOW - STAGE 5: INVESTMENT IMPLEMENTATION
+      // ==========================================
+      '/api/investment-implementations/signed-term-sheets': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Get applications with signed term sheets (Investor)',
+          description: 'Get all applications that have signed term sheets and are ready for implementation',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 10 } }
+          ],
+          responses: {
+            200: { description: 'Applications with signed term sheets retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/initiate': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Initiate investment implementation (Investor)',
+          description: 'Start the investment implementation process for an approved application',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['portfolioCompanyId', 'applicationId', 'fundId'],
+                  properties: {
+                    portfolioCompanyId: { type: 'string' },
+                    applicationId: { type: 'string' },
+                    fundId: { type: 'string' },
+                    implementationPlan: { type: 'string' },
+                    notes: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Investment implementation initiated successfully' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/{portfolioCompanyId}': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Get investment implementation by portfolio company (Investor)',
+          description: 'Retrieve investment implementation details for a portfolio company',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'portfolioCompanyId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Investment implementation retrieved successfully' },
+            404: { description: 'Investment implementation not found' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/{portfolioCompanyId}/checklist': {
+        put: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Update implementation checklist (Investor)',
+          description: 'Update the implementation checklist items',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'portfolioCompanyId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    finalDueDiligence: { type: 'boolean' },
+                    contractsSigned: { type: 'boolean' },
+                    fundsDisbursed: { type: 'boolean' },
+                    notes: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Implementation checklist updated successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/{portfolioCompanyId}/milestones': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Add milestone to implementation (Investor)',
+          description: 'Add a milestone to the investment implementation',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'portfolioCompanyId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['title', 'description', 'amount', 'dueDate'],
+                  properties: {
+                    title: { type: 'string' },
+                    description: { type: 'string' },
+                    amount: { type: 'number' },
+                    dueDate: { type: 'string', format: 'date-time' },
+                    deliverables: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Milestone added successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/milestones/{milestoneId}/complete': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Complete milestone (Investor)',
+          description: 'Mark a milestone as completed',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'milestoneId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    notes: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Milestone completed successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/disbursements': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Create fund disbursement (Investor)',
+          description: 'Create a fund disbursement for an investment implementation',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['investmentImplementationId', 'amount', 'disbursementDate', 'disbursementType'],
+                  properties: {
+                    investmentImplementationId: { type: 'string' },
+                    milestoneId: { type: 'string' },
+                    amount: { type: 'number' },
+                    disbursementDate: { type: 'string', format: 'date-time' },
+                    disbursementType: { type: 'string', enum: ['INITIAL', 'MILESTONE', 'FINAL'] },
+                    notes: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Fund disbursement created successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/disbursements/{disbursementId}/approve': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Approve fund disbursement (Investor)',
+          description: 'Approve a fund disbursement',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'disbursementId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Fund disbursement approved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/disbursements/{disbursementId}/disburse': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Mark disbursement as disbursed (Investor)',
+          description: 'Mark a fund disbursement as disbursed',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'disbursementId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    transactionReference: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Fund disbursement marked as disbursed successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Get all investment implementations (Investor)',
+          description: 'Retrieve all investment implementations with pagination and filtering',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 10 } },
+            { name: 'status', in: 'query', schema: { type: 'string' } }
+          ],
+          responses: {
+            200: { description: 'Investment implementations retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      // ==========================================
+      // PORTFOLIO WORKFLOW - STAGE 6: PORTFOLIO MANAGEMENT
+      // ==========================================
+      '/api/portfolio-companies': {
+        post: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Create portfolio company (Investor)',
+          description: 'Create a new portfolio company with user account',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['firstName', 'lastName', 'email', 'password', 'name', 'registrationNumber', 'industry', 'foundingDate', 'address'],
+                  properties: {
+                    firstName: { type: 'string' },
+                    lastName: { type: 'string' },
+                    email: { type: 'string', format: 'email' },
+                    password: { type: 'string', minLength: 6 },
+                    name: { type: 'string' },
+                    registrationNumber: { type: 'string' },
+                    industry: { type: 'string' },
+                    foundingDate: { type: 'string', format: 'date' },
+                    address: { type: 'string' },
+                    website: { type: 'string', format: 'uri' },
+                    description: { type: 'string' },
+                    logoUrl: { type: 'string', format: 'uri' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Portfolio company created successfully' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        get: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Get all portfolio companies (Investor)',
+          description: 'Retrieve all portfolio companies',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Portfolio companies retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/portfolio-companies/admin': {
+        post: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Create portfolio company by admin (Investor)',
+          description: 'Create a new portfolio company from admin side with enhanced fields',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['name'],
+                  properties: {
+                    userId: { type: 'string' },
+                    firstName: { type: 'string' },
+                    lastName: { type: 'string' },
+                    email: { type: 'string', format: 'email' },
+                    password: { type: 'string', minLength: 6 },
+                    name: { type: 'string' },
+                    registrationNumber: { type: 'string' },
+                    industry: { type: 'string' },
+                    fundId: { type: 'string' },
+                    capTable: { type: 'object' },
+                    financialKpis: { type: 'object' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Portfolio company created successfully' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        }
+      },
+      '/api/portfolio-companies/{id}': {
+        get: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Get portfolio company by ID (Investor + Applicant)',
+          description: 'Retrieve portfolio company details',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Portfolio company retrieved successfully' },
+            404: { description: 'Portfolio company not found' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        put: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Update portfolio company (Investor + Applicant)',
+          description: 'Update portfolio company details',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string' },
+                    industry: { type: 'string' },
+                    address: { type: 'string' },
+                    website: { type: 'string', format: 'uri' },
+                    description: { type: 'string' },
+                    logoUrl: { type: 'string', format: 'uri' },
+                    status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'ACTIVE', 'SUSPENDED'] },
+                    fundId: { type: 'string' },
+                    capTable: { type: 'object' },
+                    financialKpis: { type: 'object' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Portfolio company updated successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        delete: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Delete portfolio company (Investor)',
+          description: 'Delete a portfolio company',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Portfolio company deleted successfully' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        }
+      },
+      '/api/portfolio-companies/me': {
+        get: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Get my portfolio company (Applicant)',
+          description: 'Get current user\'s portfolio company',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Portfolio company retrieved successfully' },
+            404: { description: 'No portfolio company found' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        put: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Update my portfolio company (Applicant)',
+          description: 'Update current user\'s portfolio company',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string' },
+                    industry: { type: 'string' },
+                    address: { type: 'string' },
+                    website: { type: 'string', format: 'uri' },
+                    description: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Portfolio company updated successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/portfolio-valuations': {
+        post: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Create portfolio valuation (Investor)',
+          description: 'Create a new portfolio valuation process',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['title', 'valuationPeriod'],
+                  properties: {
+                    title: { type: 'string' },
+                    description: { type: 'string' },
+                    valuationPeriod: { type: 'string' },
+                    quarter: { type: 'integer' },
+                    year: { type: 'integer' },
+                    targetCompletionDate: { type: 'string', format: 'date' },
+                    assignedToId: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Portfolio valuation created successfully' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        },
+        get: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Get all portfolio valuations (Investor)',
+          description: 'Get all portfolio valuations with filtering',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'quarter', in: 'query', schema: { type: 'integer' } },
+            { name: 'year', in: 'query', schema: { type: 'integer' } },
+            { name: 'assignedToId', in: 'query', schema: { type: 'string' } },
+            { name: 'status', in: 'query', schema: { type: 'string' } }
+          ],
+          responses: {
+            200: { description: 'Portfolio valuations retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/portfolio-valuations/{id}': {
+        get: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Get portfolio valuation by ID (Investor)',
+          description: 'Get specific portfolio valuation with activities',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Portfolio valuation retrieved successfully' },
+            404: { description: 'Portfolio valuation not found' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        put: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Update portfolio valuation (Investor)',
+          description: 'Update portfolio valuation details',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    totalPortfolioValue: { type: 'number' },
+                    previousValue: { type: 'number' },
+                    status: { type: 'string' },
+                    currentStep: { type: 'string' },
+                    capTablesObtained: { type: 'boolean' },
+                    financialsReconciled: { type: 'boolean' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Portfolio valuation updated successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        delete: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Delete portfolio valuation (Investor)',
+          description: 'Delete a portfolio valuation',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Portfolio valuation deleted successfully' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        }
+      },
+      '/api/portfolio-valuations/{id}/activities': {
+        post: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Create portfolio valuation activity (Investor)',
+          description: 'Log a portfolio valuation activity',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['activityType', 'title'],
+                  properties: {
+                    activityType: { type: 'string' },
+                    title: { type: 'string' },
+                    description: { type: 'string' },
+                    companiesProcessed: { type: 'integer' },
+                    reconciliationStatus: { type: 'object' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: 'Portfolio valuation activity created successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        },
+        get: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Get portfolio valuation activities (Investor)',
+          description: 'Get all activities for a portfolio valuation',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Portfolio valuation activities retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/portfolio-valuations/summary/quarterly': {
+        get: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Get quarterly valuation summary (Investor)',
+          description: 'Get quarterly portfolio valuation summary',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'quarter', in: 'query', schema: { type: 'integer' } },
+            { name: 'year', in: 'query', schema: { type: 'integer' } }
+          ],
+          responses: {
+            200: { description: 'Quarterly valuation summary retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/portfolio-valuations/analytics/summary': {
+        get: {
+          tags: ['🏢 Stage 6: Portfolio Management'],
+          summary: 'Get valuation analytics (Investor)',
+          description: 'Get portfolio valuation analytics and insights',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Valuation analytics retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      // ==========================================
+      // PORTFOLIO WORKFLOW - APPLICANT ENDPOINTS
+      // ==========================================
       '/term-sheets/{applicationId}/sign': {
         post: {
-          tags: ['🏢 Portfolio Management'],
+          tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Sign term sheet (Applicant)',
           description: 'Sign the term sheet for an application. This endpoint is available to applicants only. The term sheet must be in FINAL status before it can be signed.',
           security: [{ bearerAuth: [] }],
@@ -6686,9 +7847,9 @@ const fallbackSpec = {
           }
         }
       },
-      '/term-sheets/my': {
+      '/api/term-sheets/my': {
         get: {
-          tags: ['🏢 Portfolio Management'],
+          tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Get my term sheets (Applicant)',
           description: 'Retrieve all term sheets associated with the authenticated applicant\'s applications',
           security: [{ bearerAuth: [] }],

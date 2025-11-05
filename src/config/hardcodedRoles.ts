@@ -31,7 +31,8 @@ export const DEPARTMENTS = [
   "Human Resources",
   "Marketing",
   "Legal",
-  "IT"
+  "IT",
+  "Investments"
 ] as const;
 
 // All Hardcoded Roles
@@ -330,6 +331,71 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
     level: 1,
     department: "IT",
     description: "Basic IT tasks and support"
+  },
+
+  // ===== INVESTMENTS DEPARTMENT =====
+  {
+    code: "CEO",
+    name: "CEO",
+    level: 5,
+    department: "Investments",
+    description: "Chief Executive Officer, highest level executive authority"
+  },
+  {
+    code: "CIO",
+    name: "CIO",
+    level: 5,
+    department: "Investments",
+    description: "Chief Investment Officer, oversees investment strategy and portfolio management"
+  },
+  {
+    code: "INV_ANALYST",
+    name: "Investment Analyst",
+    level: 3,
+    department: "Investments",
+    description: "Analyzes investment opportunities and market trends"
+  },
+  {
+    code: "INV_COMM_MEM",
+    name: "Investment Committee Member",
+    level: 4,
+    department: "Investments",
+    description: "Senior member of investment committee, participates in investment decisions"
+  },
+  {
+    code: "COMPLIANCE_OFF_INV",
+    name: "Investments Compliance Officer",
+    level: 4,
+    department: "Investments",
+    description: "Ensures compliance with investment regulations and policies"
+  },
+  {
+    code: "FUND_MGR",
+    name: "Fund Manager",
+    level: 5,
+    department: "Investments",
+    description: "Manages investment funds and portfolio performance"
+  },
+  {
+    code: "PORTFOLIO_MGR",
+    name: "Portfolio Manager",
+    level: 5,
+    department: "Investments",
+    description: "Manages investment portfolios and asset allocation"
+  },
+  {
+    code: "LIMITED_PARTNER",
+    name: "Limited Partner",
+    level: 2,
+    department: "Investments",
+    description: "Limited partner with restricted access to investment information"
+  },
+  {
+    code: "EXT_AUDITOR",
+    name: "External Auditor",
+    level: 3,
+    department: "Investments",
+    description: "External auditor with access to investment records for audit purposes"
   }
 ];
 
