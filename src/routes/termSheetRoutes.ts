@@ -3,8 +3,37 @@ import express from 'express';
 import { TermSheetController } from '../controllers/TermSheetController';
 import { authenticate } from '../middleware/authenticate';
 import { authorize } from '../middleware/permissionAuth';
+import multer from 'multer';
 
 const router = express.Router();
+
+// Configure multer for term sheet document uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit for documents
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow PDF, DOCX, XLSX, and images
+    const allowedMimes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/msword', // .doc
+      'application/vnd.ms-excel', // .xls
+      'image/jpeg',
+      'image/png',
+      'image/jpg'
+    ];
+    
+    if (allowedMimes.includes(file.mimetype) || 
+        file.originalname.match(/\.(pdf|doc|docx|xls|xlsx|jpg|jpeg|png)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Allowed: PDF, DOC, DOCX, XLS, XLSX, JPG, JPEG, PNG'));
+    }
+  }
+});
 
 /**
  * @swagger
@@ -140,6 +169,31 @@ const router = express.Router();
  *     requestBody:
  *       required: true
  *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - investmentAmount
+ *             properties:
+ *               title:
+ *                 type: string
+ *               investmentAmount:
+ *                 type: number
+ *               equityPercentage:
+ *                 type: number
+ *               valuation:
+ *                 type: number
+ *               keyTerms:
+ *                 type: string
+ *               conditions:
+ *                 type: string
+ *               timeline:
+ *                 type: string
+ *               document:
+ *                 type: string
+ *                 format: binary
+ *                 description: Term sheet document file (PDF, DOCX, etc.)
  *         application/json:
  *           schema:
  *             $ref: '#/components/schemas/CreateTermSheetRequest'
@@ -215,7 +269,7 @@ const router = express.Router();
  */
 router.get('/my', authenticate, TermSheetController.getMyTermSheets);
 
-router.post('/:applicationId', authenticate, authorize(['admin', 'fund_manager']), TermSheetController.createTermSheet);
+router.post('/:applicationId', authenticate, authorize(['admin', 'fund_manager']), upload.single('document'), TermSheetController.createTermSheet);
 
 /**
  * @swagger
