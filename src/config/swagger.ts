@@ -6746,7 +6746,7 @@ const fallbackSpec = {
                     documentTypes: { 
                       type: 'string', 
                       example: '["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]',
-                      description: 'Optional JSON array of document types matching files order. If not provided, types will be auto-detected from filenames. Examples: BUSINESS_PLAN, PROOF_OF_CONCEPT, MARKET_RESEARCH, PROJECTED_CASH_FLOWS'
+                      description: 'Optional JSON array of document types. Must contain exactly 4 document types (one for each file uploaded). Valid document types: BUSINESS_PLAN (required - comprehensive business strategy document), PROOF_OF_CONCEPT (required - working prototype or demo evidence), MARKET_RESEARCH (required - industry analysis and market size study), PROJECTED_CASH_FLOWS (required - financial projections for 3-5 years), HISTORICAL_FINANCIALS (optional - past financial performance if available). The array order must match the order of files uploaded. If not provided, types will be auto-detected from filenames. Example format: ["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]'
                     },
                     files: {
                       type: 'array',
