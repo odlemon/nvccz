@@ -2263,7 +2263,7 @@ const fallbackSpec = {
       }
     },
         // Authentication
-        '/api/auth/login': {
+        '/auth/login': {
           post: {
             summary: 'User login',
             description: 'Authenticate user with email and password',
@@ -2288,7 +2288,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/auth/me': {
+        '/auth/me': {
           get: {
             summary: 'Get current user information',
             description: 'Retrieve information about the currently authenticated user',

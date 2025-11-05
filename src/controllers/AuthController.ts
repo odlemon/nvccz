@@ -66,8 +66,11 @@ export class AuthController {
         roleCode: user.roleCode
       }, JWT_SECRET, { expiresIn: "7d" });
 
-      // Check if user is an applicant
-      const isApplicant = user.role?.name === 'applicant';
+      // Check if user is an applicant (applicants don't have roles - identified by having an application)
+      const application = await prisma.application.findFirst({
+        where: { applicantEmail: normalizedEmail }
+      });
+      const isApplicant = !!application;
 
       return res.status(200).json({
         success: true,

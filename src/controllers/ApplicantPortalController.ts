@@ -2,8 +2,27 @@
 import { Request, Response, NextFunction } from "express";
 import { ApplicantPortalService } from "../services/ApplicantPortalService";
 import { ResponseHelper } from "../utils/responseHelper";
+import { prisma } from "../utils/database";
 
 export class ApplicantPortalController {
+  /**
+   * Check if user is an applicant
+   * Applicants are identified by having an application, not by roles
+   */
+  private static async isApplicant(user: any): Promise<boolean> {
+    if (!user || !user.email) return false;
+    
+    // Applicants don't have roles - they are identified by having an application
+    try {
+      const application = await prisma.application.findFirst({
+        where: { applicantEmail: user.email }
+      });
+      return !!application;
+    } catch (error) {
+      // If check fails, user is not an applicant
+      return false;
+    }
+  }
   /**
    * Get applicant profile
    */
@@ -12,6 +31,11 @@ export class ApplicantPortalController {
       const user = (req as any).user;
       if (!user) {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
       }
       
       const userId = user.id || user.userId;
@@ -35,6 +59,11 @@ export class ApplicantPortalController {
       const user = (req as any).user;
       if (!user) {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
       }
       
       const userId = user.id || user.userId;
@@ -61,6 +90,11 @@ export class ApplicantPortalController {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
       }
       
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      
       const userId = user.id || user.userId;
       if (!userId) {
         return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
@@ -84,6 +118,11 @@ export class ApplicantPortalController {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
       }
       
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      
       const userId = user.id || user.userId;
       if (!userId) {
         return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
@@ -105,6 +144,11 @@ export class ApplicantPortalController {
       const user = (req as any).user;
       if (!user) {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
       }
       
       const userId = user.id || user.userId;
@@ -131,6 +175,11 @@ export class ApplicantPortalController {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
       }
       
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      
       const userId = user.id || user.userId;
       if (!userId) {
         return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
@@ -152,6 +201,11 @@ export class ApplicantPortalController {
       const user = (req as any).user;
       if (!user) {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
       }
       
       const userId = user.id || user.userId;
@@ -177,6 +231,11 @@ export class ApplicantPortalController {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
       }
       
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      
       const userId = user.id || user.userId;
       if (!userId) {
         return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
@@ -200,6 +259,11 @@ export class ApplicantPortalController {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
       }
       
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      
       const userId = user.id || user.userId;
       if (!userId) {
         return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
@@ -221,6 +285,11 @@ export class ApplicantPortalController {
       const user = (req as any).user;
       if (!user) {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      // Check if user is applicant
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
       }
       
       const userId = user.id || user.userId;
