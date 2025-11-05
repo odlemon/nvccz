@@ -4,8 +4,37 @@ import { ApplicationController } from "../controllers/ApplicationController";
 import { DueDiligenceController } from "../controllers/DueDiligenceController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
+import multer from "multer";
 
 const router = express.Router();
+
+// Configure multer for document uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit for documents
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow PDF, DOCX, XLSX, and images
+    const allowedMimes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/msword', // .doc
+      'application/vnd.ms-excel', // .xls
+      'image/jpeg',
+      'image/png',
+      'image/jpg'
+    ];
+    
+    if (allowedMimes.includes(file.mimetype) || 
+        file.originalname.match(/\.(pdf|doc|docx|xls|xlsx|jpg|jpeg|png)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Allowed: PDF, DOC, DOCX, XLS, XLSX, JPG, JPEG, PNG'));
+    }
+  }
+});
 
 /**
  * @swagger
@@ -117,6 +146,74 @@ const router = express.Router();
  *         description: Internal server error
  */
 router.post("/", ApplicationController.createApplication);
+
+/**
+ * @swagger
+ * /api/applications/upload-documents:
+ *   post:
+ *     summary: Upload application documents (PUBLIC)
+ *     description: Upload documents for an application. Files are uploaded to Firebase Storage. Can be used before or after application creation.
+ *     tags: [Applications]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               files:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *                 description: Document files (PDF, DOCX, XLSX, images)
+ *               applicationId:
+ *                 type: string
+ *                 description: Application ID (optional - if provided, documents are linked to application)
+ *               documentTypes:
+ *                 type: string
+ *                 description: JSON array of document types matching files order. Example: ["BUSINESS_PLAN", "PROOF_OF_CONCEPT"]
+ *                 example: '["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]'
+ *     responses:
+ *       201:
+ *         description: Documents uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Documents uploaded successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     applicationId:
+ *                       type: string
+ *                     documents:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           documentType:
+ *                             type: string
+ *                           fileName:
+ *                             type: string
+ *                           fileUrl:
+ *                             type: string
+ *                           fileSize:
+ *                             type: integer
+ *       400:
+ *         description: Bad request - no files or invalid format
+ *       500:
+ *         description: Internal server error
+ */
+router.post("/upload-documents", upload.array('files', 10), ApplicationController.uploadDocuments);
 
 /**
  * @swagger

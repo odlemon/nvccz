@@ -207,6 +207,78 @@ export class FirebaseStorageService {
       throw new Error(`Failed to get file metadata: ${error.message}`);
     }
   }
+
+  /**
+   * Upload application document to Firebase Storage
+   * Used for application document uploads (Business Plan, Proof of Concept, etc.)
+   */
+  static async uploadApplicationDocument(
+    file: Buffer, 
+    fileName: string, 
+    applicationId: string,
+    documentType: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    try {
+      console.log(`📁 Uploading application document: ${fileName} (${documentType})`);
+      
+      // Create storage reference: application-documents/{applicationId}/{documentType}/{fileName}
+      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storageRef = ref(storage, `application-documents/${applicationId}/${documentType}/${Date.now()}-${sanitizedFileName}`);
+      
+      // Upload file
+      const snapshot = await uploadBytes(storageRef, file);
+      
+      // Get download URL
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      
+      console.log(`✅ Application document uploaded successfully: ${snapshot.ref.fullPath}`);
+      
+      return {
+        filePath: snapshot.ref.fullPath,
+        downloadURL: downloadURL
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error uploading application document to Firebase:', error.message);
+      throw new Error(`Failed to upload application document: ${error.message}`);
+    }
+  }
+
+  /**
+   * Upload term sheet document to Firebase Storage
+   * Used for term sheet document uploads
+   */
+  static async uploadTermSheetDocument(
+    file: Buffer, 
+    fileName: string, 
+    termSheetId: string,
+    documentType: string = 'TERM_SHEET'
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    try {
+      console.log(`📁 Uploading term sheet document: ${fileName}`);
+      
+      // Create storage reference: term-sheets/{termSheetId}/{documentType}/{fileName}
+      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storageRef = ref(storage, `term-sheets/${termSheetId}/${documentType}/${Date.now()}-${sanitizedFileName}`);
+      
+      // Upload file
+      const snapshot = await uploadBytes(storageRef, file);
+      
+      // Get download URL
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      
+      console.log(`✅ Term sheet document uploaded successfully: ${snapshot.ref.fullPath}`);
+      
+      return {
+        filePath: snapshot.ref.fullPath,
+        downloadURL: downloadURL
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error uploading term sheet document to Firebase:', error.message);
+      throw new Error(`Failed to upload term sheet document: ${error.message}`);
+    }
+  }
 }
 
 export default FirebaseStorageService;
