@@ -1133,7 +1133,7 @@ model ApplicationDocument {
   applicationId String
   documentType  String // BUSINESS_PLAN, PROOF_OF_CONCEPT, MARKET_RESEARCH, PROJECTED_CASH_FLOWS, HISTORICAL_FINANCIALS
   fileName      String
-  fileUrl       String // URL to the document (Google Drive, Dropbox, etc.)
+  fileUrl       String   @db.Text // URL to the document (Google Drive, Dropbox, Firebase, etc.) - Using Text for long URLs
   fileSize      Int
   uploadedAt    DateTime @default(now())
   isRequired    Boolean  @default(false)

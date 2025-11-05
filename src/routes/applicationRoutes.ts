@@ -49,13 +49,12 @@ const upload = multer({
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required:
- *               - applicantName
- *               - applicantEmail
- *               - businessName
- *               - requestedAmount
- *               - files
- *               - documentTypes
+     *             required:
+     *               - applicantName
+     *               - applicantEmail
+     *               - businessName
+     *               - requestedAmount
+     *               - files
  *             properties:
  *               applicantName:
  *                 type: string
@@ -106,7 +105,7 @@ const upload = multer({
  *                 example: "clx1234567890abcdef"
  *               documentTypes:
  *                 type: string
- *                 description: "JSON array of document types matching files order. Examples include BUSINESS_PLAN, PROOF_OF_CONCEPT"
+ *                 description: "Optional JSON array of document types matching files order. If not provided, types will be auto-detected from filenames. Examples: BUSINESS_PLAN, PROOF_OF_CONCEPT, MARKET_RESEARCH, PROJECTED_CASH_FLOWS"
  *                 example: '["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]'
  *               files:
  *                 type: array
@@ -242,7 +241,7 @@ router.post("/", upload.fields([
  *                 description: Application ID (optional - if provided, documents are linked to application)
  *               documentTypes:
  *                 type: string
- *                 description: "JSON array of document types matching files order. Examples include BUSINESS_PLAN, PROOF_OF_CONCEPT"
+ *                 description: "Optional JSON array of document types matching files order. If not provided, types will be auto-detected from filenames. Examples: BUSINESS_PLAN, PROOF_OF_CONCEPT, MARKET_RESEARCH, PROJECTED_CASH_FLOWS"
  *                 example: '["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]'
  *     responses:
  *       201:

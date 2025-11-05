@@ -883,7 +883,20 @@ export class EmailNotificationService {
               <li><strong>Business Name:</strong> ${data.businessName}</li>
               <li><strong>Current Status:</strong> Shortlisted</li>
               <li><strong>Shortlisted Date:</strong> ${new Date().toLocaleDateString()}</li>
+              ${data.additionalInfo?.score ? `<li><strong>Application Score:</strong> ${data.additionalInfo.score}%</li>` : ''}
             </ul>
+            
+            ${data.additionalInfo?.documents && data.additionalInfo.documents.length > 0 ? `
+            <h3>Your Submitted Documents:</h3>
+            <ul>
+              ${data.additionalInfo.documents.map((doc: any) => `
+                <li>
+                  <strong>${doc.type.replace(/_/g, ' ')}:</strong> 
+                  <a href="${doc.url}" target="_blank">${doc.fileName}</a>
+                </li>
+              `).join('')}
+            </ul>
+            ` : ''}
             
             <h3>What happens next?</h3>
             <p>Your application will now undergo a comprehensive due diligence process, which includes:</p>
@@ -946,7 +959,18 @@ export class EmailNotificationService {
             </ul>
             
             <h3>Application Decision</h3>
-            <p>After careful consideration, we have decided not to proceed with your application at this time.</p>
+            <p>After careful consideration and evaluation using our AI-powered assessment system, we have decided not to proceed with your application at this time.</p>
+            
+            ${data.additionalInfo?.aiReasoning ? `
+            <h3>Evaluation Feedback:</h3>
+            <div style="background-color: #fff; padding: 15px; border-left: 4px solid #dc2626; margin: 15px 0;">
+              <p style="margin: 0; color: #666; line-height: 1.8;">${data.additionalInfo.aiReasoning}</p>
+            </div>
+            ` : ''}
+            
+            ${data.additionalInfo?.score ? `
+            <p><strong>Application Score:</strong> ${data.additionalInfo.score}% (Threshold: 50%)</p>
+            ` : ''}
             
             <p>This decision does not reflect on the quality of your business or your team. We encourage you to:</p>
             <ul>

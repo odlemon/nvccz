@@ -61,9 +61,30 @@ export class ApplicationController {
           }
         }
 
+        // If documentTypes not provided or doesn't match, auto-detect from filenames
         if (docTypes.length !== files.length) {
-          ResponseHelper.error(res, "Number of document types must match number of files", undefined, 400);
-          return;
+          logger.info('Auto-detecting document types from filenames', {
+            filesCount: files.length,
+            docTypesCount: docTypes.length
+          });
+          
+          docTypes = files.map(file => {
+            const fileName = file.originalname.toUpperCase();
+            // Auto-detect document type from filename
+            if (fileName.includes('BUSINESS_PLAN') || fileName.includes('BUSINESS')) {
+              return 'BUSINESS_PLAN';
+            } else if (fileName.includes('PROOF_OF_CONCEPT') || fileName.includes('POC')) {
+              return 'PROOF_OF_CONCEPT';
+            } else if (fileName.includes('MARKET_RESEARCH') || fileName.includes('MARKET')) {
+              return 'MARKET_RESEARCH';
+            } else if (fileName.includes('PROJECTED_CASH_FLOWS') || fileName.includes('CASH_FLOW') || fileName.includes('CASH_FLOWS')) {
+              return 'PROJECTED_CASH_FLOWS';
+            } else {
+              return 'OTHER';
+            }
+          });
+          
+          logger.info('Auto-detected document types', { docTypes });
         }
 
         // Generate temporary application ID for upload (will be replaced after creation)
