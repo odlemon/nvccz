@@ -406,7 +406,7 @@ This is an automated message. Please do not reply to this email.
         }
       }
 
-      // Update user
+      // Update user - explicitly exclude password (password should only be changed via change-password endpoint)
       const updateData: any = {};
       if (userData.firstName) updateData.firstName = userData.firstName;
       if (userData.lastName) updateData.lastName = userData.lastName;
@@ -415,6 +415,7 @@ This is an automated message. Please do not reply to this email.
       if (userData.roleCode) updateData.roleCode = userData.roleCode;
       if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
       if (userData.roleId) updateData.roleId = userData.roleId;
+      // Password is explicitly excluded - must use change-password endpoint
 
       const user = await prisma.user.update({
         where: { id },
