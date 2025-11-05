@@ -1270,7 +1270,7 @@ model TermSheet {
   timeline   String? @db.Text
 
   // Document
-  documentUrl      String? // URL to the term sheet document
+  documentUrl      String? @db.Text // URL to the term sheet document (Firebase URLs can be long)
   documentFileName String?
   documentSize     Int?
 
