@@ -1831,6 +1831,56 @@ export const performanceEndpoints = {
   // APPLICANT PORTAL ENDPOINTS
   // ==========================================
 
+  '/api/applications': {
+    post: {
+      tags: ['🏢 Portfolio Management'],
+      summary: 'Create a new investment application (PUBLIC)',
+      description: 'Create a new investment application with document uploads. Files are automatically uploaded to Firebase Storage. No authentication required.',
+      requestBody: {
+        required: true,
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['applicantName', 'applicantEmail', 'businessName', 'requestedAmount', 'files'],
+              properties: {
+                applicantName: { type: 'string', example: 'John Doe', description: 'Full name of the applicant' },
+                applicantEmail: { type: 'string', format: 'email', example: 'john.doe@example.com', description: 'Email address of the applicant' },
+                applicantPhone: { type: 'string', example: '+1234567890', description: 'Phone number of the applicant' },
+                applicantAddress: { type: 'string', example: '123 Main Street, City, Country', description: 'Address of the applicant' },
+                businessName: { type: 'string', example: 'TechStart Inc.', description: 'Name of the business' },
+                businessDescription: { type: 'string', example: 'A technology startup focused on AI solutions', description: 'Description of the business' },
+                industry: { type: 'string', example: 'Technology', description: 'Industry sector' },
+                businessStage: { type: 'string', enum: ['IDEA', 'STARTUP', 'OPERATIONAL'], example: 'STARTUP', description: 'Current stage of the business' },
+                foundingDate: { type: 'string', format: 'date', example: '2023-01-15', description: 'Date when the business was founded' },
+                requestedAmount: { type: 'string', example: '75000', description: 'Amount of investment requested' },
+                fundId: { type: 'string', example: 'clx1234567890abcdef', description: 'ID of the fund (optional)' },
+                documentTypes: { 
+                  type: 'string', 
+                  example: '["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]',
+                  description: 'Optional JSON array of document types matching files order. If not provided, types will be auto-detected from filenames. Examples: BUSINESS_PLAN, PROOF_OF_CONCEPT, MARKET_RESEARCH, PROJECTED_CASH_FLOWS'
+                },
+                files: {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    format: 'binary'
+                  },
+                  description: 'Document files (PDF, DOCX, XLSX, images). Must match documentTypes order if provided.'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: { description: 'Application created successfully' },
+        400: { description: 'Bad request - validation error' },
+        500: { description: 'Internal server error' }
+      }
+    }
+  },
+
   '/applicant/profile': {
     get: {
       tags: ['🏢 Portfolio Management'],

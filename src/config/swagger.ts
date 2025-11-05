@@ -6721,7 +6721,7 @@ const fallbackSpec = {
       // ==========================================
       '/api/applications': {
         post: {
-          tags: ['Portfolio Management'],
+          tags: ['🏢 Portfolio Management'],
           summary: 'Create a new investment application (PUBLIC)',
           description: 'Create a new investment application with document uploads. Files are automatically uploaded to Firebase Storage. No authentication required.',
           requestBody: {
