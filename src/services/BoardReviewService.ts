@@ -524,10 +524,11 @@ export class BoardReviewService {
    */
   static async createUserAndPortfolioCompany(application: any): Promise<void> {
     try {
-      let tempPassword: string | undefined;
+      let tempPassword: string | undefined = undefined;
+      let user;
       
       // Check if user already exists
-      let user = await prisma.user.findUnique({
+      user = await prisma.user.findUnique({
         where: { email: application.applicantEmail }
       });
 
