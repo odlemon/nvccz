@@ -217,7 +217,7 @@ export class FundService {
       minAvailableBalance?: number;
       maxAvailableBalance?: number;
     }
-  ): Promise<{ funds: Fund[]; total: number; page: number; totalPages: number }> {
+  ): Promise<{ funds: FundWithRelations[]; total: number; page: number; totalPages: number }> {
     try {
       const skip = (page - 1) * limit;
       
@@ -243,7 +243,34 @@ export class FundService {
           where,
           skip,
           take: limit,
-          orderBy: { createdAt: 'desc' }
+          orderBy: { createdAt: 'desc' },
+          include: {
+            fundDisbursements: {
+              select: {
+                id: true,
+                amount: true,
+                disbursementDate: true,
+                disbursementType: true,
+                status: true,
+                notes: true,
+                transactionReference: true,
+                approvedAt: true,
+                disbursedAt: true,
+                investmentImplementation: {
+                  select: {
+                    id: true,
+                    portfolioCompany: {
+                      select: {
+                        id: true,
+                        name: true
+                      }
+                    }
+                  }
+                }
+              },
+              orderBy: { disbursementDate: 'desc' }
+            }
+          }
         }),
         prisma.fund.count({ where })
       ]);
@@ -251,7 +278,7 @@ export class FundService {
       const totalPages = Math.ceil(total / limit);
 
       return {
-        funds,
+        funds: funds as FundWithRelations[],
         total,
         page,
         totalPages

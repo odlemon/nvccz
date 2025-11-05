@@ -299,6 +299,93 @@ router.get("/", authenticate, authorize(["admin"]), PortfolioCompanyController.g
 
 /**
  * @swagger
+ * /api/portfolio-companies/with-investments:
+ *   get:
+ *     summary: Get all portfolio companies with investment amounts
+ *     description: Returns a list of all portfolio companies along with the total amount invested (sum of all disbursements) in each company
+ *     tags: [Portfolio Companies]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of portfolio companies with investment amounts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       registrationNumber:
+ *                         type: string
+ *                       industry:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                       fund:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                       user:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           firstName:
+ *                             type: string
+ *                           lastName:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                       totalInvested:
+ *                         type: number
+ *                         description: Total amount invested (sum of all approved/disbursed disbursements)
+ *                       disbursements:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: string
+ *                             amount:
+ *                               type: number
+ *                             disbursementDate:
+ *                               type: string
+ *                               format: date-time
+ *                             disbursementType:
+ *                               type: string
+ *                             status:
+ *                               type: string
+ *                       startDate:
+ *                         type: string
+ *                         format: date
+ *                       endDate:
+ *                         type: string
+ *                         format: date
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                       updatedAt:
+ *                         type: string
+ *                         format: date-time
+ */
+router.get("/with-investments", authenticate, authorize(["admin", "fund_manager"]), PortfolioCompanyController.getAllPortfolioCompaniesWithInvestments);
+
+/**
+ * @swagger
  * /api/portfolio-companies/{id}:
  *   get:
  *     summary: Get portfolio company by ID

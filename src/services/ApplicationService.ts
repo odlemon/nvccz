@@ -621,6 +621,45 @@ export class ApplicationService {
         prisma.application.count({ where })
       ]);
 
+      // Get investment implementation IDs to fetch disbursements
+      const investmentImplementationIds = applications
+        .map(app => app.investmentImplementation?.id)
+        .filter(id => id) as string[];
+
+      // Fetch disbursements for these investment implementations
+      const disbursements = investmentImplementationIds.length > 0
+        ? await prisma.fundDisbursement.findMany({
+            where: {
+              investmentImplementationId: {
+                in: investmentImplementationIds
+              }
+            },
+            select: {
+              id: true,
+              investmentImplementationId: true,
+              amount: true,
+              disbursementDate: true,
+              disbursementType: true,
+              status: true,
+              notes: true,
+              transactionReference: true,
+              approvedAt: true,
+              disbursedAt: true
+            },
+            orderBy: { disbursementDate: 'desc' }
+          })
+        : [];
+
+      // Create a map of investment implementation ID to disbursements
+      const disbursementMap = new Map<string, typeof disbursements>();
+      disbursements.forEach(disbursement => {
+        const implId = disbursement.investmentImplementationId;
+        if (!disbursementMap.has(implId)) {
+          disbursementMap.set(implId, []);
+        }
+        disbursementMap.get(implId)!.push(disbursement);
+      });
+
       // Get applicant emails from applications
       const applicantEmails = applications.map(app => app.applicantEmail);
 
@@ -676,15 +715,18 @@ export class ApplicationService {
         portfolioCompanies.map(pc => [pc.userId, pc])
       );
 
-      // Attach portfolio company data to applications
+      // Attach portfolio company data and disbursements to applications
       const applicationsWithPortfolioCompanies = applications.map(app => {
         const userId = userMap.get(app.applicantEmail);
         const portfolioCompany = userId ? portfolioCompanyMap.get(userId) : null;
+        const implementationId = app.investmentImplementation?.id;
+        const disbursements = implementationId ? disbursementMap.get(implementationId) || [] : [];
         
         return {
           ...app,
           portfolioCompanyId: portfolioCompany?.id || null,
-          portfolioCompany: portfolioCompany || null
+          portfolioCompany: portfolioCompany || null,
+          disbursements: disbursements
         };
       });
 
