@@ -1831,7 +1831,7 @@ export const performanceEndpoints = {
   // APPLICANT PORTAL ENDPOINTS
   // ==========================================
 
-  '/api/applicant/profile': {
+  '/applicant/profile': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get applicant profile',
@@ -1922,7 +1922,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/applicant/application': {
+  '/applicant/application': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get applicant\'s application details',
@@ -1990,7 +1990,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/applicant/application/timeline': {
+  '/applicant/application/timeline': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get application timeline',
@@ -2036,7 +2036,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/applicant/company': {
+  '/applicant/company': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get applicant\'s portfolio company',
@@ -2154,7 +2154,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/applicant/dashboard': {
+  '/applicant/dashboard': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get applicant dashboard',
@@ -2230,7 +2230,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/applicant/investment': {
+  '/applicant/investment': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get investment details',
@@ -2300,7 +2300,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/applicant/valuations': {
+  '/applicant/valuations': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get portfolio valuations',
@@ -2362,7 +2362,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/applicant/reports': {
+  '/applicant/reports': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get performance reports',
@@ -2421,7 +2421,7 @@ export const performanceEndpoints = {
   // APPLICANT TERM SHEET ENDPOINTS
   // ==========================================
 
-  '/api/term-sheets/{applicationId}/sign': {
+  '/term-sheets/{applicationId}/sign': {
     post: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Sign term sheet (Applicant)',
@@ -2472,7 +2472,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/term-sheets/my': {
+  '/term-sheets/my': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get my term sheets (Applicant)',

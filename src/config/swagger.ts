@@ -6636,7 +6636,7 @@ const fallbackSpec = {
         }
       },
       // Applicant Term Sheet Endpoints
-      '/api/term-sheets/{applicationId}/sign': {
+      '/term-sheets/{applicationId}/sign': {
         post: {
           tags: ['🏢 Portfolio Management'],
           summary: 'Sign term sheet (Applicant)',
@@ -6686,7 +6686,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/term-sheets/my': {
+      '/term-sheets/my': {
         get: {
           tags: ['🏢 Portfolio Management'],
           summary: 'Get my term sheets (Applicant)',
