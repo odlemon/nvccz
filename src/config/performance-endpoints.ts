@@ -1831,7 +1831,7 @@ export const performanceEndpoints = {
   // APPLICANT PORTAL ENDPOINTS
   // ==========================================
 
-  '/api/applications': {
+  '/applications': {
     post: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Create a new investment application (PUBLIC)',

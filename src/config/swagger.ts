@@ -6719,7 +6719,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 1: APPLICATION SUBMISSION
       // ==========================================
-      '/api/applications': {
+      '/applications': {
         post: {
           tags: ['🏢 Portfolio Management'],
           summary: 'Create a new investment application (PUBLIC)',
