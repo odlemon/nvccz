@@ -543,8 +543,10 @@ export class ApplicationService {
       if (stage) {
         where.currentStage = stage;
       } else {
-        // Default: exclude rejected applications only
-        where.currentStage = { not: 'REJECTED' };
+        // Default: exclude rejected and pending applications
+        where.currentStage = { 
+          notIn: ['REJECTED', 'PENDING_SHORTLISTING'] 
+        };
       }
       
       if (fundId) where.fundId = fundId;

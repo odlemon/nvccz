@@ -245,10 +245,21 @@ export class EmailNotificationService {
    */
   static async sendApplicationRejectedEmail(data: EmailNotificationData): Promise<void> {
     try {
+      console.log(`📧 Attempting to send rejection email to ${data.applicantEmail}`, {
+        applicationId: data.applicationId,
+        businessName: data.businessName
+      });
+
       const subject = "Application Update - NVCCZ";
       const htmlContent = this.getApplicationRejectedTemplate(data);
       
-      await zeptoClient.sendMail({
+      console.log(`📧 Email content generated, sending via Zeptomail...`, {
+        applicantEmail: data.applicantEmail,
+        subject: subject,
+        contentLength: htmlContent.length
+      });
+
+      const result = await zeptoClient.sendMail({
         from: {
           address: "noreply@lysp.io",
           name: "NVCCZ Investment Team"
@@ -265,9 +276,18 @@ export class EmailNotificationService {
         htmlbody: htmlContent
       });
 
-      console.log(`Application rejected email sent to ${data.applicantEmail}`);
-    } catch (error) {
-      console.error("Error sending application rejected email:", error);
+      console.log(`✅ Application rejected email sent successfully to ${data.applicantEmail}`, {
+        applicationId: data.applicationId,
+        result: result
+      });
+    } catch (error: any) {
+      console.error("❌ Error sending application rejected email:", {
+        applicantEmail: data.applicantEmail,
+        applicationId: data.applicationId,
+        error: error.message,
+        stack: error.stack,
+        errorDetails: error
+      });
       throw error;
     }
   }
