@@ -10,10 +10,15 @@ import { prisma } from '../utils/database';
 export class ApplicationController {
   /**
    * Create a new application (PUBLIC - no authentication required)
+   * Supports both multipart/form-data (with files) and application/json (with document URLs)
    */
   static async createApplication(req: Request, res: Response): Promise<void> {
     try {
-      const {
+      // Handle both multipart/form-data (with files) and application/json
+      const files = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['files'] || [];
+      const isMultipart = files.length > 0;
+
+      let {
         applicantName,
         applicantEmail,
         applicantPhone,
@@ -25,12 +30,71 @@ export class ApplicationController {
         foundingDate,
         requestedAmount,
         fundId,
-        documents
+        documents,
+        documentTypes
       } = req.body;
 
       // Validate required fields
       if (!applicantName || !applicantEmail || !businessName || !requestedAmount) {
         ResponseHelper.error(res, "Missing required fields: applicantName, applicantEmail, businessName, requestedAmount", undefined, 400);
+        return;
+      }
+
+      // If files are provided, upload them to Firebase first
+      let processedDocuments: Array<{
+        documentType: string;
+        fileName: string;
+        fileUrl: string;
+        fileSize: number;
+        isRequired: boolean;
+      }> = [];
+
+      if (isMultipart && files.length > 0) {
+        // Parse documentTypes if it's a string (JSON)
+        let docTypes: string[] = [];
+        if (documentTypes) {
+          try {
+            docTypes = typeof documentTypes === 'string' ? JSON.parse(documentTypes) : documentTypes;
+          } catch (e) {
+            ResponseHelper.error(res, "Invalid documentTypes format. Expected JSON array.", undefined, 400);
+            return;
+          }
+        }
+
+        if (docTypes.length !== files.length) {
+          ResponseHelper.error(res, "Number of document types must match number of files", undefined, 400);
+          return;
+        }
+
+        // Generate temporary application ID for upload (will be replaced after creation)
+        const tempApplicationId = `temp-${Date.now()}`;
+
+        // Upload files to Firebase and prepare document objects
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const documentType = docTypes[i] || 'OTHER';
+
+          // Upload to Firebase
+          const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
+            file.buffer,
+            file.originalname,
+            tempApplicationId,
+            documentType
+          );
+
+          processedDocuments.push({
+            documentType: documentType,
+            fileName: file.originalname,
+            fileUrl: downloadURL,
+            fileSize: file.size,
+            isRequired: ['BUSINESS_PLAN', 'PROOF_OF_CONCEPT', 'MARKET_RESEARCH', 'PROJECTED_CASH_FLOWS'].includes(documentType)
+          });
+        }
+      } else if (documents && Array.isArray(documents)) {
+        // Use provided document URLs (from JSON request)
+        processedDocuments = documents;
+      } else {
+        ResponseHelper.error(res, "Either files must be uploaded or documents array must be provided", undefined, 400);
         return;
       }
 
@@ -46,10 +110,14 @@ export class ApplicationController {
         foundingDate: foundingDate ? new Date(foundingDate) : undefined,
         requestedAmount: Number(requestedAmount),
         fundId,
-        documents: documents || []
+        documents: processedDocuments
       };
 
       const application = await ApplicationService.createApplication(applicationParams);
+
+      // If files were uploaded with temporary ID, update Firebase paths if needed
+      // (The upload already happened with temp ID, but files are linked to application now)
+      // Note: Firebase paths are already set, so this is fine
 
       // Send application received email notification
       try {
@@ -72,7 +140,18 @@ export class ApplicationController {
         // Don't fail the application creation if email fails
       }
 
-      logger.info("Application created successfully", {
+      // Start async shortlisting process (don't await - process in background)
+      // This will use ChatGPT to score the application and send appropriate emails
+      const { ApplicationScoringService } = require('../services/ApplicationScoringService');
+      ApplicationScoringService.processApplicationForShortlisting(application.id)
+        .catch((error: any) => {
+          logger.error("Error in background shortlisting process", {
+            applicationId: application.id,
+            error: error.message
+          });
+        });
+
+      logger.info("Application created successfully - shortlisting process started", {
         applicationId: application.id,
         businessName: application.businessName,
         applicantEmail: application.applicantEmail

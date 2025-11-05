@@ -41,11 +41,79 @@ const upload = multer({
  * /api/applications:
  *   post:
  *     summary: Create a new investment application (PUBLIC)
- *     description: Create a new investment application. No authentication required.
+ *     description: Create a new investment application. Supports both multipart/form-data (with files) and application/json (with document URLs). Files are automatically uploaded to Firebase Storage.
  *     tags: [Applications]
  *     requestBody:
  *       required: true
  *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - applicantName
+ *               - applicantEmail
+ *               - businessName
+ *               - requestedAmount
+ *               - files
+ *               - documentTypes
+ *             properties:
+ *               applicantName:
+ *                 type: string
+ *                 description: Full name of the applicant
+ *                 example: "John Doe"
+ *               applicantEmail:
+ *                 type: string
+ *                 format: email
+ *                 description: Email address of the applicant
+ *                 example: "john.doe@example.com"
+ *               applicantPhone:
+ *                 type: string
+ *                 description: Phone number of the applicant
+ *                 example: "+1234567890"
+ *               applicantAddress:
+ *                 type: string
+ *                 description: Address of the applicant
+ *                 example: "123 Main Street, City, Country"
+ *               businessName:
+ *                 type: string
+ *                 description: Name of the business
+ *                 example: "TechStart Inc."
+ *               businessDescription:
+ *                 type: string
+ *                 description: Description of the business
+ *                 example: "A technology startup focused on AI solutions"
+ *               industry:
+ *                 type: string
+ *                 description: Industry sector
+ *                 example: "Technology"
+ *               businessStage:
+ *                 type: string
+ *                 enum: [IDEA, STARTUP, OPERATIONAL]
+ *                 description: Current stage of the business
+ *                 example: "STARTUP"
+ *               foundingDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Date when the business was founded
+ *                 example: "2023-01-15"
+ *               requestedAmount:
+ *                 type: string
+ *                 description: Amount of investment requested
+ *                 example: "75000"
+ *               fundId:
+ *                 type: string
+ *                 description: ID of the fund (optional)
+ *                 example: "clx1234567890abcdef"
+ *               documentTypes:
+ *                 type: string
+ *                 description: "JSON array of document types matching files order. Examples include BUSINESS_PLAN, PROOF_OF_CONCEPT"
+ *                 example: '["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]'
+ *               files:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *                 description: Document files (PDF, DOCX, XLSX, images). Must match documentTypes order.
  *         application/json:
  *           schema:
  *             type: object
@@ -145,7 +213,9 @@ const upload = multer({
  *       500:
  *         description: Internal server error
  */
-router.post("/", ApplicationController.createApplication);
+router.post("/", upload.fields([
+  { name: 'files', maxCount: 10 }
+]), ApplicationController.createApplication);
 
 /**
  * @swagger
@@ -172,7 +242,7 @@ router.post("/", ApplicationController.createApplication);
  *                 description: Application ID (optional - if provided, documents are linked to application)
  *               documentTypes:
  *                 type: string
- *                 description: JSON array of document types matching files order. Example: ["BUSINESS_PLAN", "PROOF_OF_CONCEPT"]
+ *                 description: "JSON array of document types matching files order. Examples include BUSINESS_PLAN, PROOF_OF_CONCEPT"
  *                 example: '["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"]'
  *     responses:
  *       201:

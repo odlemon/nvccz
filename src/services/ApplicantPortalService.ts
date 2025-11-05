@@ -39,11 +39,15 @@ export class ApplicantPortalService {
     firstName?: string;
     lastName?: string;
     email?: string;
+    password?: string; // Explicitly excluded - will be ignored
   }) {
     try {
+      // Explicitly exclude password from update - password should only be changed via change-password endpoint
+      const { password, ...safeUpdateData } = updateData;
+      
       const updatedUser = await prisma.user.update({
         where: { id: userId },
-        data: updateData,
+        data: safeUpdateData,
         select: {
           id: true,
           firstName: true,

@@ -182,7 +182,7 @@ export class ApplicationService {
           foundingDate: params.foundingDate,
           requestedAmount: new Decimal(params.requestedAmount),
           fundId: params.fundId,
-          currentStage: "SHORTLISTED", // Start with SHORTLISTED stage from OCR
+          currentStage: "PENDING_SHORTLISTING", // Start with PENDING_SHORTLISTING - will be evaluated by AI
           submittedAt: new Date(),
           documents: {
             create: params.documents.map(doc => ({
