@@ -404,18 +404,10 @@ export class ApplicantPortalService {
   static async getInvestmentDetails(userId: string) {
     try {
       // Get portfolio company first
-      const portfolioCompany = await prisma.portfolioCompany.findUnique({
+      const portfolioCompany = await prisma.portfolioCompany.findFirst({
         where: { userId: userId },
         include: {
-          fund: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              targetSize: true,
-              status: true
-            }
-          }
+          fund: true
         }
       });
 
@@ -475,8 +467,15 @@ export class ApplicantPortalService {
         throw new Error("No portfolio company found for this user");
       }
 
-      // Get all valuations (this would need to be filtered by company in a real implementation)
+      // PortfolioValuation is portfolio-wide, not company-specific
+      // Return valuations assigned to this user or where user is involved
       const valuations = await prisma.portfolioValuation.findMany({
+        where: {
+          OR: [
+            { assignedToId: userId },
+            { createdById: userId }
+          ]
+        },
         include: {
           assignedTo: {
             select: {

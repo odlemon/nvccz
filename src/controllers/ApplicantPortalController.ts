@@ -9,7 +9,15 @@ export class ApplicantPortalController {
    */
   async getProfile(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
       
       const profile = await ApplicantPortalService.getApplicantProfile(userId);
       
@@ -24,9 +32,17 @@ export class ApplicantPortalController {
    */
   async updateProfile(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
-      const updateData = req.body;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
       
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
+      
+      const updateData = req.body;
       const updatedProfile = await ApplicantPortalService.updateApplicantProfile(userId, updateData);
       
       return ResponseHelper.success(res, "Profile updated successfully", updatedProfile);
@@ -40,7 +56,15 @@ export class ApplicantPortalController {
    */
   async getApplication(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
       
       const application = await ApplicantPortalService.getApplicantApplication(userId);
       
@@ -55,7 +79,15 @@ export class ApplicantPortalController {
    */
   async getCompany(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
       
       const company = await ApplicantPortalService.getApplicantCompany(userId);
       
@@ -70,9 +102,17 @@ export class ApplicantPortalController {
    */
   async updateCompany(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
-      const updateData = req.body;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
       
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
+      
+      const updateData = req.body;
       const updatedCompany = await ApplicantPortalService.updateApplicantCompany(userId, updateData);
       
       return ResponseHelper.success(res, "Company updated successfully", updatedCompany);
@@ -86,7 +126,15 @@ export class ApplicantPortalController {
    */
   async getDashboard(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
       
       const dashboard = await ApplicantPortalService.getApplicantDashboard(userId);
       
@@ -101,7 +149,15 @@ export class ApplicantPortalController {
    */
   async getApplicationTimeline(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
       
       const timeline = await ApplicantPortalService.getApplicationTimeline(userId);
       
@@ -116,7 +172,15 @@ export class ApplicantPortalController {
    */
   async getInvestmentDetails(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
       
       const investmentDetails = await ApplicantPortalService.getInvestmentDetails(userId);
       
@@ -131,7 +195,15 @@ export class ApplicantPortalController {
    */
   async getPortfolioValuations(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
       
       const valuations = await ApplicantPortalService.getPortfolioValuations(userId);
       
@@ -146,7 +218,15 @@ export class ApplicantPortalController {
    */
   async getPerformanceReports(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user.userId;
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
       
       const reports = await ApplicantPortalService.getPerformanceReports(userId);
       
