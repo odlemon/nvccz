@@ -31,8 +31,22 @@ export class ChatGPTService {
     documentUrls: Array<{ url: string; type: string; fileName: string }>
   ): Promise<{ score: number; reasoning: string; applicantDetails: any }> {
     try {
+      logger.info('🤖 ChatGPT API: Building scoring prompt', {
+        businessName: applicationData.businessName,
+        documentCount: documentUrls.length
+      });
+
       // Build the prompt for ChatGPT
       const prompt = this.buildScoringPrompt(applicationData, documentUrls);
+
+      logger.info('🤖 ChatGPT API: Sending request to OpenAI', {
+        businessName: applicationData.businessName,
+        model: this.MODEL,
+        promptLength: prompt.length,
+        documentCount: documentUrls.length
+      });
+
+      const startTime = Date.now();
 
       // Call ChatGPT API
       const response = await axios.post(
@@ -60,28 +74,48 @@ export class ChatGPTService {
         }
       );
 
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+
+      logger.info('🤖 ChatGPT API: Received response', {
+        businessName: applicationData.businessName,
+        responseTime: `${duration}ms`,
+        hasResponse: !!response.data.choices?.[0]?.message?.content
+      });
+
       const aiResponse = response.data.choices[0].message.content;
+
+      logger.info('🤖 ChatGPT API: Raw AI Response', {
+        businessName: applicationData.businessName,
+        responseLength: aiResponse.length,
+        responsePreview: aiResponse.substring(0, 300) + (aiResponse.length > 300 ? '...' : '')
+      });
       
       // Parse the AI response to extract score and reasoning
       const parsed = this.parseAIResponse(aiResponse);
 
-      logger.info('Application scored by ChatGPT', {
+      logger.info('✅ ChatGPT API: Parsed response', {
         businessName: applicationData.businessName,
         score: parsed.score,
-        hasReasoning: !!parsed.reasoning
+        reasoningLength: parsed.reasoning.length,
+        hasApplicantDetails: !!parsed.applicantDetails,
+        applicantDetails: parsed.applicantDetails
       });
 
       return parsed;
     } catch (error: any) {
-      logger.error('Error scoring application with ChatGPT', {
+      logger.error('❌ ChatGPT API Error', {
         error: error.message,
-        businessName: applicationData.businessName
+        errorCode: error.response?.status,
+        errorData: error.response?.data,
+        businessName: applicationData.businessName,
+        stack: error.stack
       });
       
       // Return a default low score if ChatGPT fails
       return {
         score: 0,
-        reasoning: 'Unable to analyze application due to technical error.',
+        reasoning: `Unable to analyze application due to technical error: ${error.message}`,
         applicantDetails: {}
       };
     }

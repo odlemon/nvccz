@@ -67,17 +67,64 @@ export class ApplicationScoringService {
       };
 
       // Call ChatGPT to score the application
-      logger.info('Calling ChatGPT for application scoring', { applicationId });
+      logger.info('🤖 Starting AI Analysis for Application', {
+        applicationId,
+        businessName: application.businessName,
+        applicantEmail: application.applicantEmail,
+        requestedAmount: application.requestedAmount,
+        documentCount: documentUrls.length,
+        documents: documentUrls.map(d => ({ type: d.type, fileName: d.fileName }))
+      });
+
+      logger.info('📋 Application Data for AI Analysis', {
+        applicationId,
+        data: {
+          applicantName: applicationData.applicantName,
+          businessName: applicationData.businessName,
+          businessDescription: applicationData.businessDescription,
+          industry: applicationData.industry,
+          businessStage: applicationData.businessStage,
+          requestedAmount: applicationData.requestedAmount,
+          foundingDate: applicationData.foundingDate,
+          applicantAddress: applicationData.applicantAddress
+        }
+      });
+
+      logger.info('📄 Document URLs for AI Analysis', {
+        applicationId,
+        documentUrls: documentUrls.map(d => ({
+          type: d.type,
+          fileName: d.fileName,
+          url: d.url
+        }))
+      });
+
       const scoringResult = await ChatGPTService.scoreApplication(applicationData, documentUrls);
 
       const score = scoringResult.score;
       const reasoning = scoringResult.reasoning;
       const applicantDetails = scoringResult.applicantDetails;
 
-      logger.info('Application scored by ChatGPT', {
+      logger.info('✅ AI Analysis Complete', {
         applicationId,
         score,
-        businessName: application.businessName
+        businessName: application.businessName,
+        applicantEmail: application.applicantEmail,
+        decision: score >= 50 ? 'SHORTLISTED' : 'REJECTED',
+        reasoning: reasoning.substring(0, 200) + (reasoning.length > 200 ? '...' : ''),
+        applicantDetails
+      });
+
+      logger.info('📊 Detailed AI Scoring Results', {
+        applicationId,
+        score,
+        reasoning,
+        applicantDetails,
+        breakdown: {
+          scoreCategory: score >= 50 ? 'PASS' : 'FAIL',
+          threshold: 50,
+          margin: score >= 50 ? score - 50 : 50 - score
+        }
       });
 
       // Update application with score
@@ -143,10 +190,22 @@ export class ApplicationScoringService {
         }
       });
 
-      logger.info('Application shortlisted', {
+      logger.info('✅ Application SHORTLISTED', {
         applicationId: application.id,
         score,
-        businessName: application.businessName
+        businessName: application.businessName,
+        applicantEmail: application.applicantEmail,
+        reasoning: reasoning.substring(0, 200) + (reasoning.length > 200 ? '...' : '')
+      });
+
+      // Fetch document URLs for email
+      const documentUrls = await prisma.applicationDocument.findMany({
+        where: { applicationId: application.id },
+        select: {
+          documentType: true,
+          fileName: true,
+          fileUrl: true
+        }
       });
 
       // Send shortlisted email
@@ -159,7 +218,12 @@ export class ApplicationScoringService {
           currentStage: 'SHORTLISTED',
           additionalInfo: {
             score,
-            reasoning
+            reasoning,
+            documents: documentUrls.map(doc => ({
+              type: doc.documentType,
+              fileName: doc.fileName,
+              url: doc.fileUrl
+            }))
           }
         });
 
@@ -201,13 +265,28 @@ export class ApplicationScoringService {
         }
       });
 
-      logger.info('Application rejected', {
+      logger.info('❌ Application REJECTED', {
         applicationId: application.id,
         businessName: application.businessName,
-        reason: rejectionReason
+        applicantEmail: application.applicantEmail,
+        reason: rejectionReason.substring(0, 200) + (rejectionReason.length > 200 ? '...' : '')
       });
 
-      // Send rejection email
+      // Fetch application data for detailed rejection email
+      const applicationData = await prisma.application.findUnique({
+        where: { id: application.id },
+        include: {
+          documents: {
+            select: {
+              documentType: true,
+              fileName: true,
+              fileUrl: true
+            }
+          }
+        }
+      });
+
+      // Send rejection email with AI reasoning
       try {
         await EmailNotificationService.sendApplicationRejectedEmail({
           applicantName: application.applicantName,
@@ -216,7 +295,9 @@ export class ApplicationScoringService {
           applicationId: application.id,
           currentStage: 'REJECTED',
           additionalInfo: {
-            rejectionReason
+            rejectionReason: rejectionReason,
+            score: application.initialScreeningScore || 0,
+            aiReasoning: rejectionReason // AI-generated reasoning
           }
         });
 
