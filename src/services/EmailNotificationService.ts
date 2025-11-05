@@ -150,7 +150,7 @@ export class EmailNotificationService {
   static async sendInvestmentDecisionEmail(data: EmailNotificationData): Promise<void> {
     try {
       const subject = "Investment Decision Update - NVCCZ";
-      const htmlContent = this.getInvestmentDecisionTemplate(data);
+      const htmlContent = EmailNotificationService.getInvestmentDecisionTemplate(data);
       
       await zeptoClient.sendMail({
         from: {

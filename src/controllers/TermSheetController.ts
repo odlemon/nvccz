@@ -33,6 +33,33 @@ export class TermSheetController {
     try {
       const { applicationId } = req.params;
       const userId = (req as any).user.id;
+      
+      // Handle file upload if present
+      const file = (req as any).file;
+      let documentUrl = req.body.documentUrl;
+      let documentFileName = req.body.documentFileName;
+      let documentSize = req.body.documentSize;
+
+      // If file is uploaded, upload to Firebase
+      if (file) {
+        const { FirebaseStorageService } = require('../services/FirebaseStorageService');
+        
+        // Use applicationId for the path since termSheetId doesn't exist yet
+        // We'll use a temporary path structure: term-sheets/{applicationId}/temp/{fileName}
+        const tempTermSheetId = `temp-${applicationId}`;
+        const { filePath, downloadURL } = await FirebaseStorageService.uploadTermSheetDocument(
+          file.buffer,
+          file.originalname,
+          tempTermSheetId,
+          'TERM_SHEET'
+        );
+
+        documentUrl = downloadURL;
+        documentFileName = file.originalname;
+        documentSize = file.size;
+
+        console.log(`📁 Term sheet document uploaded: ${documentFileName} -> ${documentUrl}`);
+      }
 
       const termSheetData: CreateTermSheetRequest = {
         applicationId,
@@ -44,9 +71,9 @@ export class TermSheetController {
         keyTerms: req.body.keyTerms,
         conditions: req.body.conditions,
         timeline: req.body.timeline,
-        documentUrl: req.body.documentUrl,
-        documentFileName: req.body.documentFileName,
-        documentSize: req.body.documentSize
+        documentUrl: documentUrl,
+        documentFileName: documentFileName,
+        documentSize: documentSize ? parseInt(documentSize) : undefined
       };
 
       const termSheet = await TermSheetService.createTermSheet(termSheetData);

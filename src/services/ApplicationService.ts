@@ -208,6 +208,7 @@ export class ApplicationService {
               id: true,
               documentType: true,
               fileName: true,
+              fileUrl: true,
               isRequired: true,
               isSubmitted: true
             }
@@ -241,6 +242,7 @@ export class ApplicationService {
               id: true,
               documentType: true,
               fileName: true,
+              fileUrl: true,
               isRequired: true,
               isSubmitted: true
             }
@@ -361,6 +363,7 @@ export class ApplicationService {
               id: true,
               documentType: true,
               fileName: true,
+              fileUrl: true,
               isRequired: true,
               isSubmitted: true
             }
@@ -424,6 +427,7 @@ export class ApplicationService {
               id: true,
               documentType: true,
               fileName: true,
+              fileUrl: true,
               isRequired: true,
               isSubmitted: true
             }
@@ -500,6 +504,7 @@ export class ApplicationService {
               id: true,
               documentType: true,
               fileName: true,
+              fileUrl: true,
               isRequired: true,
               isSubmitted: true
             }
@@ -570,6 +575,7 @@ export class ApplicationService {
                 id: true,
                 documentType: true,
                 fileName: true,
+                fileUrl: true,
                 isRequired: true,
                 isSubmitted: true
               }
