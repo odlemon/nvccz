@@ -142,8 +142,8 @@ export class ApplicationScoringService {
         // Shortlist the application
         await this.shortlistApplication(application, score, reasoning, applicantDetails);
       } else {
-        // Reject the application
-        await this.rejectApplication(application, reasoning);
+        // Reject the application - pass the score so it's included in the email
+        await this.rejectApplication(application, reasoning, score);
       }
     } catch (error: any) {
       logger.error('Error processing application for shortlisting', {
@@ -158,7 +158,7 @@ export class ApplicationScoringService {
           where: { id: applicationId }
         });
         if (application && application.currentStage === 'PENDING_SHORTLISTING') {
-          await this.rejectApplication(application, 'Technical error during evaluation');
+          await this.rejectApplication(application, 'Technical error during evaluation', 0);
         }
       } catch (rejectError: any) {
         logger.error('Error rejecting application after scoring error', {
@@ -252,7 +252,8 @@ export class ApplicationScoringService {
    */
   private static async rejectApplication(
     application: any,
-    rejectionReason: string
+    rejectionReason: string,
+    score?: number
   ): Promise<void> {
     try {
       // Update application status to REJECTED
@@ -272,18 +273,26 @@ export class ApplicationScoringService {
         reason: rejectionReason.substring(0, 200) + (rejectionReason.length > 200 ? '...' : '')
       });
 
-      // Fetch application data for detailed rejection email
-      const applicationData = await prisma.application.findUnique({
+      // Fetch application data with updated score for detailed rejection email
+      const updatedApplication = await prisma.application.findUnique({
         where: { id: application.id },
-        include: {
-          documents: {
-            select: {
-              documentType: true,
-              fileName: true,
-              fileUrl: true
-            }
-          }
+        select: {
+          id: true,
+          applicantName: true,
+          applicantEmail: true,
+          businessName: true,
+          initialScreeningScore: true
         }
+      });
+
+      // Use the score from parameter or from updated application
+      const finalScore = score || updatedApplication?.initialScreeningScore || 0;
+
+      logger.info('📧 Preparing to send rejection email', {
+        applicationId: application.id,
+        applicantEmail: application.applicantEmail,
+        score: finalScore,
+        hasReasoning: !!rejectionReason
       });
 
       // Send rejection email with AI reasoning
@@ -296,19 +305,22 @@ export class ApplicationScoringService {
           currentStage: 'REJECTED',
           additionalInfo: {
             rejectionReason: rejectionReason,
-            score: application.initialScreeningScore || 0,
+            score: finalScore,
             aiReasoning: rejectionReason // AI-generated reasoning
           }
         });
 
-        logger.info('Rejection email sent successfully', {
+        logger.info('✅ Rejection email sent successfully', {
           applicationId: application.id,
-          applicantEmail: application.applicantEmail
+          applicantEmail: application.applicantEmail,
+          score: finalScore
         });
       } catch (emailError: any) {
-        logger.error('Failed to send rejection email', {
+        logger.error('❌ Failed to send rejection email', {
           applicationId: application.id,
-          error: emailError.message
+          applicantEmail: application.applicantEmail,
+          error: emailError.message,
+          stack: emailError.stack
         });
         // Don't fail the rejection if email fails
       }
