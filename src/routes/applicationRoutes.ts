@@ -395,7 +395,7 @@ router.use(authenticate);
  *       500:
  *         description: Internal server error
  */
-router.get("/", authorize(["admin", "fund_manager"]), ApplicationController.getAllApplications);
+router.get("/", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.getAllApplications);
 
 /**
  * @swagger
@@ -423,7 +423,7 @@ router.get("/", authorize(["admin", "fund_manager"]), ApplicationController.getA
  *       500:
  *         description: Internal server error
  */
-router.get("/:id", authorize(["admin", "fund_manager"]), ApplicationController.getApplicationById);
+router.get("/:id", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.getApplicationById);
 
 /**
  * @swagger
@@ -483,7 +483,7 @@ router.get("/:id", authorize(["admin", "fund_manager"]), ApplicationController.g
  *       500:
  *         description: Internal server error
  */
-router.put("/:id", authorize(["admin", "fund_manager"]), ApplicationController.updateApplication);
+router.put("/:id", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.updateApplication);
 
 /**
  * @swagger
@@ -529,7 +529,7 @@ router.put("/:id", authorize(["admin", "fund_manager"]), ApplicationController.u
  *       500:
  *         description: Internal server error
  */
-router.post("/:id/change-stage", authorize(["admin", "fund_manager"]), ApplicationController.changeApplicationStage);
+router.post("/:id/change-stage", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.changeApplicationStage);
 
 /**
  * @swagger
@@ -559,7 +559,7 @@ router.post("/:id/change-stage", authorize(["admin", "fund_manager"]), Applicati
  *       500:
  *         description: Internal server error
  */
-router.delete("/:id", authorize(["admin"]), ApplicationController.deleteApplication);
+router.delete("/:id", authenticate, authorize(["admin"]), ApplicationController.deleteApplication);
 
 // Due Diligence Routes
 /**
@@ -590,7 +590,7 @@ router.delete("/:id", authorize(["admin"]), ApplicationController.deleteApplicat
  *       500:
  *         description: Internal server error
  */
-router.post("/:id/due-diligence/initiate", authorize(["admin", "fund_manager"]), DueDiligenceController.initiateDueDiligence);
+router.post("/:id/due-diligence/initiate", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.initiateDueDiligence);
 
 /**
  * @swagger
@@ -673,7 +673,7 @@ router.post("/:id/due-diligence/initiate", authorize(["admin", "fund_manager"]),
  *       500:
  *         description: Internal server error
  */
-router.put("/:id/due-diligence", authorize(["admin", "fund_manager"]), DueDiligenceController.updateDueDiligence);
+router.put("/:id/due-diligence", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.updateDueDiligence);
 
 /**
  * @swagger
@@ -701,7 +701,7 @@ router.put("/:id/due-diligence", authorize(["admin", "fund_manager"]), DueDilige
  *       500:
  *         description: Internal server error
  */
-router.get("/:id/due-diligence", authorize(["admin", "fund_manager"]), DueDiligenceController.getDueDiligenceReport);
+router.get("/:id/due-diligence", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.getDueDiligenceReport);
 
 /**
  * @swagger
@@ -731,7 +731,7 @@ router.get("/:id/due-diligence", authorize(["admin", "fund_manager"]), DueDilige
  *       500:
  *         description: Internal server error
  */
-router.post("/:id/due-diligence/complete", authorize(["admin", "fund_manager"]), DueDiligenceController.completeDueDiligence);
+router.post("/:id/due-diligence/complete", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.completeDueDiligence);
 
 /**
  * @swagger
@@ -768,6 +768,6 @@ router.post("/:id/due-diligence/complete", authorize(["admin", "fund_manager"]),
  *       500:
  *         description: Internal server error
  */
-router.get("/due-diligence", authorize(["admin", "fund_manager"]), DueDiligenceController.getAllDueDiligenceReviews);
+router.get("/due-diligence", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.getAllDueDiligenceReviews);
 
 export default router;

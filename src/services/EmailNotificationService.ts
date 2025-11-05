@@ -945,6 +945,22 @@ export class EmailNotificationService {
   }
 
   private static getApplicationRejectedTemplate(data: EmailNotificationData): string {
+    // Create a summary from the AI reasoning (limit to 2-3 key points)
+    let feedbackSummary = '';
+    if (data.additionalInfo?.aiReasoning) {
+      const reasoning = data.additionalInfo.aiReasoning;
+      // Extract first sentence or key points, limit to ~150 characters
+      const sentences = reasoning.split(/[.!?]+/).filter(s => s.trim().length > 20);
+      if (sentences.length > 0) {
+        // Take first 2-3 sentences and summarize
+        const summary = sentences.slice(0, 2).map(s => s.trim()).join('. ').substring(0, 200);
+        feedbackSummary = summary + (summary.length >= 200 ? '...' : '');
+      } else {
+        // Fallback: take first 150 characters
+        feedbackSummary = reasoning.substring(0, 150) + (reasoning.length > 150 ? '...' : '');
+      }
+    }
+
     return `
       <!DOCTYPE html>
       <html>
@@ -979,17 +995,13 @@ export class EmailNotificationService {
             </ul>
             
             <h3>Application Decision</h3>
-            <p>After careful consideration and evaluation using our AI-powered assessment system, we have decided not to proceed with your application at this time.</p>
+            <p>After careful consideration and evaluation, we have decided not to proceed with your application at this time.</p>
             
-            ${data.additionalInfo?.aiReasoning ? `
-            <h3>Evaluation Feedback:</h3>
+            ${feedbackSummary ? `
+            <h3>Summary Feedback:</h3>
             <div style="background-color: #fff; padding: 15px; border-left: 4px solid #dc2626; margin: 15px 0;">
-              <p style="margin: 0; color: #666; line-height: 1.8;">${data.additionalInfo.aiReasoning}</p>
+              <p style="margin: 0; color: #666; line-height: 1.8;">${feedbackSummary}</p>
             </div>
-            ` : ''}
-            
-            ${data.additionalInfo?.score ? `
-            <p><strong>Application Score:</strong> ${data.additionalInfo.score}% (Threshold: 50%)</p>
             ` : ''}
             
             <p>This decision does not reflect on the quality of your business or your team. We encourage you to:</p>

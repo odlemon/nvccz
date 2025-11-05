@@ -14,18 +14,27 @@ export class ApplicationScoringService {
    * This method is called after application creation
    */
   static async processApplicationForShortlisting(applicationId: string): Promise<void> {
-    try {
-      logger.info('Starting shortlisting process', { applicationId });
+    const maxRetries = 3;
+    let retryCount = 0;
+    
+    while (retryCount < maxRetries) {
+      try {
+        logger.info('Starting shortlisting process', { applicationId, attempt: retryCount + 1 });
 
-      // Fetch application with documents
-      const application = await prisma.application.findUnique({
-        where: { id: applicationId },
-        include: {
-          documents: {
-            where: { isSubmitted: true }
-          }
-        }
-      });
+        // Fetch application with documents (with timeout handling)
+        const application = await Promise.race([
+          prisma.application.findUnique({
+            where: { id: applicationId },
+            include: {
+              documents: {
+                where: { isSubmitted: true }
+              }
+            }
+          }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Database query timeout')), 30000) // 30 second timeout
+          )
+        ]) as any;
 
       if (!application) {
         logger.error('Application not found for shortlisting', { applicationId });
@@ -127,44 +136,80 @@ export class ApplicationScoringService {
         }
       });
 
-      // Update application with score
-      await prisma.application.update({
-        where: { id: applicationId },
-        data: {
-          initialScreeningScore: score,
-          screeningOutcome: score >= 50 ? 'SHORTLISTED' : 'REJECTED',
-          // Store applicant details in metadata if needed
-        }
-      });
-
-      // Determine if shortlisted or rejected
-      if (score >= 50) {
-        // Shortlist the application
-        await this.shortlistApplication(application, score, reasoning, applicantDetails);
-      } else {
-        // Reject the application - pass the score so it's included in the email
-        await this.rejectApplication(application, reasoning, score);
-      }
-    } catch (error: any) {
-      logger.error('Error processing application for shortlisting', {
-        applicationId,
-        error: error.message,
-        stack: error.stack
-      });
-
-      // On error, reject the application to be safe
-      try {
-        const application = await prisma.application.findUnique({
-          where: { id: applicationId }
+        // Update application with score
+        await prisma.application.update({
+          where: { id: applicationId },
+          data: {
+            initialScreeningScore: score,
+            screeningOutcome: score >= 50 ? 'SHORTLISTED' : 'REJECTED',
+            // Store applicant details in metadata if needed
+          }
         });
-        if (application && application.currentStage === 'PENDING_SHORTLISTING') {
-          await this.rejectApplication(application, 'Technical error during evaluation', 0);
+
+        // Determine if shortlisted or rejected
+        if (score >= 50) {
+          // Shortlist the application
+          await this.shortlistApplication(application, score, reasoning, applicantDetails);
+        } else {
+          // Reject the application - pass the score so it's included in the email
+          await this.rejectApplication(application, reasoning, score);
         }
-      } catch (rejectError: any) {
-        logger.error('Error rejecting application after scoring error', {
+        
+        // Success - exit retry loop
+        return;
+      } catch (error: any) {
+        retryCount++;
+        const isTimeout = error.message?.includes('timeout') || 
+                          error.message?.includes('Socket timeout') ||
+                          error.code === 'P1008' || // Prisma timeout error code
+                          error.code === 'ETIMEDOUT';
+        
+        if (isTimeout && retryCount < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, retryCount), 10000); // Exponential backoff, max 10s
+          logger.warn('Database timeout, retrying shortlisting process', {
+            applicationId,
+            attempt: retryCount,
+            maxRetries,
+            delayMs: delay,
+            error: error.message
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue; // Retry
+        }
+        
+        // Non-timeout error or max retries reached
+        logger.error('Error processing application for shortlisting', {
           applicationId,
-          error: rejectError.message
+          attempt: retryCount,
+          error: error.message,
+          stack: error.stack,
+          isTimeout
         });
+
+        // On error, reject the application to be safe
+        try {
+          const application = await Promise.race([
+            prisma.application.findUnique({
+              where: { id: applicationId }
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Timeout')), 10000)
+            )
+          ]) as any;
+          
+          if (application && application.currentStage === 'PENDING_SHORTLISTING') {
+            await this.rejectApplication(application, 'Technical error during evaluation', 0);
+          }
+        } catch (rejectError: any) {
+          logger.error('Error rejecting application after scoring error', {
+            applicationId,
+            error: rejectError.message
+          });
+        }
+        
+        // Exit retry loop on non-timeout errors or after max retries
+        return;
       }
     }
   }
