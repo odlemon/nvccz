@@ -54,7 +54,7 @@ export class UserController {
       }
 
       // Validate department
-      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT", "Investments"];
       if (!validDepartments.includes(department)) {
         return res.status(400).json({
           success: false,

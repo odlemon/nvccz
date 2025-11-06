@@ -389,7 +389,7 @@ This is an automated message. Please do not reply to this email.
 
       // Validate department if provided
       if (userData.department) {
-        const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+        const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT", "Investments"];
         if (!validDepartments.includes(userData.department)) {
           throw new Error(`Invalid department. Valid departments: ${validDepartments.join(", ")}`);
         }

@@ -226,7 +226,7 @@ router.get("/departments/available", PerformanceBreakdownController.getAvailable
  *         required: true
  *         schema:
  *           type: string
- *           enum: [Finance, Sales, Operations, Procurement, "Human Resources", Marketing, Legal, IT]
+ *           enum: [Finance, Sales, Operations, Procurement, "Human Resources", Marketing, Legal, IT, Investments]
  *         description: Hardcoded department name
  *     responses:
  *       200:
