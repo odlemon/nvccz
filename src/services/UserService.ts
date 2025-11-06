@@ -272,10 +272,18 @@ This is an automated message. Please do not reply to this email.
 
   /**
    * Get all users
+   * Excludes applicants (users with role name "applicant")
    */
   static async getAllUsers() {
     try {
       const users = await prisma.user.findMany({
+        where: {
+          role: {
+            name: {
+              not: "applicant" // Exclude applicants
+            }
+          }
+        },
         select: {
           id: true,
           firstName: true,
