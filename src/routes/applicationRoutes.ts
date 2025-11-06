@@ -395,7 +395,7 @@ router.use(authenticate);
  *       500:
  *         description: Internal server error
  */
-router.get("/", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.getAllApplications);
+router.get("/", authenticate, ApplicationController.getAllApplications);
 
 /**
  * @swagger
