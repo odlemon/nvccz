@@ -8,7 +8,7 @@ export const taskAssignmentEndpoints = {
   // TASK ASSIGNMENT - DUE DILIGENCE WORKFLOW
   // ==========================================
 
-  '/api/applications/due-diligence/investments-users': {
+  '/applications/due-diligence/investments-users': {
     get: {
       summary: 'Get users from Investments department only',
       description: 'Retrieve all users from the Investments department for task assignment',
@@ -61,7 +61,7 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/api/applications/{id}/due-diligence/assign-task': {
+  '/applications/{id}/due-diligence/assign-task': {
     post: {
       summary: 'Assign task from due diligence (creates task in background, syncs with performance module)',
       description: 'Assign a task to an Investments department user. The task is automatically created in the performance module and the assignee receives an email notification.',
@@ -161,7 +161,7 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/api/activities/task/{taskId}': {
+  '/activities/task/{taskId}': {
     post: {
       summary: 'Create activity for task with optional document upload',
       description: 'Create a new activity for a specific task. Documents are optional as some activities are not metric-based. This creates a new activity each time (does not update existing activities).',
@@ -242,7 +242,7 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/api/activities/{activityId}/approval': {
+  '/activities/{activityId}/approval': {
     get: {
       summary: 'Get activity for approval (view documents)',
       description: 'Retrieve an activity with its documents for approval. Only the task creator (CIO) can view activities for approval.',
@@ -316,7 +316,7 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/api/activities/{activityId}/approve': {
+  '/activities/{activityId}/approve': {
     post: {
       summary: 'Approve activity (view documents and approve)',
       description: 'Approve or reject an activity. Only the task creator (CIO) can approve activities. The assignee receives an email notification about the approval decision.',
