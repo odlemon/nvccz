@@ -149,7 +149,35 @@ export class ActivityController {
       }
 
       const { title, description, valueCollected } = req.body;
-      const files = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['documents'] || [];
+      
+      // Handle file uploads - multer can store files as array or object
+      let files: Express.Multer.File[] = [];
+      
+      if (req.files) {
+        if (Array.isArray(req.files)) {
+          // Files come as array when using upload.array()
+          files = req.files;
+        } else if (typeof req.files === 'object') {
+          // Files come as object when using upload.fields() or upload.any()
+          // Check for 'documents' field specifically
+          const documentsField = (req.files as { [fieldname: string]: Express.Multer.File[] })['documents'];
+          if (documentsField && Array.isArray(documentsField)) {
+            files = documentsField;
+          } else {
+            // If no 'documents' field, get all files from the object
+            files = Object.values(req.files).flat();
+          }
+        }
+      }
+      
+      logger.info('File upload check', {
+        taskId,
+        filesCount: files.length,
+        hasReqFiles: !!req.files,
+        filesType: typeof req.files,
+        filesIsArray: Array.isArray(req.files),
+        fileNames: files.map(f => f.originalname)
+      });
 
       // Upload documents if provided
       const uploadedDocuments: Array<{
@@ -161,6 +189,13 @@ export class ActivityController {
       if (files.length > 0) {
         for (const file of files) {
           try {
+            logger.info('Processing file upload', {
+              taskId,
+              fileName: file.originalname,
+              fileSize: file.size,
+              mimetype: file.mimetype
+            });
+
             // Upload to Firebase Storage
             const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
               file.buffer,
@@ -175,20 +210,29 @@ export class ActivityController {
               fileSize: file.size
             });
 
-            logger.info('Activity document uploaded', {
+            logger.info('Activity document uploaded successfully', {
               taskId,
               fileName: file.originalname,
+              fileUrl: downloadURL,
               fileSize: file.size
             });
           } catch (uploadError: any) {
             logger.error('Failed to upload activity document', {
               taskId,
               fileName: file.originalname,
-              error: uploadError.message
+              error: uploadError.message,
+              stack: uploadError.stack
             });
             // Continue with other files even if one fails
           }
         }
+      } else {
+        logger.warn('No files found in request', {
+          taskId,
+          hasFiles: !!req.files,
+          filesType: typeof req.files,
+          filesIsArray: Array.isArray(req.files)
+        });
       }
 
       // Prepare description with documents if any
@@ -257,7 +301,29 @@ export class ActivityController {
         documentsCount: uploadedDocuments.length
       });
 
-      return ResponseHelper.success(res, "Activity created successfully", activity);
+      // Extract documents from description and add to response
+      let documents: Array<{ fileName: string; fileUrl: string; fileSize: number }> = [];
+      if (activity.description) {
+        const documentsMatch = activity.description.match(/\[DOCUMENTS:(.+?)\]/);
+        if (documentsMatch) {
+          try {
+            documents = JSON.parse(documentsMatch[1]);
+          } catch (e) {
+            logger.error('Failed to parse documents from description', {
+              activityId: activity.id,
+              error: e
+            });
+          }
+        }
+      }
+
+      // Add documents to the activity response
+      const activityWithDocuments = {
+        ...activity,
+        documents
+      };
+
+      return ResponseHelper.success(res, "Activity created successfully", activityWithDocuments);
     } catch (error: any) {
       logger.error("Error creating activity with documents", { error: error.message });
       return ResponseHelper.error(res, error.message || "Failed to create activity", undefined, 500);
