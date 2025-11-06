@@ -2,6 +2,8 @@
 import { Request, Response } from "express";
 import { ActivityService } from "../services/ActivityService";
 import { FirebaseStorageService } from "../services/FirebaseStorageService";
+import { EmailNotificationService } from "../services/EmailNotificationService";
+import { prisma } from "../utils/database";
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
 
@@ -129,16 +131,17 @@ export class ActivityController {
   }
 
   /**
-   * Update activity with optional document upload
+   * Create activity for task with optional document upload
    * Supports multipart/form-data for file uploads
+   * Creates a new activity for the given task (like createActivity but with document support)
    */
-  static async updateActivityWithDocuments(req: Request, res: Response) {
+  static async createActivityForTask(req: Request, res: Response) {
     try {
-      const { activityId } = req.params;
+      const { taskId } = req.params;
       const userId = (req as any).user?.id;
 
-      if (!activityId) {
-        return ResponseHelper.error(res, "Activity ID is required", undefined, 400);
+      if (!taskId) {
+        return ResponseHelper.error(res, "Task ID is required", undefined, 400);
       }
 
       if (!userId) {
@@ -162,7 +165,7 @@ export class ActivityController {
             const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
               file.buffer,
               file.originalname,
-              `activity-${activityId}`, // Use activity ID as identifier
+              `activity-task-${taskId}-${Date.now()}`, // Use task ID and timestamp as identifier
               'ACTIVITY_DOCUMENT'
             );
 
@@ -173,13 +176,13 @@ export class ActivityController {
             });
 
             logger.info('Activity document uploaded', {
-              activityId,
+              taskId,
               fileName: file.originalname,
               fileSize: file.size
             });
           } catch (uploadError: any) {
             logger.error('Failed to upload activity document', {
-              activityId,
+              taskId,
               fileName: file.originalname,
               error: uploadError.message
             });
@@ -188,28 +191,76 @@ export class ActivityController {
         }
       }
 
-      // Update activity
-      const updatedActivity = await ActivityService.updateActivityWithDocuments(
-        activityId,
-        {
-          title,
-          description,
-          valueCollected: valueCollected ? parseFloat(valueCollected) : undefined,
-          documents: uploadedDocuments.length > 0 ? uploadedDocuments : undefined
-        },
-        userId
-      );
+      // Prepare description with documents if any
+      let finalDescription = description || '';
+      if (uploadedDocuments.length > 0) {
+        const documentsInfo = JSON.stringify(uploadedDocuments);
+        finalDescription = finalDescription ? `${finalDescription}\n\n[DOCUMENTS:${documentsInfo}]` : `[DOCUMENTS:${documentsInfo}]`;
+      }
 
-      logger.info('Activity updated with documents', {
-        activityId,
+      // Create activity using the existing createActivity method
+      const activity = await ActivityService.createActivity({
+        title: title || 'Task Activity',
+        description: finalDescription,
+        activityType: 'task',
+        taskId: taskId,
+        valueCollected: valueCollected ? parseFloat(valueCollected) : undefined,
+        userId
+      });
+
+      // Get task creator for email notification
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      // Send email notification to task creator (CIO) about activity creation
+      if (task && task.creator) {
+        try {
+          await EmailNotificationService.sendDueDiligenceActivityUpdateEmail({
+            cioName: `${task.creator.firstName} ${task.creator.lastName}`,
+            cioEmail: task.creator.email,
+            assigneeName: `${activity.user.firstName} ${activity.user.lastName}`,
+            taskTitle: task.title,
+            activityTitle: activity.title,
+            activityId: activity.id,
+            taskId: taskId,
+            hasDocuments: uploadedDocuments.length > 0
+          });
+          logger.info('Activity creation email sent to CIO', {
+            activityId: activity.id,
+            taskId: taskId,
+            cioId: task.creator.id
+          });
+        } catch (emailError: any) {
+          logger.error('Failed to send activity creation email', {
+            error: emailError.message,
+            activityId: activity.id
+          });
+          // Don't fail activity creation if email fails
+        }
+      }
+
+      logger.info('Activity created with documents', {
+        activityId: activity.id,
+        taskId,
         userId,
         documentsCount: uploadedDocuments.length
       });
 
-      return ResponseHelper.success(res, "Activity updated successfully", updatedActivity);
+      return ResponseHelper.success(res, "Activity created successfully", activity);
     } catch (error: any) {
-      logger.error("Error updating activity with documents", { error: error.message });
-      return ResponseHelper.error(res, error.message || "Failed to update activity", undefined, 500);
+      logger.error("Error creating activity with documents", { error: error.message });
+      return ResponseHelper.error(res, error.message || "Failed to create activity", undefined, 500);
     }
   }
 

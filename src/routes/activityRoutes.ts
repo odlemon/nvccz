@@ -408,20 +408,20 @@ router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
 
 /**
  * @swagger
- * /activities/{activityId}/update:
- *   put:
- *     summary: Update activity with optional document upload
- *     description: Update an activity with progress information and optionally upload documents. Documents are optional as some activities are not metric-based.
+ * /activities/task/{taskId}:
+ *   post:
+ *     summary: Create activity for task with optional document upload
+ *     description: Create a new activity for a specific task. Documents are optional as some activities are not metric-based. This creates a new activity each time (does not update existing activities).
  *     tags: [Task assignment]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: activityId
+ *         name: taskId
  *         required: true
  *         schema:
  *           type: string
- *         description: Activity ID
+ *         description: Task ID
  *     requestBody:
  *       required: true
  *       content:
@@ -431,10 +431,10 @@ router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
  *             properties:
  *               title:
  *                 type: string
- *                 description: Updated activity title
+ *                 description: Activity title (optional, defaults to "Task Activity")
  *               description:
  *                 type: string
- *                 description: Updated activity description
+ *                 description: Activity description
  *               valueCollected:
  *                 type: number
  *                 description: Value collected/achieved (optional)
@@ -443,10 +443,10 @@ router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
  *                 items:
  *                   type: string
  *                   format: binary
- *                 description: Optional document files to upload
+ *                 description: Optional document files to upload (PDF, DOCX, XLSX, images)
  *     responses:
  *       200:
- *         description: Activity updated successfully
+ *         description: Activity created successfully
  *       400:
  *         description: Bad request
  *       401:
@@ -454,7 +454,7 @@ router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
  *       500:
  *         description: Internal server error
  */
-router.put("/:activityId/update", upload.array('documents', 10), ActivityController.updateActivityWithDocuments);
+router.post("/task/:taskId", upload.array('documents', 10), ActivityController.createActivityForTask);
 
 /**
  * @swagger

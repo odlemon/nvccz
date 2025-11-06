@@ -161,19 +161,19 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/api/activities/{activityId}/update': {
-    put: {
-      summary: 'Update activity with optional document upload',
-      description: 'Update an activity with progress information and optionally upload documents. Documents are optional as some activities are not metric-based.',
+  '/api/activities/task/{taskId}': {
+    post: {
+      summary: 'Create activity for task with optional document upload',
+      description: 'Create a new activity for a specific task. Documents are optional as some activities are not metric-based. This creates a new activity each time (does not update existing activities).',
       tags: ['Task assignment'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
           in: 'path',
-          name: 'activityId',
+          name: 'taskId',
           required: true,
           schema: { type: 'string' },
-          description: 'Activity ID'
+          description: 'Task ID'
         }
       ],
       requestBody: {
@@ -185,7 +185,7 @@ export const taskAssignmentEndpoints = {
               properties: {
                 title: {
                   type: 'string',
-                  description: 'Updated activity title',
+                  description: 'Activity title (optional, defaults to task title if not provided)',
                   example: 'Completed financial review'
                 },
                 description: {
@@ -213,14 +213,14 @@ export const taskAssignmentEndpoints = {
       },
       responses: {
         200: {
-          description: 'Activity updated successfully',
+          description: 'Activity created successfully',
           content: {
             'application/json': {
               schema: {
                 type: 'object',
                 properties: {
                   success: { type: 'boolean', example: true },
-                  message: { type: 'string', example: 'Activity updated successfully' },
+                  message: { type: 'string', example: 'Activity created successfully' },
                   data: {
                     type: 'object',
                     properties: {

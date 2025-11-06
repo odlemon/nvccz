@@ -760,7 +760,37 @@ export class TaskService {
         }
       });
 
-      return tasks;
+      // Extract document URLs from activity descriptions and add to activities
+      const tasksWithDocuments = tasks.map(task => {
+        const activitiesWithDocuments = task.activityLogs.map((activity: any) => {
+          let documents: Array<{ fileName: string; fileUrl: string; fileSize: number }> = [];
+          
+          // Extract documents from description if they exist
+          if (activity.description) {
+            const documentsMatch = activity.description.match(/\[DOCUMENTS:(.+?)\]/);
+            if (documentsMatch) {
+              try {
+                documents = JSON.parse(documentsMatch[1]);
+              } catch (e) {
+                // If parsing fails, documents array remains empty
+                console.error('Failed to parse documents from activity description:', e);
+              }
+            }
+          }
+
+          return {
+            ...activity,
+            documents
+          };
+        });
+
+        return {
+          ...task,
+          activityLogs: activitiesWithDocuments
+        };
+      });
+
+      return tasksWithDocuments;
     } catch (error) {
       throw error;
     }
