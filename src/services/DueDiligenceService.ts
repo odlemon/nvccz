@@ -6,6 +6,7 @@ import { prisma } from '../utils/database';
 import { TaskService } from './TaskService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { logger } from '../utils/logger';
+import { HARDCODED_ROLES } from '../config/hardcodedRoles';
 
 export interface IDueDiligenceCreateParams {
   applicationId: string;
@@ -381,17 +382,63 @@ export class DueDiligenceService {
    */
   static async getInvestmentsDepartmentUsers(): Promise<any[]> {
     try {
-      const investmentsDepartment = await prisma.department.findFirst({
+      // Try exact match first, then case-insensitive
+      let investmentsDepartment = await prisma.department.findFirst({
         where: {
-          name: {
-            contains: 'Investment'
-          }
+          name: 'Investments'
         }
       });
 
+      // If not found, try case-insensitive search
       if (!investmentsDepartment) {
-        throw new Error('Investments department not found');
+        const allDepartments = await prisma.department.findMany({
+          where: {
+            isActive: true
+          }
+        });
+        
+        investmentsDepartment = allDepartments.find(
+          dept => dept.name.toLowerCase() === 'investments' || 
+                  dept.name.toLowerCase().includes('investment')
+        ) || null;
       }
+
+      if (!investmentsDepartment) {
+        throw new Error('Investments department not found. Please ensure the Investments department exists in the database.');
+      }
+
+      // Get all hardcoded roles for the Investments department
+      const investmentsHardcodedRoles = HARDCODED_ROLES.filter(
+        role => role.department === 'Investments'
+      );
+
+      // Get database roles that match the hardcoded role names
+      const roleNames = investmentsHardcodedRoles.map(r => r.name);
+      const investmentsRoles = await prisma.role.findMany({
+        where: {
+          name: {
+            in: roleNames
+          }
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true
+        },
+        orderBy: {
+          name: 'asc'
+        }
+      });
+
+      // Combine hardcoded role info with database role info
+      const rolesWithDetails = investmentsHardcodedRoles.map(hardcodedRole => {
+        const dbRole = investmentsRoles.find(r => r.name === hardcodedRole.name);
+        return {
+          ...hardcodedRole,
+          id: dbRole?.id || null,
+          dbRoleExists: !!dbRole
+        };
+      });
 
       const users = await prisma.user.findMany({
         where: {
@@ -406,13 +453,16 @@ export class DueDiligenceService {
           role: {
             select: {
               id: true,
-              name: true
+              name: true,
+              description: true,
+              code: true
             }
           },
           department: {
             select: {
               id: true,
-              name: true
+              name: true,
+              description: true
             }
           }
         },
@@ -421,7 +471,18 @@ export class DueDiligenceService {
         }
       });
 
-      return users;
+      // Return users with department roles included
+      return {
+        users: users,
+        department: {
+          id: investmentsDepartment.id,
+          name: investmentsDepartment.name,
+          description: investmentsDepartment.description
+        },
+        roles: rolesWithDetails,
+        totalUsers: users.length,
+        totalRoles: rolesWithDetails.length
+      };
     } catch (error: any) {
       throw new Error(`Failed to get Investments department users: ${error.message}`);
     }

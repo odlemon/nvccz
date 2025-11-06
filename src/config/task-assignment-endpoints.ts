@@ -8,7 +8,7 @@ export const taskAssignmentEndpoints = {
   // TASK ASSIGNMENT - DUE DILIGENCE WORKFLOW
   // ==========================================
 
-  '/applications/due-diligence/investments-users': {
+  '/api/applications/due-diligence/investments-users': {
     get: {
       summary: 'Get users from Investments department only',
       description: 'Retrieve all users from the Investments department for task assignment',
@@ -61,7 +61,7 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/applications/{id}/due-diligence/assign-task': {
+  '/api/applications/{id}/due-diligence/assign-task': {
     post: {
       summary: 'Assign task from due diligence (creates task in background, syncs with performance module)',
       description: 'Assign a task to an Investments department user. The task is automatically created in the performance module and the assignee receives an email notification.',
@@ -161,7 +161,7 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/activities/{activityId}/update': {
+  '/api/activities/{activityId}/update': {
     put: {
       summary: 'Update activity with optional document upload',
       description: 'Update an activity with progress information and optionally upload documents. Documents are optional as some activities are not metric-based.',
@@ -242,7 +242,7 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/activities/{activityId}/approval': {
+  '/api/activities/{activityId}/approval': {
     get: {
       summary: 'Get activity for approval (view documents)',
       description: 'Retrieve an activity with its documents for approval. Only the task creator (CIO) can view activities for approval.',
@@ -316,7 +316,7 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/activities/{activityId}/approve': {
+  '/api/activities/{activityId}/approve': {
     post: {
       summary: 'Approve activity (view documents and approve)',
       description: 'Approve or reject an activity. Only the task creator (CIO) can approve activities. The assignee receives an email notification about the approval decision.',
