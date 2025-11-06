@@ -214,15 +214,14 @@ export class DueDiligenceController {
    */
   static async getInvestmentsDepartmentUsers(req: Request, res: Response): Promise<void> {
     try {
-      const result = await DueDiligenceService.getInvestmentsDepartmentUsers();
+      const users = await DueDiligenceService.getInvestmentsDepartmentUsers();
 
       logger.info("Investments department users retrieved", {
         requestedBy: (req as any).user?.id,
-        userCount: result.totalUsers || result.users?.length || 0,
-        roleCount: result.totalRoles || result.roles?.length || 0
+        count: users.length
       });
 
-      ResponseHelper.success(res, "Investments department users retrieved successfully", result);
+      ResponseHelper.success(res, "Investments department users retrieved successfully", users);
     } catch (error: any) {
       logger.error("Error getting Investments department users", { error: error.message });
       ResponseHelper.error(res, `Failed to get Investments department users: ${error.message}`, undefined, 500);
