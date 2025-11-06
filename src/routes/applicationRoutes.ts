@@ -770,4 +770,78 @@ router.post("/:id/due-diligence/complete", authenticate, authorize(["admin", "fu
  */
 router.get("/due-diligence", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.getAllDueDiligenceReviews);
 
+/**
+ * @swagger
+ * /applications/due-diligence/investments-users:
+ *   get:
+ *     summary: Get users from Investments department only
+ *     description: Retrieve all users from the Investments department for task assignment
+ *     tags: [Task assignment]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Investments department users retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/due-diligence/investments-users", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.getInvestmentsDepartmentUsers);
+
+/**
+ * @swagger
+ * /applications/{id}/due-diligence/assign-task:
+ *   post:
+ *     summary: Assign task from due diligence (creates task in background, syncs with performance module)
+ *     description: Assign a task to an Investments department user. The task is automatically created in the performance module and the assignee receives an email notification.
+ *     tags: [Task assignment]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Application ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - assigneeId
+ *               - title
+ *             properties:
+ *               assigneeId:
+ *                 type: string
+ *                 description: ID of the user to assign the task to (must be from Investments department)
+ *               title:
+ *                 type: string
+ *                 description: Task title
+ *               description:
+ *                 type: string
+ *                 description: Task description
+ *               priority:
+ *                 type: string
+ *                 enum: [low, medium, high, critical]
+ *                 default: high
+ *               dueDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Task due date
+ *     responses:
+ *       200:
+ *         description: Task assigned successfully and synced with performance module
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post("/:id/due-diligence/assign-task", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.assignDueDiligenceTask);
+
 export default router;

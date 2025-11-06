@@ -2,8 +2,37 @@
 import express from "express";
 import { ActivityController } from "../controllers/ActivityController";
 import { authenticate } from "../middleware/authenticate";
+import multer from "multer";
 
 const router = express.Router();
+
+// Configure multer for document uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit for documents
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow PDF, DOCX, XLSX, and images
+    const allowedMimes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/msword', // .doc
+      'application/vnd.ms-excel', // .xls
+      'image/jpeg',
+      'image/png',
+      'image/jpg'
+    ];
+    
+    if (allowedMimes.includes(file.mimetype) || 
+        file.originalname.match(/\.(pdf|doc|docx|xls|xlsx|jpg|jpeg|png)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Allowed: PDF, DOC, DOCX, XLS, XLSX, JPG, JPEG, PNG'));
+    }
+  }
+});
 
 // Apply authentication middleware to all routes
 router.use(authenticate);
@@ -376,5 +405,129 @@ router.get("/department/:department/goals", ActivityController.getDepartmentGoal
  *         description: Internal server error
  */
 router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
+
+/**
+ * @swagger
+ * /activities/{activityId}/update:
+ *   put:
+ *     summary: Update activity with optional document upload
+ *     description: Update an activity with progress information and optionally upload documents. Documents are optional as some activities are not metric-based.
+ *     tags: [Task assignment]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: activityId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Activity ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Updated activity title
+ *               description:
+ *                 type: string
+ *                 description: Updated activity description
+ *               valueCollected:
+ *                 type: number
+ *                 description: Value collected/achieved (optional)
+ *               documents:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *                 description: Optional document files to upload
+ *     responses:
+ *       200:
+ *         description: Activity updated successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.put("/:activityId/update", upload.array('documents', 10), ActivityController.updateActivityWithDocuments);
+
+/**
+ * @swagger
+ * /activities/{activityId}/approval:
+ *   get:
+ *     summary: Get activity for approval (view documents)
+ *     description: Retrieve an activity with its documents for approval. Only the task creator (CIO) can view activities for approval.
+ *     tags: [Task assignment]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: activityId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Activity ID
+ *     responses:
+ *       200:
+ *         description: Activity retrieved successfully with documents
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - only task creator can view for approval
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/:activityId/approval", ActivityController.getActivityForApproval);
+
+/**
+ * @swagger
+ * /activities/{activityId}/approve:
+ *   post:
+ *     summary: Approve activity (view documents and approve)
+ *     description: Approve or reject an activity. Only the task creator (CIO) can approve activities. The assignee receives an email notification about the approval decision.
+ *     tags: [Task assignment]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: activityId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Activity ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               approved:
+ *                 type: boolean
+ *                 default: true
+ *                 description: Whether to approve (true) or reject (false) the activity
+ *               comments:
+ *                 type: string
+ *                 description: Optional comments about the approval decision
+ *     responses:
+ *       200:
+ *         description: Activity approved successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - only task creator can approve
+ *       500:
+ *         description: Internal server error
+ */
+router.post("/:activityId/approve", ActivityController.approveActivity);
 
 export default router;

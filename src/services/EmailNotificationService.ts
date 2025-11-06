@@ -113,6 +113,128 @@ export class EmailNotificationService {
   }
 
   /**
+   * Send due diligence task assigned email
+   */
+  static async sendDueDiligenceTaskAssignedEmail(data: {
+    assigneeName: string;
+    assigneeEmail: string;
+    taskTitle: string;
+    businessName: string;
+    applicationId: string;
+    taskId: string;
+  }): Promise<void> {
+    try {
+      const subject = "New Due Diligence Task Assigned - NVCCZ";
+      const htmlContent = this.getDueDiligenceTaskAssignedTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Investment Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.assigneeEmail,
+              name: data.assigneeName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`Due diligence task assigned email sent to ${data.assigneeEmail}`);
+    } catch (error) {
+      console.error("Error sending due diligence task assigned email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send due diligence activity update email (to CIO)
+   */
+  static async sendDueDiligenceActivityUpdateEmail(data: {
+    cioName: string;
+    cioEmail: string;
+    assigneeName: string;
+    taskTitle: string;
+    activityTitle: string;
+    activityId: string;
+    taskId: string;
+    hasDocuments: boolean;
+  }): Promise<void> {
+    try {
+      const subject = "Due Diligence Activity Update - NVCCZ";
+      const htmlContent = this.getDueDiligenceActivityUpdateTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Investment Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.cioEmail,
+              name: data.cioName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`Due diligence activity update email sent to ${data.cioEmail}`);
+    } catch (error) {
+      console.error("Error sending due diligence activity update email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send due diligence activity approved email (to assignee)
+   */
+  static async sendDueDiligenceActivityApprovedEmail(data: {
+    assigneeName: string;
+    assigneeEmail: string;
+    taskTitle: string;
+    activityTitle: string;
+    activityId: string;
+    approved: boolean;
+    comments?: string;
+  }): Promise<void> {
+    try {
+      const subject = data.approved 
+        ? "Due Diligence Activity Approved - NVCCZ"
+        : "Due Diligence Activity Rejected - NVCCZ";
+      const htmlContent = this.getDueDiligenceActivityApprovedTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Investment Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.assigneeEmail,
+              name: data.assigneeName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`Due diligence activity ${data.approved ? 'approved' : 'rejected'} email sent to ${data.assigneeEmail}`);
+    } catch (error) {
+      console.error("Error sending due diligence activity approval email:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Send board review started email
    */
   static async sendBoardReviewStartedEmail(data: EmailNotificationData): Promise<void> {
@@ -604,6 +726,185 @@ export class EmailNotificationService {
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
             <p>© 2024 NVCCZ. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private static getDueDiligenceTaskAssignedTemplate(data: {
+    assigneeName: string;
+    assigneeEmail: string;
+    taskTitle: string;
+    businessName: string;
+    applicationId: string;
+    taskId: string;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>New Due Diligence Task Assigned - NVCCZ</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #059669; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #f0fdf4; border-left: 4px solid #059669; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #059669; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">📋 New Task Assigned</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.assigneeName},</p>
+            
+            <p>You have been assigned a new due diligence task. Please log in to the performance module to view the task details and start working on it.</p>
+            
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Task Title:</strong> ${data.taskTitle}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Business:</strong> ${data.businessName}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Application ID:</strong> ${data.applicationId}</p>
+            </div>
+
+            <p>This task has been automatically synced with the performance module. You can update your progress and upload relevant documents as you work on the task.</p>
+            
+            <p>Please ensure you complete this task within the specified deadline.</p>
+            
+            <p>Best regards,<br>
+            <strong>NVCCZ Investment Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from NVCCZ Investment Management System.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private static getDueDiligenceActivityUpdateTemplate(data: {
+    cioName: string;
+    cioEmail: string;
+    assigneeName: string;
+    taskTitle: string;
+    activityTitle: string;
+    activityId: string;
+    taskId: string;
+    hasDocuments: boolean;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Due Diligence Activity Update - NVCCZ</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #7c3aed; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #faf5ff; border-left: 4px solid #7c3aed; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #7c3aed; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">📊 Activity Update</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.cioName},</p>
+            
+            <p><strong>${data.assigneeName}</strong> has updated their progress on the following task:</p>
+            
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Task:</strong> ${data.taskTitle}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Activity:</strong> ${data.activityTitle}</p>
+              ${data.hasDocuments ? '<p style="margin: 10px 0 0 0;"><strong>📎 Documents:</strong> Attached</p>' : ''}
+            </div>
+
+            <p>Please review the activity update and attached documents (if any) in the due diligence panel. You can approve or request changes as needed.</p>
+            
+            <p>Best regards,<br>
+            <strong>NVCCZ Investment Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from NVCCZ Investment Management System.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private static getDueDiligenceActivityApprovedTemplate(data: {
+    assigneeName: string;
+    assigneeEmail: string;
+    taskTitle: string;
+    activityTitle: string;
+    activityId: string;
+    approved: boolean;
+    comments?: string;
+  }): string {
+    const statusColor = data.approved ? '#059669' : '#dc2626';
+    const statusText = data.approved ? 'Approved' : 'Rejected';
+    const statusIcon = data.approved ? '✅' : '❌';
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Activity ${statusText} - NVCCZ</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: ${statusColor}; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: ${data.approved ? '#f0fdf4' : '#fef2f2'}; border-left: 4px solid ${statusColor}; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">${statusIcon} Activity ${statusText}</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.assigneeName},</p>
+            
+            <p>Your activity update has been reviewed and <strong>${statusText.toLowerCase()}</strong>:</p>
+            
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Task:</strong> ${data.taskTitle}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Activity:</strong> ${data.activityTitle}</p>
+            </div>
+
+            ${data.comments ? `
+            <div style="background: #f9fafb; padding: 15px; border-radius: 4px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Comments:</strong></p>
+              <p style="margin: 10px 0 0 0;">${data.comments}</p>
+            </div>
+            ` : ''}
+
+            ${data.approved ? 
+              '<p>Great work! Your activity has been approved. Please continue with the task.</p>' :
+              '<p>Please review the comments above and make the necessary changes. You can update your activity and resubmit for review.</p>'
+            }
+            
+            <p>Best regards,<br>
+            <strong>NVCCZ Investment Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from NVCCZ Investment Management System.</p>
           </div>
         </div>
       </body>
