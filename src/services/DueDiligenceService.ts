@@ -318,7 +318,8 @@ export class DueDiligenceService {
       }
 
       // Check if all tasks assigned for this due diligence are approved
-      // Find tasks related to this application (via description containing applicationId)
+      // Find ALL tasks related to this application (via description containing applicationId)
+      // Multiple tasks can be assigned to the same due diligence
       const relatedTasks = await prisma.task.findMany({
         where: {
           description: {
@@ -331,6 +332,12 @@ export class DueDiligenceService {
       });
 
       if (relatedTasks.length > 0) {
+        logger.info(`Checking ${relatedTasks.length} task(s) for due diligence completion`, {
+          applicationId,
+          taskCount: relatedTasks.length,
+          taskTitles: relatedTasks.map(t => t.title)
+        });
+
         // Check each task's activities for approval status
         for (const task of relatedTasks) {
           const activities = task.activityLogs || [];
@@ -347,13 +354,33 @@ export class DueDiligenceService {
             if (unapprovedActivities.length > 0) {
               throw new Error(`Cannot complete due diligence: Task "${task.title}" has ${unapprovedActivities.length} unapproved activity/activities. All activities must be approved before completing due diligence.`);
             }
+            
+            logger.info(`Task "${task.title}" has all activities approved`, {
+              taskId: task.id,
+              activitiesCount: activities.length
+            });
           } else {
-            // Task has no activities yet
+            // Task has no activities yet - allow completion if task is marked as completed
+            // OR if task stage is 'completed'
             if (task.stage !== 'completed') {
-              throw new Error(`Cannot complete due diligence: Task "${task.title}" has no activities and is not completed. Please ensure all tasks have activities and are approved.`);
+              throw new Error(`Cannot complete due diligence: Task "${task.title}" has no activities and is not completed. Please ensure all tasks have activities and are approved, or mark the task as completed.`);
             }
+            
+            logger.info(`Task "${task.title}" has no activities but is marked as completed`, {
+              taskId: task.id,
+              stage: task.stage
+            });
           }
         }
+        
+        logger.info('All tasks validated - due diligence can be completed', {
+          applicationId,
+          tasksCount: relatedTasks.length
+        });
+      } else {
+        logger.info('No tasks assigned for this due diligence - proceeding with completion', {
+          applicationId
+        });
       }
 
       // Update due diligence status
@@ -505,6 +532,7 @@ export class DueDiligenceService {
 
   /**
    * Assign task from due diligence (creates task in background, syncs with performance module)
+   * Multiple tasks can be assigned to the same due diligence - each call creates a new task
    */
   static async assignDueDiligenceTask(
     applicationId: string,
