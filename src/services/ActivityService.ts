@@ -658,11 +658,6 @@ export class ActivityService {
         throw new Error('Activity not found');
       }
 
-      // Check if approver is the task creator (CIO)
-      if (activity.task && activity.task.createdBy !== approverId) {
-        throw new Error('Only the task creator can approve this activity');
-      }
-
       // Extract documents from description (temporary approach - in production, use a proper field)
       const documentsMatch = activity.description?.match(/\[DOCUMENTS:(.+?)\]/);
       let documents: any[] = [];
@@ -765,11 +760,6 @@ export class ActivityService {
 
       if (!activity) {
         throw new Error('Activity not found');
-      }
-
-      // Check if approver is the task creator
-      if (activity.task && activity.task.createdBy !== approverId) {
-        throw new Error('Only the task creator can view this activity for approval');
       }
 
       // Extract documents from description
