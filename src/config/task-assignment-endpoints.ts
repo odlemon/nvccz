@@ -161,10 +161,10 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/api/activities/task/{taskId}/update': {
+  '/api/activities/task/{taskId}': {
     post: {
-      summary: 'Create or update activity for task',
-      description: 'Create or update an activity for a specific task. If no activity exists for this task and user, it will be created. Documents are optional as some activities are not metric-based.',
+      summary: 'Create activity for task with optional document upload',
+      description: 'Create a new activity for a specific task. Documents are optional as some activities are not metric-based. This creates a new activity each time (does not update existing activities).',
       tags: ['Task assignment'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -213,14 +213,14 @@ export const taskAssignmentEndpoints = {
       },
       responses: {
         200: {
-          description: 'Activity updated successfully',
+          description: 'Activity created successfully',
           content: {
             'application/json': {
               schema: {
                 type: 'object',
                 properties: {
                   success: { type: 'boolean', example: true },
-                  message: { type: 'string', example: 'Activity updated successfully' },
+                  message: { type: 'string', example: 'Activity created successfully' },
                   data: {
                     type: 'object',
                     properties: {

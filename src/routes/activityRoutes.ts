@@ -408,10 +408,10 @@ router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
 
 /**
  * @swagger
- * /activities/task/{taskId}/update:
+ * /activities/task/{taskId}:
  *   post:
- *     summary: Create or update activity for task
- *     description: Create or update an activity for a specific task. If no activity exists for this task and user, it will be created. Documents are optional as some activities are not metric-based.
+ *     summary: Create activity for task with optional document upload
+ *     description: Create a new activity for a specific task. Documents are optional as some activities are not metric-based. This creates a new activity each time (does not update existing activities).
  *     tags: [Task assignment]
  *     security:
  *       - bearerAuth: []
@@ -431,7 +431,7 @@ router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
  *             properties:
  *               title:
  *                 type: string
- *                 description: Activity title (optional, defaults to task title if not provided)
+ *                 description: Activity title (optional, defaults to "Task Activity")
  *               description:
  *                 type: string
  *                 description: Activity description
@@ -443,10 +443,10 @@ router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
  *                 items:
  *                   type: string
  *                   format: binary
- *                 description: Optional document files to upload
+ *                 description: Optional document files to upload (PDF, DOCX, XLSX, images)
  *     responses:
  *       200:
- *         description: Activity created or updated successfully
+ *         description: Activity created successfully
  *       400:
  *         description: Bad request
  *       401:
@@ -454,7 +454,7 @@ router.get("/manager/tasks", ActivityController.getManagerCreatedTasks);
  *       500:
  *         description: Internal server error
  */
-router.post("/task/:taskId/update", upload.array('documents', 10), ActivityController.updateActivityWithDocuments);
+router.post("/task/:taskId", upload.array('documents', 10), ActivityController.createActivityForTask);
 
 /**
  * @swagger
