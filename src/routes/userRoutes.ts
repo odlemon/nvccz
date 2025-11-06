@@ -237,6 +237,7 @@ router.get("/:id", UserController.getUserById);
  *                   - Marketing
  *                   - Legal
  *                   - IT
+ *                   - Investments
  *                 example: "Finance"
  *                 description: "User's department (must match one of the allowed values)"
  *               roleCode:
@@ -343,6 +344,7 @@ router.post("/", UserController.createUser);
  *                   - Marketing
  *                   - Legal
  *                   - IT
+ *                   - Investments
  *                 example: "Finance"
  *                 description: "User's department (must match one of the allowed values)"
  *               roleCode:
