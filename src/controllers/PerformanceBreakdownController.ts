@@ -27,7 +27,7 @@ export class PerformanceBreakdownController {
       }
 
       // Validate department names are hardcoded
-      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT", "Investments"];
       const invalidDepartments = selectedDepartments.filter(dept => !validDepartments.includes(dept));
       
       if (invalidDepartments.length > 0) {
@@ -111,7 +111,8 @@ export class PerformanceBreakdownController {
         { name: "Human Resources", description: "HR operations and talent management" },
         { name: "Marketing", description: "Marketing and brand management" },
         { name: "Legal", description: "Legal compliance and risk management" },
-        { name: "IT", description: "Technology and systems management" }
+        { name: "IT", description: "Technology and systems management" },
+        { name: "Investments", description: "Investment portfolio management and fund operations" }
       ];
 
       res.json({
@@ -143,7 +144,7 @@ export class PerformanceBreakdownController {
       }
 
       // Validate department name
-      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT", "Investments"];
       if (!validDepartments.includes(departmentName)) {
         return res.status(400).json({
           success: false,

@@ -29,7 +29,7 @@ const router = express.Router();
  *                 type: array
  *                 items:
  *                   type: string
- *                   enum: [Finance, Sales, Operations, Procurement, "Human Resources", Marketing, Legal, IT]
+ *                   enum: [Finance, Sales, Operations, Procurement, "Human Resources", Marketing, Legal, IT, Investments]
  *                 description: Array of hardcoded department names to create goals for
  *               breakdownData:
  *                 type: array
@@ -205,7 +205,7 @@ router.post("/individuals", PerformanceBreakdownController.createIndividualBreak
  *                     properties:
  *                       name:
  *                         type: string
- *                         enum: [Finance, Sales, Operations, Procurement, "Human Resources", Marketing, Legal, IT]
+ *                         enum: [Finance, Sales, Operations, Procurement, "Human Resources", Marketing, Legal, IT, Investments]
  *                       description:
  *                         type: string
  *       500:
