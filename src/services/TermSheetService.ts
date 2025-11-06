@@ -188,12 +188,25 @@ export class TermSheetService {
 
   /**
    * Update term sheet
+   * Supports both applicationId and term sheet ID
    */
   static async updateTermSheet(applicationId: string, params: UpdateTermSheetRequest): Promise<TermSheetWithRelations> {
     try {
-      const termSheet = await prisma.termSheet.findUnique({
+      if (!params || typeof params !== 'object') {
+        throw new Error("Invalid update parameters provided");
+      }
+
+      // Try to find term sheet by applicationId first
+      let termSheet = await prisma.termSheet.findUnique({
         where: { applicationId }
       });
+
+      // If not found, try by term sheet ID (in case user passed term sheet ID instead of applicationId)
+      if (!termSheet) {
+        termSheet = await prisma.termSheet.findUnique({
+          where: { id: applicationId }
+        });
+      }
 
       if (!termSheet) {
         throw new Error("Term sheet not found");
@@ -203,25 +216,55 @@ export class TermSheetService {
         throw new Error("Cannot update signed term sheet. Term sheet has already been signed and cannot be modified.");
       }
 
+      // Build update data object - only include fields that are actually provided
+      const updateData: any = {
+        updatedAt: new Date()
+      };
+
+      if (params.title !== undefined) {
+        updateData.title = params.title;
+      }
+      if (params.investmentAmount !== undefined) {
+        updateData.investmentAmount = new Decimal(params.investmentAmount);
+      }
+      if (params.equityPercentage !== undefined) {
+        updateData.equityPercentage = new Decimal(params.equityPercentage);
+      }
+      if (params.valuation !== undefined) {
+        updateData.valuation = new Decimal(params.valuation);
+      }
+      if (params.keyTerms !== undefined) {
+        updateData.keyTerms = params.keyTerms;
+      }
+      if (params.conditions !== undefined) {
+        updateData.conditions = params.conditions;
+      }
+      if (params.timeline !== undefined) {
+        updateData.timeline = params.timeline;
+      }
+      if (params.documentUrl !== undefined) {
+        updateData.documentUrl = params.documentUrl;
+      }
+      if (params.documentFileName !== undefined) {
+        updateData.documentFileName = params.documentFileName;
+      }
+      if (params.documentSize !== undefined) {
+        updateData.documentSize = params.documentSize;
+      }
+      if (params.status !== undefined) {
+        updateData.status = params.status;
+      }
+      if (params.isDraft !== undefined) {
+        updateData.isDraft = params.isDraft;
+      }
+      if (params.isFinal !== undefined) {
+        updateData.isFinal = params.isFinal;
+      }
+
       // Update the term sheet
       const updatedTermSheet = await prisma.termSheet.update({
-        where: { applicationId },
-        data: {
-          title: params.title,
-          investmentAmount: params.investmentAmount ? new Decimal(params.investmentAmount) : undefined,
-          equityPercentage: params.equityPercentage ? new Decimal(params.equityPercentage) : undefined,
-          valuation: params.valuation ? new Decimal(params.valuation) : undefined,
-          keyTerms: params.keyTerms,
-          conditions: params.conditions,
-          timeline: params.timeline,
-          documentUrl: params.documentUrl,
-          documentFileName: params.documentFileName,
-          documentSize: params.documentSize,
-          status: params.status,
-          isDraft: params.isDraft,
-          isFinal: params.isFinal,
-          updatedAt: new Date()
-        },
+        where: { id: termSheet.id },
+        data: updateData,
         include: {
           application: {
             select: {

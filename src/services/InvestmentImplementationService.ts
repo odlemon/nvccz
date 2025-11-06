@@ -535,6 +535,9 @@ export class InvestmentImplementationService {
 
   /**
    * Approve fund disbursement
+   * Automatically creates a balanced journal entry:
+   * - Debit: 1501 - Portfolio Investments
+   * - Credit: 1010 - Main Bank Account (Main Bank Account)
    */
   static async approveFundDisbursement(
     disbursementId: string,
@@ -544,7 +547,17 @@ export class InvestmentImplementationService {
       const disbursement = await prisma.fundDisbursement.findUnique({
         where: { id: disbursementId },
         include: {
-          fund: true
+          fund: true,
+          investmentImplementation: {
+            include: {
+              portfolioCompany: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              }
+            }
+          }
         }
       });
 
@@ -561,7 +574,86 @@ export class InvestmentImplementationService {
         throw new Error("Insufficient funds available for disbursement");
       }
 
-      // Update disbursement status and fund remaining amount
+      // Get the accounts for journal entry
+      // Account 1501 - Portfolio Investments
+      const portfolioInvestmentAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountNo: "1501" },
+            { accountName: { contains: "Portfolio Investment" } }
+          ],
+          isActive: true
+        }
+      });
+
+      if (!portfolioInvestmentAccount) {
+        throw new Error("Portfolio Investments account (1501) not found in chart of accounts. Please create this account first.");
+      }
+
+      // Account 1010 - Main Bank Account
+      const bankAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountNo: "1010" },
+            { accountName: { contains: "Main Bank Account" } }
+          ],
+          isActive: true
+        }
+      });
+
+      if (!bankAccount) {
+        throw new Error("Main Bank Account (1010) not found in chart of accounts. Please create this account first.");
+      }
+
+      // Get default currency
+      const defaultCurrency = await prisma.currency.findFirst({
+        where: { code: "USD" }
+      });
+
+      if (!defaultCurrency) {
+        throw new Error("Default currency (USD) not found");
+      }
+
+      const disbursementAmount = Number(disbursement.amount);
+      const portfolioCompanyName = disbursement.investmentImplementation?.portfolioCompany?.name || "Portfolio Company";
+
+      // Create journal entry with balanced debit/credit
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate: disbursement.disbursementDate,
+          referenceNumber: `FD-${disbursementId.substring(0, 8).toUpperCase()}-${Date.now()}`,
+          description: `Fund Disbursement - ${portfolioCompanyName} - $${disbursementAmount.toLocaleString()}`,
+          totalAmount: new Decimal(disbursementAmount),
+          currencyId: defaultCurrency.id,
+          status: "POSTED", // Auto-post the journal entry
+          createdById: approvedById
+        }
+      });
+
+      // Create journal entry lines - Balanced entry
+      // Debit: 1501 - Portfolio Investments
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: journalEntry.id,
+          chartOfAccountId: portfolioInvestmentAccount.id,
+          debitAmount: new Decimal(disbursementAmount),
+          creditAmount: new Decimal(0),
+          description: `Portfolio Investment - ${portfolioCompanyName} - Disbursement ${disbursementId.substring(0, 8)}`
+        }
+      });
+
+      // Credit: 1010 - Main Bank Account
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: journalEntry.id,
+          chartOfAccountId: bankAccount.id,
+          debitAmount: new Decimal(0),
+          creditAmount: new Decimal(disbursementAmount),
+          description: `Bank Payment - Fund Disbursement ${disbursementId.substring(0, 8)}`
+        }
+      });
+
+      // Update disbursement status and fund remaining amount in a transaction
       const [updatedDisbursement, updatedFund] = await prisma.$transaction([
         prisma.fundDisbursement.update({
           where: { id: disbursementId },
@@ -580,6 +672,12 @@ export class InvestmentImplementationService {
           }
         })
       ]);
+
+      console.log(`✅ Fund disbursement approved and journal entry created:`);
+      console.log(`   Journal Entry: ${journalEntry.referenceNumber}`);
+      console.log(`   Debit: ${portfolioInvestmentAccount.accountNo} - ${portfolioInvestmentAccount.accountName} - $${disbursementAmount.toLocaleString()}`);
+      console.log(`   Credit: ${bankAccount.accountNo} - ${bankAccount.accountName} - $${disbursementAmount.toLocaleString()}`);
+      console.log(`   ✅ Balanced: Debit = Credit = $${disbursementAmount.toLocaleString()}`);
 
       return updatedDisbursement;
     } catch (error: any) {

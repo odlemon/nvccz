@@ -162,21 +162,33 @@ export class TermSheetController {
     try {
       const { applicationId } = req.params;
 
-      const updateData: UpdateTermSheetRequest = {
-        title: req.body.title,
-        investmentAmount: req.body.investmentAmount,
-        equityPercentage: req.body.equityPercentage,
-        valuation: req.body.valuation,
-        keyTerms: req.body.keyTerms,
-        conditions: req.body.conditions,
-        timeline: req.body.timeline,
-        documentUrl: req.body.documentUrl,
-        documentFileName: req.body.documentFileName,
-        documentSize: req.body.documentSize,
-        status: req.body.status,
-        isDraft: req.body.isDraft,
-        isFinal: req.body.isFinal
-      };
+      // Only include fields that are actually provided in the request body
+      const updateData: UpdateTermSheetRequest = {};
+      
+      if (req.body && typeof req.body === 'object') {
+        if (req.body.title !== undefined) updateData.title = req.body.title;
+        if (req.body.investmentAmount !== undefined) updateData.investmentAmount = req.body.investmentAmount;
+        if (req.body.equityPercentage !== undefined) updateData.equityPercentage = req.body.equityPercentage;
+        if (req.body.valuation !== undefined) updateData.valuation = req.body.valuation;
+        if (req.body.keyTerms !== undefined) updateData.keyTerms = req.body.keyTerms;
+        if (req.body.conditions !== undefined) updateData.conditions = req.body.conditions;
+        if (req.body.timeline !== undefined) updateData.timeline = req.body.timeline;
+        if (req.body.documentUrl !== undefined) updateData.documentUrl = req.body.documentUrl;
+        if (req.body.documentFileName !== undefined) updateData.documentFileName = req.body.documentFileName;
+        if (req.body.documentSize !== undefined) updateData.documentSize = req.body.documentSize;
+        if (req.body.status !== undefined) updateData.status = req.body.status;
+        if (req.body.isDraft !== undefined) updateData.isDraft = req.body.isDraft;
+        if (req.body.isFinal !== undefined) updateData.isFinal = req.body.isFinal;
+      }
+
+      // Check if any fields were provided
+      if (Object.keys(updateData).length === 0) {
+        res.status(400).json({
+          success: false,
+          message: 'No update fields provided'
+        });
+        return;
+      }
 
       const termSheet = await TermSheetService.updateTermSheet(applicationId, updateData);
 
