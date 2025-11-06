@@ -142,6 +142,15 @@ export class ApplicationService {
         throw new Error("Invalid email format");
       }
 
+      // Check if email already exists in applications
+      const existingApplication = await prisma.application.findFirst({
+        where: { applicantEmail: params.applicantEmail.toLowerCase().trim() }
+      });
+
+      if (existingApplication) {
+        throw new Error("This email already applied for investment");
+      }
+
       // Check if fund exists if provided
       if (params.fundId) {
         const fund = await prisma.fund.findUnique({

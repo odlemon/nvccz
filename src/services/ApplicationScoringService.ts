@@ -76,6 +76,13 @@ export class ApplicationScoringService {
       };
 
       // Call ChatGPT to score the application
+      logger.info('🔍 ========== SHORTLISTING PROCESS STARTED ==========', {
+        applicationId,
+        timestamp: new Date().toISOString(),
+        businessName: application.businessName,
+        applicantEmail: application.applicantEmail
+      });
+
       logger.info('🤖 Starting AI Analysis for Application', {
         applicationId,
         businessName: application.businessName,
@@ -90,7 +97,7 @@ export class ApplicationScoringService {
         data: {
           applicantName: applicationData.applicantName,
           businessName: applicationData.businessName,
-          businessDescription: applicationData.businessDescription,
+          businessDescription: applicationData.businessDescription?.substring(0, 200) + (applicationData.businessDescription?.length > 200 ? '...' : ''),
           industry: applicationData.industry,
           businessStage: applicationData.businessStage,
           requestedAmount: applicationData.requestedAmount,
@@ -101,11 +108,17 @@ export class ApplicationScoringService {
 
       logger.info('📄 Document URLs for AI Analysis', {
         applicationId,
+        documentCount: documentUrls.length,
         documentUrls: documentUrls.map(d => ({
           type: d.type,
           fileName: d.fileName,
           url: d.url
         }))
+      });
+
+      logger.info('⏱️  Calling ChatGPT API for scoring...', {
+        applicationId,
+        timestamp: new Date().toISOString()
       });
 
       const scoringResult = await ChatGPTService.scoreApplication(applicationData, documentUrls);
@@ -114,12 +127,17 @@ export class ApplicationScoringService {
       const reasoning = scoringResult.reasoning;
       const applicantDetails = scoringResult.applicantDetails;
 
+      // Less strict threshold: 40% instead of 50%
+      const SHORTLIST_THRESHOLD = 40;
+      const decision = score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED';
+
       logger.info('✅ AI Analysis Complete', {
         applicationId,
         score,
         businessName: application.businessName,
         applicantEmail: application.applicantEmail,
-        decision: score >= 50 ? 'SHORTLISTED' : 'REJECTED',
+        decision,
+        threshold: SHORTLIST_THRESHOLD,
         reasoning: reasoning.substring(0, 200) + (reasoning.length > 200 ? '...' : ''),
         applicantDetails
       });
@@ -130,10 +148,20 @@ export class ApplicationScoringService {
         reasoning,
         applicantDetails,
         breakdown: {
-          scoreCategory: score >= 50 ? 'PASS' : 'FAIL',
-          threshold: 50,
-          margin: score >= 50 ? score - 50 : 50 - score
+          scoreCategory: score >= SHORTLIST_THRESHOLD ? 'PASS' : 'FAIL',
+          threshold: SHORTLIST_THRESHOLD,
+          margin: score >= SHORTLIST_THRESHOLD ? score - SHORTLIST_THRESHOLD : SHORTLIST_THRESHOLD - score,
+          percentageAboveThreshold: score >= SHORTLIST_THRESHOLD ? ((score - SHORTLIST_THRESHOLD) / SHORTLIST_THRESHOLD * 100).toFixed(2) + '%' : 'N/A'
         }
+      });
+
+      logger.info('🎯 Shortlisting Decision', {
+        applicationId,
+        score,
+        threshold: SHORTLIST_THRESHOLD,
+        decision,
+        margin: score >= SHORTLIST_THRESHOLD ? score - SHORTLIST_THRESHOLD : SHORTLIST_THRESHOLD - score,
+        willShortlist: score >= SHORTLIST_THRESHOLD
       });
 
         // Update application with score
@@ -141,19 +169,45 @@ export class ApplicationScoringService {
           where: { id: applicationId },
           data: {
             initialScreeningScore: score,
-            screeningOutcome: score >= 50 ? 'SHORTLISTED' : 'REJECTED',
+            screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED',
             // Store applicant details in metadata if needed
           }
         });
 
+        logger.info('💾 Application score saved to database', {
+          applicationId,
+          score,
+          screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED'
+        });
+
         // Determine if shortlisted or rejected
-        if (score >= 50) {
+        if (score >= SHORTLIST_THRESHOLD) {
+          logger.info('✅ DECISION: Application will be SHORTLISTED', {
+            applicationId,
+            score,
+            threshold: SHORTLIST_THRESHOLD,
+            margin: score - SHORTLIST_THRESHOLD
+          });
           // Shortlist the application
           await this.shortlistApplication(application, score, reasoning, applicantDetails);
         } else {
+          logger.info('❌ DECISION: Application will be REJECTED', {
+            applicationId,
+            score,
+            threshold: SHORTLIST_THRESHOLD,
+            margin: SHORTLIST_THRESHOLD - score
+          });
           // Reject the application - pass the score so it's included in the email
           await this.rejectApplication(application, reasoning, score);
         }
+
+        logger.info('🎉 ========== SHORTLISTING PROCESS COMPLETED ==========', {
+          applicationId,
+          timestamp: new Date().toISOString(),
+          finalDecision: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED',
+          score,
+          threshold: SHORTLIST_THRESHOLD
+        });
         
         // Success - exit retry loop
         return;
@@ -235,12 +289,23 @@ export class ApplicationScoringService {
         }
       });
 
-      logger.info('✅ Application SHORTLISTED', {
+      logger.info('✅ ========== APPLICATION SHORTLISTED ==========', {
         applicationId: application.id,
         score,
         businessName: application.businessName,
         applicantEmail: application.applicantEmail,
+        timestamp: new Date().toISOString(),
         reasoning: reasoning.substring(0, 200) + (reasoning.length > 200 ? '...' : '')
+      });
+
+      logger.info('📊 Shortlisting Results Summary', {
+        applicationId: application.id,
+        businessName: application.businessName,
+        applicantEmail: application.applicantEmail,
+        score,
+        screeningOutcome: 'SHORTLISTED',
+        currentStage: 'SHORTLISTED',
+        applicantDetails
       });
 
       // Fetch document URLs for email
@@ -311,11 +376,22 @@ export class ApplicationScoringService {
         }
       });
 
-      logger.info('❌ Application REJECTED', {
+      logger.info('❌ ========== APPLICATION REJECTED ==========', {
         applicationId: application.id,
         businessName: application.businessName,
         applicantEmail: application.applicantEmail,
+        timestamp: new Date().toISOString(),
         reason: rejectionReason.substring(0, 200) + (rejectionReason.length > 200 ? '...' : '')
+      });
+
+      logger.info('📊 Rejection Results Summary', {
+        applicationId: application.id,
+        businessName: application.businessName,
+        applicantEmail: application.applicantEmail,
+        score: score || 0,
+        screeningOutcome: 'REJECTED',
+        currentStage: 'REJECTED',
+        rejectionReason: rejectionReason.substring(0, 500)
       });
 
       // Fetch application data with updated score for detailed rejection email
