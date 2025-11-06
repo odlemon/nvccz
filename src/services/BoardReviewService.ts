@@ -220,14 +220,43 @@ export class BoardReviewService {
         throw new Error("Cannot update completed board review");
       }
 
-      // Validate that only one decision option is selected if being updated
-      if (params.investmentApproved !== undefined || params.investmentRejected !== undefined || params.conditionalApproval !== undefined) {
-        const decisionOptions = [
-          params.investmentApproved ?? boardReview.investmentApproved,
-          params.investmentRejected ?? boardReview.investmentRejected,
-          params.conditionalApproval ?? boardReview.conditionalApproval
-        ];
+      // Handle decision flags update - ensure only one is true at a time
+      let investmentApproved = boardReview.investmentApproved;
+      let investmentRejected = boardReview.investmentRejected;
+      let conditionalApproval = boardReview.conditionalApproval;
 
+      // Check if any decision flags are being updated
+      if (params.investmentApproved !== undefined || params.investmentRejected !== undefined || params.conditionalApproval !== undefined) {
+        // If any decision flag is provided, update them
+        // When setting one to true, automatically set others to false
+        if (params.investmentApproved === true) {
+          investmentApproved = true;
+          investmentRejected = false;
+          conditionalApproval = false;
+        } else if (params.investmentRejected === true) {
+          investmentApproved = false;
+          investmentRejected = true;
+          conditionalApproval = false;
+        } else if (params.conditionalApproval === true) {
+          investmentApproved = false;
+          investmentRejected = false;
+          conditionalApproval = true;
+        } else {
+          // If setting to false without providing another decision, keep existing values
+          // Only update the specific flag that was provided
+          if (params.investmentApproved !== undefined) {
+            investmentApproved = Boolean(params.investmentApproved);
+          }
+          if (params.investmentRejected !== undefined) {
+            investmentRejected = Boolean(params.investmentRejected);
+          }
+          if (params.conditionalApproval !== undefined) {
+            conditionalApproval = Boolean(params.conditionalApproval);
+          }
+        }
+
+        // Validate that exactly one decision option is selected
+        const decisionOptions = [investmentApproved, investmentRejected, conditionalApproval];
         const selectedOptions = decisionOptions.filter(option => option);
         if (selectedOptions.length !== 1) {
           throw new Error("Exactly one decision option must be selected: Investment Approved, Investment Rejected, or Conditional Approval");
@@ -238,16 +267,16 @@ export class BoardReviewService {
        const updatedBoardReview = await prisma.boardReview.update({
          where: { applicationId },
          data: {
-           investmentApproved: params.investmentApproved,
-           investmentRejected: params.investmentRejected,
-           conditionalApproval: params.conditionalApproval,
-           recommendationReport: params.recommendationReport,
-           additionalInformation: params.additionalInformation,
-           decisionReason: params.decisionReason,
-           conditions: params.conditions,
-           nextSteps: params.nextSteps,
-           overallScore: params.overallScore,
-           finalComments: params.finalComments,
+           investmentApproved,
+           investmentRejected,
+           conditionalApproval,
+           recommendationReport: params.recommendationReport !== undefined ? params.recommendationReport : boardReview.recommendationReport,
+           additionalInformation: params.additionalInformation !== undefined ? params.additionalInformation : boardReview.additionalInformation,
+           decisionReason: params.decisionReason !== undefined ? params.decisionReason : boardReview.decisionReason,
+           conditions: params.conditions !== undefined ? params.conditions : boardReview.conditions,
+           nextSteps: params.nextSteps !== undefined ? params.nextSteps : boardReview.nextSteps,
+           overallScore: params.overallScore !== undefined ? params.overallScore : boardReview.overallScore,
+           finalComments: params.finalComments !== undefined ? params.finalComments : boardReview.finalComments,
            updatedAt: new Date()
          },
         include: {
