@@ -379,110 +379,50 @@ export class DueDiligenceService {
 
   /**
    * Get users from Investments department only
+   * Uses same structure as /api/users but filtered for Investments department
    */
   static async getInvestmentsDepartmentUsers(): Promise<any[]> {
     try {
-      // Try exact match first, then case-insensitive
-      let investmentsDepartment = await prisma.department.findFirst({
+      // Get users with userDepartment = "Investments" (hardcoded string, not departmentId)
+      const users = await prisma.user.findMany({
         where: {
-          name: 'Investments'
-        }
-      });
-
-      // If not found, try case-insensitive search
-      if (!investmentsDepartment) {
-        const allDepartments = await prisma.department.findMany({
-          where: {
-            isActive: true
+          userDepartment: 'Investments', // Hardcoded department name
+          role: {
+            name: {
+              not: 'applicant' // Exclude applicants
+            }
           }
-        });
-        
-        investmentsDepartment = allDepartments.find(
-          dept => dept.name.toLowerCase() === 'investments' || 
-                  dept.name.toLowerCase().includes('investment')
-        ) || null;
-      }
-
-      if (!investmentsDepartment) {
-        throw new Error('Investments department not found. Please ensure the Investments department exists in the database.');
-      }
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true,
+          role: {
+            select: {
+              id: true,
+              name: true,
+              description: true
+            }
+          },
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: [
+          { firstName: 'asc' },
+          { lastName: 'asc' }
+        ]
+      });
 
       // Get all hardcoded roles for the Investments department
       const investmentsHardcodedRoles = HARDCODED_ROLES.filter(
         role => role.department === 'Investments'
       );
 
-      // Get database roles that match the hardcoded role names
-      const roleNames = investmentsHardcodedRoles.map(r => r.name);
-      const investmentsRoles = await prisma.role.findMany({
-        where: {
-          name: {
-            in: roleNames
-          }
-        },
-        select: {
-          id: true,
-          name: true,
-          description: true
-        },
-        orderBy: {
-          name: 'asc'
-        }
-      });
-
-      // Combine hardcoded role info with database role info
-      const rolesWithDetails = investmentsHardcodedRoles.map(hardcodedRole => {
-        const dbRole = investmentsRoles.find(r => r.name === hardcodedRole.name);
-        return {
-          ...hardcodedRole,
-          id: dbRole?.id || null,
-          dbRoleExists: !!dbRole
-        };
-      });
-
-      const users = await prisma.user.findMany({
-        where: {
-          departmentId: investmentsDepartment.id,
-          role: {
-            name: {
-              not: 'applicant'
-            }
-          }
-        },
-        include: {
-          role: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              code: true
-            }
-          },
-          department: {
-            select: {
-              id: true,
-              name: true,
-              description: true
-            }
-          }
-        },
-        orderBy: {
-          firstName: 'asc'
-        }
-      });
-
-      // Return users with department roles included
-      return {
-        users: users,
-        department: {
-          id: investmentsDepartment.id,
-          name: investmentsDepartment.name,
-          description: investmentsDepartment.description
-        },
-        roles: rolesWithDetails,
-        totalUsers: users.length,
-        totalRoles: rolesWithDetails.length
-      };
+      return users;
     } catch (error: any) {
       throw new Error(`Failed to get Investments department users: ${error.message}`);
     }
