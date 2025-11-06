@@ -40,6 +40,31 @@ export class ApplicationController {
         return;
       }
 
+      // Check if email already exists in applications (BEFORE any file uploads)
+      logger.info('🔍 Checking if email already exists (before file uploads)', {
+        applicantEmail: applicantEmail.toLowerCase().trim(),
+        hasFiles: isMultipart && files.length > 0,
+        fileCount: files.length
+      });
+
+      const existingApplication = await prisma.application.findFirst({
+        where: { applicantEmail: applicantEmail.toLowerCase().trim() }
+      });
+
+      if (existingApplication) {
+        logger.warn('⚠️ Email already exists - rejecting application before file upload', {
+          applicantEmail: applicantEmail.toLowerCase().trim(),
+          existingApplicationId: existingApplication.id,
+          existingBusinessName: existingApplication.businessName
+        });
+        ResponseHelper.error(res, "This email already applied for investment", undefined, 400);
+        return;
+      }
+
+      logger.info('✅ Email validation passed - proceeding with file uploads', {
+        applicantEmail: applicantEmail.toLowerCase().trim()
+      });
+
       // If files are provided, upload them to Firebase first
       let processedDocuments: Array<{
         documentType: string;

@@ -171,10 +171,12 @@ ${documentInfo}
    - Any strategic alignment indicators
 
 **Important Rules:**
-- If score < 50%: Application should be REJECTED
-- If score >= 50%: Application should be SHORTLISTED
-- Be thorough in your analysis of the documents
+- If score < 40%: Application should be REJECTED
+- If score >= 40%: Application should be SHORTLISTED
+- Be lenient and generous in your scoring - give credit for effort and potential
 - Consider the strategic parameters (Youth/Women focus gets higher scores)
+- Don't be too strict - if there's potential, give it a chance
+- Missing some details is okay - focus on what's there and the business potential
 
 **Response Format (JSON only):**
 {
