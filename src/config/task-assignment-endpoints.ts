@@ -161,19 +161,19 @@ export const taskAssignmentEndpoints = {
     }
   },
 
-  '/api/activities/{activityId}/update': {
-    put: {
-      summary: 'Update activity with optional document upload',
-      description: 'Update an activity with progress information and optionally upload documents. Documents are optional as some activities are not metric-based.',
+  '/api/activities/task/{taskId}/update': {
+    post: {
+      summary: 'Create or update activity for task',
+      description: 'Create or update an activity for a specific task. If no activity exists for this task and user, it will be created. Documents are optional as some activities are not metric-based.',
       tags: ['Task assignment'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
           in: 'path',
-          name: 'activityId',
+          name: 'taskId',
           required: true,
           schema: { type: 'string' },
-          description: 'Activity ID'
+          description: 'Task ID'
         }
       ],
       requestBody: {
@@ -185,7 +185,7 @@ export const taskAssignmentEndpoints = {
               properties: {
                 title: {
                   type: 'string',
-                  description: 'Updated activity title',
+                  description: 'Activity title (optional, defaults to task title if not provided)',
                   example: 'Completed financial review'
                 },
                 description: {

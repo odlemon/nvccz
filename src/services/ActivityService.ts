@@ -430,9 +430,10 @@ export class ActivityService {
   /**
    * Update activity with optional document upload
    * Used for due diligence task activities
+   * Finds or creates an activity for the given task and user
    */
   static async updateActivityWithDocuments(
-    activityId: string,
+    taskId: string,
     updateData: {
       title?: string;
       description?: string;
@@ -446,9 +447,34 @@ export class ActivityService {
     userId: string
   ): Promise<any> {
     try {
-      // Get existing activity
-      const activity = await prisma.activityLog.findUnique({
-        where: { id: activityId },
+      // Verify task exists
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+        select: {
+          id: true,
+          title: true,
+          goalId: true,
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      if (!task) {
+        throw new Error('Task not found');
+      }
+
+      // Find existing activity for this task and user
+      let activity = await prisma.activityLog.findFirst({
+        where: {
+          taskId: taskId,
+          userId: userId
+        },
         include: {
           task: {
             include: {
@@ -473,13 +499,50 @@ export class ActivityService {
         }
       });
 
+      // If no activity exists, create one
       if (!activity) {
-        throw new Error('Activity not found');
-      }
+        // Get goalId from task
+        const goalId = task.goalId;
 
-      // Check if user is the owner of the activity
-      if (activity.userId !== userId) {
-        throw new Error('You can only update your own activities');
+        if (!goalId) {
+          throw new Error('Task is not linked to any goal');
+        }
+
+        // Create new activity
+        activity = await prisma.activityLog.create({
+          data: {
+            title: updateData.title || task.title || 'Task Activity',
+            description: updateData.description || '',
+            activityType: 'task_completion',
+            taskId: taskId,
+            goalId: goalId,
+            userId: userId,
+            monetaryValueAchieved: updateData.valueCollected ? new Decimal(updateData.valueCollected) : null,
+            percentValueAchieved: null
+          },
+          include: {
+            task: {
+              include: {
+                creator: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            },
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        });
       }
 
       // Prepare update data
@@ -503,7 +566,7 @@ export class ActivityService {
 
       // Update activity
       const updatedActivity = await prisma.activityLog.update({
-        where: { id: activityId },
+        where: { id: activity.id },
         data: updatePayload,
         include: {
           task: {
@@ -516,34 +579,35 @@ export class ActivityService {
       });
 
       // Send email notification to task creator (CIO) about activity update
-      if (activity.task && activity.task.creator) {
+      if (task.creator) {
         try {
           await EmailNotificationService.sendDueDiligenceActivityUpdateEmail({
-            cioName: `${activity.task.creator.firstName} ${activity.task.creator.lastName}`,
-            cioEmail: activity.task.creator.email,
+            cioName: `${task.creator.firstName} ${task.creator.lastName}`,
+            cioEmail: task.creator.email,
             assigneeName: `${activity.user.firstName} ${activity.user.lastName}`,
-            taskTitle: activity.task.title,
+            taskTitle: task.title,
             activityTitle: updatedActivity.title,
-            activityId: activityId,
-            taskId: activity.task.id,
+            activityId: updatedActivity.id,
+            taskId: taskId,
             hasDocuments: updateData.documents && updateData.documents.length > 0
           });
           logger.info('Activity update email sent to CIO', {
-            activityId,
-            taskId: activity.task.id,
-            cioId: activity.task.creator.id
+            activityId: updatedActivity.id,
+            taskId: taskId,
+            cioId: task.creator.id
           });
         } catch (emailError: any) {
           logger.error('Failed to send activity update email', {
             error: emailError.message,
-            activityId
+            activityId: updatedActivity.id
           });
           // Don't fail activity update if email fails
         }
       }
 
       logger.info('Activity updated with documents', {
-        activityId,
+        activityId: updatedActivity.id,
+        taskId: taskId,
         userId,
         hasDocuments: updateData.documents && updateData.documents.length > 0
       });

@@ -131,14 +131,15 @@ export class ActivityController {
   /**
    * Update activity with optional document upload
    * Supports multipart/form-data for file uploads
+   * Finds or creates an activity for the given task and user
    */
   static async updateActivityWithDocuments(req: Request, res: Response) {
     try {
-      const { activityId } = req.params;
+      const { taskId } = req.params;
       const userId = (req as any).user?.id;
 
-      if (!activityId) {
-        return ResponseHelper.error(res, "Activity ID is required", undefined, 400);
+      if (!taskId) {
+        return ResponseHelper.error(res, "Task ID is required", undefined, 400);
       }
 
       if (!userId) {
@@ -162,7 +163,7 @@ export class ActivityController {
             const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
               file.buffer,
               file.originalname,
-              `activity-${activityId}`, // Use activity ID as identifier
+              `activity-task-${taskId}`, // Use task ID as identifier
               'ACTIVITY_DOCUMENT'
             );
 
@@ -173,13 +174,13 @@ export class ActivityController {
             });
 
             logger.info('Activity document uploaded', {
-              activityId,
+              taskId,
               fileName: file.originalname,
               fileSize: file.size
             });
           } catch (uploadError: any) {
             logger.error('Failed to upload activity document', {
-              activityId,
+              taskId,
               fileName: file.originalname,
               error: uploadError.message
             });
@@ -188,9 +189,9 @@ export class ActivityController {
         }
       }
 
-      // Update activity
+      // Update or create activity
       const updatedActivity = await ActivityService.updateActivityWithDocuments(
-        activityId,
+        taskId,
         {
           title,
           description,
@@ -201,12 +202,13 @@ export class ActivityController {
       );
 
       logger.info('Activity updated with documents', {
-        activityId,
+        activityId: updatedActivity.id,
+        taskId,
         userId,
         documentsCount: uploadedDocuments.length
       });
 
-      return ResponseHelper.success(res, "Activity updated successfully", updatedActivity);
+      return ResponseHelper.success(res, "Activity created or updated successfully", updatedActivity);
     } catch (error: any) {
       logger.error("Error updating activity with documents", { error: error.message });
       return ResponseHelper.error(res, error.message || "Failed to update activity", undefined, 500);

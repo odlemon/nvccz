@@ -189,8 +189,9 @@ export class DueDiligenceService {
 
   /**
    * Get due diligence report
+   * Includes tasks, activities, and documents
    */
-  static async getDueDiligenceReport(applicationId: string): Promise<IDueDiligenceWithRelations | null> {
+  static async getDueDiligenceReport(applicationId: string): Promise<any> {
     try {
       const dueDiligence = await prisma.dueDiligenceReview.findUnique({
         where: { applicationId },
@@ -207,7 +208,81 @@ export class DueDiligenceService {
         }
       });
 
-      return dueDiligence;
+      if (!dueDiligence) {
+        return null;
+      }
+
+      // Find all tasks related to this application (via description containing applicationId)
+      const relatedTasks = await prisma.task.findMany({
+        where: {
+          description: {
+            contains: `Application: ${applicationId}`
+          }
+        },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          activityLogs: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            },
+            orderBy: {
+              createdAt: 'desc'
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      // Extract document URLs from activity descriptions and add to activities
+      const tasksWithDocuments = relatedTasks.map(task => {
+        const activitiesWithDocuments = task.activityLogs.map((activity: any) => {
+          let documents: Array<{ fileName: string; fileUrl: string; fileSize: number }> = [];
+          
+          // Extract documents from description if they exist
+          if (activity.description) {
+            const documentsMatch = activity.description.match(/\[DOCUMENTS:(.+?)\]/);
+            if (documentsMatch) {
+              try {
+                documents = JSON.parse(documentsMatch[1]);
+              } catch (e) {
+                // If parsing fails, documents array remains empty
+                console.error('Failed to parse documents from activity description:', e);
+              }
+            }
+          }
+
+          return {
+            ...activity,
+            documents
+          };
+        });
+
+        return {
+          ...task,
+          activityLogs: activitiesWithDocuments
+        };
+      });
+
+      return {
+        ...dueDiligence,
+        tasks: tasksWithDocuments
+      };
     } catch (error: any) {
       throw new Error(`Failed to get due diligence report: ${error.message}`);
     }
