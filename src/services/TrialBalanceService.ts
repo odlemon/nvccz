@@ -30,7 +30,11 @@ export class TrialBalanceService {
    */
   static async generateTrialBalance(date: Date): Promise<TrialBalanceData> {
     try {
-      // Get all active accounts
+      // Create end of day date to include all entries from the specified date
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Get all active accounts with a single query
       const accounts = await prisma.chartOfAccounts.findMany({
         where: { isActive: true },
         orderBy: [
@@ -39,45 +43,61 @@ export class TrialBalanceService {
         ]
       });
 
+      // Get all journal entry lines in a single optimized query with aggregation
+      // This avoids N+1 query problem
+      const journalEntryLines = await prisma.journalEntryLine.findMany({
+        where: {
+          journalEntry: {
+            transactionDate: {
+              lte: endOfDay
+            },
+            status: 'POSTED' // Only include POSTED entries (exclude VOID and PENDING)
+          }
+        },
+        select: {
+          chartOfAccountId: true,
+          debitAmount: true,
+          creditAmount: true
+        }
+      });
+
+      // Create a map to aggregate balances by account ID
+      const accountBalances = new Map<string, { debitBalance: number; creditBalance: number }>();
+
+      // Initialize all accounts with zero balances
+      for (const account of accounts) {
+        accountBalances.set(account.id, { debitBalance: 0, creditBalance: 0 });
+      }
+
+      // Aggregate journal entry lines by account
+      for (const line of journalEntryLines) {
+        if (!line.chartOfAccountId) continue;
+        
+        const balance = accountBalances.get(line.chartOfAccountId);
+        if (balance) {
+          if (line.debitAmount && line.debitAmount.gt(0)) {
+            balance.debitBalance += line.debitAmount.toNumber();
+          }
+          if (line.creditAmount && line.creditAmount.gt(0)) {
+            balance.creditBalance += line.creditAmount.toNumber();
+          }
+        }
+      }
+
+      // Build trial balance accounts array
       const trialBalanceAccounts: TrialBalanceAccount[] = [];
       let totalDebits = 0;
       let totalCredits = 0;
 
-      // Create end of day date to include all entries from the specified date
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      // Create account map for quick lookup
+      const accountMap = new Map(accounts.map(acc => [acc.id, acc]));
 
-      // Calculate balance for each account
-      for (const account of accounts) {
-        const journalEntries = await prisma.journalEntryLine.findMany({
-          where: {
-            chartOfAccountId: account.id,
-            journalEntry: {
-              transactionDate: {
-                lte: endOfDay
-              },
-              status: 'POSTED' // Only include POSTED entries (exclude VOID and PENDING)
-            }
-          },
-          include: {
-            journalEntry: true
-          }
-        });
+      // Process balances and build response
+      for (const [accountId, balances] of accountBalances.entries()) {
+        const account = accountMap.get(accountId);
+        if (!account) continue;
 
-        let debitBalance = 0;
-        let creditBalance = 0;
-
-        // Sum up debits and credits for this account
-        for (const entry of journalEntries) {
-          if (entry.debitAmount && entry.debitAmount.gt(0)) {
-            debitBalance += entry.debitAmount.toNumber();
-          }
-          if (entry.creditAmount && entry.creditAmount.gt(0)) {
-            creditBalance += entry.creditAmount.toNumber();
-          }
-        }
-
-        // Calculate net balance
+        const { debitBalance, creditBalance } = balances;
         const netBalance = debitBalance - creditBalance;
 
         // Only include accounts with non-zero balances
@@ -97,6 +117,14 @@ export class TrialBalanceService {
         }
       }
 
+      // Sort accounts by account type and account number
+      trialBalanceAccounts.sort((a, b) => {
+        if (a.accountType !== b.accountType) {
+          return a.accountType.localeCompare(b.accountType);
+        }
+        return a.accountNo.localeCompare(b.accountNo);
+      });
+
       return {
         date: date.toISOString().split('T')[0],
         accounts: trialBalanceAccounts,
@@ -108,6 +136,15 @@ export class TrialBalanceService {
       };
     } catch (error: any) {
       console.error('Error generating trial balance:', error);
+      
+      // Provide more helpful error messages for common database errors
+      if (error.message && error.message.includes('Server shutdown')) {
+        throw new Error('Database server is temporarily unavailable. Please try again in a moment.');
+      }
+      if (error.message && error.message.includes('connection')) {
+        throw new Error('Database connection error. Please try again.');
+      }
+      
       throw new Error(`Failed to generate trial balance: ${error.message}`);
     }
   }
