@@ -29,7 +29,7 @@ export class ActivityService {
 
       let finalGoalId = activityData.goalId;
 
-      // If activityType is 'task', automatically find the goal from the task
+      // If activityType is 'task', automatically find the goal from the task (if it exists)
       if (activityData.activityType === 'task' && activityData.taskId) {
         const task = await prisma.task.findUnique({
           where: { id: activityData.taskId },
@@ -40,11 +40,11 @@ export class ActivityService {
           throw new Error("Task not found");
         }
 
-        if (!task.goalId) {
-          throw new Error("Task is not linked to any goal");
+        // Goal ID is optional - tasks created from assignment might not have a goal
+        if (task.goalId) {
+          finalGoalId = task.goalId;
         }
-
-        finalGoalId = task.goalId;
+        // If task doesn't have goalId, finalGoalId remains null/undefined (which is fine)
       }
 
       // Create the activity
@@ -501,21 +501,17 @@ export class ActivityService {
 
       // If no activity exists, create one
       if (!activity) {
-        // Get goalId from task
+        // Get goalId from task (optional - tasks from assignment might not have a goal)
         const goalId = task.goalId;
 
-        if (!goalId) {
-          throw new Error('Task is not linked to any goal');
-        }
-
-        // Create new activity
+        // Create new activity (goalId can be null)
         activity = await prisma.activityLog.create({
           data: {
             title: updateData.title || task.title || 'Task Activity',
             description: updateData.description || '',
             activityType: 'task_completion',
             taskId: taskId,
-            goalId: goalId,
+            goalId: goalId, // Can be null
             userId: userId,
             monetaryValueAchieved: updateData.valueCollected ? new Decimal(updateData.valueCollected) : null,
             percentValueAchieved: null
