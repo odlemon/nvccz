@@ -1,6 +1,9 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { Decimal } from '@prisma/client/runtime/library';
+import { FirebaseStorageService } from './FirebaseStorageService';
+import { EmailNotificationService } from './EmailNotificationService';
+import { logger } from '../utils/logger';
 
 export class ActivityService {
   /**
@@ -421,6 +424,320 @@ export class ActivityService {
     } catch (error) {
       console.error('Error getting manager created tasks:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Update activity with optional document upload
+   * Used for due diligence task activities
+   */
+  static async updateActivityWithDocuments(
+    activityId: string,
+    updateData: {
+      title?: string;
+      description?: string;
+      valueCollected?: number;
+      documents?: Array<{
+        fileName: string;
+        fileUrl: string;
+        fileSize: number;
+      }>;
+    },
+    userId: string
+  ): Promise<any> {
+    try {
+      // Get existing activity
+      const activity = await prisma.activityLog.findUnique({
+        where: { id: activityId },
+        include: {
+          task: {
+            include: {
+              creator: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          },
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      if (!activity) {
+        throw new Error('Activity not found');
+      }
+
+      // Check if user is the owner of the activity
+      if (activity.userId !== userId) {
+        throw new Error('You can only update your own activities');
+      }
+
+      // Prepare update data
+      const updatePayload: any = {
+        updatedAt: new Date()
+      };
+
+      if (updateData.title) updatePayload.title = updateData.title;
+      if (updateData.description) updatePayload.description = updateData.description;
+      if (updateData.valueCollected !== undefined) {
+        updatePayload.monetaryValueAchieved = new Decimal(updateData.valueCollected);
+      }
+
+      // Store documents in a JSON field (we'll use description or create a metadata approach)
+      // For now, we'll store documents info in a JSON structure
+      if (updateData.documents && updateData.documents.length > 0) {
+        // Store documents metadata - we'll add this to description or use a custom approach
+        const documentsInfo = JSON.stringify(updateData.documents);
+        updatePayload.description = `${activity.description || ''}\n\n[DOCUMENTS:${documentsInfo}]`;
+      }
+
+      // Update activity
+      const updatedActivity = await prisma.activityLog.update({
+        where: { id: activityId },
+        data: updatePayload,
+        include: {
+          task: {
+            include: {
+              creator: true
+            }
+          },
+          user: true
+        }
+      });
+
+      // Send email notification to task creator (CIO) about activity update
+      if (activity.task && activity.task.creator) {
+        try {
+          await EmailNotificationService.sendDueDiligenceActivityUpdateEmail({
+            cioName: `${activity.task.creator.firstName} ${activity.task.creator.lastName}`,
+            cioEmail: activity.task.creator.email,
+            assigneeName: `${activity.user.firstName} ${activity.user.lastName}`,
+            taskTitle: activity.task.title,
+            activityTitle: updatedActivity.title,
+            activityId: activityId,
+            taskId: activity.task.id,
+            hasDocuments: updateData.documents && updateData.documents.length > 0
+          });
+          logger.info('Activity update email sent to CIO', {
+            activityId,
+            taskId: activity.task.id,
+            cioId: activity.task.creator.id
+          });
+        } catch (emailError: any) {
+          logger.error('Failed to send activity update email', {
+            error: emailError.message,
+            activityId
+          });
+          // Don't fail activity update if email fails
+        }
+      }
+
+      logger.info('Activity updated with documents', {
+        activityId,
+        userId,
+        hasDocuments: updateData.documents && updateData.documents.length > 0
+      });
+
+      return updatedActivity;
+    } catch (error: any) {
+      throw new Error(`Failed to update activity: ${error.message}`);
+    }
+  }
+
+  /**
+   * Approve activity (view documents and approve)
+   * Used by CIO to approve assignee's activity updates
+   */
+  static async approveActivity(
+    activityId: string,
+    approverId: string,
+    approvalData?: {
+      comments?: string;
+      approved?: boolean;
+    }
+  ): Promise<any> {
+    try {
+      // Get activity with task and creator info
+      const activity = await prisma.activityLog.findUnique({
+        where: { id: activityId },
+        include: {
+          task: {
+            include: {
+              creator: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          },
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      if (!activity) {
+        throw new Error('Activity not found');
+      }
+
+      // Check if approver is the task creator (CIO)
+      if (activity.task && activity.task.createdBy !== approverId) {
+        throw new Error('Only the task creator can approve this activity');
+      }
+
+      // Extract documents from description (temporary approach - in production, use a proper field)
+      const documentsMatch = activity.description?.match(/\[DOCUMENTS:(.+?)\]/);
+      let documents: any[] = [];
+      if (documentsMatch) {
+        try {
+          documents = JSON.parse(documentsMatch[1]);
+        } catch (e) {
+          // Documents parsing failed, continue without documents
+        }
+      }
+
+      // Update activity with approval status
+      // Store approval in description for now (in production, add approval fields to schema)
+      const approvalStatus = approvalData?.approved !== false ? 'APPROVED' : 'REJECTED';
+      const approvalInfo = `\n\n[APPROVAL:${approvalStatus}:${approverId}:${new Date().toISOString()}:${approvalData?.comments || ''}]`;
+      
+      const updatedActivity = await prisma.activityLog.update({
+        where: { id: activityId },
+        data: {
+          description: `${activity.description || ''}${approvalInfo}`
+        },
+        include: {
+          task: true,
+          user: true
+        }
+      });
+
+      // Send email notification to assignee about approval
+      try {
+        await EmailNotificationService.sendDueDiligenceActivityApprovedEmail({
+          assigneeName: `${activity.user.firstName} ${activity.user.lastName}`,
+          assigneeEmail: activity.user.email,
+          taskTitle: activity.task?.title || 'Task',
+          activityTitle: activity.title,
+          approved: approvalStatus === 'APPROVED',
+          comments: approvalData?.comments,
+          activityId: activityId
+        });
+        logger.info('Activity approval email sent to assignee', {
+          activityId,
+          assigneeId: activity.userId,
+          approved: approvalStatus === 'APPROVED'
+        });
+      } catch (emailError: any) {
+        logger.error('Failed to send activity approval email', {
+          error: emailError.message,
+          activityId
+        });
+        // Don't fail approval if email fails
+      }
+
+      logger.info('Activity approved', {
+        activityId,
+        approverId,
+        approved: approvalStatus === 'APPROVED'
+      });
+
+      return {
+        ...updatedActivity,
+        documents: documents,
+        approvalStatus: approvalStatus,
+        approvedBy: approverId,
+        approvedAt: new Date()
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to approve activity: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get activity with documents for approval view
+   */
+  static async getActivityForApproval(activityId: string, approverId: string): Promise<any> {
+    try {
+      const activity = await prisma.activityLog.findUnique({
+        where: { id: activityId },
+        include: {
+          task: {
+            include: {
+              creator: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          },
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      if (!activity) {
+        throw new Error('Activity not found');
+      }
+
+      // Check if approver is the task creator
+      if (activity.task && activity.task.createdBy !== approverId) {
+        throw new Error('Only the task creator can view this activity for approval');
+      }
+
+      // Extract documents from description
+      const documentsMatch = activity.description?.match(/\[DOCUMENTS:(.+?)\]/);
+      let documents: any[] = [];
+      if (documentsMatch) {
+        try {
+          documents = JSON.parse(documentsMatch[1]);
+        } catch (e) {
+          // Documents parsing failed
+        }
+      }
+
+      // Extract approval status
+      const approvalMatch = activity.description?.match(/\[APPROVAL:(.+?)\]/);
+      let approvalStatus = 'PENDING';
+      if (approvalMatch) {
+        const approvalParts = approvalMatch[1].split(':');
+        approvalStatus = approvalParts[0] || 'PENDING';
+      }
+
+      return {
+        ...activity,
+        documents: documents,
+        approvalStatus: approvalStatus
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to get activity for approval: ${error.message}`);
     }
   }
 }

@@ -1,7 +1,9 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { ActivityService } from "../services/ActivityService";
+import { FirebaseStorageService } from "../services/FirebaseStorageService";
 import { ResponseHelper } from "../utils/responseHelper";
+import { logger } from "../utils/logger";
 
 export class ActivityController {
   /**
@@ -123,6 +125,160 @@ export class ActivityController {
     } catch (error: any) {
       console.error("Error getting manager created tasks:", error);
       return ResponseHelper.error(res, error.message || "Failed to get manager created tasks", undefined, 500);
+    }
+  }
+
+  /**
+   * Update activity with optional document upload
+   * Supports multipart/form-data for file uploads
+   */
+  static async updateActivityWithDocuments(req: Request, res: Response) {
+    try {
+      const { activityId } = req.params;
+      const userId = (req as any).user?.id;
+
+      if (!activityId) {
+        return ResponseHelper.error(res, "Activity ID is required", undefined, 400);
+      }
+
+      if (!userId) {
+        return ResponseHelper.error(res, "User not authenticated", undefined, 401);
+      }
+
+      const { title, description, valueCollected } = req.body;
+      const files = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['documents'] || [];
+
+      // Upload documents if provided
+      const uploadedDocuments: Array<{
+        fileName: string;
+        fileUrl: string;
+        fileSize: number;
+      }> = [];
+
+      if (files.length > 0) {
+        for (const file of files) {
+          try {
+            // Upload to Firebase Storage
+            const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
+              file.buffer,
+              file.originalname,
+              `activity-${activityId}`, // Use activity ID as identifier
+              'ACTIVITY_DOCUMENT'
+            );
+
+            uploadedDocuments.push({
+              fileName: file.originalname,
+              fileUrl: downloadURL,
+              fileSize: file.size
+            });
+
+            logger.info('Activity document uploaded', {
+              activityId,
+              fileName: file.originalname,
+              fileSize: file.size
+            });
+          } catch (uploadError: any) {
+            logger.error('Failed to upload activity document', {
+              activityId,
+              fileName: file.originalname,
+              error: uploadError.message
+            });
+            // Continue with other files even if one fails
+          }
+        }
+      }
+
+      // Update activity
+      const updatedActivity = await ActivityService.updateActivityWithDocuments(
+        activityId,
+        {
+          title,
+          description,
+          valueCollected: valueCollected ? parseFloat(valueCollected) : undefined,
+          documents: uploadedDocuments.length > 0 ? uploadedDocuments : undefined
+        },
+        userId
+      );
+
+      logger.info('Activity updated with documents', {
+        activityId,
+        userId,
+        documentsCount: uploadedDocuments.length
+      });
+
+      return ResponseHelper.success(res, "Activity updated successfully", updatedActivity);
+    } catch (error: any) {
+      logger.error("Error updating activity with documents", { error: error.message });
+      return ResponseHelper.error(res, error.message || "Failed to update activity", undefined, 500);
+    }
+  }
+
+  /**
+   * Get activity for approval (view documents)
+   */
+  static async getActivityForApproval(req: Request, res: Response) {
+    try {
+      const { activityId } = req.params;
+      const approverId = (req as any).user?.id;
+
+      if (!activityId) {
+        return ResponseHelper.error(res, "Activity ID is required", undefined, 400);
+      }
+
+      if (!approverId) {
+        return ResponseHelper.error(res, "User not authenticated", undefined, 401);
+      }
+
+      const activity = await ActivityService.getActivityForApproval(activityId, approverId);
+
+      logger.info('Activity retrieved for approval', {
+        activityId,
+        approverId
+      });
+
+      return ResponseHelper.success(res, "Activity retrieved successfully", activity);
+    } catch (error: any) {
+      logger.error("Error getting activity for approval", { error: error.message });
+      return ResponseHelper.error(res, error.message || "Failed to get activity", undefined, 500);
+    }
+  }
+
+  /**
+   * Approve activity (view documents and approve)
+   */
+  static async approveActivity(req: Request, res: Response) {
+    try {
+      const { activityId } = req.params;
+      const approverId = (req as any).user?.id;
+      const { comments, approved } = req.body;
+
+      if (!activityId) {
+        return ResponseHelper.error(res, "Activity ID is required", undefined, 400);
+      }
+
+      if (!approverId) {
+        return ResponseHelper.error(res, "User not authenticated", undefined, 401);
+      }
+
+      const approvedActivity = await ActivityService.approveActivity(
+        activityId,
+        approverId,
+        {
+          comments,
+          approved: approved !== false // Default to approved if not specified
+        }
+      );
+
+      logger.info('Activity approved', {
+        activityId,
+        approverId,
+        approved: approved !== false
+      });
+
+      return ResponseHelper.success(res, "Activity approved successfully", approvedActivity);
+    } catch (error: any) {
+      logger.error("Error approving activity", { error: error.message });
+      return ResponseHelper.error(res, error.message || "Failed to approve activity", undefined, 500);
     }
   }
 }

@@ -1,9 +1,11 @@
 //@ts-nocheck
 import { Request, Response } from 'express';
 import { DueDiligenceService } from '../services/DueDiligenceService';
+import { ActivityService } from '../services/ActivityService';
 import { EmailNotificationService } from '../services/EmailNotificationService';
 import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
+import { FirebaseStorageService } from '../services/FirebaseStorageService';
 
 export class DueDiligenceController {
   /**
@@ -204,6 +206,80 @@ export class DueDiligenceController {
     } catch (error: any) {
       logger.error("Error getting due diligence reviews", { error: error.message });
       ResponseHelper.error(res, `Failed to get due diligence reviews: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Get users from Investments department only
+   */
+  static async getInvestmentsDepartmentUsers(req: Request, res: Response): Promise<void> {
+    try {
+      const users = await DueDiligenceService.getInvestmentsDepartmentUsers();
+
+      logger.info("Investments department users retrieved", {
+        requestedBy: (req as any).user?.id,
+        count: users.length
+      });
+
+      ResponseHelper.success(res, "Investments department users retrieved successfully", users);
+    } catch (error: any) {
+      logger.error("Error getting Investments department users", { error: error.message });
+      ResponseHelper.error(res, `Failed to get Investments department users: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Assign task from due diligence (creates task in background, syncs with performance module)
+   */
+  static async assignDueDiligenceTask(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params; // applicationId
+      const { assigneeId, title, description, priority, dueDate } = req.body;
+      const assignedById = (req as any).user?.id;
+
+      if (!id) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+
+      if (!assigneeId) {
+        ResponseHelper.error(res, "Assignee ID is required", undefined, 400);
+        return;
+      }
+
+      if (!title) {
+        ResponseHelper.error(res, "Task title is required", undefined, 400);
+        return;
+      }
+
+      if (!assignedById) {
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+
+      const result = await DueDiligenceService.assignDueDiligenceTask(
+        id,
+        assigneeId,
+        {
+          title,
+          description,
+          priority,
+          dueDate: dueDate ? new Date(dueDate) : undefined
+        },
+        assignedById
+      );
+
+      logger.info("Due diligence task assigned", {
+        applicationId: id,
+        taskId: result.task.id,
+        assigneeId,
+        assignedById
+      });
+
+      ResponseHelper.success(res, "Task assigned successfully and synced with performance module", result);
+    } catch (error: any) {
+      logger.error("Error assigning due diligence task", { error: error.message });
+      ResponseHelper.error(res, `Failed to assign task: ${error.message}`, undefined, 500);
     }
   }
 }
