@@ -261,6 +261,16 @@ export class BoardReviewService {
         if (selectedOptions.length !== 1) {
           throw new Error("Exactly one decision option must be selected: Investment Approved, Investment Rejected, or Conditional Approval");
         }
+      } else {
+        // No decision flags provided in update - check if all are false and default to approved
+        const allDecisionsFalse = !investmentApproved && !investmentRejected && !conditionalApproval;
+        if (allDecisionsFalse) {
+          console.log("No decision flags provided and all are false, defaulting to APPROVED");
+          investmentApproved = true;
+          investmentRejected = false;
+          conditionalApproval = false;
+        }
+        // Otherwise keep existing values
       }
 
              // Update the board review
@@ -328,6 +338,7 @@ export class BoardReviewService {
       }
 
       // Determine the board decision and next application stage
+      // Default to approved if no decision is explicitly set
       let boardDecision: string;
       if (boardReview.investmentApproved) {
         boardDecision = "BOARD_APPROVED";
@@ -336,7 +347,27 @@ export class BoardReviewService {
       } else if (boardReview.conditionalApproval) {
         boardDecision = "BOARD_CONDITIONAL";
       } else {
-        throw new Error("No decision option selected");
+        // Default to approved if no decision is selected
+        console.log("No decision option selected, defaulting to APPROVED");
+        boardDecision = "BOARD_APPROVED";
+        // Update the board review to set investmentApproved to true
+        await prisma.boardReview.update({
+          where: { applicationId },
+          data: {
+            investmentApproved: true,
+            investmentRejected: false,
+            conditionalApproval: false
+          }
+        });
+        // Refresh the boardReview object
+        const updatedBoardReview = await prisma.boardReview.findUnique({
+          where: { applicationId }
+        });
+        if (updatedBoardReview) {
+          boardReview.investmentApproved = updatedBoardReview.investmentApproved;
+          boardReview.investmentRejected = updatedBoardReview.investmentRejected;
+          boardReview.conditionalApproval = updatedBoardReview.conditionalApproval;
+        }
       }
 
       // Set next stage to BOARD_APPROVED for all approved decisions
