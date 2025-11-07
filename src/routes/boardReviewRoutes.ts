@@ -256,7 +256,7 @@ router.get('/:applicationId', authenticate, BoardReviewController.getBoardReview
  *   put:
  *     summary: Update board review
  *     description: Update an existing board review
- *     tags: [Board Reviews]
+ *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -305,7 +305,7 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
  *   post:
  *     summary: Cast a board review vote
  *     description: Submit a yes/no vote for a board review. Only eligible board members can vote.
- *     tags: [Board Reviews]
+ *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -349,7 +349,7 @@ router.post('/:applicationId/votes', authenticate, BoardReviewController.submitB
  *   get:
  *     summary: Get board vote summary
  *     description: Retrieve the weighted vote summary for a board review. Votes remain anonymous until the review is completed.
- *     tags: [Board Reviews]
+ *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -379,7 +379,7 @@ router.get('/:applicationId/votes/summary', authenticate, BoardReviewController.
  *   post:
  *     summary: Complete board review
  *     description: Complete a board review and update application stage
- *     tags: [Board Reviews]
+ *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
  *     parameters:

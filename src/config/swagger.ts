@@ -45,6 +45,16 @@ const options = {
             firstName: { type: 'string', example: 'John' },
             lastName: { type: 'string', example: 'Doe' },
             email: { type: 'string', format: 'email', example: 'john@example.com' },
+            userDepartment: { type: 'string', example: 'Investments' },
+            departmentRole: { type: 'string', example: 'BOARD_MEMBER' },
+            roleCode: { type: 'string', example: 'BOARD_MEMBER' },
+            votingPower: {
+              type: 'number',
+              format: 'double',
+              nullable: true,
+              example: 25,
+              description: 'Weighted voting percentage for board roles. Null for non-board users.'
+            },
             backgroundImage: { type: 'string', example: 'https://example.com/backgrounds/tech-background.jpg' },
             roleId: { type: 'string', example: 'clx1234567890abcdef' },
             createdAt: { type: 'string', format: 'date-time' },
@@ -131,6 +141,14 @@ const options = {
               enum: ['HEAD', 'DEPUTY', 'MEMBER', 'OFFICER', 'SPECIALIST', 'ASSISTANT'],
               example: 'OFFICER',
               description: "User's role within the department"
+            },
+            votingPower: {
+              type: 'number',
+              format: 'double',
+              minimum: 0,
+              maximum: 100,
+              example: 20,
+              description: 'Required when roleCode is BOARD_CHAIR or BOARD_MEMBER. Represents weighted voting percentage; total across board members must not exceed 100%.'
             }
           }
         },
@@ -161,6 +179,14 @@ const options = {
               type: 'string', 
               example: 'clx1234567890abcdef',
               description: 'Optional: Role ID to assign to user (if provided, will override roleCode)'
+            },
+            votingPower: {
+              type: 'number',
+              format: 'double',
+              minimum: 0,
+              maximum: 100,
+              example: 30,
+              description: 'Required for BOARD_CHAIR/BOARD_MEMBER. Omit or set to null to remove voting privileges when reassigning roles.'
             }
           }
         },
@@ -7025,7 +7051,7 @@ const fallbackSpec = {
       // ==========================================
       '/api/board-reviews/{applicationId}': {
         post: {
-          tags: ['🏛️ Stage 3: Board Review'],
+          tags: ['🗳️ Voting Process'],
           summary: 'Create board review (Investor)',
           description: 'Create a board review for an application that has completed due diligence',
           security: [{ bearerAuth: [] }],
@@ -7056,7 +7082,7 @@ const fallbackSpec = {
           }
         },
         get: {
-          tags: ['🏛️ Stage 3: Board Review'],
+          tags: ['🗳️ Voting Process'],
           summary: 'Get board review by application ID (Investor)',
           description: 'Retrieve board review details for a specific application',
           security: [{ bearerAuth: [] }],
@@ -7068,7 +7094,7 @@ const fallbackSpec = {
           }
         },
         put: {
-          tags: ['🏛️ Stage 3: Board Review'],
+          tags: ['🗳️ Voting Process'],
           summary: 'Update board review (Investor)',
           description: 'Update an existing board review',
           security: [{ bearerAuth: [] }],
@@ -7101,7 +7127,7 @@ const fallbackSpec = {
       },
       '/api/board-reviews/{applicationId}/complete': {
         post: {
-          tags: ['🏛️ Stage 3: Board Review'],
+          tags: ['🗳️ Voting Process'],
           summary: 'Complete board review (Investor)',
           description: 'Complete a board review and update application stage',
           security: [{ bearerAuth: [] }],
@@ -7160,7 +7186,7 @@ const fallbackSpec = {
       },
       '/api/board-reviews': {
         get: {
-          tags: ['🏛️ Stage 3: Board Review'],
+          tags: ['🗳️ Voting Process'],
           summary: 'Get all board reviews (Investor)',
           description: 'Retrieve all board reviews with pagination and filtering',
           security: [{ bearerAuth: [] }],
@@ -7177,7 +7203,7 @@ const fallbackSpec = {
       },
       '/api/board-reviews/my': {
         get: {
-          tags: ['🏛️ Stage 3: Board Review'],
+          tags: ['🗳️ Voting Process'],
           summary: 'Get my board reviews (Investor)',
           description: 'Retrieve board reviews assigned to the current user',
           security: [{ bearerAuth: [] }],
@@ -7193,7 +7219,7 @@ const fallbackSpec = {
       },
       '/api/board-reviews/summary': {
         get: {
-          tags: ['🏛️ Stage 3: Board Review'],
+          tags: ['🗳️ Voting Process'],
           summary: 'Get board review summary (Investor)',
           description: 'Get summary statistics for board reviews',
           security: [{ bearerAuth: [] }],
