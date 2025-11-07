@@ -50,11 +50,6 @@ router.use(authenticate);
  *                         type: string
  *                       roleCode:
  *                         type: string
- *                       votingPower:
- *                         type: number
- *                         format: double
- *                         example: 25
- *                         description: "Weighted voting percentage (only for board roles). Null for other users."
  *                       role:
  *                         type: object
  *                         properties:
@@ -178,12 +173,6 @@ router.get("/by-department", UserController.getUsersByDepartmentAndRole);
  *                       type: string
  *                     roleCode:
  *                       type: string
- *                     votingPower:
- *                       type: number
- *                       format: double
- *                       nullable: true
- *                       example: 30
- *                       description: "Weighted voting percentage if applicable."
  *                     role:
  *                       type: object
  *                       properties:
@@ -266,13 +255,6 @@ router.get("/:id", UserController.getUserById);
  *                   - ASSISTANT
  *                 example: "OFFICER"
  *                 description: "User's role within the department"
- *               votingPower:
- *                 type: number
- *                 format: double
- *                 minimum: 0
- *                 maximum: 100
- *                 example: 20
- *                 description: "Required when roleCode is BOARD_CHAIR or BOARD_MEMBER. Represents weighted voting percentage (total must not exceed 100%)."
  *     responses:
  *       201:
  *         description: User created successfully
@@ -305,12 +287,6 @@ router.get("/:id", UserController.getUserById);
  *                           type: string
  *                         roleCode:
  *                           type: string
- *                         votingPower:
- *                           type: number
- *                           format: double
- *                           nullable: true
- *                           example: 25
- *                           description: "Weighted voting percentage if the user is a board member."
  *                     temporaryPassword:
  *                       type: string
  *                       description: "Temporary password (also sent via email)"
@@ -390,13 +366,6 @@ router.post("/", UserController.createUser);
  *                 type: string
  *                 example: "clx1234567890abcdef"
  *                 description: "Optional: Role ID to assign to user (if provided, will override roleCode)"
- *               votingPower:
- *                 type: number
- *                 format: double
- *                 minimum: 0
- *                 maximum: 100
- *                 example: 30
- *                 description: "Required for BOARD_CHAIR/BOARD_MEMBER in Investments. Set to null or omit to remove voting rights when moving out of board roles."
  *     responses:
  *       200:
  *         description: User updated successfully
@@ -426,12 +395,6 @@ router.post("/", UserController.createUser);
  *                       type: string
  *                     roleCode:
  *                       type: string
- *                     votingPower:
- *                       type: number
- *                       format: double
- *                       nullable: true
- *                       example: 40
- *                       description: "Weighted voting percentage for board members"
  *                     role:
  *                       type: object
  *       400:

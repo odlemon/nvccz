@@ -30,9 +30,6 @@ export class UserService {
         userDepartment: "Investments",
         roleCode: {
           in: BOARD_VOTING_ROLE_CODES
-        },
-        votingPower: {
-          not: null
         }
       },
       select: {
@@ -41,6 +38,7 @@ export class UserService {
         lastName: true,
         email: true,
         roleCode: true,
+        departmentRole: true,
         votingPower: true
       }
     });
@@ -50,7 +48,9 @@ export class UserService {
     const members = await this.fetchBoardVotingMembers();
     return members.map(member => ({
       ...member,
-      votingPower: member.votingPower ? Number(member.votingPower) : 0
+      votingPower: member.votingPower !== null && member.votingPower !== undefined
+        ? Number(member.votingPower)
+        : null
     }));
   }
 
@@ -267,7 +267,6 @@ This is an automated message. Please do not reply to this email.
     department: string;
     roleCode: string;
     departmentRole: string;
-    votingPower?: number;
   }) {
     try {
       // Check if user already exists
@@ -310,11 +309,6 @@ This is an automated message. Please do not reply to this email.
             throw new Error("Only one Board Chairman is allowed in the system");
           }
         }
-
-        if (userData.votingPower === undefined || userData.votingPower === null) {
-          throw new Error("Voting power is required for board roles");
-        }
-        this.validateVotingPowerValue(Number(userData.votingPower));
       }
 
       // Generate password
@@ -332,14 +326,9 @@ This is an automated message. Please do not reply to this email.
           departmentRole: userData.departmentRole,
           roleCode: userData.roleCode,
           roleId: role.id,
-          votingPower: isBoardRole ? Number(userData.votingPower) : null
+          votingPower: null
         }
       });
-
-      if (isBoardRole) {
-        const totalVotingPower = await this.getTotalBoardVotingPower();
-        this.ensureVotingPowerTotalWithinBounds(totalVotingPower);
-      }
 
       // Send credentials email
       await this.sendCredentialsEmail(
@@ -514,7 +503,6 @@ This is an automated message. Please do not reply to this email.
       const targetRoleCode = userData.roleCode ?? existingUser.roleCode;
       const isBoardRole = this.isBoardVotingRole(targetRoleCode);
 
-      let votingPowerToSet: number | null | undefined = undefined;
       if (isBoardRole) {
         const departmentToSet = userData.department ?? existingUser.userDepartment;
         if (departmentToSet !== "Investments") {
@@ -535,22 +523,6 @@ This is an automated message. Please do not reply to this email.
             throw new Error("Only one Board Chairman is allowed in the system");
           }
         }
-
-        if (userData.votingPower !== undefined && userData.votingPower !== null) {
-          const numericVotingPower = Number(userData.votingPower);
-          this.validateVotingPowerValue(numericVotingPower);
-          votingPowerToSet = numericVotingPower;
-        } else if (existingUser.votingPower !== null && existingUser.votingPower !== undefined) {
-          votingPowerToSet = Number(existingUser.votingPower);
-        } else {
-          throw new Error("Voting power is required for board roles");
-        }
-      } else {
-        if (userData.votingPower !== undefined) {
-          votingPowerToSet = null;
-        } else if (this.isBoardVotingRole(existingUser.roleCode) && !isBoardRole) {
-          votingPowerToSet = null;
-        }
       }
 
       // Update user - explicitly exclude password (password should only be changed via change-password endpoint)
@@ -562,7 +534,9 @@ This is an automated message. Please do not reply to this email.
       if (userData.roleCode) updateData.roleCode = userData.roleCode;
       if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
       if (userData.roleId) updateData.roleId = userData.roleId;
-      if (votingPowerToSet !== undefined) updateData.votingPower = votingPowerToSet;
+      if (!isBoardRole && this.isBoardVotingRole(existingUser.roleCode)) {
+        updateData.votingPower = null;
+      }
       // Password is explicitly excluded - must use change-password endpoint
 
       const user = await prisma.user.update({
@@ -578,9 +552,6 @@ This is an automated message. Please do not reply to this email.
           }
         }
       });
-
-      const totalVotingPower = await this.getTotalBoardVotingPower();
-      this.ensureVotingPowerTotalWithinBounds(totalVotingPower);
 
       // Return only the fields we want, with role as optional
       return {
@@ -646,6 +617,68 @@ This is an automated message. Please do not reply to this email.
       return { message: "User deleted successfully" };
     } catch (error) {
       console.error("Error deleting user:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Configure voting power for board members
+   */
+  static async setVotingPower(userId: string, votingPower: number | null) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      if (!this.isBoardVotingRole(user.roleCode)) {
+        throw new Error("Voting power can only be configured for board roles");
+      }
+
+      if (user.userDepartment !== "Investments") {
+        throw new Error("Board voting roles must belong to the Investments department");
+      }
+
+      let valueToSet: number | null = null;
+      if (votingPower !== null && votingPower !== undefined) {
+        const numericValue = Number(votingPower);
+        this.validateVotingPowerValue(numericValue);
+        valueToSet = numericValue;
+      }
+
+      const currentValue = user.votingPower ? Number(user.votingPower) : 0;
+      const totalVotingPower = await this.getTotalBoardVotingPower();
+      const newTotal = totalVotingPower - currentValue + (valueToSet ?? 0);
+      this.ensureVotingPowerTotalWithinBounds(newTotal);
+
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          votingPower: valueToSet
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true,
+          votingPower: true
+        }
+      });
+
+      return {
+        ...updatedUser,
+        votingPower: updatedUser.votingPower !== null && updatedUser.votingPower !== undefined
+          ? Number(updatedUser.votingPower)
+          : null
+      };
+    } catch (error) {
+      console.error("Error setting voting power:", error);
       throw error;
     }
   }

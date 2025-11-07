@@ -42,8 +42,7 @@ export class UserController {
         email,
         department,
         roleCode,
-        departmentRole,
-        votingPower
+        departmentRole
       } = req.body;
 
       // Validate required fields
@@ -75,29 +74,11 @@ export class UserController {
       const boardVotingRoleCodes = ["BOARD_CHAIR", "BOARD_MEMBER"];
       const isBoardRole = roleCode && boardVotingRoleCodes.includes(roleCode);
 
-      let numericVotingPower: number | undefined = undefined;
-      if (isBoardRole) {
-        if (department !== "Investments") {
-          return res.status(400).json({
-            success: false,
-            message: "Board roles must belong to the Investments department"
-          });
-        }
-
-        if (votingPower === undefined || votingPower === null) {
-          return res.status(400).json({
-            success: false,
-            message: "Voting power is required for board roles"
-          });
-        }
-
-        numericVotingPower = Number(votingPower);
-        if (Number.isNaN(numericVotingPower) || numericVotingPower <= 0 || numericVotingPower > 100) {
-          return res.status(400).json({
-            success: false,
-            message: "Voting power must be a number greater than 0 and less than or equal to 100"
-          });
-        }
+      if (isBoardRole && department !== "Investments") {
+        return res.status(400).json({
+          success: false,
+          message: "Board roles must belong to the Investments department"
+        });
       }
 
       const result = await UserService.createUser({
@@ -106,8 +87,7 @@ export class UserController {
         email: email.toLowerCase().trim(),
         department,
         roleCode,
-        departmentRole,
-        votingPower: numericVotingPower
+        departmentRole
       });
 
       res.status(201).json({
@@ -121,8 +101,7 @@ export class UserController {
             email: result.user.email,
             userDepartment: result.user.userDepartment,
             departmentRole: result.user.departmentRole,
-            roleCode: result.user.roleCode,
-            votingPower: result.user.votingPower
+            roleCode: result.user.roleCode
           },
           // Include password in response for immediate use (remove in production)
           temporaryPassword: result.password
@@ -202,8 +181,7 @@ export class UserController {
         department,
         roleCode,
         departmentRole,
-        roleId,
-        votingPower
+        roleId
       } = req.body;
 
       if (!id) {
@@ -220,8 +198,7 @@ export class UserController {
         department,
         roleCode,
         departmentRole,
-        roleId,
-        votingPower: votingPower !== undefined ? Number(votingPower) : undefined
+        roleId
       });
 
       res.status(200).json({
