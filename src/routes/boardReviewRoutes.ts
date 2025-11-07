@@ -2,7 +2,6 @@
 import express from 'express';
 import { BoardReviewController } from '../controllers/BoardReviewController';
 import { authenticate } from '../middleware/authenticate';
-import { authorize } from '../middleware/authorize';
 
 const router = express.Router();
 
@@ -181,7 +180,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.get('/voting-members', authenticate, authorize(["admin", "fund_manager", "BOARD_CHAIR"]), BoardReviewController.getBoardVotingMembers);
+router.get('/voting-members', authenticate, BoardReviewController.getBoardVotingMembers);
 
 /**
  * @swagger
@@ -226,7 +225,7 @@ router.get('/voting-members', authenticate, authorize(["admin", "fund_manager", 
  *       404:
  *         description: User not found
  */
-router.put('/voting-members/:userId/voting-power', authenticate, authorize(["admin", "fund_manager", "BOARD_CHAIR"]), BoardReviewController.updateVotingPower);
+router.put('/voting-members/:userId/voting-power', authenticate, BoardReviewController.updateVotingPower);
 
 /**
  * @swagger
