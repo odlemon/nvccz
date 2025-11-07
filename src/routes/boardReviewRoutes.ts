@@ -167,7 +167,7 @@ const router = express.Router();
  *   post:
  *     summary: Create a new board review
  *     description: Create a board review for an application that has completed due diligence
- *     tags: [Board Reviews]
+ *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -217,7 +217,7 @@ router.post('/:applicationId', authenticate, BoardReviewController.createBoardRe
  *   get:
  *     summary: Get board review by application ID
  *     description: Retrieve board review details for a specific application
- *     tags: [Board Reviews]
+ *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -298,6 +298,80 @@ router.get('/:applicationId', authenticate, BoardReviewController.getBoardReview
  *         description: Internal server error
  */
 router.put('/:applicationId', authenticate, BoardReviewController.updateBoardReview);
+
+/**
+ * @swagger
+ * /api/board-reviews/{applicationId}/votes:
+ *   post:
+ *     summary: Cast a board review vote
+ *     description: Submit a yes/no vote for a board review. Only eligible board members can vote.
+ *     tags: [Board Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: applicationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Application ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [vote]
+ *             properties:
+ *               vote:
+ *                 type: string
+ *                 enum: [APPROVE, REJECT]
+ *               comment:
+ *                 type: string
+ *                 description: Optional comment to accompany the vote
+ *     responses:
+ *       200:
+ *         description: Vote recorded successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/:applicationId/votes', authenticate, BoardReviewController.submitBoardVote);
+
+/**
+ * @swagger
+ * /api/board-reviews/{applicationId}/votes/summary:
+ *   get:
+ *     summary: Get board vote summary
+ *     description: Retrieve the weighted vote summary for a board review. Votes remain anonymous until the review is completed.
+ *     tags: [Board Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: applicationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Application ID
+ *     responses:
+ *       200:
+ *         description: Vote summary retrieved successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/:applicationId/votes/summary', authenticate, BoardReviewController.getBoardVoteSummary);
 
 /**
  * @swagger

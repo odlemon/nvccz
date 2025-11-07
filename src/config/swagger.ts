@@ -7113,6 +7113,51 @@ const fallbackSpec = {
           }
         }
       },
+      '/api/board-reviews/{applicationId}/votes': {
+        post: {
+          tags: ['🗳️ Voting Process'],
+          summary: 'Cast board review vote',
+          description: 'Submit your weighted vote (approve or reject) for a board review. Only authorized board members can vote.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['vote'],
+                  properties: {
+                    vote: { type: 'string', enum: ['APPROVE', 'REJECT'], example: 'APPROVE' },
+                    comment: { type: 'string', example: 'Strong fundamentals, I support this deal.' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Vote recorded successfully (response includes anonymized progress and your vote)' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden - User not eligible to vote' }
+          }
+        }
+      },
+      '/api/board-reviews/{applicationId}/votes/summary': {
+        get: {
+          tags: ['🗳️ Voting Process'],
+          summary: 'Get board vote summary',
+          description: 'Retrieve the weighted voting progress and outcome. Individual votes remain hidden until the board review is completed.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Vote summary retrieved successfully' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden - User not permitted to view voting summary' }
+          }
+        }
+      },
       '/api/board-reviews': {
         get: {
           tags: ['🏛️ Stage 3: Board Review'],

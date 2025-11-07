@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import { BoardReviewService, CreateBoardReviewRequest, UpdateBoardReviewRequest } from '../services/BoardReviewService';
 import { EmailNotificationService } from '../services/EmailNotificationService';
+import { UserService } from '../services/UserService';
 import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 
@@ -183,7 +184,24 @@ export class BoardReviewController {
         return;
       }
 
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+
+      const approvingUser = await UserService.getUserById(userId);
+      if (
+        approvingUser.userDepartment !== 'Investments' ||
+        approvingUser.roleCode !== 'BOARD_CHAIR'
+      ) {
+        ResponseHelper.error(res, "Only the Board Chairman can finalize the board review", undefined, 403);
+        return;
+      }
+
       const boardReview = await BoardReviewService.completeBoardReview(applicationId);
+
+      const voteSummary = await BoardReviewService.getVoteSummary(applicationId, userId);
 
       // Check if user was created (for BOARD_APPROVED which includes both approved and conditional approval)
       // If user was created, the credentials email was already sent from createUserAndPortfolioCompany
@@ -233,10 +251,76 @@ export class BoardReviewController {
         newStage: boardReview.application.currentStage
       });
 
-      ResponseHelper.success(res, "Board review completed successfully", boardReview);
+      ResponseHelper.success(res, "Board review completed successfully", {
+        boardReview,
+        voteSummary
+      });
     } catch (error: any) {
       logger.error("Error completing board review", { error: error.message });
       ResponseHelper.error(res, `Failed to complete board review: ${error.message}`, undefined, 500);
+    }
+  }
+
+  static async submitBoardVote(req: Request, res: Response): Promise<void> {
+    try {
+      const { applicationId } = req.params;
+      const { vote, comment } = req.body;
+      const voterId = (req as any).user?.id;
+
+      if (!applicationId) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+
+      if (!voterId) {
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+
+      if (!vote) {
+        ResponseHelper.error(res, "Vote is required", undefined, 400);
+        return;
+      }
+
+      const summary = await BoardReviewService.submitVote(applicationId, voterId, vote, comment);
+
+      ResponseHelper.success(res, "Vote recorded successfully", summary);
+    } catch (error: any) {
+      logger.error("Error submitting board vote", { error: error.message });
+      ResponseHelper.error(res, `Failed to submit vote: ${error.message}`, undefined, 400);
+    }
+  }
+
+  static async getBoardVoteSummary(req: Request, res: Response): Promise<void> {
+    try {
+      const { applicationId } = req.params;
+      const requesterId = (req as any).user?.id;
+
+      if (!applicationId) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+
+      if (!requesterId) {
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+
+      const requester = await UserService.getUserById(requesterId);
+      const privilegedRoles = ["admin", "fund_manager"];
+      const isPrivilegedRole = requester.role?.name ? privilegedRoles.includes(requester.role.name) : false;
+      const isBoardRole = requester.userDepartment === 'Investments' && (requester.roleCode === 'BOARD_MEMBER' || requester.roleCode === 'BOARD_CHAIR');
+
+      if (!isPrivilegedRole && !isBoardRole) {
+        ResponseHelper.error(res, "You are not authorized to view board vote summaries", undefined, 403);
+        return;
+      }
+
+      const summary = await BoardReviewService.getVoteSummary(applicationId, requesterId);
+      ResponseHelper.success(res, "Vote summary retrieved successfully", summary);
+    } catch (error: any) {
+      logger.error("Error getting board vote summary", { error: error.message });
+      ResponseHelper.error(res, `Failed to get vote summary: ${error.message}`, undefined, 400);
     }
   }
 

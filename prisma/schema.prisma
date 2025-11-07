@@ -43,6 +43,7 @@ model User {
   cashbookEntries            CashbookEntry[]  // NEW: Link to cashbook entries
   dueDiligenceReviews        DueDiligenceReview[]
   boardReviews               BoardReview[]
+  boardReviewVotes           BoardReviewVote[]
   termSheets                 TermSheet[]
   investmentImplementations  InvestmentImplementation[]
   fundDisbursementsApproved  FundDisbursement[]         @relation("FundDisbursementApprovedBy")
@@ -69,6 +70,7 @@ model User {
   userDepartment    String? // Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT
   departmentRole    String? // HEAD, DEPUTY, MEMBER
   roleCode          String? // NEW! Hardcoded role: FIN_MGR, PROC_OFF, etc.
+  votingPower       Decimal? @db.Decimal(5, 2)
   
   performanceGoals        PerformanceGoal[] @relation("GoalAssignee")
   createdPerformanceGoals PerformanceGoal[] @relation("GoalCreator")
@@ -1244,9 +1246,27 @@ model BoardReview {
   // Relations
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   reviewer    User        @relation(fields: [reviewerId], references: [id])
+  votes       BoardReviewVote[]
 
   @@unique([applicationId])
   @@map("board_reviews")
+}
+
+model BoardReviewVote {
+  id            String   @id @default(cuid())
+  boardReviewId String
+  userId        String
+  vote          String
+  comment       String?  @db.Text
+  votingPower   Decimal  @db.Decimal(5, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  boardReview BoardReview @relation(fields: [boardReviewId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@unique([boardReviewId, userId])
+  @@map("board_review_votes")
 }
 
 model TermSheet {
