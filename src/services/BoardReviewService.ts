@@ -301,6 +301,39 @@ export class BoardReviewService {
     });
 
     if (!boardReview) {
+      const application = await prisma.application.findUnique({
+        where: { id: applicationId },
+        select: { currentStage: true }
+      });
+
+      if (!application) {
+        throw new Error("Application not found");
+      }
+
+      if (application.currentStage === "UNDER_BOARD_REVIEW") {
+        const members = await UserService.getBoardVotingMembers();
+        const totalConfiguredPower = members.reduce((sum, member) => {
+          const value = member.votingPower ? Number(member.votingPower) : 0;
+          return sum + value;
+        }, 0);
+
+        const placeholderSummary: InternalBoardVoteSummary = {
+          boardReview: {
+            status: "IN_PROGRESS"
+          },
+          votes: [],
+          approvePower: 0,
+          rejectPower: 0,
+          totalConfiguredPower,
+          totalCastPower: 0,
+          remainingPower: totalConfiguredPower,
+          majorityDecision: null,
+          isVotingComplete: totalConfiguredPower <= 0
+        };
+
+        return this.buildPublicVoteSummary(placeholderSummary, requestingUserId);
+      }
+
       throw new Error("Board review not found");
     }
 
