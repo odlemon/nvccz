@@ -257,7 +257,7 @@ export class DueDiligenceService {
 
           // Extract documents from description if they exist
           if (sanitizedDescription) {
-            const documentsMatch = sanitizedDescription.match(/\[DOCUMENTS:([\s\S]+?)\]\]/);
+            const documentsMatch = sanitizedDescription.match(/\[DOCUMENTS:(\[[\s\S]*?\])\]/);
             if (documentsMatch) {
               const rawDocuments = documentsMatch[1];
               try {
