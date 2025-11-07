@@ -256,7 +256,7 @@ export class DueDiligenceService {
           
           // Extract documents from description if they exist
           if (activity.description) {
-            const documentsMatch = activity.description.match(/\[DOCUMENTS:(.+?)\]/);
+            const documentsMatch = activity.description.match(/\[DOCUMENTS:([\s\S]+?)\]/);
             if (documentsMatch) {
               try {
                 documents = JSON.parse(documentsMatch[1]);
@@ -599,7 +599,7 @@ export class DueDiligenceService {
       await prisma.task.update({
         where: { id: task.id },
         data: {
-          description: `${task.description || ''}\n\n[Due Diligence Task - Application: ${applicationId}]`
+          description: `${task.description || ''}[DOCUMENTS:([\\s\\S]+?)\][DOCUMENTS:([\\s\\S]+?)\][Due Diligence Task - Application: ${applicationId}]`
         }
       });
 
