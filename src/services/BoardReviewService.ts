@@ -1,5 +1,6 @@
 //@ts-nocheck
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 import { prisma } from '../utils/database';
 import { UserService } from './UserService';
@@ -141,7 +142,8 @@ export class BoardReviewService {
     }
 
     const boardReviewVoteDelegate = (prisma as any).boardReviewVote;
-    const voteQuery = boardReviewVoteDelegate
+
+    const votesPromise = boardReviewVoteDelegate
       ? boardReviewVoteDelegate.findMany({
           where: { boardReviewId },
           orderBy: { createdAt: 'asc' },
@@ -156,34 +158,52 @@ export class BoardReviewService {
             }
           }
         })
-      : Promise.resolve([]);
+      : prisma.$queryRaw`
+          SELECT v.id,
+                 v.userId,
+                 v.vote,
+                 v.comment,
+                 v.votingPower,
+                 v.createdAt,
+                 v.updatedAt,
+                 u.firstName,
+                 u.lastName,
+                 u.roleCode
+            FROM board_review_votes v
+            LEFT JOIN users u ON u.id = v.userId
+           WHERE v.boardReviewId = ${boardReviewId}
+           ORDER BY v.createdAt ASC
+        `;
 
-    const [votes, members] = await Promise.all([
-      voteQuery,
+    const [rawVotes, members] = await Promise.all([
+      votesPromise,
       UserService.getBoardVotingMembers()
     ]);
+
+    const votes = Array.isArray(rawVotes)
+      ? rawVotes.map((vote: any) => ({
+          id: vote.id,
+          userId: vote.userId,
+          userName: `${vote.user?.firstName ?? vote.firstName ?? ''} ${vote.user?.lastName ?? vote.lastName ?? ''}`.trim(),
+          vote: vote.vote as BoardVoteChoice,
+          comment: vote.comment ?? null,
+          votingPower: Number(vote.votingPower),
+          createdAt: vote.createdAt,
+          updatedAt: vote.updatedAt,
+          roleCode: vote.user?.roleCode ?? vote.roleCode ?? null
+        }))
+      : [];
 
     const totalConfiguredPower = members.reduce((sum, member) => {
       const power = member.votingPower ? Number(member.votingPower) : 0;
       return sum + power;
     }, 0);
 
-    const mappedVotes = votes.map(vote => ({
-      id: vote.id,
-      userId: vote.userId,
-      userName: `${vote.user?.firstName ?? ''} ${vote.user?.lastName ?? ''}`.trim(),
-      vote: vote.vote as BoardVoteChoice,
-      comment: vote.comment,
-      votingPower: Number(vote.votingPower),
-      createdAt: vote.createdAt,
-      updatedAt: vote.updatedAt
-    }));
-
     let approvePower = 0;
     let rejectPower = 0;
     let totalCastPower = 0;
 
-    mappedVotes.forEach(vote => {
+    votes.forEach(vote => {
       totalCastPower += vote.votingPower;
       if (vote.vote === "APPROVE") {
         approvePower += vote.votingPower;
@@ -207,7 +227,7 @@ export class BoardReviewService {
 
     return {
       boardReview,
-      votes: mappedVotes,
+      votes,
       approvePower,
       rejectPower,
       totalConfiguredPower,
@@ -266,28 +286,50 @@ export class BoardReviewService {
       throw new Error("Voting power is not configured for this user. Please contact an administrator.");
     }
 
-    const existingVote = await prisma.boardReviewVote.findUnique({
-      where: {
-        boardReviewId_userId: {
-          boardReviewId: boardReview.id,
-          userId: voterId
+    const boardReviewVoteDelegate = (prisma as any).boardReviewVote;
+
+    let existingVote = null;
+    if (boardReviewVoteDelegate) {
+      existingVote = await boardReviewVoteDelegate.findUnique({
+        where: {
+          boardReviewId_userId: {
+            boardReviewId: boardReview.id,
+            userId: voterId
+          }
         }
-      }
-    });
+      });
+    } else {
+      const rawExisting = await prisma.$queryRaw`
+        SELECT id
+          FROM board_review_votes
+         WHERE boardReviewId = ${boardReview.id}
+           AND userId = ${voterId}
+         LIMIT 1
+      `;
+      existingVote = Array.isArray(rawExisting) && rawExisting.length > 0 ? rawExisting[0] : null;
+    }
 
     if (existingVote) {
       throw new Error("You have already voted on this board review");
     }
 
-    await prisma.boardReviewVote.create({
-      data: {
-        boardReviewId: boardReview.id,
-        userId: voterId,
-        vote: normalizedVote,
-        comment,
-        votingPower: Number(voter.votingPower)
-      }
-    });
+    if (boardReviewVoteDelegate) {
+      await boardReviewVoteDelegate.create({
+        data: {
+          boardReviewId: boardReview.id,
+          userId: voterId,
+          vote: normalizedVote,
+          comment,
+          votingPower: Number(voter.votingPower)
+        }
+      });
+    } else {
+      const id = randomUUID();
+      await prisma.$executeRaw`
+        INSERT INTO board_review_votes (id, boardReviewId, userId, vote, comment, votingPower, createdAt, updatedAt)
+        VALUES (${id}, ${boardReview.id}, ${voterId}, ${normalizedVote}, ${comment ?? null}, ${Number(voter.votingPower)}, NOW(), NOW())
+      `;
+    }
 
     const summary = await this.calculateVoteSummary(boardReview.id);
     return this.buildPublicVoteSummary(summary, voterId);
