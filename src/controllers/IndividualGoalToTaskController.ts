@@ -76,7 +76,7 @@ export class IndividualGoalToTaskController {
       }
 
       // Validate department name
-      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT", "Investments"];
       if (!validDepartments.includes(departmentName)) {
         return res.status(400).json({
           success: false,
@@ -144,7 +144,7 @@ export class IndividualGoalToTaskController {
       }
 
       // Validate department name
-      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+      const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT", "Investments"];
       if (!validDepartments.includes(departmentName)) {
         return res.status(400).json({
           success: false,

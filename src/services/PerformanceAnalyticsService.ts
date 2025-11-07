@@ -327,7 +327,7 @@ export class PerformanceAnalyticsService {
    */
   static async getDepartmentComparison() {
     try {
-      const departments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+      const departments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT", "Investments"];
       
       const comparison = await Promise.all(departments.map(async (dept) => {
         const goals = await prisma.performanceGoal.findMany({

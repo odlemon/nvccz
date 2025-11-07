@@ -117,7 +117,7 @@ const options = {
             email: { type: 'string', format: 'email', example: 'john.doe@nvccz.co.zw', description: 'Valid email address (will be converted to lowercase automatically)' },
             department: { 
               type: 'string', 
-              enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'],
+              enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'],
               example: 'Finance',
               description: "User's department (must match one of the allowed values)"
             },
@@ -142,7 +142,7 @@ const options = {
             email: { type: 'string', format: 'email', example: 'john.doe@nvccz.co.zw', description: 'Valid email address (will be converted to lowercase automatically)' },
             department: { 
               type: 'string', 
-              enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'],
+              enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'],
               example: 'Finance',
               description: "User's department (must match one of the allowed values)"
             },

@@ -79,7 +79,7 @@ export const performanceEndpoints = {
         {
           name: 'department',
           in: 'query',
-          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'] },
           description: 'Department filter for departmental goals'
         }
       ],
@@ -161,7 +161,7 @@ export const performanceEndpoints = {
                 parentGoalId: { type: 'string', example: 'ORG_GOAL_ID' },
                 selectedDepartments: {
                   type: 'array',
-                  items: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+                  items: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'] },
                   example: ['Finance', 'Sales', 'Operations']
                 },
                 breakdownData: {
@@ -215,7 +215,7 @@ export const performanceEndpoints = {
           name: 'department',
           in: 'path',
           required: true,
-          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'] },
           description: 'Department name'
         }
       ],
@@ -532,7 +532,7 @@ export const performanceEndpoints = {
           name: 'department',
           in: 'path',
           required: true,
-          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'] },
           description: 'Department name'
         }
       ],
@@ -942,7 +942,7 @@ export const performanceEndpoints = {
           required: true,
           schema: {
             type: 'string',
-            enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT']
+            enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments']
           },
           description: 'Department name (must match your assigned department)'
         }
@@ -1106,7 +1106,7 @@ export const performanceEndpoints = {
           name: 'department',
           in: 'path',
           required: true,
-          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'] },
           description: 'Department name'
         }
       ],
@@ -1520,7 +1520,7 @@ export const performanceEndpoints = {
           name: 'department',
           in: 'path',
           required: true,
-          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'] },
           description: 'Department name'
         }
       ],
@@ -1613,7 +1613,7 @@ export const performanceEndpoints = {
         {
           name: 'department',
           in: 'query',
-          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'] },
           description: 'Filter by department'
         },
         {
@@ -1727,7 +1727,7 @@ export const performanceEndpoints = {
         {
           name: 'department',
           in: 'query',
-          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
+          schema: { type: 'string', enum: ['Finance', 'Sales', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT', 'Investments'] },
           description: 'Filter by department'
         },
         {
