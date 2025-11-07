@@ -32,11 +32,12 @@ interface InternalBoardVoteSummary {
 }
 
 interface PublicBoardVoteSummary {
-  approvePower: number;
-  rejectPower: number;
-  remainingPower: number;
-  totalConfiguredPower: number;
-  totalCastPower: number;
+  boardStatus: string;
+  approvePower: number | null;
+  rejectPower: number | null;
+  remainingPower: number | null;
+  totalConfiguredPower: number | null;
+  totalCastPower: number | null;
   majorityDecision: BoardVoteChoice | "TIE" | null;
   isVotingComplete: boolean;
   votesVisible: boolean;
@@ -395,14 +396,27 @@ export class BoardReviewService {
     const boardStatus = summary.boardReview.status;
     const votesVisible = boardStatus === "COMPLETED";
 
-    let visibleVotes = summary.votes;
     if (!votesVisible) {
-      visibleVotes = summary.votes.filter(vote => vote.userId === requestingUserId);
+      return {
+        boardStatus,
+        approvePower: null,
+        rejectPower: null,
+        remainingPower: null,
+        totalConfiguredPower: null,
+        totalCastPower: null,
+        majorityDecision: null,
+        isVotingComplete: summary.isVotingComplete,
+        votesVisible: false,
+        votes: [],
+        userVote: null
+      };
     }
 
-    const userVote = summary.votes.find(vote => vote.userId === requestingUserId);
+    const visibleVotes = summary.votes;
+    const userVote = summary.votes.find(vote => vote.userId === requestingUserId) ?? null;
 
     return {
+      boardStatus,
       approvePower: summary.approvePower,
       rejectPower: summary.rejectPower,
       remainingPower: summary.remainingPower,
@@ -410,7 +424,7 @@ export class BoardReviewService {
       totalCastPower: summary.totalCastPower,
       majorityDecision: summary.majorityDecision,
       isVotingComplete: summary.isVotingComplete,
-      votesVisible,
+      votesVisible: true,
       votes: visibleVotes.map(vote => ({
         id: vote.id,
         userId: vote.userId,
