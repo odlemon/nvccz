@@ -140,21 +140,26 @@ export class BoardReviewService {
       throw new Error("Board review not found");
     }
 
-    const [votes, members] = await Promise.all([
-      prisma.boardReviewVote.findMany({
-        where: { boardReviewId },
-        orderBy: { createdAt: 'asc' },
-        include: {
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              roleCode: true
+    const boardReviewVoteDelegate = (prisma as any).boardReviewVote;
+    const voteQuery = boardReviewVoteDelegate
+      ? boardReviewVoteDelegate.findMany({
+          where: { boardReviewId },
+          orderBy: { createdAt: 'asc' },
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                roleCode: true
+              }
             }
           }
-        }
-      }),
+        })
+      : Promise.resolve([]);
+
+    const [votes, members] = await Promise.all([
+      voteQuery,
       UserService.getBoardVotingMembers()
     ]);
 
