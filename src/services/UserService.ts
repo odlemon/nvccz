@@ -269,13 +269,34 @@ This is an automated message. Please do not reply to this email.
     departmentRole: string;
   }) {
     try {
+      const normalizedEmail = userData.email.trim().toLowerCase();
+
       // Check if user already exists
-      const existingUser = await prisma.user.findUnique({
-        where: { email: userData.email }
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          email: {
+            equals: normalizedEmail,
+            mode: 'insensitive'
+          }
+        }
       });
 
       if (existingUser) {
         throw new Error("User already exists with this email address");
+      }
+
+      // Prevent creating users for emails that already have an application
+      const existingApplication = await prisma.application.findFirst({
+        where: {
+          applicantEmail: {
+            equals: normalizedEmail,
+            mode: 'insensitive'
+          }
+        }
+      });
+
+      if (existingApplication) {
+        throw new Error("An application already exists with this email address");
       }
 
       // Find the role by code or name
@@ -320,7 +341,7 @@ This is an automated message. Please do not reply to this email.
         data: {
           firstName: userData.firstName,
           lastName: userData.lastName,
-          email: userData.email,
+          email: normalizedEmail,
           password: hashedPassword,
           userDepartment: userData.department,
           departmentRole: userData.departmentRole,
@@ -332,7 +353,7 @@ This is an automated message. Please do not reply to this email.
 
       // Send credentials email
       await this.sendCredentialsEmail(
-        userData.email,
+        normalizedEmail,
         userData.firstName,
         userData.lastName,
         password,

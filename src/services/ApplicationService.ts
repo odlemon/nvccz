@@ -142,13 +142,34 @@ export class ApplicationService {
         throw new Error("Invalid email format");
       }
 
+      const normalizedEmail = params.applicantEmail.trim().toLowerCase();
+
       // Check if email already exists in applications
       const existingApplication = await prisma.application.findFirst({
-        where: { applicantEmail: params.applicantEmail.toLowerCase().trim() }
+        where: {
+          applicantEmail: {
+            equals: normalizedEmail,
+            mode: 'insensitive'
+          }
+        }
       });
 
       if (existingApplication) {
         throw new Error("This email already applied for investment");
+      }
+
+      // Check if email already exists among internal users
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          email: {
+            equals: normalizedEmail,
+            mode: 'insensitive'
+          }
+        }
+      });
+
+      if (existingUser) {
+        throw new Error("This email is already linked to an internal user account");
       }
 
       // Check if fund exists if provided
@@ -181,7 +202,7 @@ export class ApplicationService {
       const application = await prisma.application.create({
         data: {
           applicantName: params.applicantName,
-          applicantEmail: params.applicantEmail,
+          applicantEmail: normalizedEmail,
           applicantPhone: params.applicantPhone,
           applicantAddress: params.applicantAddress,
           businessName: params.businessName,
