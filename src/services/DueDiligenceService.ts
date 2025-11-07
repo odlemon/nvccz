@@ -253,22 +253,39 @@ export class DueDiligenceService {
       const tasksWithDocuments = relatedTasks.map(task => {
         const activitiesWithDocuments = task.activityLogs.map((activity: any) => {
           let documents: Array<{ fileName: string; fileUrl: string; fileSize: number }> = [];
+          let sanitizedDescription = activity.description;
           
           // Extract documents from description if they exist
           if (activity.description) {
             const documentsMatch = activity.description.match(/\[DOCUMENTS:([\s\S]+?)\]/);
             if (documentsMatch) {
+              const rawDocuments = documentsMatch[1];
               try {
-                documents = JSON.parse(documentsMatch[1]);
-              } catch (e) {
-                // If parsing fails, documents array remains empty
-                console.error('Failed to parse documents from activity description:', e);
+                // Try parsing raw string directly
+                documents = JSON.parse(rawDocuments);
+              } catch (directParseError) {
+                try {
+                  // Attempt to unescape escaped quotes and backslashes
+                  const normalized = rawDocuments
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
+                  documents = JSON.parse(normalized);
+                } catch (normalizedParseError) {
+                  console.error('Failed to parse documents from activity description:', {
+                    directParseError,
+                    normalizedParseError
+                  });
+                }
               }
+
+              // Remove the documents marker from the description shown to users
+              sanitizedDescription = sanitizedDescription.replace(documentsMatch[0], '').trim();
             }
           }
 
           return {
             ...activity,
+            description: sanitizedDescription,
             documents
           };
         });
