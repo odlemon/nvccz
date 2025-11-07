@@ -7033,7 +7033,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 3: BOARD REVIEW
       // ==========================================
-      '/api/board-reviews/voting-members': {
+      '/board-reviews/voting-members': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'List board voting members',
@@ -7046,7 +7046,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/voting-members/{userId}/voting-power': {
+      '/board-reviews/voting-members/{userId}/voting-power': {
         put: {
           tags: ['🗳️ Voting Process'],
           summary: 'Configure voting power for a board member',
@@ -7084,7 +7084,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/{applicationId}': {
+      '/board-reviews/{applicationId}': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Create board review (Investor)',
@@ -7160,7 +7160,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/{applicationId}/complete': {
+      '/board-reviews/{applicationId}/complete': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Complete board review (Investor)',
@@ -7174,7 +7174,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/{applicationId}/votes': {
+      '/board-reviews/{applicationId}/votes': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Cast board review vote',
@@ -7204,7 +7204,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/{applicationId}/votes/summary': {
+      '/board-reviews/{applicationId}/votes/summary': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get board vote summary',
@@ -7219,7 +7219,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews': {
+      '/board-reviews': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get all board reviews (Investor)',
@@ -7236,7 +7236,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/my': {
+      '/board-reviews/my': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get my board reviews (Investor)',
@@ -7252,7 +7252,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/summary': {
+      '/board-reviews/summary': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get board review summary (Investor)',

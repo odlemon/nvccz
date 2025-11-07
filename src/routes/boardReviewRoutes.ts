@@ -163,7 +163,7 @@ const router = express.Router();
 
 /**
  * @swagger
- * /api/board-reviews/voting-members:
+ * /board-reviews/voting-members:
  *   get:
  *     summary: List board voting members
  *     description: Retrieve board members eligible to vote along with their current voting power configuration
@@ -184,7 +184,7 @@ router.get('/voting-members', authenticate, BoardReviewController.getBoardVoting
 
 /**
  * @swagger
- * /api/board-reviews/voting-members/{userId}/voting-power:
+ * /board-reviews/voting-members/{userId}/voting-power:
  *   put:
  *     summary: Configure voting power for a board member
  *     description: Set or update the weighted voting percentage for a board member. The total voting power across members cannot exceed 100%.
@@ -229,7 +229,7 @@ router.put('/voting-members/:userId/voting-power', authenticate, BoardReviewCont
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}:
+ * /board-reviews/{applicationId}:
  *   post:
  *     summary: Create a new board review
  *     description: Create a board review for an application that has completed due diligence
@@ -367,7 +367,7 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}/votes:
+ * /board-reviews/{applicationId}/votes:
  *   post:
  *     summary: Cast a board review vote
  *     description: Submit a yes/no vote for a board review. Only eligible board members can vote.
@@ -411,7 +411,7 @@ router.post('/:applicationId/votes', authenticate, BoardReviewController.submitB
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}/votes/summary:
+ * /board-reviews/{applicationId}/votes/summary:
  *   get:
  *     summary: Get board vote summary
  *     description: Retrieve the weighted vote summary for a board review. Votes remain anonymous until the review is completed.
@@ -441,7 +441,7 @@ router.get('/:applicationId/votes/summary', authenticate, BoardReviewController.
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}/complete:
+ * /board-reviews/{applicationId}/complete:
  *   post:
  *     summary: Complete board review
  *     description: Complete a board review and update application stage
@@ -480,7 +480,7 @@ router.post('/:applicationId/complete', authenticate, BoardReviewController.comp
 
 /**
  * @swagger
- * /api/board-reviews:
+ * /board-reviews:
  *   get:
  *     summary: Get all board reviews
  *     description: Retrieve all board reviews with pagination and filtering
@@ -540,7 +540,7 @@ router.get('/', authenticate, BoardReviewController.getAllBoardReviews);
 
 /**
  * @swagger
- * /api/board-reviews/my:
+ * /board-reviews/my:
  *   get:
  *     summary: Get my board reviews
  *     description: Retrieve board reviews assigned to the current user
@@ -594,7 +594,7 @@ router.get('/my', authenticate, BoardReviewController.getMyBoardReviews);
 
 /**
  * @swagger
- * /api/board-reviews/summary:
+ * /board-reviews/summary:
  *   get:
  *     summary: Get board review summary
  *     description: Get summary statistics for board reviews
