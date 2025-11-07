@@ -2,6 +2,7 @@
 import express from 'express';
 import { BoardReviewController } from '../controllers/BoardReviewController';
 import { authenticate } from '../middleware/authenticate';
+import { authorize } from '../middleware/authorize';
 
 const router = express.Router();
 
@@ -160,6 +161,72 @@ const router = express.Router();
  *           type: integer
  *           description: Completion rate percentage
  */
+
+/**
+ * @swagger
+ * /api/board-reviews/voting-members:
+ *   get:
+ *     summary: List board voting members
+ *     description: Retrieve board members eligible to vote along with their current voting power configuration
+ *     tags: [Voting Process]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Board voting members retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/voting-members', authenticate, authorize(["admin", "fund_manager", "BOARD_CHAIR"]), BoardReviewController.getBoardVotingMembers);
+
+/**
+ * @swagger
+ * /api/board-reviews/voting-members/{userId}/voting-power:
+ *   put:
+ *     summary: Configure voting power for a board member
+ *     description: Set or update the weighted voting percentage for a board member. The total voting power across members cannot exceed 100%.
+ *     tags: [Voting Process]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Board member user ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               votingPower:
+ *                 type: number
+ *                 format: double
+ *                 nullable: true
+ *                 minimum: 0
+ *                 maximum: 100
+ *                 example: 25
+ *                 description: "Percentage to assign. Provide null to clear voting power."
+ *     responses:
+ *       200:
+ *         description: Voting power updated successfully
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: User not found
+ */
+router.put('/voting-members/:userId/voting-power', authenticate, authorize(["admin", "fund_manager", "BOARD_CHAIR"]), BoardReviewController.updateVotingPower);
 
 /**
  * @swagger

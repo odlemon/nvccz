@@ -141,14 +141,6 @@ const options = {
               enum: ['HEAD', 'DEPUTY', 'MEMBER', 'OFFICER', 'SPECIALIST', 'ASSISTANT'],
               example: 'OFFICER',
               description: "User's role within the department"
-            },
-            votingPower: {
-              type: 'number',
-              format: 'double',
-              minimum: 0,
-              maximum: 100,
-              example: 20,
-              description: 'Required when roleCode is BOARD_CHAIR or BOARD_MEMBER. Represents weighted voting percentage; total across board members must not exceed 100%.'
             }
           }
         },
@@ -179,14 +171,6 @@ const options = {
               type: 'string', 
               example: 'clx1234567890abcdef',
               description: 'Optional: Role ID to assign to user (if provided, will override roleCode)'
-            },
-            votingPower: {
-              type: 'number',
-              format: 'double',
-              minimum: 0,
-              maximum: 100,
-              example: 30,
-              description: 'Required for BOARD_CHAIR/BOARD_MEMBER. Omit or set to null to remove voting privileges when reassigning roles.'
             }
           }
         },
@@ -7049,6 +7033,57 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 3: BOARD REVIEW
       // ==========================================
+      '/api/board-reviews/voting-members': {
+        get: {
+          tags: ['🗳️ Voting Process'],
+          summary: 'List board voting members',
+          description: 'Retrieve board members eligible to vote along with their configured voting power.',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Board voting members retrieved successfully' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' }
+          }
+        }
+      },
+      '/api/board-reviews/voting-members/{userId}/voting-power': {
+        put: {
+          tags: ['🗳️ Voting Process'],
+          summary: 'Configure voting power for a board member',
+          description: 'Set or clear the weighted voting percentage for a board member. The total voting power across members cannot exceed 100%.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'userId', in: 'path', required: true, schema: { type: 'string' } }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    votingPower: {
+                      type: 'number',
+                      format: 'double',
+                      nullable: true,
+                      minimum: 0,
+                      maximum: 100,
+                      example: 25
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Voting power updated successfully' },
+            400: { description: 'Validation error' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' },
+            404: { description: 'User not found' }
+          }
+        }
+      },
       '/api/board-reviews/{applicationId}': {
         post: {
           tags: ['🗳️ Voting Process'],

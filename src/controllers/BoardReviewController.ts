@@ -418,4 +418,40 @@ export class BoardReviewController {
       ResponseHelper.error(res, `Failed to get board review summary: ${error.message}`, undefined, 500);
     }
   }
+
+  static async getBoardVotingMembers(req: Request, res: Response): Promise<void> {
+    try {
+      const members = await UserService.getBoardVotingMembers();
+      ResponseHelper.success(res, "Board voting members retrieved successfully", members);
+    } catch (error: any) {
+      logger.error("Error fetching board voting members", { error: error.message });
+      ResponseHelper.error(res, `Failed to get board voting members: ${error.message}`, undefined, 500);
+    }
+  }
+
+  static async updateVotingPower(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req.params;
+      const { votingPower } = req.body;
+
+      if (!userId) {
+        ResponseHelper.error(res, "User ID is required", undefined, 400);
+        return;
+      }
+
+      const parsedValue = votingPower === null || votingPower === undefined ? null : Number(votingPower);
+
+      if (parsedValue !== null && (Number.isNaN(parsedValue))) {
+        ResponseHelper.error(res, "Voting power must be a valid number or null", undefined, 400);
+        return;
+      }
+
+      const updated = await UserService.setVotingPower(userId, parsedValue);
+
+      ResponseHelper.success(res, "Voting power updated successfully", updated);
+    } catch (error: any) {
+      logger.error("Error updating voting power", { error: error.message });
+      ResponseHelper.error(res, `Failed to update voting power: ${error.message}`, undefined, 400);
+    }
+  }
 }
