@@ -253,11 +253,11 @@ export class DueDiligenceService {
       const tasksWithDocuments = relatedTasks.map(task => {
         const activitiesWithDocuments = task.activityLogs.map((activity: any) => {
           let documents: Array<{ fileName: string; fileUrl: string; fileSize: number }> = [];
-          let sanitizedDescription = activity.description;
-          
+          let sanitizedDescription = activity.description || '';
+
           // Extract documents from description if they exist
-          if (activity.description) {
-            const documentsMatch = activity.description.match(/\[DOCUMENTS:([\s\S]+?)\]/);
+          if (sanitizedDescription) {
+            const documentsMatch = sanitizedDescription.match(/\[DOCUMENTS:([\s\S]+?)\]\]/);
             if (documentsMatch) {
               const rawDocuments = documentsMatch[1];
               try {
@@ -281,11 +281,17 @@ export class DueDiligenceService {
               // Remove the documents marker from the description shown to users
               sanitizedDescription = sanitizedDescription.replace(documentsMatch[0], '').trim();
             }
+
+            // Remove approval tags from description
+            sanitizedDescription = sanitizedDescription
+              .replace(/\[APPROVAL:[^\]]*\]/g, '')
+              .replace(/\n{2,}/g, '\n')
+              .trim();
           }
 
           return {
             ...activity,
-            description: sanitizedDescription,
+            description: sanitizedDescription || null,
             documents
           };
         });
