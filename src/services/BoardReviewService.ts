@@ -176,23 +176,27 @@ export class BoardReviewService {
            ORDER BY v.createdAt ASC
         `;
 
-    const [rawVotes, members] = await Promise.all([
-      votesPromise,
-      UserService.getBoardVotingMembers()
-    ]);
+    const members = await UserService.getBoardVotingMembers();
+    const memberIndex = new Map(members.map(member => [member.id, member]));
 
+    const rawVotes = await votesPromise;
     const votes = Array.isArray(rawVotes)
-      ? rawVotes.map((vote: any) => ({
-          id: vote.id,
-          userId: vote.userId,
-          userName: `${vote.user?.firstName ?? vote.firstName ?? ''} ${vote.user?.lastName ?? vote.lastName ?? ''}`.trim(),
-          vote: vote.vote as BoardVoteChoice,
-          comment: vote.comment ?? null,
-          votingPower: Number(vote.votingPower),
-          createdAt: vote.createdAt,
-          updatedAt: vote.updatedAt,
-          roleCode: vote.user?.roleCode ?? vote.roleCode ?? null
-        }))
+      ? rawVotes.map((vote: any) => {
+          const member = memberIndex.get(vote.userId);
+          const firstName = member?.firstName ?? vote.user?.firstName ?? vote.firstName ?? '';
+          const lastName = member?.lastName ?? vote.user?.lastName ?? vote.lastName ?? '';
+          return {
+            id: vote.id,
+            userId: vote.userId,
+            userName: `${firstName} ${lastName}`.trim(),
+            vote: vote.vote as BoardVoteChoice,
+            comment: vote.comment ?? null,
+            votingPower: Number(vote.votingPower),
+            createdAt: vote.createdAt,
+            updatedAt: vote.updatedAt,
+            roleCode: member?.roleCode ?? vote.user?.roleCode ?? vote.roleCode ?? null
+          };
+        })
       : [];
 
     const totalConfiguredPower = members.reduce((sum, member) => {
@@ -333,6 +337,11 @@ export class BoardReviewService {
     }
 
     const summary = await this.calculateVoteSummary(boardReview.id);
+    if (summary.isVotingComplete && boardReview.status !== "COMPLETED") {
+      await this.autoCompleteBoardReview(boardReview.id, applicationId, summary).catch(error => {
+        console.error("Failed to auto-complete board review", error);
+      });
+    }
     return this.buildPublicVoteSummary(summary, voterId);
   }
 
@@ -443,6 +452,57 @@ export class BoardReviewService {
           }
         : null
     };
+  }
+
+  private static async autoCompleteBoardReview(
+    boardReviewId: string,
+    applicationId: string,
+    summary: InternalBoardVoteSummary
+  ) {
+    const updatedReview = await prisma.boardReview.update({
+      where: { id: boardReviewId },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date()
+      },
+      include: {
+        application: {
+          select: {
+            id: true,
+            businessName: true,
+            applicantName: true,
+            applicantEmail: true
+          }
+        }
+      }
+    });
+
+    summary.boardReview.status = updatedReview.status;
+
+    const boardMembers = await UserService.getBoardVotingMembers();
+    const votePayload = summary.votes.map(vote => ({
+      voterName: vote.userName,
+      vote: vote.vote,
+      comment: vote.comment,
+      votingPower: vote.votingPower
+    }));
+
+    await Promise.all(
+      boardMembers.map(member =>
+        EmailNotificationService.sendBoardVoteResultsEmail({
+          recipientName: `${member.firstName} ${member.lastName}`.trim(),
+          recipientEmail: member.email,
+          businessName: updatedReview.application.businessName,
+          applicationId: updatedReview.application.id,
+          approvePower: summary.approvePower,
+          rejectPower: summary.rejectPower,
+          majorityDecision: summary.majorityDecision ?? "TIE",
+          votes: votePayload
+        }).catch(error => {
+          console.error("Error sending board vote results email", error);
+        })
+      )
+    );
   }
 
   /**
