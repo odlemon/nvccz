@@ -148,8 +148,7 @@ export class ApplicationService {
       const existingApplication = await prisma.application.findFirst({
         where: {
           applicantEmail: {
-            equals: normalizedEmail,
-            mode: 'insensitive'
+            equals: normalizedEmail
           }
         }
       });
@@ -162,8 +161,7 @@ export class ApplicationService {
       const existingUser = await prisma.user.findFirst({
         where: {
           email: {
-            equals: normalizedEmail,
-            mode: 'insensitive'
+            equals: normalizedEmail
           }
         }
       });
