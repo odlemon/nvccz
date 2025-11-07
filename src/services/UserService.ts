@@ -275,8 +275,7 @@ This is an automated message. Please do not reply to this email.
       const existingUser = await prisma.user.findFirst({
         where: {
           email: {
-            equals: normalizedEmail,
-            mode: 'insensitive'
+            equals: normalizedEmail
           }
         }
       });
@@ -289,8 +288,7 @@ This is an automated message. Please do not reply to this email.
       const existingApplication = await prisma.application.findFirst({
         where: {
           applicantEmail: {
-            equals: normalizedEmail,
-            mode: 'insensitive'
+            equals: normalizedEmail
           }
         }
       });
