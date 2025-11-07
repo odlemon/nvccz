@@ -181,7 +181,7 @@ export class PerformanceGoalService {
       // Validate department if provided
       if (request.departmentName) {
         // Validate department name is in hardcoded list
-        const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+        const validDepartments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT", "Investments"];
         if (!validDepartments.includes(request.departmentName)) {
           throw new Error(`Invalid department name: ${request.departmentName}. Valid departments: ${validDepartments.join(", ")}`);
         }
