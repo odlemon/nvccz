@@ -349,11 +349,25 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
     description: "Chief Investment Officer, oversees investment strategy and portfolio management"
   },
   {
+    code: "BOARD_CHAIR",
+    name: "Board Chairman",
+    level: 5,
+    department: "Investments",
+    description: "Chairperson of the board review committee with final sign-off authority"
+  },
+  {
     code: "INV_ANALYST",
     name: "Investment Analyst",
     level: 3,
     department: "Investments",
     description: "Analyzes investment opportunities and market trends"
+  },
+  {
+    code: "BOARD_MEMBER",
+    name: "Board Member",
+    level: 4,
+    department: "Investments",
+    description: "Voting board member participating in investment decisions"
   },
   {
     code: "INV_COMM_MEM",

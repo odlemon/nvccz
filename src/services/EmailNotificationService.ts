@@ -266,6 +266,79 @@ export class EmailNotificationService {
     }
   }
 
+  static async sendBoardVoteRequestEmail(data: {
+    recipientName: string;
+    recipientEmail: string;
+    businessName: string;
+    applicationId: string;
+    voteUrl: string;
+  }): Promise<void> {
+    try {
+      const subject = `Board Vote Requested - ${data.businessName}`;
+      const htmlContent = this.getBoardVoteRequestTemplate(data);
+
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Investment Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.recipientEmail,
+              name: data.recipientName
+            }
+          }
+        ],
+        subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`Board vote request email sent to ${data.recipientEmail}`);
+    } catch (error) {
+      console.error("Error sending board vote request email:", error);
+      throw error;
+    }
+  }
+
+  static async sendBoardVoteResultsEmail(data: {
+    recipientName: string;
+    recipientEmail: string;
+    businessName: string;
+    applicationId: string;
+    approvePower: number;
+    rejectPower: number;
+    majorityDecision: string;
+    votes: Array<{ voterName: string; vote: string; comment?: string | null; votingPower: number }>;
+  }): Promise<void> {
+    try {
+      const subject = `Board Vote Results - ${data.businessName}`;
+      const htmlContent = this.getBoardVoteResultsTemplate(data);
+
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Investment Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.recipientEmail,
+              name: data.recipientName
+            }
+          }
+        ],
+        subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`Board vote results email sent to ${data.recipientEmail}`);
+    } catch (error) {
+      console.error("Error sending board vote results email:", error);
+      throw error;
+    }
+  }
+
   /**
    * Send investment decision email
    */
@@ -1020,6 +1093,136 @@ export class EmailNotificationService {
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
             <p>© 2024 NVCCZ. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private static getBoardVoteRequestTemplate(data: {
+    recipientName: string;
+    businessName: string;
+    applicationId: string;
+    voteUrl: string;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Board Vote Requested</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #1f2937; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #f3f4f6; border-left: 4px solid #1f2937; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #1f2937; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">Board Vote Required</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.recipientName},</p>
+
+            <p>A new board review vote is required for <strong>${data.businessName}</strong> (Application ID: <strong>${data.applicationId}</strong>).</p>
+
+            <div class="info-box">
+              <p style="margin: 0;">Please review the materials and cast your vote at your earliest convenience. Your voting power will be applied automatically.</p>
+            </div>
+
+            <p style="text-align: center;">
+              <a class="button" href="${data.voteUrl}">Cast Your Vote</a>
+            </p>
+
+            <p>If you have any questions, please contact the Investment Team.</p>
+
+            <p>Thank you for your prompt attention.</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from NVCCZ Investment Management System.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private static getBoardVoteResultsTemplate(data: {
+    recipientName: string;
+    businessName: string;
+    applicationId: string;
+    approvePower: number;
+    rejectPower: number;
+    majorityDecision: string;
+    votes: Array<{ voterName: string; vote: string; comment?: string | null; votingPower: number }>;
+  }): string {
+    const votesRows = data.votes
+      .map(vote => `
+        <tr>
+          <td style="padding: 8px; border: 1px solid #e5e7eb;">${vote.voterName}</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb;">${vote.vote === 'APPROVE' ? 'Approve' : 'Reject'}</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb;">${vote.votingPower.toFixed(2)}%</td>
+          <td style="padding: 8px; border: 1px solid #e5e7eb;">${vote.comment ? vote.comment : '-'}</td>
+        </tr>
+      `)
+      .join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Board Vote Results</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 700px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #111827; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          .summary { background: #f9fafb; border: 1px solid #e5e7eb; padding: 15px; border-radius: 4px; }
+          .footer { background: #f3f4f6; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">Board Vote Results</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.recipientName},</p>
+
+            <p>The voting process for <strong>${data.businessName}</strong> (Application ID: <strong>${data.applicationId}</strong>) has concluded.</p>
+
+            <div class="summary">
+              <p><strong>Majority Decision:</strong> ${data.majorityDecision === 'APPROVE' ? 'Approved' : 'Rejected'}</p>
+              <p><strong>Approve Power:</strong> ${data.approvePower.toFixed(2)}%</p>
+              <p><strong>Reject Power:</strong> ${data.rejectPower.toFixed(2)}%</p>
+            </div>
+
+            <table>
+              <thead>
+                <tr style="background: #f3f4f6;">
+                  <th style="padding: 8px; border: 1px solid #e5e7eb; text-align: left;">Board Member</th>
+                  <th style="padding: 8px; border: 1px solid #e5e7eb; text-align: left;">Vote</th>
+                  <th style="padding: 8px; border: 1px solid #e5e7eb; text-align: left;">Voting Power</th>
+                  <th style="padding: 8px; border: 1px solid #e5e7eb; text-align: left;">Comment</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${votesRows}
+              </tbody>
+            </table>
+
+            <p>Thank you for participating in the board review process.</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from NVCCZ Investment Management System.</p>
           </div>
         </div>
       </body>

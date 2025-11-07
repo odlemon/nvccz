@@ -2,6 +2,59 @@
 import { PrismaClient } from '@prisma/client';
 
 import { prisma } from '../utils/database';
+import { UserService } from './UserService';
+import { EmailNotificationService } from './EmailNotificationService';
+
+const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER"];
+
+type BoardVoteChoice = "APPROVE" | "REJECT";
+
+interface InternalBoardVoteSummary {
+  boardReview: any;
+  votes: Array<{
+    id: string;
+    userId: string;
+    userName: string;
+    vote: BoardVoteChoice;
+    comment?: string | null;
+    votingPower: number;
+    createdAt: Date;
+    updatedAt: Date;
+  }>;
+  approvePower: number;
+  rejectPower: number;
+  totalConfiguredPower: number;
+  totalCastPower: number;
+  remainingPower: number;
+  majorityDecision: BoardVoteChoice | "TIE" | null;
+  isVotingComplete: boolean;
+}
+
+interface PublicBoardVoteSummary {
+  approvePower: number;
+  rejectPower: number;
+  remainingPower: number;
+  totalConfiguredPower: number;
+  totalCastPower: number;
+  majorityDecision: BoardVoteChoice | "TIE" | null;
+  isVotingComplete: boolean;
+  votesVisible: boolean;
+  votes: Array<{
+    id: string;
+    userId: string;
+    userName: string;
+    vote: BoardVoteChoice;
+    comment?: string | null;
+    votingPower: number;
+    createdAt: Date;
+  }>;
+  userVote?: {
+    vote: BoardVoteChoice;
+    comment?: string | null;
+    votingPower: number;
+    createdAt: Date;
+  } | null;
+}
 
 export interface CreateBoardReviewRequest {
   applicationId: string;
@@ -66,6 +119,238 @@ export interface BoardReviewWithRelations {
 }
 
 export class BoardReviewService {
+  private static isBoardVotingRole(roleCode?: string | null): boolean {
+    return !!roleCode && BOARD_VOTING_ROLE_CODES.includes(roleCode);
+  }
+
+  private static normalizeVoteInput(vote: string): BoardVoteChoice {
+    const normalized = (vote || "").toUpperCase();
+    if (normalized !== "APPROVE" && normalized !== "REJECT") {
+      throw new Error("Invalid vote. Vote must be either APPROVE or REJECT");
+    }
+    return normalized as BoardVoteChoice;
+  }
+
+  private static async calculateVoteSummary(boardReviewId: string): Promise<InternalBoardVoteSummary> {
+    const boardReview = await prisma.boardReview.findUnique({
+      where: { id: boardReviewId }
+    });
+
+    if (!boardReview) {
+      throw new Error("Board review not found");
+    }
+
+    const [votes, members] = await Promise.all([
+      prisma.boardReviewVote.findMany({
+        where: { boardReviewId },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              roleCode: true
+            }
+          }
+        }
+      }),
+      UserService.getBoardVotingMembers()
+    ]);
+
+    const totalConfiguredPower = members.reduce((sum, member) => {
+      const power = member.votingPower ? Number(member.votingPower) : 0;
+      return sum + power;
+    }, 0);
+
+    const mappedVotes = votes.map(vote => ({
+      id: vote.id,
+      userId: vote.userId,
+      userName: `${vote.user?.firstName ?? ''} ${vote.user?.lastName ?? ''}`.trim(),
+      vote: vote.vote as BoardVoteChoice,
+      comment: vote.comment,
+      votingPower: Number(vote.votingPower),
+      createdAt: vote.createdAt,
+      updatedAt: vote.updatedAt
+    }));
+
+    let approvePower = 0;
+    let rejectPower = 0;
+    let totalCastPower = 0;
+
+    mappedVotes.forEach(vote => {
+      totalCastPower += vote.votingPower;
+      if (vote.vote === "APPROVE") {
+        approvePower += vote.votingPower;
+      } else {
+        rejectPower += vote.votingPower;
+      }
+    });
+
+    const remainingPower = Math.max(0, totalConfiguredPower - totalCastPower);
+
+    let majorityDecision: BoardVoteChoice | "TIE" | null = null;
+    if (approvePower > rejectPower) {
+      majorityDecision = "APPROVE";
+    } else if (rejectPower > approvePower) {
+      majorityDecision = "REJECT";
+    } else if (totalCastPower > 0 && approvePower === rejectPower) {
+      majorityDecision = "TIE";
+    }
+
+    const isVotingComplete = remainingPower <= 0.0001 || totalCastPower >= totalConfiguredPower;
+
+    return {
+      boardReview,
+      votes: mappedVotes,
+      approvePower,
+      rejectPower,
+      totalConfiguredPower,
+      totalCastPower,
+      remainingPower,
+      majorityDecision,
+      isVotingComplete
+    };
+  }
+
+  static async submitVote(
+    applicationId: string,
+    voterId: string,
+    vote: string,
+    comment?: string
+  ): Promise<PublicBoardVoteSummary> {
+    const normalizedVote = this.normalizeVoteInput(vote);
+
+    const boardReview = await prisma.boardReview.findUnique({
+      where: { applicationId },
+      select: {
+        id: true,
+        status: true
+      }
+    });
+
+    if (!boardReview) {
+      throw new Error("Board review not found");
+    }
+
+    if (boardReview.status !== "IN_PROGRESS") {
+      throw new Error("Voting is closed for this board review");
+    }
+
+    const voter = await prisma.user.findUnique({
+      where: { id: voterId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        userDepartment: true,
+        roleCode: true,
+        votingPower: true
+      }
+    });
+
+    if (!voter) {
+      throw new Error("Voter not found");
+    }
+
+    if (voter.userDepartment !== "Investments" || !this.isBoardVotingRole(voter.roleCode)) {
+      throw new Error("You are not authorized to vote on this board review");
+    }
+
+    if (!voter.votingPower || Number(voter.votingPower) <= 0) {
+      throw new Error("Voting power is not configured for this user. Please contact an administrator.");
+    }
+
+    const existingVote = await prisma.boardReviewVote.findUnique({
+      where: {
+        boardReviewId_userId: {
+          boardReviewId: boardReview.id,
+          userId: voterId
+        }
+      }
+    });
+
+    if (existingVote) {
+      throw new Error("You have already voted on this board review");
+    }
+
+    await prisma.boardReviewVote.create({
+      data: {
+        boardReviewId: boardReview.id,
+        userId: voterId,
+        vote: normalizedVote,
+        comment,
+        votingPower: Number(voter.votingPower)
+      }
+    });
+
+    const summary = await this.calculateVoteSummary(boardReview.id);
+    return this.buildPublicVoteSummary(summary, voterId);
+  }
+
+  static async getVoteSummary(
+    applicationId: string,
+    requestingUserId?: string
+  ): Promise<PublicBoardVoteSummary> {
+    const boardReview = await prisma.boardReview.findUnique({
+      where: { applicationId },
+      select: {
+        id: true,
+        status: true
+      }
+    });
+
+    if (!boardReview) {
+      throw new Error("Board review not found");
+    }
+
+    const summary = await this.calculateVoteSummary(boardReview.id);
+    return this.buildPublicVoteSummary(summary, requestingUserId);
+  }
+
+  private static buildPublicVoteSummary(
+    summary: InternalBoardVoteSummary,
+    requestingUserId?: string | null
+  ): PublicBoardVoteSummary {
+    const boardStatus = summary.boardReview.status;
+    const votesVisible = boardStatus === "COMPLETED";
+
+    let visibleVotes = summary.votes;
+    if (!votesVisible) {
+      visibleVotes = summary.votes.filter(vote => vote.userId === requestingUserId);
+    }
+
+    const userVote = summary.votes.find(vote => vote.userId === requestingUserId);
+
+    return {
+      approvePower: summary.approvePower,
+      rejectPower: summary.rejectPower,
+      remainingPower: summary.remainingPower,
+      totalConfiguredPower: summary.totalConfiguredPower,
+      totalCastPower: summary.totalCastPower,
+      majorityDecision: summary.majorityDecision,
+      isVotingComplete: summary.isVotingComplete,
+      votesVisible,
+      votes: visibleVotes.map(vote => ({
+        id: vote.id,
+        userId: vote.userId,
+        userName: vote.userName,
+        vote: vote.vote,
+        comment: vote.comment,
+        votingPower: vote.votingPower,
+        createdAt: vote.createdAt
+      })),
+      userVote: userVote
+        ? {
+            vote: userVote.vote,
+            comment: userVote.comment,
+            votingPower: userVote.votingPower,
+            createdAt: userVote.createdAt
+          }
+        : null
+    };
+  }
+
   /**
    * Create a new board review
    */
@@ -92,8 +377,8 @@ export class BoardReviewService {
       ];
 
       const selectedOptions = decisionOptions.filter(option => option);
-      if (selectedOptions.length !== 1) {
-        throw new Error("Exactly one decision option must be selected: Investment Approved, Investment Rejected, or Conditional Approval");
+      if (selectedOptions.length > 1) {
+        throw new Error("Only one decision option can be selected: Investment Approved, Investment Rejected, or Conditional Approval");
       }
 
       // Check if board review already exists - prevent multiple board reviews
@@ -161,6 +446,25 @@ export class BoardReviewService {
           }
         }
       });
+
+      try {
+        const boardMembers = await UserService.getBoardVotingMembers();
+        const voteUrlBase = process.env.FRONTEND_URL || 'https://nvccz-frontend.vercel.app';
+
+        await Promise.all(
+          boardMembers.map(member =>
+            EmailNotificationService.sendBoardVoteRequestEmail({
+              recipientName: `${member.firstName} ${member.lastName}`.trim(),
+              recipientEmail: member.email,
+              businessName: boardReviewWithRelations?.application?.businessName || 'Application',
+              applicationId: boardReviewWithRelations?.applicationId || boardReview.applicationId,
+              voteUrl: `${voteUrlBase}/board-review/${boardReview.applicationId}`
+            })
+          )
+        );
+      } catch (notificationError) {
+        console.error("Failed to send board vote request emails:", notificationError);
+      }
 
       return boardReviewWithRelations;
     } catch (error: any) {
@@ -337,51 +641,30 @@ export class BoardReviewService {
         throw new Error("Board review is already completed");
       }
 
-      // Determine the board decision and next application stage
-      // Default to approved if no decision is explicitly set
-      let boardDecision: string;
-      if (boardReview.investmentApproved) {
-        boardDecision = "BOARD_APPROVED";
-      } else if (boardReview.investmentRejected) {
-        boardDecision = "BOARD_REJECTED";
-      } else if (boardReview.conditionalApproval) {
-        boardDecision = "BOARD_CONDITIONAL";
-      } else {
-        // Default to approved if no decision is selected
-        console.log("No decision option selected, defaulting to APPROVED");
-        boardDecision = "BOARD_APPROVED";
-        // Update the board review to set investmentApproved to true
-        await prisma.boardReview.update({
-          where: { applicationId },
-          data: {
-            investmentApproved: true,
-            investmentRejected: false,
-            conditionalApproval: false
-          }
-        });
-        // Refresh the boardReview object
-        const updatedBoardReview = await prisma.boardReview.findUnique({
-          where: { applicationId }
-        });
-        if (updatedBoardReview) {
-          boardReview.investmentApproved = updatedBoardReview.investmentApproved;
-          boardReview.investmentRejected = updatedBoardReview.investmentRejected;
-          boardReview.conditionalApproval = updatedBoardReview.conditionalApproval;
-        }
+      const voteSummary = await this.calculateVoteSummary(boardReview.id);
+
+      if (!voteSummary.isVotingComplete) {
+        throw new Error("Voting is not complete. All board members must submit their votes before finalizing.");
       }
 
-      // Set next stage to BOARD_APPROVED for all approved decisions
-      let nextStage: string;
-      if (boardReview.investmentApproved || boardReview.conditionalApproval) {
-        nextStage = "BOARD_APPROVED";
-      } else {
-        nextStage = boardDecision; // Keep as BOARD_REJECTED for rejected applications
+      if (!voteSummary.majorityDecision || voteSummary.majorityDecision === "TIE") {
+        throw new Error("Voting did not produce a clear majority. Please resolve tie votes before finalizing.");
       }
+
+      const investmentApproved = voteSummary.majorityDecision === "APPROVE";
+      const investmentRejected = voteSummary.majorityDecision === "REJECT";
+      const conditionalApproval = false;
+
+      const boardDecision = investmentApproved ? "BOARD_APPROVED" : "BOARD_REJECTED";
+      const nextStage = investmentApproved ? "BOARD_APPROVED" : "BOARD_REJECTED";
 
       // Update board review status
       const updatedBoardReview = await prisma.boardReview.update({
         where: { applicationId },
         data: {
+          investmentApproved,
+          investmentRejected,
+          conditionalApproval,
           status: "COMPLETED",
           completedAt: new Date(),
           updatedAt: new Date()
@@ -465,6 +748,33 @@ export class BoardReviewService {
           message: `The board has made a decision on your application. Decision: ${boardDecision}. ${boardReview.decisionReason || ''} ${nextStage === 'BOARD_APPROVED' ? 'Your application has been approved! An account has been created for you to access the term sheet when it becomes available.' : ''}`
         }
       });
+
+      try {
+        const boardMembers = await UserService.getBoardVotingMembers();
+        const votesForEmail = voteSummary.votes.map(vote => ({
+          voterName: vote.userName,
+          vote: vote.vote,
+          comment: vote.comment,
+          votingPower: vote.votingPower
+        }));
+
+        await Promise.all(
+          boardMembers.map(member =>
+            EmailNotificationService.sendBoardVoteResultsEmail({
+              recipientName: `${member.firstName} ${member.lastName}`.trim(),
+              recipientEmail: member.email,
+              businessName: updatedBoardReview.application.businessName,
+              applicationId,
+              approvePower: voteSummary.approvePower,
+              rejectPower: voteSummary.rejectPower,
+              majorityDecision: voteSummary.majorityDecision,
+              votes: votesForEmail
+            })
+          )
+        );
+      } catch (notificationError) {
+        console.error("Failed to send board vote results emails:", notificationError);
+      }
 
       return updatedBoardReview;
     } catch (error: any) {

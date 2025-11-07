@@ -3,12 +3,72 @@ import { prisma } from "../utils/database";
 import bcrypt from "bcrypt";
 import { SendMailClient } from "zeptomail";
 
+const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER"];
+
 // Email configuration
 const zeptoUrl = "api.zeptomail.com/";
 const zeptoToken = "Zoho-enczapikey wSsVR61/+xejCqZ6mzOpJuptkQxSVlmgER993FKmuHb7HKiT8MdvxELKDFWmTfJMFmZvRTRAorookUoIgGZa3dUszgsFASiF9mqRe1U4J3x17qnvhDzPX29dmxCAL4wPwQ1jmWVjFc8q+g==";
 const zeptoClient = new SendMailClient({ url: zeptoUrl, token: zeptoToken });
 
 export class UserService {
+  private static isBoardVotingRole(roleCode?: string | null): boolean {
+    return !!roleCode && BOARD_VOTING_ROLE_CODES.includes(roleCode);
+  }
+
+  private static validateVotingPowerValue(value: number) {
+    if (Number.isNaN(value)) {
+      throw new Error("Voting power must be a valid number");
+    }
+    if (value <= 0 || value > 100) {
+      throw new Error("Voting power must be greater than 0 and less than or equal to 100");
+    }
+  }
+
+  private static async fetchBoardVotingMembers() {
+    return prisma.user.findMany({
+      where: {
+        userDepartment: "Investments",
+        roleCode: {
+          in: BOARD_VOTING_ROLE_CODES
+        },
+        votingPower: {
+          not: null
+        }
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        roleCode: true,
+        votingPower: true
+      }
+    });
+  }
+
+  static async getBoardVotingMembers() {
+    const members = await this.fetchBoardVotingMembers();
+    return members.map(member => ({
+      ...member,
+      votingPower: member.votingPower ? Number(member.votingPower) : 0
+    }));
+  }
+
+  private static async getTotalBoardVotingPower(): Promise<number> {
+    const voters = await this.fetchBoardVotingMembers();
+
+    return voters.reduce((sum, voter) => {
+      const value = voter.votingPower ? Number(voter.votingPower) : 0;
+      return sum + value;
+    }, 0);
+  }
+
+  private static ensureVotingPowerTotalWithinBounds(total: number) {
+    if (total > 100.0001) {
+      throw new Error(`Total board voting power cannot exceed 100%. Current total: ${total.toFixed(2)}%`);
+    }
+  }
+
   /**
    * Get users filtered by department and/or role
    * Used for approval configuration
@@ -207,6 +267,7 @@ This is an automated message. Please do not reply to this email.
     department: string;
     roleCode: string;
     departmentRole: string;
+    votingPower?: number;
   }) {
     try {
       // Check if user already exists
@@ -231,6 +292,31 @@ This is an automated message. Please do not reply to this email.
         throw new Error("Could not find appropriate role for user");
       }
 
+      const isBoardRole = this.isBoardVotingRole(userData.roleCode);
+
+      if (isBoardRole) {
+        if (userData.department !== "Investments") {
+          throw new Error("Board roles must be assigned to the Investments department");
+        }
+
+        if (userData.roleCode === "BOARD_CHAIR") {
+          const existingChair = await prisma.user.findFirst({
+            where: {
+              roleCode: "BOARD_CHAIR"
+            }
+          });
+
+          if (existingChair) {
+            throw new Error("Only one Board Chairman is allowed in the system");
+          }
+        }
+
+        if (userData.votingPower === undefined || userData.votingPower === null) {
+          throw new Error("Voting power is required for board roles");
+        }
+        this.validateVotingPowerValue(Number(userData.votingPower));
+      }
+
       // Generate password
       const password = this.generatePassword();
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -245,9 +331,15 @@ This is an automated message. Please do not reply to this email.
           userDepartment: userData.department,
           departmentRole: userData.departmentRole,
           roleCode: userData.roleCode,
-          roleId: role.id
+          roleId: role.id,
+          votingPower: isBoardRole ? Number(userData.votingPower) : null
         }
       });
+
+      if (isBoardRole) {
+        const totalVotingPower = await this.getTotalBoardVotingPower();
+        this.ensureVotingPowerTotalWithinBounds(totalVotingPower);
+      }
 
       // Send credentials email
       await this.sendCredentialsEmail(
@@ -260,7 +352,10 @@ This is an automated message. Please do not reply to this email.
       );
 
       return {
-        user,
+        user: {
+          ...user,
+          votingPower: user.votingPower ? Number(user.votingPower) : null
+        },
         password, // Return plain password for immediate use if needed
         message: "User created successfully and credentials sent via email"
       };
@@ -292,6 +387,7 @@ This is an automated message. Please do not reply to this email.
           userDepartment: true,
           departmentRole: true,
           roleCode: true,
+          votingPower: true,
           role: {
             select: {
               id: true,
@@ -330,6 +426,7 @@ This is an automated message. Please do not reply to this email.
           userDepartment: true,
           departmentRole: true,
           roleCode: true,
+          votingPower: true,
           role: {
             select: {
               id: true,
@@ -414,6 +511,48 @@ This is an automated message. Please do not reply to this email.
         }
       }
 
+      const targetRoleCode = userData.roleCode ?? existingUser.roleCode;
+      const isBoardRole = this.isBoardVotingRole(targetRoleCode);
+
+      let votingPowerToSet: number | null | undefined = undefined;
+      if (isBoardRole) {
+        const departmentToSet = userData.department ?? existingUser.userDepartment;
+        if (departmentToSet !== "Investments") {
+          throw new Error("Board roles must be assigned to the Investments department");
+        }
+
+        if (targetRoleCode === "BOARD_CHAIR") {
+          const existingChair = await prisma.user.findFirst({
+            where: {
+              roleCode: "BOARD_CHAIR",
+              id: {
+                not: id
+              }
+            }
+          });
+
+          if (existingChair) {
+            throw new Error("Only one Board Chairman is allowed in the system");
+          }
+        }
+
+        if (userData.votingPower !== undefined && userData.votingPower !== null) {
+          const numericVotingPower = Number(userData.votingPower);
+          this.validateVotingPowerValue(numericVotingPower);
+          votingPowerToSet = numericVotingPower;
+        } else if (existingUser.votingPower !== null && existingUser.votingPower !== undefined) {
+          votingPowerToSet = Number(existingUser.votingPower);
+        } else {
+          throw new Error("Voting power is required for board roles");
+        }
+      } else {
+        if (userData.votingPower !== undefined) {
+          votingPowerToSet = null;
+        } else if (this.isBoardVotingRole(existingUser.roleCode) && !isBoardRole) {
+          votingPowerToSet = null;
+        }
+      }
+
       // Update user - explicitly exclude password (password should only be changed via change-password endpoint)
       const updateData: any = {};
       if (userData.firstName) updateData.firstName = userData.firstName;
@@ -423,6 +562,7 @@ This is an automated message. Please do not reply to this email.
       if (userData.roleCode) updateData.roleCode = userData.roleCode;
       if (userData.departmentRole) updateData.departmentRole = userData.departmentRole;
       if (userData.roleId) updateData.roleId = userData.roleId;
+      if (votingPowerToSet !== undefined) updateData.votingPower = votingPowerToSet;
       // Password is explicitly excluded - must use change-password endpoint
 
       const user = await prisma.user.update({
@@ -439,6 +579,9 @@ This is an automated message. Please do not reply to this email.
         }
       });
 
+      const totalVotingPower = await this.getTotalBoardVotingPower();
+      this.ensureVotingPowerTotalWithinBounds(totalVotingPower);
+
       // Return only the fields we want, with role as optional
       return {
         id: user.id,
@@ -448,6 +591,7 @@ This is an automated message. Please do not reply to this email.
         userDepartment: user.userDepartment,
         departmentRole: user.departmentRole,
         roleCode: user.roleCode,
+        votingPower: user.votingPower ? Number(user.votingPower) : null,
         role: user.role ? {
           id: user.role.id,
           name: user.role.name,
