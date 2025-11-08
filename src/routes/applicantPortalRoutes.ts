@@ -3,6 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import { applicantPortalController } from "../controllers/ApplicantPortalController";
 import { authenticate } from "../middleware/authenticate";
+import { requireApplicantRole } from "../middleware/permissionAuth";
 
 const router = Router();
 const upload = multer({
@@ -895,17 +896,20 @@ router.get("/reports", authenticate, applicantPortalController.getPerformanceRep
 router.post(
   "/financial-reports",
   authenticate,
+  requireApplicantRole(),
   upload.single("file"),
   applicantPortalController.uploadFinancialReport
 );
 router.get(
   "/financial-reports",
   authenticate,
+  requireApplicantRole(),
   applicantPortalController.getFinancialReports
 );
 router.get(
   "/financial-reports/template/:reportType",
   authenticate,
+  requireApplicantRole(),
   applicantPortalController.downloadFinancialReportTemplate
 );
 
