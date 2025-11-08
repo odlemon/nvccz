@@ -8,7 +8,7 @@ import { PortfolioCompanyAccountingService } from './PortfolioCompanyAccountingS
 
 export type FinancialReportType = 'BALANCE_SHEET' | 'INCOME_STATEMENT' | 'CASHFLOW_STATEMENT';
 export type FinancialReportPeriod = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
-export type FinancialReportStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'NEEDS_REVISION';
+export type FinancialReportStatus = 'DRAFT' | 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'NEEDS_REVISION';
 
 interface CreateReportParams {
   portfolioCompanyId: string;
@@ -58,7 +58,7 @@ export class FinancialReportService {
         storagePath,
         templateVersion,
         status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')`,
       id,
       params.portfolioCompanyId,
       params.submittedById,
@@ -72,8 +72,6 @@ export class FinancialReportService {
       uploadResult.filePath,
       params.templateVersion || 'v1'
     );
-
-    await this.notifySubmission(params.portfolioCompanyId, params.reportType, params.title, params.periodStart, params.periodEnd);
 
     return {
       id,
@@ -110,6 +108,7 @@ export class FinancialReportService {
        FROM financial_reports fr
        JOIN users u ON u.id = fr.submittedById
        WHERE fr.portfolioCompanyId = ?
+         AND fr.status <> 'DRAFT'
        ORDER BY fr.createdAt DESC`,
       portfolioCompanyId
     );
@@ -134,8 +133,12 @@ export class FinancialReportService {
       throw new Error('Financial report not found');
     }
 
+    if (report.status === 'DRAFT') {
+      throw new Error('Report has not been submitted for review');
+    }
+
     const mappingPayload = this.normalizeMapping(params.mappingSnapshot) || this.normalizeMapping(report.mappingSnapshot);
-    const status = params.action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED';
+    let status = params.action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED';
 
     await prisma.$executeRawUnsafe(
       `UPDATE financial_reports
@@ -178,6 +181,52 @@ export class FinancialReportService {
   static async enqueueProcessingJob(reportId: string) {
     console.log(`🧾 Queueing financial report processing for report ${reportId}`);
     // Placeholder for queue integration – hook into background worker
+  }
+
+  static async submitDraft(reportId: string, userId: string) {
+    await this.submitDrafts([reportId], userId);
+  }
+
+  static async submitDrafts(reportIds: string[], userId: string) {
+    if (!reportIds || reportIds.length === 0) {
+      throw new Error('No reports provided');
+    }
+
+    const reports = await prisma.financialReport.findMany({
+      where: {
+        id: { in: reportIds }
+      }
+    });
+
+    if (reports.length !== reportIds.length) {
+      throw new Error('One or more reports not found');
+    }
+
+    const invalidOwner = reports.find(report => report.submittedById !== userId);
+    if (invalidOwner) {
+      throw new Error('One or more reports do not belong to you');
+    }
+
+    const invalidStatus = reports.find(report => !['DRAFT', 'NEEDS_REVISION'].includes(report.status));
+    if (invalidStatus) {
+      throw new Error('Only draft or needs revision reports can be submitted');
+    }
+
+    await prisma.financialReport.updateMany({
+      where: {
+        id: { in: reportIds }
+      },
+      data: {
+        status: 'PENDING',
+        updatedAt: new Date()
+      }
+    });
+
+    await Promise.all(
+      reports.map(report =>
+        this.notifySubmission(report.portfolioCompanyId, report.reportType, report.title, report.periodStart, report.periodEnd)
+      )
+    );
   }
 
   private static async notifySubmission(portfolioCompanyId: string, reportType: string, title: string, periodStart: Date, periodEnd: Date) {
