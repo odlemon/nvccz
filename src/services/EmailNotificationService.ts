@@ -339,6 +339,118 @@ export class EmailNotificationService {
     }
   }
 
+  static async sendFinancialReportSubmittedEmail(data: {
+    recipients: Array<{ email: string; firstName: string; lastName: string }>;
+    companyName: string;
+    reportType: string;
+    title: string;
+    periodStart: Date;
+    periodEnd: Date;
+  }): Promise<void> {
+    if (!data.recipients || data.recipients.length === 0) {
+      return;
+    }
+
+    const subject = `New Financial Report Submitted - ${data.companyName}`;
+    const period = `${data.periodStart.toISOString().split('T')[0]} to ${data.periodEnd.toISOString().split('T')[0]}`;
+    const html = `
+      <p>Hello Team,</p>
+      <p><strong>${data.companyName}</strong> submitted a <strong>${data.reportType.replace('_', ' ')}</strong> titled <strong>${data.title}</strong>.</p>
+      <p>Reporting period: ${period}</p>
+      <p>Please review the report in the portfolio dashboard.</p>
+    `;
+
+    await zeptoClient.sendMail({
+      from: {
+        address: "noreply@lysp.io",
+        name: "NVCCZ Investment Team"
+      },
+      to: data.recipients.map(recipient => ({
+        email_address: {
+          address: recipient.email,
+          name: `${recipient.firstName} ${recipient.lastName}`.trim()
+        }
+      })),
+      subject,
+      htmlbody: html
+    });
+  }
+
+  static async sendFinancialReportAcceptedEmail(data: {
+    recipientEmail: string;
+    companyName: string;
+    reportType: string;
+    title: string;
+    periodStart: Date;
+    periodEnd: Date;
+    status: string;
+    comment?: string;
+  }): Promise<void> {
+    const subject = `Financial Report Accepted - ${data.companyName}`;
+    const period = `${data.periodStart.toISOString().split('T')[0]} to ${data.periodEnd.toISOString().split('T')[0]}`;
+    const html = `
+      <p>Hello,</p>
+      <p>Your <strong>${data.reportType.replace('_', ' ')}</strong> titled <strong>${data.title}</strong> has been <strong>accepted</strong>.</p>
+      <p>Reporting period: ${period}</p>
+      ${data.comment ? `<p><strong>Reviewer Comment:</strong> ${data.comment}</p>` : ''}
+      <p>Thank you for keeping your financials up to date.</p>
+    `;
+
+    await zeptoClient.sendMail({
+      from: {
+        address: "noreply@lysp.io",
+        name: "NVCCZ Investment Team"
+      },
+      to: [
+        {
+          email_address: {
+            address: data.recipientEmail,
+            name: data.companyName
+          }
+        }
+      ],
+      subject,
+      htmlbody: html
+    });
+  }
+
+  static async sendFinancialReportRejectedEmail(data: {
+    recipientEmail: string;
+    companyName: string;
+    reportType: string;
+    title: string;
+    periodStart: Date;
+    periodEnd: Date;
+    status: string;
+    comment?: string;
+  }): Promise<void> {
+    const subject = `Financial Report Update Needed - ${data.companyName}`;
+    const period = `${data.periodStart.toISOString().split('T')[0]} to ${data.periodEnd.toISOString().split('T')[0]}`;
+    const html = `
+      <p>Hello,</p>
+      <p>Your <strong>${data.reportType.replace('_', ' ')}</strong> titled <strong>${data.title}</strong> requires updates.</p>
+      <p>Reporting period: ${period}</p>
+      ${data.comment ? `<p><strong>Reviewer Comment:</strong> ${data.comment}</p>` : '<p>Please review and resubmit the report.</p>'}
+    `;
+
+    await zeptoClient.sendMail({
+      from: {
+        address: "noreply@lysp.io",
+        name: "NVCCZ Investment Team"
+      },
+      to: [
+        {
+          email_address: {
+            address: data.recipientEmail,
+            name: data.companyName
+          }
+        }
+      ],
+      subject,
+      htmlbody: html
+    });
+  }
+
   /**
    * Send investment decision email
    */

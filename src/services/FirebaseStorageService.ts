@@ -20,263 +20,123 @@ const app = initializeApp(firebaseConfig);
 const storage = getStorage(app);
 
 export class FirebaseStorageService {
-  
   /**
    * Upload CSV file to Firebase Storage
    */
   static async uploadImportFile(
-    file: Buffer, 
-    fileName: string, 
+    file: Buffer,
+    fileName: string,
     batchId: string,
     userId: string
   ): Promise<{ filePath: string; downloadURL: string }> {
     try {
       console.log(`📁 Uploading import file: ${fileName}`);
-      
+
       // Create storage reference
       const storageRef = ref(storage, `cashbook-imports/${userId}/${batchId}/${fileName}`);
-      
+
       // Upload file
       const snapshot = await uploadBytes(storageRef, file);
-      
+
       // Get download URL
       const downloadURL = await getDownloadURL(snapshot.ref);
-      
+
       console.log(`✅ File uploaded successfully: ${snapshot.ref.fullPath}`);
-      
+
       return {
         filePath: snapshot.ref.fullPath,
         downloadURL: downloadURL
       };
-      
+
     } catch (error: any) {
       console.error('❌ Error uploading file to Firebase:', error.message);
       throw new Error(`Failed to upload file: ${error.message}`);
     }
   }
-  
+
+  /**
+   * Upload a financial report document for a portfolio company.
+   */
+  static async uploadFinancialReport(
+    file: Buffer,
+    portfolioCompanyId: string,
+    reportId: string,
+    fileName: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    try {
+      console.log(`📁 Uploading financial report ${fileName} for company ${portfolioCompanyId}`);
+
+      const sanitizedName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      const storageRef = ref(storage, `financial-reports/${portfolioCompanyId}/${reportId}/${sanitizedName}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      return {
+        filePath: snapshot.ref.fullPath,
+        downloadURL
+      };
+    } catch (error: any) {
+      console.error('❌ Error uploading financial report to Firebase:', error.message);
+      throw new Error(`Failed to upload financial report: ${error.message}`);
+    }
+  }
+
   /**
    * Download CSV file from Firebase Storage
    */
   static async downloadImportFile(filePath: string): Promise<Buffer> {
     try {
-      console.log(`📥 Downloading file: ${filePath}`);
-      
-      // Create storage reference
+      console.log(`📥 Downloading file from Firebase: ${filePath}`);
+
       const storageRef = ref(storage, filePath);
-      
-      // Get download URL
-      const downloadURL = await getDownloadURL(storageRef);
-      
-      // Fetch file content
-      const response = await fetch(downloadURL);
+      const url = await getDownloadURL(storageRef);
+      const response = await fetch(url);
       const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      
-      console.log(`✅ File downloaded successfully: ${buffer.length} bytes`);
-      
-      return buffer;
-      
+
+      console.log(`✅ File downloaded successfully: ${filePath}`);
+
+      return Buffer.from(arrayBuffer);
     } catch (error: any) {
       console.error('❌ Error downloading file from Firebase:', error.message);
       throw new Error(`Failed to download file: ${error.message}`);
     }
   }
-  
+
   /**
-   * Delete CSV file from Firebase Storage
+   * Delete file from Firebase Storage
    */
-  static async deleteImportFile(filePath: string): Promise<void> {
+  static async deleteFile(filePath: string): Promise<void> {
     try {
-      console.log(`🗑️ Deleting file: ${filePath}`);
-      
-      // Create storage reference
+      console.log(`🗑️ Deleting file from Firebase: ${filePath}`);
+
       const storageRef = ref(storage, filePath);
-      
-      // Delete file
       await deleteObject(storageRef);
-      
+
       console.log(`✅ File deleted successfully: ${filePath}`);
-      
     } catch (error: any) {
       console.error('❌ Error deleting file from Firebase:', error.message);
       throw new Error(`Failed to delete file: ${error.message}`);
     }
   }
-  
+
   /**
-   * List all import files for a user
+   * List all files under a specific path
    */
-  static async listUserImportFiles(userId: string): Promise<string[]> {
+  static async listFiles(path: string): Promise<string[]> {
     try {
-      console.log(`📋 Listing import files for user: ${userId}`);
-      
-      // Create storage reference
-      const storageRef = ref(storage, `cashbook-imports/${userId}`);
-      
-      // List all files
+      console.log(`📄 Listing files in Firebase path: ${path}`);
+
+      const storageRef = ref(storage, path);
       const result = await listAll(storageRef);
-      
+
       const filePaths = result.items.map(item => item.fullPath);
-      
-      console.log(`✅ Found ${filePaths.length} import files`);
-      
+
+      console.log(`✅ Found ${filePaths.length} file(s)`);
+
       return filePaths;
-      
     } catch (error: any) {
-      console.error('❌ Error listing files from Firebase:', error.message);
+      console.error('❌ Error listing files in Firebase:', error.message);
       throw new Error(`Failed to list files: ${error.message}`);
-    }
-  }
-  
-  /**
-   * Clean up old import files (older than 7 days)
-   */
-  static async cleanupOldImportFiles(userId: string, daysOld: number = 7): Promise<void> {
-    try {
-      console.log(`🧹 Cleaning up files older than ${daysOld} days for user: ${userId}`);
-      
-      // List all files
-      const filePaths = await this.listUserImportFiles(userId);
-      
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - daysOld);
-      
-      let deletedCount = 0;
-      
-      for (const filePath of filePaths) {
-        try {
-          // Extract date from file path (assuming format: import-{batchId}-{timestamp}.csv)
-          const pathParts = filePath.split('/');
-          const fileName = pathParts[pathParts.length - 1];
-          const timestamp = fileName.split('-')[2]?.split('.')[0];
-          
-          if (timestamp) {
-            const fileDate = new Date(parseInt(timestamp));
-            
-            if (fileDate < cutoffDate) {
-              await this.deleteImportFile(filePath);
-              deletedCount++;
-            }
-          }
-        } catch (error) {
-          console.warn(`⚠️ Could not process file: ${filePath}`);
-        }
-      }
-      
-      console.log(`✅ Cleaned up ${deletedCount} old files`);
-      
-    } catch (error: any) {
-      console.error('❌ Error cleaning up files:', error.message);
-      throw new Error(`Failed to cleanup files: ${error.message}`);
-    }
-  }
-  
-  /**
-   * Get file metadata
-   */
-  static async getFileMetadata(filePath: string): Promise<{
-    size: number;
-    contentType: string;
-    timeCreated: string;
-    updated: string;
-  }> {
-    try {
-      console.log(`📊 Getting metadata for file: ${filePath}`);
-      
-      // Create storage reference
-      const storageRef = ref(storage, filePath);
-      
-      // Get download URL (this also gets metadata)
-      const downloadURL = await getDownloadURL(storageRef);
-      
-      // Fetch file to get size
-      const response = await fetch(downloadURL);
-      const contentLength = response.headers.get('content-length');
-      const contentType = response.headers.get('content-type');
-      
-      return {
-        size: contentLength ? parseInt(contentLength) : 0,
-        contentType: contentType || 'application/octet-stream',
-        timeCreated: new Date().toISOString(),
-        updated: new Date().toISOString()
-      };
-      
-    } catch (error: any) {
-      console.error('❌ Error getting file metadata:', error.message);
-      throw new Error(`Failed to get file metadata: ${error.message}`);
-    }
-  }
-
-  /**
-   * Upload application document to Firebase Storage
-   * Used for application document uploads (Business Plan, Proof of Concept, etc.)
-   */
-  static async uploadApplicationDocument(
-    file: Buffer, 
-    fileName: string, 
-    applicationId: string,
-    documentType: string
-  ): Promise<{ filePath: string; downloadURL: string }> {
-    try {
-      console.log(`📁 Uploading application document: ${fileName} (${documentType})`);
-      
-      // Create storage reference: application-documents/{applicationId}/{documentType}/{fileName}
-      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const storageRef = ref(storage, `application-documents/${applicationId}/${documentType}/${Date.now()}-${sanitizedFileName}`);
-      
-      // Upload file
-      const snapshot = await uploadBytes(storageRef, file);
-      
-      // Get download URL
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      
-      console.log(`✅ Application document uploaded successfully: ${snapshot.ref.fullPath}`);
-      
-      return {
-        filePath: snapshot.ref.fullPath,
-        downloadURL: downloadURL
-      };
-      
-    } catch (error: any) {
-      console.error('❌ Error uploading application document to Firebase:', error.message);
-      throw new Error(`Failed to upload application document: ${error.message}`);
-    }
-  }
-
-  /**
-   * Upload term sheet document to Firebase Storage
-   * Used for term sheet document uploads
-   */
-  static async uploadTermSheetDocument(
-    file: Buffer, 
-    fileName: string, 
-    termSheetId: string,
-    documentType: string = 'TERM_SHEET'
-  ): Promise<{ filePath: string; downloadURL: string }> {
-    try {
-      console.log(`📁 Uploading term sheet document: ${fileName}`);
-      
-      // Create storage reference: term-sheets/{termSheetId}/{documentType}/{fileName}
-      const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const storageRef = ref(storage, `term-sheets/${termSheetId}/${documentType}/${Date.now()}-${sanitizedFileName}`);
-      
-      // Upload file
-      const snapshot = await uploadBytes(storageRef, file);
-      
-      // Get download URL
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      
-      console.log(`✅ Term sheet document uploaded successfully: ${snapshot.ref.fullPath}`);
-      
-      return {
-        filePath: snapshot.ref.fullPath,
-        downloadURL: downloadURL
-      };
-      
-    } catch (error: any) {
-      console.error('❌ Error uploading term sheet document to Firebase:', error.message);
-      throw new Error(`Failed to upload term sheet document: ${error.message}`);
     }
   }
 }

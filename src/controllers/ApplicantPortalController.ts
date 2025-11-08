@@ -1,8 +1,11 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
+import { promises as fs } from "fs";
+import path from "path";
 import { ApplicantPortalService } from "../services/ApplicantPortalService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { prisma } from "../utils/database";
+import { FinancialReportService } from "../services/FinancialReportService";
 
 export class ApplicantPortalController {
   /**
@@ -145,22 +148,96 @@ export class ApplicantPortalController {
       if (!user) {
         return ResponseHelper.error(res, "User not found in request", undefined, 401);
       }
-      
-      // Check if user is applicant
-      if (!(await ApplicantPortalController.isApplicant(user))) {
-        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
-      }
-      
+
       const userId = user.id || user.userId;
+
       if (!userId) {
-        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
       }
-      
+
       const updateData = req.body;
       const updatedCompany = await ApplicantPortalService.updateApplicantCompany(userId, updateData);
-      
+
       return ResponseHelper.success(res, "Company updated successfully", updatedCompany);
-    } catch (error) {
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async uploadFinancialReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+
+      if (!req.file) {
+        return ResponseHelper.error(res, "Financial report file is required", undefined, 400);
+      }
+
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
+      }
+
+      const portfolioCompany = await prisma.portfolioCompany.findFirst({
+        where: { userId },
+        select: { id: true }
+      });
+
+      if (!portfolioCompany) {
+        return ResponseHelper.error(res, "No portfolio company found for this applicant", undefined, 400);
+      }
+
+      const {
+        reportType,
+        periodType,
+        periodStart,
+        periodEnd,
+        title,
+        description,
+        templateVersion
+      } = req.body;
+
+      if (!reportType || !periodType || !periodStart || !periodEnd || !title) {
+        return ResponseHelper.error(res, "Missing required fields", undefined, 400);
+      }
+
+      const createResult = await FinancialReportService.createReport({
+        portfolioCompanyId: portfolioCompany.id,
+        submittedById: userId,
+        reportType,
+        periodType,
+        periodStart: new Date(periodStart),
+        periodEnd: new Date(periodEnd),
+        title,
+        description,
+        templateVersion,
+        fileBuffer: req.file.buffer,
+        originalFileName: req.file.originalname
+      });
+
+      return ResponseHelper.success(res, "Financial report submitted successfully", createResult, 201);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async getFinancialReports(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
+      }
+
+      const reports = await FinancialReportService.listReportsForApplicant(userId);
+      return ResponseHelper.success(res, "Financial reports retrieved successfully", reports);
+    } catch (error: any) {
       next(error);
     }
   }
@@ -301,6 +378,32 @@ export class ApplicantPortalController {
       
       return ResponseHelper.success(res, "Performance reports retrieved successfully", reports);
     } catch (error) {
+      next(error);
+    }
+  }
+
+  async downloadFinancialReportTemplate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { reportType } = req.params;
+      const normalizedType = (reportType || '').toUpperCase();
+      const templateMap: Record<string, string> = {
+        BALANCE_SHEET: 'balance_sheet_template.csv',
+        INCOME_STATEMENT: 'income_statement_template.csv',
+        CASHFLOW_STATEMENT: 'cashflow_statement_template.csv'
+      };
+
+      const fileName = templateMap[normalizedType];
+      if (!fileName) {
+        return ResponseHelper.error(res, "Unknown report type", undefined, 400);
+      }
+
+      const filePath = path.join(process.cwd(), 'templates', 'financial-reports', fileName);
+      const fileBuffer = await fs.readFile(filePath);
+
+      res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
+      res.setHeader('Content-Type', 'text/csv');
+      return res.send(fileBuffer);
+    } catch (error: any) {
       next(error);
     }
   }

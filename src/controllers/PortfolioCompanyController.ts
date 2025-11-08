@@ -2,6 +2,8 @@
 import { Request, Response, NextFunction } from "express";
 import { PortfolioCompanyService, CreatePortfolioCompanyRequest, UpdatePortfolioCompanyRequest, CreatePortfolioCompanyByAdminRequest } from "../services/PortfolioCompanyService";
 import { EmailNotificationService } from "../services/EmailNotificationService";
+import { FinancialReportService } from "../services/FinancialReportService";
+import { FirebaseStorageService } from "../services/FirebaseStorageService";
 
 export class PortfolioCompanyController {
   // Create portfolio company with user
@@ -283,6 +285,74 @@ export class PortfolioCompanyController {
     }
   }
 
+  static async getFinancialReports(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ success: false, message: "Portfolio company ID is required" });
+      }
+
+      const reports = await FinancialReportService.listReportsForCompany(id);
+      return res.status(200).json({ success: true, data: reports });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  static async downloadFinancialReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { reportId } = req.params;
+      if (!reportId) {
+        return res.status(400).json({ success: false, message: "Report ID is required" });
+      }
+
+      const report = await FinancialReportService.getReportById(reportId);
+      if (!report) {
+        return res.status(404).json({ success: false, message: "Report not found" });
+      }
+
+      const fileBuffer = await FirebaseStorageService.downloadImportFile(report.storagePath);
+      const safeName = `${report.title || 'financial-report'}-${reportId}.csv`.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+
+      res.setHeader('Content-Disposition', `attachment; filename=${safeName}`);
+      res.setHeader('Content-Type', 'text/csv');
+      return res.send(fileBuffer);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  static async reviewFinancialReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const { reportId } = req.params;
+      if (!reportId) {
+        return res.status(400).json({ success: false, message: "Report ID is required" });
+      }
+
+      const { action, comment, mapping } = req.body;
+      if (!action || !['ACCEPT', 'REJECT'].includes(action)) {
+        return res.status(400).json({ success: false, message: "Invalid action" });
+      }
+
+      await FinancialReportService.reviewReport({
+        reportId,
+        reviewerId: user.id || user.userId,
+        action,
+        comment,
+        mappingSnapshot: mapping || null
+      });
+
+      return res.status(200).json({ success: true, message: "Financial report review recorded" });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
   // Delete portfolio company
   static async deletePortfolioCompany(req: Request, res: Response, next: NextFunction) {
     try {
@@ -298,3 +368,5 @@ export class PortfolioCompanyController {
     }
   }
 }
+
+export const portfolioCompanyController = new PortfolioCompanyController();
