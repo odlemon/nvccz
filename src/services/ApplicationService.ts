@@ -562,105 +562,110 @@ export class ApplicationService {
    * Get all applications (admin/fund manager access)
    */
   static async getAllApplications(
-    page: number = 1,
-    limit: number = 10,
+    page?: number,
+    limit?: number,
     stage?: string,
-    fundId?: string
+    fundId?: string,
+    paginate: boolean = false
   ): Promise<{ applications: ApplicationWithRelations[]; total: number; page: number; totalPages: number }> {
     try {
-      const skip = (page - 1) * limit;
+      const skip = paginate && limit ? (Math.max(page ?? 1, 1) - 1) * limit : undefined;
+      const take = paginate && limit ? limit : undefined;
       
       const where: any = {};
       
-      // Filter by stage
       if (stage) {
         where.currentStage = stage;
       } else {
-        // Default: exclude rejected and pending applications
-        where.currentStage = { 
-          notIn: ['REJECTED', 'PENDING_SHORTLISTING'] 
+        where.currentStage = {
+          notIn: ['REJECTED', 'PENDING_SHORTLISTING']
         };
       }
       
       if (fundId) where.fundId = fundId;
 
-      const [applications, total] = await Promise.all([
-        prisma.application.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            fund: {
-              select: {
-                id: true,
-                name: true,
-                status: true
-              }
-            },
-            documents: {
-              select: {
-                id: true,
-                documentType: true,
-                fileName: true,
-                fileUrl: true,
-                isRequired: true,
-                isSubmitted: true
-              }
-            },
-            dueDiligenceReview: {
-              include: {
-                reviewer: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true
-                  }
+      const findManyArgs: any = {
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              status: true
+            }
+          },
+          documents: {
+            select: {
+              id: true,
+              documentType: true,
+              fileName: true,
+              fileUrl: true,
+              isRequired: true,
+              isSubmitted: true
+            }
+          },
+          dueDiligenceReview: {
+            include: {
+              reviewer: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
                 }
-              }
-            },
-            boardReview: {
-              include: {
-                reviewer: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true
-                  }
-                }
-              }
-            },
-            termSheet: {
-              include: {
-                createdBy: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true
-                  }
-                }
-              }
-            },
-            investmentImplementation: {
-              select: {
-                id: true,
-                portfolioCompanyId: true
               }
             }
+          },
+          boardReview: {
+            include: {
+              reviewer: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          },
+          termSheet: {
+            include: {
+              createdBy: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          },
+          investmentImplementation: {
+            select: {
+              id: true,
+              portfolioCompanyId: true
+            }
           }
-        }),
+        }
+      };
+
+      if (typeof skip === 'number') {
+        findManyArgs.skip = skip;
+      }
+      if (typeof take === 'number') {
+        findManyArgs.take = take;
+      }
+
+      const [applications, total] = await Promise.all([
+        prisma.application.findMany(findManyArgs),
         prisma.application.count({ where })
       ]);
 
-      // Get investment implementation IDs to fetch disbursements
       const investmentImplementationIds = applications
         .map(app => app.investmentImplementation?.id)
         .filter(id => id) as string[];
 
-      // Fetch disbursements for these investment implementations
       const disbursements = investmentImplementationIds.length > 0
         ? await prisma.fundDisbursement.findMany({
             where: {
@@ -684,7 +689,6 @@ export class ApplicationService {
           })
         : [];
 
-      // Create a map of investment implementation ID to disbursements
       const disbursementMap = new Map<string, typeof disbursements>();
       disbursements.forEach(disbursement => {
         const implId = disbursement.investmentImplementationId;
@@ -694,10 +698,8 @@ export class ApplicationService {
         disbursementMap.get(implId)!.push(disbursement);
       });
 
-      // Get applicant emails from applications
       const applicantEmails = applications.map(app => app.applicantEmail);
 
-      // Find users by applicant emails
       const users = await prisma.user.findMany({
         where: {
           email: {
@@ -710,12 +712,10 @@ export class ApplicationService {
         }
       });
 
-      // Create a map of email to user ID
       const userMap = new Map(users.map(user => [user.email, user.id]));
 
-      // Find portfolio companies for these users
       const userIds = users.map(user => user.id);
-      const portfolioCompanies = userIds.length > 0 
+      const portfolioCompanies = userIds.length > 0
         ? await prisma.portfolioCompany.findMany({
             where: {
               userId: {
@@ -744,31 +744,32 @@ export class ApplicationService {
           })
         : [];
 
-      // Create a map for quick lookup by user ID
       const portfolioCompanyMap = new Map(
         portfolioCompanies.map(pc => [pc.userId, pc])
       );
 
-      // Attach portfolio company data and disbursements to applications
       const applicationsWithPortfolioCompanies = applications.map(app => {
         const userId = userMap.get(app.applicantEmail);
         const portfolioCompany = userId ? portfolioCompanyMap.get(userId) : null;
         const implementationId = app.investmentImplementation?.id;
-        const disbursements = implementationId ? disbursementMap.get(implementationId) || [] : [];
+        const disbursementList = implementationId ? disbursementMap.get(implementationId) || [] : [];
         
         return {
           ...app,
           portfolioCompanyId: portfolioCompany?.id || null,
           portfolioCompany: portfolioCompany || null,
-          disbursements: disbursements
+          disbursements: disbursementList
         };
       });
+
+      const totalPages = paginate && take ? Math.max(Math.ceil(total / take), 1) : 1;
+      const currentPage = paginate && page ? Math.max(page, 1) : 1;
 
       return {
         applications: applicationsWithPortfolioCompanies,
         total,
-        page,
-        totalPages: Math.ceil(total / limit)
+        page: currentPage,
+        totalPages
       };
     } catch (error: any) {
       throw new Error(`Failed to get applications: ${error.message}`);

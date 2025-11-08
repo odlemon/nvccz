@@ -503,22 +503,31 @@ export class ApplicationController {
   static async getAllApplications(req: Request, res: Response): Promise<void> {
     try {
       const {
-        page = 1,
-        limit = 10,
+        page: pageParam,
+        limit: limitParam,
         stage,
-        fundId
+        fundId,
+        paginate: paginateParam
       } = req.query;
 
+      const paginationExplicit = typeof paginateParam !== 'undefined' || typeof pageParam !== 'undefined' || typeof limitParam !== 'undefined';
+      const paginate = paginationExplicit ? paginateParam !== 'false' && paginateParam !== '0' : false;
+
+      const page = paginate ? Number(pageParam ?? 1) : undefined;
+      const limit = paginate ? Number(limitParam ?? 10) : undefined;
+
       const result = await ApplicationService.getAllApplications(
-        Number(page),
-        Number(limit),
+        page,
+        limit,
         stage as string,
-        fundId as string
+        fundId as string,
+        paginate
       );
 
       logger.info("Applications retrieved successfully", {
         total: result.total,
         page: result.page,
+        paginate,
         requestedBy: (req as any).user?.id
       });
 
