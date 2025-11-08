@@ -440,6 +440,109 @@ router.post(
 
 /**
  * @swagger
+ * /api/portfolio-companies/{id}/valuation-adjustments:
+ *   post:
+ *     summary: Record a valuation adjustment for a portfolio company
+ *     description: Captures valuation approvals and posts the related accounting and KPI updates.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Portfolio company ID.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [previousAmount, newAmount, valuationDate]
+ *             properties:
+ *               previousAmount:
+ *                 type: number
+ *                 example: 1250000
+ *               newAmount:
+ *                 type: number
+ *                 example: 1500000
+ *               valuationDate:
+ *                 type: string
+ *                 format: date
+ *               notes:
+ *                 type: string
+ *                 example: "Q4 valuation approved by CIO"
+ *     responses:
+ *       201:
+ *         description: Valuation adjustment recorded
+ *       400:
+ *         description: Invalid payload
+ *       401:
+ *         description: Unauthorized
+ *       default:
+ *         description: Unexpected error
+ */
+router.post(
+  "/:id/valuation-adjustments",
+  authenticate,
+  authorize(["admin", "cio", "ceo", "INV_ANALYST", "analyst", "investment_analyst"]),
+  PortfolioCompanyController.recordValuationAdjustment
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/dividends:
+ *   post:
+ *     summary: Record a dividend received from a portfolio company
+ *     description: Logs dividend cash receipts, creates the journal entry, and updates KPIs.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Portfolio company ID.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount, dividendDate]
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 example: 25000
+ *               dividendDate:
+ *                 type: string
+ *                 format: date
+ *               notes:
+ *                 type: string
+ *                 example: "FY2025 interim dividend"
+ *     responses:
+ *       201:
+ *         description: Dividend recorded successfully
+ *       400:
+ *         description: Invalid payload
+ *       401:
+ *         description: Unauthorized
+ *       default:
+ *         description: Unexpected error
+ */
+router.post(
+  "/:id/dividends",
+  authenticate,
+  authorize(["admin", "cio", "ceo", "INV_ANALYST", "analyst", "investment_analyst"]),
+  PortfolioCompanyController.recordDividend
+);
+
+/**
+ * @swagger
  * /api/portfolio-companies/with-investments:
  *   get:
  *     summary: Get all portfolio companies with investment amounts

@@ -1,5 +1,5 @@
 export const financialReportingEndpoints = {
-  'applicant/financial-reports': {
+  '/applicant/financial-reports': {
     post: {
       summary: 'Submit a financial report',
       description: 'Upload a financial report document for review.',
@@ -52,7 +52,7 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  'applicant/financial-reports/template/{reportType}': {
+  '/applicant/financial-reports/template/{reportType}': {
     get: {
       summary: 'Download financial report template',
       tags: ['Financial Reporting'],
@@ -76,7 +76,7 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  'portfolio-companies/{id}/financial-reports': {
+  '/portfolio-companies/{id}/financial-reports': {
     get: {
       summary: 'List financial reports for a portfolio company',
       tags: ['Financial Reporting'],
@@ -92,7 +92,7 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  'portfolio-companies/{id}/financial-reports/{reportId}/download': {
+  '/portfolio-companies/{id}/financial-reports/{reportId}/download': {
     get: {
       summary: 'Download a financial report',
       tags: ['Financial Reporting'],
@@ -110,7 +110,7 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  'portfolio-companies/{id}/financial-reports/{reportId}/review': {
+  '/portfolio-companies/{id}/financial-reports/{reportId}/review': {
     post: {
       summary: 'Review a financial report',
       tags: ['Financial Reporting'],

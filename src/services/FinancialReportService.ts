@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto';
 import { prisma } from '../utils/database';
 import { FirebaseStorageService } from './FirebaseStorageService';
 import { EmailNotificationService } from './EmailNotificationService';
+import { FinancialReportProcessingService } from './FinancialReportProcessingService';
+import { PortfolioCompanyAccountingService } from './PortfolioCompanyAccountingService';
 
 export type FinancialReportType = 'BALANCE_SHEET' | 'INCOME_STATEMENT' | 'CASHFLOW_STATEMENT';
 export type FinancialReportPeriod = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
@@ -132,6 +134,7 @@ export class FinancialReportService {
       throw new Error('Financial report not found');
     }
 
+    const mappingPayload = this.normalizeMapping(params.mappingSnapshot) || this.normalizeMapping(report.mappingSnapshot);
     const status = params.action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED';
 
     await prisma.$executeRawUnsafe(
@@ -145,13 +148,28 @@ export class FinancialReportService {
       status,
       params.reviewerId,
       params.comment || null,
-      params.mappingSnapshot ? JSON.stringify(params.mappingSnapshot) : null,
+      params.mappingSnapshot ? JSON.stringify(params.mappingSnapshot) : (report.mappingSnapshot ?? null),
       params.reportId
     );
 
     if (params.action === 'ACCEPT') {
-      await this.enqueueProcessingJob(params.reportId);
-      await this.notifyOutcome(report, 'ACCEPTED', params.comment);
+      try {
+        await FinancialReportProcessingService.process(report);
+        await this.runPostApprovalAutomations(report, params.reviewerId, mappingPayload);
+        await this.notifyOutcome(report, 'ACCEPTED', params.comment);
+      } catch (error: any) {
+        console.error('❌ Failed to process accepted financial report:', error);
+        await prisma.$executeRawUnsafe(
+          `UPDATE financial_reports
+           SET status = 'NEEDS_REVISION',
+               reviewerComment = CONCAT(COALESCE(reviewerComment, ''), '\nProcessing error: ', ?)
+           WHERE id = ?`,
+          error.message || 'Processing error',
+          params.reportId
+        );
+        await this.notifyOutcome(report, 'REJECTED', `${params.comment ? params.comment + '\n' : ''}Processing error: ${error.message || error}`);
+        throw error;
+      }
     } else {
       await this.notifyOutcome(report, 'REJECTED', params.comment);
     }
@@ -236,5 +254,127 @@ export class FinancialReportService {
   private static formatDate(date: Date) {
     const instance = date instanceof Date ? date : new Date(date);
     return instance.toISOString().split('T')[0];
+  }
+
+  private static normalizeMapping(raw: any): any | null {
+    if (!raw) {
+      return null;
+    }
+
+    if (typeof raw === 'string') {
+      try {
+        return JSON.parse(raw);
+      } catch (error) {
+        console.warn('⚠️ Unable to parse mapping snapshot string, skipping automation payload');
+        return null;
+      }
+    }
+
+    return raw;
+  }
+
+  private static async runPostApprovalAutomations(report: any, reviewerId: string, mapping: any): Promise<void> {
+    if (!mapping) {
+      return;
+    }
+
+    const automations: Promise<any>[] = [];
+
+    const valuationPayload = mapping.valuationAdjustment || mapping.valuation;
+    if (valuationPayload) {
+      const newAmount = this.ensureNumeric(
+        valuationPayload.newAmount ?? valuationPayload.amount ?? valuationPayload.value,
+        'Valuation automation requires a numeric newAmount'
+      );
+      const previousAmount = await this.resolvePreviousValuationAmount(
+        report.portfolioCompanyId,
+        valuationPayload.previousAmount
+      );
+      const valuationDate = valuationPayload.valuationDate || valuationPayload.date || report.periodEnd || new Date();
+      const difference = Number((newAmount - previousAmount).toFixed(2));
+
+      if (difference !== 0) {
+        automations.push(
+          PortfolioCompanyAccountingService.recordValuationAdjustment({
+            portfolioCompanyId: report.portfolioCompanyId,
+            previousAmount,
+            newAmount,
+            valuationDate,
+            approvedById: reviewerId,
+            notes: valuationPayload.notes || valuationPayload.comment || null
+          })
+        );
+      }
+    }
+
+    const dividendPayloads = this.normalizeDividends(mapping);
+    for (const dividend of dividendPayloads) {
+      const amount = this.ensureNumeric(
+        dividend.amount ?? dividend.value,
+        'Dividend automation requires a numeric amount'
+      );
+
+      if (amount <= 0) {
+        throw new Error('Dividend automation requires amount greater than zero');
+      }
+
+      const dividendDate = dividend.dividendDate || dividend.date || report.periodEnd || new Date();
+
+      automations.push(
+        PortfolioCompanyAccountingService.recordDividend({
+          portfolioCompanyId: report.portfolioCompanyId,
+          amount,
+          dividendDate,
+          approvedById: reviewerId,
+          notes: dividend.notes || dividend.comment || null
+        })
+      );
+    }
+
+    await Promise.all(automations);
+  }
+
+  private static normalizeDividends(mapping: any): any[] {
+    if (!mapping) {
+      return [];
+    }
+
+    if (Array.isArray(mapping.dividends)) {
+      return mapping.dividends;
+    }
+
+    if (mapping.dividend) {
+      return [mapping.dividend];
+    }
+
+    return [];
+  }
+
+  private static ensureNumeric(value: any, errorMessage: string): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(errorMessage);
+    }
+    return Number(parsed.toFixed(2));
+  }
+
+  private static async resolvePreviousValuationAmount(portfolioCompanyId: string, provided?: any): Promise<number> {
+    if (provided !== undefined && provided !== null && Number.isFinite(Number(provided))) {
+      return Number(Number(provided).toFixed(2));
+    }
+
+    const company = await prisma.portfolioCompany.findUnique({
+      where: { id: portfolioCompanyId },
+      select: { financialKpis: true }
+    });
+
+    const kpis = company?.financialKpis;
+    const latest = kpis?.latestValuation?.amount ?? kpis?.latest?.PORTFOLIO_FAIR_VALUE;
+
+    if (latest !== undefined && latest !== null && Number.isFinite(Number(latest))) {
+      return Number(Number(latest).toFixed(2));
+    }
+
+    return 0;
   }
 }
