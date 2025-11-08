@@ -385,24 +385,52 @@ export class ApplicantPortalController {
   async downloadFinancialReportTemplate(req: Request, res: Response, next: NextFunction) {
     try {
       const { reportType } = req.params;
-      const normalizedType = (reportType || '').toUpperCase();
-      const templateMap: Record<string, string> = {
-        BALANCE_SHEET: 'balance_sheet_template.csv',
-        INCOME_STATEMENT: 'income_statement_template.csv',
-        CASHFLOW_STATEMENT: 'cashflow_statement_template.csv'
-      };
+      const template = await FinancialReportService.downloadReportTemplate(reportType);
 
-      const fileName = templateMap[normalizedType];
-      if (!fileName) {
-        return ResponseHelper.error(res, "Unknown report type", undefined, 400);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=${reportType.toLowerCase()}_template.csv`);
+      return res.send(template);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async submitFinancialReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
       }
 
-      const filePath = path.join(process.cwd(), 'templates', 'financial-reports', fileName);
-      const fileBuffer = await fs.readFile(filePath);
+      const body = req.body;
+      let reportIds: string[] = [];
 
-      res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
-      res.setHeader('Content-Type', 'text/csv');
-      return res.send(fileBuffer);
+      if (Array.isArray(body?.reportIds)) {
+        reportIds = body.reportIds.filter((id: any) => typeof id === 'string' && id.trim().length > 0);
+      } else if (typeof body?.reportId === 'string' && body.reportId.trim().length > 0) {
+        reportIds = [body.reportId.trim()];
+      } else if (typeof body === 'string') {
+        try {
+          const parsed = JSON.parse(body);
+          if (Array.isArray(parsed?.reportIds)) {
+            reportIds = parsed.reportIds.filter((id: any) => typeof id === 'string' && id.trim().length > 0);
+          }
+        } catch (error) {
+          // ignore JSON parse errors, will fall back to params
+        }
+      }
+
+      if (reportIds.length === 0 && req.params.reportId) {
+        reportIds = [req.params.reportId];
+      }
+
+      if (reportIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'Provide reportId or reportIds in the request body' });
+      }
+
+      await FinancialReportService.submitDrafts(reportIds, user.id || user.userId);
+
+      return res.status(200).json({ success: true, message: 'Financial report(s) submitted for review' });
     } catch (error: any) {
       next(error);
     }

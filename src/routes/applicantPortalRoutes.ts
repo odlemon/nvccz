@@ -912,6 +912,18 @@ router.get(
   requireApplicantRole(),
   applicantPortalController.downloadFinancialReportTemplate
 );
+router.post(
+  "/financial-reports/submit",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.submitFinancialReport
+);
+router.post(
+  "/financial-reports/:reportId/submit",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.submitFinancialReport
+);
 
 /**
  * @swagger

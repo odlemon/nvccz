@@ -312,6 +312,10 @@ export class PortfolioCompanyController {
         return res.status(404).json({ success: false, message: "Report not found" });
       }
 
+      if (report.status === 'DRAFT') {
+        return res.status(403).json({ success: false, message: "Report has not been submitted" });
+      }
+
       const fileBuffer = await FirebaseStorageService.downloadImportFile(report.storagePath);
       const safeName = `${report.title || 'financial-report'}-${reportId}.csv`.replace(/[^a-zA-Z0-9.\-_]/g, '_');
 

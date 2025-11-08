@@ -55,6 +55,7 @@ export const financialReportingEndpoints = {
   '/applicant/financial-reports/template/{reportType}': {
     get: {
       summary: 'Download financial report template',
+      description: 'Download a CSV template for a specific financial report type.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -65,14 +66,68 @@ export const financialReportingEndpoints = {
           schema: {
             type: 'string',
             enum: ['BALANCE_SHEET', 'INCOME_STATEMENT', 'CASHFLOW_STATEMENT']
-          }
+          },
+          description: 'Type of financial report template to download.'
         }
       ],
       responses: {
-        200: { description: 'CSV template download' },
-        400: { description: 'Unknown report type' },
+        200: {
+          description: 'CSV template download'
+        }
+      }
+    }
+  },
+  '/applicant/financial-reports/{reportId}/submit': {
+    post: {
+      summary: 'Submit a financial report for review',
+      description: 'Marks a draft or needs-revision report as submitted so the venture team can review it.',
+      tags: ['Financial Reporting'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'reportId',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Financial report ID.'
+        }
+      ],
+      responses: {
+        200: { description: 'Report submitted successfully' },
+        400: { description: 'Invalid request' },
         401: { description: 'Unauthorized' },
-        default: { description: 'Unexpected error' }
+        403: { description: 'Forbidden' }
+      }
+    }
+  },
+  'applicant/financial-reports/submit': {
+    post: {
+      summary: 'Submit multiple financial reports',
+      description: 'Submit one or more draft financial reports for venture review.',
+      tags: ['Financial Reporting'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                reportIds: {
+                  type: 'array',
+                  items: { type: 'string' }
+                }
+              },
+              required: ['reportIds']
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Reports submitted successfully' },
+        400: { description: 'Invalid request' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Forbidden' }
       }
     }
   },
