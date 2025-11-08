@@ -2,6 +2,7 @@ import swaggerJsdoc from 'swagger-jsdoc';
 import { accountingEndpoints } from './accounting-endpoints';
 import { performanceEndpoints } from './performance-endpoints';
 import { taskAssignmentEndpoints } from './task-assignment-endpoints';
+import { financialReportingEndpoints } from './financial-reporting-endpoints';
 
 const options = {
   definition: {
@@ -1431,7 +1432,6 @@ const options = {
   },
   apis: ['./src/**/*.ts', './src/routes/**/*.ts', './src/controllers/**/*.ts']
 };
-
 let specs: any;
 // Create fallback spec with all endpoints
 const fallbackSpec = {
@@ -1440,6 +1440,7 @@ const fallbackSpec = {
     ...accountingEndpoints,
     ...performanceEndpoints,
     ...taskAssignmentEndpoints,
+    ...financialReportingEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/api/cashbook/receipts': {
@@ -7511,31 +7512,6 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/milestones/{milestoneId}/complete': {
-        post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
-          summary: 'Complete milestone (Investor)',
-          description: 'Mark a milestone as completed',
-          security: [{ bearerAuth: [] }],
-          parameters: [{ name: 'milestoneId', in: 'path', required: true, schema: { type: 'string' } }],
-          requestBody: {
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    notes: { type: 'string' }
-                  }
-                }
-              }
-            }
-          },
-          responses: {
-            200: { description: 'Milestone completed successfully' },
-            401: { description: 'Unauthorized' }
-          }
-        }
-      },
       '/api/investment-implementations/disbursements': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
@@ -8127,9 +8103,9 @@ try {
     specs = fallbackSpec;
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
-    // Merge accounting, cashbook, performance, and task assignment endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints };
-    console.log(`Added accounting, cashbook, performance, and task assignment endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
+    // Merge accounting, cashbook, performance, task assignment, and financial reporting endpoints with generated spec
+    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints };
+    console.log(`Added accounting, cashbook, performance, task assignment, and financial reporting endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
