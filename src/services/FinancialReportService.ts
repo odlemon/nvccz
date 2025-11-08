@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { prisma } from '../utils/database';
 import { FirebaseStorageService } from './FirebaseStorageService';
 import { EmailNotificationService } from './EmailNotificationService';
-import { FinancialReportProcessingService } from './FinancialReportProcessingService';
+import { FinancialReportProcessingService, FinancialReportProcessingResult } from './FinancialReportProcessingService';
 import { PortfolioCompanyAccountingService } from './PortfolioCompanyAccountingService';
 import { join } from 'path';
 import { readFileSync } from 'fs';
@@ -214,8 +214,8 @@ export class FinancialReportService {
 
     if (params.action === 'ACCEPT') {
       try {
-        await FinancialReportProcessingService.process(report);
-        await this.runPostApprovalAutomations(report, params.reviewerId, mappingPayload);
+        const processingResult = await FinancialReportProcessingService.process(report);
+        await this.runPostApprovalAutomations(report, params.reviewerId, mappingPayload, processingResult);
         await this.notifyOutcome(report, 'ACCEPTED', params.comment);
       } catch (error: any) {
         console.error('❌ Failed to process accepted financial report:', error);
@@ -378,14 +378,14 @@ export class FinancialReportService {
     return raw;
   }
 
-  private static async runPostApprovalAutomations(report: any, reviewerId: string, mapping: any): Promise<void> {
-    if (!mapping) {
-      return;
+  private static async runPostApprovalAutomations(report: any, reviewerId: string, mapping: any, processing?: FinancialReportProcessingResult): Promise<void> {
+    if (!mapping && !processing) {
+      // nothing extra to do
     }
 
     const automations: Promise<any>[] = [];
 
-    const valuationPayload = mapping.valuationAdjustment || mapping.valuation;
+    const valuationPayload = mapping?.valuationAdjustment || mapping?.valuation;
     if (valuationPayload) {
       const newAmount = this.ensureNumeric(
         valuationPayload.newAmount ?? valuationPayload.amount ?? valuationPayload.value,
@@ -437,6 +437,85 @@ export class FinancialReportService {
     }
 
     await Promise.all(automations);
+
+    await this.runDerivedValuationAutomation(report, reviewerId, processing, mapping);
+  }
+
+  private static async runDerivedValuationAutomation(
+    report: any,
+    reviewerId: string,
+    processing: FinancialReportProcessingResult | undefined,
+    mapping: any
+  ) {
+    if (!processing || processing.reportType !== 'BALANCE_SHEET') {
+      return;
+    }
+
+    const mappingHasValuation = !!(mapping?.valuationAdjustment || mapping?.valuation);
+    if (mappingHasValuation) {
+      return; // mapping already handled
+    }
+
+    const newAmount = this.ensureNumeric(
+      processing.parsedData?.shareholdersEquity ??
+        (processing.parsedData?.totalAssets !== undefined && processing.parsedData?.totalLiabilities !== undefined
+          ? processing.parsedData.totalAssets - processing.parsedData.totalLiabilities
+          : undefined),
+      'Balance sheet automation requires shareholders equity or totals'
+    );
+
+    if (!Number.isFinite(newAmount)) {
+      return;
+    }
+
+    const latestValuationRows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT newAmount
+         FROM portfolio_company_valuations
+        WHERE portfolioCompanyId = ?
+        ORDER BY valuationDate DESC
+        LIMIT 1`,
+      processing.portfolioCompanyId
+    );
+
+    const existingValuationAmount = latestValuationRows.length > 0
+      ? Number(Number(latestValuationRows[0].newAmount).toFixed(2))
+      : undefined;
+
+    const previousAmountRaw =
+      processing.previousSnapshot?.latestValuation?.amount ??
+      processing.previousSnapshot?.latest?.balanceSheet?.shareholdersEquity ??
+      processing.previousSnapshot?.latestKpiValues?.PORTFOLIO_FAIR_VALUE ??
+      existingValuationAmount ??
+      0;
+
+    const previousAmount = Number(Number(previousAmountRaw).toFixed(2));
+    const difference = Number((newAmount - previousAmount).toFixed(2));
+
+    if (Math.abs(difference) < 0.01) {
+      return;
+    }
+
+    const duplicates = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT id FROM portfolio_company_valuations
+        WHERE portfolioCompanyId = ?
+          AND notes LIKE ?
+        LIMIT 1`,
+      processing.portfolioCompanyId,
+      `%financial report ${report.id}%`
+    );
+
+    if (duplicates.length > 0) {
+      return;
+    }
+
+    await PortfolioCompanyAccountingService.recordValuationAdjustment({
+      portfolioCompanyId: processing.portfolioCompanyId,
+      previousAmount,
+      newAmount,
+      valuationDate: report.periodEnd || new Date(),
+      approvedById: reviewerId,
+      notes: `Automated from financial report ${report.id}`
+    });
   }
 
   private static normalizeDividends(mapping: any): any[] {
