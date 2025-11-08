@@ -29,6 +29,12 @@ const options = {
         description: 'Development server'
       }
     ],
+    tags: [
+      {
+        name: 'Financial Reporting',
+        description: 'Endpoints for uploading and reviewing portfolio financial reports'
+      }
+    ],
     components: {
       securitySchemes: {
         bearerAuth: {
@@ -1427,7 +1433,6 @@ const options = {
 };
 
 let specs: any;
-
 // Create fallback spec with all endpoints
 const fallbackSpec = {
   ...options.definition,
@@ -5952,7 +5957,6 @@ const fallbackSpec = {
             }
           }
         },
-
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - CASHBOOK TRANSFERS
       // ============================================================================
