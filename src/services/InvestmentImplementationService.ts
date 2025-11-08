@@ -695,7 +695,18 @@ export class InvestmentImplementationService {
   ): Promise<FundDisbursement> {
     try {
       const disbursement = await prisma.fundDisbursement.findUnique({
-        where: { id: disbursementId }
+        where: { id: disbursementId },
+        include: {
+          investmentImplementation: {
+            select: {
+              id: true,
+              applicationId: true,
+              portfolioCompanyId: true,
+              status: true,
+              fundsDisbursed: true
+            }
+          }
+        }
       });
 
       if (!disbursement) {
@@ -706,15 +717,55 @@ export class InvestmentImplementationService {
         throw new Error("Fund disbursement must be approved before marking as disbursed");
       }
 
-      const updatedDisbursement = await prisma.fundDisbursement.update({
-        where: { id: disbursementId },
-        data: {
-          status: "DISBURSED",
-          disbursedById: disbursedById,
-          disbursedAt: new Date(),
-          transactionReference: transactionReference,
-          updatedAt: new Date()
+      const implementation = disbursement.investmentImplementation;
+      if (!implementation) {
+        throw new Error("Associated investment implementation not found");
+      }
+
+      const updatedDisbursement = await prisma.$transaction(async (tx) => {
+        const disbursed = await tx.fundDisbursement.update({
+          where: { id: disbursementId },
+          data: {
+            status: "DISBURSED",
+            disbursedById: disbursedById,
+            disbursedAt: new Date(),
+            transactionReference: transactionReference,
+            updatedAt: new Date()
+          }
+        });
+
+        const remaining = await tx.fundDisbursement.count({
+          where: {
+            investmentImplementationId: implementation.id,
+            status: {
+              not: "DISBURSED"
+            }
+          }
+        });
+
+        if (remaining === 0) {
+          await tx.investmentImplementation.update({
+            where: { id: implementation.id },
+            data: {
+              fundsDisbursed: true,
+              status: "COMPLETED",
+              completedAt: new Date(),
+              updatedAt: new Date()
+            }
+          });
+
+          if (implementation.applicationId) {
+            await tx.application.update({
+              where: { id: implementation.applicationId },
+              data: {
+                currentStage: "DISBURSED",
+                updatedAt: new Date()
+              }
+            });
+          }
         }
+
+        return disbursed;
       });
 
       return updatedDisbursement;
