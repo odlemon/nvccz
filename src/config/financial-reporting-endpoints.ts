@@ -77,29 +77,6 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  '/applicant/financial-reports/{reportId}/submit': {
-    post: {
-      summary: 'Submit a financial report for review',
-      description: 'Marks a draft or needs-revision report as submitted so the venture team can review it.',
-      tags: ['Financial Reporting'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        {
-          in: 'path',
-          name: 'reportId',
-          required: true,
-          schema: { type: 'string' },
-          description: 'Financial report ID.'
-        }
-      ],
-      responses: {
-        200: { description: 'Report submitted successfully' },
-        400: { description: 'Invalid request' },
-        401: { description: 'Unauthorized' },
-        403: { description: 'Forbidden' }
-      }
-    }
-  },
   'applicant/financial-reports/submit': {
     post: {
       summary: 'Submit multiple financial reports',
