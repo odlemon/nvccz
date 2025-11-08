@@ -140,3 +140,30 @@ export function authorize(roles: string[]) {
     next();
   };
 } 
+
+export function requireApplicantRole() {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+      return;
+    }
+
+    const roleName = req.user.role?.name?.toLowerCase();
+    const roleCode = req.user.roleCode?.toString().toUpperCase();
+
+    const isApplicant = roleName === "applicant" || roleCode === "APPLICANT";
+
+    if (!isApplicant) {
+      res.status(403).json({
+        success: false,
+        message: "Forbidden: applicants only"
+      });
+      return;
+    }
+
+    next();
+  };
+} 
