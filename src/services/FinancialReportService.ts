@@ -214,11 +214,12 @@ export class FinancialReportService {
       throw new Error('No reports provided');
     }
 
-    const reports = await prisma.financialReport.findMany({
-      where: {
-        id: { in: reportIds }
-      }
-    });
+    const reports = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT fr.*
+       FROM financial_reports fr
+       WHERE fr.id IN (${reportIds.map(() => '?').join(',')})`,
+      ...reportIds
+    );
 
     if (reports.length !== reportIds.length) {
       throw new Error('One or more reports not found');
@@ -234,15 +235,13 @@ export class FinancialReportService {
       throw new Error('Only draft or needs revision reports can be submitted');
     }
 
-    await prisma.financialReport.updateMany({
-      where: {
-        id: { in: reportIds }
-      },
-      data: {
-        status: 'PENDING',
-        updatedAt: new Date()
-      }
-    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE financial_reports
+       SET status = 'PENDING',
+           updatedAt = NOW()
+       WHERE id IN (${reportIds.map(() => '?').join(',')})`,
+      ...reportIds
+    );
 
     await Promise.all(
       reports.map(report =>
