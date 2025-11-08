@@ -1,8 +1,8 @@
 export const financialReportingEndpoints = {
   '/applicant/financial-reports': {
     post: {
-      summary: 'Submit a financial report',
-      description: 'Upload a financial report document for review.',
+      summary: 'Upload financial report (draft)',
+      description: 'Upload a CSV/XLSX file to create a draft financial report. Submit it later to share with the venture team.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -11,8 +11,12 @@ export const financialReportingEndpoints = {
           'multipart/form-data': {
             schema: {
               type: 'object',
+              required: ['file', 'reportType', 'periodType', 'periodStart', 'periodEnd', 'title'],
               properties: {
-                file: { type: 'string', format: 'binary' },
+                file: {
+                  type: 'string',
+                  format: 'binary'
+                },
                 reportType: {
                   type: 'string',
                   enum: ['BALANCE_SHEET', 'INCOME_STATEMENT', 'CASHFLOW_STATEMENT']
@@ -21,23 +25,32 @@ export const financialReportingEndpoints = {
                   type: 'string',
                   enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL']
                 },
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                title: { type: 'string' },
-                description: { type: 'string' },
-                templateVersion: { type: 'string' }
-              },
-              required: ['file', 'reportType', 'periodType', 'periodStart', 'periodEnd', 'title']
+                periodStart: {
+                  type: 'string',
+                  format: 'date'
+                },
+                periodEnd: {
+                  type: 'string',
+                  format: 'date'
+                },
+                title: {
+                  type: 'string'
+                },
+                description: {
+                  type: 'string'
+                },
+                templateVersion: {
+                  type: 'string'
+                }
+              }
             }
           }
         }
       },
       responses: {
-        201: { description: 'Report submitted successfully' },
+        201: { description: 'Report uploaded as draft' },
         400: { description: 'Invalid request' },
-        401: { description: 'Unauthorized' },
-        403: { description: 'Access denied' },
-        default: { description: 'Unexpected error' }
+        401: { description: 'Unauthorized' }
       }
     },
     get: {
