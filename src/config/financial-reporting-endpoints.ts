@@ -90,7 +90,7 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  'applicant/financial-reports/submit': {
+  '/applicant/financial-reports/submit': {
     post: {
       summary: 'Submit multiple financial reports',
       description: 'Submit one or more draft financial reports for venture review.',
