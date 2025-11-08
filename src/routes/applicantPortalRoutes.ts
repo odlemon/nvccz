@@ -1,9 +1,16 @@
 // @ts-nocheck
 import { Router } from "express";
+import multer from "multer";
 import { applicantPortalController } from "../controllers/ApplicantPortalController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB
+  }
+});
 
 /**
  * @swagger
@@ -344,6 +351,50 @@ const router = Router();
  *           type: array
  *           items:
  *             $ref: '#/components/schemas/PerformanceReport'
+ *     FinancialReportSubmissionRequest:
+ *       type: object
+ *       required:
+ *         - reportType
+ *         - periodType
+ *         - periodStart
+ *         - periodEnd
+ *         - title
+ *       properties:
+ *         reportType:
+ *           type: string
+ *           enum: [BALANCE_SHEET, INCOME_STATEMENT, CASHFLOW_STATEMENT]
+ *           example: BALANCE_SHEET
+ *         periodType:
+ *           type: string
+ *           enum: [WEEKLY, MONTHLY, QUARTERLY, ANNUAL]
+ *           example: MONTHLY
+ *         periodStart:
+ *           type: string
+ *           format: date
+ *           example: 2025-01-01
+ *         periodEnd:
+ *           type: string
+ *           format: date
+ *           example: 2025-01-31
+ *         title:
+ *           type: string
+ *           example: "January 2025 Balance Sheet"
+ *         description:
+ *           type: string
+ *           example: "Preliminary month-end figures"
+ *         templateVersion:
+ *           type: string
+ *           example: v1
+ *     FinancialReportResponse:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *           example: cmj123...
+ *         reportUrl:
+ *           type: string
+ *           format: uri
+ *           example: https://storage.googleapis.com/.../report.csv
  */
 
 /**
@@ -752,5 +803,143 @@ router.get("/valuations", authenticate, applicantPortalController.getPortfolioVa
  *         description: No portfolio company found for this user
  */
 router.get("/reports", authenticate, applicantPortalController.getPerformanceReports);
+
+/**
+ * @swagger
+ * /api/applicant/financial-reports:
+ *   post:
+ *     summary: Submit a financial report
+ *     description: Allows an applicant to upload a financial report document for review.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               reportType:
+ *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/reportType'
+ *               periodType:
+ *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/periodType'
+ *               periodStart:
+ *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/periodStart'
+ *               periodEnd:
+ *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/periodEnd'
+ *               title:
+ *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/title'
+ *               description:
+ *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/description'
+ *               templateVersion:
+ *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/templateVersion'
+ *     responses:
+ *       201:
+ *         description: Financial report submitted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Financial report submitted successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/FinancialReportResponse'
+ *       400:
+ *         description: Missing or invalid data
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Access denied (not an applicant)
+ *       default:
+ *         description: Unexpected error
+ *   get:
+ *     summary: List submitted financial reports
+ *     description: Returns all financial reports submitted by the authenticated applicant.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Financial reports retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Financial reports retrieved successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Access denied (not an applicant)
+ *       default:
+ *         description: Unexpected error
+ */
+router.post(
+  "/financial-reports",
+  authenticate,
+  upload.single("file"),
+  applicantPortalController.uploadFinancialReport
+);
+router.get(
+  "/financial-reports",
+  authenticate,
+  applicantPortalController.getFinancialReports
+);
+router.get(
+  "/financial-reports/template/:reportType",
+  authenticate,
+  applicantPortalController.downloadFinancialReportTemplate
+);
+
+/**
+ * @swagger
+ * /api/applicant/financial-reports/template/{reportType}:
+ *   get:
+ *     summary: Download financial report template
+ *     description: Provides the standard CSV template for the specified financial report type.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: reportType
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [BALANCE_SHEET, INCOME_STATEMENT, CASHFLOW_STATEMENT]
+ *         description: Financial report type.
+ *     responses:
+ *       200:
+ *         description: Template file download
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: Unknown report type
+ *       401:
+ *         description: Unauthorized
+ *       default:
+ *         description: Unexpected error
+ */
 
 export default router;

@@ -299,6 +299,147 @@ router.get("/", authenticate, authorize(["admin"]), PortfolioCompanyController.g
 
 /**
  * @swagger
+ * /api/portfolio-companies/{id}/financial-reports:
+ *   get:
+ *     summary: List financial reports for a portfolio company
+ *     description: Returns submitted financial reports for the specified portfolio company.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Portfolio company ID.
+ *     responses:
+ *       200:
+ *         description: Reports retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       400:
+ *         description: Missing company ID
+ *       401:
+ *         description: Unauthorized
+ *       default:
+ *         description: Unexpected error
+ */
+router.get("/:id/financial-reports", authenticate, authorize(["admin"]), PortfolioCompanyController.getFinancialReports);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/financial-reports/{reportId}/download:
+ *   get:
+ *     summary: Download a financial report
+ *     description: Streams the financial report document from storage.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Portfolio company ID.
+ *       - in: path
+ *         name: reportId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Financial report ID.
+ *     responses:
+ *       200:
+ *         description: CSV download
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: Missing identifiers
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Report not found
+ *       default:
+ *         description: Unexpected error
+ */
+router.get(
+  "/:id/financial-reports/:reportId/download",
+  authenticate,
+  authorize(["admin"]),
+  PortfolioCompanyController.downloadFinancialReport
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/financial-reports/{reportId}/review:
+ *   post:
+ *     summary: Review a financial report
+ *     description: Approve or reject a submitted financial report.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Portfolio company ID.
+ *       - in: path
+ *         name: reportId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Financial report ID.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               action:
+ *                 type: string
+ *                 enum: [ACCEPT, REJECT]
+ *                 example: ACCEPT
+ *               comment:
+ *                 type: string
+ *                 example: "Looks good"
+ *               mapping:
+ *                 type: object
+ *                 description: Mapping snapshot for accounting/performance.
+ *     responses:
+ *       200:
+ *         description: Review recorded successfully
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Unauthorized
+ *       default:
+ *         description: Unexpected error
+ */
+router.post(
+  "/:id/financial-reports/:reportId/review",
+  authenticate,
+  authorize(["admin"]),
+  PortfolioCompanyController.reviewFinancialReport
+);
+
+/**
+ * @swagger
  * /api/portfolio-companies/with-investments:
  *   get:
  *     summary: Get all portfolio companies with investment amounts
