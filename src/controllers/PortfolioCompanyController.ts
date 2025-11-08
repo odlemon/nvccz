@@ -4,6 +4,7 @@ import { PortfolioCompanyService, CreatePortfolioCompanyRequest, UpdatePortfolio
 import { EmailNotificationService } from "../services/EmailNotificationService";
 import { FinancialReportService } from "../services/FinancialReportService";
 import { FirebaseStorageService } from "../services/FirebaseStorageService";
+import { PortfolioCompanyAccountingService } from "../services/PortfolioCompanyAccountingService";
 
 export class PortfolioCompanyController {
   // Create portfolio company with user
@@ -348,6 +349,65 @@ export class PortfolioCompanyController {
       });
 
       return res.status(200).json({ success: true, message: "Financial report review recorded" });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  static async recordValuationAdjustment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user.id;
+
+      const previousAmount = Number(req.body.previousAmount);
+      const newAmount = Number(req.body.newAmount);
+
+      if (!Number.isFinite(previousAmount) || !Number.isFinite(newAmount)) {
+        return res.status(400).json({ success: false, message: "previousAmount and newAmount must be numeric" });
+      }
+
+      const result = await PortfolioCompanyAccountingService.recordValuationAdjustment({
+        portfolioCompanyId: id,
+        previousAmount,
+        newAmount,
+        valuationDate: req.body.valuationDate,
+        approvedById: userId,
+        notes: req.body.notes
+      });
+
+      res.status(201).json({
+        success: true,
+        message: "Valuation adjustment recorded successfully",
+        data: result
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  static async recordDividend(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user.id;
+
+      const amount = Number(req.body.amount);
+      if (!Number.isFinite(amount)) {
+        return res.status(400).json({ success: false, message: "Dividend amount must be numeric" });
+      }
+
+      const result = await PortfolioCompanyAccountingService.recordDividend({
+        portfolioCompanyId: id,
+        amount,
+        dividendDate: req.body.dividendDate,
+        approvedById: userId,
+        notes: req.body.notes
+      });
+
+      res.status(201).json({
+        success: true,
+        message: "Dividend recorded successfully",
+        data: result
+      });
     } catch (error: any) {
       next(error);
     }

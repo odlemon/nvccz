@@ -120,10 +120,42 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     code: "CASH_BALANCE",
     name: "Cash Balance",
     department: "Finance",
-    description: "Current cash balance",
+    description: "Ending cash balance for the period",
     accountType: "Asset",
     accountNumber: "1000", // Cash and Cash Equivalents
     journalEntryType: "Debit",
+    isFinancial: true
+  },
+
+  // ===== INVESTMENTS DEPARTMENT =====
+  {
+    code: "PORTFOLIO_FAIR_VALUE",
+    name: "Portfolio Fair Value",
+    department: "Investments",
+    description: "Latest fair value of the investment asset",
+    accountType: "Asset",
+    accountNumber: "1502", // Investment Asset
+    journalEntryType: "Debit",
+    isFinancial: true
+  },
+  {
+    code: "UNREALIZED_GAIN_LOSS",
+    name: "Unrealized Gain / Loss",
+    department: "Investments",
+    description: "Net unrealized gain or loss on portfolio valuations",
+    accountType: "Revenue",
+    accountNumber: "4050", // Unrealized Gain on Investment
+    journalEntryType: "Credit",
+    isFinancial: true
+  },
+  {
+    code: "DIVIDEND_INCOME",
+    name: "Dividend Income",
+    department: "Investments",
+    description: "Cash dividend income received from portfolio companies",
+    accountType: "Revenue",
+    accountNumber: "4100", // Dividend Income
+    journalEntryType: "Credit",
     isFinancial: true
   },
 
@@ -329,7 +361,7 @@ export function getKPIByCode(code: string): HardcodedKPI | undefined {
  * Get all departments with their KPIs
  */
 export function getAllDepartmentsWithKPIs(): DepartmentKPIs[] {
-  const departments = ["Finance", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
+  const departments = ["Finance", "Investments", "Sales", "Operations", "Procurement", "Human Resources", "Marketing", "Legal", "IT"];
   return departments.map(dept => ({
     department: dept,
     departmentCode: dept.toUpperCase().replace(/\s+/g, '_'),
