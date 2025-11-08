@@ -91,17 +91,52 @@ export class FinancialReportService {
       return [];
     }
 
-    const companyIds = companies.map(c => `'${c.id}'`).join(',');
+    const companyIds = companies.map(c => c.id);
+    const placeholders = companyIds.map(() => '?').join(',');
 
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT fr.*, pc.name as companyName
-       FROM financial_reports fr
-       JOIN portfolio_companies pc ON pc.id = fr.portfolioCompanyId
-       WHERE fr.portfolioCompanyId IN (${companyIds})
-       ORDER BY fr.createdAt DESC`
+    const rows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT fr.id,
+              fr.portfolioCompanyId,
+              fr.reportType,
+              fr.periodType,
+              fr.periodStart,
+              fr.periodEnd,
+              fr.title,
+              fr.description,
+              fr.reportUrl,
+              fr.storagePath,
+              fr.templateVersion,
+              fr.status,
+              fr.createdAt,
+              fr.updatedAt,
+              pc.name AS companyName
+         FROM financial_reports fr
+         JOIN portfolio_companies pc ON pc.id = fr.portfolioCompanyId
+        WHERE fr.portfolioCompanyId IN (${placeholders})
+        ORDER BY fr.createdAt DESC`,
+      ...companyIds
     );
 
-    return rows;
+    return rows.map(row => ({
+      id: row.id,
+      portfolioCompanyId: row.portfolioCompanyId,
+      companyName: row.companyName,
+      reportType: row.reportType,
+      periodType: row.periodType,
+      periodStart: row.periodStart,
+      periodEnd: row.periodEnd,
+      title: row.title,
+      description: row.description,
+      reportUrl: row.reportUrl,
+      storagePath: row.storagePath,
+      templateVersion: row.templateVersion,
+      status: row.status,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      isDraft: row.status === 'DRAFT',
+      canSubmit: ['DRAFT', 'NEEDS_REVISION'].includes(row.status),
+      canDownload: row.status !== 'DRAFT'
+    }));
   }
 
   static async downloadReportTemplate(reportType: string): Promise<Buffer> {
