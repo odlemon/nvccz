@@ -5,6 +5,8 @@ import { FirebaseStorageService } from './FirebaseStorageService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { FinancialReportProcessingService } from './FinancialReportProcessingService';
 import { PortfolioCompanyAccountingService } from './PortfolioCompanyAccountingService';
+import { join } from 'path';
+import { readFileSync } from 'fs';
 
 export type FinancialReportType = 'BALANCE_SHEET' | 'INCOME_STATEMENT' | 'CASHFLOW_STATEMENT';
 export type FinancialReportPeriod = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
@@ -100,6 +102,26 @@ export class FinancialReportService {
     );
 
     return rows;
+  }
+
+  static async downloadReportTemplate(reportType: string): Promise<Buffer> {
+    const normalized = reportType?.toUpperCase();
+    let filePath: string;
+
+    switch (normalized) {
+      case 'BALANCE_SHEET':
+        filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'balance_sheet_template.csv');
+        break;
+      case 'CASHFLOW_STATEMENT':
+        filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'cashflow_statement_template.csv');
+        break;
+      case 'INCOME_STATEMENT':
+      default:
+        filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'income_statement_template.csv');
+        break;
+    }
+
+    return readFileSync(filePath);
   }
 
   static async listReportsForCompany(portfolioCompanyId: string) {
