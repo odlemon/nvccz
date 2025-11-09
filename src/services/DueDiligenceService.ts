@@ -215,9 +215,8 @@ export class DueDiligenceService {
       // Find all tasks related to this application (via description containing applicationId)
       const relatedTasks = await prisma.task.findMany({
         where: {
-          description: {
-            contains: `Application: ${applicationId}`
-          }
+          applicationId,
+          fromDueDiligence: true
         },
         include: {
           creator: {
@@ -345,9 +344,8 @@ export class DueDiligenceService {
       // Multiple tasks can be assigned to the same due diligence
       const relatedTasks = await prisma.task.findMany({
         where: {
-          description: {
-            contains: `Application: ${applicationId}`
-          }
+          applicationId,
+          fromDueDiligence: true
         },
         include: {
           activityLogs: true
@@ -435,6 +433,33 @@ export class DueDiligenceService {
           dueDiligenceScore: existingDueDiligence.overallScore
         }
       });
+
+      // Mark all related tasks as completed (only if they aren't already)
+      const relatedTasksForCompletion = await prisma.task.findMany({
+        where: {
+          applicationId,
+          fromDueDiligence: true
+        },
+        select: {
+          id: true,
+          stage: true
+        }
+      });
+
+      for (const task of relatedTasksForCompletion) {
+        if (task.stage !== 'completed') {
+          await prisma.task.update({
+            where: { id: task.id },
+            data: {
+              stage: 'completed',
+              isOverdue: false,
+              overdueStatus: null,
+              originalStage: null,
+              updatedAt: new Date()
+            }
+          });
+        }
+      }
 
       // Create notification for applicant
       await prisma.applicationNotification.create({
@@ -611,18 +636,19 @@ export class DueDiligenceService {
           date: taskData.dueDate || new Date(),
           priority: taskData.priority || 'high',
           department: assignee.department?.name || 'Investments',
+          applicationId: applicationId,
+          fromDueDiligence: true,
           isPerformanceTask: true,
           performanceCategory: 'business'
         },
         assignedById
       );
 
-      // Store due diligence link in task metadata (using assets field or create a custom field)
-      // For now, we'll store it in the task's description or use a metadata approach
+      // Append marker for legacy references
       await prisma.task.update({
         where: { id: task.id },
         data: {
-          description: `${task.description || ''}[DOCUMENTS:([\\s\\S]+?)\][DOCUMENTS:([\\s\\S]+?)\][Due Diligence Task - Application: ${applicationId}]`
+          description: `${task.description || ''}\n\n[DueDiligenceApplication:${applicationId}]`
         }
       });
 

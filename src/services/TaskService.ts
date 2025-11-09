@@ -2,6 +2,126 @@
 import { PrismaClient, Json } from "@prisma/client";
 import { prisma } from "../utils/database";
 
+const TASK_APPLICATION_INCLUDE = {
+  fund: {
+    select: {
+      id: true,
+      name: true,
+      status: true
+    }
+  },
+  documents: {
+    select: {
+      id: true,
+      documentType: true,
+      fileName: true,
+      fileUrl: true,
+      fileSize: true,
+      isRequired: true,
+      isSubmitted: true,
+      uploadedAt: true
+    }
+  },
+  dueDiligenceReview: {
+    include: {
+      reviewer: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
+      }
+    }
+  },
+  boardReview: {
+    include: {
+      reviewer: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
+      }
+    }
+  },
+  termSheet: {
+    include: {
+      createdBy: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
+      }
+    }
+  },
+  investmentImplementation: {
+    select: {
+      id: true,
+      portfolioCompanyId: true,
+      fundId: true,
+      initiatedById: true,
+      finalDueDiligence: true,
+      contractsSigned: true,
+      fundsDisbursed: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true
+    }
+  }
+};
+
+async function attachApplicationDataToTasks(tasks: any[]) {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return tasks;
+  }
+
+  const applicationIds = Array.from(
+    new Set(
+      tasks
+        .map(task => {
+          if (!task) return null;
+          if (task.application?.id) return task.application.id;
+          if (task.applicationId) return task.applicationId;
+          return null;
+        })
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  if (applicationIds.length === 0) {
+    return tasks.map(task => ({
+      ...task,
+      application: task.application ?? null
+    }));
+  }
+
+  const applications = await prisma.application.findMany({
+    where: {
+      id: {
+        in: applicationIds
+      }
+    },
+    include: TASK_APPLICATION_INCLUDE
+  });
+
+  const applicationMap = new Map(applications.map(app => [app.id, app]));
+
+  return tasks.map(task => {
+    const existingApplication = task.application ?? null;
+    const lookupId = task.applicationId || existingApplication?.id;
+    const application = lookupId ? applicationMap.get(lookupId) || existingApplication || null : existingApplication || null;
+
+    return {
+      ...task,
+      application: application || null
+    };
+  });
+}
+
 export interface CreateTaskRequest {
   title: string;
   description?: string;
@@ -13,6 +133,8 @@ export interface CreateTaskRequest {
   branch?: string;
   department?: string;
   ruleset?: string;
+  applicationId?: string;
+  fromDueDiligence?: boolean;
   
   // Performance-related fields
   goalId?: string;
@@ -45,6 +167,8 @@ export interface UpdateTaskRequest {
   branch?: string;
   department?: string;
   ruleset?: string;
+  applicationId?: string | null;
+  fromDueDiligence?: boolean;
   
   // Performance-related fields
   goalId?: string;
@@ -164,6 +288,8 @@ export class TaskService {
           branch: request.branch,
           department: request.department,
           ruleset: request.ruleset,
+          applicationId: request.applicationId,
+          fromDueDiligence: request.fromDueDiligence ?? false,
           
           // Performance-related fields
           goalId: request.goalId,
@@ -205,7 +331,8 @@ export class TaskService {
         }
       });
 
-      return task;
+      const [taskWithApplication] = await attachApplicationDataToTasks([task]);
+      return taskWithApplication;
     } catch (error) {
       throw error;
     }
@@ -309,6 +436,8 @@ export class TaskService {
           ...(request.branch !== undefined && { branch: request.branch }),
           ...(request.department !== undefined && { department: request.department }),
           ...(request.ruleset !== undefined && { ruleset: request.ruleset }),
+          ...(request.applicationId !== undefined && { applicationId: request.applicationId }),
+          ...(request.fromDueDiligence !== undefined && { fromDueDiligence: request.fromDueDiligence }),
           
           // Performance-related fields
           ...(request.goalId && { goalId: request.goalId }),
@@ -348,7 +477,8 @@ export class TaskService {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
-      return updatedTask;
+      const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask]);
+      return taskWithApplication;
     } catch (error) {
       throw error;
     }
@@ -426,7 +556,8 @@ export class TaskService {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
-      return updatedTask;
+      const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask]);
+      return taskWithApplication;
     } catch (error) {
       throw error;
     }
@@ -533,7 +664,8 @@ export class TaskService {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
-      return updatedTask;
+      const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask]);
+      return taskWithApplication;
     } catch (error) {
       throw error;
     }
@@ -574,6 +706,14 @@ export class TaskService {
         where.isOverdue = filters.isOverdue;
       }
 
+      if (filters.fromDueDiligence !== undefined) {
+        where.fromDueDiligence = filters.fromDueDiligence;
+      }
+
+      if (filters.applicationId) {
+        where.applicationId = filters.applicationId;
+      }
+
       if (filters.search) {
         where.OR = [
           { title: { contains: filters.search, mode: 'insensitive' } },
@@ -607,7 +747,8 @@ export class TaskService {
         }
       });
 
-      return tasks;
+      const tasksWithApplication = await attachApplicationDataToTasks(tasks);
+      return tasksWithApplication;
     } catch (error) {
       throw error;
     }
@@ -651,6 +792,14 @@ export class TaskService {
         where.isOverdue = filters.isOverdue;
       }
 
+      if (filters.fromDueDiligence !== undefined) {
+        where.fromDueDiligence = filters.fromDueDiligence;
+      }
+
+      if (filters.applicationId) {
+        where.applicationId = filters.applicationId;
+      }
+
       if (filters.search) {
         where.OR = [
           { title: { contains: filters.search, mode: 'insensitive' } },
@@ -676,6 +825,8 @@ export class TaskService {
           isOverdue: true,
           overdueStatus: true,
           originalStage: true,
+          applicationId: true,
+          fromDueDiligence: true,
           monetaryValue: true,
           monetaryValueAchieved: true,
           percentValueAchieved: true,
@@ -790,7 +941,8 @@ export class TaskService {
         };
       });
 
-      return tasksWithDocuments;
+      const tasksWithApplication = await attachApplicationDataToTasks(tasksWithDocuments);
+      return tasksWithApplication;
     } catch (error) {
       throw error;
     }
@@ -825,7 +977,8 @@ export class TaskService {
         throw new Error("Task not found");
       }
 
-      return task;
+      const [taskWithApplication] = await attachApplicationDataToTasks([task]);
+      return taskWithApplication;
     } catch (error) {
       throw error;
     }

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { PerformanceGoalService } from "../services/PerformanceGoalService";
+import { TaskService } from "../services/TaskService";
 import { prisma } from "../utils/database";
 import { getRoleByCode } from "../config/hardcodedRoles";
 
@@ -115,10 +116,34 @@ export class PerformanceBreakdownController {
         { name: "Investments", description: "Investment portfolio management and fund operations" }
       ];
 
+      const dueDiligenceTasks = await TaskService.getAllTasks({
+        fromDueDiligence: true
+      });
+
+      const tasksByDepartment = dueDiligenceTasks.reduce((acc, task) => {
+        const departmentKey = (task.department || "unassigned").toLowerCase();
+        if (!acc.has(departmentKey)) {
+          acc.set(departmentKey, []);
+        }
+        acc.get(departmentKey)!.push(task);
+        return acc;
+      }, new Map<string, any[]>());
+
+      const departmentsWithTasks = departments.map(department => {
+        const key = department.name.toLowerCase();
+        return {
+          ...department,
+          dueDiligenceTasks: tasksByDepartment.get(key) || []
+        };
+      });
+
+      const unassignedDueDiligenceTasks = tasksByDepartment.get("unassigned") || [];
+
       res.json({
         success: true,
         message: "Available departments retrieved successfully",
-        departments
+        departments: departmentsWithTasks,
+        unassignedDueDiligenceTasks
       });
     } catch (error) {
       console.error("Error getting available departments:", error);
