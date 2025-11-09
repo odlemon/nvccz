@@ -42,8 +42,27 @@ interface ParsedCashflowStatement {
   endingCashBalance?: number;
 }
 
+export interface FinancialReportProcessingResult {
+  reportId: string;
+  reportType: string;
+  periodKey: string;
+  parsedData: any;
+  derivedKpis: Record<string, number>;
+  portfolioCompanyId: string;
+  previousSnapshot?: any;
+}
+
 export class FinancialReportProcessingService {
-  static async process(report: any) {
+  static async process(report: any): Promise<FinancialReportProcessingResult> {
+    const existing = await prisma.portfolioCompany.findUnique({
+      where: { id: report.portfolioCompanyId },
+      select: { financialKpis: true }
+    });
+
+    const previousSnapshot = existing?.financialKpis
+      ? JSON.parse(JSON.stringify(existing.financialKpis))
+      : null;
+
     const fileBuffer = await FirebaseStorageService.downloadImportFile(report.storagePath);
     const periodEnd = new Date(report.periodEnd).toISOString().split('T')[0];
     const parsedData = await this.parseReport(report.reportType, fileBuffer);
@@ -62,7 +81,22 @@ export class FinancialReportProcessingService {
       report.id
     );
 
-    await this.updatePortfolioCompanySnapshots(report.portfolioCompanyId, periodEnd, report.reportType, parsedData);
+    const derivedKpis = await this.updatePortfolioCompanySnapshots(
+      report.portfolioCompanyId,
+      periodEnd,
+      report.reportType,
+      parsedData
+    );
+
+    return {
+      reportId: report.id,
+      reportType: report.reportType,
+      periodKey: periodEnd,
+      parsedData,
+      derivedKpis,
+      portfolioCompanyId: report.portfolioCompanyId,
+      previousSnapshot
+    };
   }
 
   private static async parseReport(reportType: string, fileBuffer: Buffer) {
@@ -201,6 +235,8 @@ export class FinancialReportProcessingService {
       where: { id: portfolioCompanyId },
       data: { financialKpis: snapshot }
     });
+
+    return derivedKpis;
   }
 
   private static normalizeReportType(reportType: string) {

@@ -949,6 +949,7 @@ model Application {
   boardReview              BoardReview?
   termSheet                TermSheet?
   investmentImplementation InvestmentImplementation?
+  tasks                    Task[]
 
   @@map("applications")
 }
@@ -1178,11 +1179,14 @@ model Task {
   activities            Json?
   status                String?
   isTrashed             Boolean          @default(false)
+  applicationId         String?
+  fromDueDiligence      Boolean          @default(false)
   createdBy             String
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   goal                  PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   creator               User             @relation("TaskCreator", fields: [createdBy], references: [id])
+  application           Application?     @relation(fields: [applicationId], references: [id])
   activityLogs          ActivityLog[]
 
   @@map("tasks")
