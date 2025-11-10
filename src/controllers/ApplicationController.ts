@@ -186,23 +186,22 @@ export class ApplicationController {
         // Don't fail the application creation if email fails
       }
 
-      logger.info("Application created successfully - shortlisting pipeline scheduled", {
+      logger.info("Application created - starting shortlisting pipeline", {
         applicationId: application.id,
         businessName: application.businessName,
         applicantEmail: application.applicantEmail
       });
 
-      ResponseHelper.success(res, "Application created successfully", application, 201);
+      try {
+        await ApplicationController.startShortlisting(application.id);
+      } catch (shortlistingError: any) {
+        logger.error("Failed to process shortlisting after creation", {
+          applicationId: application.id,
+          error: shortlistingError.message
+        });
+      }
 
-      setTimeout(() => {
-        ApplicationController.startShortlisting(application.id)
-          .catch((error: any) => {
-            logger.error("Failed to process shortlisting after creation", {
-              applicationId: application.id,
-              error: error.message
-            });
-          });
-      }, 0);
+      ResponseHelper.success(res, "Application created successfully", application, 201);
     } catch (error: any) {
       logger.error("Error creating application", { error: error.message });
       ResponseHelper.error(res, `Failed to create application: ${error.message}`, undefined, 500);
