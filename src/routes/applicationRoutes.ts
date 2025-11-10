@@ -3,7 +3,6 @@ import express from "express";
 import { ApplicationController } from "../controllers/ApplicationController";
 import { DueDiligenceController } from "../controllers/DueDiligenceController";
 import { authenticate } from "../middleware/authenticate";
-import { authorize } from "../middleware/permissionAuth";
 import multer from "multer";
 
 const router = express.Router();
@@ -423,7 +422,7 @@ router.get("/", authenticate, ApplicationController.getAllApplications);
  *       500:
  *         description: Internal server error
  */
-router.get("/:id", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.getApplicationById);
+router.get("/:id", authenticate, ApplicationController.getApplicationById);
 
 /**
  * @swagger
@@ -483,7 +482,7 @@ router.get("/:id", authenticate, authorize(["admin", "fund_manager"]), Applicati
  *       500:
  *         description: Internal server error
  */
-router.put("/:id", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.updateApplication);
+router.put("/:id", authenticate, ApplicationController.updateApplication);
 
 /**
  * @swagger
@@ -529,9 +528,9 @@ router.put("/:id", authenticate, authorize(["admin", "fund_manager"]), Applicati
  *       500:
  *         description: Internal server error
  */
-router.post("/:id/change-stage", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.changeApplicationStage);
+router.post("/:id/change-stage", authenticate, ApplicationController.changeApplicationStage);
 
-router.post("/:id/trigger-shortlisting", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.triggerShortlisting);
+router.post("/:id/trigger-shortlisting", authenticate, ApplicationController.triggerShortlisting);
 
 /**
  * @swagger
@@ -561,7 +560,7 @@ router.post("/:id/trigger-shortlisting", authenticate, authorize(["admin", "fund
  *       500:
  *         description: Internal server error
  */
-router.delete("/:id", authenticate, authorize(["admin"]), ApplicationController.deleteApplication);
+router.delete("/:id", authenticate, ApplicationController.deleteApplication);
 
 // Due Diligence Routes
 /**
@@ -592,7 +591,7 @@ router.delete("/:id", authenticate, authorize(["admin"]), ApplicationController.
  *       500:
  *         description: Internal server error
  */
-router.post("/:id/due-diligence/initiate", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.initiateDueDiligence);
+router.post("/:id/due-diligence/initiate", authenticate, DueDiligenceController.initiateDueDiligence);
 
 /**
  * @swagger
@@ -675,7 +674,7 @@ router.post("/:id/due-diligence/initiate", authenticate, authorize(["admin", "fu
  *       500:
  *         description: Internal server error
  */
-router.put("/:id/due-diligence", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.updateDueDiligence);
+router.put("/:id/due-diligence", authenticate, DueDiligenceController.updateDueDiligence);
 
 /**
  * @swagger
@@ -703,7 +702,7 @@ router.put("/:id/due-diligence", authenticate, authorize(["admin", "fund_manager
  *       500:
  *         description: Internal server error
  */
-router.get("/:id/due-diligence", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.getDueDiligenceReport);
+router.get("/:id/due-diligence", authenticate, DueDiligenceController.getDueDiligenceReport);
 
 /**
  * @swagger
@@ -733,7 +732,7 @@ router.get("/:id/due-diligence", authenticate, authorize(["admin", "fund_manager
  *       500:
  *         description: Internal server error
  */
-router.post("/:id/due-diligence/complete", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.completeDueDiligence);
+router.post("/:id/due-diligence/complete", authenticate, DueDiligenceController.completeDueDiligence);
 
 /**
  * @swagger
@@ -770,7 +769,7 @@ router.post("/:id/due-diligence/complete", authenticate, authorize(["admin", "fu
  *       500:
  *         description: Internal server error
  */
-router.get("/due-diligence", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.getAllDueDiligenceReviews);
+router.get("/due-diligence", authenticate, DueDiligenceController.getAllDueDiligenceReviews);
 
 /**
  * @swagger
@@ -789,7 +788,7 @@ router.get("/due-diligence", authenticate, authorize(["admin", "fund_manager"]),
  *       500:
  *         description: Internal server error
  */
-router.get("/due-diligence/investments-users", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.getInvestmentsDepartmentUsers);
+router.get("/due-diligence/investments-users", authenticate, DueDiligenceController.getInvestmentsDepartmentUsers);
 
 /**
  * @swagger
@@ -844,6 +843,6 @@ router.get("/due-diligence/investments-users", authenticate, authorize(["admin",
  *       500:
  *         description: Internal server error
  */
-router.post("/:id/due-diligence/assign-task", authenticate, authorize(["admin", "fund_manager"]), DueDiligenceController.assignDueDiligenceTask);
+router.post("/:id/due-diligence/assign-task", authenticate, DueDiligenceController.assignDueDiligenceTask);
 
 export default router;
