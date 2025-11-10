@@ -168,13 +168,29 @@ export class ApplicationScoringService {
 
       const scoringResult = await ChatGPTService.scoreApplication(applicationData, documentContents);
 
+      logger.info('🤖 ChatGPT API: response received', {
+        applicationId,
+        hasScore: typeof scoringResult.score === 'number',
+        hasReasoning: !!scoringResult.reasoning,
+        score: scoringResult.score,
+        responsePreview: JSON.stringify(scoringResult).substring(0, 150)
+      });
+
       const score = scoringResult.score;
-      const reasoning = scoringResult.reasoning;
+      const reasoning = scoringResult.reasoning || '';
       const applicantDetails = scoringResult.applicantDetails;
 
       // Less strict threshold: 40% instead of 50%
       const SHORTLIST_THRESHOLD = 40;
       const decision = score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED';
+
+      logger.info('🧮 Shortlisting decision computed', {
+        applicationId,
+        score,
+        threshold: SHORTLIST_THRESHOLD,
+        decision,
+        reasoningPreview: reasoning.substring(0, 200) + (reasoning.length > 200 ? '...' : '')
+      });
 
       logger.info('✅ AI Analysis Complete', {
         applicationId,
