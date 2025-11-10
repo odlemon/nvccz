@@ -46,6 +46,13 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
     description: "Head of finance department, oversees all financial operations"
   },
   {
+    code: "CFO",
+    name: "Chief Financial Officer",
+    level: 5,
+    department: "Finance",
+    description: "Executive responsible for overall financial strategy, reporting, and stewardship"
+  },
+  {
     code: "FIN_OFF",
     name: "Finance Officer",
     level: 4,
