@@ -18,6 +18,11 @@ export class ApplicationScoringService {
     const maxRetries = 3;
     let retryCount = 0;
     
+    logger.info('🟢 Shortlisting handler invoked', {
+      applicationId,
+      timestamp: new Date().toISOString()
+    });
+
     while (retryCount < maxRetries) {
       try {
         logger.info('Starting shortlisting process', { applicationId, attempt: retryCount + 1 });
@@ -99,6 +104,14 @@ export class ApplicationScoringService {
         applicantEmail: application.applicantEmail
       });
 
+      logger.info('📦 Application payload snapshot before scoring', {
+        applicationId,
+        currentStage: application.currentStage,
+        documentCount: documentUrls.length,
+        submittedAt: application.submittedAt,
+        updatedAt: application.updatedAt
+      });
+
       logger.info('🤖 Starting AI Analysis for Application', {
         applicationId,
         businessName: application.businessName,
@@ -106,6 +119,11 @@ export class ApplicationScoringService {
         requestedAmount: application.requestedAmount,
         documentCount: documentUrls.length,
         documents: documentUrls.map(d => ({ type: d.type, fileName: d.fileName }))
+      });
+
+      logger.info('📡 Attempting document download and text extraction', {
+        applicationId,
+        documentCount: documentUrls.length
       });
 
       logger.info('📋 Application Data for AI Analysis', {
@@ -129,6 +147,17 @@ export class ApplicationScoringService {
           type: d.type,
           fileName: d.fileName,
           url: d.url
+        }))
+      });
+
+      logger.info('📡 Document extraction complete', {
+        applicationId,
+        documentSummaries: documentContents.map(doc => ({
+          type: doc.type,
+          fileName: doc.fileName,
+          textLength: doc.text.length,
+          truncated: doc.truncated,
+          extractionError: doc.extractionError
         }))
       });
 
@@ -188,6 +217,12 @@ export class ApplicationScoringService {
             screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED',
             // Store applicant details in metadata if needed
           }
+        });
+
+        logger.info('📝 Application record updated with AI score', {
+          applicationId,
+          score,
+          screeningOutcome: score >= SHORTLIST_THRESHOLD ? 'SHORTLISTED' : 'REJECTED'
         });
 
         logger.info('💾 Application score saved to database', {
