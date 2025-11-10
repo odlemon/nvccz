@@ -129,11 +129,24 @@ export class ChatGPTService {
     applicationData: any,
     documents: ExtractedDocumentContent[]
   ): string {
+    const hashCounts: Record<string, number> = {};
+    documents.forEach(doc => {
+      if (doc.contentHash) {
+        hashCounts[doc.contentHash] = (hashCounts[doc.contentHash] || 0) + 1;
+      }
+    });
+
     const documentInfo = documents.map((doc, index) => {
       const header = `### Document ${index + 1}: ${doc.type} - ${doc.fileName}`;
       const meta = doc.extractionError
         ? `Extraction Error: ${doc.extractionError}`
-        : `Text Length: ${doc.text.length} characters${doc.truncated ? ' (truncated)' : ''}`;
+        : [
+            `Text Length: ${doc.text.length} characters${doc.truncated ? ' (truncated)' : ''}`,
+            doc.contentHash ? `Content Hash: ${doc.contentHash}` : 'Content Hash: N/A',
+            doc.contentHash && hashCounts[doc.contentHash] > 1
+              ? `Duplicate Documents: ${hashCounts[doc.contentHash]} copies detected`
+              : 'Duplicate Documents: none detected'
+          ].join(' | ');
       const content = doc.extractionError ? '' : `\n"""${doc.text}"""`;
       return `${header}\n${meta}${content}`;
     }).join('\n\n');
@@ -176,6 +189,11 @@ ${documentInfo}
    - Demographics (gender, age group if mentioned)
    - Location details
    - Any strategic alignment indicators
+
+4. Pay close attention to potential issues:
+   - Penalize heavily if documents appear to be identical copies or generic templates with no company-specific information.
+   - Penalize if key required documents are missing, corrupted, or contain irrelevant content.
+   - Call out duplicate documents explicitly in your reasoning and reflect this in the score.
 
 **Important Rules:**
 - If score < 40%: Application should be REJECTED

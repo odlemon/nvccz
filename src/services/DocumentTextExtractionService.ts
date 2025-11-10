@@ -1,6 +1,7 @@
 //@ts-nocheck
 import axios from 'axios';
 import path from 'path';
+import { createHash } from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import { logger } from '../utils/logger';
@@ -15,6 +16,7 @@ export interface ExtractedDocumentContent extends ApplicationDocumentReference {
   text: string;
   truncated: boolean;
   extractionError?: string;
+  contentHash?: string;
 }
 
 const MAX_CHAR_PER_DOCUMENT = 4000;
@@ -60,11 +62,13 @@ export class DocumentTextExtractionService {
     const cleaned = rawText.replace(/\s+/g, ' ').trim();
     const truncated = cleaned.length > MAX_CHAR_PER_DOCUMENT;
     const text = truncated ? `${cleaned.substring(0, MAX_CHAR_PER_DOCUMENT)}...` : cleaned;
+    const contentHash = cleaned ? createHash('sha256').update(cleaned).digest('hex') : undefined;
 
     return {
       ...document,
       text: text || '[No text content extracted]',
-      truncated
+      truncated,
+      contentHash
     };
   }
 
