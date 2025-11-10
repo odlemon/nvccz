@@ -1,6 +1,7 @@
 //@ts-nocheck
 import axios from 'axios';
 import { logger } from '../utils/logger';
+import { ExtractedDocumentContent } from './DocumentTextExtractionService';
 
 /**
  * ChatGPT Service for Application Scoring
@@ -14,7 +15,7 @@ export class ChatGPTService {
   /**
    * Score an investment application based on documents and application data
    * @param applicationData - Application details
-   * @param documentUrls - Array of Firebase document URLs
+   * @param documents - Extracted document content with text summaries
    * @returns Score percentage (0-100)
    */
   static async scoreApplication(
@@ -28,22 +29,22 @@ export class ChatGPTService {
       foundingDate?: Date;
       applicantAddress?: string;
     },
-    documentUrls: Array<{ url: string; type: string; fileName: string }>
+    documents: ExtractedDocumentContent[]
   ): Promise<{ score: number; reasoning: string; applicantDetails: any }> {
     try {
       logger.info('🤖 ChatGPT API: Building scoring prompt', {
         businessName: applicationData.businessName,
-        documentCount: documentUrls.length
+        documentCount: documents.length
       });
 
       // Build the prompt for ChatGPT
-      const prompt = this.buildScoringPrompt(applicationData, documentUrls);
+      const prompt = this.buildScoringPrompt(applicationData, documents);
 
       logger.info('🤖 ChatGPT API: Sending request to OpenAI', {
         businessName: applicationData.businessName,
         model: this.MODEL,
         promptLength: prompt.length,
-        documentCount: documentUrls.length
+        documentCount: documents.length
       });
 
       const startTime = Date.now();
@@ -126,11 +127,16 @@ export class ChatGPTService {
    */
   private static buildScoringPrompt(
     applicationData: any,
-    documentUrls: Array<{ url: string; type: string; fileName: string }>
+    documents: ExtractedDocumentContent[]
   ): string {
-    const documentInfo = documentUrls.map(doc => 
-      `- ${doc.type}: ${doc.fileName} (${doc.url})`
-    ).join('\n');
+    const documentInfo = documents.map((doc, index) => {
+      const header = `### Document ${index + 1}: ${doc.type} - ${doc.fileName}`;
+      const meta = doc.extractionError
+        ? `Extraction Error: ${doc.extractionError}`
+        : `Text Length: ${doc.text.length} characters${doc.truncated ? ' (truncated)' : ''}`;
+      const content = doc.extractionError ? '' : `\n"""${doc.text}"""`;
+      return `${header}\n${meta}${content}`;
+    }).join('\n\n');
 
     return `You are evaluating an investment application. Please analyze the provided documents and application data.
 
@@ -144,10 +150,11 @@ export class ChatGPTService {
 - Founding Date: ${applicationData.foundingDate || 'Not provided'}
 - Location: ${applicationData.applicantAddress || 'Not provided'}
 
-**Documents Available (Firebase URLs):**
+**Documents (extracted text provided below):**
+
 ${documentInfo}
 
-**Note:** The documents are stored in Firebase Storage. For full document analysis, you would need to download and extract text from these documents (PDF, DOCX, etc.). For now, please analyze based on the application data provided and use your knowledge of typical pitch deck structures and business applications to make an informed assessment.
+**Note:** The text above is extracted directly from the applicant's uploaded documents. If any extraction errors are listed, consider the documents as unavailable and base your assessment on the remaining information.
 
 **Task:**
 1. Analyze the application data provided (applicant details, business information, requested amount, etc.)

@@ -3,6 +3,7 @@ import { prisma } from '../utils/database';
 import { ChatGPTService } from './ChatGPTService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { logger } from '../utils/logger';
+import { DocumentTextExtractionService } from './DocumentTextExtractionService';
 
 /**
  * Application Scoring Service
@@ -63,6 +64,21 @@ export class ApplicationScoringService {
         return;
       }
 
+      // Extract text content from uploaded documents
+      const documentContents = await DocumentTextExtractionService.extractDocuments(documentUrls);
+
+      logger.info('📝 Document text prepared for AI analysis', {
+        applicationId,
+        documentCount: documentContents.length,
+        documents: documentContents.map(doc => ({
+          type: doc.type,
+          fileName: doc.fileName,
+          textLength: doc.text.length,
+          truncated: doc.truncated,
+          extractionError: doc.extractionError
+        }))
+      });
+
       // Prepare application data for scoring
       const applicationData = {
         applicantName: application.applicantName,
@@ -121,7 +137,7 @@ export class ApplicationScoringService {
         timestamp: new Date().toISOString()
       });
 
-      const scoringResult = await ChatGPTService.scoreApplication(applicationData, documentUrls);
+      const scoringResult = await ChatGPTService.scoreApplication(applicationData, documentContents);
 
       const score = scoringResult.score;
       const reasoning = scoringResult.reasoning;
