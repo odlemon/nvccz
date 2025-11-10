@@ -844,18 +844,13 @@ export class ApplicationService {
         where: { id }
       });
 
-      if (!application) {
-        throw new Error("Application not found");
-      }
+    if (!application) {
+      throw new Error("Application not found");
+    }
 
-      // Only allow deletion if application is in SHORTLISTED stage
-      if (application.currentStage !== "SHORTLISTED") {
-        throw new Error("Cannot delete application that is not in SHORTLISTED stage");
-      }
-
-      await prisma.application.delete({
-        where: { id }
-      });
+    await prisma.application.delete({
+      where: { id }
+    });
     } catch (error: any) {
       throw new Error(`Failed to delete application: ${error.message}`);
     }

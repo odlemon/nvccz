@@ -121,6 +121,11 @@ export class ApplicationScoringService {
         documents: documentUrls.map(d => ({ type: d.type, fileName: d.fileName }))
       });
 
+      logger.info('📡 Attempting document download and text extraction', {
+        applicationId,
+        documentCount: documentUrls.length
+      });
+
       logger.info('📋 Application Data for AI Analysis', {
         applicationId,
         data: {
@@ -142,6 +147,17 @@ export class ApplicationScoringService {
           type: d.type,
           fileName: d.fileName,
           url: d.url
+        }))
+      });
+
+      logger.info('📡 Document extraction complete', {
+        applicationId,
+        documentSummaries: documentContents.map(doc => ({
+          type: doc.type,
+          fileName: doc.fileName,
+          textLength: doc.text.length,
+          truncated: doc.truncated,
+          extractionError: doc.extractionError
         }))
       });
 
