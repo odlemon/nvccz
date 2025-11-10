@@ -531,6 +531,8 @@ router.put("/:id", authenticate, authorize(["admin", "fund_manager"]), Applicati
  */
 router.post("/:id/change-stage", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.changeApplicationStage);
 
+router.post("/:id/trigger-shortlisting", authenticate, authorize(["admin", "fund_manager"]), ApplicationController.triggerShortlisting);
+
 /**
  * @swagger
  * /api/applications/{id}:
