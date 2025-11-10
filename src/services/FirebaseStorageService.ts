@@ -82,6 +82,72 @@ export class FirebaseStorageService {
   }
 
   /**
+   * Upload an application document to Firebase Storage.
+   */
+  static async uploadApplicationDocument(
+    file: Buffer,
+    fileName: string,
+    applicationId: string,
+    documentType: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    try {
+      const sanitizedName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      const safeApplicationId = applicationId || 'unassigned';
+      const safeDocumentType = documentType || 'GENERAL';
+      const timestamp = Date.now();
+
+      const storageRef = ref(
+        storage,
+        `application-documents/${safeApplicationId}/${safeDocumentType}/${timestamp}-${sanitizedName}`
+      );
+
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      return {
+        filePath: snapshot.ref.fullPath,
+        downloadURL
+      };
+    } catch (error: any) {
+      console.error('❌ Error uploading application document to Firebase:', error.message);
+      throw new Error(`Failed to upload application document: ${error.message}`);
+    }
+  }
+
+  /**
+   * Upload a term sheet document to Firebase Storage.
+   */
+  static async uploadTermSheetDocument(
+    file: Buffer,
+    fileName: string,
+    termSheetId: string,
+    documentType: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    try {
+      const sanitizedName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      const safeTermSheetId = termSheetId || 'unassigned';
+      const safeDocumentType = documentType || 'GENERAL';
+      const timestamp = Date.now();
+
+      const storageRef = ref(
+        storage,
+        `term-sheets/${safeTermSheetId}/${safeDocumentType}/${timestamp}-${sanitizedName}`
+      );
+
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      return {
+        filePath: snapshot.ref.fullPath,
+        downloadURL
+      };
+    } catch (error: any) {
+      console.error('❌ Error uploading term sheet document to Firebase:', error.message);
+      throw new Error(`Failed to upload term sheet document: ${error.message}`);
+    }
+  }
+
+  /**
    * Download CSV file from Firebase Storage
    */
   static async downloadImportFile(filePath: string): Promise<Buffer> {
