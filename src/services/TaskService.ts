@@ -920,11 +920,28 @@ export class TaskService {
           if (activity.description) {
             const documentsMatch = activity.description.match(/\[DOCUMENTS:(.+?)\]/);
             if (documentsMatch) {
+              const rawPayload = documentsMatch[1];
               try {
-                documents = JSON.parse(documentsMatch[1]);
-              } catch (e) {
-                // If parsing fails, documents array remains empty
+                const parsed = JSON.parse(rawPayload);
+                if (Array.isArray(parsed)) {
+                  documents = parsed.filter(doc => doc && doc.fileUrl && doc.fileName);
+                } else {
+                  throw new Error('Documents payload is not an array');
+                }
+              } catch (e: any) {
                 console.error('Failed to parse documents from activity description:', e);
+                console.error('Raw payload:', rawPayload);
+                // Attempt to recover by wrapping single object in array
+                if (rawPayload.trim().startsWith('{') && rawPayload.trim().endsWith('}')) {
+                  try {
+                    const single = JSON.parse(rawPayload);
+                    if (single && single.fileUrl && single.fileName) {
+                      documents = [single];
+                    }
+                  } catch {
+                    // swallow
+                  }
+                }
               }
             }
           }
