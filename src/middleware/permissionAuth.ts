@@ -117,29 +117,19 @@ export function requireAllPermissions(permissionNames: string[]) {
   };
 }
 
-export function authorize(roles: string[]) {
+export function authorize(_roles: string[]) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      res.status(401).json({ 
+      res.status(401).json({
         success: false,
-        message: "Unauthorized" 
-      });
-      return;
-    }
-
-    const userRole = req.user.role?.name;
-    
-    if (!userRole || !roles.includes(userRole)) {
-      res.status(403).json({ 
-        success: false,
-        message: `Insufficient permissions. Required role: ${roles.join(', ')}` 
+        message: "Unauthorized"
       });
       return;
     }
 
     next();
   };
-} 
+}
 
 export function requireApplicantRole() {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {

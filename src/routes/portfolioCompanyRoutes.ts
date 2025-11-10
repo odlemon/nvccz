@@ -270,7 +270,7 @@ router.post("/", PortfolioCompanyController.createPortfolioCompany);
  *       409:
  *         description: Conflict - company with registration number already exists
  */
-router.post("/admin", authenticate, authorize(["admin"]), PortfolioCompanyController.createPortfolioCompanyByAdmin);
+router.post("/admin", authenticate, PortfolioCompanyController.createPortfolioCompanyByAdmin);
 
 /**
  * @swagger
@@ -295,7 +295,7 @@ router.post("/admin", authenticate, authorize(["admin"]), PortfolioCompanyContro
  *                   items:
  *                     $ref: '#/components/schemas/PortfolioCompany'
  */
-router.get("/", authenticate, authorize(["admin"]), PortfolioCompanyController.getAllPortfolioCompanies);
+router.get("/", authenticate, PortfolioCompanyController.getAllPortfolioCompanies);
 
 /**
  * @swagger
@@ -334,7 +334,7 @@ router.get("/", authenticate, authorize(["admin"]), PortfolioCompanyController.g
  *       default:
  *         description: Unexpected error
  */
-router.get("/:id/financial-reports", authenticate, authorize(["admin"]), PortfolioCompanyController.getFinancialReports);
+router.get("/:id/financial-reports", authenticate, PortfolioCompanyController.getFinancialReports);
 
 /**
  * @swagger
