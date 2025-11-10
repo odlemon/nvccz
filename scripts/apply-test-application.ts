@@ -58,6 +58,15 @@ async function main() {
       console.error(JSON.stringify(error.response.data, null, 2));
     } else {
       console.error('❌ Submission error:', error.message);
+      if (error.code) {
+        console.error('Error code:', error.code);
+      }
+      if (error.config?.url) {
+        console.error('Request URL:', error.config.url);
+      }
+      if (error.stack) {
+        console.error(error.stack);
+      }
     }
     process.exit(1);
   }
