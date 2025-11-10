@@ -1,5 +1,4 @@
 //@ts-nocheck
-import fetch from 'node-fetch';
 import path from 'path';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
@@ -69,7 +68,8 @@ export class DocumentTextExtractionService {
   }
 
   private static async downloadDocument(url: string): Promise<Buffer> {
-    const response = await fetch(url);
+    const fetchFn = await this.resolveFetch();
+    const response = await fetchFn(url);
 
     if (!response.ok) {
       throw new Error(`Failed to download document. Status: ${response.status}`);
@@ -77,6 +77,14 @@ export class DocumentTextExtractionService {
 
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
+  }
+
+  private static async resolveFetch(): Promise<any> {
+    if (typeof globalThis.fetch === 'function') {
+      return globalThis.fetch.bind(globalThis);
+    }
+
+    throw new Error('Fetch API is not available in this runtime.');
   }
 
   private static async extractTextFromBuffer(buffer: Buffer, fileName: string): Promise<string> {
