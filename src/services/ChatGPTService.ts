@@ -191,9 +191,9 @@ ${documentInfo}
    - Any strategic alignment indicators
 
 4. Pay close attention to potential issues:
-   - Penalize heavily if documents appear to be identical copies or generic templates with no company-specific information.
-   - Penalize if key required documents are missing, corrupted, or contain irrelevant content.
-   - Call out duplicate documents explicitly in your reasoning and reflect this in the score.
+   - If multiple documents appear identical or generic, note this explicitly and reduce the score modestly (but do not automatically fail the application).
+   - If key required documents are missing, corrupted, or contain irrelevant content, explain the impact in your reasoning and factor it into the score.
+   - Always balance these concerns with any strengths the application demonstrates; err on the side of giving the applicant a fair chance when there is potential.
 
 **Important Rules:**
 - If score < 40%: Application should be REJECTED

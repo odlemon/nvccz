@@ -1561,21 +1561,55 @@ export class EmailNotificationService {
   }
 
   private static getApplicationRejectedTemplate(data: EmailNotificationData): string {
+    const escapeHtml = (value: string) => value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+    const reasoningText = data.additionalInfo?.rejectionReason || data.additionalInfo?.aiReasoning || '';
+
     // Create a summary from the AI reasoning (limit to 2-3 key points)
     let feedbackSummary = '';
-    if (data.additionalInfo?.aiReasoning) {
-      const reasoning = data.additionalInfo.aiReasoning;
-      // Extract first sentence or key points, limit to ~150 characters
-      const sentences = reasoning.split(/[.!?]+/).filter(s => s.trim().length > 20);
+    if (reasoningText) {
+      const sentences = reasoningText.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0);
       if (sentences.length > 0) {
-        // Take first 2-3 sentences and summarize
-        const summary = sentences.slice(0, 2).map(s => s.trim()).join('. ').substring(0, 200);
+        const summarySentences = sentences.slice(0, 2).map(s => s.trim());
+        const summary = summarySentences.join(' ').substring(0, 200);
         feedbackSummary = summary + (summary.length >= 200 ? '...' : '');
       } else {
-        // Fallback: take first 150 characters
-        feedbackSummary = reasoning.substring(0, 150) + (reasoning.length > 150 ? '...' : '');
+        feedbackSummary = reasoningText.substring(0, 200) + (reasoningText.length > 200 ? '...' : '');
       }
     }
+
+    let detailedFeedback = '';
+    if (reasoningText) {
+      const points = reasoningText.split(/(?<=[.!?])\s+/).map(point => point.trim()).filter(Boolean);
+      if (points.length > 0) {
+        detailedFeedback = `
+          <ul>
+            ${points.map(point => `<li>${escapeHtml(point)}</li>`).join('')}
+          </ul>
+        `;
+      } else {
+        detailedFeedback = `<p>${escapeHtml(reasoningText)}</p>`;
+      }
+    }
+
+    const documentList = Array.isArray(data.additionalInfo?.documents) && data.additionalInfo.documents.length > 0
+      ? `
+        <h3>Documents Reviewed</h3>
+        <ul>
+          ${data.additionalInfo.documents.map((doc: any) => `
+            <li>
+              <strong>${escapeHtml(doc.type?.replace(/_/g, ' ') || 'Document')}:</strong>
+              ${doc.url ? `<a href="${doc.url}" target="_blank">${escapeHtml(doc.fileName || 'View Document')}</a>` : escapeHtml(doc.fileName || 'Unavailable')}
+            </li>
+          `).join('')}
+        </ul>
+      `
+      : '';
 
     return `
       <!DOCTYPE html>
@@ -1616,9 +1650,23 @@ export class EmailNotificationService {
             ${feedbackSummary ? `
             <h3>Summary Feedback:</h3>
             <div style="background-color: #fff; padding: 15px; border-left: 4px solid #dc2626; margin: 15px 0;">
-              <p style="margin: 0; color: #666; line-height: 1.8;">${feedbackSummary}</p>
+              <p style="margin: 0; color: #666; line-height: 1.8;">${escapeHtml(feedbackSummary)}</p>
             </div>
             ` : ''}
+
+            ${data.additionalInfo?.score !== undefined ? `
+            <h3>Application Score</h3>
+            <p style="color: #444; line-height: 1.8;">Your application received an initial screening score of <strong>${data.additionalInfo.score}%</strong>.</p>
+            ` : ''}
+
+            ${detailedFeedback ? `
+            <h3>Detailed Review Notes</h3>
+            <div style="background-color: #fff; padding: 15px; border-left: 4px solid #dc2626; margin: 15px 0;">
+              ${detailedFeedback}
+            </div>
+            ` : ''}
+
+            ${documentList}
             
             <p>This decision does not reflect on the quality of your business or your team. We encourage you to:</p>
             <ul>
