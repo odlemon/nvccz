@@ -483,6 +483,15 @@ export class ApplicationScoringService {
         hasReasoning: !!rejectionReason
       });
 
+      const documentUrls = await prisma.applicationDocument.findMany({
+        where: { applicationId: application.id },
+        select: {
+          documentType: true,
+          fileName: true,
+          fileUrl: true
+        }
+      });
+
       // Send rejection email with AI reasoning
       try {
         await EmailNotificationService.sendApplicationRejectedEmail({
@@ -494,7 +503,12 @@ export class ApplicationScoringService {
           additionalInfo: {
             rejectionReason: rejectionReason,
             score: finalScore,
-            aiReasoning: rejectionReason // AI-generated reasoning
+            aiReasoning: rejectionReason, // AI-generated reasoning
+            documents: documentUrls.map(doc => ({
+              type: doc.documentType,
+              fileName: doc.fileName,
+              url: doc.fileUrl
+            }))
           }
         });
 
