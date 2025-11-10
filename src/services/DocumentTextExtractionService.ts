@@ -1,4 +1,5 @@
 //@ts-nocheck
+import axios from 'axios';
 import path from 'path';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
@@ -53,7 +54,7 @@ export class DocumentTextExtractionService {
   private static async extractSingleDocument(
     document: ApplicationDocumentReference
   ): Promise<ExtractedDocumentContent> {
-    const buffer = await this.downloadDocument(document.url);
+    const buffer = await this.downloadDocument(document.url, document.fileName);
     const rawText = await this.extractTextFromBuffer(buffer, document.fileName);
 
     const cleaned = rawText.replace(/\s+/g, ' ').trim();
@@ -67,24 +68,25 @@ export class DocumentTextExtractionService {
     };
   }
 
-  private static async downloadDocument(url: string): Promise<Buffer> {
-    const fetchFn = await this.resolveFetch();
-    const response = await fetchFn(url);
+  private static async downloadDocument(url: string, fileName: string): Promise<Buffer> {
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer',
+      validateStatus: () => true
+    });
 
-    if (!response.ok) {
+    logger.info('Document download attempt', {
+      url,
+      fileName,
+      status: response.status,
+      contentType: response.headers['content-type'],
+      contentLength: response.headers['content-length']
+    });
+
+    if (response.status < 200 || response.status >= 300) {
       throw new Error(`Failed to download document. Status: ${response.status}`);
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  }
-
-  private static async resolveFetch(): Promise<any> {
-    if (typeof globalThis.fetch === 'function') {
-      return globalThis.fetch.bind(globalThis);
-    }
-
-    throw new Error('Fetch API is not available in this runtime.');
+    return Buffer.from(response.data);
   }
 
   private static async extractTextFromBuffer(buffer: Buffer, fileName: string): Promise<string> {
