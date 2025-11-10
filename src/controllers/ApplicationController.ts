@@ -186,24 +186,23 @@ export class ApplicationController {
         // Don't fail the application creation if email fails
       }
 
-      // Start async shortlisting process (don't await - process in background)
-      // This will use ChatGPT to score the application and send appropriate emails
-      const { ApplicationScoringService } = require('../services/ApplicationScoringService');
-      ApplicationScoringService.processApplicationForShortlisting(application.id)
-        .catch((error: any) => {
-          logger.error("Error in background shortlisting process", {
-            applicationId: application.id,
-            error: error.message
-          });
-        });
-
-      logger.info("Application created successfully - shortlisting process started", {
+      logger.info("Application created successfully - shortlisting pipeline scheduled", {
         applicationId: application.id,
         businessName: application.businessName,
         applicantEmail: application.applicantEmail
       });
 
       ResponseHelper.success(res, "Application created successfully", application, 201);
+
+      setTimeout(() => {
+        ApplicationController.startShortlisting(application.id)
+          .catch((error: any) => {
+            logger.error("Failed to process shortlisting after creation", {
+              applicationId: application.id,
+              error: error.message
+            });
+          });
+      }, 0);
     } catch (error: any) {
       logger.error("Error creating application", { error: error.message });
       ResponseHelper.error(res, `Failed to create application: ${error.message}`, undefined, 500);
@@ -477,6 +476,84 @@ export class ApplicationController {
     } catch (error: any) {
       logger.error("Error changing application stage", { error: error.message });
       ResponseHelper.error(res, `Failed to change application stage: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Internal helper to start shortlisting asynchronously
+   */
+  private static async startShortlisting(applicationId: string): Promise<void> {
+    try {
+      const { ApplicationScoringService } = require('../services/ApplicationScoringService');
+
+      logger.info("➡️ Initiating shortlisting pipeline", { applicationId });
+
+      await ApplicationScoringService.processApplicationForShortlisting(applicationId);
+
+      logger.info("✅ Shortlisting pipeline finished", { applicationId });
+    } catch (error: any) {
+      logger.error("❌ Shortlisting pipeline error", {
+        applicationId,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Trigger shortlisting (PROTECTED - admin/fund manager access)
+   */
+  static async triggerShortlisting(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+
+      const application = await ApplicationService.getApplicationById(id);
+
+      if (!application) {
+        ResponseHelper.error(res, "Application not found", undefined, 404);
+        return;
+      }
+
+      if (application.currentStage !== "PENDING_SHORTLISTING") {
+        ResponseHelper.error(
+          res,
+          `Application is currently in ${application.currentStage}. Only applications pending shortlisting can be processed.`,
+          undefined,
+          400
+        );
+        return;
+      }
+
+      const { ApplicationScoringService } = require('../services/ApplicationScoringService');
+
+      ApplicationScoringService.processApplicationForShortlisting(id)
+        .then(() => {
+          logger.info("Shortlisting completed", {
+            applicationId: id,
+            applicantEmail: application.applicantEmail
+          });
+        })
+        .catch((error: any) => {
+          logger.error("Shortlisting failed", {
+            applicationId: id,
+            error: error.message
+          });
+        });
+
+      logger.info("Shortlisting triggered", {
+        applicationId: id,
+        requestedBy: (req as any).user?.id
+      });
+
+      ResponseHelper.success(res, "Shortlisting process started", { applicationId: id }, 202);
+    } catch (error: any) {
+      logger.error("Error triggering shortlisting", { error: error.message });
+      ResponseHelper.error(res, `Failed to trigger shortlisting: ${error.message}`, undefined, 500);
     }
   }
 
