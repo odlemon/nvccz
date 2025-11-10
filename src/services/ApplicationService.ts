@@ -3,6 +3,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { EmailNotificationService } from './EmailNotificationService';
 
 export interface CreateApplicationRequest {
   // Applicant Information
@@ -540,6 +541,15 @@ export class ApplicationService {
         }
       });
 
+      // Attempt to send stage change email (non-blocking)
+      await this.sendStageChangeNotification(updatedApplication, newStage).catch(error => {
+        console.error("Failed to send stage change email", {
+          applicationId: updatedApplication.id,
+          newStage,
+          error: error.message
+        });
+      });
+
       // Create notification for stage change
       await prisma.applicationNotification.create({
         data: {
@@ -555,6 +565,55 @@ export class ApplicationService {
       return updatedApplication;
     } catch (error: any) {
       throw new Error(`Failed to change application stage: ${error.message}`);
+    }
+  }
+
+  private static async sendStageChangeNotification(application: any, newStage: string): Promise<void> {
+    if (!application?.applicantEmail) {
+      console.warn("Skipping stage change email - applicant email missing", {
+        applicationId: application?.id,
+        newStage
+      });
+      return;
+    }
+
+    const emailData = {
+      applicantName: application.applicantName,
+      applicantEmail: application.applicantEmail,
+      businessName: application.businessName,
+      applicationId: application.id,
+      currentStage: newStage,
+      additionalInfo: undefined
+    };
+
+    switch (newStage) {
+      case "SHORTLISTED":
+        await EmailNotificationService.sendApplicationShortlistedEmail(emailData);
+        break;
+      case "UNDER_DUE_DILIGENCE":
+        await EmailNotificationService.sendDueDiligenceStartedEmail(emailData);
+        break;
+      case "DUE_DILIGENCE_COMPLETED":
+        await EmailNotificationService.sendDueDiligenceCompletedEmail(emailData);
+        break;
+      case "UNDER_BOARD_REVIEW":
+        await EmailNotificationService.sendBoardReviewStartedEmail(emailData);
+        break;
+      case "BOARD_APPROVED":
+        await EmailNotificationService.sendInvestmentDecisionEmail(emailData);
+        break;
+      case "BOARD_REJECTED":
+      case "BOARD_CONDITIONAL":
+      case "REJECTED":
+      case "NOT_SELECTED":
+        await EmailNotificationService.sendApplicationRejectedEmail(emailData);
+        break;
+      case "INVESTMENT_IMPLEMENTATION":
+        await EmailNotificationService.sendInvestmentImplementationStartedEmail(emailData);
+        break;
+      default:
+        await EmailNotificationService.sendStageUpdateEmail(emailData);
+        break;
     }
   }
 

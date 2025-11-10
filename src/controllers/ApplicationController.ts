@@ -466,23 +466,6 @@ export class ApplicationController {
 
       const application = await ApplicationService.changeApplicationStage(id, newStage, notes);
 
-      // Send stage-specific email notifications
-      try {
-        await this.sendStageSpecificEmail(application, newStage);
-        logger.info("Stage-specific email sent successfully", {
-          applicationId: application.id,
-          newStage: newStage,
-          applicantEmail: application.applicantEmail
-        });
-      } catch (emailError) {
-        logger.error("Failed to send stage-specific email", {
-          applicationId: application.id,
-          newStage: newStage,
-          error: emailError.message
-        });
-        // Don't fail the stage change if email fails
-      }
-
       logger.info("Application stage changed", {
         applicationId: application.id,
         oldStage: application.currentStage,
@@ -564,51 +547,4 @@ export class ApplicationController {
     }
   }
 
-  /**
-   * Send stage-specific email notifications
-   */
-  private static async sendStageSpecificEmail(application: any, newStage: string): Promise<void> {
-    const emailData = {
-      applicantName: application.applicantName,
-      applicantEmail: application.applicantEmail,
-      businessName: application.businessName,
-      applicationId: application.id,
-      currentStage: newStage
-    };
-
-    switch (newStage) {
-      case 'SHORTLISTED':
-        await EmailNotificationService.sendApplicationShortlistedEmail(emailData);
-        break;
-      case 'UNDER_DUE_DILIGENCE':
-        await EmailNotificationService.sendDueDiligenceStartedEmail(emailData);
-        break;
-      case 'DUE_DILIGENCE_COMPLETED':
-        await EmailNotificationService.sendDueDiligenceCompletedEmail(emailData);
-        break;
-      case 'UNDER_BOARD_REVIEW':
-        await EmailNotificationService.sendBoardReviewStartedEmail(emailData);
-        break;
-      case 'BOARD_APPROVED':
-        await EmailNotificationService.sendInvestmentDecisionEmail(emailData);
-        break;
-      case 'BOARD_REJECTED':
-        await EmailNotificationService.sendApplicationRejectedEmail(emailData);
-        break;
-      case 'BOARD_CONDITIONAL':
-        await EmailNotificationService.sendInvestmentDecisionEmail(emailData);
-        break;
-      case 'INVESTMENT_IMPLEMENTATION':
-        await EmailNotificationService.sendInvestmentImplementationStartedEmail(emailData);
-        break;
-      case 'REJECTED':
-      case 'NOT_SELECTED':
-        await EmailNotificationService.sendApplicationRejectedEmail(emailData);
-        break;
-      default:
-        // Send generic stage update for other stages
-        await EmailNotificationService.sendStageUpdateEmail(emailData);
-        break;
-    }
-  }
 }
