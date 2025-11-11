@@ -463,21 +463,35 @@ export class PerformanceAnalyticsService {
       return 0;
     }
 
-    const journalEntryLines = await prisma.journalEntryLine.findMany({
-      where: {
-        chartOfAccountId: {
-          in: Array.from(accountIds)
-        },
-        journalEntry: {
-          status: 'POSTED',
-          ...(dateRange ? {
-            transactionDate: {
-              gte: dateRange.start,
-              lte: dateRange.end
-            }
-          } : {})
-        }
+    if (accountIds.size === 0) {
+      return 0;
+    }
+
+    const incomeAccountTypes = ['Revenue', 'Income', 'Expense'];
+    const isIncomeStatementAccount = typeList.some(type => incomeAccountTypes.includes(type));
+
+    const journalWhere: any = {
+      chartOfAccountId: {
+        in: Array.from(accountIds)
       },
+      journalEntry: {
+        status: 'POSTED'
+      }
+    };
+
+    if (dateRange) {
+      journalWhere.journalEntry.transactionDate = isIncomeStatementAccount
+        ? {
+            gte: dateRange.start,
+            lte: dateRange.end
+          }
+        : {
+            lte: dateRange.end
+          };
+    }
+
+    const journalEntryLines = await prisma.journalEntryLine.findMany({
+      where: journalWhere,
       select: {
         debitAmount: true,
         creditAmount: true,
