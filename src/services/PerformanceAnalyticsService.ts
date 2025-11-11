@@ -91,17 +91,34 @@ export class PerformanceAnalyticsService {
         return ['Asset', 'Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Other Asset', 'Liability', 'Current Liability', 'Long-Term Liability', 'Equity'].includes(config.accountType);
       });
 
+      let effectiveDateRange = dateRange;
+
+      if (!effectiveDateRange && (needsIncomeStatement || needsBalanceSheet)) {
+        const earliestEntry = await prisma.journalEntry.findFirst({
+          where: { status: 'POSTED' },
+          orderBy: { transactionDate: 'asc' },
+          select: { transactionDate: true }
+        });
+
+        if (earliestEntry?.transactionDate) {
+          effectiveDateRange = {
+            start: earliestEntry.transactionDate,
+            end: new Date()
+          };
+        }
+      }
+
       const incomeStatementRange = (() => {
-        if (!dateRange) {
+        if (!effectiveDateRange) {
           const end = new Date();
           const start = new Date(end.getFullYear(), end.getMonth(), 1);
           return { startDate: start, endDate: end };
         }
-        return { startDate: dateRange.start, endDate: dateRange.end };
+        return { startDate: effectiveDateRange.start, endDate: effectiveDateRange.end };
       })();
 
       const balanceSheetParams = {
-        asOfDate: dateRange?.end ?? new Date()
+        asOfDate: effectiveDateRange?.end ?? new Date()
       };
 
       let incomeStatementPromise: Promise<any> | null = null;
@@ -130,7 +147,7 @@ export class PerformanceAnalyticsService {
           const kpiConfig = financialKPIMap.get(kpiNameKey)!;
           accountingValue = await this.getAccountingValueForKPI(
             kpiConfig,
-            dateRange,
+            effectiveDateRange,
             needsIncomeStatement ? loadIncomeStatement : null,
             needsBalanceSheet ? loadBalanceSheet : null
           );
