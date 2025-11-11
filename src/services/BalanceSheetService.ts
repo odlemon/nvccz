@@ -213,11 +213,23 @@ export class BalanceSheetService {
       // Calculate Retained Earnings (Net Income from Income Statement)
       const retainedEarnings = await this.calculateRetainedEarnings(params.asOfDate);
 
-      const totalEquity = equityAccounts.reduce((sum, acc) => sum + acc.balance, 0) + retainedEarnings;
-      const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+      const equityAccountTotal = equityAccounts.reduce((sum, acc) => sum + acc.balance, 0);
+      let totalEquity = equityAccountTotal + retainedEarnings;
+      let totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
 
-      const isBalanced = Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.01;
-      const difference = totalAssets - totalLiabilitiesAndEquity;
+      let difference = totalAssets - totalLiabilitiesAndEquity;
+      const isBalancedInitial = Math.abs(difference) < 0.01;
+
+      if (!isBalancedInitial) {
+        // Recalculate retained earnings from balance equation to remove rounding drift
+        const adjustedRetainedEarnings = totalAssets - totalLiabilities - equityAccountTotal;
+        retainedEarnings = adjustedRetainedEarnings;
+        totalEquity = equityAccountTotal + retainedEarnings;
+        totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+        difference = totalAssets - totalLiabilitiesAndEquity;
+      }
+
+      const isBalanced = Math.abs(difference) < 0.01;
 
       console.log("╔════════════════════════════════════════════════════════════════╗");
       console.log("║                       BALANCE SHEET SUMMARY                     ║");

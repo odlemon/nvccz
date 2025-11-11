@@ -428,21 +428,46 @@ export class PerformanceAnalyticsService {
   }
 
   private static async getAccountingValueForKPI(kpiConfig: HardcodedKPI, dateRange?: { start: Date, end: Date }): Promise<number> {
-    if (!kpiConfig.accountNumber) {
-      return 0;
+    const accountIds = new Set<string>();
+
+    if (kpiConfig.accountNumber) {
+      const account = await prisma.chartOfAccounts.findUnique({
+        where: { accountNo: kpiConfig.accountNumber }
+      });
+      if (account) {
+        accountIds.add(account.id);
+      }
     }
 
-    const account = await prisma.chartOfAccounts.findUnique({
-      where: { accountNo: kpiConfig.accountNumber }
-    });
+    const accountTypeGroups: Record<string, string[]> = {
+      Revenue: ['Revenue', 'Income'],
+      Expense: ['Expense'],
+      Asset: ['Asset', 'Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Other Asset'],
+      Liability: ['Liability', 'Current Liability', 'Long-Term Liability'],
+      Equity: ['Equity']
+    };
 
-    if (!account) {
+    const typeList = accountTypeGroups[kpiConfig.accountType] || [];
+
+    if (typeList.length > 0) {
+      const typeAccounts = await prisma.chartOfAccounts.findMany({
+        where: {
+          isActive: true,
+          accountType: { in: typeList }
+        }
+      });
+      typeAccounts.forEach(acc => accountIds.add(acc.id));
+    }
+
+    if (accountIds.size === 0) {
       return 0;
     }
 
     const journalEntryLines = await prisma.journalEntryLine.findMany({
       where: {
-        chartOfAccountId: account.id,
+        chartOfAccountId: {
+          in: Array.from(accountIds)
+        },
         journalEntry: {
           status: 'POSTED',
           ...(dateRange ? {
@@ -455,25 +480,25 @@ export class PerformanceAnalyticsService {
       },
       select: {
         debitAmount: true,
-        creditAmount: true
+        creditAmount: true,
+        chartOfAccount: {
+          select: {
+            accountType: true
+          }
+        }
       }
     });
 
-    const totals = journalEntryLines.reduce((acc, line) => {
-      acc.debit += Number(line.debitAmount);
-      acc.credit += Number(line.creditAmount);
-      return acc;
-    }, { debit: 0, credit: 0 });
+    const balance = journalEntryLines.reduce((sum, line) => {
+      const type = line.chartOfAccount.accountType;
+      if (type === 'Asset' || type === 'Current Asset' || type === 'Fixed Asset' || type === 'Long-Term Asset' || type === 'Other Asset' || type === 'Expense') {
+        return sum + (Number(line.debitAmount) - Number(line.creditAmount));
+      }
 
-    let net = 0;
-    const accountType = kpiConfig.accountType;
+      // Revenue, Income, Liability, Equity
+      return sum + (Number(line.creditAmount) - Number(line.debitAmount));
+    }, 0);
 
-    if (accountType === 'Asset' || accountType === 'Expense') {
-      net = totals.debit - totals.credit;
-    } else {
-      net = totals.credit - totals.debit;
-    }
-
-    return Math.abs(net);
+    return Math.abs(balance);
   }
 }
