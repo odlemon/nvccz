@@ -194,21 +194,32 @@ export class ActivityService {
         throw new Error("Goal not found");
       }
 
-      // Update current value
+      // Update current value and progress
       const currentValue = goal.currentValue ? parseFloat(goal.currentValue.toString()) : 0;
       const newCurrentValue = currentValue + valueCollected;
-      
       const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      
+      const progressPercentage = targetValue > 0 ? Math.min((newCurrentValue / targetValue) * 100, 100) : 0;
+      const stage = newCurrentValue >= targetValue ? 'completed' : 'in_progress';
+
       await prisma.performanceGoal.update({
         where: { id: goalId },
         data: {
           currentValue: newCurrentValue,
-          stage: newCurrentValue >= targetValue ? 'completed' : 'in_progress'
+          progressPercentage,
+          stage,
+          status: stage === 'completed' ? 'completed' : 'active',
+          updatedAt: new Date()
         }
       });
 
-      console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue}`);
+      console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue} (${progressPercentage.toFixed(1)}%)`);
+
+      if (goal.parentGoalId) {
+        await PerformanceWorkflowService.updateParentGoalProgress(goal.parentGoalId);
+      }
+      if (goal.departmentGoalId) {
+        await PerformanceWorkflowService.updateDepartmentGoalProgress(goal.departmentGoalId);
+      }
     } catch (error) {
       console.error('Error updating goal progress:', error);
       throw error;
