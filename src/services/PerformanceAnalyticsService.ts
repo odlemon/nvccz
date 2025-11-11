@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
+import { HARDCODED_KPIS, HardcodedKPI } from "../config/hardcodedKPIs";
 
 export class PerformanceAnalyticsService {
   /**
@@ -45,6 +46,13 @@ export class PerformanceAnalyticsService {
         }
       });
 
+      const financialKPIMap = HARDCODED_KPIS.reduce((map, kpi) => {
+        if (kpi.isFinancial) {
+          map.set(kpi.name.toLowerCase(), kpi);
+        }
+        return map;
+      }, new Map<string, HardcodedKPI>());
+
       // Group by KPI
       const kpiGroups = goals.reduce((acc, goal) => {
         const kpiId = goal.kpiId || 'no-kpi';
@@ -69,9 +77,19 @@ export class PerformanceAnalyticsService {
       }, {} as any);
 
       // Calculate analytics for each KPI
-      const kpiAnalytics = Object.values(kpiGroups).map((group: any) => {
+      const kpiAnalytics = await Promise.all(Object.values(kpiGroups).map(async (group: any) => {
+        let accountingValue: number | null = null;
+        const kpiNameKey = group.kpi?.name?.toLowerCase();
+
+        if (kpiNameKey && financialKPIMap.has(kpiNameKey)) {
+          const kpiConfig = financialKPIMap.get(kpiNameKey)!;
+          accountingValue = await this.getAccountingValueForKPI(kpiConfig, dateRange);
+        }
+
+        const totalCurrentValue = accountingValue !== null ? accountingValue : group.totalCurrentValue;
+
         const progressPercentage = group.totalTargetValue > 0 ? 
-          ((group.totalCurrentValue / group.totalTargetValue) * 100).toFixed(2) : "0";
+          ((totalCurrentValue / group.totalTargetValue) * 100).toFixed(2) : "0";
         
         const completedGoals = group.goals.filter((g: any) => g.stage === 'completed').length;
         const inProgressGoals = group.goals.filter((g: any) => g.stage === 'in_progress').length;
@@ -84,12 +102,13 @@ export class PerformanceAnalyticsService {
           inProgressGoals,
           notStartedGoals,
           totalTargetValue: group.totalTargetValue,
-          totalCurrentValue: group.totalCurrentValue,
+          totalCurrentValue,
+          sourceCurrentValue: accountingValue !== null ? 'accounting' : 'performance_goals',
           progressPercentage,
           completionRate: group.goalCount > 0 ? 
             ((completedGoals / group.goalCount) * 100).toFixed(2) : "0"
         };
-      });
+      }));
 
       return {
         kpiAnalytics,
@@ -406,5 +425,55 @@ export class PerformanceAnalyticsService {
       console.error("Error getting department comparison:", error);
       throw error;
     }
+  }
+
+  private static async getAccountingValueForKPI(kpiConfig: HardcodedKPI, dateRange?: { start: Date, end: Date }): Promise<number> {
+    if (!kpiConfig.accountNumber) {
+      return 0;
+    }
+
+    const account = await prisma.chartOfAccounts.findUnique({
+      where: { accountNo: kpiConfig.accountNumber }
+    });
+
+    if (!account) {
+      return 0;
+    }
+
+    const journalEntryLines = await prisma.journalEntryLine.findMany({
+      where: {
+        chartOfAccountId: account.id,
+        journalEntry: {
+          status: 'POSTED',
+          ...(dateRange ? {
+            transactionDate: {
+              gte: dateRange.start,
+              lte: dateRange.end
+            }
+          } : {})
+        }
+      },
+      select: {
+        debitAmount: true,
+        creditAmount: true
+      }
+    });
+
+    const totals = journalEntryLines.reduce((acc, line) => {
+      acc.debit += Number(line.debitAmount);
+      acc.credit += Number(line.creditAmount);
+      return acc;
+    }, { debit: 0, credit: 0 });
+
+    let net = 0;
+    const accountType = kpiConfig.accountType;
+
+    if (accountType === 'Asset' || accountType === 'Expense') {
+      net = totals.debit - totals.credit;
+    } else {
+      net = totals.credit - totals.debit;
+    }
+
+    return Math.abs(net);
   }
 }
