@@ -248,8 +248,7 @@ export class DueDiligenceService {
         }
       });
 
-      // Extract document URLs from activity descriptions and add to activities
-      const tasksWithDocuments = relatedTasks.map(task => {
+      const tasksWithDocuments = await Promise.all(relatedTasks.map(async task => {
         const activitiesWithDocuments = task.activityLogs.map((activity: any) => {
           let documents: Array<{ fileName: string; fileUrl: string; fileSize: number }> = [];
           let sanitizedDescription = activity.description || '';
@@ -293,13 +292,57 @@ export class DueDiligenceService {
             description: sanitizedDescription || null,
             documents
           };
+        }).map((activity: any) => {
+          const user = activity.user || null;
+          const byUser = user
+            ? {
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email
+              }
+            : null;
+
+          return {
+            ...activity,
+            byUser,
+            by: byUser ? `${byUser.firstName} ${byUser.lastName}`.trim() : activity.by || activity.userId || null
+          };
         });
+
+        let teamMemberIds: string[] = [];
+        if (Array.isArray(task.team)) {
+          teamMemberIds = task.team.filter((member: any) => typeof member === 'string');
+        } else if (typeof task.team === 'string') {
+          try {
+            const parsed = JSON.parse(task.team);
+            if (Array.isArray(parsed)) {
+              teamMemberIds = parsed.filter((member: any) => typeof member === 'string');
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+
+        const teamMembers = teamMemberIds.length
+          ? await prisma.user.findMany({
+              where: { id: { in: teamMemberIds } },
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            })
+          : [];
 
         return {
           ...task,
-          activityLogs: activitiesWithDocuments
+          activityLogs: activitiesWithDocuments,
+          teamMemberIds,
+          team: teamMembers
         };
-      });
+      }));
 
       return {
         ...dueDiligence,
