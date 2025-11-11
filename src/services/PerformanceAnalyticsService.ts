@@ -155,12 +155,42 @@ export class PerformanceAnalyticsService {
 
         const totalCurrentValue = accountingValue !== null ? accountingValue : group.totalCurrentValue;
 
-        const progressPercentage = group.totalTargetValue > 0 ? 
-          ((totalCurrentValue / group.totalTargetValue) * 100).toFixed(2) : "0";
+        const progressRatio = group.totalTargetValue > 0
+          ? totalCurrentValue / group.totalTargetValue
+          : 0;
+
+        const progressPercentage = group.totalTargetValue > 0
+          ? (progressRatio * 100).toFixed(2)
+          : "0";
         
-        const completedGoals = group.goals.filter((g: any) => g.stage === 'completed').length;
-        const inProgressGoals = group.goals.filter((g: any) => g.stage === 'in_progress').length;
-        const notStartedGoals = group.goals.filter((g: any) => g.stage === 'planning').length;
+        let completedGoals = group.goals.filter((g: any) => g.stage === 'completed').length;
+        let inProgressGoals = group.goals.filter((g: any) => g.stage === 'in_progress').length;
+        let notStartedGoals = group.goals.filter((g: any) => g.stage === 'planning').length;
+
+        if (group.goalCount > 0) {
+          if (progressRatio >= 1) {
+            completedGoals = group.goalCount;
+            inProgressGoals = 0;
+            notStartedGoals = 0;
+          } else if (progressRatio > 0) {
+            if (completedGoals === 0 && inProgressGoals === 0) {
+              inProgressGoals = group.goalCount;
+              notStartedGoals = 0;
+            }
+          } else {
+            completedGoals = 0;
+            inProgressGoals = 0;
+            notStartedGoals = group.goalCount;
+          }
+        }
+
+        const calculatedCompletionRate = group.goalCount > 0
+          ? Math.min((completedGoals / group.goalCount) * 100, 100)
+          : 0;
+
+        const adjustedCompletionRate = progressRatio > 0
+          ? Math.min(Math.max(calculatedCompletionRate, progressRatio * 100), 100)
+          : calculatedCompletionRate;
 
         return {
           kpi: group.kpi,
@@ -172,8 +202,7 @@ export class PerformanceAnalyticsService {
           totalCurrentValue,
           sourceCurrentValue: accountingValue !== null ? 'accounting' : 'performance_goals',
           progressPercentage,
-          completionRate: group.goalCount > 0 ? 
-            ((completedGoals / group.goalCount) * 100).toFixed(2) : "0"
+          completionRate: adjustedCompletionRate.toFixed(2)
         };
       }));
 
