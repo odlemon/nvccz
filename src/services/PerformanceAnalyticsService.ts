@@ -2,6 +2,8 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 import { HARDCODED_KPIS, HardcodedKPI } from "../config/hardcodedKPIs";
+import { IncomeStatementService } from "./IncomeStatementService";
+import { BalanceSheetService } from "./BalanceSheetService";
 
 export class PerformanceAnalyticsService {
   /**
@@ -76,6 +78,49 @@ export class PerformanceAnalyticsService {
         return acc;
       }, {} as any);
 
+      // Determine if we need financial statements
+      const needsIncomeStatement = Object.values(kpiGroups).some((group: any) => {
+        const config = HARDCODED_KPIS.find(k => k.name === group.kpi?.name);
+        if (!config || !config.isFinancial) return false;
+        return ['Revenue', 'Income', 'Expense'].includes(config.accountType);
+      });
+
+      const needsBalanceSheet = Object.values(kpiGroups).some((group: any) => {
+        const config = HARDCODED_KPIS.find(k => k.name === group.kpi?.name);
+        if (!config || !config.isFinancial) return false;
+        return ['Asset', 'Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Other Asset', 'Liability', 'Current Liability', 'Long-Term Liability', 'Equity'].includes(config.accountType);
+      });
+
+      const incomeStatementRange = (() => {
+        if (!dateRange) {
+          const end = new Date();
+          const start = new Date(end.getFullYear(), end.getMonth(), 1);
+          return { startDate: start, endDate: end };
+        }
+        return { startDate: dateRange.start, endDate: dateRange.end };
+      })();
+
+      const balanceSheetParams = {
+        asOfDate: dateRange?.end ?? new Date()
+      };
+
+      let incomeStatementPromise: Promise<any> | null = null;
+      let balanceSheetPromise: Promise<any> | null = null;
+
+      const loadIncomeStatement = async () => {
+        if (!incomeStatementPromise) {
+          incomeStatementPromise = IncomeStatementService.generateIncomeStatement(incomeStatementRange);
+        }
+        return incomeStatementPromise;
+      };
+
+      const loadBalanceSheet = async () => {
+        if (!balanceSheetPromise) {
+          balanceSheetPromise = BalanceSheetService.generateBalanceSheet(balanceSheetParams);
+        }
+        return balanceSheetPromise;
+      };
+
       // Calculate analytics for each KPI
       const kpiAnalytics = await Promise.all(Object.values(kpiGroups).map(async (group: any) => {
         let accountingValue: number | null = null;
@@ -83,7 +128,12 @@ export class PerformanceAnalyticsService {
 
         if (kpiNameKey && financialKPIMap.has(kpiNameKey)) {
           const kpiConfig = financialKPIMap.get(kpiNameKey)!;
-          accountingValue = await this.getAccountingValueForKPI(kpiConfig, dateRange);
+          accountingValue = await this.getAccountingValueForKPI(
+            kpiConfig,
+            dateRange,
+            needsIncomeStatement ? loadIncomeStatement : null,
+            needsBalanceSheet ? loadBalanceSheet : null
+          );
         }
 
         const totalCurrentValue = accountingValue !== null ? accountingValue : group.totalCurrentValue;
@@ -427,92 +477,90 @@ export class PerformanceAnalyticsService {
     }
   }
 
-  private static async getAccountingValueForKPI(kpiConfig: HardcodedKPI, dateRange?: { start: Date, end: Date }): Promise<number> {
-    const accountIds = new Set<string>();
-
-    if (kpiConfig.accountNumber) {
-      const account = await prisma.chartOfAccounts.findUnique({
-        where: { accountNo: kpiConfig.accountNumber }
-      });
-      if (account) {
-        accountIds.add(account.id);
-      }
-    }
-
-    const accountTypeGroups: Record<string, string[]> = {
-      Revenue: ['Revenue', 'Income'],
-      Expense: ['Expense'],
-      Asset: ['Asset', 'Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Other Asset'],
-      Liability: ['Liability', 'Current Liability', 'Long-Term Liability'],
-      Equity: ['Equity']
-    };
-
-    const typeList = accountTypeGroups[kpiConfig.accountType] || [];
-
-    if (typeList.length > 0) {
-      const typeAccounts = await prisma.chartOfAccounts.findMany({
-        where: {
-          isActive: true,
-          accountType: { in: typeList }
-        }
-      });
-      typeAccounts.forEach(acc => accountIds.add(acc.id));
-    }
-
-    if (accountIds.size === 0) {
+  private static async getAccountingValueForKPI(
+    kpiConfig: HardcodedKPI,
+    dateRange: { start: Date, end: Date } | undefined,
+    incomeStatementLoader: (() => Promise<any>) | null,
+    balanceSheetLoader: (() => Promise<any>) | null
+  ): Promise<number> {
+    if (!kpiConfig.isFinancial) {
       return 0;
     }
 
-    if (accountIds.size === 0) {
-      return 0;
-    }
+    const accountNumber = kpiConfig.accountNumber;
+    const incomeTypes = ['Revenue', 'Income', 'Expense'];
+    const balanceTypes = ['Asset', 'Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Other Asset', 'Liability', 'Current Liability', 'Long-Term Liability', 'Equity'];
 
-    const incomeAccountTypes = ['Revenue', 'Income', 'Expense'];
-    const isIncomeStatementAccount = typeList.some(type => incomeAccountTypes.includes(type));
+    const sectionTotalCodes = new Set([
+      'TOTAL_REVENUE',
+      'OPERATING_EXPENSES',
+      'TOTAL_EXPENSES',
+      'NET_PROFIT'
+    ]);
+    const shouldUseSectionTotal = sectionTotalCodes.has(kpiConfig.code);
 
-    const journalWhere: any = {
-      chartOfAccountId: {
-        in: Array.from(accountIds)
-      },
-      journalEntry: {
-        status: 'POSTED'
-      }
-    };
+    if (incomeTypes.includes(kpiConfig.accountType)) {
+      if (!incomeStatementLoader) return 0;
+      const incomeStatement = await incomeStatementLoader();
+      const section = kpiConfig.accountType === 'Expense' ? incomeStatement.expenses : incomeStatement.revenue;
+      const accounts = section?.accounts || [];
 
-    if (dateRange) {
-      journalWhere.journalEntry.transactionDate = isIncomeStatementAccount
-        ? {
-            gte: dateRange.start,
-            lte: dateRange.end
-          }
-        : {
-            lte: dateRange.end
-          };
-    }
-
-    const journalEntryLines = await prisma.journalEntryLine.findMany({
-      where: journalWhere,
-      select: {
-        debitAmount: true,
-        creditAmount: true,
-        chartOfAccount: {
-          select: {
-            accountType: true
-          }
+      if (accountNumber && !shouldUseSectionTotal) {
+        const matches = accounts.filter((acc: any) => acc.accountNo === accountNumber);
+        if (matches.length > 0) {
+          return matches.reduce((sum: number, acc: any) => sum + Math.abs(Number(acc.netAmount ?? acc.total ?? 0)), 0);
         }
       }
-    });
 
-    const balance = journalEntryLines.reduce((sum, line) => {
-      const type = line.chartOfAccount.accountType;
-      if (type === 'Asset' || type === 'Current Asset' || type === 'Fixed Asset' || type === 'Long-Term Asset' || type === 'Other Asset' || type === 'Expense') {
-        return sum + (Number(line.debitAmount) - Number(line.creditAmount));
+      return Math.abs(Number(section?.total ?? 0));
+    }
+
+    if (balanceTypes.includes(kpiConfig.accountType)) {
+      if (!balanceSheetLoader) return 0;
+      const balanceSheet = await balanceSheetLoader();
+      const allAccounts: Array<{ accountNo: string; balance: number }> = [];
+
+      const pushAccounts = (list: any[]) => {
+        if (!Array.isArray(list)) return;
+        for (const acc of list) {
+          allAccounts.push({ accountNo: acc.accountNo, balance: Number(acc.balance) });
+        }
+      };
+
+      pushAccounts(balanceSheet.assets?.currentAssets?.accounts || []);
+      pushAccounts(balanceSheet.assets?.fixedAssets?.accounts || []);
+      pushAccounts(balanceSheet.assets?.otherAssets?.accounts || []);
+      pushAccounts(balanceSheet.liabilities?.currentLiabilities?.accounts || []);
+      pushAccounts(balanceSheet.liabilities?.longTermLiabilities?.accounts || []);
+      pushAccounts(balanceSheet.equity?.accounts || []);
+
+      if (accountNumber) {
+        const matches = allAccounts.filter(acc => acc.accountNo === accountNumber);
+        if (matches.length > 0) {
+          return matches.reduce((sum, acc) => sum + Math.abs(acc.balance), 0);
+        }
+
+        if (accountNumber === 'RETAINED_EARNINGS') {
+          return Math.abs(Number(balanceSheet.equity?.retainedEarnings ?? 0));
+        }
       }
 
-      // Revenue, Income, Liability, Equity
-      return sum + (Number(line.creditAmount) - Number(line.debitAmount));
-    }, 0);
+      switch (kpiConfig.accountType) {
+        case 'Asset':
+        case 'Current Asset':
+        case 'Fixed Asset':
+        case 'Long-Term Asset':
+        case 'Other Asset':
+          return Math.abs(Number(balanceSheet.assets?.totalAssets ?? 0));
+        case 'Liability':
+        case 'Current Liability':
+        case 'Long-Term Liability':
+          return Math.abs(Number(balanceSheet.liabilities?.totalLiabilities ?? 0));
+        case 'Equity':
+          return Math.abs(Number(balanceSheet.equity?.total ?? 0) + Number(balanceSheet.equity?.retainedEarnings ?? 0));
+      }
+    }
 
-    return Math.abs(balance);
+    return 0;
   }
 }
