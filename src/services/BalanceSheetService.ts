@@ -211,7 +211,7 @@ export class BalanceSheetService {
       const totalLiabilities = totalCurrentLiabilities + totalLongTermLiabilities;
 
       // Calculate Retained Earnings (Net Income from Income Statement)
-      const retainedEarnings = await this.calculateRetainedEarnings(params.asOfDate);
+      let retainedEarnings = await this.calculateRetainedEarnings(params.asOfDate);
 
       const equityAccountTotal = equityAccounts.reduce((sum, acc) => sum + acc.balance, 0);
       let totalEquity = equityAccountTotal + retainedEarnings;
