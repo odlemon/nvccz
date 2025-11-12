@@ -100,21 +100,21 @@ export class TrialBalanceService {
         const { debitBalance, creditBalance } = balances;
         const netBalance = debitBalance - creditBalance;
 
-        // Only include accounts with non-zero balances
-        if (debitBalance > 0 || creditBalance > 0) {
-          trialBalanceAccounts.push({
-            accountId: account.id,
-            accountName: account.accountName,
-            accountNo: account.accountNo,
-            accountType: account.accountType,
-            debitBalance,
-            creditBalance,
-            netBalance
-          });
+        const displayDebit = netBalance > 0 ? netBalance : 0;
+        const displayCredit = netBalance < 0 ? Math.abs(netBalance) : 0;
 
-          totalDebits += debitBalance;
-          totalCredits += creditBalance;
-        }
+        trialBalanceAccounts.push({
+          accountId: account.id,
+          accountName: account.accountName,
+          accountNo: account.accountNo,
+          accountType: account.accountType,
+          debitBalance: displayDebit,
+          creditBalance: displayCredit,
+          netBalance
+        });
+
+        totalDebits += displayDebit;
+        totalCredits += displayCredit;
       }
 
       // Sort accounts by account type and account number
