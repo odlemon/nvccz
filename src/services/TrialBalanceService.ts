@@ -11,7 +11,6 @@ export interface TrialBalanceAccount {
   accountType: string;
   debitBalance: number;
   creditBalance: number;
-  netBalance: number;
 }
 
 export interface TrialBalanceData {
@@ -109,8 +108,7 @@ export class TrialBalanceService {
           accountNo: account.accountNo,
           accountType: account.accountType,
           debitBalance: displayDebit,
-          creditBalance: displayCredit,
-          netBalance
+          creditBalance: displayCredit
         });
 
         totalDebits += displayDebit;
