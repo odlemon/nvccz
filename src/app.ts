@@ -159,17 +159,42 @@ app.use(cors({
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
-// Database connection error handling middleware
+// Database connection health-check middleware (cached to avoid hammering the DB)
+const HEALTH_CHECK_INTERVAL_MS = Number(process.env.DB_HEALTH_CHECK_INTERVAL_MS || 30000);
+let lastHealthCheck = 0;
+let lastHealthCheckStatus = true;
+
 app.use(async (req, res, next) => {
+  // Skip health checks for OPTIONS requests and when explicit bypass flag is set
+  if (req.method === "OPTIONS" || process.env.SKIP_REQUEST_HEALTH_CHECK === "true") {
+    return next();
+  }
+
+  const now = Date.now();
+  if (now - lastHealthCheck < HEALTH_CHECK_INTERVAL_MS) {
+    if (!lastHealthCheckStatus) {
+      logger.warn("Database health check previously failed; skipping request.");
+      return res.status(503).json({
+        success: false,
+        message: "Database temporarily unavailable",
+        error: "Service temporarily unavailable"
+      });
+    }
+    return next();
+  }
+
+  lastHealthCheck = now;
+
   try {
-    // Check database connection before processing request
-    const isConnected = await checkDatabaseConnection();
-    if (!isConnected) {
+    lastHealthCheckStatus = await checkDatabaseConnection();
+    if (!lastHealthCheckStatus) {
       logger.warn("Database connection lost, attempting to reconnect");
       await prisma.$connect();
+      lastHealthCheckStatus = true;
     }
     next();
   } catch (error: any) {
+    lastHealthCheckStatus = false;
     logger.error("Database connection error in middleware", { error: error.message });
     res.status(503).json({
       success: false,
