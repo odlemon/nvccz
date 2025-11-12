@@ -71,10 +71,6 @@ export default class BankReconciliationController {
       const bankIdFromQuery = (req.query?.bankId as string) || undefined;
       const bankId = bankIdFromParams || bankIdFromQuery;
 
-      if (!bankId) {
-        return ResponseHelper.badRequest(res, 'bankId is required');
-      }
-
       const status = await BankReconciliationService.getReconciliationStatus(bankId);
       
       return ResponseHelper.success(res, 'Reconciliation status retrieved successfully', status);
