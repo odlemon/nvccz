@@ -113,7 +113,8 @@ dotenv.config()
 const app = express()
 const port = process.env.PORT || 3000
 
-
+// Disable automatic ETag generation so successful JSON responses aren't converted to 304s
+app.set("etag", false)
 
 app.use(helmet({
   contentSecurityPolicy: false
@@ -158,6 +159,12 @@ app.use(cors({
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// Disallow intermediate caching for API responses to keep freshness predictable
+app.use((req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+})
 
 // Database connection health-check middleware (cached to avoid hammering the DB)
 const HEALTH_CHECK_INTERVAL_MS = Number(process.env.DB_HEALTH_CHECK_INTERVAL_MS || 30000);
