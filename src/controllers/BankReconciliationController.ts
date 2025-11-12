@@ -67,8 +67,14 @@ export default class BankReconciliationController {
    */
   static async getReconciliationStatus(req: Request, res: Response) {
     try {
-      const { bankId } = req.params;
-      
+      const bankIdFromParams = (req.params as any)?.bankId;
+      const bankIdFromQuery = (req.query?.bankId as string) || undefined;
+      const bankId = bankIdFromParams || bankIdFromQuery;
+
+      if (!bankId) {
+        return ResponseHelper.badRequest(res, 'bankId is required');
+      }
+
       const status = await BankReconciliationService.getReconciliationStatus(bankId);
       
       return ResponseHelper.success(res, 'Reconciliation status retrieved successfully', status);

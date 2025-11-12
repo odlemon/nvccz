@@ -158,6 +158,10 @@ export class BankReconciliationService {
     discrepancies: number;
   }> {
     try {
+      if (!bankId) {
+        throw new Error('Bank ID is required to fetch reconciliation status');
+      }
+
       console.log(`📊 Getting reconciliation status for bank: ${bankId}`);
       
       // Get last statement
@@ -166,17 +170,30 @@ export class BankReconciliationService {
         orderBy: { statementDate: 'desc' }
       });
       
-      // Get pending transactions
-      const pendingTransactions = await prisma.cashbookTransaction.count({
+      // Get pending transactions (unreconciled entries)
+      const pendingEntries = await prisma.cashbookEntry.findMany({
         where: {
           bankId,
           status: 'POSTED',
           isReconciled: false
+        },
+        select: {
+          id: true,
+          transactionDate: true,
+          description: true,
+          reference: true,
+          amount: true,
+          type: true,
+          counterpartyType: true,
+        },
+        orderBy: {
+          transactionDate: 'asc'
         }
       });
+      const pendingTransactions = pendingEntries.length;
       
       // Get matched transactions
-      const matchedTransactions = await prisma.cashbookTransaction.count({
+      const matchedTransactions = await prisma.cashbookEntry.count({
         where: {
           bankId,
           status: 'POSTED',
@@ -200,18 +217,13 @@ export class BankReconciliationService {
         isReconciled: lastStatement?.isReconciled || false,
         pendingTransactions,
         matchedTransactions,
-        discrepancies
+        discrepancies,
+        unreconciledEntries: pendingEntries
       };
       
     } catch (error: any) {
       console.error('❌ Error getting reconciliation status:', error.message);
-      return {
-        bankId,
-        isReconciled: false,
-        pendingTransactions: 0,
-        matchedTransactions: 0,
-        discrepancies: 0
-      };
+      throw error;
     }
   }
   
