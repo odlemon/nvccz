@@ -149,26 +149,56 @@ export class BankReconciliationService {
   /**
    * Get reconciliation status for bank
    */
-  static async getReconciliationStatus(bankId: string): Promise<{
-    bankId: string;
-    lastStatementDate?: Date;
-    isReconciled: boolean;
-    pendingTransactions: number;
-    matchedTransactions: number;
-    discrepancies: number;
-  }> {
+  static async getReconciliationStatus(bankId?: string): Promise<any> {
     try {
       if (!bankId) {
-        throw new Error('Bank ID is required to fetch reconciliation status');
+        console.log('📊 Getting reconciliation status for all banks');
+        const banks = await prisma.bank.findMany({
+          select: {
+            id: true,
+            name: true,
+            accountNumber: true,
+            glAccountId: true
+          },
+          orderBy: {
+            name: 'asc'
+          }
+        });
+
+        const statuses = await Promise.all(
+          banks.map(async bank => {
+            const status = await this.getReconciliationStatus(bank.id);
+            return {
+              bankId: bank.id,
+              bankName: bank.name,
+              accountNumber: bank.accountNumber,
+              ...status
+            };
+          })
+        );
+
+        return {
+          banks: statuses
+        };
       }
 
       console.log(`📊 Getting reconciliation status for bank: ${bankId}`);
       
       // Get last statement
-      const lastStatement = await prisma.bankStatement.findFirst({
+      const [lastStatement, bankInfo] = await Promise.all([
+        prisma.bankStatement.findFirst({
         where: { bankId },
         orderBy: { statementDate: 'desc' }
-      });
+      }),
+        prisma.bank.findUnique({
+          where: { id: bankId },
+          select: {
+            id: true,
+            name: true,
+            accountNumber: true
+          }
+        })
+      ]);
       
       // Get pending transactions (unreconciled entries)
       const pendingEntries = await prisma.cashbookEntry.findMany({
@@ -213,13 +243,15 @@ export class BankReconciliationService {
       
       return {
         bankId,
+        bankName: bankInfo?.name ?? null,
+        accountNumber: bankInfo?.accountNumber ?? null,
         lastStatementDate: lastStatement?.statementDate,
         isReconciled: lastStatement?.isReconciled || false,
         pendingTransactions,
         matchedTransactions,
         discrepancies,
         unreconciledEntries: pendingEntries
-      };
+      }
       
     } catch (error: any) {
       console.error('❌ Error getting reconciliation status:', error.message);
