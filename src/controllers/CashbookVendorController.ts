@@ -48,7 +48,7 @@ const vendorTransactionsInclude = {
   purchaseOrders: {
     select: {
       id: true,
-      orderNumber: true,
+      poNumber: true,
       orderDate: true,
       totalAmount: true,
       status: true,
@@ -129,8 +129,8 @@ const formatVendorWithTransactions = (vendor: any) => {
     id: po.id,
     source: "PURCHASE_ORDER",
     type: "PURCHASE_ORDER",
-    reference: po.orderNumber,
-    description: `Purchase Order ${po.orderNumber}`,
+    reference: po.poNumber,
+    description: `Purchase Order ${po.poNumber}`,
     date: po.orderDate,
     amount: decimalToNumber(po.totalAmount),
     status: po.status,
