@@ -308,7 +308,7 @@ router.get('/',
  */
 router.get('/summary', 
   authenticate, 
-  BankReconciliationController.getReconciliationReport
+  BankReconciliationController.getReconciliationSummary
 );
 
 /**
@@ -349,7 +349,7 @@ router.get('/summary',
  */
 router.get('/:id', 
   authenticate, 
-  BankReconciliationController.getReconciliationStatus
+  BankReconciliationController.getReconciliationById
 );
 
 /**
@@ -396,7 +396,7 @@ router.get('/:id',
  */
 router.get('/:reconciliationId/unmatched', 
   authenticate, 
-  BankReconciliationController.getReconciliationMismatches
+  BankReconciliationController.getUnmatchedTransactions
 );
 
 /**
@@ -443,7 +443,7 @@ router.get('/:reconciliationId/unmatched',
  */
 router.get('/transactions/:bankTransactionId/matches', 
   authenticate, 
-  BankReconciliationController.performAutomaticMatching
+  BankReconciliationController.getTransactionMatches
 );
 
 /**
