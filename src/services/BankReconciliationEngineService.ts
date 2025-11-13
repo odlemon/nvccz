@@ -23,6 +23,69 @@ export interface ReconciliationSummary {
 
 export class BankReconciliationEngineService {
   /**
+   * Get high-level reconciliation summary statistics
+   */
+  static async getSummaryStatistics(): Promise<{
+    totalReconciliations: number;
+    completedReconciliations: number;
+    pendingReconciliations: number;
+    processingReconciliations: number;
+    failedReconciliations: number;
+    deletedReconciliations: number;
+    totalTransactions: number;
+    matchedTransactions: number;
+    unmatchedTransactions: number;
+    averageAccuracy: number;
+  }> {
+    const [
+      totalReconciliations,
+      completedReconciliations,
+      pendingReconciliations,
+      processingReconciliations,
+      failedReconciliations,
+      deletedReconciliations,
+      aggregates
+    ] = await Promise.all([
+      prisma.bankReconciliation.count(),
+      prisma.bankReconciliation.count({ where: { status: 'COMPLETED' } }),
+      prisma.bankReconciliation.count({ where: { status: 'PENDING' } }),
+      prisma.bankReconciliation.count({ where: { status: 'PROCESSING' } }),
+      prisma.bankReconciliation.count({ where: { status: 'FAILED' } }),
+      prisma.bankReconciliation.count({ where: { status: 'DELETED' } }),
+      prisma.bankReconciliation.aggregate({
+        _sum: {
+          totalTransactions: true,
+          matchedCount: true,
+          unmatchedCount: true
+        },
+        _avg: {
+          overallAccuracy: true
+        }
+      })
+    ]);
+
+    const totalTransactions = aggregates._sum.totalTransactions ?? 0;
+    const matchedTransactions = aggregates._sum.matchedCount ?? 0;
+    const unmatchedTransactions = aggregates._sum.unmatchedCount ?? 0;
+    const averageAccuracyDecimal = aggregates._avg.overallAccuracy;
+    const averageAccuracyRaw = averageAccuracyDecimal ? averageAccuracyDecimal.toNumber() : 0;
+    const averageAccuracy = Math.round(averageAccuracyRaw * 100) / 100;
+
+    return {
+      totalReconciliations,
+      completedReconciliations,
+      pendingReconciliations,
+      processingReconciliations,
+      failedReconciliations,
+      deletedReconciliations,
+      totalTransactions,
+      matchedTransactions,
+      unmatchedTransactions,
+      averageAccuracy
+    };
+  }
+
+  /**
    * Run reconciliation for a specific reconciliation session
    */
   static async runReconciliation(
@@ -409,13 +472,66 @@ export class BankReconciliationEngineService {
       orderBy: { transactionDate: 'desc' }
     });
 
-    return journalEntries.map(entry => ({
-      ...entry,
-      similarity: this.calculateSimilarity(
+    return journalEntries.map(entry => {
+      const descriptionSimilarity = this.calculateSimilarity(
         bankTransaction.description.toLowerCase(),
         entry.description.toLowerCase()
-      )
-    }));
+      );
+
+      const bankAmount = parseFloat(bankTransaction.amount.toString());
+      const entryAmount = parseFloat(entry.totalAmount.toString());
+      const amountsMatch = Math.abs(bankAmount - entryAmount) <= 0.01;
+
+      const bankDate = new Date(bankTransaction.transactionDate);
+      const journalDate = new Date(entry.transactionDate);
+      const dateDiffDays = Math.abs(bankDate.getTime() - journalDate.getTime()) / (1000 * 60 * 60 * 24);
+
+      let confidenceScore = 0;
+
+      // Amount match weight (40%)
+      if (amountsMatch) {
+        confidenceScore += 40;
+      }
+
+      // Date proximity weight (30%)
+      if (dateDiffDays === 0) {
+        confidenceScore += 30;
+      } else if (dateDiffDays <= 1) {
+        confidenceScore += 25;
+      } else if (dateDiffDays <= 3) {
+        confidenceScore += 15;
+      } else if (dateDiffDays <= 7) {
+        confidenceScore += 10;
+      }
+
+      // Description similarity weight (30%)
+      confidenceScore += descriptionSimilarity * 30;
+
+      confidenceScore = Math.min(100, Math.round(confidenceScore * 100) / 100);
+
+      const matchType =
+        amountsMatch && dateDiffDays === 0 && descriptionSimilarity >= 0.9 ? 'EXACT' : 'FUZZY';
+
+      return {
+        bankTransactionId,
+        matchType,
+        similarity: descriptionSimilarity,
+        confidenceScore,
+        journalEntry: {
+          id: entry.id,
+          referenceNumber: entry.referenceNumber,
+          description: entry.description,
+          transactionDate: entry.transactionDate,
+          totalAmount: parseFloat(entry.totalAmount.toString()),
+          currency: entry.currency,
+          journalEntryLines: entry.journalEntryLines.map(line => ({
+            ...line,
+            debitAmount: line.debitAmount ? parseFloat(line.debitAmount.toString()) : 0,
+            creditAmount: line.creditAmount ? parseFloat(line.creditAmount.toString()) : 0
+          }))
+        }
+      };
+    });
   }
 
   /**
