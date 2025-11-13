@@ -203,7 +203,7 @@ export class IncomeStatementController {
    */
   static async getIncomeStatementByQuery(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId, type = "summary" } = req.query;
+      const { startDate, endDate, currencyId, type } = req.query;
 
       if (!startDate || !endDate) {
         return res.status(400).json({
