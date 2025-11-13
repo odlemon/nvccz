@@ -59,6 +59,14 @@ export class CashFlowCalculationService {
     const beginningCashBalance = cashBalances.beginning;
     const endingCashBalance = beginningCashBalance + netCashFlow;
 
+    const presentation = this.buildPresentation({
+      accounts: categorizedAccounts,
+      revenueAccounts: operatingActivities.accounts,
+      netCashFlow,
+      beginningCashBalance,
+      endingCashBalance
+    });
+
     return {
       period: {
         startDate,
@@ -75,7 +83,8 @@ export class CashFlowCalculationService {
         code: currency.code,
         name: currency.name
       },
-      generatedAt: new Date()
+      generatedAt: new Date(),
+      presentation
     };
   }
 
@@ -631,6 +640,216 @@ export class CashFlowCalculationService {
           }))
         }))
       }
+    };
+  }
+
+  private buildPresentation({
+    accounts,
+    netCashFlow,
+    beginningCashBalance,
+    endingCashBalance
+  }: {
+    accounts: CashFlowAccount[];
+    netCashFlow: number;
+    beginningCashBalance: number;
+    endingCashBalance: number;
+  }) {
+    const accountNoValue = (accountNo: string) => {
+      const numeric = parseInt(accountNo, 10);
+      return Number.isNaN(numeric) ? 0 : numeric;
+    };
+
+    const sumAccounts = (filter: (account: CashFlowAccount) => boolean) =>
+      accounts.filter(filter).reduce((sum, account) => sum + account.netAmount, 0);
+
+    const cashReceiptsCustomers = sumAccounts(
+      account =>
+        account.accountType === "Revenue" &&
+        accountNoValue(account.accountNo) >= 4000 &&
+        accountNoValue(account.accountNo) <= 4099
+    );
+
+    const cashPaidGeneralOperating = sumAccounts(account => {
+      const no = account.accountNo;
+      return (
+        ["5000", "5010", "5020", "5040", "5050", "5060", "5070", "5080", "5090"].includes(no)
+      );
+    });
+
+    const cashPaidWages = sumAccounts(account => account.accountNo === "5030");
+
+    const cashPaidInterest = sumAccounts(account =>
+      account.accountName.toLowerCase().includes("interest")
+    );
+
+    const cashPaidIncomeTaxes = sumAccounts(account =>
+      account.accountName.toLowerCase().includes("tax") ||
+      (accountNoValue(account.accountNo) >= 6100 && accountNoValue(account.accountNo) <= 6199)
+    );
+
+    const depreciationAndAmortization = sumAccounts(account =>
+      account.accountName.toLowerCase().includes("depreciation") ||
+      account.accountName.toLowerCase().includes("amortization")
+    );
+
+    const changeInInventory = sumAccounts(account =>
+      account.accountName.toLowerCase().includes("inventory")
+    );
+
+    const changeInOperatingAssetsRaw = sumAccounts(account => {
+      const value = accountNoValue(account.accountNo);
+      return (
+        account.accountType === "Asset" &&
+        !account.accountName.toLowerCase().includes("cash") &&
+        value >= 1200 &&
+        value < 1500 &&
+        !account.accountName.toLowerCase().includes("inventory")
+      );
+    });
+    const changeInOperatingAssets = -changeInOperatingAssetsRaw;
+
+    const changeInOperatingLiabilities = sumAccounts(account => {
+      const value = accountNoValue(account.accountNo);
+      return account.accountType === "Liability" && value >= 2000 && value < 3000;
+    });
+
+    const receiptsTotal = cashReceiptsCustomers;
+    const paymentsTotal =
+      -cashPaidGeneralOperating - cashPaidWages - cashPaidInterest - cashPaidIncomeTaxes;
+
+    const netIncomeOperating = receiptsTotal + paymentsTotal;
+    const additionsTotal = depreciationAndAmortization;
+    const adjustmentsTotal =
+      -changeInInventory + changeInOperatingAssets + changeInOperatingLiabilities;
+
+    const totalOperating =
+      netIncomeOperating + additionsTotal + adjustmentsTotal;
+
+    const propertyAccounts = accounts.filter(account => {
+      const value = accountNoValue(account.accountNo);
+      return value >= 1100 && value < 1500 && account.accountType === "Asset";
+    });
+
+    let purchaseProperty = 0;
+    let saleProperty = 0;
+    for (const account of propertyAccounts) {
+      if (account.netAmount > 0) {
+        purchaseProperty += account.netAmount;
+      } else if (account.netAmount < 0) {
+        saleProperty += Math.abs(account.netAmount);
+      }
+    }
+
+    const investmentAccounts = accounts.filter(account => {
+      const value = accountNoValue(account.accountNo);
+      return value >= 1500 && value < 1600;
+    });
+
+    let purchaseInvestments = 0;
+    let saleInvestments = 0;
+    for (const account of investmentAccounts) {
+      if (account.netAmount > 0) {
+        purchaseInvestments += account.netAmount;
+      } else if (account.netAmount < 0) {
+        saleInvestments += Math.abs(account.netAmount);
+      }
+    }
+
+    const totalInvesting =
+      saleProperty +
+      saleInvestments -
+      purchaseProperty -
+      purchaseInvestments;
+
+    const loanAccounts = accounts.filter(account => account.accountNo === "2200");
+    let newBankLoans = 0;
+    let repaymentBankLoans = 0;
+    for (const account of loanAccounts) {
+      if (account.netAmount > 0) {
+        newBankLoans += account.netAmount;
+      } else if (account.netAmount < 0) {
+        repaymentBankLoans += Math.abs(account.netAmount);
+      }
+    }
+
+    const equityAccounts = accounts.filter(account => account.accountNo === "3000");
+    let proceedsCommonStock = 0;
+    let dividends = 0;
+    for (const account of equityAccounts) {
+      if (account.netAmount > 0) {
+        proceedsCommonStock += account.netAmount;
+      } else if (account.netAmount < 0) {
+        dividends += Math.abs(account.netAmount);
+      }
+    }
+
+    const dividendExpenseAccounts = accounts.filter(account =>
+      account.accountName.toLowerCase().includes("dividend")
+    );
+    for (const account of dividendExpenseAccounts) {
+      if (account.netAmount > 0) {
+        dividends += account.netAmount;
+      }
+    }
+
+    const totalFinancing =
+      newBankLoans +
+      proceedsCommonStock -
+      repaymentBankLoans -
+      dividends;
+
+    return {
+      operating: {
+        label: "Operating Activities",
+        cashReceipts: [
+          { label: "Customers", amount: receiptsTotal }
+        ],
+        cashPayments: [
+          { label: "General operating and admin expenses", amount: -cashPaidGeneralOperating },
+          { label: "Wage expenses", amount: -cashPaidWages },
+          { label: "Interest", amount: -cashPaidInterest },
+          { label: "Income taxes", amount: -cashPaidIncomeTaxes }
+        ],
+        additions: [
+          { label: "Other operations", amount: 0 },
+          { label: "Depreciation and amortization", amount: depreciationAndAmortization }
+        ],
+        adjustments: [
+          { label: "Change in inventory", amount: -changeInInventory },
+          { label: "Change in operating assets", amount: changeInOperatingAssets },
+          { label: "Change in operating liabilities", amount: changeInOperatingLiabilities }
+        ],
+        total: totalOperating
+      },
+      investing: {
+        label: "Investing Activities",
+        cashReceipts: [
+          { label: "Sale of property and equipment", amount: saleProperty },
+          { label: "Collection of loans", amount: 0 },
+          { label: "Proceeds from disposal of investments", amount: saleInvestments }
+        ],
+        cashPayments: [
+          { label: "Purchase of property and equipment", amount: -purchaseProperty },
+          { label: "Loans to others", amount: 0 },
+          { label: "Purchase of investments", amount: -purchaseInvestments }
+        ],
+        total: totalInvesting
+      },
+      financing: {
+        label: "Financing Activities",
+        cashReceipts: [
+          { label: "New bank loans", amount: newBankLoans },
+          { label: "Proceeds from issuing common stock", amount: proceedsCommonStock }
+        ],
+        cashPayments: [
+          { label: "Repayment of bank loans", amount: -repaymentBankLoans },
+          { label: "Dividends", amount: -dividends }
+        ],
+        total: totalFinancing
+      },
+      netChangeInCash: totalOperating + totalInvesting + totalFinancing,
+      beginningCashBalance,
+      endingCashBalance
     };
   }
 } 

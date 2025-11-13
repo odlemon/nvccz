@@ -24,6 +24,21 @@ export interface CashFlowActivity {
   description: string;
 }
 
+export interface CashFlowLine {
+  label: string;
+  amount: number;
+  accounts?: CashFlowAccount[];
+}
+
+export interface CashFlowPresentationSection {
+  label: string;
+  cashReceipts?: CashFlowLine[];
+  cashPayments?: CashFlowLine[];
+  additions?: CashFlowLine[];
+  adjustments?: CashFlowLine[];
+  total: number;
+}
+
 export interface CashFlowStatement {
   period: {
     startDate: Date;
@@ -41,4 +56,12 @@ export interface CashFlowStatement {
     name: string;
   };
   generatedAt: Date;
+  presentation?: {
+    operating: CashFlowPresentationSection;
+    investing: CashFlowPresentationSection;
+    financing: CashFlowPresentationSection;
+    netChangeInCash: number;
+    beginningCashBalance: number;
+    endingCashBalance: number;
+  };
 } 
