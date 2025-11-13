@@ -220,12 +220,14 @@ export class IncomeStatementController {
 
       let result;
       switch (type) {
+        case "summary":
+          result = await IncomeStatementService.getIncomeStatementSummary(params);
+          break;
         case "detailed":
           result = await IncomeStatementService.getDetailedIncomeStatement(params);
           break;
-        case "summary":
         default:
-          result = await IncomeStatementService.getIncomeStatementSummary(params);
+          result = await IncomeStatementService.generateIncomeStatement(params);
           break;
       }
 
