@@ -20,20 +20,41 @@ export interface IncomeStatementAccount {
   netAmount: number;
 }
 
+export interface IncomeStatementLine {
+  accountId: string;
+  accountNo: string;
+  accountName: string;
+  accountType: string;
+  netAmount: number;
+  amount: number;
+}
+
+export interface IncomeStatementSection {
+  label: string;
+  accounts: IncomeStatementLine[];
+  total: number;
+}
+
+export interface IncomeStatementTotals {
+  netIncomeBeforeTaxes: number;
+  incomeTaxExpense: number;
+  incomeFromContinuingOperations: number;
+  belowTheLine: number;
+  netIncome: number;
+}
+
 export interface IncomeStatement {
   period: {
     startDate: Date;
     endDate: Date;
   };
-  revenue: {
-    accounts: IncomeStatementAccount[];
-    total: number;
+  sections: {
+    revenue: IncomeStatementSection;
+    operatingExpenses: IncomeStatementSection;
+    incomeTax: IncomeStatementSection;
+    belowTheLine: IncomeStatementSection;
   };
-  expenses: {
-    accounts: IncomeStatementAccount[];
-    total: number;
-  };
-  netIncome: number;
+  totals: IncomeStatementTotals;
   currency: {
     id: string;
     code: string;
@@ -81,36 +102,29 @@ export class IncomeStatementService {
       // Calculate account balances from journal entry lines
       const accountBalances = await this.calculateAccountBalances(journalEntries);
 
-      // Separate accounts by financial statement type
-      const revenueAccounts = accountBalances.filter(account => 
-        account.financialStatement === "Income Statement" && 
-        account.accountType === "Revenue"
-      );
+      const sections = this.buildIncomeStatementSections(accountBalances);
 
-      const expenseAccounts = accountBalances.filter(account => 
-        account.financialStatement === "Income Statement" && 
-        account.accountType === "Expense"
-      );
-
-      // Calculate totals
-      const revenueTotal = revenueAccounts.reduce((sum, account) => sum + account.netAmount, 0);
-      const expenseTotal = expenseAccounts.reduce((sum, account) => sum + account.netAmount, 0);
-      const netIncome = revenueTotal - expenseTotal;
+      const netIncomeBeforeTaxes =
+        sections.revenue.total - sections.operatingExpenses.total;
+      const incomeTaxExpense = sections.incomeTax.total;
+      const incomeFromContinuingOperations =
+        netIncomeBeforeTaxes - incomeTaxExpense;
+      const belowTheLineTotal = sections.belowTheLine.total;
+      const netIncome = incomeFromContinuingOperations + belowTheLineTotal;
 
       return {
         period: {
           startDate,
           endDate
         },
-        revenue: {
-          accounts: revenueAccounts,
-          total: revenueTotal
+        sections,
+        totals: {
+          netIncomeBeforeTaxes,
+          incomeTaxExpense,
+          incomeFromContinuingOperations,
+          belowTheLine: belowTheLineTotal,
+          netIncome
         },
-        expenses: {
-          accounts: expenseAccounts,
-          total: expenseTotal
-        },
-        netIncome,
         currency: {
           id: currency.id,
           code: currency.code,
@@ -123,6 +137,135 @@ export class IncomeStatementService {
       if (error instanceof Error) throw error;
       throw new Error("Failed to generate income statement. Please try again.");
     }
+  }
+
+  /**
+   * Build structured income statement sections aligned with standard presentation
+   */
+  private static buildIncomeStatementSections(accounts: IncomeStatementAccount[]) {
+    const revenueSection: IncomeStatementSection = {
+      label: "Revenue",
+      accounts: [],
+      total: 0
+    };
+
+    const operatingExpensesSection: IncomeStatementSection = {
+      label: "Operating Expenses",
+      accounts: [],
+      total: 0
+    };
+
+    const incomeTaxSection: IncomeStatementSection = {
+      label: "Income Tax Expense",
+      accounts: [],
+      total: 0
+    };
+
+    const belowTheLineSection: IncomeStatementSection = {
+      label: "Below-the-Line Items",
+      accounts: [],
+      total: 0
+    };
+
+    const returnsAccounts: IncomeStatementLine[] = [];
+
+    const getAccountNoValue = (accountNo: string) => {
+      const numeric = parseInt(accountNo, 10);
+      return Number.isNaN(numeric) ? 0 : numeric;
+    };
+
+    for (const account of accounts) {
+      if (account.financialStatement !== "Income Statement") {
+        continue;
+      }
+
+      const accountNoValue = getAccountNoValue(account.accountNo);
+      if (accountNoValue === 0) continue;
+
+      const baseLine: IncomeStatementLine = {
+        accountId: account.accountId,
+        accountNo: account.accountNo,
+        accountName: account.accountName,
+        accountType: account.accountType,
+        netAmount: account.netAmount,
+        amount: account.netAmount
+      };
+
+      if (accountNoValue >= 4000 && accountNoValue <= 4099) {
+        // Core revenue accounts (credits positive)
+        revenueSection.accounts.push(baseLine);
+        revenueSection.total += baseLine.amount;
+        continue;
+      }
+
+      if (accountNoValue >= 4100 && accountNoValue <= 4199) {
+        // Contra revenue / returns
+        const line: IncomeStatementLine = {
+          ...baseLine,
+          amount: baseLine.amount * -1
+        };
+        returnsAccounts.push(line);
+        revenueSection.total += line.amount;
+        continue;
+      }
+
+      if (accountNoValue >= 5000 && accountNoValue <= 5999) {
+        // Operating expenses (debits positive)
+        operatingExpensesSection.accounts.push(baseLine);
+        operatingExpensesSection.total += baseLine.amount;
+        continue;
+      }
+
+      if (accountNoValue >= 6100 && accountNoValue <= 6199) {
+        // Income tax
+        incomeTaxSection.accounts.push(baseLine);
+        incomeTaxSection.total += baseLine.amount;
+        continue;
+      }
+
+      if (accountNoValue >= 6200 && accountNoValue <= 6999) {
+        // Below-the-line items
+        const line: IncomeStatementLine = {
+          ...baseLine,
+          amount:
+            account.accountType === "Expense" ? baseLine.amount * -1 : baseLine.amount
+        };
+        belowTheLineSection.accounts.push(line);
+        belowTheLineSection.total += line.amount;
+        continue;
+      }
+
+      // Default to operating expenses if nothing else matches
+      operatingExpensesSection.accounts.push(baseLine);
+      operatingExpensesSection.total += baseLine.amount;
+    }
+
+    // Insert returns/allowances after revenue lines
+    if (returnsAccounts.length > 0) {
+      revenueSection.accounts.push(
+        ...returnsAccounts.map(line => ({
+          ...line,
+          netAmount: line.netAmount,
+          amount: line.amount
+        }))
+      );
+    }
+
+    const sortLines = (section: IncomeStatementSection) => {
+      section.accounts.sort((a, b) => a.accountNo.localeCompare(b.accountNo));
+    };
+
+    sortLines(revenueSection);
+    sortLines(operatingExpensesSection);
+    sortLines(incomeTaxSection);
+    sortLines(belowTheLineSection);
+
+    return {
+      revenue: revenueSection,
+      operatingExpenses: operatingExpensesSection,
+      incomeTax: incomeTaxSection,
+      belowTheLine: belowTheLineSection
+    };
   }
 
   /**
@@ -202,19 +345,42 @@ export class IncomeStatementService {
     try {
       const incomeStatement = await this.generateIncomeStatement(params);
 
-      // Add additional details for each account
-      const detailedRevenue = await this.addAccountDetails(incomeStatement.revenue.accounts, params);
-      const detailedExpenses = await this.addAccountDetails(incomeStatement.expenses.accounts, params);
+      const detailedRevenue = await this.addAccountDetails(
+        incomeStatement.sections.revenue.accounts,
+        params
+      );
+      const detailedOperatingExpenses = await this.addAccountDetails(
+        incomeStatement.sections.operatingExpenses.accounts,
+        params
+      );
+      const detailedIncomeTax = await this.addAccountDetails(
+        incomeStatement.sections.incomeTax.accounts,
+        params
+      );
+      const detailedBelowTheLine = await this.addAccountDetails(
+        incomeStatement.sections.belowTheLine.accounts,
+        params
+      );
 
       return {
         ...incomeStatement,
-        revenue: {
-          ...incomeStatement.revenue,
-          accounts: detailedRevenue
-        },
-        expenses: {
-          ...incomeStatement.expenses,
-          accounts: detailedExpenses
+        sections: {
+          revenue: {
+            ...incomeStatement.sections.revenue,
+            accounts: detailedRevenue
+          },
+          operatingExpenses: {
+            ...incomeStatement.sections.operatingExpenses,
+            accounts: detailedOperatingExpenses
+          },
+          incomeTax: {
+            ...incomeStatement.sections.incomeTax,
+            accounts: detailedIncomeTax
+          },
+          belowTheLine: {
+            ...incomeStatement.sections.belowTheLine,
+            accounts: detailedBelowTheLine
+          }
         }
       };
     } catch (error) {
@@ -227,7 +393,7 @@ export class IncomeStatementService {
   /**
    * Add transaction details for each account
    */
-  private static async addAccountDetails(accounts: IncomeStatementAccount[], params: IncomeStatementParams): Promise<any[]> {
+  private static async addAccountDetails(accounts: IncomeStatementLine[], params: IncomeStatementParams): Promise<any[]> {
     const detailedAccounts = [];
 
     // Get currency information for filtering
@@ -395,14 +561,18 @@ export class IncomeStatementService {
       return {
         period: incomeStatement.period,
         revenue: {
-          total: incomeStatement.revenue.total,
-          accountCount: incomeStatement.revenue.accounts.length
+          total: incomeStatement.sections.revenue.total,
+          accountCount: incomeStatement.sections.revenue.accounts.length
         },
-        expenses: {
-          total: incomeStatement.expenses.total,
-          accountCount: incomeStatement.expenses.accounts.length
+        operatingExpenses: {
+          total: incomeStatement.sections.operatingExpenses.total,
+          accountCount: incomeStatement.sections.operatingExpenses.accounts.length
         },
-        netIncome: incomeStatement.netIncome,
+        incomeTaxExpense: incomeStatement.sections.incomeTax.total,
+        belowTheLine: incomeStatement.sections.belowTheLine.total,
+        netIncomeBeforeTaxes: incomeStatement.totals.netIncomeBeforeTaxes,
+        incomeFromContinuingOperations: incomeStatement.totals.incomeFromContinuingOperations,
+        netIncome: incomeStatement.totals.netIncome,
         currency: incomeStatement.currency,
         generatedAt: incomeStatement.generatedAt
       };
