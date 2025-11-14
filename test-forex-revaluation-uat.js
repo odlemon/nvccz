@@ -175,7 +175,26 @@ async function testForexRevaluationUAT() {
     const existingRates = existingRatesRes.data.data.exchangeRates || [];
     const day1RateExists = existingRates.some(r => new Date(r.date).getTime() === day1.getTime() && Number(r.rate) === rateDay1);
 
-    if (!day1RateExists) {
+    // Check if the existing rate is the correct one (50)
+    const existingRateOnDay1 = existingRates.find(r => {
+      const rateDateStr = new Date(r.date).toISOString().split('T')[0];
+      const day1Str = day1.toISOString().split('T')[0];
+      return rateDateStr === day1Str;
+    });
+
+    if (existingRateOnDay1 && Number(existingRateOnDay1.rate) !== rateDay1) {
+      console.log(`   ⚠️  Exchange rate exists on ${day1.toISOString().split('T')[0]} but with different rate: ${existingRateOnDay1.rate}`);
+      console.log(`   🔄 Updating existing rate to ${rateDay1}...`);
+      try {
+        await axios.put(`${BASE_URL}/api/accounting/multi-currency/exchange-rates/${existingRateOnDay1.id}`, {
+          rate: rateDay1,
+        }, { headers: { Authorization: `Bearer ${token}` } });
+        console.log(`   ✅ Exchange rate updated to ${rateDay1} (${usdCurrency.code}:${zwlCurrency.code})`);
+      } catch (updateError) {
+        console.error(`   ❌ Failed to update exchange rate:`, updateError.response?.data || updateError.message);
+        console.log(`   ⚠️  Test may fail because existing rate (${existingRateOnDay1.rate}) will be used instead of ${rateDay1}`);
+      }
+    } else if (!day1RateExists) {
       try {
         await axios.post(`${BASE_URL}/api/accounting/multi-currency/exchange-rates`, {
           effectiveDate: day1.toISOString().split('T')[0],
@@ -185,8 +204,10 @@ async function testForexRevaluationUAT() {
         }, { headers: { Authorization: `Bearer ${token}` } });
         console.log(`   ✅ Exchange rate created: ${rateDay1} (${usdCurrency.code}:${zwlCurrency.code})`);
       } catch (createError) {
-        if (createError.response?.data?.details?.includes('already exists')) {
-          console.log(`   ✅ Exchange rate already exists: ${rateDay1} (${usdCurrency.code}:${zwlCurrency.code})`);
+        if (createError.response?.data?.details?.includes('already exists') || 
+            createError.response?.data?.message?.includes('already exists')) {
+          console.log(`   ⚠️  Exchange rate already exists on this date with a different rate`);
+          console.log(`   ⚠️  Test may fail because existing rate will be used instead of ${rateDay1}`);
         } else {
           throw createError;
         }
@@ -429,7 +450,8 @@ async function testForexRevaluationUAT() {
     }
 
     console.log('3. Journal Entry Structure:');
-    const bankLine = journalEntryLines.find(l => l.chartOfAccount.accountNo === '1101');
+    // Use the actual bank GL account number (not hardcoded '1101')
+    const bankLine = journalEntryLines.find(l => l.chartOfAccount.id === usdBankGLAccount.id || l.chartOfAccount.accountNo === usdBankGLAccount.accountNo);
     const unrealizedGainLine = journalEntryLines.find(l => 
       l.chartOfAccount.accountNo === '4050' || 
       l.chartOfAccount.accountName.toLowerCase().includes('unrealized')

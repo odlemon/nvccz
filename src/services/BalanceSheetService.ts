@@ -188,22 +188,22 @@ export class BalanceSheetService {
           continue;
         }
 
+        const accountType = account.accountType;
+        const accountName = account.accountName.toLowerCase();
+
+        // Handle Accumulated Depreciation separately - collect all but don't add to array yet
+        if (accountName.includes('accumulated depreciation') || accountType === 'Contra-Asset') {
+          // Accumulated depreciation is a credit balance (positive in DB), but we want to show it as negative
+          // because it reduces the value of assets
+          accumulatedDepreciation += balance;
+          continue; // Don't add individual accounts, we'll add one consolidated line item later
+        }
+
         const accountData = {
           accountNo: account.accountNo,
           accountName: account.accountName,
           balance: balance
         };
-
-        const accountType = account.accountType;
-        const accountName = account.accountName.toLowerCase();
-
-        // Handle Accumulated Depreciation separately
-        if (accountName.includes('accumulated depreciation') || accountType === 'Contra-Asset') {
-          accumulatedDepreciation += balance;
-          // Add it to fixedAssets array for display (it will show as positive since it's a credit balance)
-          fixedAssets.push(accountData);
-          continue; // Don't process it again below
-        }
         
         if (accountType === 'Current Asset') {
           currentAssets.push(accountData);
@@ -220,20 +220,21 @@ export class BalanceSheetService {
         }
       }
 
+      // Add Accumulated Depreciation as a single consolidated line item (shown as negative)
+      if (Math.abs(accumulatedDepreciation) > 0.01) {
+        fixedAssets.push({
+          accountNo: 'ACCUM-DEPR',
+          accountName: 'Accumulated Depreciation',
+          balance: -Math.abs(accumulatedDepreciation) // Show as negative value
+        });
+      }
+
       // Calculate totals
       const totalCurrentAssets = currentAssets.reduce((sum, acc) => sum + acc.balance, 0);
       
-      // Fixed Assets: Calculate gross assets (exclude accumulated depreciation from the sum)
-      const grossFixedAssets = fixedAssets
-        .filter(acc => !acc.accountName.toLowerCase().includes('accumulated depreciation'))
-        .reduce((sum, acc) => sum + acc.balance, 0);
-      
-      // For Fixed Assets total, we need to show the sum of all line items
-      // Accumulated Depreciation is shown as a separate line item (positive value for display)
-      // But for the total, we should show Net Fixed Assets (Gross - Depreciation)
-      // However, if user expects sum of all line items, we can calculate that too
-      // Net Fixed Assets = Gross Fixed Assets - Accumulated Depreciation
-      const totalFixedAssets = grossFixedAssets - Math.abs(accumulatedDepreciation);
+      // Fixed Assets: Sum all line items (including negative accumulated depreciation)
+      // This will give us Net Fixed Assets = Gross Fixed Assets - Accumulated Depreciation
+      const totalFixedAssets = fixedAssets.reduce((sum, acc) => sum + acc.balance, 0);
       
       // Alternative: Sum of all fixed asset line items (for user reference)
       // This would be: grossFixedAssets + accumulatedDepreciation (if treating dep as positive)
@@ -274,7 +275,7 @@ export class BalanceSheetService {
       console.log(`   - Current Assets:             $${totalCurrentAssets.toFixed(2)}`);
       console.log(`   - Fixed Assets (net):         $${totalFixedAssets.toFixed(2)}`);
       if (Math.abs(accumulatedDepreciation) > 0.01) {
-        console.log(`     (includes Accum. Depr.:    $${accumulatedDepreciation.toFixed(2)})`);
+        console.log(`     (Accum. Depr. (negative):   $${(-Math.abs(accumulatedDepreciation)).toFixed(2)})`);
       }
       console.log(`📉 Total Liabilities:            $${totalLiabilities.toFixed(2)}`);
       console.log(`💰 Total Equity:                 $${totalEquity.toFixed(2)}`);
@@ -297,7 +298,7 @@ export class BalanceSheetService {
           fixedAssets: {
             accounts: fixedAssets,
             total: totalFixedAssets,
-            accumulatedDepreciation: accumulatedDepreciation
+            accumulatedDepreciation: -Math.abs(accumulatedDepreciation) // Return as negative value
           },
           otherAssets: {
             accounts: otherAssets,

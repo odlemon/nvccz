@@ -1323,78 +1323,38 @@ export class MultiCurrencyService {
           normalizedOldDate.setUTCHours(0, 0, 0, 0);
         }
         
-        // Try exact date match first
-        let oldExchangeRate = await prisma.exchangeRate.findUnique({
+        // Get target date as string for comparison
+        const targetDateStr = normalizedOldDate.toISOString().split('T')[0];
+        
+        // Query ALL rates for this currency pair and filter by exact date string match
+        // This ensures we get the exact rate for the target date, regardless of timezone issues
+        const allRates = await prisma.exchangeRate.findMany({
           where: {
-            date_fromCurrencyId_toCurrencyId: {
-              date: normalizedOldDate,
-              fromCurrencyId: bank.currencyId,
-              toCurrencyId: baseCurrencyId
-            }
-          }
+            fromCurrencyId: bank.currencyId,
+            toCurrencyId: baseCurrencyId,
+            isActive: true
+          },
+          orderBy: { date: 'desc' }
         });
-
-        // If still no exact match, try querying for rates on that exact date (with timezone tolerance)
-        if (!oldExchangeRate) {
-          // Query for rates within a date range (to handle timezone issues)
-          // Use a narrow range around the target date
-          const dateStart = new Date(normalizedOldDate);
-          dateStart.setUTCDate(dateStart.getUTCDate() - 1);
-          dateStart.setUTCHours(0, 0, 0, 0);
-          const dateEnd = new Date(normalizedOldDate);
-          dateEnd.setUTCDate(dateEnd.getUTCDate() + 1);
-          dateEnd.setUTCHours(23, 59, 59, 999);
-          
-          const ratesAroundDate = await prisma.exchangeRate.findMany({
-            where: {
-              fromCurrencyId: bank.currencyId,
-              toCurrencyId: baseCurrencyId,
-              date: {
-                gte: dateStart,
-                lte: dateEnd
-              },
-              isActive: true
-            },
-            orderBy: { date: 'asc' } // Get closest to target date
+        
+        // Find exact date match by comparing date strings (YYYY-MM-DD)
+        let oldExchangeRate = allRates.find(r => {
+          const rateDateStr = new Date(r.date).toISOString().split('T')[0];
+          return rateDateStr === targetDateStr;
+        });
+        
+        if (oldExchangeRate) {
+          console.log(`[Revaluation] Found exact date match: Rate ${oldExchangeRate.rate} on ${targetDateStr}`);
+        } else {
+          console.log(`[Revaluation] No exact date match found for ${targetDateStr}. Available rates:`);
+          // Log available rates for debugging (show last 10)
+          allRates.slice(0, 10).forEach(r => {
+            const rateDateStr = new Date(r.date).toISOString().split('T')[0];
+            console.log(`[Revaluation]   Rate ${r.rate} on ${rateDateStr}`);
           });
           
-          // Find the rate closest to our target date
-          if (ratesAroundDate.length > 0) {
-            // Get the target date as YYYY-MM-DD string for comparison
-            const targetDateStr = normalizedOldDate.toISOString().split('T')[0];
-            
-            // First, try to find exact date match (by date string)
-            const exactMatch = ratesAroundDate.find(r => {
-              const rateDateStr = new Date(r.date).toISOString().split('T')[0];
-              return rateDateStr === targetDateStr;
-            });
-            
-            if (exactMatch) {
-              oldExchangeRate = exactMatch;
-            } else {
-              // If no exact match, use the closest one (sorted by proximity)
-              ratesAroundDate.sort((a, b) => {
-                const diffA = Math.abs(new Date(a.date).getTime() - normalizedOldDate.getTime());
-                const diffB = Math.abs(new Date(b.date).getTime() - normalizedOldDate.getTime());
-                return diffA - diffB;
-              });
-              // Only use if within 12 hours (to handle timezone differences)
-              const closestRate = ratesAroundDate[0];
-              const closestRateDate = new Date(closestRate.date);
-              const timeDiff = Math.abs(closestRateDate.getTime() - normalizedOldDate.getTime());
-              const hoursDiff = timeDiff / (1000 * 60 * 60);
-              
-              if (hoursDiff <= 12) {
-                oldExchangeRate = closestRate;
-              }
-            }
-          }
-        }
-
-        // If still no match and we have a specific date, don't fall back to older rates
-        // This ensures we use the exact date provided, not a different rate
-        if (!oldExchangeRate) {
-          throw new Error(`Exchange rate not found for ${bank.currency.code} to base currency on ${normalizedOldDate.toISOString().split('T')[0]}. Please create the exchange rate for this date.`);
+          // If no exact match found, throw error (don't use older rates)
+          throw new Error(`Exchange rate not found for ${bank.currency.code} to base currency on ${targetDateStr}. Please create the exchange rate for this date.`);
         }
 
         oldRate = Number(oldExchangeRate.rate);

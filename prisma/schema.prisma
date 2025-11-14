@@ -1563,6 +1563,7 @@ model ProcurementInvoice {
   taxAmount        Decimal                  @default(0.00) @db.Decimal(15, 2)
   totalAmount      Decimal                  @default(0.00) @db.Decimal(15, 2)
   currencyId       String?
+  exchangeRateAtCreation Decimal?            @db.Decimal(15, 6)
   invoiceDate      DateTime
   dueDate          DateTime?
   receivedDate     DateTime                 @default(now())
