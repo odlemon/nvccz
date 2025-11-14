@@ -244,9 +244,11 @@ export class InvoiceService {
   }
 
   /**
-   * Get invoices with filtering (no pagination - returns all)
+   * Get invoices with filtering and pagination
    */
   static async getInvoices(params: {
+    page?: number;
+    limit?: number;
     customerId?: string;
     currencyId?: string;
     startDate?: Date;
@@ -255,15 +257,22 @@ export class InvoiceService {
   }): Promise<{
     invoices: InvoiceWithRelations[];
     total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
   }> {
     try {
       const {
+        page = 1,
+        limit = 10,
         customerId,
         currencyId,
         startDate,
         endDate,
         status
       } = params;
+
+      const skip = (page - 1) * limit;
 
       // Build where clause
       const where: any = { isActive: true };
@@ -280,6 +289,8 @@ export class InvoiceService {
       const [invoices, total] = await Promise.all([
         prisma.invoice.findMany({
           where,
+          skip,
+          take: limit,
           orderBy: { createdAt: 'desc' },
           include: {
             customer: true,
@@ -299,7 +310,10 @@ export class InvoiceService {
 
       return {
         invoices,
-        total
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
       };
     } catch (error: any) {
       throw new Error(`Failed to get invoices: ${error.message}`);
