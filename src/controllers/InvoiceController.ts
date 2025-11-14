@@ -126,11 +126,13 @@ export class InvoiceController {
   }
 
   /**
-   * Get invoices with filtering (no pagination - returns all)
+   * Get invoices with filtering and pagination
    */
   static async getInvoices(req: AuthRequest, res: Response): Promise<void> {
     try {
       const {
+        page = 1,
+        limit = 10,
         customerId,
         currencyId,
         startDate,
@@ -139,6 +141,8 @@ export class InvoiceController {
       } = req.query;
 
       const params = {
+        page: Number(page),
+        limit: Number(limit),
         customerId: customerId as string,
         currencyId: currencyId as string,
         startDate: startDate ? new Date(startDate as string) : undefined,

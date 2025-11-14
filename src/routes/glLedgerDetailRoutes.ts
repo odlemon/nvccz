@@ -164,5 +164,116 @@ router.use(authenticate);
  */
 router.get("/", GLLedgerDetailController.generateGLLedgerDetail);
 
+/**
+ * @swagger
+ * /api/accounting/gl-ledger-detail/bank/{bankId}:
+ *   get:
+ *     summary: Generate General Ledger Detail Report for a Bank Account
+ *     description: |
+ *       Generates a detailed General Ledger report for a specific bank account.
+ *       The user selects a bank, and the system automatically generates the GL Detail report
+ *       for that bank's GL account (e.g., 1100).
+ *       
+ *       **Key Features:**
+ *       - Select bank by ID (user-friendly, no need to know GL account number)
+ *       - Shows all transactions for the bank's GL account
+ *       - Calculates running balance after each transaction
+ *       - Includes opening balance and closing balance
+ *       - Shows final bank balance (initial balance ± all Debits/Credits)
+ *       - Supports filtering by date range (defaults to current year if not provided)
+ *     tags: [General Ledger Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bankId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Bank account ID
+ *       - in: query
+ *         name: startDate
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2025-01-01"
+ *         description: Start date of the reporting period (YYYY-MM-DD). Defaults to start of current year.
+ *       - in: query
+ *         name: endDate
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2025-12-31"
+ *         description: End date of the reporting period (YYYY-MM-DD). Defaults to end of current year.
+ *       - in: query
+ *         name: includeMultiCurrency
+ *         required: false
+ *         schema:
+ *           type: boolean
+ *           default: true
+ *         description: Include multi-currency columns (defaults to true)
+ *     responses:
+ *       200:
+ *         description: Bank GL Detail report generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Bank GL Detail report generated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bank:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                           example: "Main Bank Account - ZWL"
+ *                         accountNumber:
+ *                           type: string
+ *                           example: "1100-001"
+ *                         currency:
+ *                           type: object
+ *                     account:
+ *                       type: object
+ *                       properties:
+ *                         accountNo:
+ *                           type: string
+ *                           example: "1100"
+ *                         accountName:
+ *                           type: string
+ *                         openingBalance:
+ *                           type: number
+ *                         closingBalance:
+ *                           type: number
+ *                           description: "Final bank balance (initial balance ± all Debits/Credits)"
+ *                     period:
+ *                       type: object
+ *                     transactions:
+ *                       type: array
+ *                       description: "All individual transactions with running balance"
+ *                     summary:
+ *                       type: object
+ *       400:
+ *         description: Bad request - missing or invalid parameters
+ *       404:
+ *         description: Bank not found
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/bank/:bankId", GLLedgerDetailController.generateBankGLLedgerDetail);
+
 export default router;
 
