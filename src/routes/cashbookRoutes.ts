@@ -461,6 +461,24 @@ router.post("/batches/import", upload.single('file'), CashbookBatchImportControl
 
 /**
  * @swagger
+ * /api/cashbook/batches/import/template:
+ *   get:
+ *     summary: Get CSV import template
+ *     description: Download a CSV template for batch imports with current bank account names
+ *     tags: [Cashbook]
+ *     responses:
+ *       200:
+ *         description: CSV template downloaded successfully
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *               format: binary
+ */
+router.get("/batches/import/template", CashbookBatchImportController.getTemplate);
+
+/**
+ * @swagger
  * /api/cashbook/batches/{id}/export:
  *   get:
  *     summary: Export batch to CSV
