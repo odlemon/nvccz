@@ -86,7 +86,7 @@ export class CashbookBatchImportService {
         }
       });
       
-        // 5. Create cashbook entries for valid transactions
+      // 5. Create cashbook entries for valid transactions
       let validCount = 0;
       for (const transaction of validationResult.validTransactions) {
         try {
@@ -334,9 +334,9 @@ export class CashbookBatchImportService {
         if (transaction.counterpartyType === 'CUSTOMER') {
           if (!transaction.customerName || transaction.customerName.trim() === '') {
             errors.push(`Row ${rowNumber}: Customer name is required for CUSTOMER transactions`);
-            continue;
-          }
-          
+          continue;
+        }
+        
           const customerKey = transaction.customerName.trim().toLowerCase();
           const customer = customerMap.get(customerKey);
           
@@ -351,8 +351,8 @@ export class CashbookBatchImportService {
               transaction.customerId = matchedCustomer.id;
             } else {
               errors.push(`Row ${rowNumber}: Customer "${transaction.customerName}" not found. Available customers: ${allCustomers.map(c => c.name).join(', ')}`);
-              continue;
-            }
+            continue;
+          }
           } else {
             transaction.customerId = customer.id;
           }
@@ -378,8 +378,8 @@ export class CashbookBatchImportService {
               transaction.vendorId = matchedVendor.id;
             } else {
               errors.push(`Row ${rowNumber}: Vendor "${transaction.vendorName}" not found. Available vendors: ${allVendors.map(v => v.name).join(', ')}`);
-              continue;
-            }
+            continue;
+          }
           } else {
             transaction.vendorId = vendor.id;
           }
@@ -406,8 +406,8 @@ export class CashbookBatchImportService {
               transaction.glAccountId = matchedAccount.id;
             } else {
               errors.push(`Row ${rowNumber}: GL account "${transaction.glAccountNo}" not found. Available accounts: ${allGLAccounts.slice(0, 10).map(a => `${a.accountNo} - ${a.accountName}`).join(', ')}${allGLAccounts.length > 10 ? '...' : ''}`);
-              continue;
-            }
+            continue;
+          }
           } else {
             transaction.glAccountId = glAccount.id;
           }

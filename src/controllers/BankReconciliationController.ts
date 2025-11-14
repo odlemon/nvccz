@@ -34,14 +34,14 @@ export default class BankReconciliationController {
       } = req.body || {};
 
       let { items } = req.body || {};
-
+      
       if (!bankId || !statementDate || openingBalance === undefined || closingBalance === undefined || !items) {
         return ResponseHelper.badRequest(
           res,
           "Missing required fields: bankId, statementDate, openingBalance, closingBalance, items"
         );
       }
-
+      
       if (typeof items === "string") {
         try {
           items = JSON.parse(items);
@@ -101,7 +101,7 @@ export default class BankReconciliationController {
           unmatchedCount: parsedItems.length,
           confidenceThreshold: new Decimal(confidenceThresholdValue),
           notes: JSON.stringify({
-            bankId,
+        bankId,
             statementDate,
             openingBalance: Number(openingBalance),
             closingBalance: Number(closingBalance),
@@ -128,7 +128,7 @@ export default class BankReconciliationController {
           })
         }))
       });
-
+      
       const summary = await BankReconciliationEngineService.runReconciliation(
         reconciliation.id,
         userId ?? "system",
@@ -203,7 +203,7 @@ export default class BankReconciliationController {
           }
         })
       ]);
-
+      
       return ResponseHelper.success(res, 'Reconciliations retrieved successfully', {
         reconciliations,
         pagination: {
@@ -312,7 +312,7 @@ export default class BankReconciliationController {
       return ResponseHelper.error(res, 'Failed to get reconciliation summary', error.message);
     }
   }
-
+  
   /**
    * Perform automatic matching
    * POST /api/cashbook/reconciliation/match/:statementId
@@ -360,7 +360,7 @@ export default class BankReconciliationController {
       return ResponseHelper.error(res, 'Failed to get potential matches', error.message);
     }
   }
-
+  
   /**
    * Get reconciliation mismatches
    * GET /api/cashbook/reconciliation/mismatches/:statementId
@@ -404,7 +404,7 @@ export default class BankReconciliationController {
       return ResponseHelper.error(res, 'Failed to get unmatched transactions', error.message);
     }
   }
-
+  
   /**
    * Resolve mismatch
    * POST /api/cashbook/reconciliation/mismatches/:mismatchId/resolve

@@ -484,4 +484,49 @@ export class MultiCurrencyController {
       });
     }
   }
+
+  /**
+   * Revalue foreign currency bank account
+   */
+  static async revalueForeignCurrencyBank(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const { bankId } = req.params;
+      const { newExchangeRate, revaluationDate, baseCurrencyId, oldExchangeRateDate } = req.body;
+
+      // Validation
+      if (!bankId || !newExchangeRate || !baseCurrencyId) {
+        res.status(400).json({
+          error: 'Missing required fields: bankId, newExchangeRate, baseCurrencyId'
+        });
+        return;
+      }
+
+      const result = await MultiCurrencyService.revalueForeignCurrencyBank(
+        bankId,
+        parseFloat(newExchangeRate),
+        revaluationDate ? new Date(revaluationDate) : new Date(),
+        baseCurrencyId,
+        userId,
+        oldExchangeRateDate ? new Date(oldExchangeRateDate) : undefined
+      );
+
+      res.json({
+        success: true,
+        message: 'Foreign currency bank revalued successfully',
+        data: result
+      });
+    } catch (error: any) {
+      console.error('Error revaluing foreign currency bank:', error);
+      res.status(500).json({
+        error: 'Failed to revalue foreign currency bank',
+        details: error.message
+      });
+    }
+  }
 }
