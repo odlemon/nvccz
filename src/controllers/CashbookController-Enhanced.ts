@@ -298,6 +298,13 @@ export class CashbookControllerEnhanced {
 
       const where: any = {};
       
+      // Exclude reversals from normal cashbook views (reversals have originalTransactionId set)
+      // Only show reversals if explicitly requested via query parameter
+      const includeReversals = req.query.includeReversals === 'true';
+      if (!includeReversals) {
+        where.originalTransactionId = null;
+      }
+      
       if (bankId) where.bankId = bankId;
       if (type) where.type = type;
       if (status) where.status = status;

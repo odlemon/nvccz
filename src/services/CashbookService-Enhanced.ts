@@ -430,7 +430,9 @@ export class CashbookServiceEnhanced {
         transactionDate: {
           gte: startDate,
           lte: endDate
-        }
+        },
+        // Exclude reversals from cashbook summary
+        originalTransactionId: null
       },
       include: {
         customer: true,
