@@ -330,4 +330,90 @@ router.post('/post-forex-gain-loss', MultiCurrencyController.postForexGainLoss);
  */
 router.get('/reconcile-invoice/:invoiceId', MultiCurrencyController.reconcileMultiCurrencyInvoice);
 
+/**
+ * @swagger
+ * /accounting/multi-currency/banks/{bankId}/revalue:
+ *   post:
+ *     summary: Revalue foreign currency bank account
+ *     description: |
+ *       Runs the Foreign Currency Revaluation routine for a bank account.
+ *       Calculates unrealized gain/loss when exchange rate changes and posts a balanced journal entry.
+ *       DR: USD Bank (unrealized gain/loss), CR: Unrealized FX Gain (P&L Account)
+ *     tags: [Multi-Currency]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bankId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Bank account ID to revalue
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - newExchangeRate
+ *               - baseCurrencyId
+ *             properties:
+ *               newExchangeRate:
+ *                 type: number
+ *                 example: 55
+ *                 description: New exchange rate for revaluation
+ *               revaluationDate:
+ *                 type: string
+ *                 format: date
+ *                 example: "2025-11-14"
+ *                 description: Date of revaluation (defaults to today)
+ *               baseCurrencyId:
+ *                 type: string
+ *                 description: Base currency ID (ZIG/ZWL)
+ *     responses:
+ *       200:
+ *         description: Foreign currency bank revalued successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bank:
+ *                       type: object
+ *                     foreignCurrencyBalance:
+ *                       type: number
+ *                       description: Balance in foreign currency
+ *                     oldBaseCurrencyValue:
+ *                       type: number
+ *                       description: Base currency value at old rate
+ *                     newBaseCurrencyValue:
+ *                       type: number
+ *                       description: Base currency value at new rate
+ *                     unrealizedGainLoss:
+ *                       type: number
+ *                       description: Unrealized gain/loss amount
+ *                     gainLossType:
+ *                       type: string
+ *                       enum: [GAIN, LOSS]
+ *                     journalEntryId:
+ *                       type: string
+ *       400:
+ *         description: Bad request - missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Bank account not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/banks/:bankId/revalue', MultiCurrencyController.revalueForeignCurrencyBank);
+
 export default router;

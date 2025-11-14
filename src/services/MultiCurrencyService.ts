@@ -226,11 +226,15 @@ export class MultiCurrencyService {
    * Get exchange rate for currency pair and date
    */
   private static async getExchangeRate(fromCurrencyId: string, toCurrencyId: string, date: Date): Promise<ExchangeRate | null> {
+    // Normalize date to start of day for exact matching
+    const normalizedDate = new Date(date);
+    normalizedDate.setHours(0, 0, 0, 0);
+    
     // First try to get exact date match
     let exchangeRate = await prisma.exchangeRate.findUnique({
       where: {
         date_fromCurrencyId_toCurrencyId: {
-          date,
+          date: normalizedDate,
           fromCurrencyId,
           toCurrencyId
         }
@@ -246,7 +250,7 @@ export class MultiCurrencyService {
       where: {
         fromCurrencyId,
         toCurrencyId,
-        date: { lte: date },
+        date: { lte: normalizedDate },
         isActive: true
       },
       orderBy: { date: 'desc' }
@@ -261,7 +265,7 @@ export class MultiCurrencyService {
       where: {
         fromCurrencyId: toCurrencyId,
         toCurrencyId: fromCurrencyId,
-        date: { lte: date },
+        date: { lte: normalizedDate },
         isActive: true
       },
       orderBy: { date: 'desc' }
@@ -281,16 +285,19 @@ export class MultiCurrencyService {
 
   /**
    * Process multi-currency payment
+   * UAT Requirement: When invoice is in USD but payment is in ZWL, calculate forex gain/loss
+   * based on original ZWL value at invoice creation vs payment ZWL amount
    */
   static async processMultiCurrencyPayment(params: ProcessMultiCurrencyPaymentParams): Promise<{
     forexGainLoss?: ForexGainLossWithDetails;
     convertedAmount: number;
     exchangeRate: number;
+    journalEntryId?: string;
   }> {
     try {
       const { invoiceId, paymentCurrencyId, paymentAmount, exchangeRate, createdById } = params;
 
-      // Get invoice details
+      // Get invoice details with exchangeRateAtCreation
       const invoice = await prisma.invoice.findUnique({
         where: { id: invoiceId }
       });
@@ -307,28 +314,42 @@ export class MultiCurrencyService {
         };
       }
 
-      // Get exchange rate
-      const rate = exchangeRate || await this.getExchangeRateForPayment(invoice.currencyId, paymentCurrencyId);
-      const convertedAmount = paymentAmount * rate;
+      // UAT Requirement: Calculate forex gain/loss based on original ZWL value
+      // Original ZWL value = invoice.totalAmount * exchangeRateAtCreation (rate when invoice was created)
+      if (!invoice.exchangeRateAtCreation) {
+        throw new Error('Invoice does not have exchangeRateAtCreation. Cannot calculate forex gain/loss.');
+      }
 
-      // Calculate forex gain/loss
-      const originalAmount = Number(invoice.totalAmount);
-      const gainLossAmount = convertedAmount - originalAmount;
+      const originalZWLValue = Number(invoice.totalAmount) * Number(invoice.exchangeRateAtCreation);
+      const paymentZWLAmount = paymentAmount; // Payment is already in ZWL
+      const gainLossAmount = paymentZWLAmount - originalZWLValue;
       const gainLossType = gainLossAmount >= 0 ? 'GAIN' : 'LOSS';
+
+      // Get payment date exchange rate for record keeping
+      const paymentDateRate = exchangeRate || await this.getExchangeRateForPayment(invoice.currencyId, paymentCurrencyId);
 
       // Create forex gain/loss record
       const forexGainLoss = await prisma.forexGainLoss.create({
         data: {
-          invoiceId,
+          invoice: invoiceId ? {
+            connect: { id: invoiceId }
+          } : undefined,
           transactionDate: new Date(),
-          fromCurrencyId: invoice.currencyId,
-          toCurrencyId: paymentCurrencyId,
-          originalAmount: new Decimal(originalAmount),
-          convertedAmount: new Decimal(convertedAmount),
-          exchangeRate: new Decimal(rate),
+          fromCurrency: {
+            connect: { id: invoice.currencyId }
+          },
+          toCurrency: {
+            connect: { id: paymentCurrencyId }
+          },
+          originalAmount: new Decimal(originalZWLValue), // Original ZWL value at invoice creation
+          convertedAmount: new Decimal(paymentZWLAmount), // Payment amount in ZWL
+          exchangeRate: new Decimal(paymentDateRate),
           gainLossAmount: new Decimal(Math.abs(gainLossAmount)),
           gainLossType,
-          description: `Multi-currency payment for invoice ${invoice.invoiceNumber || invoice.id}`
+          description: `Multi-currency payment for invoice ${invoice.invoiceNumber || invoice.id}`,
+          createdBy: {
+            connect: { id: createdById }
+          }
         },
         include: {
           invoice: {
@@ -365,8 +386,24 @@ export class MultiCurrencyService {
         }
       });
 
-      // Create forex gain/loss journal entry
-      await this.createForexGainLossJournalEntry(forexGainLoss, createdById);
+      // UAT Requirement: Create integrated payment journal entry with forex gain/loss
+      // DR: Cash/Bank (paymentZWLAmount), CR: AR (originalZWLValue), CR: Forex Gain (gainLossAmount)
+      const journalEntryId = await this.createPaymentWithForexJournalEntry({
+        invoice,
+        paymentZWLAmount,
+        originalZWLValue,
+        gainLossAmount: Math.abs(gainLossAmount),
+        gainLossType,
+        paymentCurrencyId,
+        forexGainLossId: forexGainLoss.id,
+        createdById
+      });
+
+      // Update forex gain/loss with journal entry reference
+      await prisma.forexGainLoss.update({
+        where: { id: forexGainLoss.id },
+        data: { journalEntryId }
+      });
 
       // Audit log
       await AuditService.log({
@@ -379,8 +416,9 @@ export class MultiCurrencyService {
 
       return {
         forexGainLoss,
-        convertedAmount,
-        exchangeRate: rate
+        convertedAmount: paymentZWLAmount,
+        exchangeRate: paymentDateRate,
+        journalEntryId
       };
     } catch (error) {
       console.error('Error processing multi-currency payment:', error);
@@ -399,6 +437,167 @@ export class MultiCurrencyService {
     }
 
     return Number(exchangeRate.rate);
+  }
+
+  /**
+   * Create payment journal entry with integrated forex gain/loss
+   * UAT Requirement: DR Cash/Bank (payment amount), CR AR (original ZWL value), CR Forex Gain (difference)
+   */
+  private static async createPaymentWithForexJournalEntry(params: {
+    invoice: any;
+    paymentZWLAmount: number;
+    originalZWLValue: number;
+    gainLossAmount: number;
+    gainLossType: 'GAIN' | 'LOSS';
+    paymentCurrencyId: string;
+    forexGainLossId: string;
+    createdById: string;
+  }): Promise<string> {
+    try {
+      const { invoice, paymentZWLAmount, originalZWLValue, gainLossAmount, gainLossType, paymentCurrencyId, forexGainLossId, createdById } = params;
+
+      // Get or create Foreign Exchange Gain/Loss account
+      let forexAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountName: { contains: 'Foreign Exchange' } },
+            { accountName: { contains: 'Forex' } },
+            { accountName: { contains: 'FX' } }
+          ],
+          isActive: true
+        }
+      });
+
+      if (!forexAccount) {
+        // Create Foreign Exchange Gain/Loss account if it doesn't exist
+        forexAccount = await prisma.chartOfAccounts.create({
+          data: {
+            accountNo: '6000',
+            accountName: 'Foreign Exchange Gain/Loss',
+            accountType: 'Revenue', // Gains are revenue, losses are expenses (we'll handle both)
+            financialStatement: 'Income Statement',
+            isActive: true
+          }
+        });
+      }
+
+      // Get Accounts Receivable account
+      const arAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountNo: '1200' },
+            { accountName: { contains: 'Accounts Receivable' } }
+          ],
+          isActive: true
+        }
+      });
+
+      if (!arAccount) {
+        throw new Error('Accounts Receivable account (1200) not found');
+      }
+
+      // Get Bank/Cash account (use default bank account for ZWL)
+      const bankAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountNo: '1100' },
+            { accountNo: '1000' },
+            { accountName: { contains: 'Bank' } },
+            { accountName: { contains: 'Cash' } }
+          ],
+          isActive: true
+        },
+        orderBy: { accountNo: 'asc' }
+      });
+
+      if (!bankAccount) {
+        throw new Error('Bank/Cash account not found');
+      }
+
+      // Create journal entry
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate: new Date(),
+          referenceNumber: `PAY-FX-${forexGainLossId.slice(-8)}`,
+          description: `Payment for invoice ${invoice.invoiceNumber || invoice.id} with forex ${gainLossType.toLowerCase()}`,
+          totalAmount: new Decimal(paymentZWLAmount),
+          currencyId: paymentCurrencyId,
+          status: 'POSTED',
+          createdById
+        }
+      });
+
+      // Create journal entry lines according to UAT requirement
+      // DR: Cash/Bank (paymentZWLAmount)
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: journalEntry.id,
+          chartOfAccountId: bankAccount.id,
+          debitAmount: new Decimal(paymentZWLAmount),
+          creditAmount: new Decimal(0),
+          description: `Payment received in ZWL`,
+          vatAmount: new Decimal(0)
+        }
+      });
+
+      // CR: Accounts Receivable (originalZWLValue)
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: journalEntry.id,
+          chartOfAccountId: arAccount.id,
+          debitAmount: new Decimal(0),
+          creditAmount: new Decimal(originalZWLValue),
+          description: `Clear AR at original ZWL value`,
+          vatAmount: new Decimal(0)
+        }
+      });
+
+      // CR: Foreign Exchange Gain (gainLossAmount) - if GAIN
+      // OR DR: Foreign Exchange Loss (gainLossAmount) - if LOSS
+      if (gainLossType === 'GAIN') {
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: forexAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: new Decimal(gainLossAmount),
+            description: `Foreign exchange gain`,
+            vatAmount: new Decimal(0)
+          }
+        });
+      } else {
+        // For LOSS, we need to debit the forex account (expense)
+        // Check if we need a separate Loss account or use expense account
+        const forexLossAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountName: { contains: 'Foreign Exchange Loss' } },
+              { accountName: { contains: 'Forex Loss' } },
+              { accountNo: '6050' } // Unrealized Loss account found earlier
+            ],
+            isActive: true
+          }
+        });
+
+        const lossAccount = forexLossAccount || forexAccount;
+
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: lossAccount.id,
+            debitAmount: new Decimal(gainLossAmount),
+            creditAmount: new Decimal(0),
+            description: `Foreign exchange loss`,
+            vatAmount: new Decimal(0)
+          }
+        });
+      }
+
+      return journalEntry.id;
+    } catch (error) {
+      console.error('Error creating payment with forex journal entry:', error);
+      throw error;
+    }
   }
 
   /**
@@ -984,6 +1183,403 @@ export class MultiCurrencyService {
       return forexGainLoss;
     } catch (error) {
       console.error('Error posting forex gain/loss:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Revalue foreign currency bank account
+   * UAT Requirement: Calculate unrealized gain/loss when exchange rate changes
+   * 
+   * @param bankId - Bank account ID to revalue
+   * @param newExchangeRate - New exchange rate for revaluation
+   * @param revaluationDate - Date of revaluation
+   * @param baseCurrencyId - Base currency ID (ZIG/ZWL)
+   * @param createdById - User ID creating the revaluation
+   * @param oldExchangeRateDate - Optional date to get old exchange rate (defaults to revaluationDate - 1 day)
+   */
+  static async revalueForeignCurrencyBank(
+    bankId: string,
+    newExchangeRate: number,
+    revaluationDate: Date,
+    baseCurrencyId: string,
+    createdById: string,
+    oldExchangeRateDate?: Date
+  ): Promise<{
+    bank: any;
+    foreignCurrencyBalance: number;
+    oldBaseCurrencyValue: number;
+    newBaseCurrencyValue: number;
+    unrealizedGainLoss: number;
+    gainLossType: 'GAIN' | 'LOSS';
+    journalEntryId: string;
+  }> {
+    try {
+      // Get bank with GL account and currency
+      const bank = await prisma.bank.findUnique({
+        where: { id: bankId },
+        include: {
+          glAccount: true,
+          currency: true
+        }
+      });
+
+      if (!bank) {
+        throw new Error('Bank account not found');
+      }
+
+      if (!bank.glAccount) {
+        throw new Error('Bank GL account not configured');
+      }
+
+      // Bank must be in a foreign currency (not base currency)
+      if (bank.currencyId === baseCurrencyId) {
+        throw new Error('Bank account is already in base currency. Revaluation only applies to foreign currency accounts.');
+      }
+
+      // Calculate current balance in foreign currency from journal entries
+      // Get all journal entry lines for this bank's GL account up to revaluation date
+      const periodEnd = new Date(revaluationDate);
+      periodEnd.setHours(23, 59, 59, 999);
+
+      // Optimize query: First get journal entries, then filter lines
+      const journalEntries = await prisma.journalEntry.findMany({
+        where: {
+          transactionDate: {
+            lte: periodEnd
+          },
+          status: 'POSTED',
+          // Exclude reversal entries
+          AND: [
+            {
+              referenceNumber: {
+                not: {
+                  startsWith: 'VR-'
+                }
+              }
+            },
+            {
+              referenceNumber: {
+                not: {
+                  startsWith: 'REV-'
+                }
+              }
+            }
+          ],
+          // Exclude entries linked to voided/reversed cashbook entries
+          cashbookEntries: {
+            none: {
+              OR: [
+                { status: 'VOIDED' },
+                { reversedAt: { not: null } }
+              ]
+            }
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+
+      const journalEntryIds = journalEntries.map(je => je.id);
+
+      // Now get journal entry lines for this bank's GL account
+      const journalEntryLines = journalEntryIds.length > 0 ? await prisma.journalEntryLine.findMany({
+        where: {
+          chartOfAccountId: bank.glAccount.id,
+          journalEntryId: {
+            in: journalEntryIds
+          }
+        },
+        select: {
+          debitAmount: true,
+          creditAmount: true
+        }
+      }) : [];
+
+      // Calculate foreign currency balance (in bank's currency)
+      // For asset accounts: Balance = Debits - Credits
+      let foreignCurrencyBalance = 0;
+      for (const line of journalEntryLines) {
+        const debit = parseFloat(line.debitAmount.toString());
+        const credit = parseFloat(line.creditAmount.toString());
+        foreignCurrencyBalance += (debit - credit);
+      }
+
+      // Get the old exchange rate used (for old base currency value)
+      // If oldExchangeRateDate is provided, use it; otherwise find the rate from the earliest transaction
+      let oldRate: number;
+      
+      if (oldExchangeRateDate) {
+        // Use the provided date - parse it correctly
+        // Exchange rates are stored with dates, we need to match them correctly
+        let normalizedOldDate: Date;
+        if (typeof oldExchangeRateDate === 'string' && oldExchangeRateDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          // Parse YYYY-MM-DD as UTC date to match how Prisma stores dates
+          const [year, month, day] = oldExchangeRateDate.split('-').map(Number);
+          normalizedOldDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+        } else {
+          normalizedOldDate = new Date(oldExchangeRateDate);
+          normalizedOldDate.setUTCHours(0, 0, 0, 0);
+        }
+        
+        // Try exact date match first
+        let oldExchangeRate = await prisma.exchangeRate.findUnique({
+          where: {
+            date_fromCurrencyId_toCurrencyId: {
+              date: normalizedOldDate,
+              fromCurrencyId: bank.currencyId,
+              toCurrencyId: baseCurrencyId
+            }
+          }
+        });
+
+        // If still no exact match, try querying for rates on that exact date (with timezone tolerance)
+        if (!oldExchangeRate) {
+          // Query for rates within a date range (to handle timezone issues)
+          // Use a narrow range around the target date
+          const dateStart = new Date(normalizedOldDate);
+          dateStart.setUTCDate(dateStart.getUTCDate() - 1);
+          dateStart.setUTCHours(0, 0, 0, 0);
+          const dateEnd = new Date(normalizedOldDate);
+          dateEnd.setUTCDate(dateEnd.getUTCDate() + 1);
+          dateEnd.setUTCHours(23, 59, 59, 999);
+          
+          const ratesAroundDate = await prisma.exchangeRate.findMany({
+            where: {
+              fromCurrencyId: bank.currencyId,
+              toCurrencyId: baseCurrencyId,
+              date: {
+                gte: dateStart,
+                lte: dateEnd
+              },
+              isActive: true
+            },
+            orderBy: { date: 'asc' } // Get closest to target date
+          });
+          
+          // Find the rate closest to our target date
+          if (ratesAroundDate.length > 0) {
+            // Get the target date as YYYY-MM-DD string for comparison
+            const targetDateStr = normalizedOldDate.toISOString().split('T')[0];
+            
+            // First, try to find exact date match (by date string)
+            const exactMatch = ratesAroundDate.find(r => {
+              const rateDateStr = new Date(r.date).toISOString().split('T')[0];
+              return rateDateStr === targetDateStr;
+            });
+            
+            if (exactMatch) {
+              oldExchangeRate = exactMatch;
+            } else {
+              // If no exact match, use the closest one (sorted by proximity)
+              ratesAroundDate.sort((a, b) => {
+                const diffA = Math.abs(new Date(a.date).getTime() - normalizedOldDate.getTime());
+                const diffB = Math.abs(new Date(b.date).getTime() - normalizedOldDate.getTime());
+                return diffA - diffB;
+              });
+              // Only use if within 12 hours (to handle timezone differences)
+              const closestRate = ratesAroundDate[0];
+              const closestRateDate = new Date(closestRate.date);
+              const timeDiff = Math.abs(closestRateDate.getTime() - normalizedOldDate.getTime());
+              const hoursDiff = timeDiff / (1000 * 60 * 60);
+              
+              if (hoursDiff <= 12) {
+                oldExchangeRate = closestRate;
+              }
+            }
+          }
+        }
+
+        // If still no match and we have a specific date, don't fall back to older rates
+        // This ensures we use the exact date provided, not a different rate
+        if (!oldExchangeRate) {
+          throw new Error(`Exchange rate not found for ${bank.currency.code} to base currency on ${normalizedOldDate.toISOString().split('T')[0]}. Please create the exchange rate for this date.`);
+        }
+
+        oldRate = Number(oldExchangeRate.rate);
+      } else {
+        // Find the earliest transaction date and use that rate
+        const earliestJournalEntry = await prisma.journalEntry.findFirst({
+          where: {
+            id: { in: journalEntryIds },
+            status: 'POSTED'
+          },
+          orderBy: { transactionDate: 'asc' },
+          select: { transactionDate: true }
+        });
+
+        if (earliestJournalEntry) {
+          const earliestDate = new Date(earliestJournalEntry.transactionDate);
+          earliestDate.setHours(0, 0, 0, 0);
+          
+          const oldExchangeRate = await this.getExchangeRate(
+            bank.currencyId,
+            baseCurrencyId,
+            earliestDate
+          );
+
+          if (!oldExchangeRate) {
+            // Fallback to revaluation date minus 1 day
+            const fallbackDate = new Date(revaluationDate);
+            fallbackDate.setDate(fallbackDate.getDate() - 1);
+            fallbackDate.setHours(0, 0, 0, 0);
+            
+            const fallbackRate = await this.getExchangeRate(
+              bank.currencyId,
+              baseCurrencyId,
+              fallbackDate
+            );
+            
+            if (!fallbackRate) {
+              throw new Error(`Old exchange rate not found. Please ensure exchange rates are set up.`);
+            }
+            oldRate = Number(fallbackRate.rate);
+          } else {
+            oldRate = Number(oldExchangeRate.rate);
+          }
+        } else {
+          // No transactions found, use revaluation date minus 1 day
+          const fallbackDate = new Date(revaluationDate);
+          fallbackDate.setDate(fallbackDate.getDate() - 1);
+          fallbackDate.setHours(0, 0, 0, 0);
+          
+          const fallbackRate = await this.getExchangeRate(
+            bank.currencyId,
+            baseCurrencyId,
+            fallbackDate
+          );
+          
+          if (!fallbackRate) {
+            throw new Error(`Old exchange rate not found. Please ensure exchange rates are set up.`);
+          }
+          oldRate = Number(fallbackRate.rate);
+        }
+      }
+      const oldBaseCurrencyValue = foreignCurrencyBalance * oldRate;
+      const newBaseCurrencyValue = foreignCurrencyBalance * newExchangeRate;
+      const unrealizedGainLoss = newBaseCurrencyValue - oldBaseCurrencyValue;
+      const gainLossType = unrealizedGainLoss >= 0 ? 'GAIN' : 'LOSS';
+
+      // Get or create Unrealized FX Gain/Loss account
+      let unrealizedGainAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountNo: '4050' }, // Unrealized Gain account
+            { accountName: { contains: 'Unrealized' } },
+            { accountName: { contains: 'Unrealised' } }
+          ],
+          isActive: true
+        }
+      });
+
+      if (!unrealizedGainAccount) {
+        // Create Unrealized FX Gain/Loss account if it doesn't exist
+        unrealizedGainAccount = await prisma.chartOfAccounts.create({
+          data: {
+            accountNo: '4050',
+            accountName: 'Unrealized Foreign Exchange Gain/Loss',
+            accountType: 'Revenue', // Gains are revenue
+            financialStatement: 'Income Statement',
+            isActive: true
+          }
+        });
+      }
+
+      // Create revaluation journal entry
+      // DR: USD Bank (unrealized gain/loss amount)
+      // CR: Unrealized FX Gain (if gain) OR DR: Unrealized FX Loss, CR: USD Bank (if loss)
+      const journalEntry = await prisma.journalEntry.create({
+        data: {
+          transactionDate: revaluationDate,
+          referenceNumber: `REV-FX-${bank.id.slice(-8)}-${Date.now()}`,
+          description: `Foreign currency revaluation for ${bank.name} (${bank.currency.code})`,
+          totalAmount: new Decimal(Math.abs(unrealizedGainLoss)),
+          currencyId: baseCurrencyId, // Journal entry in base currency
+          status: 'POSTED',
+          createdById
+        }
+      });
+
+      if (gainLossType === 'GAIN') {
+        // GAIN: DR Bank, CR Unrealized Gain
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: bank.glAccount.id,
+            debitAmount: new Decimal(Math.abs(unrealizedGainLoss)),
+            creditAmount: new Decimal(0),
+            description: `Unrealized FX gain on ${bank.currency.code} bank account`,
+            vatAmount: new Decimal(0)
+          }
+        });
+
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: unrealizedGainAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: new Decimal(Math.abs(unrealizedGainLoss)),
+            description: `Unrealized foreign exchange gain`,
+            vatAmount: new Decimal(0)
+          }
+        });
+      } else {
+        // LOSS: DR Unrealized Loss, CR Bank
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: unrealizedGainAccount.id,
+            debitAmount: new Decimal(Math.abs(unrealizedGainLoss)),
+            creditAmount: new Decimal(0),
+            description: `Unrealized foreign exchange loss`,
+            vatAmount: new Decimal(0)
+          }
+        });
+
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: bank.glAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: new Decimal(Math.abs(unrealizedGainLoss)),
+            description: `Unrealized FX loss on ${bank.currency.code} bank account`,
+            vatAmount: new Decimal(0)
+          }
+        });
+      }
+
+      // Audit log
+      await AuditService.log({
+        userId: createdById,
+        action: 'CREATE',
+        entityType: 'JournalEntry',
+        entityId: journalEntry.id,
+        newValues: {
+          type: 'ForeignCurrencyRevaluation',
+          bankId,
+          oldRate,
+          newRate: newExchangeRate,
+          unrealizedGainLoss
+        },
+      });
+
+      return {
+        bank: {
+          id: bank.id,
+          name: bank.name,
+          accountNumber: bank.accountNumber,
+          currency: bank.currency
+        },
+        foreignCurrencyBalance,
+        oldBaseCurrencyValue,
+        newBaseCurrencyValue,
+        unrealizedGainLoss: Math.abs(unrealizedGainLoss),
+        gainLossType,
+        journalEntryId: journalEntry.id
+      };
+    } catch (error) {
+      console.error('Error revaluing foreign currency bank:', error);
       throw error;
     }
   }

@@ -1,0 +1,4 @@
+bankName,transactionDate,description,amount,reference,counterpartyType,customerName,vendorName,glAccountNo,vatCode,projectCode,discount
+Main Bank Account,2025-10-14,Historical Payment - Last Month,1000.00,HIST-001,GL,,,3000,0%,,0
+Main Bank Account,2025-09-14,Historical Payment - Two Months Ago,2000.00,HIST-002,GL,,,3000,0%,,0
+Main Bank Account,2025-11-07,Historical Payment - Last Week,500.00,HIST-003,GL,,,3000,0%,,0
