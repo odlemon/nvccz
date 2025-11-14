@@ -678,6 +678,12 @@ export class BoardReviewService {
         throw new Error("Cannot update completed board review");
       }
 
+      // Validate that voting is complete before allowing updates
+      const voteSummary = await this.calculateVoteSummary(boardReview.id);
+      if (!voteSummary.isVotingComplete) {
+        throw new Error("Cannot update board review. Voting process must be completed before making updates. All board members must submit their votes first.");
+      }
+
       // Handle decision flags update - ensure only one is true at a time
       let investmentApproved = boardReview.investmentApproved;
       let investmentRejected = boardReview.investmentRejected;
