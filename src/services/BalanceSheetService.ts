@@ -168,6 +168,26 @@ export class BalanceSheetService {
       // Verify control account balances match sub-ledger totals
       await this.verifyControlAccountBalances(accountBalances, params.asOfDate, params.currencyId);
 
+      // Get all bank accounts and their GL account IDs for cash and cash equivalents calculation
+      // This matches the logic used in CashFlowBalanceService.getCashBalances()
+      const banks = await prisma.bank.findMany({
+        where: {
+          isActive: true,
+          glAccount: {
+            isActive: true
+          }
+        },
+        include: {
+          glAccount: true
+        }
+      });
+      const bankGLAccountIds = new Set<string>();
+      for (const bank of banks) {
+        if (bank.glAccount) {
+          bankGLAccountIds.add(bank.glAccount.id);
+        }
+      }
+
       // Categorize accounts
       const currentAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const fixedAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
@@ -177,6 +197,7 @@ export class BalanceSheetService {
       const equityAccounts: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       
       let accumulatedDepreciation = 0;
+      let cashAndCashEquivalents = 0; // Track cash and cash equivalents separately
 
       for (const account of accounts) {
         const balance = accountBalances.get(account.id) || 0;
@@ -229,6 +250,27 @@ export class BalanceSheetService {
           accountName: account.accountName,
           balance: balance
         };
+
+        // Check if this is a cash and cash equivalent account
+        // According to accounting standards (IFRS/GAAP), Cash and Cash Equivalents includes:
+        // - Physical cash (petty cash)
+        // - Bank accounts (checking, savings, money market accounts)
+        // - Short-term, highly liquid investments (3 months or less)
+        // This logic matches CashFlowBalanceService.getCashBalances() for consistency
+        const accountNameLower = accountName.toLowerCase();
+        const isCashAccount = 
+          accountNameLower.includes('cash') ||
+          accountNameLower.includes('bank') ||
+          (accountType === 'Current Asset' && 
+           account.accountNo >= '1000' && 
+           account.accountNo < '1100'); // Account numbers 1000-1099 are typically cash/bank accounts
+
+        // Check if this account is linked to a bank (using pre-fetched bank data)
+        const isBankAccount = bankGLAccountIds.has(account.id);
+
+        if (isCashAccount || isBankAccount) {
+          cashAndCashEquivalents += balance;
+        }
         
         if (accountType === 'Current Asset') {
           currentAssets.push(accountData);
@@ -316,6 +358,7 @@ export class BalanceSheetService {
         asOfDate: params.asOfDate,
         currency: params.currencyId || 'USD',
         assets: {
+          cashAndCashEquivalents: cashAndCashEquivalents, // Separate line item for cash flow reconciliation
           currentAssets: {
             accounts: currentAssets,
             total: totalCurrentAssets
