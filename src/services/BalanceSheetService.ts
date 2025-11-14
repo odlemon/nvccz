@@ -190,13 +190,38 @@ export class BalanceSheetService {
 
         const accountType = account.accountType;
         const accountName = account.accountName.toLowerCase();
+        const accountNo = account.accountNo.toLowerCase();
 
         // Handle Accumulated Depreciation separately - collect all but don't add to array yet
-        if (accountName.includes('accumulated depreciation') || accountType === 'Contra-Asset') {
+        // Check multiple conditions to catch all accumulated depreciation accounts:
+        // 1. Account name contains "accumulated depreciation" (case-insensitive, partial match)
+        // 2. Account type is "Contra-Asset"
+        // 3. Account name contains "depreciation" and account type is asset-related
+        const normalizedAccountName = accountName.replace(/[^a-z0-9]/g, ''); // Remove special chars for matching
+        const isAccumulatedDepreciation = 
+          accountName.includes('accumulated') && accountName.includes('depreciation') ||
+          accountName.includes('accumulated') && accountName.includes('depr') ||
+          accountType === 'Contra-Asset' ||
+          (accountType.includes('Asset') && (accountName.includes('depreciation') || accountName.includes('depr')));
+
+        if (isAccumulatedDepreciation) {
           // Accumulated depreciation is a credit balance (positive in DB), but we want to show it as negative
           // because it reduces the value of assets
+          console.log(`   [Balance Sheet] Found Accumulated Depreciation account: ${account.accountNo} - ${account.accountName} (Type: ${accountType}, Balance: ${balance})`);
           accumulatedDepreciation += balance;
           continue; // Don't add individual accounts, we'll add one consolidated line item later
+        }
+
+        // Double-check: Make sure this isn't an accumulated depreciation account that slipped through
+        // (safety check in case the condition above didn't catch it)
+        const isDepreciationAccount = 
+          accountName.includes('accumulated') && (accountName.includes('depreciation') || accountName.includes('depr')) ||
+          accountType === 'Contra-Asset';
+        
+        if (isDepreciationAccount) {
+          console.log(`   [Balance Sheet] WARNING: Found Accumulated Depreciation account that should have been caught earlier: ${account.accountNo} - ${account.accountName}`);
+          accumulatedDepreciation += balance;
+          continue; // Skip this account
         }
 
         const accountData = {
@@ -297,8 +322,7 @@ export class BalanceSheetService {
           },
           fixedAssets: {
             accounts: fixedAssets,
-            total: totalFixedAssets,
-            accumulatedDepreciation: -Math.abs(accumulatedDepreciation) // Return as negative value
+            total: totalFixedAssets
           },
           otherAssets: {
             accounts: otherAssets,
