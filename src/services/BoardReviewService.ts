@@ -337,11 +337,9 @@ export class BoardReviewService {
     }
 
     const summary = await this.calculateVoteSummary(boardReview.id);
-    if (summary.isVotingComplete && boardReview.status !== "COMPLETED") {
-      await this.autoCompleteBoardReview(boardReview.id, applicationId, summary).catch(error => {
-        console.error("Failed to auto-complete board review", error);
-      });
-    }
+    // NOTE: Voting completion does NOT automatically complete the board review
+    // The board review must be manually completed by the Board Chair using completeBoardReview
+    // This ensures proper validation and workflow control
     return this.buildPublicVoteSummary(summary, voterId);
   }
 

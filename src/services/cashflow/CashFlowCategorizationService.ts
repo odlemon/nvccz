@@ -4,11 +4,23 @@ import { CashFlowAccount } from "./types";
 export class CashFlowCategorizationService {
   /**
    * Categorize accounts by cash flow activity
+   * NOTE: Cash and bank accounts are excluded from all activities - they are the result, not a source
    */
   static categorizeAccountsByCashFlow(accounts: CashFlowAccount[]): CashFlowAccount[] {
     for (const account of accounts) {
       const accountName = account.accountName.toLowerCase();
       const accountNo = account.accountNo;
+
+      // Check if this is a cash/bank account - these should NOT appear in any activity section
+      const isCashAccount = accountName.includes("cash") || 
+                            accountName.includes("bank") ||
+                            (account.accountType === "Current Asset" && accountNo >= "1000" && accountNo < "1100");
+
+      if (isCashAccount) {
+        // Mark cash accounts with a special category so they can be excluded from activities
+        account.cashFlowCategory = "CASH_ACCOUNT";
+        continue; // Skip categorization for cash accounts
+      }
 
       // Operating Activities
       if (this.isOperatingActivity(accountName, accountNo, account.accountType)) {
@@ -71,14 +83,24 @@ export class CashFlowCategorizationService {
 
   /**
    * Determine if account is financing activity
+   * NOTE: Cash and bank accounts are NOT financing activities - they are the result of cash flows
    */
   private static isFinancingActivity(accountName: string, accountNo: string, accountType: string): boolean {
-    // Loans, equity, and cash accounts
+    // Loans, equity (but NOT cash/bank accounts)
     const financingKeywords = [
       "loan", "mortgage", "bank loan", "long term debt", "short term debt",
-      "capital", "equity", "shareholder", "dividend", "cash", "bank",
+      "capital", "equity", "shareholder", "dividend",
       "drawing", "withdrawal", "contribution"
     ];
+
+    // Explicitly exclude cash and bank accounts (they should not be in any activity section)
+    const isCashAccount = accountName.includes("cash") || 
+                          accountName.includes("bank") ||
+                          (accountType === "Current Asset" && accountNo >= "1000" && accountNo < "1100");
+
+    if (isCashAccount) {
+      return false; // Cash accounts should not be in financing activities
+    }
 
     return financingKeywords.some(keyword => accountName.includes(keyword));
   }

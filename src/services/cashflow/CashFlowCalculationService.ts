@@ -78,13 +78,27 @@ export class CashFlowCalculationService {
     const investingActivities = this.calculateInvestingActivities(categorizedAccounts);
     const financingActivities = this.calculateFinancingActivities(categorizedAccounts);
 
-    // Calculate net cash flow
+    // Calculate net cash flow (excluding cash accounts - they are the result, not a source)
     const netCashFlow = operatingActivities.total + investingActivities.total + financingActivities.total;
 
-    // Get beginning and ending cash balances
+    // Get beginning and ending cash balances from actual cash account balances
+    // NOTE: We use the actual ending balance from cash accounts, not beginning + netCashFlow
+    // because netCashFlow excludes cash accounts (they are the result, not included in activities)
     const cashBalances = await CashFlowBalanceService.getCashBalances(startDate, endDate, currency.id);
     const beginningCashBalance = cashBalances.beginning;
-    const endingCashBalance = beginningCashBalance + netCashFlow;
+    const endingCashBalance = cashBalances.ending; // Use actual ending balance from cash accounts
+    
+    // Verify: ending balance should equal beginning + netCashFlow (for reconciliation)
+    const calculatedEndingBalance = beginningCashBalance + netCashFlow;
+    const difference = Math.abs(endingCashBalance - calculatedEndingBalance);
+    
+    if (difference > 0.01) {
+      console.warn(`⚠️  Cash flow reconciliation difference: ${difference.toFixed(2)}`);
+      console.warn(`   Beginning: ${beginningCashBalance.toFixed(2)}`);
+      console.warn(`   Net Cash Flow: ${netCashFlow.toFixed(2)}`);
+      console.warn(`   Calculated Ending: ${calculatedEndingBalance.toFixed(2)}`);
+      console.warn(`   Actual Ending: ${endingCashBalance.toFixed(2)}`);
+    }
 
     const presentation = this.buildPresentation({
       accounts: categorizedAccounts,
@@ -117,9 +131,12 @@ export class CashFlowCalculationService {
 
   /**
    * Calculate operating activities
+   * NOTE: Cash accounts are excluded - they are the result, not an operating activity
    */
   private calculateOperatingActivities(accounts: CashFlowAccount[]): CashFlowActivity {
-    const operatingAccounts = accounts.filter(account => account.cashFlowCategory === "Operating");
+    const operatingAccounts = accounts.filter(account => 
+      account.cashFlowCategory === "Operating" && account.cashFlowCategory !== "CASH_ACCOUNT"
+    );
     
     let total = 0;
     
@@ -150,9 +167,12 @@ export class CashFlowCalculationService {
 
   /**
    * Calculate investing activities
+   * NOTE: Cash accounts are excluded - they are the result, not an investing activity
    */
   private calculateInvestingActivities(accounts: CashFlowAccount[]): CashFlowActivity {
-    const investingAccounts = accounts.filter(account => account.cashFlowCategory === "Investing");
+    const investingAccounts = accounts.filter(account => 
+      account.cashFlowCategory === "Investing" && account.cashFlowCategory !== "CASH_ACCOUNT"
+    );
     
     let total = 0;
     
@@ -175,9 +195,12 @@ export class CashFlowCalculationService {
 
   /**
    * Calculate financing activities
+   * NOTE: Cash accounts are excluded - they are the result, not a financing activity
    */
   private calculateFinancingActivities(accounts: CashFlowAccount[]): CashFlowActivity {
-    const financingAccounts = accounts.filter(account => account.cashFlowCategory === "Financing");
+    const financingAccounts = accounts.filter(account => 
+      account.cashFlowCategory === "Financing" && account.cashFlowCategory !== "CASH_ACCOUNT"
+    );
     
     let total = 0;
     
@@ -188,10 +211,8 @@ export class CashFlowCalculationService {
       } else if (account.accountType === "Equity") {
         // Capital contribution = cash inflow
         total += account.netAmount;
-      } else if (account.accountType === "Asset" && account.accountName.toLowerCase().includes("cash")) {
-        // Cash account changes
-        total += account.netAmount;
       }
+      // NOTE: Cash accounts are excluded - they are the result, not a financing activity
     }
 
     return {
