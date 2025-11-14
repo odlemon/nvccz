@@ -231,6 +231,27 @@ export default class CashbookBatchImportController {
       return ResponseHelper.error(res, 'Failed to export batches', error.message);
     }
   }
+
+  /**
+   * Get CSV import template
+   * GET /api/cashbook/batches/import/template
+   */
+  static async getTemplate(req: Request, res: Response) {
+    try {
+      const template = await CashbookBatchImportService.generateTemplate();
+      
+      // Set response headers
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="cashbook_batch_import_template.csv"');
+      
+      // Send template
+      res.send(template);
+      
+    } catch (error: any) {
+      console.error('Error in CashbookBatchImportController.getTemplate:', error);
+      return ResponseHelper.error(res, 'Failed to get template', error.message);
+    }
+  }
 }
 
 // Export multer middleware for use in routes

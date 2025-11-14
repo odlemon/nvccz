@@ -1,0 +1,18 @@
+bankName,transactionDate,description,amount,reference,counterpartyType,customerName,vendorName,glAccountNo,vatCode,projectCode,discount
+Cash and Cash Equivalents,2025-11-14,Customer Payment - Invoice #INV-001,1500.00,RCP-001,CUSTOMER,ABC Investment Fund,,,15%,PROJ-001,0
+Cash and Cash Equivalents,2025-11-14,GL Receipt - Share Capital,5000.00,RCP-002,GL,,,1000,15%,,0
+Cash and Cash Equivalents,2025-11-14,Supplier Payment - Office Supplies,250.00,PAY-001,SUPPLIER,,Insurance Partners,,15%,PROJ-002,0
+
+Available Options:
+- Banks: Cash and Cash Equivalents, Main Bank Account, Petty Cash, Savings Account - USD
+- Customers: ABC Investment Fund, Education Foundation, Generic Supplier - Internal Use, Global Ventures Ltd, Healthcare Group
+- Vendors: Insurance Partners, Legal Associates, Marketing Pro, Office Supplies Ltd, Professional Services Inc
+- GL Accounts: 1000 - Cash and Cash Equivalents, 1010 - Main Bank Account - USD, 1020 - Savings Account - USD, 1030 - Petty Cash, 1100 - Office Equipment, 1200 - Accounts Receivable Control, 1300 - Accumulated Depreciation, 1501 - Portfolio Investments, 1502 - Investment Asset, 2000 - Accounts Payable
+
+Notes:
+- Use exact names/account numbers as shown above (case-insensitive)
+- counterpartyType must be: CUSTOMER, SUPPLIER, or GL
+- vatCode must be: 15%, 0%, or EXEMPT
+- Date format: YYYY-MM-DD
+- Amount must be positive number
+- Leave fields empty if not applicable
