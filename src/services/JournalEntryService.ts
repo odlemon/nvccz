@@ -905,6 +905,35 @@ export class JournalEntryService {
     }
     // If status is 'ALL', don't add status filter
 
+    // Exclude journal entries linked to voided/reversed cashbook entries
+    whereClause.cashbookEntries = {
+      none: {
+        OR: [
+          { status: 'VOIDED' },
+          { reversedAt: { not: null } } // Reversed entries have reversedAt set
+        ]
+      }
+    };
+    
+    // Exclude reversal journal entries (those with VR- or REV- prefix)
+    // Use AND condition to exclude both prefixes
+    whereClause.AND = [
+      {
+        referenceNumber: {
+          not: {
+            startsWith: 'VR-'
+          }
+        }
+      },
+      {
+        referenceNumber: {
+          not: {
+            startsWith: 'REV-'
+          }
+        }
+      }
+    ];
+
     const entries = await prisma.journalEntry.findMany({
       where: whereClause,
       include: {
@@ -931,15 +960,41 @@ export class JournalEntryService {
         // Include related transactions to infer payment method
         expenses: { select: { paymentMethod: true } },
         revenues: { select: { paymentMethod: true } },
-        invoices: { select: { paymentMethod: true } }
+        invoices: { select: { paymentMethod: true } },
+        // Include cashbook entries to check status
+        cashbookEntries: {
+          select: {
+            id: true,
+            status: true,
+            reversedAt: true
+          }
+        }
       },
       orderBy: {
         transactionDate: 'desc'
       }
     });
+    
+    // Additional client-side filter to ensure no voided/reversed entries slip through
+    const filteredEntries = entries.filter(entry => {
+      // If journal entry is linked to cashbook entries, check their status
+      if (entry.cashbookEntries && entry.cashbookEntries.length > 0) {
+        const hasVoidedOrReversed = entry.cashbookEntries.some(
+          cb => cb.status === 'VOIDED' || cb.reversedAt !== null
+        );
+        if (hasVoidedOrReversed) {
+          return false;
+        }
+      }
+      // Exclude reversal entries by reference number
+      if (entry.referenceNumber && (entry.referenceNumber.startsWith('VR-') || entry.referenceNumber.startsWith('REV-'))) {
+        return false;
+      }
+      return true;
+    });
 
     // Attach paymentMethod to each line for each entry
-    return entries.map((entry: any) => {
+    return filteredEntries.map((entry: any) => {
       const paymentMethod =
         (entry.expenses?.[0]?.paymentMethod) ||
         (entry.revenues?.[0]?.paymentMethod) ||

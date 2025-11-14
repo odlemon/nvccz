@@ -541,6 +541,9 @@ export class CashbookService {
       
       const where: any = {};
       
+      // Exclude reversals from normal cashbook views (reversals have originalTransactionId set)
+      where.originalTransactionId = null;
+      
       if (filters.bankId) where.bankId = filters.bankId;
       if (filters.transactionType) where.transactionType = filters.transactionType;
       if (filters.status) where.status = filters.status;

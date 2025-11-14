@@ -22,6 +22,7 @@ export class CashFlowCalculationService {
     }
 
     // Get all posted journal entries for the period
+    // Exclude journal entries linked to voided/reversed cashbook entries
     const journalEntries = await prisma.journalEntry.findMany({
       where: {
         transactionDate: {
@@ -29,7 +30,33 @@ export class CashFlowCalculationService {
           lte: endDate
         },
         status: "POSTED",
-        currencyId: currency.id
+        currencyId: currency.id,
+        // Exclude journal entries linked to voided/reversed cashbook entries
+        cashbookEntries: {
+          none: {
+            OR: [
+              { status: 'VOIDED' },
+              { reversedAt: { not: null } } // Reversed entries have reversedAt set
+            ]
+          }
+        },
+        // Exclude reversal journal entries
+        AND: [
+          {
+            referenceNumber: {
+              not: {
+                startsWith: 'VR-'
+              }
+            }
+          },
+          {
+            referenceNumber: {
+              not: {
+                startsWith: 'REV-'
+              }
+            }
+          }
+        ]
       },
       include: {
         journalEntryLines: {

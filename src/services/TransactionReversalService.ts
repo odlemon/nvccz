@@ -116,11 +116,10 @@ export class TransactionReversalService {
         });
       }
       
-      // Update original transaction status
+      // Update original transaction - mark as reversed (set reversedAt, keep status as POSTED)
       await prisma.cashbookEntry.update({
         where: { id: reversalRequest.transactionId },
         data: { 
-          status: 'REVERSED',
           reversedAt: new Date(),
           reversedById: userId
         }
@@ -168,9 +167,14 @@ export class TransactionReversalService {
     try {
       
       // Get the original journal entry by cashbook entry ID
+      // Use the cashbookEntries relation filter
       const originalJournalEntry = await prisma.journalEntry.findFirst({
         where: {
-          cashbookEntryId: originalTransaction.id
+          cashbookEntries: {
+            some: {
+              id: originalTransaction.id
+            }
+          }
         },
         include: {
           journalEntryLines: {
@@ -215,7 +219,7 @@ export class TransactionReversalService {
             description: `REV: ${line.description}`,
             debitAmount: line.creditAmount, // Swap debit/credit
             creditAmount: line.debitAmount,
-            createdById: userId
+            vatAmount: line.vatAmount || null
           }
         });
       }

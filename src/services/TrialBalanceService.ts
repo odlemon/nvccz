@@ -44,13 +44,29 @@ export class TrialBalanceService {
 
       // Get all journal entry lines in a single optimized query with aggregation
       // This avoids N+1 query problem
+      // Exclude journal entries linked to voided/reversed cashbook entries
       const journalEntryLines = await prisma.journalEntryLine.findMany({
         where: {
           journalEntry: {
             transactionDate: {
               lte: endOfDay
             },
-            status: 'POSTED' // Only include POSTED entries (exclude VOID and PENDING)
+            status: 'POSTED', // Only include POSTED entries (exclude VOID and PENDING)
+            // Exclude journal entries linked to voided/reversed cashbook entries
+            cashbookEntries: {
+              none: {
+                OR: [
+                  { status: 'VOIDED' },
+                  { reversedAt: { not: null } } // Reversed entries have reversedAt set
+                ]
+              }
+            },
+            // Exclude reversal journal entries (those with VR- or REV- prefix)
+            referenceNumber: {
+              not: {
+                startsWith: 'VR-'
+              }
+            }
           }
         },
         select: {

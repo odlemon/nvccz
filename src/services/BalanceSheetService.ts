@@ -76,11 +76,38 @@ export class BalanceSheetService {
       console.log("");
 
       // Get all posted journal entry lines up to the as-of date
+      // Exclude journal entries linked to voided/reversed cashbook entries
       const journalEntryWhere: any = {
         transactionDate: {
           lte: params.asOfDate
         },
-        status: 'POSTED'
+        status: 'POSTED',
+        // Exclude journal entries linked to voided/reversed cashbook entries
+        cashbookEntries: {
+          none: {
+            OR: [
+              { status: 'VOIDED' },
+              { reversedAt: { not: null } } // Reversed entries have reversedAt set
+            ]
+          }
+        },
+        // Exclude reversal journal entries
+        AND: [
+          {
+            referenceNumber: {
+              not: {
+                startsWith: 'VR-'
+              }
+            }
+          },
+          {
+            referenceNumber: {
+              not: {
+                startsWith: 'REV-'
+              }
+            }
+          }
+        ]
       };
 
       // Add currency filter if provided
