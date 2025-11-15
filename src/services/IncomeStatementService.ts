@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { PrismaClient, ChartOfAccounts, JournalEntryLine } from "@prisma/client";
 import { prisma } from "../utils/database";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Decimal } from "decimal.js";
 
 export interface IncomeStatementParams {
   startDate: Date;
@@ -20,6 +20,19 @@ export interface IncomeStatementAccount {
   netAmount: number;
 }
 
+export interface IncomeStatementTransaction {
+  id: string;
+  date: string;
+  reference: string;
+  description: string;
+  debitAmount: number;
+  creditAmount: number;
+  source: string; // "CASHBOOK", "INVOICE", "EXPENSE", "MANUAL_ENTRY", etc.
+  sourceTransaction: any; // Actual transaction details (cashbook entry, invoice, expense, etc.)
+  journalEntryId: string;
+  journalEntryStatus: string;
+}
+
 export interface IncomeStatementLine {
   accountId: string;
   accountNo: string;
@@ -27,6 +40,7 @@ export interface IncomeStatementLine {
   accountType: string;
   netAmount: number;
   amount: number;
+  transactions: IncomeStatementTransaction[]; // Transaction breakdown
 }
 
 export interface IncomeStatementSection {
@@ -122,14 +136,87 @@ export class IncomeStatementService {
             include: {
               chartOfAccount: true
             }
+          },
+          cashbookEntries: {
+            include: {
+              bank: {
+                select: {
+                  id: true,
+                  name: true,
+                  accountNumber: true
+                }
+              },
+              customer: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              },
+              vendor: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              }
+            },
+            take: 1
+          },
+          invoices: {
+            include: {
+              customer: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              }
+            },
+            take: 1
+          },
+          expenses: {
+            include: {
+              vendor: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              },
+              category: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              }
+            },
+            take: 1
+          },
+          revenues: {
+            include: {
+              source: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              },
+              category: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              }
+            },
+            take: 1
           }
         }
       });
 
-      // Calculate account balances from journal entry lines
+      // Calculate account balances from journal entry lines with transaction breakdowns
       const accountBalances = await this.calculateAccountBalances(journalEntries);
 
-      const sections = this.buildIncomeStatementSections(accountBalances);
+      const sections = this.buildIncomeStatementSections(accountBalances, journalEntries);
 
       const netIncomeBeforeTaxes =
         sections.revenue.total - sections.operatingExpenses.total;
@@ -169,7 +256,7 @@ export class IncomeStatementService {
   /**
    * Build structured income statement sections aligned with standard presentation
    */
-  private static buildIncomeStatementSections(accounts: IncomeStatementAccount[]) {
+  private static buildIncomeStatementSections(accounts: IncomeStatementAccount[], journalEntries: any[]) {
     const revenueSection: IncomeStatementSection = {
       label: "Revenue",
       accounts: [],
@@ -209,13 +296,148 @@ export class IncomeStatementService {
       const accountNoValue = getAccountNoValue(account.accountNo);
       if (accountNoValue === 0) continue;
 
+      // Get transactions for this account
+      const accountTransactions: IncomeStatementTransaction[] = [];
+      for (const journalEntry of journalEntries) {
+        for (const line of journalEntry.journalEntryLines) {
+          if (line.chartOfAccount.id !== account.accountId) continue;
+
+          // Determine source and get actual transaction details
+          let source = "MANUAL_ENTRY";
+          let sourceTransaction: any = null;
+
+          if (journalEntry.cashbookEntries && journalEntry.cashbookEntries.length > 0) {
+            source = "CASHBOOK";
+            const cashbookEntry = journalEntry.cashbookEntries[0];
+            sourceTransaction = {
+              id: cashbookEntry.id,
+              type: cashbookEntry.type,
+              amount: cashbookEntry.amount ? new Decimal(cashbookEntry.amount).toNumber() : 0,
+              description: cashbookEntry.description,
+              reference: cashbookEntry.reference,
+              transactionDate: cashbookEntry.transactionDate,
+              status: cashbookEntry.status,
+              bank: cashbookEntry.bank ? {
+                id: cashbookEntry.bank.id,
+                name: cashbookEntry.bank.name,
+                accountNumber: cashbookEntry.bank.accountNumber
+              } : null,
+              customer: cashbookEntry.customer ? {
+                id: cashbookEntry.customer.id,
+                name: cashbookEntry.customer.name,
+                email: cashbookEntry.customer.email
+              } : null,
+              vendor: cashbookEntry.vendor ? {
+                id: cashbookEntry.vendor.id,
+                name: cashbookEntry.vendor.name,
+                email: cashbookEntry.vendor.email
+              } : null
+            };
+          } else if (journalEntry.invoices && journalEntry.invoices.length > 0) {
+            source = "INVOICE";
+            const invoice = journalEntry.invoices[0];
+            sourceTransaction = {
+              id: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              amount: invoice.amount ? new Decimal(invoice.amount).toNumber() : 0,
+              vatAmount: invoice.vatAmount ? new Decimal(invoice.vatAmount).toNumber() : 0,
+              totalAmount: invoice.totalAmount ? new Decimal(invoice.totalAmount).toNumber() : 0,
+              description: invoice.description,
+              transactionDate: invoice.transactionDate,
+              status: invoice.status,
+              isTaxable: invoice.isTaxable,
+              customer: invoice.customer ? {
+                id: invoice.customer.id,
+                name: invoice.customer.name,
+                email: invoice.customer.email
+              } : null
+            };
+          } else if (journalEntry.expenses && journalEntry.expenses.length > 0) {
+            source = "EXPENSE";
+            const expense = journalEntry.expenses[0];
+            sourceTransaction = {
+              id: expense.id,
+              receiptNumber: expense.receiptNumber,
+              amount: expense.amount ? new Decimal(expense.amount).toNumber() : 0,
+              vatAmount: expense.vatAmount ? new Decimal(expense.vatAmount).toNumber() : 0,
+              totalAmount: expense.totalAmount ? new Decimal(expense.totalAmount).toNumber() : 0,
+              description: expense.description,
+              transactionDate: expense.transactionDate,
+              status: expense.status,
+              paymentMethod: expense.paymentMethod,
+              isTaxable: expense.isTaxable,
+              vendor: expense.vendor ? {
+                id: expense.vendor.id,
+                name: expense.vendor.name,
+                email: expense.vendor.email
+              } : null,
+              category: expense.category ? {
+                id: expense.category.id,
+                name: expense.category.name
+              } : null
+            };
+          } else if (journalEntry.revenues && journalEntry.revenues.length > 0) {
+            source = "REVENUE";
+            const revenue = journalEntry.revenues[0];
+            sourceTransaction = {
+              id: revenue.id,
+              amount: revenue.amount ? new Decimal(revenue.amount).toNumber() : 0,
+              vatAmount: revenue.vatAmount ? new Decimal(revenue.vatAmount).toNumber() : 0,
+              totalAmount: revenue.totalAmount ? new Decimal(revenue.totalAmount).toNumber() : 0,
+              description: revenue.description,
+              transactionDate: revenue.transactionDate,
+              status: revenue.status,
+              paymentMethod: revenue.paymentMethod,
+              isTaxable: revenue.isTaxable,
+              source: revenue.source ? {
+                id: revenue.source.id,
+                name: revenue.source.name
+              } : null,
+              category: revenue.category ? {
+                id: revenue.category.id,
+                name: revenue.category.name
+              } : null
+            };
+          } else {
+            // Manual entry - use journal entry details
+            sourceTransaction = {
+              id: journalEntry.id,
+              referenceNumber: journalEntry.referenceNumber,
+              description: journalEntry.description,
+              transactionDate: journalEntry.transactionDate,
+              status: journalEntry.status
+            };
+          }
+
+          const debitAmt = new Decimal(line.debitAmount || 0).toNumber();
+          const creditAmt = new Decimal(line.creditAmount || 0).toNumber();
+
+          accountTransactions.push({
+            id: line.id,
+            date: journalEntry.transactionDate.toISOString().split('T')[0],
+            reference: journalEntry.referenceNumber || "",
+            description: journalEntry.description || "",
+            debitAmount: debitAmt,
+            creditAmount: creditAmt,
+            source: source,
+            sourceTransaction: sourceTransaction,
+            journalEntryId: journalEntry.id,
+            journalEntryStatus: journalEntry.status
+          });
+        }
+      }
+
+      // Sort transactions by date
+      accountTransactions.sort((a, b) => a.date.localeCompare(b.date));
+
       const baseLine: IncomeStatementLine = {
         accountId: account.accountId,
         accountNo: account.accountNo,
         accountName: account.accountName,
         accountType: account.accountType,
         netAmount: account.netAmount,
-        amount: account.netAmount
+        amount: account.netAmount,
+        transactions: accountTransactions
       };
 
       if (accountNoValue >= 4000 && accountNoValue <= 4099) {
@@ -346,8 +568,9 @@ export class IncomeStatementService {
         }
 
         const account = accountBalances.get(accountId)!;
-        account.totalDebits += parseFloat(line.debitAmount.toString());
-        account.totalCredits += parseFloat(line.creditAmount.toString());
+        // Use Decimal arithmetic - NO ROUNDING during calculations
+        account.totalDebits = new Decimal(account.totalDebits).plus(line.debitAmount).toNumber();
+        account.totalCredits = new Decimal(account.totalCredits).plus(line.creditAmount).toNumber();
       }
     }
 
@@ -552,9 +775,9 @@ export class IncomeStatementService {
         journalEntry.lines.push({
           id: transaction.id,
           description: transaction.description,
-          debitAmount: parseFloat(transaction.debitAmount.toString()),
-          creditAmount: parseFloat(transaction.creditAmount.toString()),
-          vatAmount: transaction.vatAmount ? parseFloat(transaction.vatAmount.toString()) : 0,
+          debitAmount: new Decimal(transaction.debitAmount).toNumber(),
+          creditAmount: new Decimal(transaction.creditAmount).toNumber(),
+          vatAmount: transaction.vatAmount ? new Decimal(transaction.vatAmount).toNumber() : 0,
           account: {
             id: transaction.chartOfAccount.id,
             accountNo: transaction.chartOfAccount.accountNo,
@@ -569,9 +792,30 @@ export class IncomeStatementService {
         ...account,
         journalEntries: Array.from(journalEntries.values()),
         transactionCount: transactions.length,
-        totalDebitAmount: transactions.reduce((sum, t) => sum + parseFloat(t.debitAmount.toString()), 0),
-        totalCreditAmount: transactions.reduce((sum, t) => sum + parseFloat(t.creditAmount.toString()), 0),
-        totalVatAmount: transactions.reduce((sum, t) => sum + (t.vatAmount ? parseFloat(t.vatAmount.toString()) : 0), 0)
+        // Calculate totals using Decimal arithmetic - NO ROUNDING
+        totalDebitAmount: (() => {
+          let total = new Decimal(0);
+          for (const t of transactions) {
+            total = total.plus(t.debitAmount);
+          }
+          return total.toNumber();
+        })(),
+        totalCreditAmount: (() => {
+          let total = new Decimal(0);
+          for (const t of transactions) {
+            total = total.plus(t.creditAmount);
+          }
+          return total.toNumber();
+        })(),
+        totalVatAmount: (() => {
+          let total = new Decimal(0);
+          for (const t of transactions) {
+            if (t.vatAmount) {
+              total = total.plus(t.vatAmount);
+            }
+          }
+          return total.toNumber();
+        })()
       });
     }
 
@@ -728,12 +972,36 @@ export class IncomeStatementService {
       const summaryStats = {
         totalJournalEntries: allJournalEntries.length,
         totalTransactions: allJournalEntries.reduce((sum, je) => sum + je.journalEntryLines.length, 0),
-        totalDebitAmount: allJournalEntries.reduce((sum, je) => 
-          sum + je.journalEntryLines.reduce((lineSum, line) => lineSum + parseFloat(line.debitAmount.toString()), 0), 0),
-        totalCreditAmount: allJournalEntries.reduce((sum, je) => 
-          sum + je.journalEntryLines.reduce((lineSum, line) => lineSum + parseFloat(line.creditAmount.toString()), 0), 0),
-        totalVatAmount: allJournalEntries.reduce((sum, je) => 
-          sum + je.journalEntryLines.reduce((lineSum, line) => lineSum + (line.vatAmount ? parseFloat(line.vatAmount.toString()) : 0), 0), 0),
+        // Calculate totals using Decimal arithmetic - NO ROUNDING
+        totalDebitAmount: (() => {
+          let total = new Decimal(0);
+          for (const je of allJournalEntries) {
+            for (const line of je.journalEntryLines) {
+              total = total.plus(line.debitAmount);
+            }
+          }
+          return total.toNumber();
+        })(),
+        totalCreditAmount: (() => {
+          let total = new Decimal(0);
+          for (const je of allJournalEntries) {
+            for (const line of je.journalEntryLines) {
+              total = total.plus(line.creditAmount);
+            }
+          }
+          return total.toNumber();
+        })(),
+        totalVatAmount: (() => {
+          let total = new Decimal(0);
+          for (const je of allJournalEntries) {
+            for (const line of je.journalEntryLines) {
+              if (line.vatAmount) {
+                total = total.plus(line.vatAmount);
+              }
+            }
+          }
+          return total.toNumber();
+        })(),
         revenueAccounts: detailedRevenue.length,
         expenseAccounts: detailedExpenses.length,
         uniqueVendors: new Set(allJournalEntries.flatMap(je => je.expenses.map(e => e.vendor.id))).size,
@@ -826,9 +1094,9 @@ export class IncomeStatementService {
             lines: je.journalEntryLines.map(line => ({
               id: line.id,
               description: line.description,
-              debitAmount: parseFloat(line.debitAmount.toString()),
-              creditAmount: parseFloat(line.creditAmount.toString()),
-              vatAmount: line.vatAmount ? parseFloat(line.vatAmount.toString()) : 0,
+              debitAmount: new Decimal(line.debitAmount).toNumber(),
+              creditAmount: new Decimal(line.creditAmount).toNumber(),
+              vatAmount: line.vatAmount ? new Decimal(line.vatAmount).toNumber() : 0,
               account: {
                 id: line.chartOfAccount.id,
                 accountNo: line.chartOfAccount.accountNo,

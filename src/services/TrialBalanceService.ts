@@ -4,6 +4,19 @@ import { Decimal } from 'decimal.js';
 
 import { prisma } from '../utils/database';
 
+export interface TrialBalanceTransaction {
+  id: string;
+  date: string;
+  reference: string;
+  description: string;
+  debitAmount: number;
+  creditAmount: number;
+  source: string; // "CASHBOOK", "INVOICE", "EXPENSE", "MANUAL_ENTRY", etc.
+  sourceTransaction: any; // Actual transaction details (cashbook entry, invoice, expense, etc.)
+  journalEntryId: string;
+  journalEntryStatus: string;
+}
+
 export interface TrialBalanceAccount {
   accountId: string;
   accountName: string;
@@ -11,6 +24,7 @@ export interface TrialBalanceAccount {
   accountType: string;
   debitBalance: number;
   creditBalance: number;
+  transactions: TrialBalanceTransaction[]; // Transaction breakdown
 }
 
 export interface TrialBalanceData {
@@ -25,13 +39,25 @@ export interface TrialBalanceData {
 
 export class TrialBalanceService {
   /**
-   * Generate trial balance for a specific date
+   * Generate trial balance for a date range
    */
-  static async generateTrialBalance(date: Date): Promise<TrialBalanceData> {
+  static async generateTrialBalance(date: Date, startDate?: Date, endDate?: Date): Promise<TrialBalanceData> {
     try {
-      // Create end of day date to include all entries from the specified date
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      // If startDate and endDate are provided, use them; otherwise use date as endDate
+      let start: Date;
+      let end: Date;
+      
+      if (startDate && endDate) {
+        start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+      } else {
+        // Legacy behavior: use date as endDate, start from beginning of time
+        start = new Date(0); // Beginning of time
+        end = new Date(date);
+        end.setHours(23, 59, 59, 999);
+      }
 
       // Get all active accounts with a single query
       const accounts = await prisma.chartOfAccounts.findMany({
@@ -42,60 +68,295 @@ export class TrialBalanceService {
         ]
       });
 
-      // Get all journal entry lines in a single optimized query with aggregation
-      // This avoids N+1 query problem
+      // Get all journal entry lines with full transaction details for breakdown
       // Exclude journal entries linked to voided/reversed cashbook entries
-      const journalEntryLines = await prisma.journalEntryLine.findMany({
+      // Note: We need to include currencyId to filter out null currency entries (matching GL Detail)
+      const journalEntryLinesRaw = await prisma.journalEntryLine.findMany({
         where: {
           journalEntry: {
             transactionDate: {
-              lte: endOfDay
+              gte: start,
+              lte: end
             },
             status: 'POSTED', // Only include POSTED entries (exclude VOID and PENDING)
-            // Exclude journal entries linked to voided/reversed cashbook entries
-            cashbookEntries: {
-              none: {
-                OR: [
-                  { status: 'VOIDED' },
-                  { reversedAt: { not: null } } // Reversed entries have reversedAt set
-                ]
+            // Exclude journal entries where ANY linked cashbook entry is voided or reversed
+            NOT: {
+              cashbookEntries: {
+                some: {
+                  OR: [
+                    { status: 'VOIDED' },
+                    { reversedAt: { not: null } } // Reversed entries have reversedAt set
+                  ]
+                }
               }
             },
-            // Exclude reversal journal entries (those with VR- or REV- prefix)
-            referenceNumber: {
-              not: {
-                startsWith: 'VR-'
+            // Exclude reversal journal entries (those with VR- or REV- prefix) - match Balance Sheet
+            AND: [
+              {
+                referenceNumber: {
+                  not: {
+                    startsWith: 'VR-'
+                  }
+                }
+              },
+              {
+                referenceNumber: {
+                  not: {
+                    startsWith: 'REV-'
+                  }
+                }
               }
-            }
+            ]
           }
         },
         select: {
+          id: true,
           chartOfAccountId: true,
           debitAmount: true,
-          creditAmount: true
+          creditAmount: true,
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              description: true,
+              transactionDate: true,
+              status: true,
+              currencyId: true,
+              cashbookEntries: {
+                include: {
+                  bank: {
+                    select: {
+                      id: true,
+                      name: true,
+                      accountNumber: true
+                    }
+                  },
+                  customer: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true
+                    }
+                  },
+                  vendor: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true
+                    }
+                  }
+                },
+                take: 1
+              },
+              invoices: {
+                include: {
+                  customer: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true
+                    }
+                  }
+                },
+                take: 1
+              },
+              expenses: {
+                include: {
+                  vendor: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true
+                    }
+                  },
+                  category: {
+                    select: {
+                      id: true,
+                      name: true
+                    }
+                  }
+                },
+                take: 1
+              },
+              revenues: {
+                include: {
+                  source: {
+                    select: {
+                      id: true,
+                      name: true
+                    }
+                  },
+                  category: {
+                    select: {
+                      id: true,
+                      name: true
+                    }
+                  }
+                },
+                take: 1
+              }
+            }
+          }
         }
       });
 
-      // Create a map to aggregate balances by account ID
-      const accountBalances = new Map<string, { debitBalance: number; creditBalance: number }>();
+      // Filter out entries with null currency (matching GL Detail behavior)
+      const journalEntryLines = journalEntryLinesRaw.filter(line => line.journalEntry.currencyId !== null);
+
+      // Create a map to aggregate balances by account ID and store transactions
+      const accountBalances = new Map<string, { 
+        debitBalance: number; 
+        creditBalance: number;
+        transactions: TrialBalanceTransaction[];
+      }>();
 
       // Initialize all accounts with zero balances
       for (const account of accounts) {
-        accountBalances.set(account.id, { debitBalance: 0, creditBalance: 0 });
+        accountBalances.set(account.id, { 
+          debitBalance: 0, 
+          creditBalance: 0,
+          transactions: []
+        });
       }
 
-      // Aggregate journal entry lines by account
+      // Aggregate journal entry lines by account and collect transactions
+      // Use Decimal arithmetic to maintain precision - NO ROUNDING during calculations
       for (const line of journalEntryLines) {
         if (!line.chartOfAccountId) continue;
         
         const balance = accountBalances.get(line.chartOfAccountId);
         if (balance) {
-          if (line.debitAmount && line.debitAmount.gt(0)) {
-            balance.debitBalance += line.debitAmount.toNumber();
+          // Use Decimal arithmetic - convert to number only at the end
+          const debitAmt = line.debitAmount && line.debitAmount.gt(0) ? new Decimal(line.debitAmount).toNumber() : 0;
+          const creditAmt = line.creditAmount && line.creditAmount.gt(0) ? new Decimal(line.creditAmount).toNumber() : 0;
+          
+          if (debitAmt > 0) {
+            balance.debitBalance = new Decimal(balance.debitBalance).plus(debitAmt).toNumber();
           }
-          if (line.creditAmount && line.creditAmount.gt(0)) {
-            balance.creditBalance += line.creditAmount.toNumber();
+          if (creditAmt > 0) {
+            balance.creditBalance = new Decimal(balance.creditBalance).plus(creditAmt).toNumber();
           }
+
+          // Determine source and get actual transaction details
+          let source = "MANUAL_ENTRY";
+          let sourceTransaction: any = null;
+
+          if (line.journalEntry.cashbookEntries && line.journalEntry.cashbookEntries.length > 0) {
+            source = "CASHBOOK";
+            const cashbookEntry = line.journalEntry.cashbookEntries[0];
+            sourceTransaction = {
+              id: cashbookEntry.id,
+              type: cashbookEntry.type,
+              amount: cashbookEntry.amount ? new Decimal(cashbookEntry.amount).toNumber() : 0,
+              description: cashbookEntry.description,
+              reference: cashbookEntry.reference,
+              transactionDate: cashbookEntry.transactionDate,
+              status: cashbookEntry.status,
+              bank: cashbookEntry.bank ? {
+                id: cashbookEntry.bank.id,
+                name: cashbookEntry.bank.name,
+                accountNumber: cashbookEntry.bank.accountNumber
+              } : null,
+              customer: cashbookEntry.customer ? {
+                id: cashbookEntry.customer.id,
+                name: cashbookEntry.customer.name,
+                email: cashbookEntry.customer.email
+              } : null,
+              vendor: cashbookEntry.vendor ? {
+                id: cashbookEntry.vendor.id,
+                name: cashbookEntry.vendor.name,
+                email: cashbookEntry.vendor.email
+              } : null
+            };
+          } else if (line.journalEntry.invoices && line.journalEntry.invoices.length > 0) {
+            source = "INVOICE";
+            const invoice = line.journalEntry.invoices[0];
+            sourceTransaction = {
+              id: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              amount: invoice.amount ? new Decimal(invoice.amount).toNumber() : 0,
+              vatAmount: invoice.vatAmount ? new Decimal(invoice.vatAmount).toNumber() : 0,
+              totalAmount: invoice.totalAmount ? new Decimal(invoice.totalAmount).toNumber() : 0,
+              description: invoice.description,
+              transactionDate: invoice.transactionDate,
+              status: invoice.status,
+              isTaxable: invoice.isTaxable,
+              customer: invoice.customer ? {
+                id: invoice.customer.id,
+                name: invoice.customer.name,
+                email: invoice.customer.email
+              } : null
+            };
+          } else if (line.journalEntry.expenses && line.journalEntry.expenses.length > 0) {
+            source = "EXPENSE";
+            const expense = line.journalEntry.expenses[0];
+            sourceTransaction = {
+              id: expense.id,
+              receiptNumber: expense.receiptNumber,
+              amount: expense.amount ? new Decimal(expense.amount).toNumber() : 0,
+              vatAmount: expense.vatAmount ? new Decimal(expense.vatAmount).toNumber() : 0,
+              totalAmount: expense.totalAmount ? new Decimal(expense.totalAmount).toNumber() : 0,
+              description: expense.description,
+              transactionDate: expense.transactionDate,
+              status: expense.status,
+              paymentMethod: expense.paymentMethod,
+              isTaxable: expense.isTaxable,
+              vendor: expense.vendor ? {
+                id: expense.vendor.id,
+                name: expense.vendor.name,
+                email: expense.vendor.email
+              } : null,
+              category: expense.category ? {
+                id: expense.category.id,
+                name: expense.category.name
+              } : null
+            };
+          } else if (line.journalEntry.revenues && line.journalEntry.revenues.length > 0) {
+            source = "REVENUE";
+            const revenue = line.journalEntry.revenues[0];
+            sourceTransaction = {
+              id: revenue.id,
+              amount: revenue.amount ? new Decimal(revenue.amount).toNumber() : 0,
+              vatAmount: revenue.vatAmount ? new Decimal(revenue.vatAmount).toNumber() : 0,
+              totalAmount: revenue.totalAmount ? new Decimal(revenue.totalAmount).toNumber() : 0,
+              description: revenue.description,
+              transactionDate: revenue.transactionDate,
+              status: revenue.status,
+              paymentMethod: revenue.paymentMethod,
+              isTaxable: revenue.isTaxable,
+              source: revenue.source ? {
+                id: revenue.source.id,
+                name: revenue.source.name
+              } : null,
+              category: revenue.category ? {
+                id: revenue.category.id,
+                name: revenue.category.name
+              } : null
+            };
+          } else {
+            // Manual entry - use journal entry details
+            sourceTransaction = {
+              id: line.journalEntry.id,
+              referenceNumber: line.journalEntry.referenceNumber,
+              description: line.journalEntry.description,
+              transactionDate: line.journalEntry.transactionDate,
+              status: line.journalEntry.status
+            };
+          }
+
+          // Add transaction to breakdown
+          balance.transactions.push({
+            id: line.id,
+            date: line.journalEntry.transactionDate.toISOString().split('T')[0],
+            reference: line.journalEntry.referenceNumber || "",
+            description: line.journalEntry.description || "",
+            debitAmount: debitAmt,
+            creditAmount: creditAmt,
+            source: source,
+            sourceTransaction: sourceTransaction,
+            journalEntryId: line.journalEntry.id,
+            journalEntryStatus: line.journalEntry.status
+          });
         }
       }
 
@@ -118,13 +379,17 @@ export class TrialBalanceService {
         const displayDebit = netBalance > 0 ? netBalance : 0;
         const displayCredit = netBalance < 0 ? Math.abs(netBalance) : 0;
 
+        // Sort transactions by date
+        const transactions = balances.transactions.sort((a, b) => a.date.localeCompare(b.date));
+
         trialBalanceAccounts.push({
           accountId: account.id,
           accountName: account.accountName,
           accountNo: account.accountNo,
           accountType: account.accountType,
           debitBalance: displayDebit,
-          creditBalance: displayCredit
+          creditBalance: displayCredit,
+          transactions: transactions
         });
 
         totalDebits += displayDebit;

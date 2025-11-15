@@ -1,10 +1,32 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
-import { Decimal } from "@prisma/client";
+import { Decimal } from "decimal.js";
 
 export interface BalanceSheetParams {
   asOfDate: Date;
   currencyId?: string;
+  startDate?: Date;
+  endDate?: Date;
+}
+
+export interface BalanceSheetTransaction {
+  id: string;
+  date: string;
+  reference: string;
+  description: string;
+  debitAmount: number;
+  creditAmount: number;
+  source: string; // "CASHBOOK", "INVOICE", "EXPENSE", "MANUAL_ENTRY", etc.
+  sourceTransaction: any; // Actual transaction details (cashbook entry, invoice, expense, etc.)
+  journalEntryId: string;
+  journalEntryStatus: string;
+}
+
+export interface BalanceSheetAccount {
+  accountNo: string;
+  accountName: string;
+  balance: number;
+  transactions: BalanceSheetTransaction[]; // Transaction breakdown
 }
 
 export interface BalanceSheetData {
@@ -12,32 +34,32 @@ export interface BalanceSheetData {
   currency: string;
   assets: {
     currentAssets: {
-      accounts: Array<{ accountNo: string; accountName: string; balance: number }>;
+      accounts: BalanceSheetAccount[];
       total: number;
     };
     fixedAssets: {
-      accounts: Array<{ accountNo: string; accountName: string; balance: number }>;
+      accounts: BalanceSheetAccount[];
       total: number;
     };
     otherAssets: {
-      accounts: Array<{ accountNo: string; accountName: string; balance: number }>;
+      accounts: BalanceSheetAccount[];
       total: number;
     };
     totalAssets: number;
   };
   liabilities: {
     currentLiabilities: {
-      accounts: Array<{ accountNo: string; accountName: string; balance: number }>;
+      accounts: BalanceSheetAccount[];
       total: number;
     };
     longTermLiabilities: {
-      accounts: Array<{ accountNo: string; accountName: string; balance: number }>;
+      accounts: BalanceSheetAccount[];
       total: number;
     };
     totalLiabilities: number;
   };
   equity: {
-    accounts: Array<{ accountNo: string; accountName: string; balance: number }>;
+    accounts: BalanceSheetAccount[];
     total: number;
     retainedEarnings: number; // Net income from Income Statement
   };
@@ -75,20 +97,39 @@ export class BalanceSheetService {
       console.log(`✅ Found ${accounts.length} balance sheet account(s)`);
       console.log("");
 
-      // Get all posted journal entry lines up to the as-of date
+      // Determine date range: use startDate/endDate if provided, otherwise use asOfDate
+      let startDate: Date;
+      let endDate: Date;
+      
+      if (params.startDate && params.endDate) {
+        startDate = new Date(params.startDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(params.endDate);
+        endDate.setHours(23, 59, 59, 999);
+      } else {
+        // Legacy: use asOfDate as endDate, start from beginning of time
+        startDate = new Date(0);
+        endDate = new Date(params.asOfDate);
+        endDate.setHours(23, 59, 59, 999);
+      }
+
+      // Get all posted journal entry lines within the date range
       // Exclude journal entries linked to voided/reversed cashbook entries
       const journalEntryWhere: any = {
         transactionDate: {
-          lte: params.asOfDate
+          gte: startDate,
+          lte: endDate
         },
         status: 'POSTED',
-        // Exclude journal entries linked to voided/reversed cashbook entries
-        cashbookEntries: {
-          none: {
-            OR: [
-              { status: 'VOIDED' },
-              { reversedAt: { not: null } } // Reversed entries have reversedAt set
-            ]
+        // Exclude journal entries where ANY linked cashbook entry is voided or reversed
+        NOT: {
+          cashbookEntries: {
+            some: {
+              OR: [
+                { status: 'VOIDED' },
+                { reversedAt: { not: null } } // Reversed entries have reversedAt set
+              ]
+            }
           }
         },
         // Exclude reversal journal entries
@@ -115,27 +156,57 @@ export class BalanceSheetService {
         journalEntryWhere.currencyId = params.currencyId;
       }
 
+      // OPTIMIZED: First get journal lines without transaction details for fast balance calculation
+      // Transaction details will be loaded on-demand only for accounts that have transactions
       const journalLines = await prisma.journalEntryLine.findMany({
         where: {
           journalEntry: {
             is: journalEntryWhere
           }
         },
-        include: {
-          chartOfAccount: true,
-          journalEntry: true
+        select: {
+          id: true,
+          chartOfAccountId: true,
+          debitAmount: true,
+          creditAmount: true,
+          journalEntryId: true,
+          chartOfAccount: {
+            select: {
+              id: true,
+              accountNo: true,
+              accountName: true,
+              accountType: true,
+              financialStatement: true
+            }
+          },
+          journalEntry: {
+            select: {
+              id: true,
+              referenceNumber: true,
+              description: true,
+              transactionDate: true,
+              status: true,
+              currencyId: true
+            }
+          }
         }
       });
 
       console.log(`✅ Retrieved ${journalLines.length} journal entry line(s)`);
       console.log("");
 
-      // Calculate balance for each account
+      // Calculate balance for each account and collect transactions
       const accountBalances = new Map<string, number>();
+      const accountTransactions = new Map<string, BalanceSheetTransaction[]>();
 
       for (const line of journalLines) {
         const accountId = line.chartOfAccountId;
         const currentBalance = accountBalances.get(accountId) || 0;
+        
+        // Initialize transactions array if needed
+        if (!accountTransactions.has(accountId)) {
+          accountTransactions.set(accountId, []);
+        }
 
         // For balance sheet accounts:
         // Assets: Debits increase, Credits decrease
@@ -147,23 +218,265 @@ export class BalanceSheetService {
         const accountName = line.chartOfAccount.accountName.toLowerCase();
         let newBalance = currentBalance;
 
+        // Use Decimal arithmetic to maintain precision - NO ROUNDING during calculations
+        const debitAmount = new Decimal(line.debitAmount);
+        const creditAmount = new Decimal(line.creditAmount);
+        const currentBalanceDecimal = new Decimal(currentBalance);
+        
         // Check if this is a Contra-Asset account (Accumulated Depreciation)
         if (accountName.includes('accumulated depreciation') || accountType === 'Contra-Asset') {
           // Contra-Asset: Credits increase, Debits decrease (opposite of normal assets)
-          newBalance += Number(line.creditAmount) - Number(line.debitAmount);
+          newBalance = currentBalanceDecimal.plus(creditAmount).minus(debitAmount).toNumber();
         } else if (accountType.includes('Asset')) {
           // Normal Asset: Debits increase, Credits decrease
-          newBalance += Number(line.debitAmount) - Number(line.creditAmount);
+          newBalance = currentBalanceDecimal.plus(debitAmount).minus(creditAmount).toNumber();
         } else if (accountType.includes('Liability') || accountType === 'Equity') {
           // Liabilities & Equity: Credits increase, Debits decrease
-          newBalance += Number(line.creditAmount) - Number(line.debitAmount);
+          newBalance = currentBalanceDecimal.plus(creditAmount).minus(debitAmount).toNumber();
         }
 
         accountBalances.set(accountId, newBalance);
+
+        // Store basic transaction info (will enrich with details later if needed)
+        const debitAmt = new Decimal(line.debitAmount || 0).toNumber();
+        const creditAmt = new Decimal(line.creditAmount || 0).toNumber();
+
+        // Add transaction to breakdown (basic info only for now)
+        accountTransactions.get(accountId)!.push({
+          id: line.id,
+          date: line.journalEntry.transactionDate.toISOString().split('T')[0],
+          reference: line.journalEntry.referenceNumber || "",
+          description: line.journalEntry.description || "",
+          debitAmount: debitAmt,
+          creditAmount: creditAmt,
+          source: "MANUAL_ENTRY", // Will be determined when loading details
+          sourceTransaction: null, // Will be loaded on-demand
+          journalEntryId: line.journalEntry.id,
+          journalEntryStatus: line.journalEntry.status
+        });
       }
 
       console.log(`📊 Calculated balances for ${accountBalances.size} account(s)`);
       console.log("");
+
+      // OPTIMIZED: Load transaction details only for accounts that have transactions
+      // This significantly reduces query time by avoiding loading details for all transactions
+      const journalEntryIds = new Set<string>();
+      for (const transactions of accountTransactions.values()) {
+        for (const tx of transactions) {
+          journalEntryIds.add(tx.journalEntryId);
+        }
+      }
+
+      if (journalEntryIds.size > 0) {
+        console.log(`📦 Loading transaction details for ${journalEntryIds.size} journal entry(s)...`);
+        const journalEntriesWithDetails = await prisma.journalEntry.findMany({
+          where: {
+            id: { in: Array.from(journalEntryIds) }
+          },
+          select: {
+            id: true,
+            cashbookEntries: {
+              include: {
+                bank: {
+                  select: {
+                    id: true,
+                    name: true,
+                    accountNumber: true
+                  }
+                },
+                customer: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true
+                  }
+                },
+                vendor: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true
+                  }
+                }
+              },
+              take: 1
+            },
+            invoices: {
+              include: {
+                customer: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true
+                  }
+                }
+              },
+              take: 1
+            },
+            expenses: {
+              include: {
+                vendor: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true
+                  }
+                },
+                category: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
+              },
+              take: 1
+            },
+            revenues: {
+              include: {
+                source: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                },
+                category: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
+              },
+              take: 1
+            }
+          }
+        });
+
+        // Create a map for quick lookup
+        const journalEntryDetailsMap = new Map<string, any>();
+        for (const je of journalEntriesWithDetails) {
+          journalEntryDetailsMap.set(je.id, je);
+        }
+
+        // Enrich transactions with details
+        for (const transactions of accountTransactions.values()) {
+          for (const tx of transactions) {
+            const jeDetails = journalEntryDetailsMap.get(tx.journalEntryId);
+            if (!jeDetails) continue;
+
+            let source = "MANUAL_ENTRY";
+            let sourceTransaction: any = null;
+
+            if (jeDetails.cashbookEntries && jeDetails.cashbookEntries.length > 0) {
+              source = "CASHBOOK";
+              const cashbookEntry = jeDetails.cashbookEntries[0];
+              sourceTransaction = {
+                id: cashbookEntry.id,
+                type: cashbookEntry.type,
+                amount: cashbookEntry.amount ? new Decimal(cashbookEntry.amount).toNumber() : 0,
+                description: cashbookEntry.description,
+                reference: cashbookEntry.reference,
+                transactionDate: cashbookEntry.transactionDate,
+                status: cashbookEntry.status,
+                bank: cashbookEntry.bank ? {
+                  id: cashbookEntry.bank.id,
+                  name: cashbookEntry.bank.name,
+                  accountNumber: cashbookEntry.bank.accountNumber
+                } : null,
+                customer: cashbookEntry.customer ? {
+                  id: cashbookEntry.customer.id,
+                  name: cashbookEntry.customer.name,
+                  email: cashbookEntry.customer.email
+                } : null,
+                vendor: cashbookEntry.vendor ? {
+                  id: cashbookEntry.vendor.id,
+                  name: cashbookEntry.vendor.name,
+                  email: cashbookEntry.vendor.email
+                } : null
+              };
+            } else if (jeDetails.invoices && jeDetails.invoices.length > 0) {
+              source = "INVOICE";
+              const invoice = jeDetails.invoices[0];
+              sourceTransaction = {
+                id: invoice.id,
+                invoiceNumber: invoice.invoiceNumber,
+                amount: invoice.amount ? new Decimal(invoice.amount).toNumber() : 0,
+                vatAmount: invoice.vatAmount ? new Decimal(invoice.vatAmount).toNumber() : 0,
+                totalAmount: invoice.totalAmount ? new Decimal(invoice.totalAmount).toNumber() : 0,
+                description: invoice.description,
+                transactionDate: invoice.transactionDate,
+                status: invoice.status,
+                isTaxable: invoice.isTaxable,
+                customer: invoice.customer ? {
+                  id: invoice.customer.id,
+                  name: invoice.customer.name,
+                  email: invoice.customer.email
+                } : null
+              };
+            } else if (jeDetails.expenses && jeDetails.expenses.length > 0) {
+              source = "EXPENSE";
+              const expense = jeDetails.expenses[0];
+              sourceTransaction = {
+                id: expense.id,
+                receiptNumber: expense.receiptNumber,
+                amount: expense.amount ? new Decimal(expense.amount).toNumber() : 0,
+                vatAmount: expense.vatAmount ? new Decimal(expense.vatAmount).toNumber() : 0,
+                totalAmount: expense.totalAmount ? new Decimal(expense.totalAmount).toNumber() : 0,
+                description: expense.description,
+                transactionDate: expense.transactionDate,
+                status: expense.status,
+                paymentMethod: expense.paymentMethod,
+                isTaxable: expense.isTaxable,
+                vendor: expense.vendor ? {
+                  id: expense.vendor.id,
+                  name: expense.vendor.name,
+                  email: expense.vendor.email
+                } : null,
+                category: expense.category ? {
+                  id: expense.category.id,
+                  name: expense.category.name
+                } : null
+              };
+            } else if (jeDetails.revenues && jeDetails.revenues.length > 0) {
+              source = "REVENUE";
+              const revenue = jeDetails.revenues[0];
+              sourceTransaction = {
+                id: revenue.id,
+                amount: revenue.amount ? new Decimal(revenue.amount).toNumber() : 0,
+                vatAmount: revenue.vatAmount ? new Decimal(revenue.vatAmount).toNumber() : 0,
+                totalAmount: revenue.totalAmount ? new Decimal(revenue.totalAmount).toNumber() : 0,
+                description: revenue.description,
+                transactionDate: revenue.transactionDate,
+                status: revenue.status,
+                paymentMethod: revenue.paymentMethod,
+                isTaxable: revenue.isTaxable,
+                source: revenue.source ? {
+                  id: revenue.source.id,
+                  name: revenue.source.name
+                } : null,
+                category: revenue.category ? {
+                  id: revenue.category.id,
+                  name: revenue.category.name
+                } : null
+              };
+            } else {
+              // Manual entry - use journal entry details
+              sourceTransaction = {
+                id: jeDetails.id,
+                referenceNumber: tx.reference,
+                description: tx.description,
+                transactionDate: tx.date,
+                status: tx.journalEntryStatus
+              };
+            }
+
+            tx.source = source;
+            tx.sourceTransaction = sourceTransaction;
+          }
+        }
+        console.log(`✅ Transaction details loaded`);
+        console.log("");
+      }
 
       // Verify control account balances match sub-ledger totals
       await this.verifyControlAccountBalances(accountBalances, params.asOfDate, params.currencyId);
@@ -245,10 +558,14 @@ export class BalanceSheetService {
           continue; // Skip this account
         }
 
-        const accountData = {
+        // Get transactions for this account
+        const transactions = (accountTransactions.get(account.id) || []).sort((a, b) => a.date.localeCompare(b.date));
+
+        const accountData: BalanceSheetAccount = {
           accountNo: account.accountNo,
           accountName: account.accountName,
-          balance: balance
+          balance: balance,
+          transactions: transactions
         };
 
         // Check if this is a cash and cash equivalent account
@@ -289,10 +606,25 @@ export class BalanceSheetService {
 
       // Add Accumulated Depreciation as a single consolidated line item (shown as negative)
       if (Math.abs(accumulatedDepreciation) > 0.01) {
+        // Collect all transactions from accumulated depreciation accounts
+        const accumDeprTransactions: BalanceSheetTransaction[] = [];
+        for (const account of accounts) {
+          const accountName = account.accountName.toLowerCase();
+          const isAccumDepr = 
+            accountName.includes('accumulated') && accountName.includes('depreciation') ||
+            account.accountType === 'Contra-Asset';
+          if (isAccumDepr) {
+            const accTrans = accountTransactions.get(account.id) || [];
+            accumDeprTransactions.push(...accTrans);
+          }
+        }
+        accumDeprTransactions.sort((a, b) => a.date.localeCompare(b.date));
+
         fixedAssets.push({
           accountNo: 'ACCUM-DEPR',
           accountName: 'Accumulated Depreciation',
-          balance: -Math.abs(accumulatedDepreciation) // Show as negative value
+          balance: -Math.abs(accumulatedDepreciation), // Show as negative value
+          transactions: accumDeprTransactions
         });
       }
 
@@ -664,13 +996,12 @@ export class BalanceSheetService {
         }
       });
 
-      // Calculate balance: Credits increase, Debits decrease for Liability accounts
-      let balance = 0;
+      // Calculate balance using Decimal arithmetic - NO ROUNDING (Credits increase, Debits decrease for Liability accounts)
+      let balance = new Decimal(0);
       for (const line of journalLines) {
-        balance += Number(line.creditAmount) - Number(line.debitAmount);
+        balance = balance.plus(line.creditAmount).minus(line.debitAmount);
       }
-
-      return balance;
+      return balance.toNumber();
     } catch (error) {
       console.error("Error getting accounts payable balance:", error);
       return 0;
@@ -714,22 +1045,27 @@ export class BalanceSheetService {
         }
       });
 
-      let totalRevenue = 0;
-      let totalExpense = 0;
-
+      // Use Decimal arithmetic - NO ROUNDING during calculations
+      let totalRevenueDecimal = new Decimal(0);
+      let totalExpenseDecimal = new Decimal(0);
+      
       for (const line of journalLines) {
         const accountType = line.chartOfAccount.accountType;
+        const debitAmount = new Decimal(line.debitAmount);
+        const creditAmount = new Decimal(line.creditAmount);
 
         if (accountType === 'Revenue' || accountType === 'Income') {
           // Revenue: Credits increase, Debits decrease
-          totalRevenue += Number(line.creditAmount) - Number(line.debitAmount);
+          totalRevenueDecimal = totalRevenueDecimal.plus(creditAmount).minus(debitAmount);
         } else if (accountType === 'Expense') {
           // Expense: Debits increase, Credits decrease
-          totalExpense += Number(line.debitAmount) - Number(line.creditAmount);
+          totalExpenseDecimal = totalExpenseDecimal.plus(debitAmount).minus(creditAmount);
         }
       }
 
-      const netIncome = totalRevenue - totalExpense;
+      const totalRevenue = totalRevenueDecimal.toNumber();
+      const totalExpense = totalExpenseDecimal.toNumber();
+      const netIncome = totalRevenueDecimal.minus(totalExpenseDecimal).toNumber();
       console.log(`💰 Retained Earnings (Net Income): $${netIncome.toFixed(2)}`);
       console.log(`   - Total Revenue: $${totalRevenue.toFixed(2)}`);
       console.log(`   - Total Expense: $${totalExpense.toFixed(2)}`);

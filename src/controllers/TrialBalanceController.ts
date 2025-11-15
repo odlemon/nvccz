@@ -10,16 +10,38 @@ export class TrialBalanceController {
    */
   static async generateTrialBalance(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { date } = req.query;
+      const { date, startDate, endDate } = req.query;
       
-      // Use current date if no date provided
-      const trialBalanceDate = date ? new Date(date as string) : new Date();
+      // Parse dates
+      let trialBalanceDate: Date | undefined;
+      let start: Date | undefined;
+      let end: Date | undefined;
       
-      if (isNaN(trialBalanceDate.getTime())) {
-        return ResponseHelper.badRequest(res, 'Invalid date format');
+      if (startDate && endDate) {
+        // Use date range
+        start = new Date(startDate as string);
+        end = new Date(endDate as string);
+        trialBalanceDate = end; // Use endDate as the display date
+        
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          return ResponseHelper.badRequest(res, 'Invalid date format for startDate or endDate');
+        }
+      } else if (date) {
+        // Legacy: use date as endDate
+        trialBalanceDate = new Date(date as string);
+        if (isNaN(trialBalanceDate.getTime())) {
+          return ResponseHelper.badRequest(res, 'Invalid date format');
+        }
+      } else {
+        // Default to current date
+        trialBalanceDate = new Date();
       }
 
-      const trialBalance = await TrialBalanceService.generateTrialBalance(trialBalanceDate);
+      const trialBalance = await TrialBalanceService.generateTrialBalance(
+        trialBalanceDate || new Date(),
+        start,
+        end
+      );
       
       return ResponseHelper.success(res, 'Trial balance generated successfully', trialBalance);
     } catch (error: any) {

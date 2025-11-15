@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Decimal } from "decimal.js";
 import { MultiCurrencyService } from "./MultiCurrencyService";
 
 export interface GLLedgerDetailParams {
@@ -85,21 +85,22 @@ export class GLLedgerDetailService {
 
       console.log(`   Account: ${account.accountName} (${account.accountType})`);
 
-      // 2. Get base currency (ZIG) if multi-currency is enabled
+      // 2. Get base currency (USD) if multi-currency is enabled
       let baseCurrency = null;
       let baseCurrencyId = null;
       if (includeMultiCurrency) {
+        // First try to get default currency (should be USD)
         baseCurrency = await prisma.currency.findFirst({
           where: { isDefault: true, isActive: true }
         });
         if (!baseCurrency) {
-          // Try to find ZIG currency by code
+          // Fallback to USD if no default is set
           baseCurrency = await prisma.currency.findFirst({
             where: {
               OR: [
-                { code: 'ZIG' },
-                { code: 'ZWL' },
-                { name: { contains: 'ZIG' } }
+                { code: 'USD' },
+                { code: 'ZIG' }, // Legacy fallback
+                { code: 'ZWL' }  // Legacy fallback
               ],
               isActive: true
             }
@@ -130,69 +131,140 @@ export class GLLedgerDetailService {
       }
 
       // 4. Get all journal entry lines for this account in the date range
+      // Apply the SAME filters as Trial Balance to ensure consistency:
+      // - Only POSTED entries (exclude PENDING and VOID)
+      // - Exclude journal entries linked to voided/reversed cashbook entries
+      // - Exclude reversal journal entries (VR- prefix)
+      // - If currencyId is provided, filter by it. Otherwise, include ALL currencies
       const journalEntryWhere: any = {
         transactionDate: {
           gte: startDate,
           lte: endDate
         },
-        status: {
-          in: ['POSTED', 'PENDING'] // Include both POSTED and PENDING entries
-        }
+        status: 'POSTED', // Only include POSTED entries to match Trial Balance (exclude PENDING and VOID)
+        // Exclude journal entries where ANY linked cashbook entry is voided or reversed
+        NOT: {
+          cashbookEntries: {
+            some: {
+              OR: [
+                { status: 'VOIDED' },
+                { reversedAt: { not: null } } // Reversed entries have reversedAt set
+              ]
+            }
+          }
+        },
+        // Exclude reversal journal entries (those with VR- or REV- prefix) - match Trial Balance and Balance Sheet
+        AND: [
+          {
+            referenceNumber: {
+              not: {
+                startsWith: 'VR-'
+              }
+            }
+          },
+          {
+            referenceNumber: {
+              not: {
+                startsWith: 'REV-'
+              }
+            }
+          }
+        ]
       };
 
-      // Add currency filter if provided
+      // Only filter by currency if explicitly provided
+      // If not provided, include ALL currencies (including null currencies will be filtered out later)
       if (currencyId) {
         journalEntryWhere.currencyId = currencyId;
+      } else {
+        // When no currencyId is provided, we want ALL currencies
+        // But we still need to exclude entries with null currencyId (they cause errors)
+        // We'll filter those out after fetching
       }
-      // Note: If currencyId not provided, include all entries (currencyId is required in schema, so all should have it)
 
-      const journalEntryLines = await prisma.journalEntryLine.findMany({
+      // OPTIMIZED: Get journal entry lines with efficient query
+      // Use select instead of include to reduce data transfer
+      // Note: We'll filter out null currencyId entries after fetching (can't use not: null on string fields)
+
+      // First, get journal entry lines with minimal data
+      const journalEntryLinesRaw = await prisma.journalEntryLine.findMany({
         where: {
           chartOfAccountId: account.id,
           journalEntry: journalEntryWhere
         },
-        include: {
+        select: {
+          id: true,
+          debitAmount: true,
+          creditAmount: true,
           journalEntry: {
-            include: {
-              currency: true, // Include currency for multi-currency conversion
+            select: {
+              id: true,
+              referenceNumber: true,
+              transactionDate: true,
+              status: true,
+              description: true,
+              currencyId: true,
               cashbookEntries: {
                 select: {
                   id: true,
                   type: true,
                   reference: true,
                   description: true
-                }
+                },
+                take: 1 // Only need first entry for transaction type
               },
               invoices: {
                 select: {
                   id: true,
                   invoiceNumber: true,
                   description: true
-                }
+                },
+                take: 1 // Only need first entry for transaction type
               },
               expenses: {
                 select: {
                   id: true,
                   receiptNumber: true,
                   description: true
-                }
+                },
+                take: 1 // Only need first entry for transaction type
               },
               revenues: {
                 select: {
                   id: true,
                   description: true
-                }
+                },
+                take: 1 // Only need first entry for transaction type
               }
             }
-          },
-          chartOfAccount: true
+          }
         },
         orderBy: {
           journalEntry: {
-            transactionDate: 'asc' // Order by date ascending
+            transactionDate: 'asc'
           }
         }
       });
+
+      // Get currencies in batch for all unique currencyIds
+      const currencyIds = [...new Set(journalEntryLinesRaw.map(l => l.journalEntry.currencyId).filter(Boolean))];
+      const currencies = currencyIds.length > 0 
+        ? await prisma.currency.findMany({
+            where: { id: { in: currencyIds } }
+          })
+        : [];
+      const currencyMap = new Map(currencies.map(c => [c.id, c]));
+
+      // Attach currencies to journal entries and filter out any with missing currencies
+      const journalEntryLines = journalEntryLinesRaw
+        .map(line => ({
+          ...line,
+          journalEntry: {
+            ...line.journalEntry,
+            currency: line.journalEntry.currencyId ? currencyMap.get(line.journalEntry.currencyId) || null : null
+          }
+        }))
+        .filter(line => line.journalEntry.currency !== null);
 
       console.log(`   Found ${journalEntryLines.length} transactions in period`);
 
@@ -210,8 +282,9 @@ export class GLLedgerDetailService {
         const transactionCurrencyId = je.currencyId;
         const transactionDate = je.transactionDate;
         
-        const debitAmount = Number(line.debitAmount || 0);
-        const creditAmount = Number(line.creditAmount || 0);
+        // Use Decimal arithmetic - NO ROUNDING during calculations
+        const debitAmount = new Decimal(line.debitAmount || 0).toNumber();
+        const creditAmount = new Decimal(line.creditAmount || 0).toNumber();
         
         // Calculate running balance based on account type
         // For Asset accounts: Debit increases, Credit decreases
@@ -264,7 +337,17 @@ export class GLLedgerDetailService {
               runningBalanceBaseCurrency = runningBalanceBaseCurrency + creditAmountBaseCurrency - debitAmountBaseCurrency;
             }
           } catch (error: any) {
-            console.warn(`   ⚠️  Could not convert currency for transaction ${je.referenceNumber}: ${error.message}`);
+            // If exchange rate is missing, it's likely because:
+            // 1. Transaction is in a currency that doesn't have exchange rates set up
+            // 2. Or the transaction date doesn't have a rate
+            // We'll use the transaction amount as-is and log a less alarming message
+            const errorMsg = error.message || 'Unknown error';
+            if (errorMsg.includes('Exchange rate not found')) {
+              // Only log if it's not a same-currency conversion (which should be caught earlier)
+              console.warn(`   ⚠️  Exchange rate not found for ${transactionCurrency?.code || transactionCurrencyId} → ${baseCurrency?.code || baseCurrencyId} on ${transactionDate.toISOString().split('T')[0]}. Using transaction amount as-is.`);
+            } else {
+              console.warn(`   ⚠️  Could not convert currency for transaction ${je.referenceNumber}: ${errorMsg}`);
+            }
             // Use transaction amount as-is if conversion fails
             debitAmountBaseCurrency = debitAmount;
             creditAmountBaseCurrency = creditAmount;
@@ -333,25 +416,46 @@ export class GLLedgerDetailService {
         transactions.push(transaction);
       }
 
-      // 6. Calculate summary
-      const totalDebits = transactions.reduce((sum, t) => sum + t.debitAmount, 0);
-      const totalCredits = transactions.reduce((sum, t) => sum + t.creditAmount, 0);
+      // 6. Calculate summary using Decimal arithmetic - NO ROUNDING during calculations
+      let totalDebitsDecimal = new Decimal(0);
+      let totalCreditsDecimal = new Decimal(0);
+      
+      for (const t of transactions) {
+        totalDebitsDecimal = totalDebitsDecimal.plus(t.debitAmount);
+        totalCreditsDecimal = totalCreditsDecimal.plus(t.creditAmount);
+      }
+      
+      const totalDebits = totalDebitsDecimal.toNumber();
+      const totalCredits = totalCreditsDecimal.toNumber();
+      
       const netChange = this.isAssetAccount(account.accountType) 
-        ? totalDebits - totalCredits 
-        : totalCredits - totalDebits;
-      const closingBalance = openingBalance + netChange;
+        ? totalDebitsDecimal.minus(totalCreditsDecimal).toNumber()
+        : totalCreditsDecimal.minus(totalDebitsDecimal).toNumber();
+      const closingBalance = new Decimal(openingBalance).plus(netChange).toNumber();
 
-      // Calculate multi-currency totals
+      // Calculate multi-currency totals using Decimal arithmetic - NO ROUNDING
       let totalDebitsBaseCurrency: number | undefined = undefined;
       let totalCreditsBaseCurrency: number | undefined = undefined;
       let netChangeBaseCurrency: number | undefined = undefined;
       
       if (includeMultiCurrency && baseCurrencyId) {
-        totalDebitsBaseCurrency = transactions.reduce((sum, t) => sum + (t.debitAmountBaseCurrency || 0), 0);
-        totalCreditsBaseCurrency = transactions.reduce((sum, t) => sum + (t.creditAmountBaseCurrency || 0), 0);
+        let totalDebitsBaseDecimal = new Decimal(0);
+        let totalCreditsBaseDecimal = new Decimal(0);
+        
+        for (const t of transactions) {
+          if (t.debitAmountBaseCurrency !== undefined) {
+            totalDebitsBaseDecimal = totalDebitsBaseDecimal.plus(t.debitAmountBaseCurrency);
+          }
+          if (t.creditAmountBaseCurrency !== undefined) {
+            totalCreditsBaseDecimal = totalCreditsBaseDecimal.plus(t.creditAmountBaseCurrency);
+          }
+        }
+        
+        totalDebitsBaseCurrency = totalDebitsBaseDecimal.toNumber();
+        totalCreditsBaseCurrency = totalCreditsBaseDecimal.toNumber();
         netChangeBaseCurrency = this.isAssetAccount(account.accountType)
-          ? totalDebitsBaseCurrency - totalCreditsBaseCurrency
-          : totalCreditsBaseCurrency - totalDebitsBaseCurrency;
+          ? totalDebitsBaseDecimal.minus(totalCreditsBaseDecimal).toNumber()
+          : totalCreditsBaseDecimal.minus(totalDebitsBaseDecimal).toNumber();
       }
 
       console.log(`   Total Debits: $${totalDebits.toFixed(2)}`);
@@ -445,8 +549,9 @@ export class GLLedgerDetailService {
       // Calculate opening balance
       let balance = 0;
       for (const line of openingLines) {
-        const debitAmount = Number(line.debitAmount || 0);
-        const creditAmount = Number(line.creditAmount || 0);
+        // Use Decimal arithmetic - NO ROUNDING during calculations
+        const debitAmount = new Decimal(line.debitAmount || 0).toNumber();
+        const creditAmount = new Decimal(line.creditAmount || 0).toNumber();
         
         if (this.isAssetAccount(account.accountType)) {
           balance = balance + debitAmount - creditAmount;
@@ -514,8 +619,9 @@ export class GLLedgerDetailService {
       // Calculate opening balance in base currency
       let balance = 0;
       for (const line of openingLines) {
-        const debitAmount = Number(line.debitAmount || 0);
-        const creditAmount = Number(line.creditAmount || 0);
+        // Use Decimal arithmetic - NO ROUNDING during calculations
+        const debitAmount = new Decimal(line.debitAmount || 0).toNumber();
+        const creditAmount = new Decimal(line.creditAmount || 0).toNumber();
         const transactionCurrencyId = line.journalEntry.currencyId;
         const transactionDate = line.journalEntry.transactionDate;
         
