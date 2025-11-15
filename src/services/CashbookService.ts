@@ -103,7 +103,12 @@ export class CashbookService {
       console.log(`✅ Cash Receipt created: ${transaction.id}`);
       
       // 5. Create journal entry for double-entry accounting
-      const journalEntry = await this.createJournalEntry(transaction, params.createdById);
+      // Pass VAT information to createJournalEntry
+      const journalEntry = await this.createJournalEntry(transaction, params.createdById, {
+        vatCode: params.vatCode,
+        vatAmount: vatAmount,
+        netAmount: netAmount
+      });
       
       // 6. Update transaction with journal entry reference
       const updatedTransaction = await prisma.cashbookEntry.update({
@@ -205,7 +210,15 @@ export class CashbookService {
         console.log(`ℹ️  Payment kept as PENDING - allocate to invoices before posting`);
       } else {
         // For GL payments, auto-post as before
-        const journalEntry = await this.createJournalEntry(transaction, params.createdById);
+        // Pass VAT information to createJournalEntry
+        const vatRate = params.vatCode === '15%' ? 0.15 : 0;
+        const vatAmount = params.amount * vatRate;
+        const netAmount = params.amount - vatAmount;
+        const journalEntry = await this.createJournalEntry(transaction, params.createdById, {
+          vatCode: params.vatCode,
+          vatAmount: vatAmount,
+          netAmount: netAmount
+        });
         updatedTransaction = await prisma.cashbookEntry.update({
           where: { id: transaction.id },
           data: { 
@@ -634,7 +647,7 @@ export class CashbookService {
   
   
   
-  private static async createJournalEntry(transaction: any, userId: string): Promise<any> {
+  private static async createJournalEntry(transaction: any, userId: string, vatInfo?: { vatCode?: string; vatAmount: number; netAmount: number }): Promise<any> {
     const referenceNumber = `CB-${transaction.id.substring(transaction.id.length - 8).toUpperCase()}`;
     
     // Fetch bank details with currency
@@ -661,9 +674,9 @@ export class CashbookService {
     
     // Create journal entry lines for double-entry accounting
     if (transaction.type === 'RECEIPT') {
-      // Receipt: Dr. Bank, Cr. Customer/GL Account
+      // Receipt: Dr. Bank, Cr. Customer/GL Account, Cr. VAT Output (if applicable)
       
-      // 1. Debit Bank Account
+      // 1. Debit Bank Account (full amount including VAT)
       await prisma.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
@@ -674,7 +687,7 @@ export class CashbookService {
         }
       });
       
-      // 2. Credit Customer/GL Account
+      // 2. Credit Customer/GL Account (net amount if VAT, full amount if no VAT)
       let contraAccountId: string;
       if (transaction.counterpartyType === 'CUSTOMER' && transaction.customerId) {
         // Use Accounts Receivable account for customer receipts
@@ -689,20 +702,53 @@ export class CashbookService {
         }
         contraAccountId = arAccount.id;
       } else if (transaction.counterpartyType === 'GL' && transaction.glAccountId) {
+        // For GL receipts, use the provided GL account (should be Revenue account)
         contraAccountId = transaction.glAccountId;
       } else {
         throw new Error('Invalid counterparty for receipt');
       }
+      
+      // Calculate amounts: if VAT info provided, use net amount; otherwise use full amount
+      const creditAmount = vatInfo && vatInfo.vatAmount > 0.01 
+        ? new Decimal(vatInfo.netAmount) 
+        : transaction.amount;
       
       await prisma.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
           chartOfAccountId: contraAccountId,
           debitAmount: new Decimal(0),
-          creditAmount: transaction.amount,
+          creditAmount: creditAmount,
           description: `Receipt from: ${transaction.description}`
         }
       });
+      
+      // 3. Credit VAT Output Account (if VAT applicable)
+      if (vatInfo && vatInfo.vatAmount > 0.01) {
+        const vatOutputAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: '2100' }, // VAT Output
+              { accountName: { contains: 'VAT Output' }, accountType: 'Current Liability' }
+            ],
+            isActive: true
+          }
+        });
+        
+        if (vatOutputAccount) {
+          await prisma.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: vatOutputAccount.id,
+              debitAmount: new Decimal(0),
+              creditAmount: new Decimal(vatInfo.vatAmount),
+              description: `VAT Output: ${transaction.description}`
+            }
+          });
+        } else {
+          console.warn('⚠️  VAT Output account not found - VAT amount will not be recorded separately');
+        }
+      }
       
     } else if (transaction.type === 'PAYMENT') {
       // Payment: For SUPPLIER/CUSTOMER with allocations, use Net + VAT breakdown
@@ -914,17 +960,50 @@ export class CashbookService {
           throw new Error('Invalid counterparty for payment');
         }
         
+        // Calculate amounts: if VAT info provided, use net amount; otherwise use full amount
+        const debitAmount = vatInfo && vatInfo.vatAmount > 0.01 
+          ? new Decimal(vatInfo.netAmount) 
+          : transaction.amount;
+        
+        // 1. Debit Expense/GL Account (net amount if VAT, full amount if no VAT)
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
             chartOfAccountId: contraAccountId,
-            debitAmount: transaction.amount,
+            debitAmount: debitAmount,
             creditAmount: new Decimal(0),
             description: `Payment to: ${transaction.description}`
           }
         });
         
-        // Credit Bank Account
+        // 2. Debit VAT Input Account (if VAT applicable)
+        if (vatInfo && vatInfo.vatAmount > 0.01) {
+          const vatInputAccount = await prisma.chartOfAccounts.findFirst({
+            where: {
+              OR: [
+                { accountNo: '2110' }, // VAT Input
+                { accountName: { contains: 'VAT Input' }, accountType: 'Current Asset' }
+              ],
+              isActive: true
+            }
+          });
+          
+          if (vatInputAccount) {
+            await prisma.journalEntryLine.create({
+              data: {
+                journalEntryId: journalEntry.id,
+                chartOfAccountId: vatInputAccount.id,
+                debitAmount: new Decimal(vatInfo.vatAmount),
+                creditAmount: new Decimal(0),
+                description: `VAT Input: ${transaction.description}`
+              }
+            });
+          } else {
+            console.warn('⚠️  VAT Input account not found - VAT amount will not be recorded separately');
+          }
+        }
+        
+        // 3. Credit Bank Account (full amount including VAT)
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
