@@ -17,6 +17,7 @@ export interface BalanceSheetTransaction {
   debitAmount: number;
   creditAmount: number;
   source: string; // "CASHBOOK", "INVOICE", "EXPENSE", "MANUAL_ENTRY", etc.
+  journalEntry: any; // Full journal entry details (referenceNumber, description, transactionDate, status, etc.)
   sourceTransaction: any; // Actual transaction details (cashbook entry, invoice, expense, etc.)
   journalEntryId: string;
   journalEntryStatus: string;
@@ -250,6 +251,14 @@ export class BalanceSheetService {
           debitAmount: debitAmt,
           creditAmount: creditAmt,
           source: "MANUAL_ENTRY", // Will be determined when loading details
+          journalEntry: {
+            id: line.journalEntry.id,
+            referenceNumber: line.journalEntry.referenceNumber,
+            description: line.journalEntry.description,
+            transactionDate: line.journalEntry.transactionDate,
+            status: line.journalEntry.status,
+            currencyId: line.journalEntry.currencyId
+          },
           sourceTransaction: null, // Will be loaded on-demand
           journalEntryId: line.journalEntry.id,
           journalEntryStatus: line.journalEntry.status
@@ -471,6 +480,14 @@ export class BalanceSheetService {
             }
 
             tx.source = source;
+            tx.journalEntry = {
+              id: jeDetails.id,
+              referenceNumber: tx.reference,
+              description: tx.description,
+              transactionDate: tx.date,
+              status: tx.journalEntryStatus,
+              currencyId: jeDetails.currencyId || null
+            };
             tx.sourceTransaction = sourceTransaction;
           }
         }

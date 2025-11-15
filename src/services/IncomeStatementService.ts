@@ -28,6 +28,7 @@ export interface IncomeStatementTransaction {
   debitAmount: number;
   creditAmount: number;
   source: string; // "CASHBOOK", "INVOICE", "EXPENSE", "MANUAL_ENTRY", etc.
+  journalEntry: any; // Full journal entry details (referenceNumber, description, transactionDate, status, etc.)
   sourceTransaction: any; // Actual transaction details (cashbook entry, invoice, expense, etc.)
   journalEntryId: string;
   journalEntryStatus: string;
@@ -420,6 +421,14 @@ export class IncomeStatementService {
             debitAmount: debitAmt,
             creditAmount: creditAmt,
             source: source,
+            journalEntry: {
+              id: journalEntry.id,
+              referenceNumber: journalEntry.referenceNumber,
+              description: journalEntry.description,
+              transactionDate: journalEntry.transactionDate,
+              status: journalEntry.status,
+              currencyId: journalEntry.currencyId || null
+            },
             sourceTransaction: sourceTransaction,
             journalEntryId: journalEntry.id,
             journalEntryStatus: journalEntry.status

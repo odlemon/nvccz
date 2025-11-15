@@ -155,6 +155,14 @@ export class CashFlowBalanceService {
           debitAmount: debitAmt,
           creditAmount: creditAmt,
           source: source,
+          journalEntry: {
+            id: journalEntry.id,
+            referenceNumber: journalEntry.referenceNumber,
+            description: journalEntry.description,
+            transactionDate: journalEntry.transactionDate,
+            status: journalEntry.status,
+            currencyId: journalEntry.currencyId || null
+          },
           sourceTransaction: sourceTransaction,
           journalEntryId: journalEntry.id,
           journalEntryStatus: journalEntry.status
