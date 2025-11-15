@@ -8,29 +8,45 @@ export class BalanceSheetController {
    */
   static async generateBalanceSheet(req: Request, res: Response) {
     try {
-      const { asOfDate, currencyId } = req.body;
+      const { asOfDate, currencyId, startDate, endDate } = req.body;
 
       // Validate required parameters
-      if (!asOfDate) {
+      if (!asOfDate && !endDate) {
         return res.status(400).json({
           success: false,
-          message: "asOfDate is required"
+          message: "asOfDate or endDate is required"
         });
       }
 
-      // Parse date
-      const parsedDate = new Date(asOfDate);
-      if (isNaN(parsedDate.getTime())) {
+      // Parse dates
+      const parsedAsOfDate = asOfDate ? new Date(asOfDate) : new Date(endDate);
+      if (isNaN(parsedAsOfDate.getTime())) {
         return res.status(400).json({
           success: false,
           message: "Invalid asOfDate format. Use YYYY-MM-DD"
         });
       }
 
+      let parsedStartDate: Date | undefined;
+      let parsedEndDate: Date | undefined;
+      
+      if (startDate && endDate) {
+        parsedStartDate = new Date(startDate);
+        parsedEndDate = new Date(endDate);
+        if (isNaN(parsedStartDate.getTime()) || isNaN(parsedEndDate.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid startDate or endDate format. Use YYYY-MM-DD"
+          });
+        }
+      }
+
       // Generate balance sheet
       const balanceSheet = await BalanceSheetService.generateBalanceSheet({
-        asOfDate: parsedDate,
-        currencyId
+        asOfDate: parsedAsOfDate,
+        currencyId,
+        startDate: parsedStartDate,
+        endDate: parsedEndDate
       });
 
       res.status(200).json({
@@ -52,29 +68,45 @@ export class BalanceSheetController {
    */
   static async getBalanceSheetByQuery(req: Request, res: Response) {
     try {
-      const { asOfDate, currencyId } = req.query;
+      const { asOfDate, currencyId, startDate, endDate } = req.query;
 
       // Validate required parameters
-      if (!asOfDate) {
+      if (!asOfDate && !endDate) {
         return res.status(400).json({
           success: false,
-          message: "asOfDate query parameter is required"
+          message: "asOfDate or endDate query parameter is required"
         });
       }
 
-      // Parse date
-      const parsedDate = new Date(asOfDate as string);
-      if (isNaN(parsedDate.getTime())) {
+      // Parse dates
+      const parsedAsOfDate = asOfDate ? new Date(asOfDate as string) : new Date(endDate as string);
+      if (isNaN(parsedAsOfDate.getTime())) {
         return res.status(400).json({
           success: false,
           message: "Invalid asOfDate format. Use YYYY-MM-DD"
         });
       }
 
+      let parsedStartDate: Date | undefined;
+      let parsedEndDate: Date | undefined;
+      
+      if (startDate && endDate) {
+        parsedStartDate = new Date(startDate as string);
+        parsedEndDate = new Date(endDate as string);
+        if (isNaN(parsedStartDate.getTime()) || isNaN(parsedEndDate.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid startDate or endDate format. Use YYYY-MM-DD"
+          });
+        }
+      }
+
       // Generate balance sheet
       const balanceSheet = await BalanceSheetService.generateBalanceSheet({
-        asOfDate: parsedDate,
-        currencyId: currencyId as string
+        asOfDate: parsedAsOfDate,
+        currencyId: currencyId as string,
+        startDate: parsedStartDate,
+        endDate: parsedEndDate
       });
 
       res.status(200).json({

@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
+import { Decimal } from "decimal.js";
 import { prisma } from "../../utils/database";
 import { CashFlowParams, CashFlowStatement, CashFlowActivity, CashFlowAccount } from "./types";
 import { CashFlowCategorizationService } from "./CashFlowCategorizationService";
@@ -31,13 +32,15 @@ export class CashFlowCalculationService {
         },
         status: "POSTED",
         currencyId: currency.id,
-        // Exclude journal entries linked to voided/reversed cashbook entries
-        cashbookEntries: {
-          none: {
-            OR: [
-              { status: 'VOIDED' },
-              { reversedAt: { not: null } } // Reversed entries have reversedAt set
-            ]
+        // Exclude journal entries where ANY linked cashbook entry is voided or reversed
+        NOT: {
+          cashbookEntries: {
+            some: {
+              OR: [
+                { status: 'VOIDED' },
+                { reversedAt: { not: null } } // Reversed entries have reversedAt set
+              ]
+            }
           }
         },
         // Exclude reversal journal entries
@@ -58,14 +61,87 @@ export class CashFlowCalculationService {
           }
         ]
       },
-      include: {
-        journalEntryLines: {
-          include: {
-            chartOfAccount: true
+        include: {
+          journalEntryLines: {
+            include: {
+              chartOfAccount: true
+            }
+          },
+          cashbookEntries: {
+            include: {
+              bank: {
+                select: {
+                  id: true,
+                  name: true,
+                  accountNumber: true
+                }
+              },
+              customer: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              },
+              vendor: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              }
+            },
+            take: 1
+          },
+          invoices: {
+            include: {
+              customer: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              }
+            },
+            take: 1
+          },
+          expenses: {
+            include: {
+              vendor: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              },
+              category: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              }
+            },
+            take: 1
+          },
+          revenues: {
+            include: {
+              source: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              },
+              category: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              }
+            },
+            take: 1
           }
         }
-      }
-    });
+      });
 
     // Calculate account balances from journal entry lines
     const accountBalances = await CashFlowBalanceService.calculateAccountBalances(journalEntries);
@@ -436,13 +512,14 @@ export class CashFlowCalculationService {
         }
         
         // Add this line to the journal entry
+        // Use Decimal arithmetic - NO ROUNDING during calculations
         const journalEntry = journalEntries.get(journalEntryId);
         journalEntry.lines.push({
           id: transaction.id,
           description: transaction.description,
-          debitAmount: parseFloat(transaction.debitAmount.toString()),
-          creditAmount: parseFloat(transaction.creditAmount.toString()),
-          vatAmount: transaction.vatAmount ? parseFloat(transaction.vatAmount.toString()) : 0,
+          debitAmount: new Decimal(transaction.debitAmount).toNumber(),
+          creditAmount: new Decimal(transaction.creditAmount).toNumber(),
+          vatAmount: transaction.vatAmount ? new Decimal(transaction.vatAmount).toNumber() : 0,
           account: {
             id: transaction.chartOfAccount.id,
             accountNo: transaction.chartOfAccount.accountNo,
@@ -453,13 +530,26 @@ export class CashFlowCalculationService {
         });
       }
 
+      // Calculate totals using Decimal arithmetic - NO ROUNDING
+      let totalDebitDecimal = new Decimal(0);
+      let totalCreditDecimal = new Decimal(0);
+      let totalVatDecimal = new Decimal(0);
+      
+      for (const t of transactions) {
+        totalDebitDecimal = totalDebitDecimal.plus(t.debitAmount);
+        totalCreditDecimal = totalCreditDecimal.plus(t.creditAmount);
+        if (t.vatAmount) {
+          totalVatDecimal = totalVatDecimal.plus(t.vatAmount);
+        }
+      }
+      
       detailedAccounts.push({
         ...account,
         journalEntries: Array.from(journalEntries.values()),
         transactionCount: transactions.length,
-        totalDebitAmount: transactions.reduce((sum, t) => sum + parseFloat(t.debitAmount.toString()), 0),
-        totalCreditAmount: transactions.reduce((sum, t) => sum + parseFloat(t.creditAmount.toString()), 0),
-        totalVatAmount: transactions.reduce((sum, t) => sum + (t.vatAmount ? parseFloat(t.vatAmount.toString()) : 0), 0)
+        totalDebitAmount: totalDebitDecimal.toNumber(),
+        totalCreditAmount: totalCreditDecimal.toNumber(),
+        totalVatAmount: totalVatDecimal.toNumber()
       });
     }
 
@@ -527,12 +617,36 @@ export class CashFlowCalculationService {
     const summaryStats = {
       totalJournalEntries: allJournalEntries.length,
       totalTransactions: allJournalEntries.reduce((sum, je) => sum + je.journalEntryLines.length, 0),
-      totalDebitAmount: allJournalEntries.reduce((sum, je) => 
-        sum + je.journalEntryLines.reduce((lineSum, line) => lineSum + parseFloat(line.debitAmount.toString()), 0), 0),
-      totalCreditAmount: allJournalEntries.reduce((sum, je) => 
-        sum + je.journalEntryLines.reduce((lineSum, line) => lineSum + parseFloat(line.creditAmount.toString()), 0), 0),
-      totalVatAmount: allJournalEntries.reduce((sum, je) => 
-        sum + je.journalEntryLines.reduce((lineSum, line) => lineSum + (line.vatAmount ? parseFloat(line.vatAmount.toString()) : 0), 0), 0),
+      // Calculate totals using Decimal arithmetic - NO ROUNDING
+      totalDebitAmount: (() => {
+        let total = new Decimal(0);
+        for (const je of allJournalEntries) {
+          for (const line of je.journalEntryLines) {
+            total = total.plus(line.debitAmount);
+          }
+        }
+        return total.toNumber();
+      })(),
+      totalCreditAmount: (() => {
+        let total = new Decimal(0);
+        for (const je of allJournalEntries) {
+          for (const line of je.journalEntryLines) {
+            total = total.plus(line.creditAmount);
+          }
+        }
+        return total.toNumber();
+      })(),
+      totalVatAmount: (() => {
+        let total = new Decimal(0);
+        for (const je of allJournalEntries) {
+          for (const line of je.journalEntryLines) {
+            if (line.vatAmount) {
+              total = total.plus(line.vatAmount);
+            }
+          }
+        }
+        return total.toNumber();
+      })(),
       operatingAccounts: detailedOperating.length,
       investingAccounts: detailedInvesting.length,
       financingAccounts: detailedFinancing.length,
@@ -637,9 +751,9 @@ export class CashFlowCalculationService {
           expenses: je.expenses.map(expense => ({
             id: expense.id,
             description: expense.description,
-            amount: parseFloat(expense.amount.toString()),
-            vatAmount: expense.vatAmount ? parseFloat(expense.vatAmount.toString()) : 0,
-            totalAmount: parseFloat(expense.totalAmount.toString()),
+            amount: new Decimal(expense.amount).toNumber(),
+            vatAmount: expense.vatAmount ? new Decimal(expense.vatAmount).toNumber() : 0,
+            totalAmount: new Decimal(expense.totalAmount).toNumber(),
             receiptNumber: expense.receiptNumber,
             isTaxable: expense.isTaxable,
             paymentMethod: expense.paymentMethod,

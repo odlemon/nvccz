@@ -1,7 +1,8 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
+import { Decimal } from "decimal.js";
 import { prisma } from "../../utils/database";
-import { CashFlowAccount } from "./types";
+import { CashFlowAccount, CashFlowTransaction } from "./types";
 
 export class CashFlowBalanceService {
   /**
@@ -25,17 +26,143 @@ export class CashFlowBalanceService {
             totalDebits: 0,
             totalCredits: 0,
             netAmount: 0,
-            cashFlowCategory: ""
+            cashFlowCategory: "",
+            transactions: []
           });
         }
 
         const account = accountBalances.get(accountId)!;
-        account.totalDebits += parseFloat(line.debitAmount.toString());
-        account.totalCredits += parseFloat(line.creditAmount.toString());
+        // Use Decimal arithmetic - NO ROUNDING during calculations
+        const debitAmt = new Decimal(line.debitAmount || 0).toNumber();
+        const creditAmt = new Decimal(line.creditAmount || 0).toNumber();
+        
+        account.totalDebits = new Decimal(account.totalDebits).plus(debitAmt).toNumber();
+        account.totalCredits = new Decimal(account.totalCredits).plus(creditAmt).toNumber();
+
+        // Determine source and get actual transaction details
+        let source = "MANUAL_ENTRY";
+        let sourceTransaction: any = null;
+
+        if (journalEntry.cashbookEntries && journalEntry.cashbookEntries.length > 0) {
+          source = "CASHBOOK";
+          const cashbookEntry = journalEntry.cashbookEntries[0];
+          sourceTransaction = {
+            id: cashbookEntry.id,
+            type: cashbookEntry.type,
+            amount: cashbookEntry.amount ? new Decimal(cashbookEntry.amount).toNumber() : 0,
+            description: cashbookEntry.description,
+            reference: cashbookEntry.reference,
+            transactionDate: cashbookEntry.transactionDate,
+            status: cashbookEntry.status,
+            bank: cashbookEntry.bank ? {
+              id: cashbookEntry.bank.id,
+              name: cashbookEntry.bank.name,
+              accountNumber: cashbookEntry.bank.accountNumber
+            } : null,
+            customer: cashbookEntry.customer ? {
+              id: cashbookEntry.customer.id,
+              name: cashbookEntry.customer.name,
+              email: cashbookEntry.customer.email
+            } : null,
+            vendor: cashbookEntry.vendor ? {
+              id: cashbookEntry.vendor.id,
+              name: cashbookEntry.vendor.name,
+              email: cashbookEntry.vendor.email
+            } : null
+          };
+        } else if (journalEntry.invoices && journalEntry.invoices.length > 0) {
+          source = "INVOICE";
+          const invoice = journalEntry.invoices[0];
+          sourceTransaction = {
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            amount: invoice.amount ? new Decimal(invoice.amount).toNumber() : 0,
+            vatAmount: invoice.vatAmount ? new Decimal(invoice.vatAmount).toNumber() : 0,
+            totalAmount: invoice.totalAmount ? new Decimal(invoice.totalAmount).toNumber() : 0,
+            description: invoice.description,
+            transactionDate: invoice.transactionDate,
+            status: invoice.status,
+            isTaxable: invoice.isTaxable,
+            customer: invoice.customer ? {
+              id: invoice.customer.id,
+              name: invoice.customer.name,
+              email: invoice.customer.email
+            } : null
+          };
+        } else if (journalEntry.expenses && journalEntry.expenses.length > 0) {
+          source = "EXPENSE";
+          const expense = journalEntry.expenses[0];
+          sourceTransaction = {
+            id: expense.id,
+            receiptNumber: expense.receiptNumber,
+            amount: expense.amount ? new Decimal(expense.amount).toNumber() : 0,
+            vatAmount: expense.vatAmount ? new Decimal(expense.vatAmount).toNumber() : 0,
+            totalAmount: expense.totalAmount ? new Decimal(expense.totalAmount).toNumber() : 0,
+            description: expense.description,
+            transactionDate: expense.transactionDate,
+            status: expense.status,
+            paymentMethod: expense.paymentMethod,
+            isTaxable: expense.isTaxable,
+            vendor: expense.vendor ? {
+              id: expense.vendor.id,
+              name: expense.vendor.name,
+              email: expense.vendor.email
+            } : null,
+            category: expense.category ? {
+              id: expense.category.id,
+              name: expense.category.name
+            } : null
+          };
+        } else if (journalEntry.revenues && journalEntry.revenues.length > 0) {
+          source = "REVENUE";
+          const revenue = journalEntry.revenues[0];
+          sourceTransaction = {
+            id: revenue.id,
+            amount: revenue.amount ? new Decimal(revenue.amount).toNumber() : 0,
+            vatAmount: revenue.vatAmount ? new Decimal(revenue.vatAmount).toNumber() : 0,
+            totalAmount: revenue.totalAmount ? new Decimal(revenue.totalAmount).toNumber() : 0,
+            description: revenue.description,
+            transactionDate: revenue.transactionDate,
+            status: revenue.status,
+            paymentMethod: revenue.paymentMethod,
+            isTaxable: revenue.isTaxable,
+            source: revenue.source ? {
+              id: revenue.source.id,
+              name: revenue.source.name
+            } : null,
+            category: revenue.category ? {
+              id: revenue.category.id,
+              name: revenue.category.name
+            } : null
+          };
+        } else {
+          // Manual entry - use journal entry details
+          sourceTransaction = {
+            id: journalEntry.id,
+            referenceNumber: journalEntry.referenceNumber,
+            description: journalEntry.description,
+            transactionDate: journalEntry.transactionDate,
+            status: journalEntry.status
+          };
+        }
+
+        // Add transaction to breakdown
+        account.transactions.push({
+          id: line.id,
+          date: journalEntry.transactionDate.toISOString().split('T')[0],
+          reference: journalEntry.referenceNumber || "",
+          description: journalEntry.description || "",
+          debitAmount: debitAmt,
+          creditAmount: creditAmt,
+          source: source,
+          sourceTransaction: sourceTransaction,
+          journalEntryId: journalEntry.id,
+          journalEntryStatus: journalEntry.status
+        });
       }
     }
 
-    // Calculate net amounts based on account type
+    // Calculate net amounts based on account type and sort transactions
     for (const account of accountBalances.values()) {
       if (account.accountType === "Asset") {
         // Asset accounts: Debits increase, Credits decrease
@@ -50,6 +177,9 @@ export class CashFlowBalanceService {
         // Expense accounts: Debits increase, Credits decrease
         account.netAmount = account.totalDebits - account.totalCredits;
       }
+      
+      // Sort transactions by date
+      account.transactions.sort((a, b) => a.date.localeCompare(b.date));
     }
 
     return Array.from(accountBalances.values());
@@ -166,13 +296,15 @@ export class CashFlowBalanceService {
             },
             status: "POSTED",
             currencyId,
-            // Exclude journal entries linked to voided/reversed cashbook entries
-            cashbookEntries: {
-              none: {
-                OR: [
-                  { status: 'VOIDED' },
-                  { reversedAt: { not: null } }
-                ]
+            // Exclude journal entries where ANY linked cashbook entry is voided or reversed
+            NOT: {
+              cashbookEntries: {
+                some: {
+                  OR: [
+                    { status: 'VOIDED' },
+                    { reversedAt: { not: null } }
+                  ]
+                }
               }
             },
             // Exclude reversal journal entries
@@ -207,13 +339,15 @@ export class CashFlowBalanceService {
             },
             status: "POSTED",
             currencyId,
-            // Exclude journal entries linked to voided/reversed cashbook entries
-            cashbookEntries: {
-              none: {
-                OR: [
-                  { status: 'VOIDED' },
-                  { reversedAt: { not: null } }
-                ]
+            // Exclude journal entries where ANY linked cashbook entry is voided or reversed
+            NOT: {
+              cashbookEntries: {
+                some: {
+                  OR: [
+                    { status: 'VOIDED' },
+                    { reversedAt: { not: null } }
+                  ]
+                }
               }
             },
             // Exclude reversal journal entries
@@ -237,14 +371,29 @@ export class CashFlowBalanceService {
         }
       });
 
-      // Calculate balances (for Asset accounts: Debits increase, Credits decrease)
-      const beginningDebits = beginningTransactions.reduce((sum, t) => sum + parseFloat(t.debitAmount.toString()), 0);
-      const beginningCredits = beginningTransactions.reduce((sum, t) => sum + parseFloat(t.creditAmount.toString()), 0);
-      beginningBalance += beginningDebits - beginningCredits;
+      // Calculate balances using Decimal arithmetic - NO ROUNDING (for Asset accounts: Debits increase, Credits decrease)
+      let beginningDebitsDecimal = new Decimal(0);
+      let beginningCreditsDecimal = new Decimal(0);
+      let endingDebitsDecimal = new Decimal(0);
+      let endingCreditsDecimal = new Decimal(0);
+      
+      for (const t of beginningTransactions) {
+        beginningDebitsDecimal = beginningDebitsDecimal.plus(t.debitAmount);
+        beginningCreditsDecimal = beginningCreditsDecimal.plus(t.creditAmount);
+      }
+      
+      for (const t of endingTransactions) {
+        endingDebitsDecimal = endingDebitsDecimal.plus(t.debitAmount);
+        endingCreditsDecimal = endingCreditsDecimal.plus(t.creditAmount);
+      }
+      
+      const beginningDebits = beginningDebitsDecimal.toNumber();
+      const beginningCredits = beginningCreditsDecimal.toNumber();
+      beginningBalance = new Decimal(beginningBalance).plus(beginningDebits).minus(beginningCredits).toNumber();
 
-      const endingDebits = endingTransactions.reduce((sum, t) => sum + parseFloat(t.debitAmount.toString()), 0);
-      const endingCredits = endingTransactions.reduce((sum, t) => sum + parseFloat(t.creditAmount.toString()), 0);
-      endingBalance += endingDebits - endingCredits;
+      const endingDebits = endingDebitsDecimal.toNumber();
+      const endingCredits = endingCreditsDecimal.toNumber();
+      endingBalance = new Decimal(endingBalance).plus(endingDebits).minus(endingCredits).toNumber();
     }
 
     return { beginning: beginningBalance, ending: endingBalance };

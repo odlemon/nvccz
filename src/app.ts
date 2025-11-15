@@ -39,6 +39,7 @@ import customerRoutes from "./routes/customerRoutes"
 import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import cashFlowRoutes from "./routes/cashFlowRoutes"
 import balanceSheetRoutes from "./routes/balanceSheetRoutes"
+import statementOfEquityRoutes from "./routes/statementOfEquityRoutes"
 import revenueRoutes from "./routes/revenueRoutes"
 import revenueSourceRoutes from "./routes/revenueSourceRoutes"
 import revenueCategoryRoutes from "./routes/revenueCategoryRoutes"
@@ -368,6 +369,7 @@ app.use("/api/accounting/customers", customerRoutes)
 app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/cash-flow", cashFlowRoutes)
 app.use("/api/accounting/balance-sheet", balanceSheetRoutes)
+app.use("/api/accounting/statement-of-equity", statementOfEquityRoutes)
 app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
 app.use("/api/accounting/revenue-categories", revenueCategoryRoutes)

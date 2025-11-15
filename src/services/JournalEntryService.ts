@@ -852,10 +852,113 @@ export class JournalEntryService {
             }
           }
         },
-        // Include related transactions to infer payment method
-        expenses: { select: { paymentMethod: true } },
-        revenues: { select: { paymentMethod: true } },
-        invoices: { select: { paymentMethod: true } }
+        // Include related transactions with full details
+        expenses: {
+          select: {
+            id: true,
+            receiptNumber: true,
+            amount: true,
+            vatAmount: true,
+            totalAmount: true,
+            description: true,
+            transactionDate: true,
+            status: true,
+            paymentMethod: true,
+            isTaxable: true,
+            vendor: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            category: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        revenues: {
+          select: {
+            id: true,
+            amount: true,
+            vatAmount: true,
+            totalAmount: true,
+            description: true,
+            transactionDate: true,
+            status: true,
+            paymentMethod: true,
+            isTaxable: true,
+            source: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
+            category: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        invoices: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            amount: true,
+            vatAmount: true,
+            totalAmount: true,
+            description: true,
+            transactionDate: true,
+            status: true,
+            isTaxable: true,
+            paymentMethod: true,
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        },
+        cashbookEntries: {
+          select: {
+            id: true,
+            type: true,
+            amount: true,
+            description: true,
+            reference: true,
+            transactionDate: true,
+            status: true,
+            reversedAt: true,
+            bank: {
+              select: {
+                id: true,
+                name: true,
+                accountNumber: true
+              }
+            },
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            vendor: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        }
       }
     });
 
@@ -957,16 +1060,112 @@ export class JournalEntryService {
             email: true
           }
         },
-        // Include related transactions to infer payment method
-        expenses: { select: { paymentMethod: true } },
-        revenues: { select: { paymentMethod: true } },
-        invoices: { select: { paymentMethod: true } },
-        // Include cashbook entries to check status
+        // Include related transactions with full details
+        expenses: {
+          select: {
+            id: true,
+            receiptNumber: true,
+            amount: true,
+            vatAmount: true,
+            totalAmount: true,
+            description: true,
+            transactionDate: true,
+            status: true,
+            paymentMethod: true,
+            isTaxable: true,
+            vendor: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            category: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        revenues: {
+          select: {
+            id: true,
+            amount: true,
+            vatAmount: true,
+            totalAmount: true,
+            description: true,
+            transactionDate: true,
+            status: true,
+            paymentMethod: true,
+            isTaxable: true,
+            source: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
+            category: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        invoices: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            amount: true,
+            vatAmount: true,
+            totalAmount: true,
+            description: true,
+            transactionDate: true,
+            status: true,
+            isTaxable: true,
+            paymentMethod: true,
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        },
+        // Include cashbook entries with full transaction details
         cashbookEntries: {
           select: {
             id: true,
+            type: true,
+            amount: true,
+            description: true,
+            reference: true,
+            transactionDate: true,
             status: true,
-            reversedAt: true
+            reversedAt: true,
+            bank: {
+              select: {
+                id: true,
+                name: true,
+                accountNumber: true
+              }
+            },
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            vendor: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
           }
         }
       },

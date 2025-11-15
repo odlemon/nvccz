@@ -6,6 +6,19 @@ export interface CashFlowParams {
   currencyId?: string;
 }
 
+export interface CashFlowTransaction {
+  id: string;
+  date: string;
+  reference: string;
+  description: string;
+  debitAmount: number;
+  creditAmount: number;
+  source: string; // "CASHBOOK", "INVOICE", "EXPENSE", "MANUAL_ENTRY", etc.
+  sourceTransaction: any; // Actual transaction details (cashbook entry, invoice, expense, etc.)
+  journalEntryId: string;
+  journalEntryStatus: string;
+}
+
 export interface CashFlowAccount {
   accountId: string;
   accountNo: string;
@@ -16,6 +29,7 @@ export interface CashFlowAccount {
   totalCredits: number;
   netAmount: number;
   cashFlowCategory: string;
+  transactions: CashFlowTransaction[]; // Transaction breakdown
 }
 
 export interface CashFlowActivity {

@@ -1,37 +1,60 @@
-import bcrypt from 'bcryptjs';
-import { prisma } from '../src/utils/database';
+import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
-async function main() {
-  const email = process.argv[2];
-  const newPassword = process.argv[3];
+const prisma = new PrismaClient();
 
-  if (!email || !newPassword) {
-    console.error('Usage: npx ts-node scripts/reset-user-password.ts <email> <newPassword>');
-    process.exit(1);
-  }
+async function resetPassword() {
+  try {
+    const email = 'janeterica@gmail.com';
+    const newPassword = 'jane123';
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    console.error(`❌ No user found with email ${email}`);
-    return;
-  }
+    console.log('🔍 Finding user...');
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true
+      }
+    });
 
-  const hashed = await bcrypt.hash(newPassword, 12);
-  await prisma.user.update({
-    where: { email },
-    data: {
-      password: hashed,
-      updatedAt: new Date()
+    if (!user) {
+      console.error(`❌ User with email ${email} not found`);
+      return;
     }
-  });
 
-  console.log(`✅ Password reset for ${email}`);
+    console.log(`✅ Found user: ${user.firstName} ${user.lastName} (${user.email})`);
+    console.log(`   User ID: ${user.id}\n`);
+
+    console.log('🔐 Hashing new password...');
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    console.log('✅ Password hashed\n');
+
+    console.log('📝 Updating password...');
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        updatedAt: new Date()
+      }
+    });
+
+    console.log('✅ Password reset successfully!');
+    console.log(`   Email: ${email}`);
+    console.log(`   New Password: ${newPassword}\n`);
+
+    console.log('📊 Final Status:');
+    console.log(`   User: ${user.firstName} ${user.lastName}`);
+    console.log(`   Email: ${user.email}`);
+    console.log(`   Password: Reset to "${newPassword}"`);
+
+  } catch (error: any) {
+    console.error('\n❌ Error resetting password:', error.message);
+    throw error;
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
-main()
-  .catch(error => {
-    console.error('❌ Failed to reset password', error);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+resetPassword();
