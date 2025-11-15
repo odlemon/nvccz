@@ -14,6 +14,7 @@ export interface CashFlowTransaction {
   debitAmount: number;
   creditAmount: number;
   source: string; // "CASHBOOK", "INVOICE", "EXPENSE", "MANUAL_ENTRY", etc.
+  journalEntry: any; // Full journal entry details (referenceNumber, description, transactionDate, status, etc.)
   sourceTransaction: any; // Actual transaction details (cashbook entry, invoice, expense, etc.)
   journalEntryId: string;
   journalEntryStatus: string;

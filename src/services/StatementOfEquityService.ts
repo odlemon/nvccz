@@ -18,6 +18,7 @@ export interface EquityTransaction {
   creditAmount: number;
   netAmount: number;
   source: string; // "CASHBOOK", "INVOICE", "EXPENSE", "MANUAL_ENTRY", "CLOSING_ENTRY", etc.
+  journalEntry: any; // Full journal entry details (referenceNumber, description, transactionDate, status, etc.)
   sourceTransaction: any; // Actual transaction details (cashbook entry, invoice, expense, etc.)
   journalEntryId: string;
   journalEntryStatus: string;
@@ -429,6 +430,14 @@ export class StatementOfEquityService {
             creditAmount: creditAmt,
             netAmount: netAmt,
             source: source,
+            journalEntry: {
+              id: line.journalEntry.id,
+              referenceNumber: line.journalEntry.referenceNumber,
+              description: line.journalEntry.description,
+              transactionDate: line.journalEntry.transactionDate,
+              status: line.journalEntry.status,
+              currencyId: line.journalEntry.currencyId || null
+            },
             sourceTransaction: sourceTransaction,
             journalEntryId: line.journalEntry.id,
             journalEntryStatus: line.journalEntry.status
