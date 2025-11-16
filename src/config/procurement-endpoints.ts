@@ -40,8 +40,24 @@ export const procurementEndpoints = {
         }
       },
       responses: {
-        201: { description: 'Purchase requisition created successfully' },
-        400: { description: 'Bad request' },
+        201: { 
+          description: 'Purchase requisition created successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Purchase requisition created successfully',
+                data: {
+                  id: 'req-id',
+                  requisitionNumber: 'REQ-2025-001',
+                  status: 'DRAFT',
+                  totalAmount: '0.00'
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - missing required fields' },
         401: { description: 'Unauthorized' }
       }
     },
