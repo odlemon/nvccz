@@ -57,17 +57,6 @@ export class ProcurementApprovalConfigController {
         }
       }
 
-      // Check if department already has an active config
-      if (department) {
-        const existingConfig = await ProcurementApprovalConfigService.getConfigByDepartment(department);
-        if (existingConfig) {
-          return res.status(400).json({
-            success: false,
-            message: `Department "${department}" already has an active approval configuration. Please deactivate or delete the existing one first.`
-          });
-        }
-      }
-
       // Validate stage types
       const validStageTypes = ['PURCHASE_REQUISITION', 'PURCHASE_ORDER', 'INVOICE', 'GRN'];
       for (const stage of stages) {
@@ -77,6 +66,19 @@ export class ProcurementApprovalConfigController {
             message: `Invalid stage type: ${stage.stageType}. Valid types are: ${validStageTypes.join(', ')}`
           });
         }
+      }
+
+      // ⚠️ SINGLE CONFIG ENFORCEMENT: Only ONE config allowed in entire system
+      // Check if ANY config already exists (regardless of department)
+      const existingConfigs = await ProcurementApprovalConfigService.getAllProcurementApprovalConfigs();
+      if (existingConfigs && existingConfigs.length > 0) {
+        const existingConfig = existingConfigs[0];
+        return res.status(400).json({
+          success: false,
+          message: `Only ONE approval configuration is allowed in the system. An existing configuration already exists (ID: ${existingConfig.id}, Name: "${existingConfig.name}"). Please update the existing configuration instead of creating a new one. Use PUT /api/procurement-approval-configs/${existingConfig.id} to update it.`,
+          existingConfigId: existingConfig.id,
+          existingConfigName: existingConfig.name
+        });
       }
 
       const config = await ProcurementApprovalConfigService.createProcurementApprovalConfig({
@@ -92,7 +94,7 @@ export class ProcurementApprovalConfigController {
 
       res.status(201).json({
         success: true,
-        message: "Procurement approval configuration created successfully",
+        message: "Procurement approval configuration created successfully. This is the only configuration allowed in the system. Use PUT /api/procurement-approval-configs/{id} to update it.",
         data: cleanedConfig
       });
     } catch (error: any) {
@@ -100,6 +102,83 @@ export class ProcurementApprovalConfigController {
       res.status(400).json({
         success: false,
         message: error.message || "Failed to create procurement approval configuration"
+      });
+    }
+  }
+
+  /**
+   * Update an existing procurement approval configuration
+   * ⚠️ IMPORTANT: System only allows ONE config - this updates that single config
+   */
+  static async updateProcurementApprovalConfig(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const {
+        name,
+        description,
+        department,
+        stages
+      } = req.body;
+
+      const createdById = req.user?.id;
+
+      if (!createdById) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      if (!name || !stages || stages.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Name and stages are required"
+        });
+      }
+
+      // Validate department if provided
+      if (department) {
+        const validDepartments = ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'];
+        if (!validDepartments.includes(department)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid department: ${department}. Valid departments are: ${validDepartments.join(', ')}`
+          });
+        }
+      }
+
+      // Validate stage types
+      const validStageTypes = ['PURCHASE_REQUISITION', 'PURCHASE_ORDER', 'INVOICE', 'GRN'];
+      for (const stage of stages) {
+        if (!validStageTypes.includes(stage.stageType)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid stage type: ${stage.stageType}. Valid types are: ${validStageTypes.join(', ')}`
+          });
+        }
+      }
+
+      const config = await ProcurementApprovalConfigService.updateProcurementApprovalConfig(id, {
+        name,
+        description,
+        department,
+        createdById,
+        stages
+      });
+
+      // Remove null values from response
+      const cleanedConfig = removeNullValues(config);
+
+      res.status(200).json({
+        success: true,
+        message: "Procurement approval configuration updated successfully",
+        data: cleanedConfig
+      });
+    } catch (error: any) {
+      console.error("Error updating procurement approval configuration:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update procurement approval configuration"
       });
     }
   }

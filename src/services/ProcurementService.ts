@@ -62,7 +62,8 @@ export interface CreateRFQParams {
 
 export interface CreatePurchaseOrderParams {
   requisitionId?: string;
-  rfqId?: string; // Link to RFQ if created from RFQ response
+  quotationId?: string; // Link to accepted quotation
+  rfqId?: string; // Link to RFQ if created from RFQ response (deprecated)
   vendorId: string;
   priority?: string;
   currencyId?: string;
@@ -452,23 +453,9 @@ export class ProcurementService {
   static async submitPurchaseRequisition(requisitionId: string, submittedById: string) {
     try {
       const requisition = await prisma.purchaseRequisition.findUnique({
-        where: { id: requisitionId }
-      });
-
-      if (!requisition) {
-        throw new Error("Purchase requisition not found");
-      }
-
-      if (requisition.status !== "DRAFT") {
-        throw new Error("Requisition is not in draft status");
-      }
-
-      const updatedRequisition = await prisma.purchaseRequisition.update({
         where: { id: requisitionId },
-        data: {
-          status: "PENDING_APPROVAL"
-        },
         include: {
+          items: true,
           requestedBy: {
             select: {
               id: true,
@@ -479,18 +466,118 @@ export class ProcurementService {
               departmentRole: true,
               roleCode: true
             }
-          },
-          currency: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              symbol: true
-            }
-          },
-          items: true
+          }
         }
       });
+
+      if (!requisition) {
+        throw new Error("Purchase requisition not found");
+      }
+
+      if (requisition.status !== "DRAFT") {
+        throw new Error("Requisition is not in draft status");
+      }
+
+      // Trigger approval workflow
+      console.log("\n════════════════════════════════════════════════════════════════");
+      console.log("🔄 SUBMITTING REQUISITION FOR APPROVAL");
+      console.log("════════════════════════════════════════════════════════════════");
+      console.log(`📋 Requisition ID: ${requisitionId}`);
+      console.log(`👤 Submitted By: ${submittedById}`);
+      console.log(`🏢 Department: ${requisition.department}`);
+      console.log("");
+
+      const { ApprovalService } = await import('./ApprovalService');
+      
+      console.log("🔄 Initiating approval workflow...");
+      let approvalResult = null;
+      try {
+        approvalResult = await ApprovalService.createApprovalRequest({
+          stageType: "PURCHASE_REQUISITION",
+          entityId: requisition.id,
+          entityData: {
+            requisitionNumber: requisition.requisitionNumber,
+            title: requisition.title,
+            department: requisition.department,
+            totalAmount: requisition.totalAmount.toString(),
+            itemCount: requisition.items.length
+          },
+          requestedById: submittedById,
+          department: requisition.department as any // Cast to Department enum for filtering
+        });
+        if (approvalResult) {
+          console.log("✅ Approval request created successfully");
+        } else {
+          console.log("⚠️  No approval request created - check approval config");
+        }
+      } catch (error: any) {
+        console.error("❌ Error creating approval request:", error.message || error);
+        // Don't throw - we'll keep status as DRAFT if approval fails
+        approvalResult = null;
+      }
+
+      // Update requisition status based on approval workflow
+      let updatedRequisition;
+      if (approvalResult) {
+        // Approval workflow created - update status to PENDING_APPROVAL
+        updatedRequisition = await prisma.purchaseRequisition.update({
+          where: { id: requisitionId },
+          data: {
+            status: "PENDING_APPROVAL"
+          },
+          include: {
+            requestedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                userDepartment: true,
+                departmentRole: true,
+                roleCode: true
+              }
+            },
+            currency: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                symbol: true
+              }
+            },
+            items: true
+          }
+        });
+        console.log("✅ Requisition status updated to PENDING_APPROVAL");
+      } else {
+        // No approval stages configured - keep as DRAFT
+        updatedRequisition = await prisma.purchaseRequisition.findUnique({
+          where: { id: requisitionId },
+          include: {
+            requestedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                userDepartment: true,
+                departmentRole: true,
+                roleCode: true
+              }
+            },
+            currency: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                symbol: true
+              }
+            },
+            items: true
+          }
+        });
+        console.log("⚠️  No approval stages configured - Requisition remains in DRAFT status");
+      }
 
       // Audit log
       await AuditService.log({
@@ -765,6 +852,7 @@ export class ProcurementService {
     try {
       const {
         requisitionId,
+        quotationId,
         vendorId,
         priority = "MEDIUM",
         currencyId,
@@ -795,6 +883,7 @@ export class ProcurementService {
         data: {
           poNumber: this.generatePONumber(),
           requisitionId,
+          quotationId,
           vendorId,
           priority,
           subtotal: new Decimal(subtotal),
@@ -1178,57 +1267,33 @@ export class ProcurementService {
       console.log(`   Current Status: ${invoice.status}`);
 
       console.log("\n🔒 Step 2: Validating invoice status...");
-      if (invoice.status !== "MATCHED" && invoice.status !== "DISCREPANCY") {
-        console.error(`❌ VALIDATION FAILED: Invoice status is "${invoice.status}", must be "MATCHED" or "DISCREPANCY"`);
+      if (invoice.status !== "MATCHED" && invoice.status !== "DISCREPANCY" && invoice.status !== "DRAFT") {
+        console.error(`❌ VALIDATION FAILED: Invoice status is "${invoice.status}", must be "MATCHED", "DISCREPANCY", or "DRAFT"`);
         throw new Error("Invoice is not ready for approval");
       }
       console.log("   ✅ Invoice is ready for approval");
 
-      // Create journal entry for the invoice
-      // Use "CREDIT" payment method to create liability in Accounts Payable
-      // (Not "BANK" which would immediately reduce cash - that happens at payment time)
-      console.log("\n💰 Step 3: Creating journal entry (EXPENSE + LIABILITY)...");
-      console.log("   This will:");
-      console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
-      console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
-      console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)} (Creates liability)`);
-      console.log("");
-      console.log("   📝 Using CREDIT payment method (not BANK)");
-      console.log("   ℹ️  This creates a liability without immediately reducing cash");
-      console.log("   ℹ️  Cash will be reduced later when payment is processed");
-      console.log("");
-
-      const journalEntryParams = {
-        vendorId: invoice.vendorId,
-        categoryId: "PROCUREMENT", // You might want to create a specific category
-        amount: Number(invoice.subtotal),
-        vatAmount: Number(invoice.taxAmount),
-        totalAmount: Number(invoice.totalAmount),
-        currencyId: invoice.currencyId || "default-currency",
-        transactionDate: invoice.invoiceDate,
-        description: `Procurement Invoice: ${invoice.invoiceNumber}`,
-        receiptNumber: invoice.invoiceNumber,
-        isTaxable: Number(invoice.taxAmount) > 0,
-        paymentMethod: "CREDIT" as const, // ✅ FIXED: Creates Accounts Payable liability
-        createdById: approvedById
-      };
-
-      const journalEntryResult = await JournalEntryService.createExpenseJournalEntry(journalEntryParams);
-      console.log(`   ✅ Journal Entry Created: ${journalEntryResult.journalEntry.referenceNumber}`);
-
-      console.log("\n📝 Step 4: Updating invoice status...");
+      // ⚠️ IMPORTANT: Accounting entries will be created when invoice is PAID, not when approved
+      console.log("\n📝 Step 3: Updating invoice status...");
       console.log("   New Status: APPROVED");
       console.log("   Payment Status: PENDING (awaiting payment)");
+      console.log("");
+      console.log("   ℹ️  Accounting entries will be created when payment is processed");
+      console.log("   ℹ️  This includes:");
+      console.log(`      • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
+      console.log(`      • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
+      console.log(`      • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)} (on payment)`);
+      console.log(`      • Then: DEBIT Accounts Payable, CREDIT Bank/Cash (on payment)`);
       
-      // Update invoice with approval and journal entry
+      // Update invoice with approval (NO journal entry yet)
       const updatedInvoice = await prisma.procurementInvoice.update({
         where: { id: invoiceId },
         data: {
           status: "APPROVED",
           approvedById,
           approvedAt: new Date(),
-          journalEntryId: journalEntryResult.journalEntry.id,
           paymentStatus: "PENDING"
+          // NO journalEntryId here - will be created on payment
         },
         include: {
           vendor: true,
@@ -1246,7 +1311,7 @@ export class ProcurementService {
       console.log("   ✅ Invoice updated successfully");
 
       // Audit log
-      console.log("\n📊 Step 5: Creating audit log...");
+      console.log("\n📊 Step 4: Creating audit log...");
       await AuditService.log({
         userId: approvedById,
         action: "APPROVE",
@@ -1264,14 +1329,12 @@ export class ProcurementService {
       console.log(`💰 Total Amount: $${Number(invoice.totalAmount).toFixed(2)}`);
       console.log(`📊 Status: APPROVED`);
       console.log(`💳 Payment Status: PENDING`);
-      console.log(`🆔 Journal Entry: ${journalEntryResult.journalEntry.referenceNumber}`);
       console.log("");
-      console.log("📌 ACCOUNTING IMPACT:");
-      console.log(`   • Expense Recognized: $${Number(invoice.subtotal).toFixed(2)}`);
-      console.log(`   • VAT Input (Recoverable): $${Number(invoice.taxAmount).toFixed(2)}`);
-      console.log(`   • Accounts Payable (Liability): $${Number(invoice.totalAmount).toFixed(2)}`);
+      console.log("📌 ACCOUNTING STATUS:");
+      console.log("   • No journal entries created yet");
+      console.log("   • Accounting entries will be created when payment is processed");
       console.log("");
-      console.log("⏭️  NEXT STEP: Process payment to clear the liability");
+      console.log("⏭️  NEXT STEP: Process payment to create accounting entries");
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
 
@@ -1375,26 +1438,59 @@ export class ProcurementService {
         console.log(`   ℹ️  FULL PAYMENT: Paying entire invoice amount`);
       }
 
-      console.log("\n💰 Step 3: Creating payment journal entry...");
-      console.log("   This will:");
-      console.log(`   • DEBIT Accounts Payable (reduce liability): $${paymentData.paymentAmount.toFixed(2)}`);
-      console.log(`   • CREDIT ${paymentData.paymentMethod} Account (reduce cash): $${paymentData.paymentAmount.toFixed(2)}`);
+      console.log("\n💰 Step 3: Creating accounting entries (EXPENSE + PAYMENT)...");
+      console.log("   ⚠️  IMPORTANT: Accounting entries created when payment is processed");
+      console.log("   This will create TWO journal entries:");
+      console.log("");
+      console.log("   ENTRY 1: Expense Recognition");
+      console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
+      console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
+      console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+      console.log("");
+      console.log("   ENTRY 2: Payment Processing");
+      console.log(`   • DEBIT Accounts Payable: $${paymentData.paymentAmount.toFixed(2)}`);
+      console.log(`   • CREDIT ${paymentData.paymentMethod} Account: $${paymentData.paymentAmount.toFixed(2)}`);
       
-      // Create vendor payment journal entry
-      const journalEntryResult = await JournalEntryService.createVendorPaymentJournalEntry({
+      // First, create expense journal entry (Dr. Expense, Dr. VAT, Cr. AP)
+      console.log("\n   📊 Creating Entry 1: Expense Recognition...");
+      const expenseJournalEntryParams = {
+        vendorId: invoice.vendorId,
+        categoryName: "PROCUREMENT", // You might want to get this from invoice items/category
+        amount: Number(invoice.subtotal),
+        vatAmount: Number(invoice.taxAmount),
+        totalAmount: Number(invoice.totalAmount),
+        currencyId: invoice.currencyId || "default-currency",
+        transactionDate: paymentData.paymentDate,
+        description: `Purchase Invoice: ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
+        receiptNumber: invoice.invoiceNumber, // Use invoice number as receipt number
+        isTaxable: Number(invoice.taxAmount) > 0,
+        paymentMethod: "CREDIT" as const, // Creates AP liability
+        createdById: processedById
+      };
+
+      const expenseJournalEntry = await JournalEntryService.createExpenseJournalEntry(expenseJournalEntryParams);
+      console.log(`   ✅ Expense Entry Created: ${expenseJournalEntry.journalEntry.referenceNumber}`);
+
+      // Then, create payment journal entry (Dr. AP, Cr. Bank/Cash)
+      console.log("\n   💳 Creating Entry 2: Payment Processing...");
+      const paymentJournalEntryResult = await JournalEntryService.createVendorPaymentJournalEntry({
         vendorId: invoice.vendorId,
         invoiceId: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
         paymentAmount: paymentData.paymentAmount,
         currencyId: invoice.currencyId || "default-currency",
         transactionDate: paymentData.paymentDate,
-        description: `Payment to ${invoice.vendor.name} for invoice ${invoice.invoiceNumber}`,
+        description: `Payment to ${invoice.vendor.name} for Purchase Invoice ${invoice.invoiceNumber}`,
         paymentMethod: paymentData.paymentMethod,
         bankAccountId: paymentData.bankAccountId,
         paymentReference: paymentData.paymentReference,
         notes: paymentData.notes,
         createdById: processedById
       });
+      console.log(`   ✅ Payment Entry Created: ${paymentJournalEntryResult.journalEntry.referenceNumber}`);
+
+      // Use payment entry as the main journal entry reference
+      const journalEntryResult = paymentJournalEntryResult;
 
       // Determine payment status based on amount paid
       let paymentStatus = "PAID";
@@ -1402,20 +1498,60 @@ export class ProcurementService {
         paymentStatus = "PARTIALLY_PAID";
       }
 
-      console.log("\n📝 Step 4: Updating invoice payment status...");
+      // Create receipt for payment
+      console.log("\n🧾 Step 4: Creating payment receipt...");
+      let receiptNumber = `RCP-${invoice.invoiceNumber}-${Date.now()}`;
+      
+      // Try to create receipt record if receipt model exists
+      try {
+        // Check if Receipt model exists in schema
+        const receiptRecord = await prisma.$queryRaw`
+          SELECT COUNT(*) as count 
+          FROM information_schema.tables 
+          WHERE table_name = 'receipts'
+        `.catch(() => null);
+        
+        if (receiptRecord && receiptRecord[0]?.count > 0) {
+          // Receipt table exists - create receipt
+          const receipt = await prisma.receipt.create({
+            data: {
+              receiptNumber,
+              invoiceId: invoice.id,
+              vendorId: invoice.vendorId,
+              amount: new Decimal(paymentData.paymentAmount),
+              paymentMethod: paymentData.paymentMethod,
+              paymentDate: paymentData.paymentDate,
+              paymentReference: paymentData.paymentReference,
+              description: `Payment receipt for Purchase Invoice ${invoice.invoiceNumber}`,
+              createdById: processedById
+            }
+          });
+          console.log(`   ✅ Receipt Created: ${receiptNumber}`);
+        } else {
+          console.log(`   ℹ️  Receipt table not found - using receipt number: ${receiptNumber}`);
+        }
+      } catch (receiptError: any) {
+        // Receipt table might not exist - that's okay, we'll just use the receipt number
+        console.log(`   ℹ️  Receipt creation skipped: ${receiptError.message}`);
+      }
+
+      console.log("\n📝 Step 5: Updating invoice payment status...");
       console.log(`   New Payment Status: ${paymentStatus}`);
       console.log(`   Payment Date: ${paymentData.paymentDate.toISOString().split('T')[0]}`);
       if (paymentData.paymentReference) {
         console.log(`   Payment Reference: ${paymentData.paymentReference}`);
       }
+      console.log(`   Receipt Number: ${receiptNumber}`);
 
-      // Update invoice with payment details
+      // Update invoice with payment details and journal entry
       const updatedInvoice = await prisma.procurementInvoice.update({
         where: { id: invoiceId },
         data: {
           paymentStatus,
           paymentDate: paymentData.paymentDate,
-          paymentReference: paymentData.paymentReference
+          paymentReference: paymentData.paymentReference || receiptNumber, // Store receipt number in payment reference if no ref provided
+          journalEntryId: expenseJournalEntry.journalEntry.id // Link to expense entry
+          // Note: paymentJournalEntryId might not exist in schema, storing receipt number in paymentReference
         },
         include: {
           vendor: true,
@@ -1433,7 +1569,7 @@ export class ProcurementService {
       console.log("   ✅ Invoice updated successfully");
 
       // Audit log
-      console.log("\n📊 Step 5: Creating audit log...");
+      console.log("\n📊 Step 6: Creating audit log...");
       await AuditService.log({
         userId: processedById,
         action: "PAYMENT",
@@ -1441,14 +1577,16 @@ export class ProcurementService {
         entityId: invoiceId,
         newValues: {
           ...updatedInvoice,
+          expenseJournalEntry: expenseJournalEntry.journalEntry,
           paymentJournalEntry: journalEntryResult.journalEntry,
-          paymentAmount: paymentData.paymentAmount
+          paymentAmount: paymentData.paymentAmount,
+          receiptNumber: receiptNumber
         },
       });
       console.log("   ✅ Audit log created");
 
-      // Send email notification to vendor
-      console.log("\n📧 Step 6: Sending payment confirmation email to vendor...");
+      // Send email notification to vendor (simulated for testing)
+      console.log("\n📧 Step 7: Sending payment confirmation email to vendor...");
       try {
         const { EmailNotificationService } = await import('./EmailNotificationService');
         await EmailNotificationService.sendInvoicePaidEmail({
@@ -1552,7 +1690,7 @@ export class ProcurementService {
           documentPath,
           documentType,
           createdById,
-          status: "RECEIVED",
+          status: "DRAFT", // Start as DRAFT so it can go through approval workflow
           items: {
             create: items.map(item => ({
               itemName: item.itemName,

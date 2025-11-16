@@ -543,6 +543,7 @@ export class ProcurementController {
               symbol: true
             }
           },
+          items: true, // Include PO items for GRN creation
           createdBy: {
             select: {
               id: true,

@@ -34,6 +34,46 @@ const options = {
       {
         name: 'Financial Reporting',
         description: 'Endpoints for uploading and reviewing portfolio financial reports'
+      },
+      {
+        name: 'Procurement - Requisitions',
+        description: 'Purchase requisition management - Create, view, submit, and approve requisitions'
+      },
+      {
+        name: 'Procurement - RFQ',
+        description: 'Request for Quote - Create and send RFQs to multiple vendors'
+      },
+      {
+        name: 'Procurement - Vendor Quotations',
+        description: 'Vendor quotation management - Submit (public), view, accept, reject quotations'
+      },
+      {
+        name: 'Procurement - Purchase Orders',
+        description: 'Purchase order management - Create, send, and manage purchase orders'
+      },
+      {
+        name: 'Procurement - GRN',
+        description: 'Goods Received Note - Record received quantities and quality status'
+      },
+      {
+        name: 'Procurement - Invoices',
+        description: 'Procurement invoice management - Create, OCR processing, AI matching, and approve invoices'
+      },
+      {
+        name: 'Procurement - Payments',
+        description: 'Payment processing - Process payments and create accounting entries'
+      },
+      {
+        name: 'Procurement - Dashboard',
+        description: 'Procurement dashboard - Get summary statistics and overview data'
+      },
+      {
+        name: 'Procurement - Approval Configuration',
+        description: 'Approval configuration management - Create and manage approval workflows (SINGLE CONFIG SYSTEM)'
+      },
+      {
+        name: 'Procurement - Approval Requests',
+        description: 'Approval request management - Create approval requests and process approvals'
       }
     ],
     components: {

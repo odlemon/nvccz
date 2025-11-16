@@ -104,6 +104,7 @@ model User {
   purchaseRequisitionsApproved      PurchaseRequisition[]        @relation("RequisitionApprovedBy")
   purchaseOrdersCreated             PurchaseOrder[]              @relation("POCreatedBy")
   purchaseOrdersApproved            PurchaseOrder[]              @relation("POApprovedBy")
+  purchaseOrdersSent                PurchaseOrder[]              @relation("POSentBy")
   procurementInvoicesCreated        ProcurementInvoice[]         @relation("InvoiceCreatedBy")
   procurementInvoicesApproved       ProcurementInvoice[]         @relation("InvoiceApprovedBy")
   grnsReceived                      GoodsReceivedNote[]          @relation("GRNReceivedBy")
@@ -1440,6 +1441,7 @@ model PurchaseOrder {
   id                   String               @id @default(cuid())
   poNumber             String               @unique
   requisitionId        String?
+  quotationId          String?              @unique
   vendorId             String
   status               String               @default("DRAFT")
   priority             String               @default("MEDIUM")
@@ -1453,15 +1455,19 @@ model PurchaseOrder {
   shippingAddress      String?              @db.Text
   paymentTerms         String?
   deliveryTerms        String?
+  sentAt               DateTime?
+  sentById             String?
   approvedById         String?
   approvedAt           DateTime?
   createdById          String
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
   requisition          PurchaseRequisition? @relation(fields: [requisitionId], references: [id])
+  quotation            VendorQuotation?     @relation("QuotationPO", fields: [quotationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   vendor               Vendor               @relation("POVendor", fields: [vendorId], references: [id])
   currency             Currency?            @relation("POCurrency", fields: [currencyId], references: [id])
   approvedBy           User?                @relation("POApprovedBy", fields: [approvedById], references: [id])
+  sentBy               User?                @relation("POSentBy", fields: [sentById], references: [id])
   createdBy            User                 @relation("POCreatedBy", fields: [createdById], references: [id])
   items                PurchaseOrderItem[]
   invoices             ProcurementInvoice[]
@@ -1522,6 +1528,7 @@ model VendorQuotation {
   updatedAt       DateTime              @updatedAt
   reviewedBy      User?                 @relation("QuotationReviewedBy", fields: [reviewedById], references: [id])
   invoice         ProcurementInvoice?   @relation("QuotationInvoice", fields: [invoiceId], references: [id])
+  purchaseOrder   PurchaseOrder?        @relation("QuotationPO")
   items           VendorQuotationItem[]
 
   @@map("vendor_quotations")
