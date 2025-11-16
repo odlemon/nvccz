@@ -285,6 +285,11 @@ export class BalanceSheetService {
           },
           select: {
             id: true,
+            referenceNumber: true,
+            description: true,
+            transactionDate: true,
+            status: true,
+            currencyId: true,
             cashbookEntries: {
               include: {
                 bank: {
@@ -482,10 +487,10 @@ export class BalanceSheetService {
             tx.source = source;
             tx.journalEntry = {
               id: jeDetails.id,
-              referenceNumber: tx.reference,
-              description: tx.description,
-              transactionDate: tx.date,
-              status: tx.journalEntryStatus,
+              referenceNumber: jeDetails.referenceNumber || tx.reference,
+              description: jeDetails.description || tx.description,
+              transactionDate: jeDetails.transactionDate || tx.date,
+              status: jeDetails.status || tx.journalEntryStatus,
               currencyId: jeDetails.currencyId || null
             };
             tx.sourceTransaction = sourceTransaction;
@@ -532,16 +537,28 @@ export class BalanceSheetService {
       for (const account of accounts) {
         const balance = accountBalances.get(account.id) || 0;
 
-        // Skip accounts with zero balance, EXCEPT for specific liability accounts that need to be shown
-        // even when cleared (for UAT verification: PAYE Payable 2150, Net Wages Payable 2250)
-        const isImportantLiabilityAccount = account.accountNo === '2150' || account.accountNo === '2250';
-        if (Math.abs(balance) < 0.01 && !isImportantLiabilityAccount) {
-          continue;
-        }
-
-        const accountType = account.accountType;
+        // Check if this is a cash and cash equivalent account BEFORE skipping zero balances
+        // Cash accounts should always be included in "Cash and Cash Equivalents" even if zero balance
         const accountName = account.accountName.toLowerCase();
         const accountNo = account.accountNo.toLowerCase();
+        const accountType = account.accountType;
+        const accountNameLower = accountName.toLowerCase();
+        const isCashAccount = 
+          accountNameLower.includes('cash') ||
+          accountNameLower.includes('bank') ||
+          (accountType === 'Current Asset' && 
+           account.accountNo >= '1000' && 
+           account.accountNo < '1100'); // Account numbers 1000-1099 are typically cash/bank accounts
+        const isBankAccount = bankGLAccountIds.has(account.id);
+        const isCashOrBankAccount = isCashAccount || isBankAccount;
+
+        // Skip accounts with zero balance, EXCEPT:
+        // 1. Cash and bank accounts (must be included in "Cash and Cash Equivalents" even if zero)
+        // 2. Specific liability accounts that need to be shown even when cleared (for UAT verification: PAYE Payable 2150, Net Wages Payable 2250)
+        const isImportantLiabilityAccount = account.accountNo === '2150' || account.accountNo === '2250';
+        if (Math.abs(balance) < 0.01 && !isImportantLiabilityAccount && !isCashOrBankAccount) {
+          continue;
+        }
 
         // Handle Accumulated Depreciation separately - collect all but don't add to array yet
         // Check multiple conditions to catch all accumulated depreciation accounts:
@@ -585,24 +602,9 @@ export class BalanceSheetService {
           transactions: transactions
         };
 
-        // Check if this is a cash and cash equivalent account
-        // According to accounting standards (IFRS/GAAP), Cash and Cash Equivalents includes:
-        // - Physical cash (petty cash)
-        // - Bank accounts (checking, savings, money market accounts)
-        // - Short-term, highly liquid investments (3 months or less)
-        // This logic matches CashFlowBalanceService.getCashBalances() for consistency
-        const accountNameLower = accountName.toLowerCase();
-        const isCashAccount = 
-          accountNameLower.includes('cash') ||
-          accountNameLower.includes('bank') ||
-          (accountType === 'Current Asset' && 
-           account.accountNo >= '1000' && 
-           account.accountNo < '1100'); // Account numbers 1000-1099 are typically cash/bank accounts
-
-        // Check if this account is linked to a bank (using pre-fetched bank data)
-        const isBankAccount = bankGLAccountIds.has(account.id);
-
-        if (isCashAccount || isBankAccount) {
+        // Add to cash and cash equivalents if it's a cash/bank account
+        // (Already determined above to avoid skipping zero-balance cash accounts)
+        if (isCashOrBankAccount) {
           cashAndCashEquivalents += balance;
         }
         

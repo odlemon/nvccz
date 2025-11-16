@@ -219,6 +219,8 @@ export class IncomeStatementService {
 
       const sections = this.buildIncomeStatementSections(accountBalances, journalEntries);
 
+      // Calculate Net Income following standard accounting formula:
+      // Net Income = Revenue - Operating Expenses - Income Tax + Below-the-Line Items
       const netIncomeBeforeTaxes =
         sections.revenue.total - sections.operatingExpenses.total;
       const incomeTaxExpense = sections.incomeTax.total;
@@ -874,9 +876,9 @@ export class IncomeStatementService {
         const incomeStatement = await this.generateIncomeStatement(period);
         comparativeData.push({
           period: incomeStatement.period,
-          revenue: incomeStatement.revenue.total,
-          expenses: incomeStatement.expenses.total,
-          netIncome: incomeStatement.netIncome,
+          revenue: incomeStatement.sections.revenue.total,
+          expenses: incomeStatement.sections.operatingExpenses.total,
+          netIncome: incomeStatement.totals.netIncome,
           currency: incomeStatement.currency
         });
       }
@@ -901,8 +903,8 @@ export class IncomeStatementService {
       const incomeStatement = await this.generateIncomeStatement(params);
 
       // Get detailed accounts with all transaction information
-      const detailedRevenue = await this.addAccountDetails(incomeStatement.revenue.accounts, params);
-      const detailedExpenses = await this.addAccountDetails(incomeStatement.expenses.accounts, params);
+      const detailedRevenue = await this.addAccountDetails(incomeStatement.sections.revenue.accounts, params);
+      const detailedExpenses = await this.addAccountDetails(incomeStatement.sections.operatingExpenses.accounts, params);
 
       // Get currency information for filtering
       const currency = params.currencyId 
@@ -1030,16 +1032,16 @@ export class IncomeStatementService {
         generatedAt: new Date(),
         summary: {
           revenue: {
-            total: incomeStatement.revenue.total,
-            accountCount: incomeStatement.revenue.accounts.length,
+            total: incomeStatement.sections.revenue.total,
+            accountCount: incomeStatement.sections.revenue.accounts.length,
             accounts: detailedRevenue
           },
           expenses: {
-            total: incomeStatement.expenses.total,
-            accountCount: incomeStatement.expenses.accounts.length,
+            total: incomeStatement.sections.operatingExpenses.total,
+            accountCount: incomeStatement.sections.operatingExpenses.accounts.length,
             accounts: detailedExpenses
           },
-          netIncome: incomeStatement.netIncome
+          netIncome: incomeStatement.totals.netIncome
         },
         statistics: summaryStats,
         detailedTransactions: {
