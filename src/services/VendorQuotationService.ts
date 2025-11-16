@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { PrismaClient, Prisma, Decimal } from "@prisma/client";
-import { AuditService } from "./AuditService";
+import AuditService from "./AuditService";
 import { EmailNotificationService } from "./EmailNotificationService";
 
 import { prisma } from '../utils/database';
@@ -41,7 +41,8 @@ export interface ReviewQuotationParams {
   reviewedById: string;
   reviewNotes?: string;
   rejectionReason?: string;
-  createInvoice?: boolean; // Whether to automatically create invoice on acceptance
+  createPO?: boolean; // Whether to automatically create PO on acceptance (default: true)
+  createInvoice?: boolean; // Whether to automatically create invoice on acceptance (default: false, creates after GRN)
 }
 
 export class VendorQuotationService {
@@ -287,7 +288,8 @@ export class VendorQuotationService {
         reviewedById,
         reviewNotes,
         rejectionReason,
-        createInvoice = true // Default to true - auto-create invoice on acceptance
+        createPO = true, // Default to true - auto-create PO on acceptance
+        createInvoice = false // Default to false - invoice created after GRN
       } = params;
 
       console.log("\n════════════════════════════════════════════════════════════════");
@@ -384,14 +386,12 @@ export class VendorQuotationService {
         // Don't fail the entire operation if email fails
       }
 
+      let purchaseOrder = null;
       let invoice = null;
 
-      // If accepted and createInvoice is true, automatically create an invoice
-      if (action === "ACCEPT" && createInvoice) {
-        console.log("\n💰 Creating invoice from quotation...");
-        
-        // We need to find or create a vendor in the system
-        // For now, we'll look up by email, or you might want to create a new vendor
+      // If accepted, create PO (default) or invoice (if explicitly requested)
+      if (action === "ACCEPT") {
+        // Find vendor in the system
         const vendor = await prisma.vendor.findFirst({
           where: { email: quotation.vendorEmail }
         });
@@ -408,69 +408,124 @@ export class VendorQuotationService {
           where: { code: quotation.currencyCode }
         });
 
-        // Generate invoice number
-        const invoiceNumber = `INV-${quotation.quotationNumber}`;
-
-        // Create invoice
-        invoice = await prisma.procurementInvoice.create({
-          data: {
-            invoiceNumber,
-            vendorId: vendor.id,
+        // Create Purchase Order (default behavior)
+        if (createPO) {
+          console.log("\n📦 Creating Purchase Order from quotation...");
+          
+          const { ProcurementService } = await import('./ProcurementService');
+          
+          purchaseOrder = await ProcurementService.createPurchaseOrder({
             quotationId: quotation.id,
+            requisitionId: quotation.requisitionId || undefined,
+            vendorId: vendor.id,
             currencyId: currency?.id,
-            invoiceDate: new Date(),
-            dueDate: quotation.validUntil,
-            subtotal: quotation.subtotal,
-            taxAmount: quotation.taxAmount,
-            totalAmount: quotation.totalAmount,
-            status: "DRAFT",
+            expectedDeliveryDate: quotation.validUntil || undefined,
+            paymentTerms: quotation.paymentTerms || undefined,
+            deliveryTerms: quotation.deliveryTerms || undefined,
             createdById: reviewedById,
-            items: {
-              create: quotation.items.map(item => ({
-                itemName: item.itemName,
-                description: item.description,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                totalPrice: item.totalPrice,
-                unit: item.unit
-              }))
+            items: quotation.items.map(item => ({
+              itemName: item.itemName,
+              description: item.description || undefined,
+              quantity: Number(item.quantity),
+              unitPrice: Number(item.unitPrice),
+              unit: item.unit || undefined,
+              specifications: item.specifications || undefined
+            }))
+          });
+
+          // Update quotation with PO reference (optional - PO already has quotationId)
+          // This updates the reverse relation if Prisma client supports it
+          try {
+            await prisma.vendorQuotation.update({
+              where: { id: quotationId },
+              data: { purchaseOrder: { connect: { id: purchaseOrder.id } } }
+            });
+          } catch (error: any) {
+            // If Prisma client hasn't been regenerated yet, this will fail silently
+            // The PO already has quotationId, so the link is established
+            console.log('   ⚠️  Could not update quotation reverse relation (Prisma client may need regeneration)');
+            console.log('   ✅ PO-quotation link already established via quotationId field');
+          }
+
+          console.log(`✅ Purchase Order created: ${purchaseOrder.poNumber}`);
+          console.log(`   PO ID: ${purchaseOrder.id}`);
+          console.log(`   Status: ${purchaseOrder.status}`);
+          console.log(`   Amount: $${Number(purchaseOrder.totalAmount).toFixed(2)}`);
+          console.log(`   📌 Next step: Send PO to vendor using POST /api/procurement/purchase-orders/${purchaseOrder.id}/send`);
+        }
+
+        // Create Invoice (optional - usually created after GRN)
+        if (createInvoice) {
+          console.log("\n💰 Creating invoice from quotation...");
+
+          // Generate Purchase Invoice number (PI- prefix)
+          const timestamp = Date.now();
+          const random = Math.floor(Math.random() * 1000);
+          const invoiceNumber = `PI-${timestamp}-${random}`;
+
+          // Create Purchase Invoice
+          invoice = await prisma.procurementInvoice.create({
+            data: {
+              invoiceNumber,
+              vendorId: vendor.id,
+              quotationId: quotation.id,
+              purchaseOrderId: purchaseOrder?.id || undefined,
+              currencyId: currency?.id,
+              invoiceDate: new Date(),
+              dueDate: quotation.validUntil,
+              subtotal: quotation.subtotal,
+              taxAmount: quotation.taxAmount,
+              totalAmount: quotation.totalAmount,
+              status: "DRAFT",
+              createdById: reviewedById,
+              items: {
+                create: quotation.items.map(item => ({
+                  itemName: item.itemName,
+                  description: item.description,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  totalPrice: item.totalPrice,
+                  unit: item.unit
+                }))
+              }
+            },
+            include: {
+              items: true,
+              vendor: true
             }
-          },
-          include: {
-            items: true,
-            vendor: true
-          }
-        });
+          });
 
-        // Update quotation with invoice reference
-        await prisma.vendorQuotation.update({
-          where: { id: quotationId },
-          data: { invoiceId: invoice.id }
-        });
+          // Update quotation with invoice reference
+          await prisma.vendorQuotation.update({
+            where: { id: quotationId },
+            data: { invoiceId: invoice.id }
+          });
 
-        console.log(`✅ Invoice created: ${invoice.invoiceNumber}`);
-        console.log(`   Invoice ID: ${invoice.id}`);
-        console.log(`   Status: ${invoice.status}`);
-        console.log(`   Amount: $${Number(invoice.totalAmount).toFixed(2)}`);
+          console.log(`✅ Invoice created: ${invoice.invoiceNumber}`);
+          console.log(`   Invoice ID: ${invoice.id}`);
+          console.log(`   Status: ${invoice.status}`);
+          console.log(`   Amount: $${Number(invoice.totalAmount).toFixed(2)}`);
 
-        // Create audit log for invoice creation
-        await AuditService.log({
-          userId: reviewedById,
-          action: "CREATE",
-          entityType: "ProcurementInvoice",
-          entityId: invoice.id,
-          newValues: {
-            invoiceNumber: invoice.invoiceNumber,
-            source: "VendorQuotation",
-            quotationId: quotation.id
-          }
-        });
+          // Create audit log for invoice creation
+          await AuditService.log({
+            userId: reviewedById,
+            action: "CREATE",
+            entityType: "ProcurementInvoice",
+            entityId: invoice.id,
+            newValues: {
+              invoiceNumber: invoice.invoiceNumber,
+              source: "VendorQuotation",
+              quotationId: quotation.id
+            }
+          });
+        }
       }
 
       console.log("════════════════════════════════════════════════════════════════\n");
 
       return {
         quotation: updatedQuotation,
+        purchaseOrder,
         invoice
       };
     } catch (error: any) {

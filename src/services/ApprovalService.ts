@@ -39,9 +39,9 @@ export class ApprovalService {
         include: {
           stages: {
             where: { 
-              stageType: params.stageType,
-              // Filter by department if provided
-              ...(params.department ? { requiredUserDepartment: params.department } : {})
+              stageType: params.stageType
+              // Don't filter by requiredUserDepartment here - stages can belong to any department
+              // The config itself is already filtered by department
             },
             orderBy: { stepNumber: 'asc' },
             include: {

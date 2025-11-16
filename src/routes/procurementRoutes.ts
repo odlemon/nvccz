@@ -10,10 +10,10 @@ router.use(authenticate);
 
 /**
  * @swagger
- * /api/procurement/requisitions:
+ * /procurement/requisitions:
  *   post:
  *     summary: Create a new purchase requisition
- *     tags: [Procurement]
+ *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -73,10 +73,10 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
 
 /**
  * @swagger
- * /api/procurement/requisitions:
+ * /procurement/requisitions:
  *   get:
  *     summary: Get all purchase requisitions
- *     tags: [Procurement]
+ *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -124,10 +124,10 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
 
 /**
  * @swagger
- * /api/procurement/requisitions/my:
+ * /procurement/requisitions/my:
  *   get:
  *     summary: Get my purchase requisitions (created by logged-in user)
- *     tags: [Procurement]
+ *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -155,10 +155,10 @@ router.get("/requisitions/my", ProcurementController.getMyPurchaseRequisitions);
 
 /**
  * @swagger
- * /api/procurement/requisitions/pending-approval:
+ * /procurement/requisitions/pending-approval:
  *   get:
  *     summary: Get pending requisitions for department head approval (their department only)
- *     tags: [Procurement]
+ *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -187,10 +187,10 @@ router.get("/requisitions", ProcurementController.getAllPurchaseRequisitions);
 
 /**
  * @swagger
- * /api/procurement/requisitions/{id}:
+ * /procurement/requisitions/{id}:
  *   get:
  *     summary: Get purchase requisition by ID
- *     tags: [Procurement]
+ *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -212,10 +212,11 @@ router.get("/requisitions/:id", ProcurementController.getPurchaseRequisitionById
 
 /**
  * @swagger
- * /api/procurement/requisitions/{id}/submit:
+ * /procurement/requisitions/{id}/submit:
  *   put:
  *     summary: Submit a purchase requisition for approval
- *     tags: [Procurement]
+ *     description: ⚠️ Once submitted, status becomes PENDING_APPROVAL and cannot be modified
+ *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -237,10 +238,11 @@ router.put("/requisitions/:id/submit", ProcurementController.submitPurchaseRequi
 
 /**
  * @swagger
- * /api/procurement/requisitions/{id}/approve:
+ * /procurement/requisitions/{id}/approve:
  *   put:
  *     summary: Approve a purchase requisition
- *     tags: [Procurement]
+ *     description: ⚠️ Once approved, status becomes APPROVED and cannot be modified
+ *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -262,10 +264,11 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
 
 /**
  * @swagger
- * /api/procurement/purchase-orders:
+ * /procurement/purchase-orders:
  *   post:
  *     summary: Create a new purchase order
- *     tags: [Procurement]
+ *     description: Creates a PO from a quotation or requisition. Automatically created when quotation is accepted.
+ *     tags: [Procurement - Purchase Orders]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -337,10 +340,10 @@ router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
 
 /**
  * @swagger
- * /api/procurement/purchase-orders:
+ * /procurement/purchase-orders:
  *   get:
  *     summary: Get all purchase orders
- *     tags: [Procurement]
+ *     tags: [Procurement - Purchase Orders]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -383,10 +386,11 @@ router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
 
 /**
  * @swagger
- * /api/procurement/purchase-orders/{id}/send:
+ * /procurement/purchase-orders/{id}/send:
  *   post:
  *     summary: Send purchase order to vendor via email
- *     tags: [Procurement]
+ *     description: ⚠️ Once sent, status becomes SENT and cannot be modified
+ *     tags: [Procurement - Purchase Orders]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -442,10 +446,10 @@ router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder
 
 /**
  * @swagger
- * /api/procurement/purchase-orders/{id}/convert-to-bill:
+ * /procurement/purchase-orders/{id}/convert-to-bill:
  *   post:
  *     summary: Convert a Purchase Order to a Creditor Bill (Invoice) in the Accounting module
- *     tags: [Procurement]
+ *     tags: [Procurement - Purchase Orders]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -517,10 +521,11 @@ router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.conver
 
 /**
  * @swagger
- * /api/procurement/rfq:
+ * /procurement/rfq:
  *   post:
  *     summary: Create and send RFQ to multiple vendors
- *     tags: [Procurement]
+ *     description: Sends RFQ emails to all specified vendors with public quotation submission link
+ *     tags: [Procurement - RFQ]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -591,10 +596,11 @@ router.post("/rfq", ProcurementController.createAndSendRFQ);
 
 /**
  * @swagger
- * /api/procurement/invoices:
+ * /procurement/invoices:
  *   post:
  *     summary: Create a new procurement invoice
- *     tags: [Procurement]
+ *     description: Create invoice from PO/GRN. Links to purchaseOrderId and quotationId if applicable
+ *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -662,10 +668,10 @@ router.post("/invoices", ProcurementController.createProcurementInvoice);
 
 /**
  * @swagger
- * /api/procurement/invoices/{invoiceId}/ocr:
+ * /procurement/invoices/{invoiceId}/ocr:
  *   post:
  *     summary: Process OCR data for invoice
- *     tags: [Procurement]
+ *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -733,10 +739,10 @@ router.post("/invoices/:invoiceId/ocr", ProcurementController.processOCRData);
 
 /**
  * @swagger
- * /api/procurement/invoices/{invoiceId}/ai-matching:
+ * /procurement/invoices/{invoiceId}/ai-matching:
  *   post:
  *     summary: Perform AI matching for invoice
- *     tags: [Procurement]
+ *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -787,10 +793,11 @@ router.post("/invoices/:invoiceId/ai-matching", ProcurementController.performAIM
 
 /**
  * @swagger
- * /api/procurement/invoices/{id}/approve:
+ * /procurement/invoices/{id}/approve:
  *   put:
  *     summary: Approve a procurement invoice
- *     tags: [Procurement]
+ *     description: ⚠️ Once approved, status becomes APPROVED and cannot be modified. Accounting entries created on payment, not approval.
+ *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -812,10 +819,11 @@ router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvo
 
 /**
  * @swagger
- * /api/procurement/invoices/{id}/payment:
+ * /procurement/invoices/{id}/payment:
  *   post:
  *     summary: Process payment for an approved procurement invoice
- *     tags: [Procurement]
+ *     description: Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash)
+ *     tags: [Procurement - Payments]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -937,10 +945,10 @@ router.post("/invoices/:id/payment", ProcurementController.payProcurementInvoice
 
 /**
  * @swagger
- * /api/procurement/invoices:
+ * /procurement/invoices:
  *   get:
  *     summary: Get all procurement invoices
- *     tags: [Procurement]
+ *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -983,10 +991,11 @@ router.get("/invoices", ProcurementController.getAllProcurementInvoices);
 
 /**
  * @swagger
- * /api/procurement/goods-received-notes:
+ * /procurement/goods-received-notes:
  *   post:
  *     summary: Create a goods received note
- *     tags: [Procurement]
+ *     description: Records received quantities, accepted quantities, and rejected quantities. Updates PO item quantities.
+ *     tags: [Procurement - GRN]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -1038,10 +1047,10 @@ router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNo
 
 /**
  * @swagger
- * /api/procurement/dashboard:
+ * /procurement/dashboard:
  *   get:
  *     summary: Get procurement dashboard data
- *     tags: [Procurement]
+ *     tags: [Procurement - Dashboard]
  *     security:
  *       - bearerAuth: []
  *     responses:

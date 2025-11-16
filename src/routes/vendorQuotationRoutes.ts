@@ -7,11 +7,11 @@ const router = express.Router();
 
 /**
  * @swagger
- * /api/vendor-quotations/submit:
+ * /vendor-quotations/submit:
  *   post:
  *     summary: Submit a vendor quotation (PUBLIC - no authentication required)
- *     description: Vendors use this endpoint to submit their quotes in response to an RFQ
- *     tags: [Vendor Quotations]
+ *     description: Vendors use this endpoint to submit their quotes in response to an RFQ. No authentication needed.
+ *     tags: [Procurement - Vendor Quotations]
  *     requestBody:
  *       required: true
  *       content:
@@ -167,10 +167,10 @@ router.use(authenticate);
 
 /**
  * @swagger
- * /api/vendor-quotations:
+ * /vendor-quotations:
  *   get:
  *     summary: Get all vendor quotations
- *     tags: [Vendor Quotations]
+ *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -227,10 +227,10 @@ router.get("/", VendorQuotationController.getAllQuotations);
 
 /**
  * @swagger
- * /api/vendor-quotations/rfq/{rfqNumber}:
+ * /vendor-quotations/rfq/{rfqNumber}:
  *   get:
  *     summary: Get all quotations for a specific RFQ
- *     tags: [Vendor Quotations]
+ *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -251,10 +251,10 @@ router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
 
 /**
  * @swagger
- * /api/vendor-quotations/{id}:
+ * /vendor-quotations/{id}:
  *   get:
  *     summary: Get quotation by ID
- *     tags: [Vendor Quotations]
+ *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -276,11 +276,11 @@ router.get("/:id", VendorQuotationController.getQuotationById);
 
 /**
  * @swagger
- * /api/vendor-quotations/{id}/accept:
+ * /vendor-quotations/{id}/accept:
  *   post:
  *     summary: Accept a vendor quotation
- *     description: Accepts a quotation and optionally creates an invoice automatically
- *     tags: [Vendor Quotations]
+ *     description: Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.
+ *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -338,10 +338,11 @@ router.post("/:id/accept", VendorQuotationController.acceptQuotation);
 
 /**
  * @swagger
- * /api/vendor-quotations/{id}/reject:
+ * /vendor-quotations/{id}/reject:
  *   post:
  *     summary: Reject a vendor quotation
- *     tags: [Vendor Quotations]
+ *     description: ⚠️ Once rejected, status becomes REJECTED and cannot be modified
+ *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -384,11 +385,11 @@ router.post("/:id/reject", VendorQuotationController.rejectQuotation);
 
 /**
  * @swagger
- * /api/vendor-quotations/{id}:
+ * /vendor-quotations/{id}:
  *   delete:
  *     summary: Delete a quotation
- *     description: Delete a quotation (only if not yet reviewed)
- *     tags: [Vendor Quotations]
+ *     description: Delete a quotation (only if status is SUBMITTED - cannot delete if ACCEPTED or REJECTED)
+ *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
  *     parameters:

@@ -95,7 +95,7 @@ export class VendorQuotationController {
   static async acceptQuotation(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { reviewNotes, createInvoice = true } = req.body;
+      const { reviewNotes, createPO = true, createInvoice = false } = req.body;
       const userId = req.user?.id;
 
       if (!userId) {
@@ -110,16 +110,23 @@ export class VendorQuotationController {
         action: "ACCEPT",
         reviewedById: userId,
         reviewNotes,
+        createPO,
         createInvoice
       });
 
+      let message = "Quotation accepted successfully. Vendor has been notified.";
+      if (result.purchaseOrder) {
+        message = `Quotation accepted and Purchase Order created successfully (${result.purchaseOrder.poNumber}). Vendor has been notified. Next: Send PO to vendor.`;
+      } else if (result.invoice) {
+        message = "Quotation accepted and invoice created successfully. Vendor has been notified.";
+      }
+
       res.json({
         success: true,
-        message: result.invoice 
-          ? "Quotation accepted and invoice created successfully. Vendor has been notified."
-          : "Quotation accepted successfully. Vendor has been notified.",
+        message,
         data: {
           quotation: result.quotation,
+          purchaseOrder: result.purchaseOrder,
           invoice: result.invoice
         }
       });

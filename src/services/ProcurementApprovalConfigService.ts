@@ -154,6 +154,125 @@ export class ProcurementApprovalConfigService {
   }
 
   /**
+   * Update an existing procurement approval configuration
+   * ⚠️ IMPORTANT: System only allows ONE config - this updates that single config
+   */
+  static async updateProcurementApprovalConfig(id: string, params: CreateProcurementApprovalConfigParams) {
+    try {
+      // Check if config exists
+      const existingConfig = await prisma.procurementApprovalConfig.findUnique({
+        where: { id }
+      });
+
+      if (!existingConfig) {
+        throw new Error("Procurement approval configuration not found");
+      }
+
+      const { name, description, department, createdById, stages } = params;
+
+      // Validate stages
+      if (!stages || stages.length === 0) {
+        throw new Error("At least one stage is required");
+      }
+
+      // Validate each stage has steps
+      for (const stage of stages) {
+        if (!stage.steps || stage.steps.length === 0) {
+          throw new Error(`Stage ${stage.stageType} must have at least one step`);
+        }
+
+        // Validate step numbers are sequential
+        const stepNumbers = stage.steps.map(s => s.stepNumber).sort((a, b) => a - b);
+        for (let i = 0; i < stepNumbers.length; i++) {
+          if (stepNumbers[i] !== i + 1) {
+            throw new Error(`Step numbers for ${stage.stageType} must be sequential starting from 1`);
+          }
+        }
+      }
+
+      // Flatten stages - each step becomes a stage record
+      const allStages: any[] = [];
+      for (const stage of stages) {
+        for (const step of stage.steps) {
+          allStages.push({
+            stageType: stage.stageType,
+            stepNumber: step.stepNumber,
+            stepName: step.stepName,
+            stepType: step.stepType,
+            userId: step.userId,
+            roleId: step.roleId,           // DEPRECATED - keeping for backwards compatibility
+            roleCode: step.roleCode,       // NEW! Hardcoded role
+            departmentId: step.departmentId,
+            amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
+            isRequired: step.isRequired ?? true,
+            canDelegate: step.canDelegate ?? false,
+            autoApprove: step.autoApprove ?? false,
+            approvalOrder: step.approvalOrder ?? 'SEQUENTIAL'
+          });
+        }
+      }
+
+      // Update configuration - delete old stages and create new ones
+      const config = await prisma.procurementApprovalConfig.update({
+        where: { id },
+        data: {
+          name,
+          description,
+          department,
+          stages: {
+            deleteMany: {}, // Delete all existing stages
+            create: allStages // Create new stages
+          }
+        },
+        include: {
+          createdBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          stages: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              },
+              role: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true
+                }
+              },
+              department: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true
+                }
+              }
+            },
+            orderBy: [
+              { stageType: 'asc' },
+              { stepNumber: 'asc' }
+            ]
+          }
+        }
+      });
+
+      return config;
+    } catch (error: any) {
+      throw new Error(`Failed to update procurement approval configuration: ${error.message}`);
+    }
+  }
+
+  /**
    * Get all procurement approval configurations
    */
   static async getAllProcurementApprovalConfigs() {
@@ -456,8 +575,34 @@ export class ProcurementApprovalConfigService {
         throw new Error(`No approvers found for step: ${stage.stepName}`);
       }
 
-      // Create approval records for each approver
-      const approvalRecords = approvers.map(approverId => ({
+      // Check which approval records already exist
+      const existingApprovals = await prisma.approval.findMany({
+        where: {
+          requestId,
+          stageId: stage.id
+        },
+        select: {
+          approverId: true
+        }
+      });
+
+      const existingApproverIds = new Set(existingApprovals.map(a => a.approverId));
+      
+      // Filter out approvers that already have approval records
+      const newApprovers = approvers.filter(approverId => !existingApproverIds.has(approverId));
+
+      if (newApprovers.length === 0) {
+        console.log(`   ℹ️  All approval records already exist for step ${stage.stepNumber}`);
+        return existingApprovals.map(a => ({
+          requestId,
+          stageId: stage.id,
+          approverId: a.approverId,
+          status: 'PENDING'
+        }));
+      }
+
+      // Create approval records only for new approvers
+      const approvalRecords = newApprovers.map(approverId => ({
         requestId,
         stageId: stage.id,
         approverId,
@@ -465,8 +610,11 @@ export class ProcurementApprovalConfigService {
       }));
 
       await prisma.approval.createMany({
-        data: approvalRecords
+        data: approvalRecords,
+        skipDuplicates: true // Skip duplicates if they somehow exist
       });
+
+      console.log(`   ✅ Created ${approvalRecords.length} new approval record(s) for step ${stage.stepNumber}`);
 
       return approvalRecords;
     } catch (error: any) {
@@ -537,6 +685,16 @@ export class ProcurementApprovalConfigService {
     try {
       const { requestId, stageId, approverId, status, comments, delegatedToId, signatureData } = params;
 
+      // First get the request to get stageType
+      const request = await prisma.approvalRequest.findUnique({
+        where: { id: requestId },
+        select: { stageType: true }
+      });
+
+      if (!request) {
+        throw new Error("Approval request not found");
+      }
+
       // Get the approval record
       const approval = await prisma.approval.findUnique({
         where: {
@@ -552,14 +710,23 @@ export class ProcurementApprovalConfigService {
               config: {
                 include: {
                   stages: {
-                    where: { stageType: { equals: prisma.approvalRequest.findUnique({ where: { id: requestId } }).then(r => r?.stageType) } },
+                    where: { stageType: request.stageType },
                     orderBy: { stepNumber: 'asc' }
                   }
                 }
               }
             }
           },
-          stage: true
+          stage: true,
+          approver: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              roleCode: true
+            }
+          }
         }
       });
 
@@ -706,9 +873,75 @@ export class ProcurementApprovalConfigService {
             completedAt: new Date()
           }
         });
+
+        console.log(`✅ Approval workflow completed for ${stageType}`);
+        
+        // Update entity status based on stage type
+        await this.updateEntityStatusAfterApproval(requestId, stageType);
       }
     } catch (error: any) {
       throw new Error(`Failed to move to next step: ${error.message}`);
+    }
+  }
+
+  /**
+   * Update entity status after approval workflow is complete
+   */
+  private static async updateEntityStatusAfterApproval(requestId: string, stageType: string) {
+    try {
+      const request = await prisma.approvalRequest.findUnique({
+        where: { id: requestId },
+        select: { entityId: true, stageType: true }
+      });
+
+      if (!request) {
+        console.log(`⚠️  Approval request not found: ${requestId}`);
+        return;
+      }
+
+      console.log(`🔄 Updating entity status after approval...`);
+      console.log(`   Stage Type: ${stageType}`);
+      console.log(`   Entity ID: ${request.entityId}`);
+
+      switch (stageType) {
+        case "PURCHASE_REQUISITION":
+          await prisma.purchaseRequisition.update({
+            where: { id: request.entityId },
+            data: { status: "APPROVED" }
+          });
+          console.log(`   ✅ Purchase Requisition ${request.entityId} marked as APPROVED`);
+          break;
+
+        case "PURCHASE_ORDER":
+          await prisma.purchaseOrder.update({
+            where: { id: request.entityId },
+            data: { status: "APPROVED" }
+          });
+          console.log(`   ✅ Purchase Order ${request.entityId} marked as APPROVED`);
+          break;
+
+        case "INVOICE":
+          await prisma.procurementInvoice.update({
+            where: { id: request.entityId },
+            data: { status: "APPROVED" }
+          });
+          console.log(`   ✅ Procurement Invoice ${request.entityId} marked as APPROVED`);
+          break;
+
+        case "GRN":
+          await prisma.goodsReceivedNote.update({
+            where: { id: request.entityId },
+            data: { status: "APPROVED" }
+          });
+          console.log(`   ✅ Goods Received Note ${request.entityId} marked as APPROVED`);
+          break;
+
+        default:
+          console.log(`   ⚠️  Unknown stage type: ${stageType}`);
+      }
+    } catch (error: any) {
+      console.error(`   ❌ Error updating entity status: ${error.message}`);
+      // Don't throw - approval is already complete, this is just a side effect
     }
   }
 

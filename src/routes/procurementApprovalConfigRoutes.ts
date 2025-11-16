@@ -10,10 +10,11 @@ router.use(authenticate);
 
 /**
  * @swagger
- * /api/procurement-approval-configs:
+ * /procurement-approval-configs:
  *   post:
- *     summary: Create a new procurement approval configuration
- *     tags: [Procurement Approval Configuration]
+ *     summary: Create a new procurement approval configuration (SINGLE CONFIG SYSTEM)
+ *     description: ⚠️ Only ONE configuration allowed in the system. If one exists, use PUT to update it instead.
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -111,10 +112,10 @@ router.post("/", ProcurementApprovalConfigController.createProcurementApprovalCo
 
 /**
  * @swagger
- * /api/procurement-approval-configs:
+ * /procurement-approval-configs:
  *   get:
  *     summary: Get all procurement approval configurations
- *     tags: [Procurement Approval Configuration]
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -127,10 +128,101 @@ router.get("/", ProcurementApprovalConfigController.getAllProcurementApprovalCon
 
 /**
  * @swagger
- * /api/procurement-approval-configs/active:
+ * /procurement-approval-configs/{id}:
+ *   put:
+ *     summary: Update existing procurement approval configuration (SINGLE CONFIG SYSTEM)
+ *     description: Update the ONE and ONLY approval configuration. System enforces only ONE config exists.
+ *     tags: [Procurement - Approval Configuration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Configuration ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - stages
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: Configuration name
+ *               description:
+ *                 type: string
+ *                 description: Configuration description
+ *               department:
+ *                 type: string
+ *                 enum: [Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT]
+ *                 description: Department-specific config (null for general/default config)
+ *               stages:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - stageType
+ *                     - steps
+ *                   properties:
+ *                     stageType:
+ *                       type: string
+ *                       enum: [PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, GRN]
+ *                       description: Procurement stage type
+ *                     steps:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         required:
+ *                           - stepNumber
+ *                           - stepName
+ *                           - stepType
+ *                         properties:
+ *                           stepNumber:
+ *                             type: integer
+ *                             description: Step number (must be sequential)
+ *                           stepName:
+ *                             type: string
+ *                             description: Step name
+ *                           stepType:
+ *                             type: string
+ *                             enum: [USER, ROLE, DEPARTMENT, AMOUNT_THRESHOLD]
+ *                             description: Type of approver
+ *                           roleCode:
+ *                             type: string
+ *                             description: Hardcoded role code (FIN_MGR, PROC_OFF, etc.) - Use this for stepType ROLE
+ *                           isRequired:
+ *                             type: boolean
+ *                             default: true
+ *                             description: Whether this step is required
+ *                           approvalOrder:
+ *                             type: string
+ *                             enum: [SEQUENTIAL, PARALLEL]
+ *                             default: SEQUENTIAL
+ *                             description: Approval order for this step
+ *     responses:
+ *       200:
+ *         description: Procurement approval configuration updated successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Configuration not found
+ */
+router.put("/:id", ProcurementApprovalConfigController.updateProcurementApprovalConfig);
+
+/**
+ * @swagger
+ * /procurement-approval-configs/active:
  *   get:
  *     summary: Get active procurement approval configuration
- *     tags: [Procurement Approval Configuration]
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -145,10 +237,10 @@ router.get("/active", ProcurementApprovalConfigController.getActiveProcurementAp
 
 /**
  * @swagger
- * /api/procurement-approval-configs/{id}:
+ * /procurement-approval-configs/{id}:
  *   get:
  *     summary: Get procurement approval configuration by ID
- *     tags: [Procurement Approval Configuration]
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -170,10 +262,10 @@ router.get("/:id", ProcurementApprovalConfigController.getProcurementApprovalCon
 
 /**
  * @swagger
- * /api/procurement-approval-configs/stages/{stageType}/steps:
+ * /procurement-approval-configs/stages/{stageType}/steps:
  *   get:
  *     summary: Get approval steps for a specific stage type
- *     tags: [Procurement Approval Configuration]
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -196,10 +288,10 @@ router.get("/stages/:stageType/steps", ProcurementApprovalConfigController.getAp
 
 /**
  * @swagger
- * /api/procurement-approval-configs/requests:
+ * /procurement-approval-configs/requests:
  *   post:
  *     summary: Create an approval request
- *     tags: [Procurement Approval Requests]
+ *     tags: [Procurement - Approval Requests]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -238,10 +330,10 @@ router.post("/requests", ProcurementApprovalConfigController.createApprovalReque
 
 /**
  * @swagger
- * /api/procurement-approval-configs/requests/my:
+ * /procurement-approval-configs/requests/my:
  *   get:
  *     summary: Get approval requests for current user
- *     tags: [Procurement Approval Requests]
+ *     tags: [Procurement - Approval Requests]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -261,10 +353,11 @@ router.get("/requests/my", ProcurementApprovalConfigController.getApprovalReques
 
 /**
  * @swagger
- * /api/procurement-approval-configs/requests/{requestId}/stages/{stageId}/approve:
+ * /procurement-approval-configs/requests/{requestId}/stages/{stageId}/approve:
  *   put:
  *     summary: Process an approval (approve/reject)
- *     tags: [Procurement Approval Requests]
+ *     description: ⚠️ Once all steps are approved, entity status becomes APPROVED and cannot be modified
+ *     tags: [Procurement - Approval Requests]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -311,10 +404,10 @@ router.put("/requests/:requestId/stages/:stageId/approve", ProcurementApprovalCo
 
 /**
  * @swagger
- * /api/procurement-approval-configs/delete-all:
+ * /procurement-approval-configs/delete-all:
  *   delete:
  *     summary: Delete all procurement approval configurations (Admin only)
- *     tags: [Procurement Approval Configuration]
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     responses:
