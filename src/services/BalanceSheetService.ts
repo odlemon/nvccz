@@ -34,6 +34,10 @@ export interface BalanceSheetData {
   asOfDate: Date;
   currency: string;
   assets: {
+    cashAndCashEquivalents: {
+      total: number;
+      breakdown: BalanceSheetAccount[]; // Breakdown showing all cash/bank accounts that make up this total
+    };
     currentAssets: {
       accounts: BalanceSheetAccount[];
       total: number;
@@ -533,6 +537,7 @@ export class BalanceSheetService {
       
       let accumulatedDepreciation = 0;
       let cashAndCashEquivalents = 0; // Track cash and cash equivalents separately
+      const cashAccountsBreakdown: BalanceSheetAccount[] = []; // Track all cash accounts for breakdown
 
       for (const account of accounts) {
         const balance = accountBalances.get(account.id) || 0;
@@ -606,6 +611,20 @@ export class BalanceSheetService {
         // (Already determined above to avoid skipping zero-balance cash accounts)
         if (isCashOrBankAccount) {
           cashAndCashEquivalents += balance;
+          
+          // Add to breakdown for "Cash and Cash Equivalents" - shows how it was constructed
+          // Get transactions for this cash account
+          const cashTransactions = (accountTransactions.get(account.id) || []).sort((a, b) => a.date.localeCompare(b.date));
+          cashAccountsBreakdown.push({
+            accountNo: account.accountNo,
+            accountName: account.accountName,
+            balance: balance,
+            transactions: cashTransactions
+          });
+          
+          // DO NOT add cash/bank accounts to currentAssets - they are consolidated into "Cash and Cash Equivalents"
+          // Skip to next account
+          continue;
         }
         
         if (accountType === 'Current Asset') {
@@ -648,7 +667,9 @@ export class BalanceSheetService {
       }
 
       // Calculate totals
-      const totalCurrentAssets = currentAssets.reduce((sum, acc) => sum + acc.balance, 0);
+      // Note: cashAndCashEquivalents is already calculated separately (sum of all cash/bank accounts)
+      // and cash accounts are NOT in the currentAssets array (they're consolidated)
+      const totalCurrentAssets = cashAndCashEquivalents + currentAssets.reduce((sum, acc) => sum + acc.balance, 0);
       
       // Fixed Assets: Sum all line items (including negative accumulated depreciation)
       // This will give us Net Fixed Assets = Gross Fixed Assets - Accumulated Depreciation
@@ -709,7 +730,10 @@ export class BalanceSheetService {
         asOfDate: params.asOfDate,
         currency: params.currencyId || 'USD',
         assets: {
-          cashAndCashEquivalents: cashAndCashEquivalents, // Separate line item for cash flow reconciliation
+          cashAndCashEquivalents: {
+            total: cashAndCashEquivalents, // Consolidated total of all cash/bank accounts
+            breakdown: cashAccountsBreakdown // Breakdown showing all accounts (petty cash, bank accounts) that make up this total
+          },
           currentAssets: {
             accounts: currentAssets,
             total: totalCurrentAssets
