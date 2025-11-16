@@ -13,6 +13,7 @@ router.use(authenticate);
  * /procurement/requisitions:
  *   post:
  *     summary: Create a new purchase requisition
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -76,6 +77,7 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  * /procurement/requisitions:
  *   get:
  *     summary: Get all purchase requisitions
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -127,6 +129,7 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  * /procurement/requisitions/my:
  *   get:
  *     summary: Get my purchase requisitions (created by logged-in user)
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -158,6 +161,7 @@ router.get("/requisitions/my", ProcurementController.getMyPurchaseRequisitions);
  * /procurement/requisitions/pending-approval:
  *   get:
  *     summary: Get pending requisitions for department head approval (their department only)
+ *     description: **Required Role:** Department HEAD or DEPUTY (departmentRole: HEAD or DEPUTY) - Can view pending requisitions from their department only
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -190,6 +194,7 @@ router.get("/requisitions", ProcurementController.getAllPurchaseRequisitions);
  * /procurement/requisitions/{id}:
  *   get:
  *     summary: Get purchase requisition by ID
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -215,7 +220,7 @@ router.get("/requisitions/:id", ProcurementController.getPurchaseRequisitionById
  * /procurement/requisitions/{id}/submit:
  *   put:
  *     summary: Submit a purchase requisition for approval
- *     description: ⚠️ Once submitted, status becomes PENDING_APPROVAL and cannot be modified
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). ⚠️ Once submitted, status becomes PENDING_APPROVAL and cannot be modified
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -241,7 +246,7 @@ router.put("/requisitions/:id/submit", ProcurementController.submitPurchaseRequi
  * /procurement/requisitions/{id}/approve:
  *   put:
  *     summary: Approve a purchase requisition
- *     description: ⚠️ Once approved, status becomes APPROVED and cannot be modified
+ *     description: **Required Role:** User's roleCode must match approval config roleCode (e.g., PROC_MGR, FIN_MGR) OR user must be department HEAD/DEPUTY for their department's requisitions. ⚠️ Once approved, status becomes APPROVED and cannot be modified
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -267,7 +272,7 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  * /procurement/purchase-orders:
  *   post:
  *     summary: Create a new purchase order
- *     description: Creates a PO from a quotation or requisition. Automatically created when quotation is accepted.
+ *     description: **Required Role:** PROC_MGR or PROC_OFF. Creates a PO from a quotation or requisition. Automatically created when quotation is accepted.
  *     tags: [Procurement - Purchase Orders]
  *     security:
  *       - bearerAuth: []
@@ -343,6 +348,7 @@ router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
  * /procurement/purchase-orders:
  *   get:
  *     summary: Get all purchase orders
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
  *     tags: [Procurement - Purchase Orders]
  *     security:
  *       - bearerAuth: []
@@ -389,7 +395,7 @@ router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
  * /procurement/purchase-orders/{id}/send:
  *   post:
  *     summary: Send purchase order to vendor via email
- *     description: ⚠️ Once sent, status becomes SENT and cannot be modified
+ *     description: **Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once sent, status becomes SENT and cannot be modified
  *     tags: [Procurement - Purchase Orders]
  *     security:
  *       - bearerAuth: []
@@ -449,6 +455,7 @@ router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder
  * /procurement/purchase-orders/{id}/convert-to-bill:
  *   post:
  *     summary: Convert a Purchase Order to a Creditor Bill (Invoice) in the Accounting module
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or ACCOUNTANT
  *     tags: [Procurement - Purchase Orders]
  *     security:
  *       - bearerAuth: []
@@ -524,7 +531,7 @@ router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.conver
  * /procurement/rfq:
  *   post:
  *     summary: Create and send RFQ to multiple vendors
- *     description: Sends RFQ emails to all specified vendors with public quotation submission link
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER. Sends RFQ emails to all specified vendors with public quotation submission link
  *     tags: [Procurement - RFQ]
  *     security:
  *       - bearerAuth: []
@@ -599,7 +606,7 @@ router.post("/rfq", ProcurementController.createAndSendRFQ);
  * /procurement/invoices:
  *   post:
  *     summary: Create a new procurement invoice
- *     description: Create invoice from PO/GRN. Links to purchaseOrderId and quotationId if applicable
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER. Create invoice from PO/GRN. Links to purchaseOrderId and quotationId if applicable
  *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
@@ -671,6 +678,7 @@ router.post("/invoices", ProcurementController.createProcurementInvoice);
  * /procurement/invoices/{invoiceId}/ocr:
  *   post:
  *     summary: Process OCR data for invoice
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER
  *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
@@ -742,6 +750,7 @@ router.post("/invoices/:invoiceId/ocr", ProcurementController.processOCRData);
  * /procurement/invoices/{invoiceId}/ai-matching:
  *   post:
  *     summary: Perform AI matching for invoice
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER
  *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
@@ -796,7 +805,7 @@ router.post("/invoices/:invoiceId/ai-matching", ProcurementController.performAIM
  * /procurement/invoices/{id}/approve:
  *   put:
  *     summary: Approve a procurement invoice
- *     description: ⚠️ Once approved, status becomes APPROVED and cannot be modified. Accounting entries created on payment, not approval.
+ *     description: **Required Role:** User's roleCode must match approval config roleCode (e.g., FIN_MGR, PROC_MGR). ⚠️ Once approved, status becomes APPROVED and cannot be modified. Accounting entries created on payment, not approval.
  *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
@@ -822,7 +831,7 @@ router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvo
  * /procurement/invoices/{id}/payment:
  *   post:
  *     summary: Process payment for an approved procurement invoice
- *     description: Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash)
+ *     description: **Required Role:** FIN_MGR, PROC_MGR, or ACCOUNTANT. Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash)
  *     tags: [Procurement - Payments]
  *     security:
  *       - bearerAuth: []
@@ -948,6 +957,7 @@ router.post("/invoices/:id/payment", ProcurementController.payProcurementInvoice
  * /procurement/invoices:
  *   get:
  *     summary: Get all procurement invoices
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
  *     tags: [Procurement - Invoices]
  *     security:
  *       - bearerAuth: []
@@ -994,7 +1004,7 @@ router.get("/invoices", ProcurementController.getAllProcurementInvoices);
  * /procurement/goods-received-notes:
  *   post:
  *     summary: Create a goods received note
- *     description: Records received quantities, accepted quantities, and rejected quantities. Updates PO item quantities.
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, BUYER, or WAREHOUSE_MANAGER. Records received quantities, accepted quantities, and rejected quantities. Updates PO item quantities.
  *     tags: [Procurement - GRN]
  *     security:
  *       - bearerAuth: []
@@ -1050,6 +1060,7 @@ router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNo
  * /procurement/dashboard:
  *   get:
  *     summary: Get procurement dashboard data
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
  *     tags: [Procurement - Dashboard]
  *     security:
  *       - bearerAuth: []

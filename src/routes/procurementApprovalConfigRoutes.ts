@@ -13,7 +13,7 @@ router.use(authenticate);
  * /procurement-approval-configs:
  *   post:
  *     summary: Create a new procurement approval configuration (SINGLE CONFIG SYSTEM)
- *     description: ⚠️ Only ONE configuration allowed in the system. If one exists, use PUT to update it instead.
+ *     description: **Required Role:** ADMIN or PROC_MGR. ⚠️ Only ONE configuration allowed in the system. If one exists, use PUT to update it instead.
  *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
@@ -115,6 +115,7 @@ router.post("/", ProcurementApprovalConfigController.createProcurementApprovalCo
  * /procurement-approval-configs:
  *   get:
  *     summary: Get all procurement approval configurations
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or ADMIN
  *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
@@ -131,7 +132,7 @@ router.get("/", ProcurementApprovalConfigController.getAllProcurementApprovalCon
  * /procurement-approval-configs/{id}:
  *   put:
  *     summary: Update existing procurement approval configuration (SINGLE CONFIG SYSTEM)
- *     description: Update the ONE and ONLY approval configuration. System enforces only ONE config exists.
+ *     description: **Required Role:** ADMIN or PROC_MGR. Update the ONE and ONLY approval configuration. System enforces only ONE config exists.
  *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
@@ -222,6 +223,7 @@ router.put("/:id", ProcurementApprovalConfigController.updateProcurementApproval
  * /procurement-approval-configs/active:
  *   get:
  *     summary: Get active procurement approval configuration
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or ADMIN
  *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
@@ -240,6 +242,7 @@ router.get("/active", ProcurementApprovalConfigController.getActiveProcurementAp
  * /procurement-approval-configs/{id}:
  *   get:
  *     summary: Get procurement approval configuration by ID
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or ADMIN
  *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
@@ -265,6 +268,7 @@ router.get("/:id", ProcurementApprovalConfigController.getProcurementApprovalCon
  * /procurement-approval-configs/stages/{stageType}/steps:
  *   get:
  *     summary: Get approval steps for a specific stage type
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or ADMIN
  *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
@@ -290,8 +294,9 @@ router.get("/stages/:stageType/steps", ProcurementApprovalConfigController.getAp
  * @swagger
  * /procurement-approval-configs/requests:
  *   post:
- *     summary: Create an approval request
- *     tags: [Procurement - Approval Requests]
+ *     summary: Create an approval request (Internal - used by system when requisitions/invoices are submitted)
+ *     description: This endpoint is typically called automatically by the system when a requisition/invoice is submitted. Not usually called directly.
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -332,8 +337,9 @@ router.post("/requests", ProcurementApprovalConfigController.createApprovalReque
  * @swagger
  * /procurement-approval-configs/requests/my:
  *   get:
- *     summary: Get approval requests for current user
- *     tags: [Procurement - Approval Requests]
+ *     summary: Get my pending approvals (for approvers)
+ *     description: Get all pending approval requests assigned to the current user based on their roleCode
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -355,9 +361,9 @@ router.get("/requests/my", ProcurementApprovalConfigController.getApprovalReques
  * @swagger
  * /procurement-approval-configs/requests/{requestId}/stages/{stageId}/approve:
  *   put:
- *     summary: Process an approval (approve/reject)
- *     description: ⚠️ Once all steps are approved, entity status becomes APPROVED and cannot be modified
- *     tags: [Procurement - Approval Requests]
+ *     summary: Approve or reject an approval request (for approvers)
+ *     description: Process an approval step. User's roleCode must match the approval config roleCode. ⚠️ Once all steps are approved, entity status becomes APPROVED and cannot be modified
+ *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -407,6 +413,7 @@ router.put("/requests/:requestId/stages/:stageId/approve", ProcurementApprovalCo
  * /procurement-approval-configs/delete-all:
  *   delete:
  *     summary: Delete all procurement approval configurations (Admin only)
+ *     description: **Required Role:** ADMIN only
  *     tags: [Procurement - Approval Configuration]
  *     security:
  *       - bearerAuth: []
