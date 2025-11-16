@@ -10,7 +10,7 @@ const router = express.Router();
  * /vendor-quotations/submit:
  *   post:
  *     summary: Submit a vendor quotation (PUBLIC - no authentication required)
- *     description: Vendors use this endpoint to submit their quotes in response to an RFQ. No authentication needed.
+ *     description: **Required Role:** PUBLIC (Vendors) - No authentication needed. Vendors use this endpoint to submit their quotes in response to an RFQ.
  *     tags: [Procurement - Vendor Quotations]
  *     requestBody:
  *       required: true
@@ -170,6 +170,7 @@ router.use(authenticate);
  * /vendor-quotations:
  *   get:
  *     summary: Get all vendor quotations
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -230,6 +231,7 @@ router.get("/", VendorQuotationController.getAllQuotations);
  * /vendor-quotations/rfq/{rfqNumber}:
  *   get:
  *     summary: Get all quotations for a specific RFQ
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -254,6 +256,7 @@ router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
  * /vendor-quotations/{id}:
  *   get:
  *     summary: Get quotation by ID
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -279,7 +282,7 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  * /vendor-quotations/{id}/accept:
  *   post:
  *     summary: Accept a vendor quotation
- *     description: Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.
+ *     description: **Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -341,7 +344,7 @@ router.post("/:id/accept", VendorQuotationController.acceptQuotation);
  * /vendor-quotations/{id}/reject:
  *   post:
  *     summary: Reject a vendor quotation
- *     description: ⚠️ Once rejected, status becomes REJECTED and cannot be modified
+ *     description: **Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once rejected, status becomes REJECTED and cannot be modified
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -388,7 +391,7 @@ router.post("/:id/reject", VendorQuotationController.rejectQuotation);
  * /vendor-quotations/{id}:
  *   delete:
  *     summary: Delete a quotation
- *     description: Delete a quotation (only if status is SUBMITTED - cannot delete if ACCEPTED or REJECTED)
+ *     description: **Required Role:** PROC_MGR or PROC_OFF. Delete a quotation (only if status is SUBMITTED - cannot delete if ACCEPTED or REJECTED)
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []

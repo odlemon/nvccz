@@ -69,11 +69,7 @@ const options = {
       },
       {
         name: 'Procurement - Approval Configuration',
-        description: 'Approval configuration management - Create and manage approval workflows (SINGLE CONFIG SYSTEM)'
-      },
-      {
-        name: 'Procurement - Approval Requests',
-        description: 'Approval request management - Create approval requests and process approvals'
+        description: 'Approval configuration management - Create and manage approval workflows (SINGLE CONFIG SYSTEM). Also includes approval request endpoints for approvers.'
       }
     ],
     components: {
