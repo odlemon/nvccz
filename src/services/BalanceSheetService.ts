@@ -666,10 +666,29 @@ export class BalanceSheetService {
         });
       }
 
+      // Add "Cash and Cash Equivalents" as the first line item in Current Assets for UI display
+      // This consolidates all cash/bank accounts into a single line item
+      // The breakdown is still available in cashAndCashEquivalents.breakdown
+      if (cashAndCashEquivalents !== 0 || cashAccountsBreakdown.length > 0) {
+        // Collect all transactions from all cash accounts for the consolidated line item
+        const allCashTransactions: BalanceSheetTransaction[] = [];
+        for (const cashAccount of cashAccountsBreakdown) {
+          allCashTransactions.push(...cashAccount.transactions);
+        }
+        allCashTransactions.sort((a, b) => a.date.localeCompare(b.date));
+
+        // Add as first item in currentAssets array
+        currentAssets.unshift({
+          accountNo: 'CASH-EQUIV',
+          accountName: 'Cash and Cash Equivalents',
+          balance: cashAndCashEquivalents,
+          transactions: allCashTransactions
+        });
+      }
+
       // Calculate totals
-      // Note: cashAndCashEquivalents is already calculated separately (sum of all cash/bank accounts)
-      // and cash accounts are NOT in the currentAssets array (they're consolidated)
-      const totalCurrentAssets = cashAndCashEquivalents + currentAssets.reduce((sum, acc) => sum + acc.balance, 0);
+      // Note: cashAndCashEquivalents is already included in currentAssets array now
+      const totalCurrentAssets = currentAssets.reduce((sum, acc) => sum + acc.balance, 0);
       
       // Fixed Assets: Sum all line items (including negative accumulated depreciation)
       // This will give us Net Fixed Assets = Gross Fixed Assets - Accumulated Depreciation
