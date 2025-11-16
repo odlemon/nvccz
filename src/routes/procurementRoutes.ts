@@ -5,7 +5,76 @@ import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
 
-// All routes require authentication
+/**
+ * @swagger
+ * /procurement/invoices:
+ *   post:
+ *     summary: Create a new procurement invoice (PUBLIC - vendors submit invoices)
+ *     description: **PUBLIC ENDPOINT** - Vendors submit invoices without authentication. This is the vendor's way to submit invoices.
+ *     tags: [Procurement - Invoices]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - vendorId
+ *               - invoiceDate
+ *               - items
+ *             properties:
+ *               purchaseOrderId:
+ *                 type: string
+ *                 description: Related purchase order ID
+ *               vendorId:
+ *                 type: string
+ *                 description: Vendor ID
+ *               invoiceDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Invoice date
+ *               dueDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Due date
+ *               currencyId:
+ *                 type: string
+ *                 description: Currency ID
+ *               documentPath:
+ *                 type: string
+ *                 description: Path to uploaded document
+ *               documentType:
+ *                 type: string
+ *                 description: Document type (PDF, IMAGE, etc.)
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - itemName
+ *                     - quantity
+ *                     - unitPrice
+ *                   properties:
+ *                     itemName:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     quantity:
+ *                       type: number
+ *                     unitPrice:
+ *                       type: number
+ *                     unit:
+ *                       type: string
+ *     responses:
+ *       201:
+ *         description: Procurement invoice created successfully
+ *       400:
+ *         description: Bad request
+ */
+// PUBLIC: Vendors submit invoices without authentication
+router.post("/invoices", ProcurementController.createProcurementInvoice);
+
+// All routes below require authentication
 router.use(authenticate);
 
 /**
@@ -603,202 +672,44 @@ router.post("/rfq", ProcurementController.createAndSendRFQ);
 
 /**
  * @swagger
- * /procurement/invoices:
- *   post:
- *     summary: Create a new procurement invoice
- *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER. Create invoice from PO/GRN. Links to purchaseOrderId and quotationId if applicable
- *     tags: [Procurement - Invoices]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - vendorId
- *               - invoiceDate
- *               - items
- *             properties:
- *               purchaseOrderId:
- *                 type: string
- *                 description: Related purchase order ID
- *               vendorId:
- *                 type: string
- *                 description: Vendor ID
- *               invoiceDate:
- *                 type: string
- *                 format: date-time
- *                 description: Invoice date
- *               dueDate:
- *                 type: string
- *                 format: date-time
- *                 description: Due date
- *               currencyId:
- *                 type: string
- *                 description: Currency ID
- *               documentPath:
- *                 type: string
- *                 description: Path to uploaded document
- *               documentType:
- *                 type: string
- *                 description: Document type (PDF, IMAGE, etc.)
- *               items:
- *                 type: array
- *                 items:
- *                   type: object
- *                   required:
- *                     - itemName
- *                     - quantity
- *                     - unitPrice
- *                   properties:
- *                     itemName:
- *                       type: string
- *                     description:
- *                       type: string
- *                     quantity:
- *                       type: number
- *                     unitPrice:
- *                       type: number
- *                     unit:
- *                       type: string
- *     responses:
- *       201:
- *         description: Procurement invoice created successfully
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- */
-router.post("/invoices", ProcurementController.createProcurementInvoice);
-
-/**
- * @swagger
- * /procurement/invoices/{invoiceId}/ocr:
- *   post:
- *     summary: Process OCR data for invoice
- *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER
- *     tags: [Procurement - Invoices]
+ * /procurement/rfq:
+ *   get:
+ *     summary: Get all RFQs
+ *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER. Retrieve all RFQs from the system
+ *     tags: [Procurement - RFQ]
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: invoiceId
- *         required: true
+ *       - in: query
+ *         name: rfqNumber
  *         schema:
  *           type: string
- *         description: Invoice ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - invoiceNumber
- *               - invoiceDate
- *               - vendorName
- *               - subtotal
- *               - taxAmount
- *               - totalAmount
- *               - items
- *             properties:
- *               invoiceNumber:
- *                 type: string
- *               invoiceDate:
- *                 type: string
- *               vendorName:
- *                 type: string
- *               vendorAddress:
- *                 type: string
- *               subtotal:
- *                 type: number
- *               taxAmount:
- *                 type: number
- *               totalAmount:
- *                 type: number
- *               items:
- *                 type: array
- *                 items:
- *                   type: object
- *                   properties:
- *                     itemName:
- *                       type: string
- *                     description:
- *                       type: string
- *                     quantity:
- *                       type: number
- *                     unitPrice:
- *                       type: number
- *                     totalPrice:
- *                       type: number
- *                     unit:
- *                       type: string
+ *         description: Filter by RFQ number
+ *       - in: query
+ *         name: requisitionId
+ *         schema:
+ *           type: string
+ *         description: Filter by requisition ID
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of items to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *         description: Number of items to skip
  *     responses:
  *       200:
- *         description: OCR data processed successfully
- *       400:
- *         description: Bad request
+ *         description: RFQs retrieved successfully
  *       401:
  *         description: Unauthorized
  */
-router.post("/invoices/:invoiceId/ocr", ProcurementController.processOCRData);
+router.get("/rfq", ProcurementController.getAllRFQs);
 
-/**
- * @swagger
- * /procurement/invoices/{invoiceId}/ai-matching:
- *   post:
- *     summary: Perform AI matching for invoice
- *     description: **Required Role:** PROC_MGR, PROC_OFF, or BUYER
- *     tags: [Procurement - Invoices]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: invoiceId
- *         required: true
- *         schema:
- *           type: string
- *         description: Invoice ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - matched
- *               - matchScore
- *               - discrepancies
- *             properties:
- *               matched:
- *                 type: boolean
- *                 description: Whether the invoice matches the PO
- *               matchScore:
- *                 type: number
- *                 description: Match score (0-100)
- *               discrepancies:
- *                 type: array
- *                 items:
- *                   type: object
- *                   properties:
- *                     type:
- *                       type: string
- *                     description:
- *                       type: string
- *                     severity:
- *                       type: string
- *                       enum: [LOW, MEDIUM, HIGH]
- *     responses:
- *       200:
- *         description: AI matching completed successfully
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- */
-router.post("/invoices/:invoiceId/ai-matching", ProcurementController.performAIMatching);
 
 /**
  * @swagger

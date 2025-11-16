@@ -155,6 +155,22 @@ export const procurementEndpoints = {
 
   // ========== PROCUREMENT - RFQ ==========
   '/procurement/rfq': {
+    get: {
+      summary: 'Get all RFQs',
+      description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Retrieve all RFQs from the system',
+      tags: ['Procurement - RFQ'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'rfqNumber', schema: { type: 'string' }, description: 'Filter by RFQ number' },
+        { in: 'query', name: 'requisitionId', schema: { type: 'string' }, description: 'Filter by requisition ID' },
+        { in: 'query', name: 'limit', schema: { type: 'integer', default: 50 }, description: 'Number of items to return' },
+        { in: 'query', name: 'offset', schema: { type: 'integer', default: 0 }, description: 'Number of items to skip' }
+      ],
+      responses: {
+        200: { description: 'RFQs retrieved successfully' },
+        401: { description: 'Unauthorized' }
+      }
+    },
     post: {
       summary: 'Create and send RFQ to multiple vendors',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Sends RFQ emails to all specified vendors with public quotation submission link',
@@ -573,10 +589,9 @@ export const procurementEndpoints = {
   // ========== PROCUREMENT - INVOICES ==========
   '/procurement/invoices': {
     post: {
-      summary: 'Create a new procurement invoice',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Create invoice from PO/GRN. Links to purchaseOrderId and quotationId if applicable',
+      summary: 'Create a new procurement invoice (PUBLIC - vendors submit invoices)',
+      description: '**PUBLIC ENDPOINT** - Vendors submit invoices without authentication. This is the vendor\'s way to submit invoices.',
       tags: ['Procurement - Invoices'],
-      security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
         content: {
@@ -647,98 +662,6 @@ export const procurementEndpoints = {
       responses: {
         200: { description: 'Invoice details' },
         404: { description: 'Invoice not found' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement/invoices/{invoiceId}/ocr': {
-    post: {
-      summary: 'Process OCR data for invoice',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER',
-      tags: ['Procurement - Invoices'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'invoiceId', required: true, schema: { type: 'string' }, description: 'Invoice ID' }
-      ],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['invoiceNumber', 'invoiceDate', 'vendorName', 'subtotal', 'taxAmount', 'totalAmount', 'items'],
-              properties: {
-                invoiceNumber: { type: 'string' },
-                invoiceDate: { type: 'string' },
-                vendorName: { type: 'string' },
-                vendorAddress: { type: 'string' },
-                subtotal: { type: 'number' },
-                taxAmount: { type: 'number' },
-                totalAmount: { type: 'number' },
-                items: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      itemName: { type: 'string' },
-                      description: { type: 'string' },
-                      quantity: { type: 'number' },
-                      unitPrice: { type: 'number' },
-                      totalPrice: { type: 'number' },
-                      unit: { type: 'string' }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        200: { description: 'OCR data processed successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement/invoices/{invoiceId}/ai-matching': {
-    post: {
-      summary: 'Perform AI matching for invoice',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER',
-      tags: ['Procurement - Invoices'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'invoiceId', required: true, schema: { type: 'string' }, description: 'Invoice ID' }
-      ],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['matched', 'matchScore', 'discrepancies'],
-              properties: {
-                matched: { type: 'boolean', description: 'Whether the invoice matches the PO' },
-                matchScore: { type: 'number', description: 'Match score (0-100)' },
-                discrepancies: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      type: { type: 'string' },
-                      description: { type: 'string' },
-                      severity: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH'] }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        200: { description: 'AI matching completed successfully' },
-        400: { description: 'Bad request' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -814,88 +737,20 @@ export const procurementEndpoints = {
 
   // ========== PROCUREMENT - APPROVAL CONFIGURATION ==========
   '/procurement-approval-configs': {
-    post: {
-      summary: 'Create a new procurement approval configuration (SINGLE CONFIG SYSTEM)',
-      description: '**Required Role:** ADMIN or PROC_MGR. ⚠️ Only ONE configuration allowed in the system. If one exists, use PUT to update it instead.',
-      tags: ['Procurement - Approval Configuration'],
-      security: [{ bearerAuth: [] }],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['name', 'stages'],
-              properties: {
-                name: { type: 'string', description: 'Configuration name' },
-                description: { type: 'string', description: 'Configuration description' },
-                department: { type: 'string', enum: ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'], description: 'Department-specific config (null for general/default config)' },
-                stages: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    required: ['stageType', 'steps'],
-                    properties: {
-                      stageType: { type: 'string', enum: ['PURCHASE_REQUISITION', 'PURCHASE_ORDER', 'INVOICE', 'GRN'] },
-                      steps: {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          required: ['stepNumber', 'stepName', 'stepType'],
-                          properties: {
-                            stepNumber: { type: 'integer', description: 'Step number (must be sequential)' },
-                            stepName: { type: 'string', description: 'Step name' },
-                            stepType: { type: 'string', enum: ['USER', 'ROLE', 'DEPARTMENT', 'AMOUNT_THRESHOLD'] },
-                            roleCode: { type: 'string', description: 'Hardcoded role code (FIN_MGR, PROC_OFF, etc.) - Use this for stepType ROLE' },
-                            isRequired: { type: 'boolean', default: true },
-                            canDelegate: { type: 'boolean', default: false },
-                            autoApprove: { type: 'boolean', default: false },
-                            approvalOrder: { type: 'string', enum: ['SEQUENTIAL', 'PARALLEL'], default: 'SEQUENTIAL' }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        201: { description: 'Procurement approval configuration created successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
-      }
-    },
     get: {
-      summary: 'Get all procurement approval configurations',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, or ADMIN',
+      summary: 'Get the procurement approval configuration',
+      description: '**Required Role:** PROC_MGR, PROC_OFF, or ADMIN. Gets the ONE and ONLY approval configuration in the system.',
       tags: ['Procurement - Approval Configuration'],
       security: [{ bearerAuth: [] }],
       responses: {
-        200: { description: 'Procurement approval configurations retrieved successfully' },
+        200: { description: 'Procurement approval configuration retrieved successfully' },
         401: { description: 'Unauthorized' }
       }
     }
   },
   '/procurement-approval-configs/{id}': {
-    get: {
-      summary: 'Get procurement approval configuration by ID',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, or ADMIN',
-      tags: ['Procurement - Approval Configuration'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Configuration ID' }
-      ],
-      responses: {
-        200: { description: 'Procurement approval configuration retrieved successfully' },
-        404: { description: 'Configuration not found' },
-        401: { description: 'Unauthorized' }
-      }
-    },
     put: {
-      summary: 'Update existing procurement approval configuration (SINGLE CONFIG SYSTEM)',
+      summary: 'Update the procurement approval configuration',
       description: '**Required Role:** ADMIN or PROC_MGR. Update the ONE and ONLY approval configuration. System enforces only ONE config exists.',
       tags: ['Procurement - Approval Configuration'],
       security: [{ bearerAuth: [] }],
@@ -948,125 +803,6 @@ export const procurementEndpoints = {
         400: { description: 'Bad request' },
         401: { description: 'Unauthorized' },
         404: { description: 'Configuration not found' }
-      }
-    }
-  },
-  '/procurement-approval-configs/active': {
-    get: {
-      summary: 'Get active procurement approval configuration',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, or ADMIN',
-      tags: ['Procurement - Approval Configuration'],
-      security: [{ bearerAuth: [] }],
-      responses: {
-        200: { description: 'Active procurement approval configuration retrieved successfully' },
-        404: { description: 'No active configuration found' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement-approval-configs/stages/{stageType}/steps': {
-    get: {
-      summary: 'Get approval steps for a specific stage type',
-      description: '**Required Role:** PROC_MGR, PROC_OFF, or ADMIN',
-      tags: ['Procurement - Approval Configuration'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'stageType', required: true, schema: { type: 'string', enum: ['PURCHASE_REQUISITION', 'PURCHASE_ORDER', 'INVOICE', 'GRN'] }, description: 'Stage type' }
-      ],
-      responses: {
-        200: { description: 'Approval steps retrieved successfully' },
-        404: { description: 'No steps found for stage' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement-approval-configs/requests': {
-    post: {
-      summary: 'Create an approval request (Internal - used by system when requisitions/invoices are submitted)',
-      description: 'This endpoint is typically called automatically by the system when a requisition/invoice is submitted. Not usually called directly.',
-      tags: ['Procurement - Approval Configuration'],
-      security: [{ bearerAuth: [] }],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['configId', 'stageType', 'entityId'],
-              properties: {
-                configId: { type: 'string', description: 'Configuration ID' },
-                stageType: { type: 'string', enum: ['PURCHASE_REQUISITION', 'PURCHASE_ORDER', 'INVOICE', 'GRN'] },
-                entityId: { type: 'string', description: 'Entity ID' },
-                entityData: { type: 'object', description: 'Entity data snapshot' }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        201: { description: 'Approval request created successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement-approval-configs/requests/my': {
-    get: {
-      summary: 'Get my pending approvals (for approvers)',
-      description: 'Get all pending approval requests assigned to the current user based on their roleCode',
-      tags: ['Procurement - Approval Configuration'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'query', name: 'status', schema: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] }, description: 'Filter by status' }
-      ],
-      responses: {
-        200: { description: 'Approval requests retrieved successfully' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement-approval-configs/requests/{requestId}/stages/{stageId}/approve': {
-    put: {
-      summary: 'Approve or reject an approval request (for approvers)',
-      description: 'Process an approval step. User\'s roleCode must match the approval config roleCode. ⚠️ Once all steps are approved, entity status becomes APPROVED and cannot be modified',
-      tags: ['Procurement - Approval Configuration'],
-      security: [{ bearerAuth: [] }],
-      parameters: [
-        { in: 'path', name: 'requestId', required: true, schema: { type: 'string' }, description: 'Request ID' },
-        { in: 'path', name: 'stageId', required: true, schema: { type: 'string' }, description: 'Stage ID' }
-      ],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['status'],
-              properties: {
-                status: { type: 'string', enum: ['APPROVED', 'REJECTED'], description: 'Approval status' },
-                comments: { type: 'string', description: 'Approval comments' },
-                delegatedToId: { type: 'string', description: 'User ID to delegate to (if delegation is allowed)' }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        200: { description: 'Approval processed successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
-  '/procurement-approval-configs/delete-all': {
-    delete: {
-      summary: 'Delete all procurement approval configurations (Admin only)',
-      description: '**Required Role:** ADMIN only',
-      tags: ['Procurement - Approval Configuration'],
-      security: [{ bearerAuth: [] }],
-      responses: {
-        200: { description: 'All configurations deleted successfully' },
-        401: { description: 'Unauthorized' }
       }
     }
   }

@@ -846,6 +846,93 @@ export class ProcurementService {
   }
 
   /**
+   * Get all RFQs
+   * Retrieves RFQs from audit logs where entityType is "RFQ"
+   */
+  static async getAllRFQs(filters?: {
+    rfqNumber?: string;
+    requisitionId?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    try {
+      const {
+        rfqNumber,
+        requisitionId,
+        limit = 50,
+        offset = 0
+      } = filters || {};
+
+      const { default: AuditService } = await import('./AuditService');
+      
+      const where: any = {
+        entityType: "RFQ"
+      };
+
+      if (rfqNumber) {
+        where.entityId = rfqNumber;
+      }
+
+      // Get RFQs from audit logs
+      const audits = await prisma.auditLog.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        distinct: ['entityId'] // Only get unique RFQ numbers
+      });
+
+      // Parse RFQ data from newValues JSON
+      const rfqs = audits.map(audit => {
+        const rfqData = audit.newValues as any;
+        return {
+          rfqNumber: audit.entityId,
+          ...rfqData,
+          createdBy: audit.user,
+          createdAt: audit.createdAt
+        };
+      });
+
+      // Filter by requisitionId if provided
+      let filteredRFQs = rfqs;
+      if (requisitionId) {
+        filteredRFQs = rfqs.filter((rfq: any) => 
+          rfq.requisitionId === requisitionId
+        );
+      }
+
+      // Get count (distinct RFQ numbers)
+      const count = await prisma.auditLog.count({
+        where: {
+          entityType: "RFQ",
+          ...(rfqNumber ? { entityId: rfqNumber } : {})
+        },
+        distinct: ['entityId']
+      });
+
+      return {
+        rfqs: filteredRFQs,
+        count: requisitionId ? filteredRFQs.length : count,
+        limit,
+        offset
+      };
+    } catch (error: any) {
+      console.error("Error fetching RFQs:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Create a purchase order from an approved requisition
    */
   static async createPurchaseOrder(params: CreatePurchaseOrderParams) {
