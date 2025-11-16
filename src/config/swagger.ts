@@ -2,6 +2,7 @@ import swaggerJsdoc from 'swagger-jsdoc';
 import { accountingEndpoints } from './accounting-endpoints';
 import { performanceEndpoints } from './performance-endpoints';
 import { taskAssignmentEndpoints } from './task-assignment-endpoints';
+import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
 
 const options = {
@@ -8139,9 +8140,9 @@ try {
     specs = fallbackSpec;
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
-    // Merge accounting, cashbook, performance, task assignment, and financial reporting endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints };
-    console.log(`Added accounting, cashbook, performance, task assignment, and financial reporting endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
+    // Merge accounting, cashbook, performance, task assignment, financial reporting, and procurement endpoints with generated spec
+    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints };
+    console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, and procurement endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error) {
   console.error('Error generating Swagger spec:', error);
