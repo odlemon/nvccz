@@ -469,6 +469,37 @@ export class ProcurementController {
   }
 
   /**
+   * Get all RFQs
+   */
+  static async getAllRFQs(req: Request, res: Response) {
+    try {
+      const { rfqNumber, requisitionId, limit, offset } = req.query;
+
+      const result = await ProcurementService.getAllRFQs({
+        rfqNumber: rfqNumber as string,
+        requisitionId: requisitionId as string,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "RFQs retrieved successfully",
+        data: result.rfqs,
+        count: result.count,
+        limit: result.limit,
+        offset: result.offset
+      });
+    } catch (error: any) {
+      console.error("Error getting RFQs:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to get RFQs"
+      });
+    }
+  }
+
+  /**
    * Send purchase order to vendor via email
    */
   static async sendPurchaseOrder(req: Request, res: Response) {
@@ -583,7 +614,8 @@ export class ProcurementController {
   }
 
   /**
-   * Create a procurement invoice
+   * Create a procurement invoice (PUBLIC - vendors submit invoices)
+   * Vendors are not logged in, so no authentication required
    */
   static async createProcurementInvoice(req: Request, res: Response) {
     try {
@@ -598,14 +630,9 @@ export class ProcurementController {
         items
       } = req.body;
 
-      const createdById = req.user?.id;
-
-      if (!createdById) {
-        return res.status(401).json({
-          success: false,
-          message: "User not authenticated"
-        });
-      }
+      // Public endpoint - vendors don't need to be authenticated
+      // createdById can be null or we can use a system user ID
+      const createdById = req.user?.id || null; // null for vendor submissions
 
       if (!vendorId || !invoiceDate || !items || items.length === 0) {
         return res.status(400).json({
@@ -622,7 +649,7 @@ export class ProcurementController {
         currencyId,
         documentPath,
         documentType,
-        createdById,
+        createdById: createdById || undefined, // Pass undefined if null
         items
       });
 
