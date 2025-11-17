@@ -120,24 +120,14 @@ export class BalanceSheetService {
 
       // Get all posted journal entry lines within the date range
       // Exclude journal entries linked to voided/reversed cashbook entries
+      // IMPORTANT: Use OR to explicitly include entries with NO cashbook entries (like asset acquisitions)
       const journalEntryWhere: any = {
         transactionDate: {
           gte: startDate,
           lte: endDate
         },
         status: 'POSTED',
-        // Exclude journal entries where ANY linked cashbook entry is voided or reversed
-        NOT: {
-          cashbookEntries: {
-            some: {
-              OR: [
-                { status: 'VOIDED' },
-                { reversedAt: { not: null } } // Reversed entries have reversedAt set
-              ]
-            }
-          }
-        },
-        // Exclude reversal journal entries
+        // Exclude reversal journal entries AND handle cashbook entries filter
         AND: [
           {
             referenceNumber: {
@@ -152,6 +142,29 @@ export class BalanceSheetService {
                 startsWith: 'REV-'
               }
             }
+          },
+          {
+            // IMPORTANT: Explicitly include journal entries with NO cashbook entries
+            // (like asset acquisitions) while excluding entries with voided/reversed cashbook entries
+            OR: [
+              {
+                // Include entries with no cashbook entries (like asset acquisitions)
+                cashbookEntries: {
+                  none: {}
+                }
+              },
+              {
+                // Include entries where all cashbook entries are valid (not voided, not reversed)
+                cashbookEntries: {
+                  every: {
+                    AND: [
+                      { status: { not: 'VOIDED' } },
+                      { reversedAt: null }
+                    ]
+                  }
+                }
+              }
+            ]
           }
         ]
       };
@@ -198,6 +211,25 @@ export class BalanceSheetService {
       });
 
       console.log(`✅ Retrieved ${journalLines.length} journal entry line(s)`);
+      
+      // Debug: Check if asset journal entry lines are included
+      const assetLines = journalLines.filter(line => 
+        line.journalEntry.referenceNumber?.includes('ASSET') ||
+        line.chartOfAccount.accountNo === '1100'
+      );
+      if (assetLines.length > 0) {
+        console.log(`   📦 Found ${assetLines.length} asset-related journal entry line(s):`);
+        assetLines.forEach(line => {
+          console.log(`      - ${line.journalEntry.referenceNumber}: ${line.chartOfAccount.accountNo} - ${line.chartOfAccount.accountName} (Debit: $${line.debitAmount}, Credit: $${line.creditAmount})`);
+        });
+      } else {
+        console.log(`   ⚠️  No asset-related journal entry lines found in query results`);
+        console.log(`   This means the query filter is excluding asset entries`);
+        console.log(`   Checking query structure...`);
+        console.log(`   Query date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+        console.log(`   Query status: POSTED`);
+        console.log(`   Query cashbook filter: OR with none/every`);
+      }
       console.log("");
 
       // Calculate balance for each account and collect transactions
