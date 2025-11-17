@@ -7,20 +7,56 @@ const router = Router();
 
 /**
  * @swagger
- * /api/accounting/trial-balance:
+ * /accounting/trial-balance:
  *   get:
  *     summary: Generate trial balance for a specific date
+ *     description: |
+ *       Supports period filters (month/quarter/year) via URL query parameters OR legacy date range.
+ *       
+ *       **Period Filter Examples:**
+ *       - Month: `?periodType=month&periodValue=2025-01`
+ *       - Quarter: `?periodType=quarter&periodValue=2025-Q1`
+ *       - Year: `?periodType=year&periodValue=2025`
  *     tags: [Trial Balance]
  *     security:
  *       - bearerAuth: []
  *     parameters:
+ *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue). Options: month, quarter, year
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: |
+ *           Period value matching periodType:
+ *           - month: "2025-01" (YYYY-MM)
+ *           - quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N)
+ *           - year: "2025" (YYYY)
+ *         example: "2025-01"
  *       - in: query
  *         name: date
  *         required: false
  *         schema:
  *           type: string
  *           format: date
- *         description: Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.
+ *         description: Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Start date for date range (legacy format - use if period filters not provided)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: End date for date range (legacy format - use if period filters not provided)
  *     responses:
  *       200:
  *         description: Trial balance generated successfully
@@ -77,20 +113,35 @@ router.get('/', authenticate, TrialBalanceController.generateTrialBalance);
 
 /**
  * @swagger
- * /api/accounting/trial-balance/summary:
+ * /accounting/trial-balance/summary:
  *   get:
  *     summary: Get trial balance summary
+ *     description: |
+ *       Supports period filters (month/quarter/year) via URL query parameters OR legacy date.
  *     tags: [Trial Balance]
  *     security:
  *       - bearerAuth: []
  *     parameters:
+ *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue)
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")
+ *         example: "2025-01"
  *       - in: query
  *         name: date
  *         required: false
  *         schema:
  *           type: string
  *           format: date
- *         description: Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.
+ *         description: Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.
  *     responses:
  *       200:
  *         description: Trial balance summary retrieved successfully
@@ -127,20 +178,35 @@ router.get('/summary', authenticate, TrialBalanceController.getTrialBalanceSumma
 
 /**
  * @swagger
- * /api/accounting/trial-balance/by-account-type:
+ * /accounting/trial-balance/by-account-type:
  *   get:
  *     summary: Get trial balance grouped by account type
+ *     description: |
+ *       Supports period filters (month/quarter/year) via URL query parameters OR legacy date.
  *     tags: [Trial Balance]
  *     security:
  *       - bearerAuth: []
  *     parameters:
+ *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue)
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")
+ *         example: "2025-01"
  *       - in: query
  *         name: date
  *         required: false
  *         schema:
  *           type: string
  *           format: date
- *         description: Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.
+ *         description: Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.
  *     responses:
  *       200:
  *         description: Trial balance by account type retrieved successfully
