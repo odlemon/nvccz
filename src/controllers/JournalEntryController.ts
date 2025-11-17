@@ -57,7 +57,6 @@ export class JournalEntryController {
   /**
    * Get all journal entries
    * Defaults to POSTED and PENDING entries only. Use ?status=ALL to see all entries including VOID.
-   * Returns entries with cumulative totals (totalDebits, totalCredits).
    */
   static async getJournalEntries(req: Request, res: Response) {
     try {
@@ -72,28 +71,7 @@ export class JournalEntryController {
         filterStatus // Pass status filter (defaults to POSTED_AND_PENDING)
       );
 
-      // Calculate cumulative totals from all journal entry lines
-      let totalDebits = 0;
-      let totalCredits = 0;
-      
-      for (const entry of journalEntries) {
-        if (entry.journalEntryLines && Array.isArray(entry.journalEntryLines)) {
-          for (const line of entry.journalEntryLines) {
-            totalDebits += parseFloat(line.debitAmount?.toString() || '0');
-            totalCredits += parseFloat(line.creditAmount?.toString() || '0');
-          }
-        }
-      }
-
-      return ResponseHelper.success(res, "Journal entries retrieved successfully", {
-        entries: journalEntries,
-        totals: {
-          totalDebits,
-          totalCredits,
-          isBalanced: Math.abs(totalDebits - totalCredits) < 0.01, // Allow for small rounding differences
-          entryCount: journalEntries.length
-        }
-      });
+      return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
     } catch (error) {
       console.error("Error getting journal entries:", error);
       return ResponseHelper.error(res, "Failed to retrieve journal entries", undefined, 500);
@@ -160,7 +138,6 @@ export class JournalEntryController {
   /**
    * Get journal entries by date range
    * Defaults to POSTED entries only. Use ?status=ALL to see all entries.
-   * Returns entries with cumulative totals (totalDebits, totalCredits) for the date range.
    */
   static async getJournalEntriesByDateRange(req: Request, res: Response) {
     try {
@@ -177,32 +154,7 @@ export class JournalEntryController {
         status // Pass status filter (defaults to POSTED)
       );
 
-      // Calculate cumulative totals from all journal entry lines
-      let totalDebits = 0;
-      let totalCredits = 0;
-      
-      for (const entry of journalEntries) {
-        if (entry.journalEntryLines && Array.isArray(entry.journalEntryLines)) {
-          for (const line of entry.journalEntryLines) {
-            totalDebits += parseFloat(line.debitAmount?.toString() || '0');
-            totalCredits += parseFloat(line.creditAmount?.toString() || '0');
-          }
-        }
-      }
-
-      return ResponseHelper.success(res, "Journal entries retrieved successfully", {
-        entries: journalEntries,
-        totals: {
-          totalDebits,
-          totalCredits,
-          isBalanced: Math.abs(totalDebits - totalCredits) < 0.01, // Allow for small rounding differences
-          entryCount: journalEntries.length
-        },
-        dateRange: {
-          startDate: startDate as string,
-          endDate: endDate as string
-        }
-      });
+      return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
     } catch (error) {
       console.error("Error getting journal entries by date range:", error);
       return ResponseHelper.error(res, "Failed to retrieve journal entries", undefined, 500);
