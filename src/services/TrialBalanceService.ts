@@ -30,6 +30,9 @@ export interface TrialBalanceAccount {
 
 export interface TrialBalanceData {
   date: string;
+  startDate?: string; // Optional: start date for period-based trial balance
+  endDate?: string; // Optional: end date for period-based trial balance
+  isCumulative: boolean; // true = cumulative (all entries up to date), false = period-based (specific date range)
   accounts: TrialBalanceAccount[];
   totals: {
     totalDebits: number;
@@ -416,8 +419,14 @@ export class TrialBalanceService {
         return a.accountNo.localeCompare(b.accountNo);
       });
 
+      // Determine if this is cumulative or period-based
+      const isCumulative = !startDate || !endDate || (startDate.getTime() === new Date(0).getTime());
+      
       return {
         date: date.toISOString().split('T')[0],
+        startDate: startDate ? startDate.toISOString().split('T')[0] : undefined,
+        endDate: endDate ? endDate.toISOString().split('T')[0] : undefined,
+        isCumulative, // Indicates if this is cumulative (all entries up to date) or period-based (specific date range)
         accounts: trialBalanceAccounts,
         totals: {
           totalDebits,
