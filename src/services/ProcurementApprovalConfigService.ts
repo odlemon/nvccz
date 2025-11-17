@@ -789,6 +789,8 @@ export class ProcurementApprovalConfigService {
         await this.checkStepCompletion(requestId, stageId);
       } else if (status === 'REJECTED') {
         await this.rejectApprovalRequest(requestId, comments);
+        // Send rejection email to submitter
+        await this.sendRejectionEmailToSubmitter(requestId, comments);
       }
 
       return approval;
@@ -864,6 +866,9 @@ export class ProcurementApprovalConfigService {
 
         // Create approval records for next step
         await this.createApprovalRecords(requestId, nextStep);
+        
+        // Send email notification to next approvers
+        await this.sendApprovalStepNotifications(requestId, nextStep, stageType);
       } else {
         // Workflow is complete
         await prisma.approvalRequest.update({
@@ -878,6 +883,9 @@ export class ProcurementApprovalConfigService {
         
         // Update entity status based on stage type
         await this.updateEntityStatusAfterApproval(requestId, stageType);
+        
+        // Send approval completion email to submitter
+        await this.sendApprovalCompletionEmailToSubmitter(requestId, stageType);
       }
     } catch (error: any) {
       throw new Error(`Failed to move to next step: ${error.message}`);
@@ -1044,6 +1052,396 @@ export class ProcurementApprovalConfigService {
       return stages;
     } catch (error: any) {
       throw new Error(`Failed to get approval steps: ${error.message}`);
+    }
+  }
+
+  /**
+   * Send approval step notifications to next approvers
+   */
+  static async sendApprovalStepNotifications(requestId: string, stage: any, stageType: string) {
+    try {
+      const request = await prisma.approvalRequest.findUnique({
+        where: { id: requestId },
+        include: {
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          config: {
+            include: {
+              stages: {
+                where: { stageType },
+                orderBy: { stepNumber: 'asc' }
+              }
+            }
+          }
+        }
+      });
+
+      if (!request) return;
+
+      // Get approvers for this stage
+      const approvers = await this.getApproversForStage(stage);
+      const approverUsers = await prisma.user.findMany({
+        where: { id: { in: approvers } },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
+      });
+
+      // Get entity details based on stageType
+      let entityNumber = '';
+      let entityTitle = '';
+      let department = '';
+
+      switch (stageType) {
+        case 'PURCHASE_REQUISITION':
+          const requisition = await prisma.purchaseRequisition.findUnique({
+            where: { id: request.entityId },
+            select: {
+              requisitionNumber: true,
+              title: true,
+              department: true
+            }
+          });
+          if (requisition) {
+            entityNumber = requisition.requisitionNumber;
+            entityTitle = requisition.title;
+            department = requisition.department;
+          }
+          break;
+        case 'PURCHASE_ORDER':
+          const po = await prisma.purchaseOrder.findUnique({
+            where: { id: request.entityId },
+            select: {
+              poNumber: true,
+              shippingAddress: true
+            }
+          });
+          if (po) {
+            entityNumber = po.poNumber;
+            entityTitle = po.shippingAddress || 'Purchase Order';
+          }
+          break;
+        case 'INVOICE':
+          const invoice = await prisma.procurementInvoice.findUnique({
+            where: { id: request.entityId },
+            select: {
+              invoiceNumber: true,
+              vendor: {
+                select: {
+                  name: true
+                }
+              }
+            }
+          });
+          if (invoice) {
+            entityNumber = invoice.invoiceNumber;
+            entityTitle = `Invoice from ${invoice.vendor.name}`;
+          }
+          break;
+        case 'GRN':
+          const grn = await prisma.goodsReceivedNote.findUnique({
+            where: { id: request.entityId },
+            select: {
+              grnNumber: true,
+              purchaseOrder: {
+                select: {
+                  poNumber: true
+                }
+              }
+            }
+          });
+          if (grn) {
+            entityNumber = grn.grnNumber;
+            entityTitle = `GRN for PO ${grn.purchaseOrder?.poNumber || ''}`;
+          }
+          break;
+      }
+
+      // Send notification to each approver
+      const { EmailNotificationService } = await import('./EmailNotificationService');
+      for (const approver of approverUsers) {
+        try {
+          await EmailNotificationService.sendApprovalStepNotification({
+            approverName: `${approver.firstName} ${approver.lastName}`,
+            approverEmail: approver.email,
+            entityType: stageType.replace('_', ' '),
+            entityNumber,
+            entityTitle,
+            stepNumber: stage.stepNumber,
+            stepName: stage.stepName,
+            totalSteps: request.totalSteps,
+            submittedByName: `${request.requestedBy.firstName} ${request.requestedBy.lastName}`,
+            submittedByEmail: request.requestedBy.email,
+            department: department || 'N/A',
+            companyName: 'NVCCZ'
+          });
+        } catch (emailError: any) {
+          console.error(`⚠️  Error sending notification to ${approver.email}:`, emailError.message || emailError);
+          // Don't throw - continue with other approvers
+        }
+      }
+    } catch (error: any) {
+      console.error("⚠️  Error sending approval step notifications:", error.message || error);
+      // Don't throw - email failure shouldn't block approval workflow
+    }
+  }
+
+  /**
+   * Send approval completion email to submitter
+   */
+  private static async sendApprovalCompletionEmailToSubmitter(requestId: string, stageType: string) {
+    try {
+      const request = await prisma.approvalRequest.findUnique({
+        where: { id: requestId },
+        include: {
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          approvals: {
+            where: { status: 'APPROVED' },
+            orderBy: { approvedAt: 'desc' },
+            take: 1,
+            include: {
+              approver: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!request || request.approvals.length === 0) return;
+
+      const lastApprover = request.approvals[0].approver;
+
+      // Get entity details based on stageType
+      let entityNumber = '';
+      let entityTitle = '';
+      let department = '';
+
+      switch (stageType) {
+        case 'PURCHASE_REQUISITION':
+          const requisition = await prisma.purchaseRequisition.findUnique({
+            where: { id: request.entityId },
+            select: {
+              requisitionNumber: true,
+              title: true,
+              department: true
+            }
+          });
+          if (requisition) {
+            entityNumber = requisition.requisitionNumber;
+            entityTitle = requisition.title;
+            department = requisition.department;
+          }
+          break;
+        case 'PURCHASE_ORDER':
+          const po = await prisma.purchaseOrder.findUnique({
+            where: { id: request.entityId },
+            select: {
+              poNumber: true,
+              shippingAddress: true
+            }
+          });
+          if (po) {
+            entityNumber = po.poNumber;
+            entityTitle = po.shippingAddress || 'Purchase Order';
+          }
+          break;
+        case 'INVOICE':
+          const invoice = await prisma.procurementInvoice.findUnique({
+            where: { id: request.entityId },
+            select: {
+              invoiceNumber: true,
+              vendor: {
+                select: {
+                  name: true
+                }
+              }
+            }
+          });
+          if (invoice) {
+            entityNumber = invoice.invoiceNumber;
+            entityTitle = `Invoice from ${invoice.vendor.name}`;
+          }
+          break;
+        case 'GRN':
+          const grn = await prisma.goodsReceivedNote.findUnique({
+            where: { id: request.entityId },
+            select: {
+              grnNumber: true,
+              purchaseOrder: {
+                select: {
+                  poNumber: true
+                }
+              }
+            }
+          });
+          if (grn) {
+            entityNumber = grn.grnNumber;
+            entityTitle = `GRN for PO ${grn.purchaseOrder?.poNumber || ''}`;
+          }
+          break;
+      }
+
+      const { EmailNotificationService } = await import('./EmailNotificationService');
+      await EmailNotificationService.sendRequisitionApprovedToSubmitter({
+        submitterName: `${request.requestedBy.firstName} ${request.requestedBy.lastName}`,
+        submitterEmail: request.requestedBy.email,
+        requisitionNumber: entityNumber,
+        title: entityTitle,
+        department: department || 'N/A',
+        approvedByName: `${lastApprover.firstName} ${lastApprover.lastName}`,
+        approvedByEmail: lastApprover.email,
+        companyName: 'NVCCZ'
+      });
+    } catch (error: any) {
+      console.error("⚠️  Error sending approval completion email:", error.message || error);
+      // Don't throw - email failure shouldn't block approval workflow
+    }
+  }
+
+  /**
+   * Send rejection email to submitter
+   */
+  private static async sendRejectionEmailToSubmitter(requestId: string, rejectionReason?: string) {
+    try {
+      const request = await prisma.approvalRequest.findUnique({
+        where: { id: requestId },
+        include: {
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          approvals: {
+            where: { status: 'REJECTED' },
+            orderBy: { rejectedAt: 'desc' },
+            take: 1,
+            include: {
+              approver: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  email: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!request || request.approvals.length === 0) return;
+
+      const rejector = request.approvals[0].approver;
+      const stageType = request.stageType;
+
+      // Get entity details based on stageType
+      let entityNumber = '';
+      let entityTitle = '';
+      let department = '';
+
+      switch (stageType) {
+        case 'PURCHASE_REQUISITION':
+          const requisition = await prisma.purchaseRequisition.findUnique({
+            where: { id: request.entityId },
+            select: {
+              requisitionNumber: true,
+              title: true,
+              department: true
+            }
+          });
+          if (requisition) {
+            entityNumber = requisition.requisitionNumber;
+            entityTitle = requisition.title;
+            department = requisition.department;
+          }
+          break;
+        case 'PURCHASE_ORDER':
+          const po = await prisma.purchaseOrder.findUnique({
+            where: { id: request.entityId },
+            select: {
+              poNumber: true,
+              shippingAddress: true
+            }
+          });
+          if (po) {
+            entityNumber = po.poNumber;
+            entityTitle = po.shippingAddress || 'Purchase Order';
+          }
+          break;
+        case 'INVOICE':
+          const invoice = await prisma.procurementInvoice.findUnique({
+            where: { id: request.entityId },
+            select: {
+              invoiceNumber: true,
+              vendor: {
+                select: {
+                  name: true
+                }
+              }
+            }
+          });
+          if (invoice) {
+            entityNumber = invoice.invoiceNumber;
+            entityTitle = `Invoice from ${invoice.vendor.name}`;
+          }
+          break;
+        case 'GRN':
+          const grn = await prisma.goodsReceivedNote.findUnique({
+            where: { id: request.entityId },
+            select: {
+              grnNumber: true,
+              purchaseOrder: {
+                select: {
+                  poNumber: true
+                }
+              }
+            }
+          });
+          if (grn) {
+            entityNumber = grn.grnNumber;
+            entityTitle = `GRN for PO ${grn.purchaseOrder?.poNumber || ''}`;
+          }
+          break;
+      }
+
+      const { EmailNotificationService } = await import('./EmailNotificationService');
+      await EmailNotificationService.sendRequisitionRejectedToSubmitter({
+        submitterName: `${request.requestedBy.firstName} ${request.requestedBy.lastName}`,
+        submitterEmail: request.requestedBy.email,
+        requisitionNumber: entityNumber,
+        title: entityTitle,
+        department: department || 'N/A',
+        rejectedByName: `${rejector.firstName} ${rejector.lastName}`,
+        rejectedByEmail: rejector.email,
+        rejectionReason,
+        companyName: 'NVCCZ'
+      });
+    } catch (error: any) {
+      console.error("⚠️  Error sending rejection email:", error.message || error);
+      // Don't throw - email failure shouldn't block rejection workflow
     }
   }
 

@@ -62,21 +62,21 @@ export const procurementEndpoints = {
       }
     },
     get: {
-      summary: 'Get all purchase requisitions',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
+      summary: 'Get all purchase requisitions (filtered by user\'s department)',
+      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target.',
       tags: ['Procurement - Requisitions'],
       security: [{ bearerAuth: [] }],
       parameters: [
-        { in: 'query', name: 'status', schema: { type: 'string', enum: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CONVERTED_TO_PO'] } },
-        { in: 'query', name: 'departmentId', schema: { type: 'string' } },
-        { in: 'query', name: 'requestedById', schema: { type: 'string' } },
-        { in: 'query', name: 'priority', schema: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] } },
-        { in: 'query', name: 'limit', schema: { type: 'integer', default: 50 } },
-        { in: 'query', name: 'offset', schema: { type: 'integer', default: 0 } }
+        { in: 'query', name: 'status', schema: { type: 'string', enum: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CONVERTED_TO_PO'] }, description: 'Filter by status' },
+        { in: 'query', name: 'requestedById', schema: { type: 'string' }, description: 'Filter by requester' },
+        { in: 'query', name: 'priority', schema: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] }, description: 'Filter by priority' },
+        { in: 'query', name: 'limit', schema: { type: 'integer', default: 50 }, description: 'Number of items to return' },
+        { in: 'query', name: 'offset', schema: { type: 'integer', default: 0 }, description: 'Number of items to skip' }
       ],
       responses: {
-        200: { description: 'List of purchase requisitions' },
-        401: { description: 'Unauthorized' }
+        200: { description: 'List of purchase requisitions for the user\'s department' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Forbidden - Only department HEAD, DEPUTY, or PROC_MGR can view requisitions' }
       }
     }
   },

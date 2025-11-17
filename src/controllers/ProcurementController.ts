@@ -128,22 +128,64 @@ export class ProcurementController {
   }
 
   /**
-   * Get all purchase requisitions
+   * Get all purchase requisitions (filtered by user's department)
+   * Only HEAD, DEPUTY, or PROC_MGR can see requisitions
    */
   static async getAllPurchaseRequisitions(req: Request, res: Response) {
     try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      // Get user's department and role
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true
+        }
+      });
+
+      if (!user || !user.userDepartment) {
+        return res.status(403).json({
+          success: false,
+          message: "User is not assigned to any department"
+        });
+      }
+
+      // Check if user can view requisitions (HEAD, DEPUTY, or PROC_MGR)
+      const canView = 
+        user.departmentRole === 'HEAD' || 
+        user.departmentRole === 'DEPUTY' || 
+        user.roleCode === 'PROC_MGR';
+
+      if (!canView) {
+        return res.status(403).json({
+          success: false,
+          message: "Only department HEAD, DEPUTY, or PROC_MGR can view requisitions"
+        });
+      }
+
       const {
         status,
-        departmentId,
         requestedById,
         priority,
         limit = 50,
         offset = 0
       } = req.query;
 
-      const where: any = {};
+      // Filter by user's department - requisitions target the department
+      const where: any = {
+        department: user.userDepartment // Requisitions are filtered by department name
+      };
+
       if (status) where.status = status;
-      if (departmentId) where.departmentId = departmentId;
       if (requestedById) where.requestedById = requestedById;
       if (priority) where.priority = priority;
 
@@ -191,7 +233,10 @@ export class ProcurementController {
 
       res.status(200).json({
         success: true,
-        data: requisitions
+        message: `Requisitions for ${user.userDepartment} department retrieved successfully`,
+        data: requisitions,
+        count: requisitions.length,
+        department: user.userDepartment
       });
     } catch (error: any) {
       console.error("Error getting purchase requisitions:", error);

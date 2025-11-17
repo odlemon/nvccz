@@ -197,6 +197,30 @@ export class ApprovalService {
         console.log("════════════════════════════════════════════════════════════════");
         console.log("");
 
+        // Send email notifications to first step approvers
+        try {
+          const firstStage = stages.find(s => s.stepNumber === 1);
+          if (firstStage && approvals.length > 0) {
+            // Get first step approvals only
+            const firstStepApprovals = approvals.filter(a => {
+              const approvalStage = stages.find(s => s.id === a.stageId);
+              return approvalStage && approvalStage.stepNumber === 1;
+            });
+
+            if (firstStepApprovals.length > 0) {
+              const { ProcurementApprovalConfigService } = await import('./ProcurementApprovalConfigService');
+              await ProcurementApprovalConfigService.sendApprovalStepNotifications(
+                approvalRequest.id,
+                firstStage,
+                params.stageType
+              );
+            }
+          }
+        } catch (emailError: any) {
+          console.error("⚠️  Error sending initial approval notifications:", emailError.message || emailError);
+          // Don't throw - email failure shouldn't block approval request creation
+        }
+
         return { approvalRequest, approvals };
       });
 

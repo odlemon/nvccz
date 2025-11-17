@@ -288,6 +288,46 @@ export class ProcurementService {
           }
         });
         console.log("✅ Requisition status updated to PENDING_APPROVAL");
+      
+        // Send email notification to department HEAD when requisition is submitted
+        try {
+          const { EmailNotificationService } = await import('./EmailNotificationService');
+          
+          // Find department HEAD
+          const departmentHeads = await prisma.user.findMany({
+            where: {
+              userDepartment: department,
+              departmentRole: 'HEAD'
+            },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          });
+
+          if (departmentHeads.length > 0) {
+            for (const head of departmentHeads) {
+              await EmailNotificationService.sendRequisitionSubmittedToHead({
+                headName: `${head.firstName} ${head.lastName}`,
+                headEmail: head.email,
+                requisitionNumber: updatedRequisition.requisitionNumber,
+                title: updatedRequisition.title,
+                department: updatedRequisition.department,
+                submittedByName: `${updatedRequisition.requestedBy.firstName} ${updatedRequisition.requestedBy.lastName}`,
+                submittedByEmail: updatedRequisition.requestedBy.email,
+                totalAmount: Number(updatedRequisition.totalAmount),
+                itemCount: items.length,
+                status: updatedRequisition.status,
+                companyName: 'NVCCZ'
+              });
+            }
+          }
+        } catch (emailError: any) {
+          console.error("⚠️  Error sending email notification:", emailError.message || emailError);
+          // Don't throw - email failure shouldn't block requisition creation
+        }
       } else {
         // No approval stages configured - keep as DRAFT
         updatedRequisition = requisition;
@@ -549,6 +589,46 @@ export class ProcurementService {
           }
         });
         console.log("✅ Requisition status updated to PENDING_APPROVAL");
+        
+        // Send email notification to department HEAD when requisition is submitted
+        try {
+          const { EmailNotificationService } = await import('./EmailNotificationService');
+          
+          // Find department HEAD
+          const departmentHeads = await prisma.user.findMany({
+            where: {
+              userDepartment: requisition.department,
+              departmentRole: 'HEAD'
+            },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          });
+
+          if (departmentHeads.length > 0) {
+            for (const head of departmentHeads) {
+              await EmailNotificationService.sendRequisitionSubmittedToHead({
+                headName: `${head.firstName} ${head.lastName}`,
+                headEmail: head.email,
+                requisitionNumber: updatedRequisition.requisitionNumber,
+                title: updatedRequisition.title,
+                department: updatedRequisition.department,
+                submittedByName: `${requisition.requestedBy.firstName} ${requisition.requestedBy.lastName}`,
+                submittedByEmail: requisition.requestedBy.email,
+                totalAmount: Number(updatedRequisition.totalAmount),
+                itemCount: requisition.items.length,
+                status: updatedRequisition.status,
+                companyName: 'NVCCZ'
+              });
+            }
+          }
+        } catch (emailError: any) {
+          console.error("⚠️  Error sending email notification:", emailError.message || emailError);
+          // Don't throw - email failure shouldn't block requisition submission
+        }
       } else {
         // No approval stages configured - keep as DRAFT
         updatedRequisition = await prisma.purchaseRequisition.findUnique({
