@@ -1,27 +1,46 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import IncomeStatementService, { IncomeStatementParams } from "../services/IncomeStatementService";
+import { extractPeriodFilter, periodFilterToDateRange, PeriodFilter } from "../utils/periodFilterHelper";
 
 export class IncomeStatementController {
   /**
    * Generate income statement for a specific period
+   * Supports period filters: { periodType: 'month'|'quarter'|'year', periodValue: '2025-01'|'2025-Q1'|'2025' }
+   * Or legacy date range: { startDate, endDate }
    */
   static async generateIncomeStatement(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: IncomeStatementParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          currencyId
+        };
       }
-
-      const params: IncomeStatementParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const incomeStatement = await IncomeStatementService.generateIncomeStatement(params);
 
@@ -42,23 +61,41 @@ export class IncomeStatementController {
 
   /**
    * Get detailed income statement with transaction breakdown
+   * Supports period filters: { periodType: 'month'|'quarter'|'year', periodValue: '2025-01'|'2025-Q1'|'2025' }
+   * Or legacy date range: { startDate, endDate }
    */
   static async getDetailedIncomeStatement(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: IncomeStatementParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          currencyId
+        };
       }
-
-      const params: IncomeStatementParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const detailedIncomeStatement = await IncomeStatementService.getDetailedIncomeStatement(params);
 
@@ -79,23 +116,41 @@ export class IncomeStatementController {
 
   /**
    * Get income statement summary (high-level totals)
+   * Supports period filters: { periodType: 'month'|'quarter'|'year', periodValue: '2025-01'|'2025-Q1'|'2025' }
+   * Or legacy date range: { startDate, endDate }
    */
   static async getIncomeStatementSummary(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: IncomeStatementParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          currencyId
+        };
       }
-
-      const params: IncomeStatementParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const summary = await IncomeStatementService.getIncomeStatementSummary(params);
 
@@ -163,23 +218,41 @@ export class IncomeStatementController {
 
   /**
    * Get comprehensive detailed income statement with all transaction details
+   * Supports period filters: { periodType: 'month'|'quarter'|'year', periodValue: '2025-01'|'2025-Q1'|'2025' }
+   * Or legacy date range: { startDate, endDate }
    */
   static async getComprehensiveDetailedIncomeStatement(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: IncomeStatementParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          currencyId
+        };
       }
-
-      const params: IncomeStatementParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const comprehensiveIncomeStatement = await IncomeStatementService.getComprehensiveDetailedIncomeStatement(params);
 
@@ -200,24 +273,43 @@ export class IncomeStatementController {
 
   /**
    * Get income statement by query parameters (for GET requests)
+   * Supports period filters: ?periodType=month&periodValue=2025-01
+   * Or legacy date range: ?startDate=2025-01-01&endDate=2025-01-31
    */
   static async getIncomeStatementByQuery(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId, type } = req.query;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: IncomeStatementParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.query;
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+          });
+        }
+
+        params = {
+          startDate: new Date(startDate as string),
+          endDate: new Date(endDate as string),
+          currencyId: currencyId as string
+        };
       }
 
-      const params: IncomeStatementParams = {
-        startDate: new Date(startDate as string),
-        endDate: new Date(endDate as string),
-        currencyId: currencyId as string
-      };
-
+      const { type } = req.query;
       let result;
       switch (type) {
         case "summary":
@@ -248,23 +340,41 @@ export class IncomeStatementController {
 
   /**
    * Get vertical income statement with traditional format
+   * Supports period filters: { periodType: 'month'|'quarter'|'year', periodValue: '2025-01'|'2025-Q1'|'2025' }
+   * Or legacy date range: { startDate, endDate }
    */
   static async getVerticalIncomeStatement(req: Request, res: Response) {
     try {
-      const { startDate, endDate, currencyId } = req.body;
+      // Try to extract period filter first
+      const periodFilter = extractPeriodFilter(req);
+      
+      let params: IncomeStatementParams;
+      
+      if (periodFilter) {
+        // Use period filter (month/quarter/year)
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = {
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          currencyId: dateRange.currencyId
+        };
+      } else {
+        // Fallback to legacy date range format
+        const { startDate, endDate, currencyId } = req.body;
+        
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+          });
+        }
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Start date and end date are required"
-        });
+        params = {
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          currencyId
+        };
       }
-
-      const params: IncomeStatementParams = {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        currencyId
-      };
 
       const verticalIncomeStatement = await IncomeStatementService.getVerticalIncomeStatement(params);
 
