@@ -145,8 +145,8 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  * @swagger
  * /procurement/requisitions:
  *   get:
- *     summary: Get all purchase requisitions
- *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
+ *     summary: Get all purchase requisitions (filtered by user's department)
+ *     description: **Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user's department only. Requisitions are filtered by the department they target.
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -157,11 +157,6 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  *           type: string
  *           enum: [DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO]
  *         description: Filter by status
- *       - in: query
- *         name: departmentId
- *         schema:
- *           type: string
- *         description: Filter by department
  *       - in: query
  *         name: requestedById
  *         schema:
@@ -187,9 +182,11 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  *         description: Number of items to skip
  *     responses:
  *       200:
- *         description: List of purchase requisitions
+ *         description: List of purchase requisitions for the user's department
  *       401:
  *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - Only department HEAD, DEPUTY, or PROC_MGR can view requisitions
  */
 // Note: More specific routes must come BEFORE general routes
 

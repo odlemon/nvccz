@@ -385,6 +385,7 @@ export class TrialBalanceService {
         const { debitBalance, creditBalance } = balances;
         const netBalance = debitBalance - creditBalance;
 
+        // For display: show net balance in debit or credit column
         const displayDebit = netBalance > 0 ? netBalance : 0;
         const displayCredit = netBalance < 0 ? Math.abs(netBalance) : 0;
 
@@ -401,8 +402,10 @@ export class TrialBalanceService {
           transactions: transactions
         });
 
-        totalDebits += displayDebit;
-        totalCredits += displayCredit;
+        // IMPORTANT: For totals, sum ALL debits and ALL credits (gross totals), not net balances
+        // This ensures month-end totals match journal entry totals
+        totalDebits += debitBalance;  // Sum of ALL debit amounts
+        totalCredits += creditBalance; // Sum of ALL credit amounts
       }
 
       // Sort accounts by account type and account number

@@ -3014,6 +3014,179 @@ export class EmailNotificationService {
   }
 
   /**
+   * Send requisition created/submitted notification to department HEAD
+   */
+  static async sendRequisitionSubmittedToHead(data: {
+    headName: string;
+    headEmail: string;
+    requisitionNumber: string;
+    title: string;
+    department: string;
+    submittedByName: string;
+    submittedByEmail: string;
+    totalAmount: number;
+    itemCount: number;
+    status: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `New Requisition Requires Approval - ${data.requisitionNumber}`;
+      const htmlContent = this.getRequisitionSubmittedToHeadTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Procurement System"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.headEmail,
+              name: data.headName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Requisition submitted notification sent to ${data.headEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending requisition submitted email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send requisition approval notification to submitter
+   */
+  static async sendRequisitionApprovedToSubmitter(data: {
+    submitterName: string;
+    submitterEmail: string;
+    requisitionNumber: string;
+    title: string;
+    department: string;
+    approvedByName: string;
+    approvedByEmail: string;
+    approvalComments?: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Requisition Approved - ${data.requisitionNumber}`;
+      const htmlContent = this.getRequisitionApprovedTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Procurement System"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.submitterEmail,
+              name: data.submitterName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Requisition approved notification sent to ${data.submitterEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending requisition approved email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send requisition rejection notification to submitter
+   */
+  static async sendRequisitionRejectedToSubmitter(data: {
+    submitterName: string;
+    submitterEmail: string;
+    requisitionNumber: string;
+    title: string;
+    department: string;
+    rejectedByName: string;
+    rejectedByEmail: string;
+    rejectionReason?: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Requisition Rejected - ${data.requisitionNumber}`;
+      const htmlContent = this.getRequisitionRejectedTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Procurement System"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.submitterEmail,
+              name: data.submitterName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Requisition rejected notification sent to ${data.submitterEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending requisition rejected email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send approval step notification to next approver
+   */
+  static async sendApprovalStepNotification(data: {
+    approverName: string;
+    approverEmail: string;
+    entityType: string;
+    entityNumber: string;
+    entityTitle: string;
+    stepNumber: number;
+    stepName: string;
+    totalSteps: number;
+    submittedByName: string;
+    submittedByEmail: string;
+    department: string;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Approval Required - ${data.entityType}: ${data.entityNumber}`;
+      const htmlContent = this.getApprovalStepNotificationTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Procurement System"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.approverEmail,
+              name: data.approverName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Approval step notification sent to ${data.approverEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending approval step notification:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Send Purchase Order to vendor
    */
   static async sendPurchaseOrderToVendor(data: {
@@ -3892,6 +4065,266 @@ export class EmailNotificationService {
           <p>This is an official payment confirmation from ${data.companyName || 'NVCCZ'}.</p>
           <p>For any inquiries, please contact finance@nvccz.com</p>
           <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Get requisition submitted to head email template
+   */
+  private static getRequisitionSubmittedToHeadTemplate(data: {
+    headName: string;
+    requisitionNumber: string;
+    title: string;
+    department: string;
+    submittedByName: string;
+    submittedByEmail: string;
+    totalAmount: number;
+    itemCount: number;
+    status: string;
+    companyName?: string;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>New Requisition Requires Approval</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #059669; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #f0fdf4; border-left: 4px solid #059669; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">📋 New Requisition Requires Your Approval</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.headName},</p>
+            
+            <p>A new purchase requisition has been submitted and requires your approval:</p>
+            
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Requisition Number:</strong> ${data.requisitionNumber}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Title:</strong> ${data.title}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Department:</strong> ${data.department}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Submitted By:</strong> ${data.submittedByName} (${data.submittedByEmail})</p>
+              <p style="margin: 10px 0 0 0;"><strong>Items:</strong> ${data.itemCount}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Total Amount:</strong> ${data.totalAmount.toFixed(2)}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Status:</strong> ${data.status}</p>
+            </div>
+
+            <p>Please review and approve or reject this requisition in the procurement system.</p>
+            
+            <p>Best regards,<br>
+            <strong>${data.companyName || 'NVCCZ'} Procurement System</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from ${data.companyName || 'NVCCZ'} Procurement System.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Get requisition approved email template
+   */
+  private static getRequisitionApprovedTemplate(data: {
+    submitterName: string;
+    requisitionNumber: string;
+    title: string;
+    department: string;
+    approvedByName: string;
+    approvedByEmail: string;
+    approvalComments?: string;
+    companyName?: string;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Requisition Approved</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #059669; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #f0fdf4; border-left: 4px solid #059669; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">✅ Requisition Approved</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.submitterName},</p>
+            
+            <p>Great news! Your purchase requisition has been approved:</p>
+            
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Requisition Number:</strong> ${data.requisitionNumber}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Title:</strong> ${data.title}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Department:</strong> ${data.department}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Approved By:</strong> ${data.approvedByName} (${data.approvedByEmail})</p>
+            </div>
+
+            ${data.approvalComments ? `
+            <div style="background: #f9fafb; padding: 15px; border-radius: 4px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Approval Comments:</strong></p>
+              <p style="margin: 10px 0 0 0;">${data.approvalComments}</p>
+            </div>
+            ` : ''}
+
+            <p>You can now proceed with the next steps in the procurement process.</p>
+            
+            <p>Best regards,<br>
+            <strong>${data.companyName || 'NVCCZ'} Procurement System</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from ${data.companyName || 'NVCCZ'} Procurement System.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Get requisition rejected email template
+   */
+  private static getRequisitionRejectedTemplate(data: {
+    submitterName: string;
+    requisitionNumber: string;
+    title: string;
+    department: string;
+    rejectedByName: string;
+    rejectedByEmail: string;
+    rejectionReason?: string;
+    companyName?: string;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Requisition Rejected</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #dc2626; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">❌ Requisition Rejected</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.submitterName},</p>
+            
+            <p>Your purchase requisition has been rejected:</p>
+            
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Requisition Number:</strong> ${data.requisitionNumber}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Title:</strong> ${data.title}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Department:</strong> ${data.department}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Rejected By:</strong> ${data.rejectedByName} (${data.rejectedByEmail})</p>
+            </div>
+
+            ${data.rejectionReason ? `
+            <div style="background: #f9fafb; padding: 15px; border-radius: 4px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Rejection Reason:</strong></p>
+              <p style="margin: 10px 0 0 0;">${data.rejectionReason}</p>
+            </div>
+            ` : ''}
+
+            <p>Please review the rejection reason and make necessary changes before resubmitting.</p>
+            
+            <p>Best regards,<br>
+            <strong>${data.companyName || 'NVCCZ'} Procurement System</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from ${data.companyName || 'NVCCZ'} Procurement System.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Get approval step notification email template
+   */
+  private static getApprovalStepNotificationTemplate(data: {
+    approverName: string;
+    entityType: string;
+    entityNumber: string;
+    entityTitle: string;
+    stepNumber: number;
+    stepName: string;
+    totalSteps: number;
+    submittedByName: string;
+    submittedByEmail: string;
+    department: string;
+    companyName?: string;
+  }): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Approval Required</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #eff6ff; border-left: 4px solid #2563eb; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">📋 Approval Required</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${data.approverName},</p>
+            
+            <p>An approval request is pending your review:</p>
+            
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Entity Type:</strong> ${data.entityType}</p>
+              <p style="margin: 10px 0 0 0;"><strong>${data.entityType} Number:</strong> ${data.entityNumber}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Title:</strong> ${data.entityTitle}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Department:</strong> ${data.department}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Submitted By:</strong> ${data.submittedByName} (${data.submittedByEmail})</p>
+              <p style="margin: 10px 0 0 0;"><strong>Step:</strong> ${data.stepNumber} of ${data.totalSteps} - ${data.stepName}</p>
+            </div>
+
+            <p>Please review and approve or reject this request in the procurement system.</p>
+            
+            <p>Best regards,<br>
+            <strong>${data.companyName || 'NVCCZ'} Procurement System</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from ${data.companyName || 'NVCCZ'} Procurement System.</p>
+          </div>
         </div>
       </body>
       </html>
