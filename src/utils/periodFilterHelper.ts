@@ -92,15 +92,15 @@ export function parsePeriodToDateRange(periodType: PeriodType, periodValue: stri
 }
 
 /**
- * Extract period filter from request (supports both query params and body)
+ * Extract period filter from request (ONLY from query parameters, not body)
  * @param req - Express request object
  * @returns PeriodFilter or null if not provided
  */
 export function extractPeriodFilter(req: any): PeriodFilter | null {
-  // Try query params first (for GET requests)
-  const periodType = (req.query?.periodType || req.body?.periodType) as PeriodType | undefined;
-  const periodValue = (req.query?.periodValue || req.body?.periodValue) as string | undefined;
-  const currencyId = (req.query?.currencyId || req.body?.currencyId) as string | undefined;
+  // ONLY extract from query parameters (URL), not from body
+  const periodType = req.query?.periodType as PeriodType | undefined;
+  const periodValue = req.query?.periodValue as string | undefined;
+  const currencyId = req.query?.currencyId as string | undefined;
 
   if (!periodType || !periodValue) {
     return null;

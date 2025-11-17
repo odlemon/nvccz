@@ -25,13 +25,15 @@ export class IncomeStatementController {
           currencyId: dateRange.currencyId
         };
       } else {
-        // Fallback to legacy date range format
-        const { startDate, endDate, currencyId } = req.body;
+        // Fallback to legacy date range format (from body for POST, from query for GET)
+        const startDate = req.body?.startDate || req.query?.startDate;
+        const endDate = req.body?.endDate || req.query?.endDate;
+        const currencyId = req.body?.currencyId || req.query?.currencyId;
         
         if (!startDate || !endDate) {
           return res.status(400).json({
             success: false,
-            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
           });
         }
 
@@ -80,13 +82,15 @@ export class IncomeStatementController {
           currencyId: dateRange.currencyId
         };
       } else {
-        // Fallback to legacy date range format
-        const { startDate, endDate, currencyId } = req.body;
+        // Fallback to legacy date range format (from body for POST, from query for GET)
+        const startDate = req.body?.startDate || req.query?.startDate;
+        const endDate = req.body?.endDate || req.query?.endDate;
+        const currencyId = req.body?.currencyId || req.query?.currencyId;
         
         if (!startDate || !endDate) {
           return res.status(400).json({
             success: false,
-            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
           });
         }
 
@@ -135,13 +139,15 @@ export class IncomeStatementController {
           currencyId: dateRange.currencyId
         };
       } else {
-        // Fallback to legacy date range format
-        const { startDate, endDate, currencyId } = req.body;
+        // Fallback to legacy date range format (from body for POST, from query for GET)
+        const startDate = req.body?.startDate || req.query?.startDate;
+        const endDate = req.body?.endDate || req.query?.endDate;
+        const currencyId = req.body?.currencyId || req.query?.currencyId;
         
         if (!startDate || !endDate) {
           return res.status(400).json({
             success: false,
-            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
           });
         }
 
@@ -237,13 +243,15 @@ export class IncomeStatementController {
           currencyId: dateRange.currencyId
         };
       } else {
-        // Fallback to legacy date range format
-        const { startDate, endDate, currencyId } = req.body;
+        // Fallback to legacy date range format (from body for POST, from query for GET)
+        const startDate = req.body?.startDate || req.query?.startDate;
+        const endDate = req.body?.endDate || req.query?.endDate;
+        const currencyId = req.body?.currencyId || req.query?.currencyId;
         
         if (!startDate || !endDate) {
           return res.status(400).json({
             success: false,
-            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
           });
         }
 
@@ -359,13 +367,15 @@ export class IncomeStatementController {
           currencyId: dateRange.currencyId
         };
       } else {
-        // Fallback to legacy date range format
-        const { startDate, endDate, currencyId } = req.body;
+        // Fallback to legacy date range format (from body for POST, from query for GET)
+        const startDate = req.body?.startDate || req.query?.startDate;
+        const endDate = req.body?.endDate || req.query?.endDate;
+        const currencyId = req.body?.currencyId || req.query?.currencyId;
         
         if (!startDate || !endDate) {
           return res.status(400).json({
             success: false,
-            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+            message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required"
           });
         }
 
