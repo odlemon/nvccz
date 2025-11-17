@@ -1702,15 +1702,38 @@ export const accountingEndpoints = {
   '/accounting/income-statement/generate': {
     post: {
       summary: 'Generate Income Statement (Revenue - Expenses = Net Income)',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body. Period Filter Examples: Month: ?periodType=month&periodValue=2025-01, Quarter: ?periodType=quarter&periodValue=2025-Q1, Year: ?periodType=year&periodValue=2025',
       tags: ['Income Statement'],
       security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue). Options: month, quarter, year',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value matching periodType: month: "2025-01" (YYYY-MM), quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N), year: "2025" (YYYY)',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
+          name: 'currencyId',
+          schema: { type: 'string' },
+          description: 'Currency ID (optional, uses default if not provided)'
+        }
+      ],
       requestBody: {
-        required: true,
+        required: false,
         content: {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['startDate', 'endDate'],
+              description: 'Legacy date range format (use if period filters not provided)',
               properties: {
                 startDate: { 
                   type: 'string', 
@@ -1752,7 +1775,7 @@ export const accountingEndpoints = {
             }
           }
         },
-        400: { description: 'Bad request - startDate and endDate required' },
+        400: { description: 'Bad request - Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -1762,15 +1785,38 @@ export const accountingEndpoints = {
   '/accounting/cash-flow/generate': {
     post: {
       summary: 'Generate Cash Flow Statement (Operating + Investing + Financing Activities)',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date range in request body. Period Filter Examples: Month: ?periodType=month&periodValue=2025-01, Quarter: ?periodType=quarter&periodValue=2025-Q1, Year: ?periodType=year&periodValue=2025',
       tags: ['Cash Flow Statement'],
       security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue). Options: month, quarter, year',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value matching periodType: month: "2025-01" (YYYY-MM), quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N), year: "2025" (YYYY)',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
+          name: 'currencyId',
+          schema: { type: 'string' },
+          description: 'Currency ID (optional, uses default if not provided)'
+        }
+      ],
       requestBody: {
-        required: true,
+        required: false,
         content: {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['startDate', 'endDate'],
+              description: 'Legacy date range format (use if period filters not provided)',
               properties: {
                 startDate: { 
                   type: 'string', 
@@ -1815,7 +1861,7 @@ export const accountingEndpoints = {
             }
           }
         },
-        400: { description: 'Bad request - startDate and endDate required' },
+        400: { description: 'Bad request - Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -1825,15 +1871,42 @@ export const accountingEndpoints = {
   '/accounting/trial-balance': {
     get: {
       summary: 'Generate trial balance',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date range. Period Filter Examples: Month: ?periodType=month&periodValue=2025-01, Quarter: ?periodType=quarter&periodValue=2025-Q1, Year: ?periodType=year&periodValue=2025',
       tags: ['Trial Balance'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
           in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue). Options: month, quarter, year',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value matching periodType: month: "2025-01" (YYYY-MM), quarter: "2025-Q1" or "2025-1" (YYYY-QN or YYYY-N), year: "2025" (YYYY)',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
           name: 'date',
           required: false,
           schema: { type: 'string', format: 'date' },
-          description: 'Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.'
+          description: 'Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.'
+        },
+        {
+          in: 'query',
+          name: 'startDate',
+          schema: { type: 'string', format: 'date' },
+          description: 'Start date for date range (legacy format - use if period filters not provided)'
+        },
+        {
+          in: 'query',
+          name: 'endDate',
+          schema: { type: 'string', format: 'date' },
+          description: 'End date for date range (legacy format - use if period filters not provided)'
         }
       ],
       responses: {
@@ -1847,15 +1920,30 @@ export const accountingEndpoints = {
   '/accounting/trial-balance/summary': {
     get: {
       summary: 'Get trial balance summary',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date.',
       tags: ['Trial Balance'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
           in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue)',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
           name: 'date',
           required: false,
           schema: { type: 'string', format: 'date' },
-          description: 'Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.'
+          description: 'Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.'
         }
       ],
       responses: {
@@ -1868,15 +1956,30 @@ export const accountingEndpoints = {
   '/accounting/trial-balance/by-account-type': {
     get: {
       summary: 'Get trial balance by account type',
+      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date.',
       tags: ['Trial Balance'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
           in: 'query',
+          name: 'periodType',
+          schema: { type: 'string', enum: ['month', 'quarter', 'year'] },
+          description: 'Period type filter (use with periodValue)',
+          example: 'month'
+        },
+        {
+          in: 'query',
+          name: 'periodValue',
+          schema: { type: 'string' },
+          description: 'Period value (month: "2025-01", quarter: "2025-Q1", year: "2025")',
+          example: '2025-01'
+        },
+        {
+          in: 'query',
           name: 'date',
           required: false,
           schema: { type: 'string', format: 'date' },
-          description: 'Date for trial balance (YYYY-MM-DD). Defaults to current date if not provided.'
+          description: 'Date for trial balance (YYYY-MM-DD) - legacy format. Defaults to current date if not provided.'
         }
       ],
       responses: {
