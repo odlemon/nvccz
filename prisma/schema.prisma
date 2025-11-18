@@ -107,6 +107,7 @@ model User {
   purchaseOrdersSent                PurchaseOrder[]              @relation("POSentBy")
   procurementInvoicesCreated        ProcurementInvoice[]         @relation("InvoiceCreatedBy")
   procurementInvoicesApproved       ProcurementInvoice[]         @relation("InvoiceApprovedBy")
+  purchaseInvoicesCreated           PurchaseInvoice[]            @relation("PurchaseInvoiceCreatedBy")
   grnsReceived                      GoodsReceivedNote[]          @relation("GRNReceivedBy")
   grnsApproved                      GoodsReceivedNote[]          @relation("GRNApprovedBy")
   vendorQuotationsReviewed          VendorQuotation[]            @relation("QuotationReviewedBy")
@@ -449,6 +450,7 @@ model Currency {
   purchaseRequisitions PurchaseRequisition[] @relation("RequisitionCurrency")
   purchaseOrders       PurchaseOrder[]       @relation("POCurrency")
   procurementInvoices  ProcurementInvoice[]  @relation("InvoiceCurrency")
+  purchaseInvoices     PurchaseInvoice[]      @relation("PurchaseInvoiceCurrency")
 
   @@map("currencies")
 }
@@ -497,6 +499,7 @@ model Vendor {
   expenses              Expense[]
   purchaseOrders        PurchaseOrder[]           @relation("POVendor")
   procurementInvoices   ProcurementInvoice[]      @relation("InvoiceVendor")
+  purchaseInvoices      PurchaseInvoice[]          @relation("PurchaseInvoiceVendor")
   preferredRequisitions PurchaseRequisitionItem[] @relation("PreferredVendorRequisition")
   inventoryItems        InventoryItem[]           @relation("InventorySupplier")
   statements            StatementOfAccount[]
@@ -539,6 +542,8 @@ model JournalEntry {
   expenses              Expense[]
   invoices              Invoice[]
   procurementInvoices   ProcurementInvoice[]   @relation("ProcurementInvoiceJournal")
+  purchaseInvoices      PurchaseInvoice[]       @relation("PurchaseInvoiceJournal")
+  purchaseInvoicePayments PurchaseInvoice[]     @relation("PurchaseInvoicePaymentJournal")
   revenues              Revenue[]
   bankTransactions      BankTransaction[]
   reconciliationResults ReconciliationResult[]
@@ -1615,6 +1620,60 @@ model ProcurementInvoiceItem {
   invoice         ProcurementInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@map("procurement_invoice_items")
+}
+
+model PurchaseInvoice {
+  id               String                @id @default(cuid())
+  invoiceNumber    String                @unique @map("invoice_number")
+  vendorId         String                @map("vendor_id")
+  invoiceDate      DateTime              @map("invoice_date")
+  dueDate          DateTime?             @map("due_date")
+  subtotal         Decimal               @default(0.00) @db.Decimal(15, 2)
+  vatAmount        Decimal               @default(0.00) @db.Decimal(15, 2) @map("vat_amount")
+  totalAmount      Decimal               @default(0.00) @db.Decimal(15, 2) @map("total_amount")
+  currencyId       String                @map("currency_id")
+  description      String?               @db.Text
+  status           String                @default("DRAFT")
+  paymentStatus    String                @default("PENDING") @map("payment_status")
+  paymentMethod    String?               @map("payment_method") // "CREDIT" or "PAID"
+  isTaxable        Boolean               @default(false) @map("is_taxable")
+  journalEntryId   String?               @map("journal_entry_id")
+  paymentJournalEntryId String?          @map("payment_journal_entry_id")
+  cashbookEntryId String?  @unique       @map("cashbook_entry_id")
+  paidAmount       Decimal               @default(0.00) @db.Decimal(15, 2) @map("paid_amount")
+  outstandingAmount Decimal               @db.Decimal(15, 2) @map("outstanding_amount")
+  paymentDate      DateTime?             @map("payment_date")
+  paymentReference String?               @map("payment_reference")
+  notes            String?               @db.Text
+  createdById      String                @map("created_by_id")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+  vendor           Vendor                @relation("PurchaseInvoiceVendor", fields: [vendorId], references: [id])
+  currency         Currency              @relation("PurchaseInvoiceCurrency", fields: [currencyId], references: [id])
+  journalEntry     JournalEntry?          @relation("PurchaseInvoiceJournal", fields: [journalEntryId], references: [id])
+  paymentJournalEntry JournalEntry?       @relation("PurchaseInvoicePaymentJournal", fields: [paymentJournalEntryId], references: [id])
+  cashbookEntry    CashbookEntry?         @relation("PurchaseInvoiceCashbook", fields: [cashbookEntryId], references: [id])
+  createdBy        User                  @relation("PurchaseInvoiceCreatedBy", fields: [createdById], references: [id])
+  items            PurchaseInvoiceItem[]
+
+  @@map("purchase_invoices")
+}
+
+model PurchaseInvoiceItem {
+  id              String          @id @default(cuid())
+  invoiceId       String          @map("invoice_id")
+  itemName        String          @map("item_name")
+  description     String?         @db.Text
+  quantity        Decimal         @db.Decimal(10, 2)
+  unitPrice       Decimal         @db.Decimal(15, 2) @map("unit_price")
+  totalPrice      Decimal         @db.Decimal(15, 2) @map("total_price")
+  unit            String?
+  vatRate         Decimal         @default(0.00) @db.Decimal(5, 2) @map("vat_rate")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  invoice         PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_invoice_items")
 }
 
 model GoodsReceivedNote {
@@ -2883,6 +2942,7 @@ model CashbookEntry {
   reversalTransactions     CashbookEntry[]          @relation("TransactionReversal")
   reversedBy               User?                    @relation("TransactionReversedBy", fields: [reversedById], references: [id])
   postedBy                 User?                    @relation("TransactionPostedBy", fields: [postedById], references: [id])
+  purchaseInvoice          PurchaseInvoice?          @relation("PurchaseInvoiceCashbook")
 
   @@map("cashbook_entries")
 }
