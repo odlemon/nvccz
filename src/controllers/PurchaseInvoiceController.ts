@@ -158,7 +158,7 @@ export class PurchaseInvoiceController {
       if (vendorId) updateParams.vendorId = vendorId;
       if (invoiceDate) updateParams.invoiceDate = new Date(invoiceDate);
       if (dueDate !== undefined) updateParams.dueDate = dueDate ? new Date(dueDate) : undefined;
-      if (currencyId) updateParams.currencyId = currencyId;
+      // currencyId cannot be changed after invoice creation - explicitly excluded
       if (description !== undefined) updateParams.description = description;
       if (items) updateParams.items = items;
       if (isTaxable !== undefined) updateParams.isTaxable = Boolean(isTaxable);

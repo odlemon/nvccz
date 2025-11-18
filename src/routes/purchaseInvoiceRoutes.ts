@@ -206,6 +206,7 @@ router.get(
  * /accounting/purchase-invoices/{id}:
  *   put:
  *     summary: Update purchase invoice
+ *     description: Update a purchase invoice. Only DRAFT invoices can be updated. Currency cannot be changed after invoice creation.
  *     tags: [Accounts Payables]
  *     security:
  *       - bearerAuth: []
@@ -224,20 +225,35 @@ router.get(
  *             properties:
  *               vendorId:
  *                 type: string
+ *                 description: Vendor ID (can be changed)
  *               invoiceDate:
  *                 type: string
  *                 format: date-time
  *               dueDate:
  *                 type: string
  *                 format: date-time
- *               currencyId:
- *                 type: string
  *               description:
  *                 type: string
  *               items:
  *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     itemName:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     quantity:
+ *                       type: number
+ *                     unitPrice:
+ *                       type: number
+ *                     unit:
+ *                       type: string
+ *                     vatRate:
+ *                       type: number
  *               isTaxable:
  *                 type: boolean
+ *                 description: If true, VAT will be calculated (15% default if not specified in items)
  *               notes:
  *                 type: string
  *     responses:
@@ -253,7 +269,7 @@ router.get(
  *                 data:
  *                   type: object
  *       400:
- *         description: Bad request - only DRAFT invoices can be updated
+ *         description: Bad request - only DRAFT invoices can be updated, or currency cannot be changed
  */
 router.put(
   "/:id",

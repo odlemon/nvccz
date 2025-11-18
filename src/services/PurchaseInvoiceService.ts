@@ -336,7 +336,12 @@ export class PurchaseInvoiceService {
       }
 
       if (existingInvoice.status !== "DRAFT") {
-        throw new Error("Only DRAFT invoices can be updated");
+        throw new Error("Only DRAFT invoices can be updated. Invoice is already submitted.");
+      }
+
+      // Prevent currency changes
+      if (params.currencyId && params.currencyId !== existingInvoice.currencyId) {
+        throw new Error("Currency cannot be changed after invoice creation");
       }
 
       // If items are being updated, recalculate totals
@@ -346,11 +351,13 @@ export class PurchaseInvoiceService {
         let subtotal = new Decimal(0);
         let totalVAT = new Decimal(0);
 
+        const isTaxable = params.isTaxable !== undefined ? params.isTaxable : existingInvoice.isTaxable;
+
         const invoiceItems = params.items.map(item => {
           const quantity = new Decimal(item.quantity);
           const unitPrice = new Decimal(item.unitPrice);
           const itemTotal = quantity.times(unitPrice);
-          const vatRate = item.vatRate || (params.isTaxable ? 0.15 : 0);
+          const vatRate = item.vatRate || (isTaxable ? 0.15 : 0);
           const itemVAT = itemTotal.times(new Decimal(vatRate));
 
           subtotal = subtotal.add(itemTotal);
@@ -372,14 +379,14 @@ export class PurchaseInvoiceService {
         updateData.vatAmount = totalVAT;
         updateData.totalAmount = totalAmount;
         updateData.outstandingAmount = totalAmount;
-        updateData.isTaxable = params.isTaxable !== undefined ? params.isTaxable : existingInvoice.isTaxable;
+        updateData.isTaxable = isTaxable;
       }
 
-      // Update other fields
+      // Update other fields (currency is excluded - cannot be changed)
       if (params.vendorId) updateData.vendorId = params.vendorId;
       if (params.invoiceDate) updateData.invoiceDate = params.invoiceDate;
       if (params.dueDate !== undefined) updateData.dueDate = params.dueDate;
-      if (params.currencyId) updateData.currencyId = params.currencyId;
+      // currencyId is explicitly excluded - cannot be changed
       if (params.description !== undefined) updateData.description = params.description;
       if (params.notes !== undefined) updateData.notes = params.notes;
 

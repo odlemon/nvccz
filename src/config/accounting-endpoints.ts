@@ -2231,7 +2231,7 @@ export const accountingEndpoints = {
     },
     put: {
       summary: 'Update purchase invoice',
-      description: 'Update a purchase invoice. Only DRAFT invoices can be updated.',
+      description: 'Update a purchase invoice. Only DRAFT invoices can be updated. Currency cannot be changed after invoice creation. If isTaxable is true, VAT will be calculated (15% default if not specified in items).',
       tags: ['Accounts Payables'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -2244,13 +2244,25 @@ export const accountingEndpoints = {
             schema: {
               type: 'object',
               properties: {
-                vendorId: { type: 'string' },
+                vendorId: { type: 'string', description: 'Vendor ID (can be changed)' },
                 invoiceDate: { type: 'string', format: 'date-time' },
                 dueDate: { type: 'string', format: 'date-time' },
-                currencyId: { type: 'string' },
                 description: { type: 'string' },
-                items: { type: 'array' },
-                isTaxable: { type: 'boolean' },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      itemName: { type: 'string' },
+                      description: { type: 'string' },
+                      quantity: { type: 'number' },
+                      unitPrice: { type: 'number' },
+                      unit: { type: 'string' },
+                      vatRate: { type: 'number', description: 'VAT rate (0.15 for 15%). If not provided and isTaxable is true, defaults to 0.15' }
+                    }
+                  }
+                },
+                isTaxable: { type: 'boolean', description: 'If true, VAT will be calculated (15% default if not specified in items)' },
                 notes: { type: 'string' }
               }
             }
@@ -2265,12 +2277,18 @@ export const accountingEndpoints = {
               example: {
                 success: true,
                 message: 'Purchase invoice updated successfully',
-                data: {}
+                data: {
+                  id: 'invoice-id',
+                  invoiceNumber: 'PINV-2025-001',
+                  status: 'DRAFT',
+                  vendor: { id: 'vendor-id', name: 'ABC Supplies Ltd' },
+                  items: []
+                }
               }
             }
           }
         },
-        400: { description: 'Bad request - only DRAFT invoices can be updated' },
+        400: { description: 'Bad request - only DRAFT invoices can be updated, or currency cannot be changed' },
         401: { description: 'Unauthorized' }
       }
     },
