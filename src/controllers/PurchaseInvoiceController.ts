@@ -368,5 +368,23 @@ export class PurchaseInvoiceController {
       ResponseHelper.error(res, `Failed to get expense accounts: ${error.message}`, undefined, 500);
     }
   }
+
+  /**
+   * Get banks for purchase invoices
+   */
+  static async getBanks(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const banks = await PurchaseInvoiceService.getBanks();
+
+      logger.info("Banks retrieved successfully", {
+        count: banks.length
+      });
+
+      ResponseHelper.success(res, "Banks retrieved successfully", banks);
+    } catch (error: any) {
+      logger.error("Error getting banks", { error: error.message });
+      ResponseHelper.error(res, `Failed to get banks: ${error.message}`, undefined, 500);
+    }
+  }
 }
 
