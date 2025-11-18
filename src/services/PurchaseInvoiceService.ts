@@ -46,10 +46,13 @@ export interface PurchaseInvoiceWithRelations extends PurchaseInvoice {
 export class PurchaseInvoiceService {
   /**
    * Generate a unique invoice number
+   * Uses sequential numbering with year prefix: PINV-YYYY-NNN
    */
   private static async generateInvoiceNumber(): Promise<string> {
     try {
       const currentYear = new Date().getFullYear();
+      
+      // Find the highest invoice number for the current year
       const lastInvoice = await prisma.purchaseInvoice.findFirst({
         where: {
           invoiceNumber: {
@@ -63,16 +66,19 @@ export class PurchaseInvoiceService {
 
       let nextNumber = 1;
       if (lastInvoice && lastInvoice.invoiceNumber) {
+        // Extract the number from the last invoice (format: PINV-YYYY-NNN)
         const match = lastInvoice.invoiceNumber.match(/PINV-\d{4}-(\d+)/);
         if (match) {
-          nextNumber = parseInt(match[1]) + 1;
+          nextNumber = parseInt(match[1], 10) + 1;
         }
       }
 
+      // Format with leading zeros (3 digits minimum, but can expand if needed)
       const formattedNumber = nextNumber.toString().padStart(3, '0');
       return `PINV-${currentYear}-${formattedNumber}`;
     } catch (error) {
       console.error("Error generating invoice number:", error);
+      // Fallback to timestamp-based number if there's an error
       const timestamp = Date.now();
       const random = Math.floor(Math.random() * 1000);
       return `PINV-${timestamp}-${random}`;
@@ -152,60 +158,100 @@ export class PurchaseInvoiceService {
 
       const totalAmount = subtotal.add(totalVAT);
 
-      // Generate invoice number if not provided
-      const finalInvoiceNumber = invoiceNumber || await this.generateInvoiceNumber();
+      // Generate invoice number if not provided, with retry logic for race conditions
+      let finalInvoiceNumber = invoiceNumber;
+      let invoice = null;
+      let attempts = 0;
+      const maxAttempts = 5;
 
-      // Create the invoice
-      const invoice = await prisma.purchaseInvoice.create({
-        data: {
-          invoiceNumber: finalInvoiceNumber,
-          vendorId,
-          invoiceDate,
-          dueDate: dueDate || null,
-          subtotal: subtotal,
-          vatAmount: totalVAT,
-          totalAmount: totalAmount,
-          currencyId,
-          description: description || null,
-          status: "DRAFT",
-          paymentStatus: "PENDING",
-          isTaxable,
-          outstandingAmount: totalAmount,
-          paidAmount: new Decimal(0),
-          notes: notes || null,
-          createdById,
-          items: {
-            create: invoiceItems.map(item => ({
-              itemName: item.itemName,
-              description: item.description,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.totalPrice,
-              unit: item.unit,
-              vatRate: item.vatRate
-            }))
+      while (!invoice && attempts < maxAttempts) {
+        try {
+          if (!finalInvoiceNumber) {
+            finalInvoiceNumber = await this.generateInvoiceNumber();
           }
-        },
-        include: {
-          vendor: true,
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
+
+          // Check if invoice number already exists
+          const existingInvoice = await prisma.purchaseInvoice.findUnique({
+            where: { invoiceNumber: finalInvoiceNumber }
+          });
+
+          if (existingInvoice) {
+            // Number already exists, generate a new one
+            finalInvoiceNumber = null; // Force regeneration
+            attempts++;
+            // Small delay to reduce race condition collisions
+            await new Promise(resolve => setTimeout(resolve, 10 * attempts));
+            continue;
+          }
+
+          // Create the invoice
+          invoice = await prisma.purchaseInvoice.create({
+            data: {
+              invoiceNumber: finalInvoiceNumber,
+              vendorId,
+              invoiceDate,
+              dueDate: dueDate || null,
+              subtotal: subtotal,
+              vatAmount: totalVAT,
+              totalAmount: totalAmount,
+              currencyId,
+              description: description || null,
+              status: "DRAFT",
+              paymentStatus: "PENDING",
+              isTaxable,
+              outstandingAmount: totalAmount,
+              paidAmount: new Decimal(0),
+              notes: notes || null,
+              createdById,
+              items: {
+                create: invoiceItems.map(item => ({
+                  itemName: item.itemName,
+                  description: item.description,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  totalPrice: item.totalPrice,
+                  unit: item.unit,
+                  vatRate: item.vatRate
+                }))
+              }
+            },
+            include: {
+              vendor: true,
+              currency: true,
+              journalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  status: true
+                }
+              },
+              paymentJournalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  status: true
+                }
+              },
+              items: true
             }
-          },
-          paymentJournalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          },
-          items: true
+          });
+        } catch (error: any) {
+          // If it's a unique constraint error, try again with a new number
+          if (error.code === 'P2002' && error.meta?.target?.includes('invoice_number')) {
+            finalInvoiceNumber = null; // Force regeneration
+            attempts++;
+            // Small delay to reduce race condition collisions
+            await new Promise(resolve => setTimeout(resolve, 10 * attempts));
+            continue;
+          }
+          // If it's a different error, throw it
+          throw error;
         }
-      });
+      }
+
+      if (!invoice) {
+        throw new Error("Failed to generate unique invoice number after multiple attempts");
+      }
 
       // Audit log
       await AuditService.log({
