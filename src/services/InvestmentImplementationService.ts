@@ -3,6 +3,7 @@ import { PrismaClient, InvestmentImplementation, InvestmentMilestone, FundDisbur
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { CashbookService } from './CashbookService';
 
 export interface CreateInvestmentImplementationRequest {
   portfolioCompanyId: string;
@@ -535,7 +536,7 @@ export class InvestmentImplementationService {
 
   /**
    * Approve fund disbursement
-   * Automatically creates a balanced journal entry:
+   * Creates a cashbook payment entry which automatically creates a journal entry:
    * - Debit: 1501 - Portfolio Investments
    * - Credit: 1010 - Main Bank Account (Main Bank Account)
    */
@@ -574,8 +575,7 @@ export class InvestmentImplementationService {
         throw new Error("Insufficient funds available for disbursement");
       }
 
-      // Get the accounts for journal entry
-      // Account 1501 - Portfolio Investments
+      // Get Portfolio Investments account (1501) for GL payment
       const portfolioInvestmentAccount = await prisma.chartOfAccounts.findFirst({
         where: {
           OR: [
@@ -590,8 +590,8 @@ export class InvestmentImplementationService {
         throw new Error("Portfolio Investments account (1501) not found in chart of accounts. Please create this account first.");
       }
 
-      // Account 1010 - Main Bank Account
-      const bankAccount = await prisma.chartOfAccounts.findFirst({
+      // Get Main Bank Account (1010) - need to find the Bank record, not just the GL account
+      const bankGLAccount = await prisma.chartOfAccounts.findFirst({
         where: {
           OR: [
             { accountNo: "1010" },
@@ -601,57 +601,43 @@ export class InvestmentImplementationService {
         }
       });
 
-      if (!bankAccount) {
+      if (!bankGLAccount) {
         throw new Error("Main Bank Account (1010) not found in chart of accounts. Please create this account first.");
       }
 
-      // Get default currency
-      const defaultCurrency = await prisma.currency.findFirst({
-        where: { code: "USD" }
+      // Find the bank record linked to this GL account
+      const bank = await prisma.bank.findFirst({
+        where: {
+          glAccountId: bankGLAccount.id,
+          isActive: true
+        },
+        include: {
+          currency: true
+        }
       });
 
-      if (!defaultCurrency) {
-        throw new Error("Default currency (USD) not found");
+      if (!bank) {
+        throw new Error("Bank account linked to Main Bank Account (1010) not found. Please create a bank account linked to GL account 1010.");
       }
 
       const disbursementAmount = Number(disbursement.amount);
       const portfolioCompanyName = disbursement.investmentImplementation?.portfolioCompany?.name || "Portfolio Company";
 
-      // Create journal entry with balanced debit/credit
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: disbursement.disbursementDate,
-          referenceNumber: `FD-${disbursementId.substring(0, 8).toUpperCase()}-${Date.now()}`,
-          description: `Fund Disbursement - ${portfolioCompanyName} - $${disbursementAmount.toLocaleString()}`,
-          totalAmount: new Decimal(disbursementAmount),
-          currencyId: defaultCurrency.id,
-          status: "POSTED", // Auto-post the journal entry
-          createdById: approvedById
-        }
+      // Create cashbook payment entry - this will automatically create the journal entry
+      const cashbookResult = await CashbookService.createCashPayment({
+        bankId: bank.id,
+        transactionDate: disbursement.disbursementDate,
+        description: `Fund Disbursement - ${portfolioCompanyName} - $${disbursementAmount.toLocaleString()}`,
+        amount: disbursementAmount,
+        reference: `FD-${disbursementId.substring(0, 8).toUpperCase()}`,
+        counterpartyType: 'GL', // GL payment (not customer or supplier)
+        glAccountId: portfolioInvestmentAccount.id, // Debit Portfolio Investments
+        createdById: approvedById
       });
 
-      // Create journal entry lines - Balanced entry
-      // Debit: 1501 - Portfolio Investments
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: journalEntry.id,
-          chartOfAccountId: portfolioInvestmentAccount.id,
-          debitAmount: new Decimal(disbursementAmount),
-          creditAmount: new Decimal(0),
-          description: `Portfolio Investment - ${portfolioCompanyName} - Disbursement ${disbursementId.substring(0, 8)}`
-        }
-      });
-
-      // Credit: 1010 - Main Bank Account
-      await prisma.journalEntryLine.create({
-        data: {
-          journalEntryId: journalEntry.id,
-          chartOfAccountId: bankAccount.id,
-          debitAmount: new Decimal(0),
-          creditAmount: new Decimal(disbursementAmount),
-          description: `Bank Payment - Fund Disbursement ${disbursementId.substring(0, 8)}`
-        }
-      });
+      if (!cashbookResult.success || !cashbookResult.transaction) {
+        throw new Error(cashbookResult.message || "Failed to create cashbook payment");
+      }
 
       // Update disbursement status and fund remaining amount in a transaction
       const [updatedDisbursement, updatedFund] = await prisma.$transaction([
@@ -673,10 +659,13 @@ export class InvestmentImplementationService {
         })
       ]);
 
-      console.log(`✅ Fund disbursement approved and journal entry created:`);
-      console.log(`   Journal Entry: ${journalEntry.referenceNumber}`);
+      console.log(`✅ Fund disbursement approved and cashbook payment created:`);
+      console.log(`   Cashbook Entry: ${cashbookResult.transaction.id}`);
+      if (cashbookResult.journalEntry) {
+        console.log(`   Journal Entry: ${cashbookResult.journalEntry.referenceNumber}`);
+      }
       console.log(`   Debit: ${portfolioInvestmentAccount.accountNo} - ${portfolioInvestmentAccount.accountName} - $${disbursementAmount.toLocaleString()}`);
-      console.log(`   Credit: ${bankAccount.accountNo} - ${bankAccount.accountName} - $${disbursementAmount.toLocaleString()}`);
+      console.log(`   Credit: ${bankGLAccount.accountNo} - ${bankGLAccount.accountName} - $${disbursementAmount.toLocaleString()}`);
       console.log(`   ✅ Balanced: Debit = Credit = $${disbursementAmount.toLocaleString()}`);
 
       return updatedDisbursement;
