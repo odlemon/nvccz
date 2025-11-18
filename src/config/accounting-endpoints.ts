@@ -2097,5 +2097,310 @@ export const accountingEndpoints = {
         500: { description: 'Internal server error' }
       }
     }
+  },
+
+  // ========== ACCOUNTS PAYABLES - PURCHASE INVOICES ==========
+  '/accounting/purchase-invoices': {
+    post: {
+      summary: 'Create a new purchase invoice',
+      description: 'Create a purchase invoice for non-procurement expenses. This creates an Accounts Payable entry.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['vendorId', 'invoiceDate', 'currencyId', 'items'],
+              properties: {
+                vendorId: { type: 'string', example: 'vendor-id-here', description: 'Vendor ID' },
+                invoiceDate: { type: 'string', format: 'date-time', example: '2025-01-15T00:00:00Z' },
+                dueDate: { type: 'string', format: 'date-time', example: '2025-02-15T00:00:00Z' },
+                currencyId: { type: 'string', example: 'currency-id-here' },
+                description: { type: 'string', example: 'Office Supplies Purchase' },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['itemName', 'quantity', 'unitPrice'],
+                    properties: {
+                      itemName: { type: 'string', example: 'Office Chairs' },
+                      description: { type: 'string', example: 'Ergonomic office chairs' },
+                      quantity: { type: 'number', example: 5 },
+                      unitPrice: { type: 'number', example: 150.00 },
+                      unit: { type: 'string', example: 'pcs' },
+                      vatRate: { type: 'number', example: 0.15, description: 'VAT rate (0.15 for 15%)' }
+                    }
+                  }
+                },
+                isTaxable: { type: 'boolean', example: true },
+                invoiceNumber: { type: 'string', example: 'PINV-2025-001' },
+                notes: { type: 'string', example: 'Monthly office supplies order' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: {
+          description: 'Purchase invoice created successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Purchase invoice created successfully',
+                data: {
+                  id: 'invoice-id',
+                  invoiceNumber: 'PINV-2025-001',
+                  vendorId: 'vendor-id',
+                  subtotal: '1650.00',
+                  vatAmount: '247.50',
+                  totalAmount: '1897.50',
+                  status: 'DRAFT',
+                  paymentStatus: 'PENDING'
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - validation errors' },
+        401: { description: 'Unauthorized' }
+      }
+    },
+    get: {
+      summary: 'Get all purchase invoices',
+      description: 'Retrieve all purchase invoices with pagination and filtering',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'page', schema: { type: 'integer', default: 1 }, description: 'Page number' },
+        { in: 'query', name: 'limit', schema: { type: 'integer', default: 10 }, description: 'Items per page' },
+        { in: 'query', name: 'status', schema: { type: 'string', enum: ['DRAFT', 'POSTED'] }, description: 'Filter by status' },
+        { in: 'query', name: 'paymentStatus', schema: { type: 'string', enum: ['PENDING', 'PAID', 'PARTIALLY_PAID'] }, description: 'Filter by payment status' }
+      ],
+      responses: {
+        200: {
+          description: 'Purchase invoices retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                data: {
+                  invoices: [],
+                  total: 0,
+                  page: 1,
+                  totalPages: 1
+                }
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/purchase-invoices/{id}': {
+    get: {
+      summary: 'Get purchase invoice by ID',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      responses: {
+        200: {
+          description: 'Purchase invoice retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                data: {
+                  id: 'invoice-id',
+                  invoiceNumber: 'PINV-2025-001',
+                  vendor: { id: 'vendor-id', name: 'ABC Supplies Ltd' },
+                  items: []
+                }
+              }
+            }
+          }
+        },
+        404: { description: 'Purchase invoice not found' },
+        401: { description: 'Unauthorized' }
+      }
+    },
+    put: {
+      summary: 'Update purchase invoice',
+      description: 'Update a purchase invoice. Only DRAFT invoices can be updated.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                vendorId: { type: 'string' },
+                invoiceDate: { type: 'string', format: 'date-time' },
+                dueDate: { type: 'string', format: 'date-time' },
+                currencyId: { type: 'string' },
+                description: { type: 'string' },
+                items: { type: 'array' },
+                isTaxable: { type: 'boolean' },
+                notes: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description: 'Purchase invoice updated successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Purchase invoice updated successfully',
+                data: {}
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - only DRAFT invoices can be updated' },
+        401: { description: 'Unauthorized' }
+      }
+    },
+    delete: {
+      summary: 'Delete purchase invoice',
+      description: 'Delete a purchase invoice. Only DRAFT invoices can be deleted.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      responses: {
+        200: {
+          description: 'Purchase invoice deleted successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Purchase invoice deleted successfully'
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - only DRAFT invoices can be deleted' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/purchase-invoices/{id}/submit': {
+    post: {
+      summary: 'Submit invoice (creates journal entries based on payment method)',
+      description: 'Submits a DRAFT invoice and creates journal entries based on payment method:\n- BANK: Dr Expense Account, Dr VAT Input (if applicable), Cr Bank Account\n- CASH: Dr Expense Account, Dr VAT Input (if applicable), Cr Petty Cash (1030)\n- CREDIT: Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['paymentMethod', 'expenseAccountId'],
+              properties: {
+                paymentMethod: { type: 'string', enum: ['BANK', 'CASH', 'CREDIT'], example: 'CREDIT', description: 'Payment method for the invoice' },
+                expenseAccountId: { type: 'string', example: 'expense-account-id', description: 'The expense account to debit (e.g., Rent Expense, Office Supplies)' },
+                bankId: { type: 'string', example: 'bank-id-here', description: 'Bank ID (required if paymentMethod is BANK)' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description: 'Invoice submitted successfully. Journal entry created based on payment method.',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Invoice submitted successfully',
+                data: {
+                  id: 'invoice-id',
+                  status: 'POSTED',
+                  paymentMethod: 'CREDIT',
+                  paymentStatus: 'PENDING',
+                  journalEntry: {
+                    id: 'journal-entry-id',
+                    referenceNumber: 'PINV-CREDIT-PINV-2025-001',
+                    status: 'POSTED'
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - invoice must be in DRAFT status' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/accounting/purchase-invoices/{id}/pay': {
+    post: {
+      summary: 'Pay invoice (creates cashbook payment entry for CREDIT invoices only)',
+      description: 'Pays a CREDIT invoice by creating a cashbook payment entry which automatically creates a journal entry:\n- BANK: Dr Accounts Payable, Cr Bank Account\n- CASH: Dr Accounts Payable, Cr Cash Account\nOnly invoices submitted with CREDIT payment method can be paid.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Purchase invoice ID' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['paymentMethod', 'paymentDate'],
+              properties: {
+                paymentMethod: { type: 'string', enum: ['BANK', 'CASH'], example: 'BANK', description: 'Payment method for paying the invoice' },
+                bankId: { type: 'string', example: 'bank-id-here', description: 'Bank account ID (required if paymentMethod is BANK)' },
+                paymentDate: { type: 'string', format: 'date-time', example: '2025-01-20T00:00:00Z', description: 'Payment date' },
+                paymentReference: { type: 'string', example: 'PAY-PINV-2025-001', description: 'Payment reference number' },
+                notes: { type: 'string', example: 'Payment for office supplies' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description: 'Invoice paid successfully. Cashbook payment entry created.',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Invoice paid successfully',
+                data: {
+                  id: 'invoice-id',
+                  paymentStatus: 'PAID',
+                  paidAmount: '3220.00',
+                  outstandingAmount: '0.00',
+                  cashbookEntryId: 'cashbook-entry-id'
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request - invoice must be submitted as CREDIT first' },
+        401: { description: 'Unauthorized' }
+      }
+    }
   }
 };
