@@ -168,6 +168,85 @@ router.get(
 
 /**
  * @swagger
+ * /accounting/purchase-invoices/expense-accounts:
+ *   get:
+ *     summary: Get expense accounts
+ *     description: Retrieve all active expense accounts from chart of accounts. Use these account IDs when submitting purchase invoices.
+ *     tags: [Accounts Payables]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Expense accounts retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Expense accounts retrieved successfully
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         description: Expense account ID (use this in expenseAccountId field)
+ *                         example: expense-account-id-here
+ *                       accountNo:
+ *                         type: string
+ *                         description: Account number
+ *                         example: "5010"
+ *                       accountName:
+ *                         type: string
+ *                         description: Account name
+ *                         example: "Office Supplies Expense"
+ *                       accountType:
+ *                         type: string
+ *                         example: "Expense"
+ *                       financialStatement:
+ *                         type: string
+ *                         example: "Income Statement"
+ *                       notes:
+ *                         type: string
+ *                         example: "Office supplies and materials"
+ *                       isActive:
+ *                         type: boolean
+ *                         example: true
+ *             example:
+ *               success: true
+ *               message: Expense accounts retrieved successfully
+ *               data:
+ *                 - id: "expense-account-id-1"
+ *                   accountNo: "5000"
+ *                   accountName: "Rent Expense"
+ *                   accountType: "Expense"
+ *                   financialStatement: "Income Statement"
+ *                   notes: "Office lease"
+ *                   isActive: true
+ *                 - id: "expense-account-id-2"
+ *                   accountNo: "5010"
+ *                   accountName: "Office Supplies Expense"
+ *                   accountType: "Expense"
+ *                   financialStatement: "Income Statement"
+ *                   notes: "Office supplies and materials"
+ *                   isActive: true
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/expense-accounts",
+  authenticate,
+  PurchaseInvoiceController.getExpenseAccounts
+);
+
+/**
+ * @swagger
  * /accounting/purchase-invoices/{id}:
  *   get:
  *     summary: Get purchase invoice by ID
