@@ -37,6 +37,10 @@ const options = {
         description: 'Endpoints for uploading and reviewing portfolio financial reports'
       },
       {
+        name: 'Accounts Payables',
+        description: 'Purchase invoice management for non-procurement expenses - Create, submit, and pay invoices with BANK, CASH, or CREDIT payment methods'
+      },
+      {
         name: 'Procurement - Requisitions',
         description: 'Purchase requisition management - Create, view, submit, and approve requisitions'
       },

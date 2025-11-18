@@ -483,12 +483,17 @@ export class PurchaseInvoiceService {
   }
 
   /**
-   * Mark invoice as "on credit" - creates Accounts Payable journal entry
-   * Dr. Expense Account, Dr. VAT Input (if applicable), Cr. Accounts Payable (2000)
+   * Submit invoice - creates journal entries based on payment method
+   * For BANK/CASH: Dr Expense, Dr VAT Input, Cr Bank/Cash
+   * For CREDIT: Dr Expense, Dr VAT Input, Cr Accounts Payable
    */
-  static async markAsCredit(
+  static async submitInvoice(
     invoiceId: string,
-    expenseAccountId: string,
+    submitData: {
+      paymentMethod: "BANK" | "CASH" | "CREDIT";
+      expenseAccountId: string;
+      bankId?: string; // Required for BANK payment method
+    },
     processedById: string
   ): Promise<PurchaseInvoiceWithRelations> {
     try {
@@ -506,79 +511,148 @@ export class PurchaseInvoiceService {
       }
 
       if (invoice.status !== "DRAFT") {
-        throw new Error("Only DRAFT invoices can be marked as credit");
+        throw new Error("Only DRAFT invoices can be submitted");
       }
 
       if (invoice.journalEntryId) {
         throw new Error("Invoice already has a journal entry");
       }
 
-      // Get Accounts Payable account (2000)
-      const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: "2000" },
-            { accountName: { contains: "Accounts Payable" } }
-          ],
-          isActive: true
-        }
-      });
+      // Validate payment method
+      if (!["BANK", "CASH", "CREDIT"].includes(submitData.paymentMethod)) {
+        throw new Error("Payment method must be BANK, CASH, or CREDIT");
+      }
 
-      if (!accountsPayableAccount) {
-        throw new Error("Accounts Payable account (2000) not found in chart of accounts");
+      // Validate bankId for BANK payment method
+      if (submitData.paymentMethod === "BANK" && !submitData.bankId) {
+        throw new Error("Bank ID is required for BANK payment method");
       }
 
       // Get expense account
       const expenseAccount = await prisma.chartOfAccounts.findUnique({
-        where: { id: expenseAccountId }
+        where: { id: submitData.expenseAccountId }
       });
 
       if (!expenseAccount) {
         throw new Error("Expense account not found");
       }
 
-      // Create journal entry: Dr Expense, Dr VAT Input, Cr Accounts Payable
+      // Get VAT Input account (2110)
+      const vatInputAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountNo: "2110" },
+            { accountName: { contains: "VAT Input" } }
+          ],
+          isActive: true
+        }
+      });
+
+      // Determine credit account based on payment method
+      let creditAccountId: string;
+      let creditAccountName: string;
+      let referencePrefix: string;
+
+      if (submitData.paymentMethod === "CREDIT") {
+        // Get Accounts Payable account (2000)
+        const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: "2000" },
+              { accountName: { contains: "Accounts Payable" } }
+            ],
+            isActive: true
+          }
+        });
+
+        if (!accountsPayableAccount) {
+          throw new Error("Accounts Payable account (2000) not found in chart of accounts");
+        }
+
+        creditAccountId = accountsPayableAccount.id;
+        creditAccountName = accountsPayableAccount.accountName;
+        referencePrefix = "PINV-CREDIT";
+      } else if (submitData.paymentMethod === "BANK") {
+        // Get bank account's GL account
+        const bank = await prisma.bank.findUnique({
+          where: { id: submitData.bankId! },
+          include: { glAccount: true }
+        });
+
+        if (!bank) {
+          throw new Error("Bank account not found");
+        }
+
+        if (!bank.glAccount) {
+          throw new Error("Bank account does not have a GL account configured");
+        }
+
+        creditAccountId = bank.glAccount.id;
+        creditAccountName = bank.glAccount.accountName;
+        referencePrefix = "PINV-BANK";
+      } else {
+        // CASH - Get Petty Cash account (1030)
+        const cashAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: "1030" },
+              { accountName: { contains: "Petty Cash" } }
+            ],
+            isActive: true
+          }
+        });
+
+        if (!cashAccount) {
+          throw new Error("Petty Cash account (1030) not found in chart of accounts");
+        }
+
+        creditAccountId = cashAccount.id;
+        creditAccountName = cashAccount.accountName;
+        referencePrefix = "PINV-CASH";
+      }
+
+      // Create journal entry lines
+      const journalEntryLines: any[] = [
+        // Debit Expense Account
+        {
+          chartOfAccountId: submitData.expenseAccountId,
+          debitAmount: invoice.subtotal,
+          creditAmount: new Decimal(0),
+          description: `Expense - ${invoice.description || invoice.invoiceNumber}`
+        }
+      ];
+
+      // Debit VAT Input (if applicable)
+      if (invoice.vatAmount.gt(0)) {
+        const vatAccountId = vatInputAccount?.id || submitData.expenseAccountId;
+        journalEntryLines.push({
+          chartOfAccountId: vatAccountId,
+          debitAmount: invoice.vatAmount,
+          creditAmount: new Decimal(0),
+          description: `VAT Input - ${invoice.invoiceNumber}`
+        });
+      }
+
+      // Credit account (Bank/Cash/Accounts Payable)
+      journalEntryLines.push({
+        chartOfAccountId: creditAccountId,
+        debitAmount: new Decimal(0),
+        creditAmount: invoice.totalAmount,
+        description: `${creditAccountName} - ${invoice.vendor.name} - ${invoice.invoiceNumber}`
+      });
+
+      // Create journal entry
       const journalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate: invoice.invoiceDate,
-          referenceNumber: `PINV-CREDIT-${invoice.invoiceNumber}`,
+          referenceNumber: `${referencePrefix}-${invoice.invoiceNumber}`,
           description: `Purchase Invoice - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
           totalAmount: invoice.totalAmount,
           currencyId: invoice.currencyId,
           status: "POSTED",
           createdById: processedById,
           journalEntryLines: {
-            create: [
-              // Debit Expense Account
-              {
-                chartOfAccountId: expenseAccountId,
-                debitAmount: invoice.subtotal,
-                creditAmount: new Decimal(0),
-                description: `Expense - ${invoice.description || invoice.invoiceNumber}`
-              },
-              // Debit VAT Input (if applicable)
-              ...(invoice.vatAmount.gt(0) ? [{
-                chartOfAccountId: (await prisma.chartOfAccounts.findFirst({
-                  where: {
-                    OR: [
-                      { accountNo: "2110" },
-                      { accountName: { contains: "VAT Input" } }
-                    ],
-                    isActive: true
-                  }
-                }))?.id || expenseAccountId,
-                debitAmount: invoice.vatAmount,
-                creditAmount: new Decimal(0),
-                description: `VAT Input - ${invoice.invoiceNumber}`
-              }] : []),
-              // Credit Accounts Payable
-              {
-                chartOfAccountId: accountsPayableAccount.id,
-                debitAmount: new Decimal(0),
-                creditAmount: invoice.totalAmount,
-                description: `Accounts Payable - ${invoice.vendor.name} - ${invoice.invoiceNumber}`
-              }
-            ]
+            create: journalEntryLines
           }
         }
       });
@@ -588,7 +662,11 @@ export class PurchaseInvoiceService {
         where: { id: invoiceId },
         data: {
           status: "POSTED",
-          paymentMethod: "CREDIT",
+          paymentMethod: submitData.paymentMethod,
+          paymentStatus: submitData.paymentMethod === "CREDIT" ? "PENDING" : "PAID",
+          paidAmount: submitData.paymentMethod === "CREDIT" ? new Decimal(0) : invoice.totalAmount,
+          outstandingAmount: submitData.paymentMethod === "CREDIT" ? invoice.totalAmount : new Decimal(0),
+          paymentDate: submitData.paymentMethod === "CREDIT" ? null : invoice.invoiceDate,
           journalEntryId: journalEntry.id
         },
         include: {
@@ -624,18 +702,19 @@ export class PurchaseInvoiceService {
 
       return updatedInvoice;
     } catch (error: any) {
-      throw new Error(`Failed to mark invoice as credit: ${error.message}`);
+      throw new Error(`Failed to submit invoice: ${error.message}`);
     }
   }
 
   /**
-   * Pay invoice - creates cashbook payment entry
-   * Dr. Accounts Payable, Cr. Bank Account
+   * Pay invoice - creates cashbook payment entry (only for CREDIT invoices)
+   * Dr. Accounts Payable, Cr. Bank/Cash Account
    */
   static async payInvoice(
     invoiceId: string,
     paymentData: {
-      bankId: string;
+      paymentMethod: "BANK" | "CASH";
+      bankId?: string; // Required for BANK payment method
       paymentDate: Date;
       paymentReference?: string;
       notes?: string;
@@ -660,8 +739,26 @@ export class PurchaseInvoiceService {
         throw new Error("Invoice is already paid");
       }
 
+      if (invoice.status !== "POSTED") {
+        throw new Error("Invoice must be submitted before payment");
+      }
+
+      if (invoice.paymentMethod !== "CREDIT") {
+        throw new Error("Only CREDIT invoices can be paid. Invoice was submitted with payment method: " + invoice.paymentMethod);
+      }
+
       if (!invoice.journalEntryId) {
-        throw new Error("Invoice must be marked as credit before payment");
+        throw new Error("Invoice must be submitted before payment");
+      }
+
+      // Validate payment method
+      if (!["BANK", "CASH"].includes(paymentData.paymentMethod)) {
+        throw new Error("Payment method must be BANK or CASH");
+      }
+
+      // Validate bankId for BANK payment method
+      if (paymentData.paymentMethod === "BANK" && !paymentData.bankId) {
+        throw new Error("Bank ID is required for BANK payment method");
       }
 
       // Get Accounts Payable account (2000) for the debit
@@ -679,19 +776,54 @@ export class PurchaseInvoiceService {
         throw new Error("Accounts Payable account (2000) not found");
       }
 
-      // Get bank account
-      const bank = await prisma.bank.findUnique({
-        where: { id: paymentData.bankId },
-        include: { glAccount: true }
-      });
+      let bankId: string;
+      let bankName: string;
 
-      if (!bank) {
-        throw new Error("Bank account not found");
+      if (paymentData.paymentMethod === "BANK") {
+        // Get bank account
+        const bank = await prisma.bank.findUnique({
+          where: { id: paymentData.bankId! },
+          include: { glAccount: true }
+        });
+
+        if (!bank) {
+          throw new Error("Bank account not found");
+        }
+
+        bankId = bank.id;
+        bankName = bank.name;
+      } else {
+        // CASH - Find a bank account linked to Petty Cash (1030) or use first available bank
+        // For cash payments, we still need a bank record for cashbook entry
+        // In practice, you might have a "Petty Cash" bank account
+        const cashBank = await prisma.bank.findFirst({
+          where: {
+            name: { contains: "Cash" }
+          },
+          include: { glAccount: true }
+        });
+
+        if (!cashBank) {
+          // Fallback: use first bank account
+          const firstBank = await prisma.bank.findFirst({
+            include: { glAccount: true }
+          });
+
+          if (!firstBank) {
+            throw new Error("No bank account found for cash payment");
+          }
+
+          bankId = firstBank.id;
+          bankName = firstBank.name;
+        } else {
+          bankId = cashBank.id;
+          bankName = cashBank.name;
+        }
       }
 
       // Create cashbook payment entry
       const cashbookResult = await CashbookService.createCashPayment({
-        bankId: paymentData.bankId,
+        bankId: bankId,
         transactionDate: paymentData.paymentDate,
         description: `Payment for Purchase Invoice ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
         amount: Number(invoice.outstandingAmount),
@@ -711,7 +843,6 @@ export class PurchaseInvoiceService {
         where: { id: invoiceId },
         data: {
           paymentStatus: paymentAmount.gte(invoice.totalAmount) ? "PAID" : "PARTIALLY_PAID",
-          paymentMethod: "PAID",
           paidAmount: invoice.paidAmount.add(paymentAmount),
           outstandingAmount: invoice.outstandingAmount.minus(paymentAmount),
           paymentDate: paymentData.paymentDate,

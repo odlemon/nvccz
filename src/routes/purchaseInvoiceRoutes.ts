@@ -287,10 +287,14 @@ router.delete(
 
 /**
  * @swagger
- * /accounting/purchase-invoices/{id}/mark-as-credit:
+ * /accounting/purchase-invoices/{id}/submit:
  *   post:
- *     summary: Mark invoice as credit (creates Accounts Payable journal entry)
- *     description: Creates a journal entry - Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)
+ *     summary: Submit invoice (creates journal entries based on payment method)
+ *     description: |
+ *       Submits a DRAFT invoice and creates journal entries based on payment method:
+ *       - BANK: Dr Expense Account, Dr VAT Input (if applicable), Cr Bank Account
+ *       - CASH: Dr Expense Account, Dr VAT Input (if applicable), Cr Petty Cash (1030)
+ *       - CREDIT: Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)
  *     tags: [Accounts Payables]
  *     security:
  *       - bearerAuth: []
@@ -307,14 +311,22 @@ router.delete(
  *           schema:
  *             type: object
  *             required:
+ *               - paymentMethod
  *               - expenseAccountId
  *             properties:
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [BANK, CASH, CREDIT]
+ *                 description: Payment method for the invoice
  *               expenseAccountId:
  *                 type: string
  *                 description: The expense account to debit
+ *               bankId:
+ *                 type: string
+ *                 description: Bank ID (required if paymentMethod is BANK)
  *     responses:
  *       200:
- *         description: Invoice marked as credit successfully. Journal entry created - Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)
+ *         description: Invoice submitted successfully. Journal entry created based on payment method.
  *         content:
  *           application/json:
  *             schema:
@@ -333,6 +345,9 @@ router.delete(
  *                     paymentMethod:
  *                       type: string
  *                       example: CREDIT
+ *                     paymentStatus:
+ *                       type: string
+ *                       example: PENDING
  *                     journalEntry:
  *                       type: object
  *                       properties:
@@ -346,17 +361,21 @@ router.delete(
  *         description: Bad request - invoice must be in DRAFT status
  */
 router.post(
-  "/:id/mark-as-credit",
+  "/:id/submit",
   authenticate,
-  PurchaseInvoiceController.markAsCredit
+  PurchaseInvoiceController.submitInvoice
 );
 
 /**
  * @swagger
  * /accounting/purchase-invoices/{id}/pay:
  *   post:
- *     summary: Pay invoice (creates cashbook payment entry)
- *     description: Creates a cashbook payment entry which automatically creates a journal entry - Dr Accounts Payable, Cr Bank Account
+ *     summary: Pay invoice (creates cashbook payment entry for CREDIT invoices only)
+ *     description: |
+ *       Pays a CREDIT invoice by creating a cashbook payment entry which automatically creates a journal entry:
+ *       - BANK: Dr Accounts Payable, Cr Bank Account
+ *       - CASH: Dr Accounts Payable, Cr Cash Account
+ *       Only invoices submitted with CREDIT payment method can be paid.
  *     tags: [Accounts Payables]
  *     security:
  *       - bearerAuth: []
@@ -373,11 +392,16 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - bankId
+ *               - paymentMethod
  *               - paymentDate
  *             properties:
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [BANK, CASH]
+ *                 description: Payment method for paying the invoice
  *               bankId:
  *                 type: string
+ *                 description: Bank ID (required if paymentMethod is BANK)
  *               paymentDate:
  *                 type: string
  *                 format: date-time
@@ -387,7 +411,7 @@ router.post(
  *                 type: string
  *     responses:
  *       200:
- *         description: Invoice paid successfully. Cashbook payment entry created which automatically creates journal entry - Dr Accounts Payable, Cr Bank Account
+ *         description: Invoice paid successfully. Cashbook payment entry created which automatically creates journal entry - Dr Accounts Payable, Cr Bank/Cash Account
  *         content:
  *           application/json:
  *             schema:
@@ -410,7 +434,7 @@ router.post(
  *                     cashbookEntryId:
  *                       type: string
  *       400:
- *         description: Bad request - invoice must be marked as credit first
+ *         description: Bad request - invoice must be submitted as CREDIT first
  */
 router.post(
   "/:id/pay",

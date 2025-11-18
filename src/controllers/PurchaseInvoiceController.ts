@@ -216,20 +216,35 @@ export class PurchaseInvoiceController {
   }
 
   /**
-   * Mark invoice as "on credit" - creates Accounts Payable journal entry
+   * Submit invoice - creates journal entries based on payment method
    */
-  static async markAsCredit(req: AuthRequest, res: Response): Promise<void> {
+  static async submitInvoice(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const { expenseAccountId } = req.body;
+      const { paymentMethod, expenseAccountId, bankId } = req.body;
 
       if (!id) {
         ResponseHelper.badRequest(res, "Invoice ID is required");
         return;
       }
 
+      if (!paymentMethod) {
+        ResponseHelper.badRequest(res, "Payment method is required (BANK, CASH, or CREDIT)");
+        return;
+      }
+
+      if (!["BANK", "CASH", "CREDIT"].includes(paymentMethod)) {
+        ResponseHelper.badRequest(res, "Payment method must be BANK, CASH, or CREDIT");
+        return;
+      }
+
       if (!expenseAccountId) {
         ResponseHelper.badRequest(res, "Expense account ID is required");
+        return;
+      }
+
+      if (paymentMethod === "BANK" && !bankId) {
+        ResponseHelper.badRequest(res, "Bank ID is required for BANK payment method");
         return;
       }
 
@@ -240,32 +255,38 @@ export class PurchaseInvoiceController {
         return;
       }
 
-      const invoice = await PurchaseInvoiceService.markAsCredit(
+      const invoice = await PurchaseInvoiceService.submitInvoice(
         id,
-        expenseAccountId,
+        {
+          paymentMethod,
+          expenseAccountId,
+          bankId
+        },
         processedById
       );
 
-      logger.info("Purchase invoice marked as credit", {
+      logger.info("Purchase invoice submitted", {
         invoiceId: invoice.id,
+        paymentMethod,
         journalEntryId: invoice.journalEntryId,
         userId: processedById
       });
 
-      ResponseHelper.success(res, "Purchase invoice marked as credit successfully", invoice);
+      ResponseHelper.success(res, "Purchase invoice submitted successfully", invoice);
     } catch (error: any) {
-      logger.error("Error marking invoice as credit", { error: error.message });
-      ResponseHelper.error(res, `Failed to mark invoice as credit: ${error.message}`, undefined, 500);
+      logger.error("Error submitting invoice", { error: error.message });
+      ResponseHelper.error(res, `Failed to submit invoice: ${error.message}`, undefined, 500);
     }
   }
 
   /**
-   * Pay invoice - creates cashbook payment entry
+   * Pay invoice - creates cashbook payment entry (only for CREDIT invoices)
    */
   static async payInvoice(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       const {
+        paymentMethod,
         bankId,
         paymentDate,
         paymentReference,
@@ -277,8 +298,18 @@ export class PurchaseInvoiceController {
         return;
       }
 
-      if (!bankId) {
-        ResponseHelper.badRequest(res, "Bank ID is required");
+      if (!paymentMethod) {
+        ResponseHelper.badRequest(res, "Payment method is required (BANK or CASH)");
+        return;
+      }
+
+      if (!["BANK", "CASH"].includes(paymentMethod)) {
+        ResponseHelper.badRequest(res, "Payment method must be BANK or CASH");
+        return;
+      }
+
+      if (paymentMethod === "BANK" && !bankId) {
+        ResponseHelper.badRequest(res, "Bank ID is required for BANK payment method");
         return;
       }
 
@@ -297,6 +328,7 @@ export class PurchaseInvoiceController {
       const invoice = await PurchaseInvoiceService.payInvoice(
         id,
         {
+          paymentMethod,
           bankId,
           paymentDate: new Date(paymentDate),
           paymentReference,
@@ -307,6 +339,7 @@ export class PurchaseInvoiceController {
 
       logger.info("Purchase invoice paid successfully", {
         invoiceId: invoice.id,
+        paymentMethod,
         cashbookEntryId: invoice.cashbookEntryId,
         userId: processedById
       });
