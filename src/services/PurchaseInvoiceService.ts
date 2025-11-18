@@ -969,5 +969,51 @@ export class PurchaseInvoiceService {
       throw new Error(`Failed to get expense accounts: ${error.message}`);
     }
   }
+
+  /**
+   * Get all active bank accounts
+   */
+  static async getBanks(): Promise<any[]> {
+    try {
+      const banks = await prisma.bank.findMany({
+        where: {
+          isActive: true
+        },
+        include: {
+          currency: {
+            select: {
+              id: true,
+              code: true,
+              symbol: true,
+              name: true
+            }
+          },
+          glAccount: {
+            select: {
+              id: true,
+              accountNo: true,
+              accountName: true
+            }
+          }
+        },
+        orderBy: [
+          { name: 'asc' }
+        ]
+      });
+
+      return banks.map(bank => ({
+        id: bank.id,
+        name: bank.name,
+        accountNumber: bank.accountNumber,
+        bankCode: bank.bankCode,
+        branchCode: bank.branchCode,
+        currency: bank.currency,
+        glAccount: bank.glAccount,
+        isActive: bank.isActive
+      }));
+    } catch (error: any) {
+      throw new Error(`Failed to get banks: ${error.message}`);
+    }
+  }
 }
 

@@ -2100,6 +2100,68 @@ export const accountingEndpoints = {
   },
 
   // ========== ACCOUNTS PAYABLES - PURCHASE INVOICES ==========
+  '/accounting/purchase-invoices/banks': {
+    get: {
+      summary: 'Get bank accounts',
+      description: 'Retrieve all active bank accounts. Use these bank IDs when submitting or paying invoices with BANK payment method.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Banks retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Banks retrieved successfully',
+                data: [
+                  {
+                    id: 'bank-id-1',
+                    name: 'Main Bank Account - USD',
+                    accountNumber: '1234567890',
+                    bankCode: 'BANK001',
+                    branchCode: 'BR001',
+                    currency: {
+                      id: 'currency-id-1',
+                      code: 'USD',
+                      symbol: '$',
+                      name: 'US Dollar'
+                    },
+                    glAccount: {
+                      id: 'gl-account-id-1',
+                      accountNo: '1010',
+                      accountName: 'Main Bank Account - USD'
+                    },
+                    isActive: true
+                  },
+                  {
+                    id: 'bank-id-2',
+                    name: 'Savings Account - USD',
+                    accountNumber: '9876543210',
+                    bankCode: 'BANK002',
+                    branchCode: 'BR002',
+                    currency: {
+                      id: 'currency-id-1',
+                      code: 'USD',
+                      symbol: '$',
+                      name: 'US Dollar'
+                    },
+                    glAccount: {
+                      id: 'gl-account-id-2',
+                      accountNo: '1020',
+                      accountName: 'Savings Account - USD'
+                    },
+                    isActive: true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
   '/accounting/purchase-invoices/expense-accounts': {
     get: {
       summary: 'Get expense accounts',
@@ -2528,7 +2590,7 @@ export const accountingEndpoints = {
   '/accounting/purchase-invoices/{id}/pay': {
     post: {
       summary: 'Pay invoice (creates cashbook payment entry for CREDIT invoices only)',
-      description: 'Pays a CREDIT invoice by creating a cashbook payment entry which automatically creates a journal entry:\n- BANK: Dr Accounts Payable, Cr Bank Account\n- CASH: Dr Accounts Payable, Cr Cash Account\nOnly invoices submitted with CREDIT payment method can be paid.',
+      description: 'Pays a CREDIT invoice by creating a cashbook payment entry which automatically creates a journal entry:\n- BANK: Dr Accounts Payable, Cr Bank Account (bankId required)\n- CASH: Dr Accounts Payable, Cr Cash Account\nOnly invoices submitted with CREDIT payment method can be paid.',
       tags: ['Accounts Payables'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -2542,11 +2604,57 @@ export const accountingEndpoints = {
               type: 'object',
               required: ['paymentMethod', 'paymentDate'],
               properties: {
-                paymentMethod: { type: 'string', enum: ['BANK', 'CASH'], example: 'BANK', description: 'Payment method for paying the invoice' },
-                bankId: { type: 'string', example: 'bank-id-here', description: 'Bank account ID (required if paymentMethod is BANK)' },
-                paymentDate: { type: 'string', format: 'date-time', example: '2025-01-20T00:00:00Z', description: 'Payment date' },
-                paymentReference: { type: 'string', example: 'PAY-PINV-2025-001', description: 'Payment reference number' },
-                notes: { type: 'string', example: 'Payment for office supplies' }
+                paymentMethod: { 
+                  type: 'string', 
+                  enum: ['BANK', 'CASH'], 
+                  example: 'BANK', 
+                  description: 'Payment method for paying the invoice (dropdown selection)',
+                  'x-enum-varnames': ['BANK', 'CASH']
+                },
+                bankId: { 
+                  type: 'string', 
+                  example: 'bank-id-here', 
+                  description: 'Bank ID (REQUIRED when paymentMethod is BANK, ignored for CASH)' 
+                },
+                paymentDate: { 
+                  type: 'string', 
+                  format: 'date-time', 
+                  example: '2025-01-20T00:00:00Z', 
+                  description: 'Payment date' 
+                },
+                paymentReference: { 
+                  type: 'string', 
+                  example: 'PAY-PINV-2025-001', 
+                  description: 'Payment reference number' 
+                },
+                notes: { 
+                  type: 'string', 
+                  example: 'Payment for office supplies', 
+                  description: 'Payment notes' 
+                }
+              }
+            },
+            examples: {
+              bankPayment: {
+                summary: 'Bank Payment Example',
+                description: 'Example for BANK payment method (bankId is required)',
+                value: {
+                  paymentMethod: 'BANK',
+                  bankId: 'bank-id-here',
+                  paymentDate: '2025-01-20T00:00:00Z',
+                  paymentReference: 'PAY-PINV-2025-001',
+                  notes: 'Payment via bank transfer'
+                }
+              },
+              cashPayment: {
+                summary: 'Cash Payment Example',
+                description: 'Example for CASH payment method (bankId not needed)',
+                value: {
+                  paymentMethod: 'CASH',
+                  paymentDate: '2025-01-20T00:00:00Z',
+                  paymentReference: 'PAY-PINV-2025-001',
+                  notes: 'Cash payment'
+                }
               }
             }
           }
@@ -2554,7 +2662,7 @@ export const accountingEndpoints = {
       },
       responses: {
         200: {
-          description: 'Invoice paid successfully. Cashbook payment entry created.',
+          description: 'Invoice paid successfully. Cashbook payment entry created which automatically creates journal entry - Dr Accounts Payable, Cr Bank/Cash Account',
           content: {
             'application/json': {
               example: {
@@ -2571,7 +2679,7 @@ export const accountingEndpoints = {
             }
           }
         },
-        400: { description: 'Bad request - invoice must be submitted as CREDIT first' },
+        400: { description: 'Bad request - invoice must be submitted as CREDIT first, or bankId required when paymentMethod is BANK' },
         401: { description: 'Unauthorized' }
       }
     }

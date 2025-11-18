@@ -247,6 +247,105 @@ router.get(
 
 /**
  * @swagger
+ * /accounting/purchase-invoices/banks:
+ *   get:
+ *     summary: Get bank accounts
+ *     description: Retrieve all active bank accounts. Use these bank IDs when submitting or paying invoices with BANK payment method.
+ *     tags: [Accounts Payables]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Banks retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Banks retrieved successfully
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         description: Bank ID (use this in bankId field)
+ *                         example: bank-id-here
+ *                       name:
+ *                         type: string
+ *                         description: Bank name
+ *                         example: "Main Bank Account - USD"
+ *                       accountNumber:
+ *                         type: string
+ *                         description: Bank account number
+ *                         example: "1234567890"
+ *                       bankCode:
+ *                         type: string
+ *                         description: Bank code
+ *                       branchCode:
+ *                         type: string
+ *                         description: Branch code
+ *                       currency:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           code:
+ *                             type: string
+ *                             example: "USD"
+ *                           symbol:
+ *                             type: string
+ *                             example: "$"
+ *                           name:
+ *                             type: string
+ *                       glAccount:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           accountNo:
+ *                             type: string
+ *                           accountName:
+ *                             type: string
+ *                       isActive:
+ *                         type: boolean
+ *                         example: true
+ *             example:
+ *               success: true
+ *               message: Banks retrieved successfully
+ *               data:
+ *                 - id: "bank-id-1"
+ *                   name: "Main Bank Account - USD"
+ *                   accountNumber: "1234567890"
+ *                   bankCode: "BANK001"
+ *                   branchCode: "BR001"
+ *                   currency:
+ *                     id: "currency-id-1"
+ *                     code: "USD"
+ *                     symbol: "$"
+ *                     name: "US Dollar"
+ *                   glAccount:
+ *                     id: "gl-account-id-1"
+ *                     accountNo: "1010"
+ *                     accountName: "Main Bank Account - USD"
+ *                   isActive: true
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/banks",
+  authenticate,
+  PurchaseInvoiceController.getBanks
+);
+
+/**
+ * @swagger
  * /accounting/purchase-invoices/{id}:
  *   get:
  *     summary: Get purchase invoice by ID
@@ -493,7 +592,7 @@ router.post(
  *     summary: Pay invoice (creates cashbook payment entry for CREDIT invoices only)
  *     description: |
  *       Pays a CREDIT invoice by creating a cashbook payment entry which automatically creates a journal entry:
- *       - BANK: Dr Accounts Payable, Cr Bank Account
+ *       - BANK: Dr Accounts Payable, Cr Bank Account (bankId required)
  *       - CASH: Dr Accounts Payable, Cr Cash Account
  *       Only invoices submitted with CREDIT payment method can be paid.
  *     tags: [Accounts Payables]
@@ -518,17 +617,44 @@ router.post(
  *               paymentMethod:
  *                 type: string
  *                 enum: [BANK, CASH]
- *                 description: Payment method for paying the invoice
+ *                 description: Payment method for paying the invoice (dropdown selection)
+ *                 example: BANK
+ *                 x-enum-varnames: [BANK, CASH]
  *               bankId:
  *                 type: string
- *                 description: Bank ID (required if paymentMethod is BANK)
+ *                 description: Bank ID (REQUIRED when paymentMethod is BANK, ignored for CASH)
+ *                 example: bank-id-here
  *               paymentDate:
  *                 type: string
  *                 format: date-time
+ *                 description: Payment date
+ *                 example: "2025-01-20T00:00:00Z"
  *               paymentReference:
  *                 type: string
+ *                 description: Payment reference number
+ *                 example: "PAY-PINV-2025-001"
  *               notes:
  *                 type: string
+ *                 description: Payment notes
+ *                 example: "Payment for office supplies"
+ *           examples:
+ *             bankPayment:
+ *               summary: Bank Payment Example
+ *               description: Example for BANK payment method (bankId is required)
+ *               value:
+ *                 paymentMethod: BANK
+ *                 bankId: bank-id-here
+ *                 paymentDate: "2025-01-20T00:00:00Z"
+ *                 paymentReference: "PAY-PINV-2025-001"
+ *                 notes: "Payment via bank transfer"
+ *             cashPayment:
+ *               summary: Cash Payment Example
+ *               description: Example for CASH payment method (bankId not needed)
+ *               value:
+ *                 paymentMethod: CASH
+ *                 paymentDate: "2025-01-20T00:00:00Z"
+ *                 paymentReference: "PAY-PINV-2025-001"
+ *                 notes: "Cash payment"
  *     responses:
  *       200:
  *         description: Invoice paid successfully. Cashbook payment entry created which automatically creates journal entry - Dr Accounts Payable, Cr Bank/Cash Account
@@ -539,6 +665,10 @@ router.post(
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Purchase invoice paid successfully
  *                 data:
  *                   type: object
  *                   properties:
@@ -549,12 +679,14 @@ router.post(
  *                       example: PAID
  *                     paidAmount:
  *                       type: number
+ *                       example: 1150.00
  *                     outstandingAmount:
  *                       type: number
+ *                       example: 0.00
  *                     cashbookEntryId:
  *                       type: string
  *       400:
- *         description: Bad request - invoice must be submitted as CREDIT first
+ *         description: Bad request - invoice must be submitted as CREDIT first, or bankId required when paymentMethod is BANK
  */
 router.post(
   "/:id/pay",
