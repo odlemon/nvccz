@@ -601,13 +601,11 @@ export class PurchaseInvoiceService {
         }
       });
 
-      // Determine credit account based on payment method
-      let creditAccountId: string;
-      let creditAccountName: string;
-      let referencePrefix: string;
+      let journalEntry: any = null;
+      let cashbookEntry: any = null;
 
       if (submitData.paymentMethod === "CREDIT") {
-        // Get Accounts Payable account (2000)
+        // CREDIT: Create journal entry directly (no cashbook needed)
         const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
           where: {
             OR: [
@@ -622,93 +620,210 @@ export class PurchaseInvoiceService {
           throw new Error("Accounts Payable account (2000) not found in chart of accounts");
         }
 
-        creditAccountId = accountsPayableAccount.id;
-        creditAccountName = accountsPayableAccount.accountName;
-        referencePrefix = "PINV-CREDIT";
-      } else if (submitData.paymentMethod === "BANK") {
-        // Get bank account's GL account
-        const bank = await prisma.bank.findUnique({
-          where: { id: submitData.bankId! },
-          include: { glAccount: true }
-        });
-
-        if (!bank) {
-          throw new Error("Bank account not found");
-        }
-
-        if (!bank.glAccount) {
-          throw new Error("Bank account does not have a GL account configured");
-        }
-
-        creditAccountId = bank.glAccount.id;
-        creditAccountName = bank.glAccount.accountName;
-        referencePrefix = "PINV-BANK";
-      } else {
-        // CASH - Get Petty Cash account (1030)
-        const cashAccount = await prisma.chartOfAccounts.findFirst({
-          where: {
-            OR: [
-              { accountNo: "1030" },
-              { accountName: { contains: "Petty Cash" } }
-            ],
-            isActive: true
+        // Create journal entry lines
+        const journalEntryLines: any[] = [
+          // Debit Expense Account
+          {
+            chartOfAccountId: submitData.expenseAccountId,
+            debitAmount: invoice.subtotal,
+            creditAmount: new Decimal(0),
+            description: `Expense - ${invoice.description || invoice.invoiceNumber}`
           }
-        });
+        ];
 
-        if (!cashAccount) {
-          throw new Error("Petty Cash account (1030) not found in chart of accounts");
+        // Debit VAT Input (if applicable)
+        if (invoice.vatAmount.gt(0)) {
+          const vatAccountId = vatInputAccount?.id || submitData.expenseAccountId;
+          journalEntryLines.push({
+            chartOfAccountId: vatAccountId,
+            debitAmount: invoice.vatAmount,
+            creditAmount: new Decimal(0),
+            description: `VAT Input - ${invoice.invoiceNumber}`
+          });
         }
 
-        creditAccountId = cashAccount.id;
-        creditAccountName = cashAccount.accountName;
-        referencePrefix = "PINV-CASH";
-      }
-
-      // Create journal entry lines
-      const journalEntryLines: any[] = [
-        // Debit Expense Account
-        {
-          chartOfAccountId: submitData.expenseAccountId,
-          debitAmount: invoice.subtotal,
-          creditAmount: new Decimal(0),
-          description: `Expense - ${invoice.description || invoice.invoiceNumber}`
-        }
-      ];
-
-      // Debit VAT Input (if applicable)
-      if (invoice.vatAmount.gt(0)) {
-        const vatAccountId = vatInputAccount?.id || submitData.expenseAccountId;
+        // Credit Accounts Payable
         journalEntryLines.push({
-          chartOfAccountId: vatAccountId,
-          debitAmount: invoice.vatAmount,
-          creditAmount: new Decimal(0),
-          description: `VAT Input - ${invoice.invoiceNumber}`
+          chartOfAccountId: accountsPayableAccount.id,
+          debitAmount: new Decimal(0),
+          creditAmount: invoice.totalAmount,
+          description: `Accounts Payable - ${invoice.vendor.name} - ${invoice.invoiceNumber}`
         });
-      }
 
-      // Credit account (Bank/Cash/Accounts Payable)
-      journalEntryLines.push({
-        chartOfAccountId: creditAccountId,
-        debitAmount: new Decimal(0),
-        creditAmount: invoice.totalAmount,
-        description: `${creditAccountName} - ${invoice.vendor.name} - ${invoice.invoiceNumber}`
-      });
+        // Create journal entry
+        journalEntry = await prisma.journalEntry.create({
+          data: {
+            transactionDate: invoice.invoiceDate,
+            referenceNumber: `PINV-CREDIT-${invoice.invoiceNumber}`,
+            description: `Purchase Invoice - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
+            totalAmount: invoice.totalAmount,
+            currencyId: invoice.currencyId,
+            status: "POSTED",
+            createdById: processedById,
+            journalEntryLines: {
+              create: journalEntryLines
+            }
+          }
+        });
+      } else {
+        // BANK or CASH: Use cashbook to record payment, then create journal entry
+        let bankId: string;
+        let bankName: string;
 
-      // Create journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: invoice.invoiceDate,
-          referenceNumber: `${referencePrefix}-${invoice.invoiceNumber}`,
-          description: `Purchase Invoice - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
-          totalAmount: invoice.totalAmount,
-          currencyId: invoice.currencyId,
-          status: "POSTED",
-          createdById: processedById,
-          journalEntryLines: {
-            create: journalEntryLines
+        if (submitData.paymentMethod === "BANK") {
+          const bank = await prisma.bank.findUnique({
+            where: { id: submitData.bankId! },
+            include: { glAccount: true }
+          });
+
+          if (!bank) {
+            throw new Error("Bank account not found");
+          }
+
+          if (!bank.glAccount) {
+            throw new Error("Bank account does not have a GL account configured");
+          }
+
+          bankId = bank.id;
+          bankName = bank.name;
+        } else {
+          // CASH - For cash payments, we need a bank account for cashbook entry
+          // But the journal entry will credit Petty Cash GL account (1030), not the bank account
+          // Find a bank account (preferably one named "Cash" or use first available)
+          const cashBank = await prisma.bank.findFirst({
+            where: {
+              name: { contains: "Cash" }
+            },
+            include: { glAccount: true }
+          });
+
+          if (!cashBank) {
+            // Fallback: use first bank account
+            const firstBank = await prisma.bank.findFirst({
+              include: { glAccount: true }
+            });
+
+            if (!firstBank) {
+              throw new Error("No bank account found for cash payment");
+            }
+
+            bankId = firstBank.id;
+            bankName = firstBank.name;
+          } else {
+            bankId = cashBank.id;
+            bankName = cashBank.name;
           }
         }
-      });
+
+        // Create cashbook payment entry
+        // Note: We use the expense account as glAccountId, but we'll create custom journal entry lines
+        const vatCode = invoice.vatAmount.gt(0) ? '15%' : '0%';
+        const cashbookResult = await CashbookService.createCashPayment({
+          bankId: bankId,
+          transactionDate: invoice.invoiceDate,
+          description: `Purchase Invoice Payment - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
+          amount: Number(invoice.totalAmount),
+          reference: `PINV-${submitData.paymentMethod}-${invoice.invoiceNumber}`,
+          counterpartyType: 'GL',
+          glAccountId: submitData.expenseAccountId, // This will be used but we'll override journal entry lines
+          vatCode: vatCode,
+          createdById: processedById
+        });
+
+        if (!cashbookResult.success || !cashbookResult.transaction) {
+          throw new Error(cashbookResult.message || "Failed to create cashbook payment");
+        }
+
+        cashbookEntry = cashbookResult.transaction;
+
+        // Get the journal entry created by cashbook
+        if (cashbookEntry.journalEntryId) {
+          // Delete the default journal entry lines created by cashbook
+          await prisma.journalEntryLine.deleteMany({
+            where: { journalEntryId: cashbookEntry.journalEntryId }
+          });
+
+          // Create correct journal entry lines: Dr Expense (subtotal), Dr VAT Input, Cr Bank/Cash
+          const journalEntryLines: any[] = [
+            // Debit Expense Account (subtotal, not net)
+            {
+              journalEntryId: cashbookEntry.journalEntryId,
+              chartOfAccountId: submitData.expenseAccountId,
+              debitAmount: invoice.subtotal,
+              creditAmount: new Decimal(0),
+              description: `Expense - ${invoice.description || invoice.invoiceNumber}`
+            }
+          ];
+
+          // Debit VAT Input (if applicable)
+          if (invoice.vatAmount.gt(0)) {
+            const vatAccountId = vatInputAccount?.id || submitData.expenseAccountId;
+            journalEntryLines.push({
+              journalEntryId: cashbookEntry.journalEntryId,
+              chartOfAccountId: vatAccountId,
+              debitAmount: invoice.vatAmount,
+              creditAmount: new Decimal(0),
+              description: `VAT Input - ${invoice.invoiceNumber}`
+            });
+          }
+
+          // Credit Bank/Cash Account
+          let creditAccountId: string;
+          let creditAccountName: string;
+
+          if (submitData.paymentMethod === "BANK") {
+            // For BANK: Credit the bank's GL account
+            const bank = await prisma.bank.findUnique({
+              where: { id: bankId },
+              include: { glAccount: true }
+            });
+
+            if (!bank || !bank.glAccount) {
+              throw new Error("Bank GL account not found");
+            }
+
+            creditAccountId = bank.glAccount.id;
+            creditAccountName = bank.glAccount.accountName;
+          } else {
+            // For CASH: Credit Petty Cash GL account (1030)
+            const cashAccount = await prisma.chartOfAccounts.findFirst({
+              where: {
+                OR: [
+                  { accountNo: "1030" },
+                  { accountName: { contains: "Petty Cash" } }
+                ],
+                isActive: true
+              }
+            });
+
+            if (!cashAccount) {
+              throw new Error("Petty Cash account (1030) not found in chart of accounts");
+            }
+
+            creditAccountId = cashAccount.id;
+            creditAccountName = cashAccount.accountName;
+          }
+
+          journalEntryLines.push({
+            journalEntryId: cashbookEntry.journalEntryId,
+            chartOfAccountId: creditAccountId,
+            debitAmount: new Decimal(0),
+            creditAmount: invoice.totalAmount,
+            description: `${creditAccountName} - ${invoice.vendor.name} - ${invoice.invoiceNumber}`
+          });
+
+          // Create the journal entry lines
+          await prisma.journalEntryLine.createMany({
+            data: journalEntryLines
+          });
+
+          journalEntry = await prisma.journalEntry.findUnique({
+            where: { id: cashbookEntry.journalEntryId }
+          });
+        } else {
+          throw new Error("Cashbook entry did not create journal entry");
+        }
+      }
 
       // Update invoice
       const updatedInvoice = await prisma.purchaseInvoice.update({
@@ -720,7 +835,8 @@ export class PurchaseInvoiceService {
           paidAmount: submitData.paymentMethod === "CREDIT" ? new Decimal(0) : invoice.totalAmount,
           outstandingAmount: submitData.paymentMethod === "CREDIT" ? invoice.totalAmount : new Decimal(0),
           paymentDate: submitData.paymentMethod === "CREDIT" ? null : invoice.invoiceDate,
-          journalEntryId: journalEntry.id
+          journalEntryId: journalEntry.id,
+          cashbookEntryId: cashbookEntry?.id || null
         },
         include: {
           vendor: true,
