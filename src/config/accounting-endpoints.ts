@@ -2320,7 +2320,7 @@ export const accountingEndpoints = {
   '/accounting/purchase-invoices/{id}/submit': {
     post: {
       summary: 'Submit invoice (creates journal entries based on payment method)',
-      description: 'Submits a DRAFT invoice and creates journal entries based on payment method:\n- BANK: Dr Expense Account, Dr VAT Input (if applicable), Cr Bank Account\n- CASH: Dr Expense Account, Dr VAT Input (if applicable), Cr Petty Cash (1030)\n- CREDIT: Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)',
+      description: 'Submits a DRAFT invoice and creates journal entries based on payment method:\n- BANK: Dr Expense Account, Dr VAT Input (if applicable), Cr Bank Account (bankId required)\n- CASH: Dr Expense Account, Dr VAT Input (if applicable), Cr Petty Cash (1030)\n- CREDIT: Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)',
       tags: ['Accounts Payables'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -2334,9 +2334,50 @@ export const accountingEndpoints = {
               type: 'object',
               required: ['paymentMethod', 'expenseAccountId'],
               properties: {
-                paymentMethod: { type: 'string', enum: ['BANK', 'CASH', 'CREDIT'], example: 'CREDIT', description: 'Payment method for the invoice' },
-                expenseAccountId: { type: 'string', example: 'expense-account-id', description: 'The expense account to debit (e.g., Rent Expense, Office Supplies)' },
-                bankId: { type: 'string', example: 'bank-id-here', description: 'Bank ID (required if paymentMethod is BANK)' }
+                paymentMethod: { 
+                  type: 'string', 
+                  enum: ['BANK', 'CASH', 'CREDIT'], 
+                  example: 'CREDIT', 
+                  description: 'Payment method for the invoice (dropdown selection)',
+                  'x-enum-varnames': ['BANK', 'CASH', 'CREDIT']
+                },
+                expenseAccountId: { 
+                  type: 'string', 
+                  example: 'expense-account-id', 
+                  description: 'The expense account to debit (e.g., Rent Expense, Office Supplies)' 
+                },
+                bankId: { 
+                  type: 'string', 
+                  example: 'bank-id-here', 
+                  description: 'Bank ID (REQUIRED when paymentMethod is BANK, ignored for CASH/CREDIT)' 
+                }
+              }
+            },
+            examples: {
+              bankPayment: {
+                summary: 'Bank Payment Example',
+                description: 'Example for BANK payment method (bankId is required)',
+                value: {
+                  paymentMethod: 'BANK',
+                  expenseAccountId: 'expense-account-id-here',
+                  bankId: 'bank-id-here'
+                }
+              },
+              cashPayment: {
+                summary: 'Cash Payment Example',
+                description: 'Example for CASH payment method (bankId not needed)',
+                value: {
+                  paymentMethod: 'CASH',
+                  expenseAccountId: 'expense-account-id-here'
+                }
+              },
+              creditPayment: {
+                summary: 'Credit Payment Example',
+                description: 'Example for CREDIT payment method (bankId not needed)',
+                value: {
+                  paymentMethod: 'CREDIT',
+                  expenseAccountId: 'expense-account-id-here'
+                }
               }
             }
           }

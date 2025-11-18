@@ -308,7 +308,7 @@ router.delete(
  *     summary: Submit invoice (creates journal entries based on payment method)
  *     description: |
  *       Submits a DRAFT invoice and creates journal entries based on payment method:
- *       - BANK: Dr Expense Account, Dr VAT Input (if applicable), Cr Bank Account
+ *       - BANK: Dr Expense Account, Dr VAT Input (if applicable), Cr Bank Account (bankId required)
  *       - CASH: Dr Expense Account, Dr VAT Input (if applicable), Cr Petty Cash (1030)
  *       - CREDIT: Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)
  *     tags: [Accounts Payables]
@@ -333,13 +333,34 @@ router.delete(
  *               paymentMethod:
  *                 type: string
  *                 enum: [BANK, CASH, CREDIT]
- *                 description: Payment method for the invoice
+ *                 description: Payment method for the invoice (dropdown selection)
+ *                 example: CREDIT
+ *                 x-enum-varnames: [BANK, CASH, CREDIT]
  *               expenseAccountId:
  *                 type: string
- *                 description: The expense account to debit
+ *                 description: The expense account to debit (e.g., Rent Expense, Office Supplies)
+ *                 example: expense-account-id-here
  *               bankId:
  *                 type: string
- *                 description: Bank ID (required if paymentMethod is BANK)
+ *                 description: Bank ID (REQUIRED when paymentMethod is BANK, ignored for CASH/CREDIT)
+ *                 example: bank-id-here
+ *           examples:
+ *             bankPayment:
+ *               summary: Bank Payment Example
+ *               value:
+ *                 paymentMethod: BANK
+ *                 expenseAccountId: expense-account-id-here
+ *                 bankId: bank-id-here
+ *             cashPayment:
+ *               summary: Cash Payment Example
+ *               value:
+ *                 paymentMethod: CASH
+ *                 expenseAccountId: expense-account-id-here
+ *             creditPayment:
+ *               summary: Credit Payment Example
+ *               value:
+ *                 paymentMethod: CREDIT
+ *                 expenseAccountId: expense-account-id-here
  *     responses:
  *       200:
  *         description: Invoice submitted successfully. Journal entry created based on payment method.
@@ -350,6 +371,10 @@ router.delete(
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Invoice submitted successfully
  *                 data:
  *                   type: object
  *                   properties:
@@ -374,7 +399,7 @@ router.delete(
  *                         status:
  *                           type: string
  *       400:
- *         description: Bad request - invoice must be in DRAFT status
+ *         description: Bad request - invoice must be in DRAFT status, or bankId required when paymentMethod is BANK
  */
 router.post(
   "/:id/submit",
