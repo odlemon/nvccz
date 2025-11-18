@@ -939,5 +939,35 @@ export class PurchaseInvoiceService {
       throw new Error(`Failed to pay invoice: ${error.message}`);
     }
   }
+
+  /**
+   * Get all expense accounts from chart of accounts
+   */
+  static async getExpenseAccounts(): Promise<any[]> {
+    try {
+      const expenseAccounts = await prisma.chartOfAccounts.findMany({
+        where: {
+          accountType: "Expense",
+          isActive: true
+        },
+        orderBy: [
+          { accountNo: 'asc' }
+        ],
+        select: {
+          id: true,
+          accountNo: true,
+          accountName: true,
+          accountType: true,
+          financialStatement: true,
+          notes: true,
+          isActive: true
+        }
+      });
+
+      return expenseAccounts;
+    } catch (error: any) {
+      throw new Error(`Failed to get expense accounts: ${error.message}`);
+    }
+  }
 }
 

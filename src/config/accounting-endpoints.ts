@@ -2100,6 +2100,120 @@ export const accountingEndpoints = {
   },
 
   // ========== ACCOUNTS PAYABLES - PURCHASE INVOICES ==========
+  '/accounting/purchase-invoices/expense-accounts': {
+    get: {
+      summary: 'Get expense accounts',
+      description: 'Retrieve all active expense accounts from chart of accounts. Use these account IDs when submitting purchase invoices.',
+      tags: ['Accounts Payables'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Expense accounts retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                message: 'Expense accounts retrieved successfully',
+                data: [
+                  {
+                    id: 'expense-account-id-1',
+                    accountNo: '5000',
+                    accountName: 'Rent Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Office lease',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-2',
+                    accountNo: '5010',
+                    accountName: 'Office Supplies Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Office supplies and materials',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-3',
+                    accountNo: '5020',
+                    accountName: 'Bank Charges',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Transfer fees, account charges',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-4',
+                    accountNo: '5030',
+                    accountName: 'Salaries and Wages',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Staff and executive payroll',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-5',
+                    accountNo: '5040',
+                    accountName: 'Utilities Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Electricity, water, internet',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-6',
+                    accountNo: '5050',
+                    accountName: 'Professional Fees',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Legal, audit, advisory',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-7',
+                    accountNo: '5060',
+                    accountName: 'Marketing Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Branding, advertising, PR',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-8',
+                    accountNo: '5070',
+                    accountName: 'Travel Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Business travel, conferences',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-9',
+                    accountNo: '5080',
+                    accountName: 'Insurance Expense',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Business insurance',
+                    isActive: true
+                  },
+                  {
+                    id: 'expense-account-id-10',
+                    accountNo: '5090',
+                    accountName: 'Other Operating Expenses',
+                    accountType: 'Expense',
+                    financialStatement: 'Income Statement',
+                    notes: 'Miscellaneous operating costs',
+                    isActive: true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
   '/accounting/purchase-invoices': {
     post: {
       summary: 'Create a new purchase invoice',

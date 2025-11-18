@@ -350,5 +350,23 @@ export class PurchaseInvoiceController {
       ResponseHelper.error(res, `Failed to pay invoice: ${error.message}`, undefined, 500);
     }
   }
+
+  /**
+   * Get expense accounts for purchase invoices
+   */
+  static async getExpenseAccounts(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const expenseAccounts = await PurchaseInvoiceService.getExpenseAccounts();
+
+      logger.info("Expense accounts retrieved successfully", {
+        count: expenseAccounts.length
+      });
+
+      ResponseHelper.success(res, "Expense accounts retrieved successfully", expenseAccounts);
+    } catch (error: any) {
+      logger.error("Error getting expense accounts", { error: error.message });
+      ResponseHelper.error(res, `Failed to get expense accounts: ${error.message}`, undefined, 500);
+    }
+  }
 }
 
