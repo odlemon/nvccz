@@ -1284,6 +1284,7 @@ model FundDisbursement {
   disbursedById              String?
   notes                      String?                  @db.Text
   transactionReference       String?
+  cashbookEntryId            String?                 @unique @map("cashbook_entry_id")
   createdAt                  DateTime                 @default(now())
   updatedAt                  DateTime                 @updatedAt
   approvedAt                 DateTime?
@@ -1293,6 +1294,7 @@ model FundDisbursement {
   milestone                  InvestmentMilestone?     @relation(fields: [milestoneId], references: [id])
   approvedBy                 User?                    @relation("FundDisbursementApprovedBy", fields: [approvedById], references: [id])
   disbursedBy                User?                    @relation("FundDisbursementDisbursedBy", fields: [disbursedById], references: [id])
+  cashbookEntry              CashbookEntry?          @relation("FundDisbursementCashbook", fields: [cashbookEntryId], references: [id])
 
   @@map("fund_disbursements")
 }
@@ -2943,6 +2945,7 @@ model CashbookEntry {
   reversedBy               User?                    @relation("TransactionReversedBy", fields: [reversedById], references: [id])
   postedBy                 User?                    @relation("TransactionPostedBy", fields: [postedById], references: [id])
   purchaseInvoice          PurchaseInvoice?          @relation("PurchaseInvoiceCashbook")
+  fundDisbursement         FundDisbursement?         @relation("FundDisbursementCashbook")
 
   @@map("cashbook_entries")
 }

@@ -647,6 +647,7 @@ export class InvestmentImplementationService {
             status: "APPROVED",
             approvedById: approvedById,
             approvedAt: new Date(),
+            cashbookEntryId: cashbookResult.transaction.id, // Link to cashbook entry
             updatedAt: new Date()
           }
         }),
