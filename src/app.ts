@@ -35,6 +35,7 @@ import expenseRoutes from "./routes/expenseRoutes"
 import journalEntryRoutes from "./routes/journalEntryRoutes"
 import chartOfAccountsRoutes from "./routes/chartOfAccountsRoutes"
 import invoiceRoutes from "./routes/invoiceRoutes"
+import purchaseInvoiceRoutes from "./routes/purchaseInvoiceRoutes"
 import customerRoutes from "./routes/customerRoutes"
 import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import cashFlowRoutes from "./routes/cashFlowRoutes"
@@ -366,6 +367,7 @@ app.use("/api/accounting/expenses", expenseRoutes)
 app.use("/api/accounting/journal-entries", journalEntryRoutes)
 app.use("/api/accounting/chart-of-accounts", chartOfAccountsRoutes)
 app.use("/api/accounting/invoices", invoiceRoutes)
+app.use("/api/accounting/purchase-invoices", purchaseInvoiceRoutes)
 app.use("/api/accounting/customers", customerRoutes)
 app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/cash-flow", cashFlowRoutes)
