@@ -184,14 +184,66 @@ export class CashFlowCalculationService {
       endingCashBalance
     });
 
+    // Format activities with line items (accounts) for breakdown
+    const formatActivityWithLineItems = (activity: CashFlowActivity, activityType: 'operating' | 'investing' | 'financing') => {
+      return {
+        total: activity.total,
+        accountCount: activity.accounts.length,
+        description: activity.description,
+        lineItems: activity.accounts.map(account => {
+          let amount = 0;
+          
+          if (activityType === 'investing') {
+            // Investing: Asset purchases = outflow (negative), Investment income = inflow (positive)
+            if (account.accountType === "Asset" || 
+                account.accountType === "Fixed Asset" || 
+                account.accountType === "Long-Term Asset" || 
+                account.accountType === "Non-Current Asset") {
+              amount = -account.netAmount; // Outflow
+            } else if (account.accountType === "Revenue") {
+              amount = account.netAmount; // Inflow
+            }
+          } else if (activityType === 'operating') {
+            // Operating: Revenue = inflow (positive), Expenses = outflow (negative)
+            if (account.accountType === "Revenue") {
+              amount = account.netAmount; // Inflow
+            } else if (account.accountType === "Expense") {
+              amount = -account.netAmount; // Outflow
+            } else if (account.accountType === "Asset" || account.accountType === "Current Asset") {
+              // Increase in current assets = decrease in cash (outflow)
+              amount = -account.netAmount; // Outflow
+            } else if (account.accountType === "Liability") {
+              // Increase in current liabilities = increase in cash (inflow)
+              amount = account.netAmount; // Inflow
+            }
+          } else if (activityType === 'financing') {
+            // Financing: Increase in debt/equity = inflow (positive)
+            if (account.accountType === "Liability" || account.accountType === "Equity") {
+              amount = account.netAmount; // Inflow
+            }
+          }
+          
+          return {
+            accountNo: account.accountNo,
+            accountName: account.accountName,
+            accountType: account.accountType,
+            amount: amount,
+            netAmount: account.netAmount,
+            totalDebits: account.totalDebits,
+            totalCredits: account.totalCredits
+          };
+        })
+      };
+    };
+
     return {
       period: {
         startDate,
         endDate
       },
-      operatingActivities,
-      investingActivities,
-      financingActivities,
+      operatingActivities: formatActivityWithLineItems(operatingActivities, 'operating'),
+      investingActivities: formatActivityWithLineItems(investingActivities, 'investing'),
+      financingActivities: formatActivityWithLineItems(financingActivities, 'financing'),
       netCashFlow,
       beginningCashBalance,
       endingCashBalance,
