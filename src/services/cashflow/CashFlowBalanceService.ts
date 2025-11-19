@@ -172,7 +172,11 @@ export class CashFlowBalanceService {
 
     // Calculate net amounts based on account type and sort transactions
     for (const account of accountBalances.values()) {
-      if (account.accountType === "Asset") {
+      if (account.accountType === "Asset" || 
+          account.accountType === "Fixed Asset" || 
+          account.accountType === "Long-Term Asset" || 
+          account.accountType === "Non-Current Asset" ||
+          account.accountType === "Current Asset") {
         // Asset accounts: Debits increase, Credits decrease
         account.netAmount = account.totalDebits - account.totalCredits;
       } else if (account.accountType === "Liability" || account.accountType === "Equity") {
