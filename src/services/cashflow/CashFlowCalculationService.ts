@@ -253,8 +253,13 @@ export class CashFlowCalculationService {
     let total = 0;
     
     for (const account of investingAccounts) {
-      if (account.accountType === "Asset") {
-        // Purchase of assets = cash outflow
+      // Include all asset types: Asset, Fixed Asset, Long-Term Asset, Non-Current Asset
+      if (account.accountType === "Asset" || 
+          account.accountType === "Fixed Asset" || 
+          account.accountType === "Long-Term Asset" || 
+          account.accountType === "Non-Current Asset") {
+        // Purchase of assets = cash outflow (negative)
+        // netAmount is positive for debits (purchases), so we subtract it
         total -= account.netAmount;
       } else if (account.accountType === "Revenue") {
         // Investment income = cash inflow
@@ -861,7 +866,8 @@ export class CashFlowCalculationService {
     const changeInOperatingAssetsRaw = sumAccounts(account => {
       const value = accountNoValue(account.accountNo);
       return (
-        account.accountType === "Asset" &&
+        (account.accountType === "Asset" || 
+         account.accountType === "Current Asset") &&
         !account.accountName.toLowerCase().includes("cash") &&
         value >= 1200 &&
         value < 1500 &&
@@ -889,7 +895,12 @@ export class CashFlowCalculationService {
 
     const propertyAccounts = accounts.filter(account => {
       const value = accountNoValue(account.accountNo);
-      return value >= 1100 && value < 1500 && account.accountType === "Asset";
+      return value >= 1100 && value < 1500 && (
+        account.accountType === "Asset" || 
+        account.accountType === "Fixed Asset" || 
+        account.accountType === "Long-Term Asset" || 
+        account.accountType === "Non-Current Asset"
+      );
     });
 
     let purchaseProperty = 0;
