@@ -186,11 +186,24 @@ export class CashFlowCalculationService {
 
     // Format activities with line items (accounts) for breakdown
     const formatActivityWithLineItems = (activity: CashFlowActivity, activityType: 'operating' | 'investing' | 'financing') => {
+      if (!activity) {
+        return {
+          total: 0,
+          accountCount: 0,
+          description: activityType === 'operating' ? "Cash flows from operating activities" : 
+                       activityType === 'investing' ? "Cash flows from investing activities" : 
+                       "Cash flows from financing activities",
+          lineItems: []
+        };
+      }
+      const accounts = activity.accounts || [];
       return {
-        total: activity.total,
-        accountCount: activity.accounts.length,
-        description: activity.description,
-        lineItems: activity.accounts.map(account => {
+        total: activity.total || 0,
+        accountCount: accounts.length,
+        description: activity.description || (activityType === 'operating' ? "Cash flows from operating activities" : 
+                       activityType === 'investing' ? "Cash flows from investing activities" : 
+                       "Cash flows from financing activities"),
+        lineItems: accounts.map(account => {
           let amount = 0;
           
           if (activityType === 'investing') {
