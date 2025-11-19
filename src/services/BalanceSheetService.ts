@@ -816,6 +816,36 @@ export class BalanceSheetService {
         }
       }
 
+      // Consolidate Portfolio Investment accounts (1500 and 1501) into a single "Portfolio Investments" account
+      const portfolioAccount1500 = fixedAssets.find(acc => acc.accountNo === '1500');
+      const portfolioAccount1501 = fixedAssets.find(acc => acc.accountNo === '1501');
+      
+      if (portfolioAccount1500 || portfolioAccount1501) {
+        // Calculate combined balance
+        const combinedBalance = (portfolioAccount1500?.balance || 0) + (portfolioAccount1501?.balance || 0);
+        
+        // Collect all transactions from both accounts
+        const portfolioTransactions: BalanceSheetTransaction[] = [];
+        if (portfolioAccount1500) {
+          portfolioTransactions.push(...portfolioAccount1500.transactions);
+        }
+        if (portfolioAccount1501) {
+          portfolioTransactions.push(...portfolioAccount1501.transactions);
+        }
+        portfolioTransactions.sort((a, b) => a.date.localeCompare(b.date));
+        
+        // Remove individual accounts from fixedAssets
+        fixedAssets = fixedAssets.filter(acc => acc.accountNo !== '1500' && acc.accountNo !== '1501');
+        
+        // Add consolidated Portfolio Investments account
+        fixedAssets.push({
+          accountNo: '1501',
+          accountName: 'Portfolio Investments',
+          balance: combinedBalance,
+          transactions: portfolioTransactions
+        });
+      }
+
       // Add Accumulated Depreciation as a single consolidated line item (shown as negative)
       if (Math.abs(accumulatedDepreciation) > 0.01) {
         // Collect all transactions from accumulated depreciation accounts
