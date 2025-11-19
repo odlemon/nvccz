@@ -400,25 +400,17 @@ export class CashFlowCalculationService {
   }
 
   /**
-   * Get cash flow statement summary (high-level totals only)
+   * Get cash flow statement summary (includes line items with transaction breakdown)
    */
   async getCashFlowStatementSummary(params: CashFlowParams): Promise<any> {
     const cashFlowStatement = await this.generateCashFlowStatement(params);
 
+    // Return the full structure with lineItems and transactions
     return {
       period: cashFlowStatement.period,
-      operatingActivities: {
-        total: cashFlowStatement.operatingActivities?.total || 0,
-        accountCount: cashFlowStatement.operatingActivities?.lineItems?.length || cashFlowStatement.operatingActivities?.accountCount || 0
-      },
-      investingActivities: {
-        total: cashFlowStatement.investingActivities?.total || 0,
-        accountCount: cashFlowStatement.investingActivities?.lineItems?.length || cashFlowStatement.investingActivities?.accountCount || 0
-      },
-      financingActivities: {
-        total: cashFlowStatement.financingActivities?.total || 0,
-        accountCount: cashFlowStatement.financingActivities?.lineItems?.length || cashFlowStatement.financingActivities?.accountCount || 0
-      },
+      operatingActivities: cashFlowStatement.operatingActivities,
+      investingActivities: cashFlowStatement.investingActivities,
+      financingActivities: cashFlowStatement.financingActivities,
       netCashFlow: cashFlowStatement.netCashFlow,
       beginningCashBalance: cashFlowStatement.beginningCashBalance,
       endingCashBalance: cashFlowStatement.endingCashBalance,
