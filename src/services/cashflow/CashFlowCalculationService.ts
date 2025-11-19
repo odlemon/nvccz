@@ -243,7 +243,38 @@ export class CashFlowCalculationService {
             amount: amount,
             netAmount: account.netAmount,
             totalDebits: account.totalDebits,
-            totalCredits: account.totalCredits
+            totalCredits: account.totalCredits,
+            transactions: (account.transactions || []).map(transaction => ({
+              id: transaction.id,
+              date: transaction.date,
+              reference: transaction.reference,
+              description: transaction.description,
+              debitAmount: transaction.debitAmount,
+              creditAmount: transaction.creditAmount,
+              source: transaction.source,
+              journalEntry: {
+                id: transaction.journalEntry?.id,
+                referenceNumber: transaction.journalEntry?.referenceNumber,
+                description: transaction.journalEntry?.description,
+                transactionDate: transaction.journalEntry?.transactionDate,
+                status: transaction.journalEntry?.status
+              },
+              sourceTransaction: transaction.sourceTransaction ? {
+                id: transaction.sourceTransaction.id,
+                type: transaction.sourceTransaction.type,
+                amount: transaction.sourceTransaction.amount,
+                description: transaction.sourceTransaction.description,
+                reference: transaction.sourceTransaction.reference,
+                transactionDate: transaction.sourceTransaction.transactionDate,
+                status: transaction.sourceTransaction.status,
+                // Include relevant source-specific fields
+                invoiceNumber: transaction.sourceTransaction.invoiceNumber,
+                receiptNumber: transaction.sourceTransaction.receiptNumber,
+                bank: transaction.sourceTransaction.bank,
+                customer: transaction.sourceTransaction.customer,
+                vendor: transaction.sourceTransaction.vendor
+              } : null
+            }))
           };
         })
       };
