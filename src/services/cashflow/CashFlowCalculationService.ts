@@ -178,7 +178,7 @@ export class CashFlowCalculationService {
 
     const presentation = this.buildPresentation({
       accounts: categorizedAccounts,
-      revenueAccounts: operatingActivities.accounts,
+      revenueAccounts: operatingActivities?.accounts || [],
       netCashFlow,
       beginningCashBalance,
       endingCashBalance
@@ -377,16 +377,16 @@ export class CashFlowCalculationService {
     return {
       period: cashFlowStatement.period,
       operatingActivities: {
-        total: cashFlowStatement.operatingActivities.total,
-        accountCount: cashFlowStatement.operatingActivities.accounts.length
+        total: cashFlowStatement.operatingActivities?.total || 0,
+        accountCount: cashFlowStatement.operatingActivities?.lineItems?.length || cashFlowStatement.operatingActivities?.accountCount || 0
       },
       investingActivities: {
-        total: cashFlowStatement.investingActivities.total,
-        accountCount: cashFlowStatement.investingActivities.accounts.length
+        total: cashFlowStatement.investingActivities?.total || 0,
+        accountCount: cashFlowStatement.investingActivities?.lineItems?.length || cashFlowStatement.investingActivities?.accountCount || 0
       },
       financingActivities: {
-        total: cashFlowStatement.financingActivities.total,
-        accountCount: cashFlowStatement.financingActivities.accounts.length
+        total: cashFlowStatement.financingActivities?.total || 0,
+        accountCount: cashFlowStatement.financingActivities?.lineItems?.length || cashFlowStatement.financingActivities?.accountCount || 0
       },
       netCashFlow: cashFlowStatement.netCashFlow,
       beginningCashBalance: cashFlowStatement.beginningCashBalance,
@@ -779,18 +779,18 @@ export class CashFlowCalculationService {
       generatedAt: new Date(),
       summary: {
         operatingActivities: {
-          total: cashFlowStatement.operatingActivities.total,
-          accountCount: cashFlowStatement.operatingActivities.accounts.length,
+          total: cashFlowStatement.operatingActivities?.total || 0,
+          accountCount: cashFlowStatement.operatingActivities?.lineItems?.length || cashFlowStatement.operatingActivities?.accountCount || 0,
           accounts: detailedOperating
         },
         investingActivities: {
-          total: cashFlowStatement.investingActivities.total,
-          accountCount: cashFlowStatement.investingActivities.accounts.length,
+          total: cashFlowStatement.investingActivities?.total || 0,
+          accountCount: cashFlowStatement.investingActivities?.lineItems?.length || cashFlowStatement.investingActivities?.accountCount || 0,
           accounts: detailedInvesting
         },
         financingActivities: {
-          total: cashFlowStatement.financingActivities.total,
-          accountCount: cashFlowStatement.financingActivities.accounts.length,
+          total: cashFlowStatement.financingActivities?.total || 0,
+          accountCount: cashFlowStatement.financingActivities?.lineItems?.length || cashFlowStatement.financingActivities?.accountCount || 0,
           accounts: detailedFinancing
         },
         netCashFlow: cashFlowStatement.netCashFlow,
