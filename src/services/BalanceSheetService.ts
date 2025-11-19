@@ -817,8 +817,10 @@ export class BalanceSheetService {
       }
 
       // Consolidate Portfolio Investment accounts (1500 and 1501) into a single "Portfolio Investments" account
-      const portfolioAccount1500 = fixedAssets.find(acc => acc.accountNo === '1500');
-      const portfolioAccount1501 = fixedAssets.find(acc => acc.accountNo === '1501');
+      const portfolioAccount1500Index = fixedAssets.findIndex(acc => acc.accountNo === '1500');
+      const portfolioAccount1501Index = fixedAssets.findIndex(acc => acc.accountNo === '1501');
+      const portfolioAccount1500 = portfolioAccount1500Index >= 0 ? fixedAssets[portfolioAccount1500Index] : null;
+      const portfolioAccount1501 = portfolioAccount1501Index >= 0 ? fixedAssets[portfolioAccount1501Index] : null;
       
       if (portfolioAccount1500 || portfolioAccount1501) {
         // Calculate combined balance
@@ -834,8 +836,19 @@ export class BalanceSheetService {
         }
         portfolioTransactions.sort((a, b) => a.date.localeCompare(b.date));
         
-        // Remove individual accounts from fixedAssets
-        fixedAssets = fixedAssets.filter(acc => acc.accountNo !== '1500' && acc.accountNo !== '1501');
+        // Remove individual accounts from fixedAssets (remove from highest index first to avoid index shifting issues)
+        if (portfolioAccount1501Index >= 0) {
+          fixedAssets.splice(portfolioAccount1501Index, 1);
+        }
+        if (portfolioAccount1500Index >= 0) {
+          // Adjust index if 1501 was removed before 1500
+          const adjustedIndex = portfolioAccount1501Index >= 0 && portfolioAccount1500Index < portfolioAccount1501Index 
+            ? portfolioAccount1500Index 
+            : fixedAssets.findIndex(acc => acc.accountNo === '1500');
+          if (adjustedIndex >= 0) {
+            fixedAssets.splice(adjustedIndex, 1);
+          }
+        }
         
         // Add consolidated Portfolio Investments account
         fixedAssets.push({
