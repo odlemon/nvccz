@@ -660,11 +660,13 @@ export class CashbookService {
       throw new Error('Bank account not found');
     }
     
+    // Use "Bank" instead of "Cashbook" in description
+    const transactionTypeLabel = transaction.type === 'RECEIPT' ? 'Receipt' : 'Payment';
     const journalEntry = await prisma.journalEntry.create({
       data: {
         transactionDate: transaction.transactionDate,
         referenceNumber,
-        description: `Cashbook ${transaction.type}: ${transaction.description}`,
+        description: `Bank ${transactionTypeLabel}: ${transaction.description}`,
         totalAmount: transaction.amount,
         currencyId: bank.currency.id,
         status: 'POSTED',

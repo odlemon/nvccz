@@ -330,6 +330,30 @@ export class CashbookControllerEnhanced {
             vendor: true,
             glAccount: true,
             journalEntry: true,
+            fundDisbursement: {
+              include: {
+                investmentImplementation: {
+                  include: {
+                    portfolioCompany: {
+                      select: {
+                        name: true
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            purchaseInvoice: {
+              select: {
+                id: true,
+                invoiceNumber: true,
+                vendor: {
+                  select: {
+                    name: true
+                  }
+                }
+              }
+            },
             createdBy: { select: { firstName: true, lastName: true, email: true } }
           },
           orderBy: { transactionDate: 'desc' },

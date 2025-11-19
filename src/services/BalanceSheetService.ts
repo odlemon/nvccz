@@ -791,7 +791,7 @@ export class BalanceSheetService {
           if (account.accountNo === '1100') {
             console.log(`   [DEBUG] Added account 1100 to currentAssets (WRONG - should be Fixed Asset!)`);
           }
-        } else if (accountType === 'Fixed Asset' || accountType === 'Long-Term Asset') {
+        } else if (accountType === 'Fixed Asset' || accountType === 'Long-Term Asset' || accountType === 'Non-Current Asset') {
           fixedAssets.push(accountData);
           if (account.accountNo === '1100') {
             console.log(`   [DEBUG] ✅ Added account 1100 to fixedAssets array`);

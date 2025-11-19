@@ -639,6 +639,16 @@ export class InvestmentImplementationService {
         throw new Error(cashbookResult.message || "Failed to create cashbook payment");
       }
 
+      // Update journal entry description to use "Bank" instead of "Cashbook PAYMENT"
+      if (cashbookResult.journalEntry) {
+        await prisma.journalEntry.update({
+          where: { id: cashbookResult.journalEntry.id },
+          data: {
+            description: `Bank Payment: Fund Disbursement - ${portfolioCompanyName} - $${disbursementAmount.toLocaleString()}`
+          }
+        });
+      }
+
       // Update disbursement status and fund remaining amount in a transaction
       const [updatedDisbursement, updatedFund] = await prisma.$transaction([
         prisma.fundDisbursement.update({
