@@ -156,8 +156,9 @@ router.get('/signed-term-sheets',
  * @swagger
  * /api/investment-implementations/initiate:
  *   post:
- *     summary: Initiate investment implementation
- *     tags: [Investment Implementation]
+ *     summary: Create investment implementation
+ *     description: Creates a new investment implementation for a portfolio company. Supports both ONE_TIME and MILESTONE_BASED disbursement modes.
+ *     tags: [Disbursements]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -173,20 +174,31 @@ router.get('/signed-term-sheets',
  *             properties:
  *               portfolioCompanyId:
  *                 type: string
+ *                 example: "cmi79aihl000ajx04sc7x6ec7"
  *               applicationId:
  *                 type: string
+ *                 example: "cmi78trsi0000jx048i72bb7m"
  *               fundId:
  *                 type: string
- *                 description: ID of the fund to link this implementation to
+ *                 example: "cmht6ve7x0001jx04kz890uj6"
  *               implementationPlan:
  *                 type: string
- *               assignedTeam:
- *                 type: string
+ *                 example: "Phase 1: Product development, Phase 2: Market launch"
  *               notes:
  *                 type: string
+ *                 example: "Investment implementation for LY company"
+ *               disbursementMode:
+ *                 type: string
+ *                 enum: [ONE_TIME, MILESTONE_BASED]
+ *                 example: "MILESTONE_BASED"
+ *                 description: Disbursement mode. Defaults to ONE_TIME if not provided.
+ *               totalCommittedAmount:
+ *                 type: number
+ *                 example: 30000
+ *                 description: Required if disbursementMode is MILESTONE_BASED. Total amount committed for this investment.
  *     responses:
  *       201:
- *         description: Investment implementation initiated successfully
+ *         description: Investment implementation created successfully
  *         content:
  *           application/json:
  *             schema:
@@ -396,10 +408,76 @@ router.post('/milestones/:milestoneId/complete',
 
 /**
  * @swagger
+ * /api/investment-implementations/initiate:
+ *   post:
+ *     summary: Create investment implementation
+ *     description: Creates a new investment implementation for a portfolio company. Supports both ONE_TIME and MILESTONE_BASED disbursement modes.
+ *     tags: [Disbursements]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - portfolioCompanyId
+ *               - applicationId
+ *               - fundId
+ *             properties:
+ *               portfolioCompanyId:
+ *                 type: string
+ *                 example: "cmi79aihl000ajx04sc7x6ec7"
+ *               applicationId:
+ *                 type: string
+ *                 example: "cmi78trsi0000jx048i72bb7m"
+ *               fundId:
+ *                 type: string
+ *                 example: "cmht6ve7x0001jx04kz890uj6"
+ *               implementationPlan:
+ *                 type: string
+ *                 example: "Phase 1: Product development, Phase 2: Market launch"
+ *               notes:
+ *                 type: string
+ *                 example: "Investment implementation for LY company"
+ *               disbursementMode:
+ *                 type: string
+ *                 enum: [ONE_TIME, MILESTONE_BASED]
+ *                 example: "MILESTONE_BASED"
+ *                 description: Disbursement mode. Defaults to ONE_TIME if not provided.
+ *               totalCommittedAmount:
+ *                 type: number
+ *                 example: 30000
+ *                 description: Required if disbursementMode is MILESTONE_BASED. Total amount committed for this investment.
+ *     responses:
+ *       201:
+ *         description: Investment implementation created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/InvestmentImplementation'
+ *                 message:
+ *                   type: string
+ */
+router.post('/initiate', 
+  authenticate, 
+  authorize(['admin', 'fund_manager']), 
+  InvestmentImplementationController.initiateInvestmentImplementation
+);
+
+/**
+ * @swagger
  * /api/investment-implementations/disbursements:
  *   post:
  *     summary: Create fund disbursement
- *     tags: [Investment Implementation]
+ *     description: Creates a new fund disbursement. For MILESTONE_BASED implementations, validates remaining committed amount.
+ *     tags: [Disbursements]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -416,18 +494,21 @@ router.post('/milestones/:milestoneId/complete',
  *             properties:
  *               investmentImplementationId:
  *                 type: string
- *               milestoneId:
- *                 type: string
+ *                 example: "cmi78trsi0000jx048i72bb7m"
  *               amount:
  *                 type: number
+ *                 example: 5000
  *               disbursementDate:
  *                 type: string
  *                 format: date-time
+ *                 example: "2024-01-15T00:00:00Z"
  *               disbursementType:
  *                 type: string
  *                 enum: [INITIAL, MILESTONE, FINAL]
+ *                 example: "MILESTONE"
  *               notes:
  *                 type: string
+ *                 example: "First milestone payment"
  *     responses:
  *       201:
  *         description: Fund disbursement created successfully
@@ -443,53 +524,6 @@ router.post('/milestones/:milestoneId/complete',
  *                 message:
  *                   type: string
  */
-/**
- * @swagger
- * /api/investment-implementations/{investmentImplementationId}/disbursement-summary:
- *   get:
- *     summary: Get disbursement summary for an investment implementation
- *     tags: [Investment Implementation]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: investmentImplementationId
- *         required: true
- *         schema:
- *           type: string
- *         description: Investment Implementation ID
- *     responses:
- *       200:
- *         description: Disbursement summary retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     totalCommittedAmount:
- *                       type: number
- *                     totalDisbursedAmount:
- *                       type: number
- *                     remainingCommittedAmount:
- *                       type: number
- *                     disbursementCount:
- *                       type: number
- *                     disbursementMode:
- *                       type: string
- *                     disbursements:
- *                       type: array
- */
-router.get('/:investmentImplementationId/disbursement-summary',
-  authenticate,
-  authorize(['admin', 'fund_manager']),
-  InvestmentImplementationController.getDisbursementSummary
-);
-
 router.post('/disbursements', 
   authenticate, 
   authorize(['admin', 'fund_manager']), 
@@ -501,7 +535,8 @@ router.post('/disbursements',
  * /api/investment-implementations/disbursements/{disbursementId}/approve:
  *   post:
  *     summary: Approve fund disbursement
- *     tags: [Investment Implementation]
+ *     description: Approves a fund disbursement. Creates cashbook payment entry and journal entries (Debit Portfolio Investments, Credit Bank).
+ *     tags: [Disbursements]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -511,6 +546,7 @@ router.post('/disbursements',
  *         schema:
  *           type: string
  *         description: Disbursement ID
+ *         example: "disb_123"
  *     responses:
  *       200:
  *         description: Fund disbursement approved successfully
@@ -534,10 +570,80 @@ router.post('/disbursements/:disbursementId/approve',
 
 /**
  * @swagger
+ * /api/investment-implementations/{investmentImplementationId}/disbursement-summary:
+ *   get:
+ *     summary: Get disbursement summary
+ *     description: Returns summary of disbursements including total committed, disbursed, and remaining amounts.
+ *     tags: [Disbursements]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: investmentImplementationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Investment Implementation ID
+ *         example: "cmi78trsi0000jx048i72bb7m"
+ *     responses:
+ *       200:
+ *         description: Disbursement summary retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalCommittedAmount:
+ *                       type: number
+ *                       example: 30000
+ *                     totalDisbursedAmount:
+ *                       type: number
+ *                       example: 5000
+ *                     remainingCommittedAmount:
+ *                       type: number
+ *                       example: 25000
+ *                     disbursementCount:
+ *                       type: number
+ *                       example: 1
+ *                     disbursementMode:
+ *                       type: string
+ *                       example: "MILESTONE_BASED"
+ *                     disbursements:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           amount:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                           disbursementType:
+ *                             type: string
+ *                           disbursementDate:
+ *                             type: string
+ *                           approvedAt:
+ *                             type: string
+ */
+router.get('/:investmentImplementationId/disbursement-summary',
+  authenticate,
+  authorize(['admin', 'fund_manager']),
+  InvestmentImplementationController.getDisbursementSummary
+);
+
+/**
+ * @swagger
  * /api/investment-implementations/disbursements/{disbursementId}/disburse:
  *   post:
  *     summary: Mark disbursement as disbursed
- *     tags: [Investment Implementation]
+ *     description: Marks a disbursement as fully disbursed with optional transaction reference.
+ *     tags: [Disbursements]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -547,6 +653,7 @@ router.post('/disbursements/:disbursementId/approve',
  *         schema:
  *           type: string
  *         description: Disbursement ID
+ *         example: "disb_123"
  *     requestBody:
  *       content:
  *         application/json:
@@ -555,6 +662,7 @@ router.post('/disbursements/:disbursementId/approve',
  *             properties:
  *               transactionReference:
  *                 type: string
+ *                 example: "TXN-123456"
  *     responses:
  *       200:
  *         description: Fund disbursement marked as disbursed successfully
