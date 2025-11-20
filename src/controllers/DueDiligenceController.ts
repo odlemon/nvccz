@@ -145,7 +145,7 @@ export class DueDiligenceController {
           applicantEmail: dueDiligence.application.applicantEmail,
           businessName: dueDiligence.application.businessName,
           applicationId: dueDiligence.application.id,
-          currentStage: 'DUE_DILIGENCE_COMPLETED'
+          currentStage: dueDiligence.application.currentStage || 'TERM_SHEET' // New workflow: moves to TERM_SHEET after due diligence
         });
         logger.info("Due diligence completed email sent successfully", {
           applicationId: id,

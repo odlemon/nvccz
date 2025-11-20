@@ -67,8 +67,8 @@ export class TermSheetService {
         throw new Error("Application not found");
       }
 
-      if (application.currentStage !== "BOARD_APPROVED" && application.currentStage !== "TERM_SHEET") {
-        throw new Error("Application must be in BOARD_APPROVED stage to create term sheet. Current stage: " + application.currentStage);
+      if (application.currentStage !== "TERM_SHEET" && application.currentStage !== "TERM_SHEET_NEGOTIATION") {
+        throw new Error("Application must be in TERM_SHEET or TERM_SHEET_NEGOTIATION stage to create term sheet. Current stage: " + application.currentStage);
       }
 
       // Check if term sheet already exists - prevent multiple term sheets
@@ -121,17 +121,8 @@ export class TermSheetService {
         }
       });
 
-      // Update application stage to TERM_SHEET if it's currently BOARD_APPROVED
-      if (application.currentStage === "BOARD_APPROVED") {
-        await prisma.application.update({
-          where: { id: params.applicationId },
-          data: {
-            currentStage: "TERM_SHEET",
-            updatedAt: new Date()
-          }
-        });
-        console.log(`Application ${params.applicationId} stage updated from BOARD_APPROVED to TERM_SHEET`);
-      }
+      // Application should already be in TERM_SHEET or TERM_SHEET_NEGOTIATION stage
+      // No need to update stage here
 
       // Create notification for applicant
       await prisma.applicationNotification.create({
@@ -417,11 +408,11 @@ export class TermSheetService {
         }
       });
 
-      // Update application stage to INVESTMENT_IMPLEMENTATION
+      // Update application stage to UNDER_BOARD_REVIEW (new workflow: term sheet → board review → investment implementation)
       await prisma.application.update({
         where: { id: applicationId },
         data: {
-          currentStage: "INVESTMENT_IMPLEMENTATION",
+          currentStage: "UNDER_BOARD_REVIEW",
           updatedAt: new Date()
         }
       });
@@ -434,7 +425,7 @@ export class TermSheetService {
           recipientPhone: termSheet.application.applicantPhone,
           notificationType: "TERM_SHEET_SIGNED",
           title: "Term Sheet Signed",
-          message: `The term sheet for your application (${termSheet.application.businessName}) has been signed. Your application will now proceed to investment implementation.`
+          message: `The term sheet for your application (${termSheet.application.businessName}) has been signed. Your application will now proceed to board review.`
         }
       });
 
