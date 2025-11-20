@@ -536,13 +536,19 @@ export class InvestmentImplementationService {
       const totalCommitted = implementation.totalCommittedAmount || new Decimal(0);
       const remainingCommitted = totalCommitted.minus(totalDisbursed);
 
+      // Map disbursements to exclude disbursedAt field
+      const disbursements = implementation.fundDisbursements.map(d => {
+        const { disbursedAt, ...rest } = d;
+        return rest;
+      });
+
       return {
         totalCommittedAmount: Number(totalCommitted),
         totalDisbursedAmount: Number(totalDisbursed),
         remainingCommittedAmount: Number(remainingCommitted),
         disbursementCount: implementation.fundDisbursements.length,
         disbursementMode: implementation.disbursementMode || 'ONE_TIME',
-        disbursements: implementation.fundDisbursements
+        disbursements: disbursements
       };
     } catch (error: any) {
       throw new Error(`Failed to get disbursement summary: ${error.message}`);
