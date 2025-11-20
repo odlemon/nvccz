@@ -10,12 +10,15 @@
 
 **Authorization:** `admin` or `fund_manager` role
 
+**⚠️ IMPORTANT:** Signatures are **NOT** part of creating a term sheet. Signatures are added later when **SIGNING** the term sheet (separate endpoint).
+
 ---
 
 ### **Request Body (Form Data - Recommended):**
 
 ```javascript
 // Using multipart/form-data
+// Creating term sheet - NO signature fields here
 FormData:
   - title: string (required)
   - investmentAmount: number (required)
@@ -24,7 +27,9 @@ FormData:
   - keyTerms: string (optional)
   - conditions: string (optional)
   - timeline: string (optional)
-  - document: File (optional) - Term sheet document file
+  - document: File (optional) - Term sheet document file (PDF/document)
+  
+// ❌ NO signature fields - signatures are added when SIGNING (see sign endpoint below)
 ```
 
 **Example (JavaScript/FormData):**
@@ -101,6 +106,8 @@ curl -X POST http://localhost:3000/api/term-sheets/app_123 \
 | `documentFileName` | string | ❌ No | Document file name (if using URL) |
 | `documentSize` | number | ❌ No | Document file size in bytes (if using URL) |
 
+**❌ Signature fields are NOT in create request** - Signatures are added when signing (see sign endpoint below)
+
 ---
 
 ## ✍️ SIGN TERM SHEET (NEW - WITH SIGNATURE)
@@ -117,13 +124,20 @@ curl -X POST http://localhost:3000/api/term-sheets/app_123 \
 
 ---
 
-### **Request Body:**
+### **Request Body (Form Data):**
 
 ```javascript
 // Using multipart/form-data
+// This is the SIGN endpoint - separate from CREATE
 FormData:
   - signature: File (required) - Signature image file (PNG, JPEG, JPG, GIF, or WEBP)
 ```
+
+**⚠️ Important:** 
+- The `signature` field is **REQUIRED** when signing
+- This is a **separate endpoint** (`/sign`) from creating term sheet (`POST /api/term-sheets/:applicationId`)
+- Signatures are added **after** term sheet is created and finalized
+- **Workflow:** Create → Finalize → Sign (with signature) → Fully Signed
 
 **Example (JavaScript/FormData):**
 ```javascript
