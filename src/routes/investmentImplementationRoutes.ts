@@ -156,9 +156,8 @@ router.get('/signed-term-sheets',
  * @swagger
  * /api/investment-implementations/initiate:
  *   post:
- *     summary: Create investment implementation
- *     description: Creates a new investment implementation for a portfolio company. Supports both ONE_TIME and MILESTONE_BASED disbursement modes.
- *     tags: [Disbursements]
+ *     summary: Initiate investment implementation
+ *     tags: [Investment Implementation]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -175,30 +174,55 @@ router.get('/signed-term-sheets',
  *               portfolioCompanyId:
  *                 type: string
  *                 example: "cmi79aihl000ajx04sc7x6ec7"
+ *                 description: Portfolio company ID
  *               applicationId:
  *                 type: string
  *                 example: "cmi78trsi0000jx048i72bb7m"
+ *                 description: Application ID
  *               fundId:
  *                 type: string
  *                 example: "cmht6ve7x0001jx04kz890uj6"
+ *                 description: Fund ID to link this implementation to
  *               implementationPlan:
  *                 type: string
  *                 example: "Phase 1: Product development, Phase 2: Market launch"
+ *                 description: Implementation plan details
  *               notes:
  *                 type: string
  *                 example: "Investment implementation for LY company"
+ *                 description: Additional notes
  *               disbursementMode:
  *                 type: string
  *                 enum: [ONE_TIME, MILESTONE_BASED]
  *                 example: "MILESTONE_BASED"
+ *                 default: "ONE_TIME"
  *                 description: Disbursement mode. Defaults to ONE_TIME if not provided.
  *               totalCommittedAmount:
  *                 type: number
  *                 example: 30000
  *                 description: Required if disbursementMode is MILESTONE_BASED. Total amount committed for this investment.
+ *           examples:
+ *             milestoneBased:
+ *               summary: Milestone-based disbursement
+ *               value:
+ *                 portfolioCompanyId: "cmi79aihl000ajx04sc7x6ec7"
+ *                 applicationId: "cmi78trsi0000jx048i72bb7m"
+ *                 fundId: "cmht6ve7x0001jx04kz890uj6"
+ *                 implementationPlan: "Phase 1: Product development, Phase 2: Market launch"
+ *                 notes: "Investment implementation for LY company"
+ *                 disbursementMode: "MILESTONE_BASED"
+ *                 totalCommittedAmount: 30000
+ *             oneTime:
+ *               summary: One-time disbursement
+ *               value:
+ *                 portfolioCompanyId: "cmi79aihl000ajx04sc7x6ec7"
+ *                 applicationId: "cmi78trsi0000jx048i72bb7m"
+ *                 fundId: "cmht6ve7x0001jx04kz890uj6"
+ *                 implementationPlan: "Full investment implementation"
+ *                 notes: "Investment implementation for LY company"
  *     responses:
  *       201:
- *         description: Investment implementation created successfully
+ *         description: Investment implementation initiated successfully
  *         content:
  *           application/json:
  *             schema:
@@ -406,65 +430,6 @@ router.post('/milestones/:milestoneId/complete',
   InvestmentImplementationController.completeMilestone
 );
 
-/**
- * @swagger
- * /api/investment-implementations/initiate:
- *   post:
- *     summary: Create investment implementation
- *     description: Creates a new investment implementation for a portfolio company. Supports both ONE_TIME and MILESTONE_BASED disbursement modes.
- *     tags: [Disbursements]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - portfolioCompanyId
- *               - applicationId
- *               - fundId
- *             properties:
- *               portfolioCompanyId:
- *                 type: string
- *                 example: "cmi79aihl000ajx04sc7x6ec7"
- *               applicationId:
- *                 type: string
- *                 example: "cmi78trsi0000jx048i72bb7m"
- *               fundId:
- *                 type: string
- *                 example: "cmht6ve7x0001jx04kz890uj6"
- *               implementationPlan:
- *                 type: string
- *                 example: "Phase 1: Product development, Phase 2: Market launch"
- *               notes:
- *                 type: string
- *                 example: "Investment implementation for LY company"
- *               disbursementMode:
- *                 type: string
- *                 enum: [ONE_TIME, MILESTONE_BASED]
- *                 example: "MILESTONE_BASED"
- *                 description: Disbursement mode. Defaults to ONE_TIME if not provided.
- *               totalCommittedAmount:
- *                 type: number
- *                 example: 30000
- *                 description: Required if disbursementMode is MILESTONE_BASED. Total amount committed for this investment.
- *     responses:
- *       201:
- *         description: Investment implementation created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   $ref: '#/components/schemas/InvestmentImplementation'
- *                 message:
- *                   type: string
- */
 router.post('/initiate', 
   authenticate, 
   authorize(['admin', 'fund_manager']), 
