@@ -12,6 +12,8 @@ export interface CreateInvestmentImplementationRequest {
   initiatedById: string;
   implementationPlan?: string;
   notes?: string;
+  disbursementMode?: 'ONE_TIME' | 'MILESTONE_BASED'; // Optional: defaults to ONE_TIME
+  totalCommittedAmount?: number; // Required if MILESTONE_BASED
 }
 
 export interface CreateMilestoneRequest {
@@ -29,6 +31,15 @@ export interface CreateFundDisbursementRequest {
   disbursementDate: Date;
   disbursementType: string; // INITIAL, MILESTONE, FINAL
   notes?: string;
+}
+
+export interface DisbursementSummary {
+  totalCommittedAmount: number;
+  totalDisbursedAmount: number;
+  remainingCommittedAmount: number;
+  disbursementCount: number;
+  disbursementMode: string;
+  disbursements: FundDisbursement[];
 }
 
 export interface InvestmentImplementationWithRelations extends InvestmentImplementation {
@@ -224,6 +235,13 @@ export class InvestmentImplementationService {
         throw new Error("Investment implementation already exists for this portfolio company");
       }
 
+      // Validate milestone-based disbursement requirements
+      if (params.disbursementMode === 'MILESTONE_BASED') {
+        if (!params.totalCommittedAmount || params.totalCommittedAmount <= 0) {
+          throw new Error("totalCommittedAmount is required when disbursementMode is MILESTONE_BASED");
+        }
+      }
+
                            // Create investment implementation
         const implementation = await prisma.investmentImplementation.create({
           data: {
@@ -233,6 +251,8 @@ export class InvestmentImplementationService {
             initiatedById: params.initiatedById,
             implementationPlan: params.implementationPlan,
             notes: params.notes,
+            disbursementMode: params.disbursementMode || 'ONE_TIME',
+            totalCommittedAmount: params.totalCommittedAmount ? new Decimal(params.totalCommittedAmount) : null,
             status: "IN_PROGRESS"
           },
         include: {
@@ -491,14 +511,61 @@ export class InvestmentImplementationService {
   }
 
   /**
+   * Get disbursement summary for an investment implementation
+   */
+  static async getDisbursementSummary(investmentImplementationId: string): Promise<DisbursementSummary> {
+    try {
+      const implementation = await prisma.investmentImplementation.findUnique({
+        where: { id: investmentImplementationId },
+        include: {
+          fundDisbursements: {
+            orderBy: { createdAt: 'asc' }
+          }
+        }
+      });
+
+      if (!implementation) {
+        throw new Error("Investment implementation not found");
+      }
+
+      // Calculate total disbursed (only APPROVED or DISBURSED status)
+      const totalDisbursed = implementation.fundDisbursements
+        .filter(d => d.status === 'APPROVED' || d.status === 'DISBURSED')
+        .reduce((sum, d) => sum.plus(d.amount), new Decimal(0));
+
+      const totalCommitted = implementation.totalCommittedAmount || new Decimal(0);
+      const remainingCommitted = totalCommitted.minus(totalDisbursed);
+
+      return {
+        totalCommittedAmount: Number(totalCommitted),
+        totalDisbursedAmount: Number(totalDisbursed),
+        remainingCommittedAmount: Number(remainingCommitted),
+        disbursementCount: implementation.fundDisbursements.length,
+        disbursementMode: implementation.disbursementMode || 'ONE_TIME',
+        disbursements: implementation.fundDisbursements
+      };
+    } catch (error: any) {
+      throw new Error(`Failed to get disbursement summary: ${error.message}`);
+    }
+  }
+
+  /**
    * Create fund disbursement
+   * Supports both ONE_TIME and MILESTONE_BASED disbursement modes
    */
   static async createFundDisbursement(params: CreateFundDisbursementRequest): Promise<FundDisbursement> {
     try {
       // Get the investment implementation to find the associated fund
       const implementation = await prisma.investmentImplementation.findUnique({
         where: { id: params.investmentImplementationId },
-        include: { fund: true }
+        include: { 
+          fund: true,
+          fundDisbursements: {
+            where: {
+              status: { in: ['APPROVED', 'DISBURSED'] }
+            }
+          }
+        }
       });
 
       if (!implementation) {
@@ -509,9 +576,35 @@ export class InvestmentImplementationService {
         throw new Error("Investment implementation is not associated with a fund");
       }
 
+      const disbursementAmount = new Decimal(params.amount);
+      const disbursementMode = implementation.disbursementMode || 'ONE_TIME';
+
       // Validate fund has sufficient remaining amount
-      if (implementation.fund.remainingAmount.lessThan(new Decimal(params.amount))) {
-        throw new Error("Insufficient funds available for disbursement");
+      if (implementation.fund.remainingAmount.lessThan(disbursementAmount)) {
+        throw new Error("Insufficient funds available in fund for disbursement");
+      }
+
+      // For MILESTONE_BASED disbursements, validate against committed amount
+      if (disbursementMode === 'MILESTONE_BASED') {
+        if (!implementation.totalCommittedAmount) {
+          throw new Error("Total committed amount must be set for milestone-based disbursements");
+        }
+
+        // Calculate total already disbursed
+        const totalDisbursed = implementation.fundDisbursements.reduce(
+          (sum, d) => sum.plus(d.amount),
+          new Decimal(0)
+        );
+
+        // Calculate remaining committed amount
+        const remainingCommitted = implementation.totalCommittedAmount.minus(totalDisbursed);
+
+        // Validate this disbursement doesn't exceed remaining committed amount
+        if (remainingCommitted.lessThan(disbursementAmount)) {
+          throw new Error(
+            `Insufficient remaining committed amount. Remaining: $${remainingCommitted.toFixed(2)}, Requested: $${disbursementAmount.toFixed(2)}`
+          );
+        }
       }
 
       // Create disbursement
@@ -520,7 +613,7 @@ export class InvestmentImplementationService {
           fundId: implementation.fund.id,
           investmentImplementationId: params.investmentImplementationId,
           milestoneId: params.milestoneId,
-          amount: new Decimal(params.amount),
+          amount: disbursementAmount,
           disbursementDate: params.disbursementDate,
           disbursementType: params.disbursementType,
           notes: params.notes,

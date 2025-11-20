@@ -34,7 +34,7 @@ export class InvestmentImplementationController {
    */
   static async initiateInvestmentImplementation(req: Request, res: Response) {
     try {
-      const { portfolioCompanyId, applicationId, fundId, implementationPlan, notes } = req.body;
+      const { portfolioCompanyId, applicationId, fundId, implementationPlan, notes, disbursementMode, totalCommittedAmount } = req.body;
       const initiatedById = (req as any).user.id;
 
       const implementation = await InvestmentImplementationService.initiateInvestmentImplementation({
@@ -43,7 +43,9 @@ export class InvestmentImplementationController {
         fundId, // Required - must link to a fund
         initiatedById,
         implementationPlan,
-        notes
+        notes,
+        disbursementMode, // ONE_TIME or MILESTONE_BASED
+        totalCommittedAmount // Required if MILESTONE_BASED
       });
 
       // Send investment implementation started email notification
@@ -198,6 +200,28 @@ export class InvestmentImplementationController {
         success: true,
         data: milestone,
         message: "Milestone completed successfully"
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Get disbursement summary for an investment implementation
+   */
+  static async getDisbursementSummary(req: Request, res: Response) {
+    try {
+      const { investmentImplementationId } = req.params;
+
+      const summary = await InvestmentImplementationService.getDisbursementSummary(investmentImplementationId);
+
+      res.status(200).json({
+        success: true,
+        data: summary,
+        message: "Disbursement summary retrieved successfully"
       });
     } catch (error: any) {
       res.status(400).json({
