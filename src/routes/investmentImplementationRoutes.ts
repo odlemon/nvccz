@@ -476,8 +476,7 @@ router.post('/initiate',
  * /api/investment-implementations/disbursements:
  *   post:
  *     summary: Create fund disbursement
- *     description: Creates a new fund disbursement. For MILESTONE_BASED implementations, validates remaining committed amount.
- *     tags: [Disbursements]
+ *     tags: [Investment Implementation]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -535,8 +534,7 @@ router.post('/disbursements',
  * /api/investment-implementations/disbursements/{disbursementId}/approve:
  *   post:
  *     summary: Approve fund disbursement
- *     description: Approves a fund disbursement. Creates cashbook payment entry and journal entries (Debit Portfolio Investments, Credit Bank).
- *     tags: [Disbursements]
+ *     tags: [Investment Implementation]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -573,8 +571,7 @@ router.post('/disbursements/:disbursementId/approve',
  * /api/investment-implementations/{investmentImplementationId}/disbursement-summary:
  *   get:
  *     summary: Get disbursement summary
- *     description: Returns summary of disbursements including total committed, disbursed, and remaining amounts.
- *     tags: [Disbursements]
+ *     tags: [Investment Implementation]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -642,8 +639,7 @@ router.get('/:investmentImplementationId/disbursement-summary',
  * /api/investment-implementations/disbursements/{disbursementId}/disburse:
  *   post:
  *     summary: Mark disbursement as disbursed
- *     description: Marks a disbursement as fully disbursed with optional transaction reference.
- *     tags: [Disbursements]
+ *     tags: [Investment Implementation]
  *     security:
  *       - bearerAuth: []
  *     parameters:
