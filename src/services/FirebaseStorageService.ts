@@ -169,6 +169,37 @@ export class FirebaseStorageService {
   }
 
   /**
+   * Upload term sheet signature to Firebase Storage
+   */
+  static async uploadTermSheetSignature(
+    file: Buffer,
+    applicationId: string,
+    termSheetId: string,
+    signatureType: 'applicant' | 'investor',
+    fileName: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    try {
+      console.log(`📁 Uploading ${signatureType} signature for term sheet ${termSheetId}`);
+
+      const sanitizedName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+      const timestamp = Date.now();
+      const storageRef = ref(storage, `term-sheet-signatures/${applicationId}/${termSheetId}/${signatureType}-${timestamp}-${sanitizedName}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      console.log(`✅ Signature uploaded successfully: ${snapshot.ref.fullPath}`);
+
+      return {
+        filePath: snapshot.ref.fullPath,
+        downloadURL
+      };
+    } catch (error: any) {
+      console.error('❌ Error uploading signature to Firebase:', error.message);
+      throw new Error(`Failed to upload signature: ${error.message}`);
+    }
+  }
+
+  /**
    * Delete file from Firebase Storage
    */
   static async deleteFile(filePath: string): Promise<void> {
