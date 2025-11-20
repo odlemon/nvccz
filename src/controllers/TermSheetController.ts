@@ -331,25 +331,36 @@ export class TermSheetController {
         }
       );
 
-      // Send term sheet approved email notification
-      try {
-        await EmailNotificationService.sendTermSheetApprovedEmail({
-          applicantName: application.applicantName,
-          applicantEmail: application.applicantEmail,
-          businessName: application.businessName,
-          applicationId: application.id,
-          currentStage: 'TERM_SHEET_APPROVED'
-        });
-        console.log("Term sheet approved email sent successfully", {
-          applicationId: application.id,
-          applicantEmail: application.applicantEmail
-        });
-      } catch (emailError) {
-        console.error("Failed to send term sheet approved email", {
+      // Only send "approved" email if BOTH signatures are present (fully signed)
+      // Otherwise, the notification is already sent in TermSheetService
+      if (termSheet.isSigned && termSheet.applicantSignatureUrl && termSheet.investorSignatureUrl) {
+        // Both signatures present - send approved email
+        try {
+          await EmailNotificationService.sendTermSheetApprovedEmail({
+            applicantName: application.applicantName,
+            applicantEmail: application.applicantEmail,
+            businessName: application.businessName,
+            applicationId: application.id,
+            currentStage: 'TERM_SHEET_APPROVED'
+          });
+          console.log("Term sheet approved email sent successfully (both signatures present)", {
+            applicationId: application.id,
+            applicantEmail: application.applicantEmail
+          });
+        } catch (emailError) {
+          console.error("Failed to send term sheet approved email", {
+            applicationId,
+            error: emailError.message
+          });
+          // Don't fail the term sheet signing if email fails
+        }
+      } else {
+        // Partial signature - notification already sent in service, just log
+        console.log("Term sheet partially signed - notification sent in service", {
           applicationId,
-          error: emailError.message
+          signatureType,
+          isFullySigned: false
         });
-        // Don't fail the term sheet signing if email fails
       }
 
       res.status(200).json({
