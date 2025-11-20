@@ -423,7 +423,7 @@ router.post('/:applicationId/finalize', authenticate, authorize(['admin', 'fund_
  *       401:
  *         description: Unauthorized
  */
-router.post('/:applicationId/sign', authenticate, authorize(['applicant']), TermSheetController.signTermSheet);
+router.post('/:applicationId/sign', authenticate, upload.single('signature'), TermSheetController.signTermSheet);
 
 /**
  * @swagger

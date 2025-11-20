@@ -3,6 +3,7 @@ import { PrismaClient, TermSheet, Application } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { FirebaseStorageService } from './FirebaseStorageService';
 
 export interface CreateTermSheetRequest {
   applicationId: string;
@@ -207,6 +208,11 @@ export class TermSheetService {
         throw new Error("Cannot update signed term sheet. Term sheet has already been signed and cannot be modified.");
       }
 
+      // Prevent signature field updates (signatures are immutable once uploaded)
+      if (termSheet.applicantSignatureUrl || termSheet.investorSignatureUrl) {
+        throw new Error("Cannot update term sheet that has signatures. Signatures cannot be modified once uploaded.");
+      }
+
       // Build update data object - only include fields that are actually provided
       const updateData: any = {
         updatedAt: new Date()
@@ -354,9 +360,14 @@ export class TermSheetService {
   }
 
   /**
-   * Sign term sheet
+   * Sign term sheet with signature
    */
-  static async signTermSheet(applicationId: string): Promise<TermSheetWithRelations> {
+  static async signTermSheet(
+    applicationId: string,
+    signedById: string,
+    signatureType: 'applicant' | 'investor',
+    signatureFile?: { buffer: Buffer; fileName: string; mimetype: string }
+  ): Promise<TermSheetWithRelations> {
     try {
       const termSheet = await prisma.termSheet.findUnique({
         where: { applicationId },
@@ -377,15 +388,69 @@ export class TermSheetService {
         throw new Error("Cannot sign draft term sheet. Term sheet must be finalized before signing.");
       }
 
-      // Update term sheet to signed
+      // Check if signature already exists for this type (cannot update signature)
+      if (signatureType === 'applicant' && termSheet.applicantSignatureUrl) {
+        throw new Error("Applicant signature already exists. Signatures cannot be updated once uploaded.");
+      }
+      if (signatureType === 'investor' && termSheet.investorSignatureUrl) {
+        throw new Error("Investor signature already exists. Signatures cannot be updated once uploaded.");
+      }
+
+      // Validate signature file is provided
+      if (!signatureFile) {
+        throw new Error("Signature file is required to sign term sheet");
+      }
+
+      // Validate file type (should be image)
+      const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+      if (!allowedMimeTypes.includes(signatureFile.mimetype.toLowerCase())) {
+        throw new Error("Signature must be an image file (PNG, JPEG, JPG, GIF, or WEBP)");
+      }
+
+      // Upload signature to Firebase Storage
+      const { downloadURL, filePath } = await FirebaseStorageService.uploadTermSheetSignature(
+        signatureFile.buffer,
+        applicationId,
+        termSheet.id,
+        signatureType,
+        signatureFile.fileName
+      );
+
+      // Prepare update data based on signature type
+      const updateData: any = {
+        updatedAt: new Date()
+      };
+
+      if (signatureType === 'applicant') {
+        updateData.applicantSignatureUrl = downloadURL;
+        updateData.applicantSignatureFileName = signatureFile.fileName;
+        updateData.applicantSignedById = signedById;
+        updateData.applicantSignedAt = new Date();
+        
+        // Check if investor has also signed - if so, mark as fully signed
+        if (termSheet.investorSignatureUrl) {
+          updateData.status = "SIGNED";
+          updateData.isSigned = true;
+          updateData.signedAt = new Date();
+        }
+      } else if (signatureType === 'investor') {
+        updateData.investorSignatureUrl = downloadURL;
+        updateData.investorSignatureFileName = signatureFile.fileName;
+        updateData.investorSignedById = signedById;
+        updateData.investorSignedAt = new Date();
+        
+        // Check if applicant has also signed - if so, mark as fully signed
+        if (termSheet.applicantSignatureUrl) {
+          updateData.status = "SIGNED";
+          updateData.isSigned = true;
+          updateData.signedAt = new Date();
+        }
+      }
+
+      // Update term sheet with signature
       const updatedTermSheet = await prisma.termSheet.update({
         where: { applicationId },
-        data: {
-          status: "SIGNED",
-          isSigned: true,
-          signedAt: new Date(),
-          updatedAt: new Date()
-        },
+        data: updateData,
         include: {
           application: {
             select: {
@@ -408,26 +473,45 @@ export class TermSheetService {
         }
       });
 
-      // Update application stage to UNDER_BOARD_REVIEW (new workflow: term sheet → board review → investment implementation)
-      await prisma.application.update({
-        where: { id: applicationId },
-        data: {
-          currentStage: "UNDER_BOARD_REVIEW",
-          updatedAt: new Date()
-        }
-      });
+      // Only update application stage if both signatures are present (fully signed)
+      if (updatedTermSheet.isSigned && updatedTermSheet.applicantSignatureUrl && updatedTermSheet.investorSignatureUrl) {
+        // Update application stage to UNDER_BOARD_REVIEW (new workflow: term sheet → board review → investment implementation)
+        await prisma.application.update({
+          where: { id: applicationId },
+          data: {
+            currentStage: "UNDER_BOARD_REVIEW",
+            updatedAt: new Date()
+          }
+        });
+      }
 
-      // Create notification for applicant
-      await prisma.applicationNotification.create({
-        data: {
-          applicationId,
-          recipientEmail: termSheet.application.applicantEmail,
-          recipientPhone: termSheet.application.applicantPhone,
-          notificationType: "TERM_SHEET_SIGNED",
-          title: "Term Sheet Signed",
-          message: `The term sheet for your application (${termSheet.application.businessName}) has been signed. Your application will now proceed to board review.`
-        }
-      });
+      // Create notification based on signature status
+      if (updatedTermSheet.isSigned) {
+        // Both signatures present - fully signed
+        await prisma.applicationNotification.create({
+          data: {
+            applicationId,
+            recipientEmail: termSheet.application.applicantEmail,
+            recipientPhone: termSheet.application.applicantPhone,
+            notificationType: "TERM_SHEET_SIGNED",
+            title: "Term Sheet Fully Signed",
+            message: `The term sheet for your application (${termSheet.application.businessName}) has been fully signed by both parties. Your application will now proceed to board review.`
+          }
+        });
+      } else {
+        // Partial signature - notify about pending signature
+        const pendingParty = signatureType === 'applicant' ? 'investor' : 'applicant';
+        await prisma.applicationNotification.create({
+          data: {
+            applicationId,
+            recipientEmail: termSheet.application.applicantEmail,
+            recipientPhone: termSheet.application.applicantPhone,
+            notificationType: "TERM_SHEET_PARTIALLY_SIGNED",
+            title: "Term Sheet Partially Signed",
+            message: `The ${signatureType} has signed the term sheet for your application (${termSheet.application.businessName}). Waiting for ${pendingParty} signature to complete.`
+          }
+        });
+      }
 
       return updatedTermSheet;
     } catch (error: any) {

@@ -163,9 +163,22 @@ export class TermSheetController {
       const { applicationId } = req.params;
 
       // Only include fields that are actually provided in the request body
+      // Note: Signature fields are NOT allowed in updates (signatures are immutable)
       const updateData: UpdateTermSheetRequest = {};
       
       if (req.body && typeof req.body === 'object') {
+        // Reject any signature-related fields
+        if (req.body.applicantSignatureUrl || req.body.investorSignatureUrl || 
+            req.body.applicantSignatureFileName || req.body.investorSignatureFileName ||
+            req.body.applicantSignedById || req.body.investorSignedById ||
+            req.body.applicantSignedAt || req.body.investorSignedAt) {
+          res.status(400).json({
+            success: false,
+            message: 'Signature fields cannot be updated. Signatures are immutable once uploaded.'
+          });
+          return;
+        }
+
         if (req.body.title !== undefined) updateData.title = req.body.title;
         if (req.body.investmentAmount !== undefined) updateData.investmentAmount = req.body.investmentAmount;
         if (req.body.equityPercentage !== undefined) updateData.equityPercentage = req.body.equityPercentage;
@@ -228,7 +241,7 @@ export class TermSheetController {
   }
 
   /**
-   * Sign term sheet
+   * Sign term sheet with signature
    */
   static async signTermSheet(req: Request, res: Response): Promise<void> {
     try {
@@ -239,16 +252,6 @@ export class TermSheetController {
         res.status(401).json({
           success: false,
           message: 'User not found in request'
-        });
-        return;
-      }
-
-      // Check if user is applicant
-      const isApplicant = await TermSheetController.isApplicant(reqUser);
-      if (!isApplicant) {
-        res.status(403).json({
-          success: false,
-          message: 'Access denied. This endpoint is only available to applicants.'
         });
         return;
       }
@@ -268,12 +271,28 @@ export class TermSheetController {
         return;
       }
 
-      // Check if the user is the applicant for this application
+      // Check if user is applicant or investor/admin
+      const isApplicant = await TermSheetController.isApplicant(reqUser);
       const user = await prisma.user.findUnique({
-        where: { id: userId }
+        where: { id: userId },
+        include: { role: true }
       });
 
-      if (!user || user.email !== application.applicantEmail) {
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+        return;
+      }
+
+      // Determine signature type based on user
+      let signatureType: 'applicant' | 'investor';
+      if (isApplicant && user.email === application.applicantEmail) {
+        signatureType = 'applicant';
+      } else if (user.role?.name === 'admin' || user.role?.name === 'fund_manager') {
+        signatureType = 'investor';
+      } else {
         res.status(403).json({
           success: false,
           message: 'You are not authorized to sign this term sheet'
@@ -281,7 +300,36 @@ export class TermSheetController {
         return;
       }
 
-      const termSheet = await TermSheetService.signTermSheet(applicationId);
+      // Get signature file from request
+      const signatureFile = (req as any).file;
+      if (!signatureFile) {
+        res.status(400).json({
+          success: false,
+          message: 'Signature file is required'
+        });
+        return;
+      }
+
+      // Validate file type (must be image)
+      const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+      if (!allowedMimeTypes.includes(signatureFile.mimetype.toLowerCase())) {
+        res.status(400).json({
+          success: false,
+          message: 'Signature must be an image file (PNG, JPEG, JPG, GIF, or WEBP)'
+        });
+        return;
+      }
+
+      const termSheet = await TermSheetService.signTermSheet(
+        applicationId,
+        userId,
+        signatureType,
+        {
+          buffer: signatureFile.buffer,
+          fileName: signatureFile.originalname,
+          mimetype: signatureFile.mimetype
+        }
+      );
 
       // Send term sheet approved email notification
       try {

@@ -49,6 +49,8 @@ model User {
   dueDiligenceReviews               DueDiligenceReview[]
   boardReviews                      BoardReview[]
   termSheets                        TermSheet[]
+  termSheetsSignedAsApplicant       TermSheet[]                    @relation("TermSheetApplicantSignedBy")
+  termSheetsSignedAsInvestor        TermSheet[]                    @relation("TermSheetInvestorSignedBy")
   investmentImplementations         InvestmentImplementation[]
   fundDisbursementsApproved         FundDisbursement[]           @relation("FundDisbursementApprovedBy")
   fundDisbursementsDisbursed        FundDisbursement[]           @relation("FundDisbursementDisbursedBy")
@@ -1065,10 +1067,22 @@ model TermSheet {
   isFinal          Boolean     @default(false)
   isSigned         Boolean     @default(false)
   signedAt         DateTime?
+  // Applicant signature fields
+  applicantSignatureUrl    String?     @db.Text
+  applicantSignatureFileName String?
+  applicantSignedById      String?
+  applicantSignedAt        DateTime?
+  // Investor signature fields
+  investorSignatureUrl     String?     @db.Text
+  investorSignatureFileName String?
+  investorSignedById       String?
+  investorSignedAt         DateTime?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   createdBy        User        @relation(fields: [createdById], references: [id])
+  applicantSignedBy User?     @relation("TermSheetApplicantSignedBy", fields: [applicantSignedById], references: [id])
+  investorSignedBy  User?     @relation("TermSheetInvestorSignedBy", fields: [investorSignedById], references: [id])
 
   @@map("term_sheets")
 }
