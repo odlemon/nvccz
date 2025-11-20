@@ -5,6 +5,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
 import { TaskService } from './TaskService';
 import { EmailNotificationService } from './EmailNotificationService';
+import { BoardReviewService } from './BoardReviewService';
 import { logger } from '../utils/logger';
 import { HARDCODED_ROLES } from '../config/hardcodedRoles';
 
@@ -468,11 +469,59 @@ export class DueDiligenceService {
         }
       });
 
-      // Update application stage to UNDER_BOARD_REVIEW
+      // Determine next stage based on recommendation
+      let nextStage: string;
+      if (existingDueDiligence.recommendation === 'REJECT') {
+        nextStage = 'REJECTED';
+      } else if (existingDueDiligence.recommendation === 'APPROVE' || existingDueDiligence.recommendation === 'CONDITIONAL') {
+        // Move to TERM_SHEET stage (new workflow: due diligence → term sheet → board review)
+        nextStage = 'TERM_SHEET';
+        
+        // Create user and portfolio company when due diligence approves/conditionally approves
+        // This allows users to access and sign term sheets before board review
+        try {
+          const fullApplication = await prisma.application.findUnique({
+            where: { id: applicationId },
+            select: {
+              id: true,
+              businessName: true,
+              applicantName: true,
+              applicantEmail: true,
+              applicantPhone: true,
+              applicantAddress: true,
+              currentStage: true,
+              requestedAmount: true,
+              industry: true,
+              foundingDate: true,
+              businessDescription: true,
+              businessStage: true
+            }
+          });
+
+          if (fullApplication) {
+            await BoardReviewService.createUserAndPortfolioCompany(fullApplication);
+            logger.info("User and portfolio company created after due diligence completion", {
+              applicationId,
+              applicantEmail: fullApplication.applicantEmail
+            });
+          }
+        } catch (userCreationError: any) {
+          logger.error("Failed to create user and portfolio company after due diligence", {
+            applicationId,
+            error: userCreationError.message
+          });
+          // Don't fail due diligence completion if user creation fails - log and continue
+        }
+      } else {
+        // Default to TERM_SHEET for any other recommendation
+        nextStage = 'TERM_SHEET';
+      }
+
+      // Update application stage
       await prisma.application.update({
         where: { id: applicationId },
         data: { 
-          currentStage: 'UNDER_BOARD_REVIEW',
+          currentStage: nextStage,
           dueDiligenceScore: existingDueDiligence.overallScore
         }
       });
@@ -505,6 +554,12 @@ export class DueDiligenceService {
       }
 
       // Create notification for applicant
+      const notificationMessage = nextStage === 'REJECTED' 
+        ? `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Unfortunately, your application has been rejected.`
+        : nextStage === 'TERM_SHEET'
+        ? `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Your account has been created and you can now log in to review and sign the term sheet.`
+        : `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Your application is now moving to the next stage.`;
+
       await prisma.applicationNotification.create({
         data: {
           applicationId,
@@ -512,7 +567,7 @@ export class DueDiligenceService {
           recipientPhone: existingDueDiligence.application.applicantPhone,
           notificationType: 'DUE_DILIGENCE_COMPLETED',
           title: 'Due Diligence Completed',
-          message: `The due diligence review for your application (${existingDueDiligence.application.businessName}) has been completed. Your application is now under board review.`
+          message: notificationMessage
         }
       });
 

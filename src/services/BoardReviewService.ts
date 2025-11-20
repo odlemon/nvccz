@@ -814,7 +814,9 @@ export class BoardReviewService {
       const conditionalApproval = false;
 
       const boardDecision = investmentApproved ? "BOARD_APPROVED" : "BOARD_REJECTED";
-      const nextStage = investmentApproved ? "BOARD_APPROVED" : "BOARD_REJECTED";
+      // New workflow: board review comes after term sheet, so approved applications go directly to INVESTMENT_IMPLEMENTATION
+      // User and portfolio company were already created during due diligence completion
+      const nextStage = investmentApproved ? "INVESTMENT_IMPLEMENTATION" : "REJECTED";
 
       // Update board review status
       const updatedBoardReview = await prisma.boardReview.update({
@@ -867,35 +869,14 @@ export class BoardReviewService {
 
       console.log(`Application ${applicationId} stage updated from ${boardReview.application.currentStage} to ${nextStage}`);
 
-      // If moving to BOARD_APPROVED stage, create user account and portfolio company
-      if (nextStage === 'BOARD_APPROVED') {
-        // Fetch full application data with all required fields
-        const fullApplication = await prisma.application.findUnique({
-          where: { id: applicationId },
-          select: {
-            id: true,
-            businessName: true,
-            applicantName: true,
-            applicantEmail: true,
-            applicantPhone: true,
-            applicantAddress: true,
-            currentStage: true,
-            requestedAmount: true,
-            industry: true,
-            foundingDate: true,
-            businessDescription: true,
-            businessStage: true
-          }
-        });
-
-        if (!fullApplication) {
-          throw new Error("Application not found when creating user and portfolio company");
-        }
-
-        await BoardReviewService.createUserAndPortfolioCompany(fullApplication);
-      }
+      // Note: User and portfolio company are NOT created here anymore
+      // They are created during due diligence completion (new workflow)
 
       // Create notification for the applicant
+      const notificationMessage = nextStage === 'INVESTMENT_IMPLEMENTATION'
+        ? `The board has made a decision on your application. Decision: ${boardDecision}. ${boardReview.decisionReason || ''} Your application has been approved! The investment implementation process will now begin.`
+        : `The board has made a decision on your application. Decision: ${boardDecision}. ${boardReview.decisionReason || ''}`;
+
       await prisma.applicationNotification.create({
         data: {
           applicationId,
@@ -903,7 +884,7 @@ export class BoardReviewService {
           recipientPhone: boardReview.application.applicantPhone,
           notificationType: "BOARD_DECISION",
           title: `Board Decision: ${boardDecision}`,
-          message: `The board has made a decision on your application. Decision: ${boardDecision}. ${boardReview.decisionReason || ''} ${nextStage === 'BOARD_APPROVED' ? 'Your application has been approved! An account has been created for you to access the term sheet when it becomes available.' : ''}`
+          message: notificationMessage
         }
       });
 
