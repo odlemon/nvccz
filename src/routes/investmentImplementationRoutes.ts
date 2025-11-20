@@ -443,6 +443,53 @@ router.post('/milestones/:milestoneId/complete',
  *                 message:
  *                   type: string
  */
+/**
+ * @swagger
+ * /api/investment-implementations/{investmentImplementationId}/disbursement-summary:
+ *   get:
+ *     summary: Get disbursement summary for an investment implementation
+ *     tags: [Investment Implementation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: investmentImplementationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Investment Implementation ID
+ *     responses:
+ *       200:
+ *         description: Disbursement summary retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalCommittedAmount:
+ *                       type: number
+ *                     totalDisbursedAmount:
+ *                       type: number
+ *                     remainingCommittedAmount:
+ *                       type: number
+ *                     disbursementCount:
+ *                       type: number
+ *                     disbursementMode:
+ *                       type: string
+ *                     disbursements:
+ *                       type: array
+ */
+router.get('/:investmentImplementationId/disbursement-summary',
+  authenticate,
+  authorize(['admin', 'fund_manager']),
+  InvestmentImplementationController.getDisbursementSummary
+);
+
 router.post('/disbursements', 
   authenticate, 
   authorize(['admin', 'fund_manager']), 
