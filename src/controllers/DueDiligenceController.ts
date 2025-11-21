@@ -234,7 +234,7 @@ export class DueDiligenceController {
   static async assignDueDiligenceTask(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params; // applicationId
-      const { assigneeId, title, description, priority, dueDate } = req.body;
+      const { assigneeId, title, description, priority, dueDate, category } = req.body;
       const assignedById = (req as any).user?.id;
 
       if (!id) {
@@ -264,7 +264,8 @@ export class DueDiligenceController {
           title,
           description,
           priority,
-          dueDate: dueDate ? new Date(dueDate) : undefined
+          dueDate: dueDate ? new Date(dueDate) : undefined,
+          category
         },
         assignedById
       );

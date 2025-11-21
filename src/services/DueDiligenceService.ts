@@ -376,6 +376,20 @@ export class DueDiligenceService {
         throw new Error('Due diligence is already completed');
       }
 
+      const requiredSections = [
+        { field: 'marketResearchViable', label: 'Market Research' },
+        { field: 'financialViable', label: 'Financial Assessment' },
+        { field: 'legalCompliant', label: 'Legal Compliance' },
+        { field: 'managementTeamQualified', label: 'Management Assessment' }
+      ];
+
+      const incompleteSections = requiredSections
+        .filter(section => !existingDueDiligence[section.field]);
+
+      if (incompleteSections.length > 0) {
+        throw new Error(`Cannot complete due diligence: Please complete ${incompleteSections.map(section => section.label).join(', ')} first.`);
+      }
+
       // Validate that all required fields are filled
       if (existingDueDiligence.overallScore === null || 
           existingDueDiligence.recommendation === null ||
@@ -688,6 +702,7 @@ export class DueDiligenceService {
       description?: string;
       priority?: string;
       dueDate?: Date;
+      category?: string;
     },
     assignedById: string
   ): Promise<any> {
@@ -737,7 +752,8 @@ export class DueDiligenceService {
           applicationId: applicationId,
           fromDueDiligence: true,
           isPerformanceTask: true,
-          performanceCategory: 'business'
+          performanceCategory: 'business',
+          category: taskData.category
         },
         assignedById
       );
