@@ -121,7 +121,7 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  '/portfolio-companies/{id}/financial-reports': {
+  '/api/portfolio-companies/{id}/financial-reports': {
     get: {
       summary: 'List financial reports for a portfolio company',
       tags: ['Financial Reporting'],
@@ -137,7 +137,7 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  '/portfolio-companies/{id}/financial-reports/{reportId}/download': {
+  '/api/portfolio-companies/{id}/financial-reports/{reportId}/download': {
     get: {
       summary: 'Download a financial report',
       tags: ['Financial Reporting'],
@@ -155,7 +155,7 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  '/portfolio-companies/{id}/financial-reports/{reportId}/review': {
+  '/api/portfolio-companies/{id}/financial-reports/{reportId}/review': {
     post: {
       summary: 'Review a financial report',
       tags: ['Financial Reporting'],

@@ -1,7 +1,7 @@
 // Comprehensive Procurement endpoints for fallback Swagger spec
 export const procurementEndpoints = {
   // ========== PROCUREMENT - REQUISITIONS ==========
-  '/procurement/requisitions': {
+  '/api/procurement/requisitions': {
     post: {
       summary: 'Create a new purchase requisition',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
@@ -80,7 +80,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/requisitions/my': {
+  '/api/procurement/requisitions/my': {
     get: {
       summary: 'Get my purchase requisitions (created by logged-in user)',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
@@ -92,7 +92,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/requisitions/pending-approval': {
+  '/api/procurement/requisitions/pending-approval': {
     get: {
       summary: 'Get pending requisitions for department head approval (their department only)',
       description: '**Required Role:** Department HEAD or DEPUTY (departmentRole: HEAD or DEPUTY) - Can view pending requisitions from their department only',
@@ -104,7 +104,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/requisitions/{id}': {
+  '/api/procurement/requisitions/{id}': {
     get: {
       summary: 'Get purchase requisition by ID',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
@@ -120,7 +120,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/requisitions/{id}/submit': {
+  '/api/procurement/requisitions/{id}/submit': {
     put: {
       summary: 'Submit a purchase requisition for approval',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). ⚠️ Once submitted, status becomes PENDING_APPROVAL and cannot be modified',
@@ -136,7 +136,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/requisitions/{id}/approve': {
+  '/api/procurement/requisitions/{id}/approve': {
     put: {
       summary: 'Approve a purchase requisition',
       description: '**Required Role:** User\'s roleCode must match approval config roleCode (e.g., PROC_MGR, FIN_MGR) OR user must be department HEAD/DEPUTY for their department\'s requisitions. ⚠️ Once approved, status becomes APPROVED and cannot be modified',
@@ -154,7 +154,7 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - RFQ ==========
-  '/procurement/rfq': {
+  '/api/procurement/rfq': {
     get: {
       summary: 'Get all RFQs',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Retrieve all RFQs from the system',
@@ -220,7 +220,7 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - VENDOR QUOTATIONS ==========
-  '/vendor-quotations/submit': {
+  '/api/vendor-quotations/submit': {
     post: {
       summary: 'Submit a vendor quotation (PUBLIC - no authentication required)',
       description: '**Required Role:** PUBLIC (Vendors) - No authentication needed. Vendors use this endpoint to submit their quotes in response to an RFQ.',
@@ -278,7 +278,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/vendor-quotations': {
+  '/api/vendor-quotations': {
     get: {
       summary: 'Get all vendor quotations',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER',
@@ -297,7 +297,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/vendor-quotations/rfq/{rfqNumber}': {
+  '/api/vendor-quotations/rfq/{rfqNumber}': {
     get: {
       summary: 'Get all quotations for a specific RFQ',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER',
@@ -312,7 +312,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/vendor-quotations/{id}': {
+  '/api/vendor-quotations/{id}': {
     get: {
       summary: 'Get quotation by ID',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER',
@@ -343,7 +343,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/vendor-quotations/{id}/accept': {
+  '/api/vendor-quotations/{id}/accept': {
     post: {
       summary: 'Accept a vendor quotation',
       description: '**Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.',
@@ -374,7 +374,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/vendor-quotations/{id}/reject': {
+  '/api/vendor-quotations/{id}/reject': {
     post: {
       summary: 'Reject a vendor quotation',
       description: '**Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once rejected, status becomes REJECTED and cannot be modified',
@@ -408,7 +408,7 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - PURCHASE ORDERS ==========
-  '/procurement/purchase-orders': {
+  '/api/procurement/purchase-orders': {
     post: {
       summary: 'Create a new purchase order',
       description: '**Required Role:** PROC_MGR or PROC_OFF. Creates a PO from a quotation or requisition. Automatically created when quotation is accepted.',
@@ -475,7 +475,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/purchase-orders/{id}': {
+  '/api/procurement/purchase-orders/{id}': {
     get: {
       summary: 'Get purchase order by ID',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
@@ -491,7 +491,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/purchase-orders/{id}/send': {
+  '/api/procurement/purchase-orders/{id}/send': {
     post: {
       summary: 'Send purchase order to vendor via email',
       description: '**Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once sent, status becomes SENT and cannot be modified',
@@ -508,7 +508,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/purchase-orders/{id}/convert-to-bill': {
+  '/api/procurement/purchase-orders/{id}/convert-to-bill': {
     post: {
       summary: 'Convert a Purchase Order to a Creditor Bill (Invoice) in the Accounting module',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or ACCOUNTANT',
@@ -527,7 +527,7 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - GRN ==========
-  '/procurement/goods-received-notes': {
+  '/api/procurement/goods-received-notes': {
     post: {
       summary: 'Create a goods received note',
       description: '**Required Role:** PROC_MGR, PROC_OFF, BUYER, or WAREHOUSE_MANAGER. Records received quantities, accepted quantities, and rejected quantities. Updates PO item quantities.',
@@ -569,7 +569,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/goods-received-notes/{id}': {
+  '/api/procurement/goods-received-notes/{id}': {
     get: {
       summary: 'Get goods received note by ID',
       description: '**Required Role:** PROC_MGR, PROC_OFF, BUYER, or WAREHOUSE_MANAGER',
@@ -587,7 +587,7 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - INVOICES ==========
-  '/procurement/invoices': {
+  '/api/procurement/invoices': {
     post: {
       summary: 'Create a new procurement invoice (PUBLIC - vendors submit invoices)',
       description: '**PUBLIC ENDPOINT** - Vendors submit invoices without authentication. This is the vendor\'s way to submit invoices.',
@@ -650,7 +650,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/invoices/{id}': {
+  '/api/procurement/invoices/{id}': {
     get: {
       summary: 'Get procurement invoice by ID',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
@@ -666,7 +666,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement/invoices/{id}/approve': {
+  '/api/procurement/invoices/{id}/approve': {
     put: {
       summary: 'Approve a procurement invoice',
       description: '**Required Role:** User\'s roleCode must match approval config roleCode (e.g., FIN_MGR, PROC_MGR). ⚠️ Once approved, status becomes APPROVED and cannot be modified. Accounting entries created on payment, not approval.',
@@ -684,7 +684,7 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - PAYMENTS ==========
-  '/procurement/invoices/{id}/payment': {
+  '/api/procurement/invoices/{id}/payment': {
     post: {
       summary: 'Process payment for an approved procurement invoice',
       description: '**Required Role:** FIN_MGR, PROC_MGR, or ACCOUNTANT. Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash)',
@@ -722,7 +722,7 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - DASHBOARD ==========
-  '/procurement/dashboard': {
+  '/api/procurement/dashboard': {
     get: {
       summary: 'Get procurement dashboard data',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
@@ -736,7 +736,7 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - APPROVAL CONFIGURATION ==========
-  '/procurement-approval-configs': {
+  '/api/procurement-approval-configs': {
     get: {
       summary: 'Get the procurement approval configuration',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or ADMIN. Gets the ONE and ONLY approval configuration in the system.',
@@ -748,7 +748,7 @@ export const procurementEndpoints = {
       }
     }
   },
-  '/procurement-approval-configs/{id}': {
+  '/api/procurement-approval-configs/{id}': {
     put: {
       summary: 'Update the procurement approval configuration',
       description: '**Required Role:** ADMIN or PROC_MGR. Update the ONE and ONLY approval configuration. System enforces only ONE config exists.',

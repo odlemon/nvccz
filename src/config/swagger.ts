@@ -2454,7 +2454,7 @@ const fallbackSpec = {
           }
         },
         // User Management
-        '/users': {
+        '/api/users': {
           get: {
             summary: 'Get all users',
             description: 'Retrieve all users in the system',
@@ -2511,7 +2511,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/users/{id}': {
+        '/api/users/{id}': {
           get: {
             summary: 'Get user by ID',
             description: 'Retrieve a specific user by ID',
@@ -2612,7 +2612,7 @@ const fallbackSpec = {
           }
         },
         // Hardcoded Roles Management
-        '/hardcoded-roles': {
+        '/api/hardcoded-roles': {
           get: {
             summary: 'Get all hardcoded roles',
             description: 'Retrieve all 35 hardcoded system roles across all 7 departments as a flat list',
@@ -2653,7 +2653,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/hardcoded-roles/departments-with-roles': {
+        '/api/hardcoded-roles/departments-with-roles': {
           get: {
             summary: 'Get all departments with their roles (RECOMMENDED)',
             description: 'Retrieve all 7 departments grouped with their respective roles. This is the preferred endpoint for getting the complete role structure organized by department.',
@@ -2705,7 +2705,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/hardcoded-roles/departments': {
+        '/api/hardcoded-roles/departments': {
           get: {
             summary: 'Get all departments',
             description: 'Retrieve a list of all 7 departments without their roles',
@@ -2745,7 +2745,7 @@ const fallbackSpec = {
           }
         },
         // Posts Management
-        '/posts': {
+        '/api/posts': {
           get: {
             summary: 'Get all posts',
             description: 'Retrieve all posts',
@@ -2802,7 +2802,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/posts/{id}': {
+        '/api/posts/{id}': {
           get: {
             summary: 'Get post by ID',
             description: 'Retrieve a specific post by ID',
@@ -2903,7 +2903,7 @@ const fallbackSpec = {
           }
         },
         // Newsletters Management
-        '/newsletters': {
+        '/api/newsletters': {
           get: {
             summary: 'Get all newsletters',
             description: 'Retrieve all newsletters',
@@ -2960,7 +2960,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/newsletters/{id}': {
+        '/api/newsletters/{id}': {
           get: {
             summary: 'Get newsletter by ID',
             description: 'Retrieve a specific newsletter by ID',
@@ -3114,7 +3114,7 @@ const fallbackSpec = {
           }
         },
         // Events Management
-        '/events': {
+        '/api/events': {
           get: {
             summary: 'Get all events',
             description: 'Retrieve all events',
@@ -3171,7 +3171,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/events/{id}': {
+        '/api/events/{id}': {
           get: {
             summary: 'Get event by ID',
             description: 'Retrieve a specific event by ID',
@@ -3271,7 +3271,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/events/upcoming': {
+        '/api/events/upcoming': {
           get: {
             summary: 'Get upcoming events',
             description: 'Retrieve upcoming events',
@@ -3299,7 +3299,7 @@ const fallbackSpec = {
           }
         },
         // Homepage
-        '/homepage': {
+        '/api/homepage': {
           get: {
             summary: 'Get homepage data',
             description: 'Retrieve aggregated homepage data including posts, newsletters, events, and online users',
@@ -3317,7 +3317,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/homepage/online-activity': {
+        '/api/homepage/online-activity': {
           get: {
             summary: 'Get online activity',
             description: 'Retrieve online user activity',
@@ -3354,7 +3354,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/homepage/notifications': {
+        '/api/homepage/notifications': {
           get: {
             summary: 'Get user notifications',
             description: 'Retrieve user notifications with pagination',
@@ -7125,7 +7125,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 3: BOARD REVIEW
       // ==========================================
-      '/board-reviews/voting-members': {
+      '/api/board-reviews/voting-members': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'List board voting members',
@@ -7138,7 +7138,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews/voting-members/{userId}/voting-power': {
+      '/api/board-reviews/voting-members/{userId}/voting-power': {
         put: {
           tags: ['🗳️ Voting Process'],
           summary: 'Configure voting power for a board member',
@@ -7176,7 +7176,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews/{applicationId}': {
+      '/api/board-reviews/{applicationId}': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Create board review (Investor)',
@@ -7252,7 +7252,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews/{applicationId}/complete': {
+      '/api/board-reviews/{applicationId}/complete': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Complete board review (Investor)',
@@ -7266,7 +7266,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews/{applicationId}/votes': {
+      '/api/board-reviews/{applicationId}/votes': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Cast board review vote',
@@ -7296,7 +7296,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews/{applicationId}/votes/summary': {
+      '/api/board-reviews/{applicationId}/votes/summary': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get board vote summary',
@@ -7311,7 +7311,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews': {
+      '/api/board-reviews': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get all board reviews (Investor)',
@@ -7328,7 +7328,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews/my': {
+      '/api/board-reviews/my': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get my board reviews (Investor)',
@@ -7344,7 +7344,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/board-reviews/summary': {
+      '/api/board-reviews/summary': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get board review summary (Investor)',
@@ -8137,7 +8137,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - APPLICANT ENDPOINTS
       // ==========================================
-      '/term-sheets/{applicationId}/sign': {
+      '/api/term-sheets/{applicationId}/sign': {
         post: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Sign term sheet (Applicant)',
