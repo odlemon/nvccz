@@ -7596,7 +7596,6 @@ const fallbackSpec = {
                   required: ['investmentImplementationId', 'amount', 'disbursementDate', 'disbursementType'],
                   properties: {
                     investmentImplementationId: { type: 'string' },
-                    milestoneId: { type: 'string' },
                     amount: { type: 'number' },
                     disbursementDate: { type: 'string', format: 'date-time' },
                     disbursementType: { type: 'string', enum: ['INITIAL', 'MILESTONE', 'FINAL'] },
@@ -7605,6 +7604,18 @@ const fallbackSpec = {
                 }
               }
             }
+          ,examples: {
+            default: {
+              summary: 'Fund disbursement payload',
+              value: {
+                investmentImplementationId: 'cmi78trsi0000jx048i72bb7m',
+                amount: 5000,
+                disbursementDate: '2024-01-15T00:00:00Z',
+                disbursementType: 'MILESTONE',
+                notes: 'First milestone payment'
+              }
+            }
+          }
           },
           responses: {
             201: { description: 'Fund disbursement created successfully' },
