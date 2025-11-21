@@ -9,7 +9,7 @@ export const performanceEndpoints = {
   // STAGE 1: GOAL SETTING (Cascade)
   // ==========================================
   
-  '/api/performance/goals': {
+  '/performance/goals': {
     post: {
       tags: ['🎯 Stage 1: Goal Setting'],
       summary: 'Create Organizational Goal',
@@ -103,7 +103,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/breakdown/departments/available': {
+  '/performance/breakdown/departments/available': {
     get: {
       tags: ['🏢 Hardcoded Departments'],
       summary: 'Get All Hardcoded Departments',
@@ -144,7 +144,7 @@ export const performanceEndpoints = {
   },
 
 
-  '/api/performance/breakdown/departments': {
+  '/performance/breakdown/departments': {
     post: {
       tags: ['🎯 Stage 1: Goal Setting'],
       summary: 'Manual Department Breakdown',
@@ -204,7 +204,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/breakdown/users/{department}': {
+  '/performance/breakdown/users/{department}': {
     get: {
       tags: ['🎯 Stage 1: Goal Setting'],
       summary: 'Get Users by Department',
@@ -239,7 +239,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/breakdown/individuals': {
+  '/performance/breakdown/individuals': {
     post: {
       tags: ['🎯 Stage 1: Goal Setting'],
       summary: 'Manual Individual Breakdown',
@@ -303,7 +303,7 @@ export const performanceEndpoints = {
   // STAGE 2: PROGRESS TRACKING
   // ==========================================
 
-  '/api/performance/goal-tracking/check-all-due-goals': {
+  '/performance/goal-tracking/check-all-due-goals': {
     post: {
       tags: ['📊 Stage 2: Progress Tracking'],
       summary: 'Check All Due Goals',
@@ -329,7 +329,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/goal-tracking/stats': {
+  '/performance/goal-tracking/stats': {
     get: {
       tags: ['📊 Stage 2: Progress Tracking'],
       summary: 'Get Goal Tracking Statistics',
@@ -359,7 +359,7 @@ export const performanceEndpoints = {
   // STAGE 3: ROLL-UP CALCULATION
   // ==========================================
 
-  '/api/performance/goals/{goalId}': {
+  '/performance/goals/{goalId}': {
     get: {
       tags: ['📈 Stage 3: Roll-up Calculation'],
       summary: 'Get Goal with Roll-up Data',
@@ -399,7 +399,7 @@ export const performanceEndpoints = {
   // STAGE 4: PERFORMANCE REVIEW
   // ==========================================
 
-  '/api/performance/review-cycles': {
+  '/performance/review-cycles': {
     get: {
       tags: ['🔄 Stage 4: Performance Review'],
       summary: 'Get Performance Review Cycles',
@@ -429,7 +429,7 @@ export const performanceEndpoints = {
   // STAGE 5: DATA SYNCHRONIZATION (ETL)
   // ==========================================
 
-  '/api/performance/enhanced-etl/run-pipeline': {
+  '/performance/enhanced-etl/run-pipeline': {
     post: {
       tags: ['🔄 Stage 5: Data Synchronization'],
       summary: 'Run ETL Pipeline',
@@ -455,7 +455,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/enhanced-etl/metrics': {
+  '/performance/enhanced-etl/metrics': {
     get: {
       tags: ['🔄 Stage 5: Data Synchronization'],
       summary: 'Get ETL Metrics',
@@ -486,7 +486,7 @@ export const performanceEndpoints = {
   // ==========================================
 
 
-  '/api/performance/individual-goals/users/{userId}/performance-tasks': {
+  '/performance/individual-goals/users/{userId}/performance-tasks': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get User Performance Tasks',
@@ -521,7 +521,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/individual-goals/departments/{department}/performance-tasks': {
+  '/performance/individual-goals/departments/{department}/performance-tasks': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Department Performance Tasks',
@@ -556,7 +556,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/tasks/my': {
+  '/tasks/my': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get My Tasks',
@@ -682,7 +682,7 @@ export const performanceEndpoints = {
   // ACTIVITY MANAGEMENT (Task & Goal Progress Tracking)
   // ==========================================
 
-  '/api/activities': {
+  '/activities': {
     post: {
       tags: ['📋 Task Management Integration'],
       summary: 'Create Activity - Track Progress on Task or Goal',
@@ -797,7 +797,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/activities/task/{taskId}': {
+  '/activities/task/{taskId}': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Task Activities - View Progress History',
@@ -863,7 +863,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/activities/goal/{goalId}': {
+  '/activities/goal/{goalId}': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Goal Activities - View Progress History',
@@ -929,7 +929,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/activities/department/{department}/goals': {
+  '/activities/department/{department}/goals': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Department Goals - For Managers and Officers',
@@ -1004,7 +1004,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/activities/manager/tasks': {
+  '/activities/manager/tasks': {
     get: {
       tags: ['📋 Task Management Integration'],
       summary: 'Get Manager Created Tasks - View Tasks You Created',
@@ -1068,7 +1068,7 @@ export const performanceEndpoints = {
   // HARDCODED KPIs (via existing KPI routes)
   // ==========================================
 
-  '/api/performance/kpis': {
+  '/performance/kpis': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get All Hardcoded KPIs',
@@ -1095,7 +1095,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/department/{department}': {
+  '/performance/kpis/department/{department}': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get KPIs by Department',
@@ -1132,7 +1132,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/code/{code}': {
+  '/performance/kpis/code/{code}': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get KPI by Code',
@@ -1167,7 +1167,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/financial': {
+  '/performance/kpis/financial': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get Financial KPIs',
@@ -1194,7 +1194,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/account-type/{accountType}': {
+  '/performance/kpis/account-type/{accountType}': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get KPIs by Account Type',
@@ -1231,7 +1231,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/kpis/statistics': {
+  '/performance/kpis/statistics': {
     get: {
       tags: ['📊 Hardcoded KPIs'],
       summary: 'Get KPI Statistics',
@@ -1270,7 +1270,7 @@ export const performanceEndpoints = {
   // ACCOUNTING INTEGRATION
   // ==========================================
 
-  '/api/accounting/journal-entries': {
+  '/accounting/journal-entries': {
     get: {
       tags: ['💰 Accounting Integration'],
       summary: 'Get Journal Entries from Performance KPIs',
@@ -1320,7 +1320,7 @@ export const performanceEndpoints = {
   // 📈 ROLL-UP CALCULATIONS
   // ==========================================
 
-  '/api/performance/rollup/{goalId}': {
+  '/performance/rollup/{goalId}': {
     get: {
       tags: ['📈 Roll-up Calculations'],
       summary: 'Get Goal with Roll-up Data',
@@ -1390,7 +1390,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/rollup/{goalId}/recalculate': {
+  '/performance/rollup/{goalId}/recalculate': {
     post: {
       tags: ['📈 Roll-up Calculations'],
       summary: 'Recalculate All Roll-up Data',
@@ -1432,7 +1432,7 @@ export const performanceEndpoints = {
   // 📊 PERFORMANCE SCORECARDS
   // ==========================================
 
-  '/api/performance/scorecards/user': {
+  '/performance/scorecards/user': {
     get: {
       tags: ['📊 Performance Scorecards'],
       summary: 'Get User Performance Scorecard',
@@ -1509,7 +1509,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/scorecards/department/{department}': {
+  '/performance/scorecards/department/{department}': {
     get: {
       tags: ['📊 Performance Scorecards'],
       summary: 'Get Department Performance Scorecard',
@@ -1597,7 +1597,7 @@ export const performanceEndpoints = {
   // 📊 PERFORMANCE ANALYTICS
   // ==========================================
 
-  '/api/performance/analytics/kpi': {
+  '/performance/analytics/kpi': {
     get: {
       tags: ['📊 Performance Analytics'],
       summary: 'Get KPI Performance Analysis',
@@ -1664,7 +1664,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/analytics/dashboard': {
+  '/performance/analytics/dashboard': {
     get: {
       tags: ['📊 Performance Analytics'],
       summary: 'Get Performance Dashboard Data',
@@ -1711,7 +1711,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/analytics/reports': {
+  '/performance/analytics/reports': {
     get: {
       tags: ['📊 Performance Analytics'],
       summary: 'Get Goal Progress Reports',
@@ -1786,7 +1786,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/performance/analytics/departments/comparison': {
+  '/performance/analytics/departments/comparison': {
     get: {
       tags: ['📊 Performance Analytics'],
       summary: 'Get Department Performance Comparison',
@@ -2471,7 +2471,7 @@ export const performanceEndpoints = {
   // APPLICANT TERM SHEET ENDPOINTS
   // ==========================================
 
-  '/api/term-sheets/{applicationId}/sign': {
+  '/term-sheets/{applicationId}/sign': {
     post: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Sign term sheet (Applicant)',
@@ -2522,7 +2522,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/api/term-sheets/my': {
+  '/term-sheets/my': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get my term sheets (Applicant)',
@@ -2600,3 +2600,5 @@ export const performanceEndpoints = {
     }
   }
 };
+
+
