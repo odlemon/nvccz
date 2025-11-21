@@ -21,16 +21,16 @@ const options = {
         url: 'https://opensource.org/licenses/ISC'
       }
     },
-    servers: [
-      {
-        url: 'https://nvccz-pi.vercel.app/api',
-        description: 'Production server'
-      },
-      {
-        url: 'http://localhost:3000/api',
-        description: 'Development server'
-      }
-    ],
+      servers: [
+        {
+          url: 'https://nvccz-pi.vercel.app',
+          description: 'Production server'
+        },
+        {
+          url: 'http://localhost:3000',
+          description: 'Development server'
+        }
+      ],
     tags: [
       {
         name: 'Financial Reporting',
