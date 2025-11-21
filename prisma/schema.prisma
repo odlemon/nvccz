@@ -1199,6 +1199,7 @@ model Task {
   activities            Json?
   status                String?
   isTrashed             Boolean          @default(false)
+  category              String?
   applicationId         String?
   fromDueDiligence      Boolean          @default(false)
   createdBy             String

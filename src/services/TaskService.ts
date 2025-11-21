@@ -135,6 +135,7 @@ export interface CreateTaskRequest {
   ruleset?: string;
   applicationId?: string;
   fromDueDiligence?: boolean;
+  category?: string;
   
   // Performance-related fields
   goalId?: string;
@@ -169,6 +170,7 @@ export interface UpdateTaskRequest {
   ruleset?: string;
   applicationId?: string | null;
   fromDueDiligence?: boolean;
+  category?: string;
   
   // Performance-related fields
   goalId?: string;
@@ -290,6 +292,7 @@ export class TaskService {
           ruleset: request.ruleset,
           applicationId: request.applicationId,
           fromDueDiligence: request.fromDueDiligence ?? false,
+          category: request.category,
           
           // Performance-related fields
           goalId: request.goalId,
@@ -435,6 +438,7 @@ export class TaskService {
           ...(request.assets !== undefined && { assets: request.assets }),
           ...(request.branch !== undefined && { branch: request.branch }),
           ...(request.department !== undefined && { department: request.department }),
+          ...(request.category !== undefined && { category: request.category }),
           ...(request.ruleset !== undefined && { ruleset: request.ruleset }),
           ...(request.applicationId !== undefined && { applicationId: request.applicationId }),
           ...(request.fromDueDiligence !== undefined && { fromDueDiligence: request.fromDueDiligence }),

@@ -6997,6 +6997,51 @@ const fallbackSpec = {
           }
         }
       },
+      '/applications/due-diligence/investments-users': {
+        get: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Get users from Investments department only',
+          description: 'List Investment department users eligible for due diligence task assignment',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Investment users retrieved successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/applications/{id}/due-diligence/assign-task': {
+        post: {
+          tags: ['🔍 Stage 2: Due Diligence'],
+          summary: 'Assign task from due diligence (Investor)',
+          description: 'Create a due diligence task and sync it with the performance module',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['assigneeId', 'title'],
+                  properties: {
+                    assigneeId: { type: 'string' },
+                    title: { type: 'string' },
+                    description: { type: 'string' },
+                    priority: { type: 'string', example: 'high' },
+                    dueDate: { type: 'string', format: 'date-time' },
+                    category: { type: 'string', example: 'Financial Assessment' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Task assigned successfully and synced with performance module' },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
       '/api/applications/{id}/due-diligence': {
         get: {
           tags: ['🔍 Stage 2: Due Diligence'],
