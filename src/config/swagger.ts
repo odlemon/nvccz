@@ -6997,7 +6997,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/applications/due-diligence/investments-users': {
+      '/api/applications/due-diligence/investments-users': {
         get: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Get users from Investments department only',
@@ -7009,7 +7009,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/applications/{id}/due-diligence/assign-task': {
+      '/api/applications/{id}/due-diligence/assign-task': {
         post: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Assign task from due diligence (Investor)',
