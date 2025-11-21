@@ -2471,7 +2471,7 @@ export const performanceEndpoints = {
   // APPLICANT TERM SHEET ENDPOINTS
   // ==========================================
 
-  '/term-sheets/{applicationId}/sign': {
+  '/api/term-sheets/{applicationId}/sign': {
     post: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Sign term sheet (Applicant)',
@@ -2522,7 +2522,7 @@ export const performanceEndpoints = {
     }
   },
 
-  '/term-sheets/my': {
+  '/api/term-sheets/my': {
     get: {
       tags: ['🏢 Portfolio Management'],
       summary: 'Get my term sheets (Applicant)',
