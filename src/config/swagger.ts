@@ -7463,11 +7463,38 @@ const fallbackSpec = {
                   type: 'object',
                   required: ['portfolioCompanyId', 'applicationId', 'fundId'],
                   properties: {
-                    portfolioCompanyId: { type: 'string' },
-                    applicationId: { type: 'string' },
-                    fundId: { type: 'string' },
-                    implementationPlan: { type: 'string' },
-                    notes: { type: 'string' }
+                    portfolioCompanyId: { type: 'string', example: 'cmi79aihl000ajx04sc7x6ec7', description: 'Portfolio company ID that will receive funding' },
+                    applicationId: { type: 'string', example: 'cmi78trsi0000jx048i72bb7m', description: 'Application that has been approved' },
+                    fundId: { type: 'string', example: 'cmht6ve7x0001jx04kz890uj6', description: 'Fund to allocate the investment from' },
+                    implementationPlan: { type: 'string', example: 'Phase 1: Product development, Phase 2: Market launch', description: 'Implementation plan summary' },
+                    notes: { type: 'string', example: 'Investment implementation for LY company', description: 'Additional notes' },
+                    disbursementMode: { type: 'string', enum: ['ONE_TIME', 'MILESTONE_BASED'], example: 'MILESTONE_BASED', description: 'Disbursement mode. Defaults to ONE_TIME.' },
+                    totalCommittedAmount: { type: 'number', example: 30000, description: 'Total amount committed when milestone based' }
+                  }
+                },
+                examples: {
+                  milestoneBased: {
+                    summary: 'Milestone-based disbursement',
+                    value: {
+                      portfolioCompanyId: 'cmi79aihl000ajx04sc7x6ec7',
+                      applicationId: 'cmi78trsi0000jx048i72bb7m',
+                      fundId: 'cmht6ve7x0001jx04kz890uj6',
+                      implementationPlan: 'Phase 1: Product development, Phase 2: Market launch',
+                      notes: 'Investment implementation for LY company',
+                      disbursementMode: 'MILESTONE_BASED',
+                      totalCommittedAmount: 30000
+                    }
+                  },
+                  oneTime: {
+                    summary: 'One-time disbursement',
+                    value: {
+                      portfolioCompanyId: 'cmi79aihl000ajx04sc7x6ec7',
+                      applicationId: 'cmi78trsi0000jx048i72bb7m',
+                      fundId: 'cmht6ve7x0001jx04kz890uj6',
+                      implementationPlan: 'Full investment implementation',
+                      notes: 'Investment implementation for LY company',
+                      disbursementMode: 'ONE_TIME'
+                    }
                   }
                 }
               }
@@ -7619,6 +7646,55 @@ const fallbackSpec = {
           },
           responses: {
             200: { description: 'Fund disbursement marked as disbursed successfully' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/api/investment-implementations/{investmentImplementationId}/disbursement-summary': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Disbursement summary (Investor)',
+          description: 'Get the committed, disbursed, and remaining amounts for an investment implementation',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'investmentImplementationId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: {
+              description: 'Disbursement summary retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          totalCommittedAmount: { type: 'number', example: 30000 },
+                          totalDisbursedAmount: { type: 'number', example: 5000 },
+                          remainingCommittedAmount: { type: 'number', example: 25000 },
+                          disbursementCount: { type: 'number', example: 2 },
+                          disbursementMode: { type: 'string', example: 'MILESTONE_BASED' },
+                          disbursements: {
+                            type: 'array',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                id: { type: 'string' },
+                                amount: { type: 'string', example: '5000.00' },
+                                status: { type: 'string', example: 'APPROVED' },
+                                disbursementType: { type: 'string', example: 'MILESTONE' },
+                                disbursementDate: { type: 'string', format: 'date-time', example: '2024-01-15T00:00:00Z' },
+                                approvedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:00:00Z' }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
             401: { description: 'Unauthorized' }
           }
         }
