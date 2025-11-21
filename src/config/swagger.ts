@@ -23,11 +23,11 @@ const options = {
     },
       servers: [
         {
-          url: 'https://nvccz-pi.vercel.app',
+          url: 'https://nvccz-pi.vercel.app/api',
           description: 'Production server'
         },
         {
-          url: 'http://localhost:3000',
+          url: 'http://localhost:3000/api',
           description: 'Development server'
         }
       ],
@@ -1485,7 +1485,7 @@ const fallbackSpec = {
     ...procurementEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
-    '/api/cashbook/receipts': {
+    '/cashbook/receipts': {
       post: {
         summary: 'Create cash receipt',
         description: 'Create a new cash receipt transaction',
@@ -1523,7 +1523,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/payments': {
+    '/cashbook/payments': {
       post: {
         summary: 'Create cash payment',
         description: 'Create a new cash payment transaction',
@@ -1562,7 +1562,7 @@ const fallbackSpec = {
       }
     },
     // Batch Operations
-    '/api/cashbook/batches/import': {
+    '/cashbook/batches/import': {
       post: {
         summary: 'Import CSV batch',
         description: 'Import cashbook transactions from CSV file',
@@ -1588,7 +1588,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches': {
+    '/cashbook/batches': {
       get: {
         summary: 'List batches',
         description: 'Get list of cashbook batches',
@@ -1610,7 +1610,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/{batchId}': {
+    '/cashbook/batches/{batchId}': {
       get: {
         summary: 'Get batch details',
         description: 'Retrieve details for a specific cashbook batch',
@@ -1695,7 +1695,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/{batchId}/post': {
+    '/cashbook/batches/{batchId}/post': {
       post: {
         summary: 'Post batch',
         description: 'Post a specific cashbook batch to the General Ledger (GL)',
@@ -1711,7 +1711,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/{batchId}/export': {
+    '/cashbook/batches/{batchId}/export': {
       get: {
         summary: 'Export batch to CSV',
         description: 'Export a single cashbook batch to a CSV file',
@@ -1727,7 +1727,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/export/all': {
+    '/cashbook/batches/export/all': {
       get: {
         summary: 'Export all batches',
         description: 'Export all cashbook batches to a CSV file',
@@ -1739,7 +1739,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/batches/{batchId}/transactions/{transactionId}': {
+    '/cashbook/batches/{batchId}/transactions/{transactionId}': {
       post: {
         summary: 'Add transaction to batch',
         description: 'Add a transaction to a specific batch',
@@ -1758,7 +1758,7 @@ const fallbackSpec = {
     },
     // Removed non-existent /api/cashbook/{bankId}/post-batch endpoint
     // Cashbook Entry Operations
-    '/api/cashbook/entries': {
+    '/cashbook/entries': {
       get: {
         summary: 'Get all entries',
         description: 'Retrieve all cashbook entries with support for advanced filtering',
@@ -1770,7 +1770,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/entries/{id}': {
+    '/cashbook/entries/{id}': {
       get: {
         summary: 'Get entry by ID',
         description: 'Retrieve a specific cashbook entry by its ID',
@@ -1800,7 +1800,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/entries/{id}/void': {
+    '/cashbook/entries/{id}/void': {
       put: {
         summary: 'Void entry',
         description: 'Void a specific cashbook entry',
@@ -1816,7 +1816,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/entries/{id}/reconcile': {
+    '/cashbook/entries/{id}/reconcile': {
       put: {
         summary: 'Reconcile entry',
         description: 'Mark a cashbook entry as reconciled',
@@ -1833,7 +1833,7 @@ const fallbackSpec = {
       }
     },
     // Reference and Configuration
-    '/api/cashbook/reference/next': {
+    '/cashbook/reference/next': {
       get: {
         summary: 'Get next reference number',
         description: 'Retrieve the next available reference number',
@@ -1878,7 +1878,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/reference/configure': {
+    '/cashbook/reference/configure': {
       post: {
         summary: 'Configure reference numbers',
         description: 'Configure settings for reference numbers',
@@ -1943,7 +1943,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/templates': {
+    '/cashbook/templates': {
       post: {
         summary: 'Create template',
         description: 'Create a new template for cashbook entries',
@@ -2022,7 +2022,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/discounts/calculate': {
+    '/cashbook/discounts/calculate': {
       post: {
         summary: 'Calculate settlement discounts',
         description: 'Calculate settlement discounts',
@@ -2100,7 +2100,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/discounts/configure': {
+    '/cashbook/discounts/configure': {
       post: {
         summary: 'Configure settlement discounts',
         description: 'Configure settlement discounts',
@@ -2168,7 +2168,7 @@ const fallbackSpec = {
       }
     },
     // Summary and Reconciliation - Removed non-existent endpoint
-    '/api/cashbook/{bankId}/unreconciled': {
+    '/cashbook/{bankId}/unreconciled': {
       get: {
         summary: 'Get unreconciled entries',
         description: 'Retrieve unreconciled entries for a specific bank account',
@@ -2185,7 +2185,7 @@ const fallbackSpec = {
       }
     },
     // Reference Data
-    '/api/cashbook/banks': {
+    '/cashbook/banks': {
       get: {
         summary: 'List banks',
         description: 'Get list of bank accounts',
@@ -2270,7 +2270,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/customers': {
+    '/cashbook/customers': {
       get: {
         summary: 'List customers',
         description: 'Get list of customers',
@@ -2282,7 +2282,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/customers/{id}': {
+    '/cashbook/customers/{id}': {
       get: {
         summary: 'Get customer details',
         description: 'Get customer details by ID',
@@ -2298,7 +2298,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/vendors': {
+    '/cashbook/vendors': {
       get: {
         summary: 'List vendors',
         description: 'Get list of vendors',
@@ -2310,7 +2310,7 @@ const fallbackSpec = {
         }
       }
     },
-    '/api/cashbook/gl-accounts': {
+    '/cashbook/gl-accounts': {
       get: {
         summary: 'Get chart of accounts',
         description: 'Get chart of accounts for cashbook transactions',
@@ -2454,7 +2454,7 @@ const fallbackSpec = {
           }
         },
         // User Management
-        '/api/users': {
+        '/users': {
           get: {
             summary: 'Get all users',
             description: 'Retrieve all users in the system',
@@ -2511,7 +2511,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/users/{id}': {
+        '/users/{id}': {
           get: {
             summary: 'Get user by ID',
             description: 'Retrieve a specific user by ID',
@@ -2612,7 +2612,7 @@ const fallbackSpec = {
           }
         },
         // Hardcoded Roles Management
-        '/api/hardcoded-roles': {
+        '/hardcoded-roles': {
           get: {
             summary: 'Get all hardcoded roles',
             description: 'Retrieve all 35 hardcoded system roles across all 7 departments as a flat list',
@@ -2653,7 +2653,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/hardcoded-roles/departments-with-roles': {
+        '/hardcoded-roles/departments-with-roles': {
           get: {
             summary: 'Get all departments with their roles (RECOMMENDED)',
             description: 'Retrieve all 7 departments grouped with their respective roles. This is the preferred endpoint for getting the complete role structure organized by department.',
@@ -2705,7 +2705,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/hardcoded-roles/departments': {
+        '/hardcoded-roles/departments': {
           get: {
             summary: 'Get all departments',
             description: 'Retrieve a list of all 7 departments without their roles',
@@ -2745,7 +2745,7 @@ const fallbackSpec = {
           }
         },
         // Posts Management
-        '/api/posts': {
+        '/posts': {
           get: {
             summary: 'Get all posts',
             description: 'Retrieve all posts',
@@ -2802,7 +2802,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/posts/{id}': {
+        '/posts/{id}': {
           get: {
             summary: 'Get post by ID',
             description: 'Retrieve a specific post by ID',
@@ -2903,7 +2903,7 @@ const fallbackSpec = {
           }
         },
         // Newsletters Management
-        '/api/newsletters': {
+        '/newsletters': {
           get: {
             summary: 'Get all newsletters',
             description: 'Retrieve all newsletters',
@@ -2960,7 +2960,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/newsletters/{id}': {
+        '/newsletters/{id}': {
           get: {
             summary: 'Get newsletter by ID',
             description: 'Retrieve a specific newsletter by ID',
@@ -3114,7 +3114,7 @@ const fallbackSpec = {
           }
         },
         // Events Management
-        '/api/events': {
+        '/events': {
           get: {
             summary: 'Get all events',
             description: 'Retrieve all events',
@@ -3171,7 +3171,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/events/{id}': {
+        '/events/{id}': {
           get: {
             summary: 'Get event by ID',
             description: 'Retrieve a specific event by ID',
@@ -3271,7 +3271,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/events/upcoming': {
+        '/events/upcoming': {
           get: {
             summary: 'Get upcoming events',
             description: 'Retrieve upcoming events',
@@ -3299,7 +3299,7 @@ const fallbackSpec = {
           }
         },
         // Homepage
-        '/api/homepage': {
+        '/homepage': {
           get: {
             summary: 'Get homepage data',
             description: 'Retrieve aggregated homepage data including posts, newsletters, events, and online users',
@@ -3317,7 +3317,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/homepage/online-activity': {
+        '/homepage/online-activity': {
           get: {
             summary: 'Get online activity',
             description: 'Retrieve online user activity',
@@ -3354,7 +3354,7 @@ const fallbackSpec = {
             }
           }
         },
-        '/api/homepage/notifications': {
+        '/homepage/notifications': {
           get: {
             summary: 'Get user notifications',
             description: 'Retrieve user notifications with pagination',
@@ -5686,7 +5686,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - OPEN ITEM MATCHING
       // ============================================================================
-      '/api/cashbook/open-items/customers/{customerId}': {
+      '/cashbook/open-items/customers/{customerId}': {
         get: {
           summary: 'Get open invoices for customer',
           description: 'Get all open invoices for a specific customer that can be matched with payments',
@@ -5722,7 +5722,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/open-items/suppliers/{supplierId}': {
+      '/cashbook/open-items/suppliers/{supplierId}': {
         get: {
           summary: 'Get open invoices for supplier',
           description: 'Get all open invoices for a specific supplier that can be matched with payments',
@@ -5758,7 +5758,7 @@ const fallbackSpec = {
             }
           }
         },
-      '/api/cashbook/open-items/match/{paymentId}': {
+      '/cashbook/open-items/match/{paymentId}': {
         post: {
           summary: 'Match payment to invoices',
           description: 'Match a payment to specific invoices with allocation amounts',
@@ -5824,7 +5824,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - TRANSACTION REVERSAL
       // ============================================================================
-      '/api/cashbook/transactions/{transactionId}/reverse': {
+      '/cashbook/transactions/{transactionId}/reverse': {
         post: {
           summary: 'Reverse a posted transaction',
           description: 'Create a reversal transaction for a posted cashbook entry',
@@ -5876,7 +5876,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/transactions/{transactionId}/reversal-history': {
+      '/cashbook/transactions/{transactionId}/reversal-history': {
         get: {
           summary: 'Get reversal history for a transaction',
           description: 'Get all reversal transactions for a specific original transaction',
@@ -5912,7 +5912,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/reversals': {
+      '/cashbook/reversals': {
         get: {
           summary: 'Get all reversals for a user',
           description: 'Get paginated list of all reversal transactions created by the user',
@@ -5958,7 +5958,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/transactions/{transactionId}/can-reverse': {
+      '/cashbook/transactions/{transactionId}/can-reverse': {
         get: {
           summary: 'Check if transaction can be reversed',
           description: 'Check if a transaction is eligible for reversal',
@@ -6003,7 +6003,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - CASHBOOK TRANSFERS
       // ============================================================================
-      '/api/cashbook/transfers': {
+      '/cashbook/transfers': {
         post: {
           summary: 'Create cashbook transfer',
           description: 'Create a transfer between two bank accounts',
@@ -6118,7 +6118,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/transfers/{transferId}': {
+      '/cashbook/transfers/{transferId}': {
         get: {
           summary: 'Get transfer details',
           description: 'Get detailed information about a specific transfer',
@@ -6154,7 +6154,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/transfers/summary': {
+      '/cashbook/transfers/summary': {
         get: {
           summary: 'Get transfer summary',
           description: 'Get summary statistics for transfers',
@@ -6198,7 +6198,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - ENTRY TYPES MANAGEMENT
       // ============================================================================
-      '/api/cashbook/entry-types': {
+      '/cashbook/entry-types': {
         post: {
           summary: 'Create entry type',
           description: 'Create a new cashbook entry type with D/C designation and account access control',
@@ -6288,7 +6288,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/entry-types/{entryTypeId}': {
+      '/cashbook/entry-types/{entryTypeId}': {
         get: {
           summary: 'Get entry type by ID',
           description: 'Get detailed information about a specific entry type',
@@ -6372,7 +6372,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - PERIOD LOCKOUT
       // ============================================================================
-      '/api/cashbook/periods/lock': {
+      '/cashbook/periods/lock': {
         post: {
           summary: 'Lock/unlock accounting period',
           description: 'Lock or unlock an accounting period to prevent transactions',
@@ -6416,7 +6416,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/periods/{period}/status': {
+      '/cashbook/periods/{period}/status': {
         get: {
           summary: 'Get period lockout status',
           description: 'Check if a specific accounting period is locked',
@@ -6463,7 +6463,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/periods': {
+      '/cashbook/periods': {
         get: {
           summary: 'Get all periods with lockout status',
           description: 'Retrieve all accounting periods with their lockout status',
@@ -6506,7 +6506,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/periods/validate-date': {
+      '/cashbook/periods/validate-date': {
         post: {
           summary: 'Validate transaction date against period lockout',
           description: 'Check if a transaction can be created on a specific date',
@@ -6561,7 +6561,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/periods/{period}/history': {
+      '/cashbook/periods/{period}/history': {
         get: {
           summary: 'Get lockout history for a period',
           description: 'Retrieve the lockout/unlock history for a specific period',
@@ -6603,7 +6603,7 @@ const fallbackSpec = {
       // ============================================================================
       // ADVANCED CASHBOOK FEATURES - CONTRA ENTRIES
       // ============================================================================
-      '/api/cashbook/contra/configure': {
+      '/cashbook/contra/configure': {
         post: {
           summary: 'Configure contra entry settings',
           description: 'Configure contra entry settings for specific entry types and GL accounts',
@@ -6648,7 +6648,7 @@ const fallbackSpec = {
             }
           }
         },
-      '/api/cashbook/contra/configs': {
+      '/cashbook/contra/configs': {
         get: {
           summary: 'Get contra entry configurations',
           description: 'Retrieve contra entry configurations with optional filtering',
@@ -6696,7 +6696,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/contra/generate': {
+      '/cashbook/contra/generate': {
         post: {
           summary: 'Generate contra entry for cashbook transaction',
           description: 'Generate contra entry for a specific cashbook transaction',
@@ -6738,7 +6738,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/cashbook/contra/entries/{cashbookEntryId}': {
+      '/cashbook/contra/entries/{cashbookEntryId}': {
         get: {
           summary: 'Get contra entries for cashbook entry',
           description: 'Retrieve all contra entries for a specific cashbook entry',
@@ -6843,7 +6843,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/upload-documents': {
+      '/applications/upload-documents': {
         post: {
           tags: ['📝 Stage 1: Application Submission'],
           summary: 'Upload application documents (PUBLIC)',
@@ -6878,7 +6878,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}': {
+      '/applications/{id}': {
         get: {
           tags: ['📝 Stage 1: Application Submission'],
           summary: 'Get application by ID (Investor)',
@@ -6934,7 +6934,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/status': {
+      '/applications/{id}/status': {
         get: {
           tags: ['📝 Stage 1: Application Submission'],
           summary: 'Get application status (PUBLIC)',
@@ -6946,7 +6946,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/change-stage': {
+      '/applications/{id}/change-stage': {
         post: {
           tags: ['📝 Stage 1: Application Submission'],
           summary: 'Change application stage (Investor)',
@@ -6982,7 +6982,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 2: DUE DILIGENCE
       // ==========================================
-      '/api/applications/{id}/due-diligence/initiate': {
+      '/applications/{id}/due-diligence/initiate': {
         post: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Initiate due diligence (Investor)',
@@ -6997,7 +6997,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/due-diligence/investments-users': {
+      '/applications/due-diligence/investments-users': {
         get: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Get users from Investments department only',
@@ -7009,7 +7009,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/due-diligence/assign-task': {
+      '/applications/{id}/due-diligence/assign-task': {
         post: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Assign task from due diligence (Investor)',
@@ -7042,7 +7042,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/due-diligence': {
+      '/applications/{id}/due-diligence': {
         get: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Get due diligence report (Investor)',
@@ -7090,7 +7090,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/{id}/due-diligence/complete': {
+      '/applications/{id}/due-diligence/complete': {
         post: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Complete due diligence (Investor)',
@@ -7105,7 +7105,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/applications/due-diligence': {
+      '/applications/due-diligence': {
         get: {
           tags: ['🔍 Stage 2: Due Diligence'],
           summary: 'Get all due diligence reviews (Investor)',
@@ -7125,7 +7125,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 3: BOARD REVIEW
       // ==========================================
-      '/api/board-reviews/voting-members': {
+      '/board-reviews/voting-members': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'List board voting members',
@@ -7138,7 +7138,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/voting-members/{userId}/voting-power': {
+      '/board-reviews/voting-members/{userId}/voting-power': {
         put: {
           tags: ['🗳️ Voting Process'],
           summary: 'Configure voting power for a board member',
@@ -7176,7 +7176,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/{applicationId}': {
+      '/board-reviews/{applicationId}': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Create board review (Investor)',
@@ -7252,7 +7252,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/{applicationId}/complete': {
+      '/board-reviews/{applicationId}/complete': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Complete board review (Investor)',
@@ -7266,7 +7266,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/{applicationId}/votes': {
+      '/board-reviews/{applicationId}/votes': {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Cast board review vote',
@@ -7296,7 +7296,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/{applicationId}/votes/summary': {
+      '/board-reviews/{applicationId}/votes/summary': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get board vote summary',
@@ -7311,7 +7311,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews': {
+      '/board-reviews': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get all board reviews (Investor)',
@@ -7328,7 +7328,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/my': {
+      '/board-reviews/my': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get my board reviews (Investor)',
@@ -7344,7 +7344,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/board-reviews/summary': {
+      '/board-reviews/summary': {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get board review summary (Investor)',
@@ -7359,7 +7359,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 4: TERM SHEET
       // ==========================================
-      '/api/term-sheets/{applicationId}': {
+      '/term-sheets/{applicationId}': {
         post: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Create term sheet (Investor)',
@@ -7442,7 +7442,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/term-sheets/{applicationId}/finalize': {
+      '/term-sheets/{applicationId}/finalize': {
         post: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Finalize term sheet (Investor)',
@@ -7457,7 +7457,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/term-sheets': {
+      '/term-sheets': {
         get: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Get all term sheets (Investor)',
@@ -7478,7 +7478,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 5: INVESTMENT IMPLEMENTATION
       // ==========================================
-      '/api/investment-implementations/signed-term-sheets': {
+      '/investment-implementations/signed-term-sheets': {
         get: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Get applications with signed term sheets (Investor)',
@@ -7494,7 +7494,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/initiate': {
+      '/investment-implementations/initiate': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Initiate investment implementation (Investor)',
@@ -7552,7 +7552,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/{portfolioCompanyId}': {
+      '/investment-implementations/{portfolioCompanyId}': {
         get: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Get investment implementation by portfolio company (Investor)',
@@ -7566,7 +7566,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/{portfolioCompanyId}/checklist': {
+      '/investment-implementations/{portfolioCompanyId}/checklist': {
         put: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Update implementation checklist (Investor)',
@@ -7595,7 +7595,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/{portfolioCompanyId}/milestones': {
+      '/investment-implementations/{portfolioCompanyId}/milestones': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Add milestone to implementation (Investor)',
@@ -7626,7 +7626,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/disbursements': {
+      '/investment-implementations/disbursements': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Create fund disbursement (Investor)',
@@ -7668,7 +7668,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/disbursements/{disbursementId}/approve': {
+      '/investment-implementations/disbursements/{disbursementId}/approve': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Approve fund disbursement (Investor)',
@@ -7681,7 +7681,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/disbursements/{disbursementId}/disburse': {
+      '/investment-implementations/disbursements/{disbursementId}/disburse': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Mark disbursement as disbursed (Investor)',
@@ -7706,7 +7706,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations/{investmentImplementationId}/disbursement-summary': {
+      '/investment-implementations/{investmentImplementationId}/disbursement-summary': {
         get: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Disbursement summary (Investor)',
@@ -7755,7 +7755,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/investment-implementations': {
+      '/investment-implementations': {
         get: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Get all investment implementations (Investor)',
@@ -7775,7 +7775,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - STAGE 6: PORTFOLIO MANAGEMENT
       // ==========================================
-      '/api/portfolio-companies': {
+      '/portfolio-companies': {
         post: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Create portfolio company (Investor)',
@@ -7823,7 +7823,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-companies/admin': {
+      '/portfolio-companies/admin': {
         post: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Create portfolio company by admin (Investor)',
@@ -7861,7 +7861,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-companies/{id}': {
+      '/portfolio-companies/{id}': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get portfolio company by ID (Investor + Applicant)',
@@ -7920,7 +7920,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-companies/me': {
+      '/portfolio-companies/me': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get my portfolio company (Applicant)',
@@ -7960,7 +7960,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations': {
+      '/portfolio-valuations': {
         post: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Create portfolio valuation (Investor)',
@@ -8009,7 +8009,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations/{id}': {
+      '/portfolio-valuations/{id}': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get portfolio valuation by ID (Investor)',
@@ -8064,7 +8064,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations/{id}/activities': {
+      '/portfolio-valuations/{id}/activities': {
         post: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Create portfolio valuation activity (Investor)',
@@ -8106,7 +8106,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations/summary/quarterly': {
+      '/portfolio-valuations/summary/quarterly': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get quarterly valuation summary (Investor)',
@@ -8122,7 +8122,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/portfolio-valuations/analytics/summary': {
+      '/portfolio-valuations/analytics/summary': {
         get: {
           tags: ['🏢 Stage 6: Portfolio Management'],
           summary: 'Get valuation analytics (Investor)',
@@ -8137,7 +8137,7 @@ const fallbackSpec = {
       // ==========================================
       // PORTFOLIO WORKFLOW - APPLICANT ENDPOINTS
       // ==========================================
-      '/api/term-sheets/{applicationId}/sign': {
+      '/term-sheets/{applicationId}/sign': {
         post: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Sign term sheet (Applicant)',
@@ -8187,7 +8187,7 @@ const fallbackSpec = {
           }
         }
       },
-      '/api/term-sheets/my': {
+      '/term-sheets/my': {
         get: {
           tags: ['📋 Stage 4: Term Sheet'],
           summary: 'Get my term sheets (Applicant)',
@@ -8292,3 +8292,4 @@ try {
 }
 
 export { specs }; 
+
