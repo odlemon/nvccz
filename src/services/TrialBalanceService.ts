@@ -452,7 +452,7 @@ export class TrialBalanceService {
   /**
    * Get trial balance summary
    */
-  static async getTrialBalanceSummary(date: Date): Promise<{
+  static async getTrialBalanceSummary(date: Date, startDate?: Date, endDate?: Date): Promise<{
     totalAccounts: number;
     totalDebits: number;
     totalCredits: number;
@@ -460,7 +460,7 @@ export class TrialBalanceService {
     balanceDifference: number;
   }> {
     try {
-      const trialBalance = await this.generateTrialBalance(date);
+      const trialBalance = await this.generateTrialBalance(date, startDate, endDate);
       
       return {
         totalAccounts: trialBalance.accounts.length,
@@ -478,7 +478,7 @@ export class TrialBalanceService {
   /**
    * Get trial balance by account type
    */
-  static async getTrialBalanceByAccountType(date: Date): Promise<{
+  static async getTrialBalanceByAccountType(date: Date, startDate?: Date, endDate?: Date): Promise<{
     [accountType: string]: {
       accounts: TrialBalanceAccount[];
       totalDebits: number;
@@ -487,7 +487,7 @@ export class TrialBalanceService {
     };
   }> {
     try {
-      const trialBalance = await this.generateTrialBalance(date);
+      const trialBalance = await this.generateTrialBalance(date, startDate, endDate);
       const groupedByType: { [key: string]: any } = {};
 
       for (const account of trialBalance.accounts) {

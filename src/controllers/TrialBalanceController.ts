@@ -72,11 +72,15 @@ export class TrialBalanceController {
       const periodFilter = extractPeriodFilter(req);
       
       let trialBalanceDate: Date;
+      let start: Date | undefined;
+      let end: Date | undefined;
       
       if (periodFilter) {
-        // Use period filter (month/quarter/year) - use end date
+        // Use period filter (month/quarter/year) - extract BOTH start and end dates
         const dateRange = periodFilterToDateRange(periodFilter);
-        trialBalanceDate = dateRange.endDate;
+        start = dateRange.startDate;
+        end = dateRange.endDate;
+        trialBalanceDate = end;
       } else {
         // Fallback to legacy date format
         const { date } = req.query;
@@ -87,7 +91,7 @@ export class TrialBalanceController {
         }
       }
 
-      const summary = await TrialBalanceService.getTrialBalanceSummary(trialBalanceDate);
+      const summary = await TrialBalanceService.getTrialBalanceSummary(trialBalanceDate, start, end);
       
       return ResponseHelper.success(res, 'Trial balance summary retrieved successfully', summary);
     } catch (error: any) {
@@ -105,11 +109,15 @@ export class TrialBalanceController {
       const periodFilter = extractPeriodFilter(req);
       
       let trialBalanceDate: Date;
+      let start: Date | undefined;
+      let end: Date | undefined;
       
       if (periodFilter) {
-        // Use period filter (month/quarter/year) - use end date
+        // Use period filter (month/quarter/year) - extract BOTH start and end dates
         const dateRange = periodFilterToDateRange(periodFilter);
-        trialBalanceDate = dateRange.endDate;
+        start = dateRange.startDate;
+        end = dateRange.endDate;
+        trialBalanceDate = end;
       } else {
         // Fallback to legacy date format
         const { date } = req.query;
@@ -120,7 +128,7 @@ export class TrialBalanceController {
         }
       }
 
-      const trialBalanceByType = await TrialBalanceService.getTrialBalanceByAccountType(trialBalanceDate);
+      const trialBalanceByType = await TrialBalanceService.getTrialBalanceByAccountType(trialBalanceDate, start, end);
       
       return ResponseHelper.success(res, 'Trial balance by account type retrieved successfully', trialBalanceByType);
     } catch (error: any) {
