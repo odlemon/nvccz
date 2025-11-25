@@ -548,17 +548,17 @@ export class EmailNotificationService {
   }
 
   /**
-   * Send application rejected email
+   * Send application below threshold email (softer than rejection)
    */
-  static async sendApplicationRejectedEmail(data: EmailNotificationData): Promise<void> {
+  static async sendApplicationBelowThresholdEmail(data: EmailNotificationData): Promise<void> {
     try {
-      console.log(`📧 Attempting to send rejection email to ${data.applicantEmail}`, {
+      console.log(`📧 Attempting to send below threshold email to ${data.applicantEmail}`, {
         applicationId: data.applicationId,
         businessName: data.businessName
       });
 
       const subject = "Application Update - NVCCZ";
-      const htmlContent = this.getApplicationRejectedTemplate(data);
+      const htmlContent = this.getApplicationBelowThresholdTemplate(data);
       
       console.log(`📧 Email content generated, sending via Zeptomail...`, {
         applicantEmail: data.applicantEmail,
@@ -583,12 +583,12 @@ export class EmailNotificationService {
         htmlbody: htmlContent
       });
 
-      console.log(`✅ Application rejected email sent successfully to ${data.applicantEmail}`, {
+      console.log(`✅ Application below threshold email sent successfully to ${data.applicantEmail}`, {
         applicationId: data.applicationId,
         result: result
       });
     } catch (error: any) {
-      console.error("❌ Error sending application rejected email:", {
+      console.error("❌ Error sending application below threshold email:", {
         applicantEmail: data.applicantEmail,
         applicationId: data.applicationId,
         error: error.message,
@@ -597,6 +597,14 @@ export class EmailNotificationService {
       });
       throw error;
     }
+  }
+
+  /**
+   * @deprecated Use sendApplicationBelowThresholdEmail instead
+   * Send application rejected email (kept for backwards compatibility)
+   */
+  static async sendApplicationRejectedEmail(data: EmailNotificationData): Promise<void> {
+    return this.sendApplicationBelowThresholdEmail(data);
   }
 
   /**
@@ -1560,7 +1568,14 @@ export class EmailNotificationService {
     `;
   }
 
+  /**
+   * @deprecated Use getApplicationBelowThresholdTemplate instead
+   */
   private static getApplicationRejectedTemplate(data: EmailNotificationData): string {
+    return this.getApplicationBelowThresholdTemplate(data);
+  }
+
+  private static getApplicationBelowThresholdTemplate(data: EmailNotificationData): string {
     const escapeHtml = (value: string) => value
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -1640,12 +1655,12 @@ export class EmailNotificationService {
             <ul>
               <li><strong>Application ID:</strong> ${data.applicationId}</li>
               <li><strong>Business Name:</strong> ${data.businessName}</li>
-              <li><strong>Status:</strong> Not Selected</li>
-              <li><strong>Decision Date:</strong> ${new Date().toLocaleDateString()}</li>
+              <li><strong>Status:</strong> Below Investment Threshold</li>
+              <li><strong>Review Date:</strong> ${new Date().toLocaleDateString()}</li>
             </ul>
             
-            <h3>Application Decision</h3>
-            <p>After careful consideration and evaluation, we have decided not to proceed with your application at this time.</p>
+            <h3>Application Review Outcome</h3>
+            <p>After careful consideration and evaluation, your application does not meet our current investment criteria at this time. We appreciate the effort you put into your submission.</p>
             
             ${feedbackSummary ? `
             <h3>Summary Feedback:</h3>

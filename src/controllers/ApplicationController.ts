@@ -623,4 +623,31 @@ export class ApplicationController {
     }
   }
 
+  /**
+   * Get applications below threshold (PROTECTED - admin/fund manager access)
+   */
+  static async getBelowThresholdApplications(req: Request, res: Response): Promise<void> {
+    try {
+      const page = req.query.page ? parseInt(req.query.page as string) : 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+
+      const result = await ApplicationService.getAllApplications(
+        page,
+        limit,
+        "BELOW_THRESHOLD"
+      );
+
+      logger.info("Below threshold applications retrieved", {
+        count: result.applications.length,
+        total: result.total,
+        requestedBy: (req as any).user?.id
+      });
+
+      ResponseHelper.success(res, "Below threshold applications retrieved successfully", result);
+    } catch (error: any) {
+      logger.error("Error getting below threshold applications", { error: error.message });
+      ResponseHelper.error(res, `Failed to get below threshold applications: ${error.message}`, undefined, 500);
+    }
+  }
+
 }
