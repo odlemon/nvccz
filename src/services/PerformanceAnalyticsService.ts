@@ -9,7 +9,7 @@ export class PerformanceAnalyticsService {
   /**
    * Get KPI performance analysis
    */
-  static async getKPIAnalysis(kpiId?: string, department?: string, dateRange?: { start: Date, end: Date }) {
+  static async getKPIAnalysis(kpiId?: string, department?: string, dateRange?: { start: Date, end: Date }, currencyId?: string) {
     try {
       const whereClause: any = {};
       
@@ -112,13 +112,14 @@ export class PerformanceAnalyticsService {
         if (!effectiveDateRange) {
           const end = new Date();
           const start = new Date(end.getFullYear(), end.getMonth(), 1);
-          return { startDate: start, endDate: end };
+          return { startDate: start, endDate: end, currencyId: currencyId || undefined };
         }
-        return { startDate: effectiveDateRange.start, endDate: effectiveDateRange.end };
+        return { startDate: effectiveDateRange.start, endDate: effectiveDateRange.end, currencyId: currencyId || undefined };
       })();
 
       const balanceSheetParams = {
-        asOfDate: effectiveDateRange?.end ?? new Date()
+        asOfDate: effectiveDateRange?.end ?? new Date(),
+        currencyId: currencyId || undefined
       };
 
       let incomeStatementPromise: Promise<any> | null = null;
