@@ -16,11 +16,24 @@ export class PerformanceAnalyticsController {
         end: new Date(endDate as string)
       } : undefined;
 
+      // Ensure currencyId is properly extracted as a string
+      const currencyIdValue = currencyId 
+        ? (typeof currencyId === 'string' ? currencyId : String(currencyId))
+        : undefined;
+
+      console.log(`[PerformanceAnalyticsController] Received query params:`, {
+        kpiId,
+        department,
+        startDate,
+        endDate,
+        currencyId: currencyIdValue || 'NOT PROVIDED'
+      });
+
       const analysis = await PerformanceAnalyticsService.getKPIAnalysis(
         kpiId as string,
         department as string,
         dateRange,
-        currencyId as string | undefined
+        currencyIdValue
       );
 
       return ResponseHelper.success(res, "KPI analysis retrieved successfully", analysis);
