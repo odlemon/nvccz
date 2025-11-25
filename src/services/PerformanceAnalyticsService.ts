@@ -117,10 +117,17 @@ export class PerformanceAnalyticsService {
         return { startDate: effectiveDateRange.start, endDate: effectiveDateRange.end, currencyId: currencyId || undefined };
       })();
 
-      const balanceSheetParams = {
-        asOfDate: effectiveDateRange?.end ?? new Date(),
-        currencyId: currencyId || undefined
+      const balanceSheetParams: any = {
+        asOfDate: effectiveDateRange?.end ?? new Date()
       };
+      
+      // Explicitly add currencyId if provided
+      if (currencyId && typeof currencyId === 'string' && currencyId.trim().length > 0) {
+        balanceSheetParams.currencyId = currencyId.trim();
+        console.log(`[PerformanceAnalytics] Setting currencyId in balanceSheetParams: ${balanceSheetParams.currencyId}`);
+      } else {
+        console.log(`[PerformanceAnalytics] ⚠️ No currencyId provided or currencyId is empty`);
+      }
 
       let incomeStatementPromise: Promise<any> | null = null;
       let balanceSheetPromise: Promise<any> | null = null;
@@ -134,6 +141,9 @@ export class PerformanceAnalyticsService {
 
       const loadBalanceSheet = async () => {
         if (!balanceSheetPromise) {
+          console.log(`\n[PerformanceAnalytics] Loading Balance Sheet with params:`);
+          console.log(`   asOfDate: ${balanceSheetParams.asOfDate.toISOString()}`);
+          console.log(`   currencyId: ${balanceSheetParams.currencyId || 'NOT PROVIDED ⚠️'}`);
           balanceSheetPromise = BalanceSheetService.generateBalanceSheet(balanceSheetParams);
         }
         return balanceSheetPromise;
@@ -144,16 +154,23 @@ export class PerformanceAnalyticsService {
         let accountingValue: number | null = null;
         const kpiNameKey = group.kpi?.name?.toLowerCase();
 
+        // Only fetch accounting values for financial KPIs that use accounting data
         if (kpiNameKey && financialKPIMap.has(kpiNameKey)) {
           const kpiConfig = financialKPIMap.get(kpiNameKey)!;
-          accountingValue = await this.getAccountingValueForKPI(
-            kpiConfig,
-            effectiveDateRange,
-            needsIncomeStatement ? loadIncomeStatement : null,
-            needsBalanceSheet ? loadBalanceSheet : null
-          );
+          
+          // Only use accounting data if KPI is marked as financial
+          // Currency filtering is automatically applied via loaders (only for Balance Sheet/Income Statement)
+          if (kpiConfig.isFinancial) {
+            accountingValue = await this.getAccountingValueForKPI(
+              kpiConfig,
+              effectiveDateRange,
+              needsIncomeStatement ? loadIncomeStatement : null,
+              needsBalanceSheet ? loadBalanceSheet : null
+            );
+          }
         }
 
+        // For non-financial KPIs, use the goal's currentValue (not affected by currency)
         const totalCurrentValue = accountingValue !== null ? accountingValue : group.totalCurrentValue;
 
         const progressRatio = group.totalTargetValue > 0
@@ -584,7 +601,9 @@ export class PerformanceAnalyticsService {
       if (accountNumber) {
         const matches = allAccounts.filter(acc => acc.accountNo === accountNumber);
         if (matches.length > 0) {
-          return matches.reduce((sum, acc) => sum + Math.abs(acc.balance), 0);
+          const balance = matches.reduce((sum, acc) => sum + Math.abs(acc.balance), 0);
+          console.log(`[PerformanceAnalytics] Found ${matches.length} account(s) with number ${accountNumber}, balance: $${balance}`);
+          return balance;
         }
 
         if (accountNumber === 'RETAINED_EARNINGS') {
