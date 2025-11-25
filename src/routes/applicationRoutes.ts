@@ -511,7 +511,7 @@ router.put("/:id", authenticate, ApplicationController.updateApplication);
  *             properties:
  *               newStage:
  *                 type: string
- *                 enum: [UNDER_DUE_DILIGENCE, DUE_DILIGENCE_COMPLETED, UNDER_BOARD_REVIEW, BOARD_APPROVED, BOARD_REJECTED, BOARD_CONDITIONAL, TERM_SHEET_NEGOTIATION, IMPLEMENTATION, FUNDED, REJECTED]
+ *                 enum: [UNDER_DUE_DILIGENCE, DUE_DILIGENCE_COMPLETED, UNDER_BOARD_REVIEW, BOARD_APPROVED, BOARD_REJECTED, BOARD_CONDITIONAL, TERM_SHEET_NEGOTIATION, IMPLEMENTATION, FUNDED, BELOW_THRESHOLD]
  *                 description: New stage for the application
  *               notes:
  *                 type: string
@@ -561,6 +561,60 @@ router.post("/:id/trigger-shortlisting", authenticate, ApplicationController.tri
  *         description: Internal server error
  */
 router.delete("/:id", authenticate, ApplicationController.deleteApplication);
+
+/**
+ * @swagger
+ * /api/applications/below-threshold:
+ *   get:
+ *     summary: Get applications below investment threshold (PROTECTED)
+ *     description: Retrieve all applications that did not meet investment criteria. Admin/Fund Manager access required.
+ *     tags: [Portfolio Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Below threshold applications retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     applications:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Application'
+ *                     total:
+ *                       type: integer
+ *                     page:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/below-threshold", authenticate, ApplicationController.getBelowThresholdApplications);
 
 // Due Diligence Routes
 /**

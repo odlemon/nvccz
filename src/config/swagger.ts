@@ -6843,6 +6843,119 @@ const fallbackSpec = {
           }
         }
       },
+      '/applications/below-threshold': {
+        get: {
+          tags: ['📝 Stage 0: Shortlist'],
+          summary: 'Get applications below investment threshold (Investor)',
+          description: 'Retrieve all applications that did not meet investment criteria. These applications are marked as BELOW_THRESHOLD and are filtered out from the main application list. Admin/Fund Manager access required.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { 
+              name: 'page', 
+              in: 'query', 
+              schema: { type: 'integer', default: 1 },
+              description: 'Page number for pagination'
+            },
+            { 
+              name: 'limit', 
+              in: 'query', 
+              schema: { type: 'integer', default: 10 },
+              description: 'Number of items per page'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'Below threshold applications retrieved successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      message: { type: 'string', example: 'Below threshold applications retrieved successfully' },
+                      data: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string', example: 'clx1234567890abcdef' },
+                            businessName: { type: 'string', example: 'TechStart Inc.' },
+                            applicantName: { type: 'string', example: 'John Doe' },
+                            applicantEmail: { type: 'string', example: 'john.doe@example.com' },
+                            requestedAmount: { type: 'number', example: 75000 },
+                            currentStage: { type: 'string', example: 'BELOW_THRESHOLD' },
+                            createdAt: { type: 'string', format: 'date-time' },
+                            updatedAt: { type: 'string', format: 'date-time' }
+                          }
+                        }
+                      },
+                      pagination: {
+                        type: 'object',
+                        properties: {
+                          total: { type: 'integer', example: 15 },
+                          page: { type: 'integer', example: 1 },
+                          limit: { type: 'integer', example: 10 },
+                          totalPages: { type: 'integer', example: 2 }
+                        }
+                      }
+                    }
+                  },
+                  example: {
+                    success: true,
+                    message: 'Below threshold applications retrieved successfully',
+                    data: [
+                      {
+                        id: 'clx1234567890abcdef',
+                        businessName: 'Legora',
+                        applicantName: 'Vexi Games',
+                        applicantEmail: 'veximagames@gmail.com',
+                        requestedAmount: 50000,
+                        currentStage: 'BELOW_THRESHOLD',
+                        createdAt: '2025-11-20T10:30:00.000Z',
+                        updatedAt: '2025-11-25T05:28:16.883Z'
+                      }
+                    ],
+                    pagination: {
+                      total: 1,
+                      page: 1,
+                      limit: 10,
+                      totalPages: 1
+                    }
+                  }
+                }
+              }
+            },
+            401: { 
+              description: 'Unauthorized - Authentication required',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: false },
+                      message: { type: 'string', example: 'Unauthorized' }
+                    }
+                  }
+                }
+              }
+            },
+            500: { 
+              description: 'Internal server error',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: false },
+                      message: { type: 'string', example: 'Internal server error' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       '/applications/upload-documents': {
         post: {
           tags: ['📝 Stage 1: Application Submission'],
@@ -6963,7 +7076,7 @@ const fallbackSpec = {
                   properties: {
                     newStage: {
                       type: 'string',
-                      enum: ['UNDER_DUE_DILIGENCE', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'BOARD_REJECTED', 'BOARD_CONDITIONAL', 'TERM_SHEET_NEGOTIATION', 'IMPLEMENTATION', 'FUNDED', 'REJECTED']
+                      enum: ['UNDER_DUE_DILIGENCE', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'BOARD_REJECTED', 'BOARD_CONDITIONAL', 'TERM_SHEET_NEGOTIATION', 'IMPLEMENTATION', 'FUNDED', 'BELOW_THRESHOLD']
                     },
                     notes: { type: 'string' }
                   }

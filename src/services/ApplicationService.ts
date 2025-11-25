@@ -498,13 +498,13 @@ export class ApplicationService {
       // Validate stage transition
       // New workflow: Due Diligence → Term Sheet → Board Review → Investment Implementation
       const validTransitions: { [key: string]: string[] } = {
-        "SHORTLISTED": ["UNDER_DUE_DILIGENCE", "REJECTED"],
-        "UNDER_DUE_DILIGENCE": ["DUE_DILIGENCE_COMPLETED", "REJECTED"],
-        "DUE_DILIGENCE_COMPLETED": ["TERM_SHEET", "TERM_SHEET_NEGOTIATION", "REJECTED"],
-        "TERM_SHEET": ["TERM_SHEET_NEGOTIATION", "UNDER_BOARD_REVIEW", "REJECTED"],
-        "TERM_SHEET_NEGOTIATION": ["UNDER_BOARD_REVIEW", "REJECTED"],
+        "SHORTLISTED": ["UNDER_DUE_DILIGENCE", "BELOW_THRESHOLD"],
+        "UNDER_DUE_DILIGENCE": ["DUE_DILIGENCE_COMPLETED", "BELOW_THRESHOLD"],
+        "DUE_DILIGENCE_COMPLETED": ["TERM_SHEET", "TERM_SHEET_NEGOTIATION", "BELOW_THRESHOLD"],
+        "TERM_SHEET": ["TERM_SHEET_NEGOTIATION", "UNDER_BOARD_REVIEW", "BELOW_THRESHOLD"],
+        "TERM_SHEET_NEGOTIATION": ["UNDER_BOARD_REVIEW", "BELOW_THRESHOLD"],
         "UNDER_BOARD_REVIEW": ["BOARD_APPROVED", "BOARD_REJECTED", "BOARD_CONDITIONAL"],
-        "BOARD_APPROVED": ["INVESTMENT_IMPLEMENTATION", "REJECTED"],
+        "BOARD_APPROVED": ["INVESTMENT_IMPLEMENTATION", "BELOW_THRESHOLD"],
         "BOARD_CONDITIONAL": ["TERM_SHEET", "TERM_SHEET_NEGOTIATION", "BOARD_REJECTED"],
         "INVESTMENT_IMPLEMENTATION": ["DISBURSED", "FUNDED"],
         "DISBURSED": ["FUNDED"],
@@ -607,9 +607,9 @@ export class ApplicationService {
         break;
       case "BOARD_REJECTED":
       case "BOARD_CONDITIONAL":
-      case "REJECTED":
+      case "BELOW_THRESHOLD":
       case "NOT_SELECTED":
-        await EmailNotificationService.sendApplicationRejectedEmail(emailData);
+        await EmailNotificationService.sendApplicationBelowThresholdEmail(emailData);
         break;
       case "INVESTMENT_IMPLEMENTATION":
         await EmailNotificationService.sendInvestmentImplementationStartedEmail(emailData);
@@ -640,7 +640,7 @@ export class ApplicationService {
         where.currentStage = stage;
       } else {
         where.currentStage = {
-          notIn: ['REJECTED', 'PENDING_SHORTLISTING']
+          notIn: ['BELOW_THRESHOLD', 'PENDING_SHORTLISTING']
         };
       }
       
