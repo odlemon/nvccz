@@ -1116,7 +1116,7 @@ export class BoardReviewService {
           website: null,
           description: application.businessDescription,
           logoUrl: null,
-          status: "PENDING",
+          status: "APPROVED",
           companySize: application.businessStage === 'STARTUP' ? 'SMALL' : 
                       application.businessStage === 'OPERATIONAL' ? 'MEDIUM' : 'SMALL',
           employeeCount: null,

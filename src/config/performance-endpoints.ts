@@ -1627,6 +1627,12 @@ export const performanceEndpoints = {
           in: 'query',
           schema: { type: 'string', format: 'date' },
           description: 'End date for analysis period'
+        },
+        {
+          name: 'currencyId',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Currency ID for filtering accounting data (required for accurate KPI values matching accounting module)'
         }
       ],
       responses: {

@@ -195,7 +195,7 @@ export class PortfolioCompanyService {
           website: request.website,
           description: request.description,
           logoUrl: request.logoUrl,
-          status: request.status || "PENDING",
+          status: request.status || "APPROVED",
           companySize: request.companySize,
           employeeCount: request.employeeCount,
           annualRevenue: request.annualRevenue,

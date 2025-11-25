@@ -41,6 +41,11 @@ router.use(authenticate);
  *           type: string
  *           format: date
  *         description: End date for analysis period
+ *       - in: query
+ *         name: currencyId
+ *         schema:
+ *           type: string
+ *         description: Currency ID for filtering accounting data (required for accurate KPI values matching accounting module)
  *     responses:
  *       200:
  *         description: KPI analysis retrieved successfully
