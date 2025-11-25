@@ -634,7 +634,9 @@ export class ApplicationController {
       const result = await ApplicationService.getAllApplications(
         page,
         limit,
-        "BELOW_THRESHOLD"
+        "BELOW_THRESHOLD",
+        undefined,
+        true  // Enable pagination
       );
 
       logger.info("Below threshold applications retrieved", {
