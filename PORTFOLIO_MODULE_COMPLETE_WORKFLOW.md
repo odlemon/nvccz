@@ -550,17 +550,20 @@ Authorization: Bearer {admin_token}
 
 ## 🔄 APPLICATION STAGES
 
-### **Stage Flow:**
-1. **SHORTLISTED** - Initial application received
-2. **UNDER_DUE_DILIGENCE** - Due diligence in progress
-3. **DUE_DILIGENCE_COMPLETED** - Due diligence finished
-4. **UNDER_BOARD_REVIEW** - Under board consideration
-5. **BOARD_APPROVED** - Investment approved by board
-6. **BOARD_REJECTED** - Application rejected by board
-7. **BOARD_CONDITIONAL** - Approved with conditions
-8. **TERM_SHEET_NEGOTIATION** - Term sheet being negotiated
-9. **IMPLEMENTATION** - Investment implementation in progress
-10. **FUNDED** - Investment completed and funded
+### **Stage Flow**
+
+| Stage | `currentStage` Status | Description |
+| ----- | --------------------- | ----------- |
+| Application Submission | `SHORTLISTED` | Applicant form submitted; documents linked; status visible for applicants. |
+| Due Diligence | `UNDER_DUE_DILIGENCE` | Due diligence review in progress by Investments team. |
+| Due Diligence Completed | `DUE_DILIGENCE_COMPLETED` | Due diligence finished, preparing the package for term sheet creation. |
+| Term Sheet Negotiation | `TERM_SHEET_NEGOTIATION` | Negotiating the term sheet before finalizing the deal. |
+| Term Sheet Finalization | `TERM_SHEET` (includes final and signed states such as `TERM_SHEET_SIGNED`) | Term sheet generated, finalized, and signed by applicant; triggers next approvals. |
+| Board Review | `UNDER_BOARD_REVIEW` | Application queued for the board to review the finalized term sheet. |
+| Board Decision | `BOARD_APPROVED`, `BOARD_CONDITIONAL`, `BOARD_REJECTED` | Board outcomes that determine whether the deal moves forward, requires conditions, or is rejected. |
+| Investment Implementation | `INVESTMENT_IMPLEMENTATION` | Implementation plan started; milestones, checklists, and disbursements managed. |
+| Disbursement Lifecycle | `DISBURSED`, `FUNDED` | All disbursements approved/disbursed and investment marked as funded. |
+| Rejection Path | `REJECTED`, `BELOW_THRESHOLD` | Any stage can transition here when the application fails to meet criteria. |
 11. **REJECTED** - Application rejected at any stage
 
 ### **Portfolio Company Status:**
