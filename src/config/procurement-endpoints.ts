@@ -746,6 +746,58 @@ export const procurementEndpoints = {
         200: { description: 'Procurement approval configuration retrieved successfully' },
         401: { description: 'Unauthorized' }
       }
+    },
+    post: {
+      summary: 'Create the procurement approval configuration',
+      description: '**Required Role:** ADMIN. System only allows one config—use this once to seed it. Setting `department` ties the workflow to that department.',
+      tags: ['Procurement - Approval Configuration'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['name', 'stages'],
+              properties: {
+                name: { type: 'string', description: 'Configuration name' },
+                description: { type: 'string', description: 'Configuration description' },
+                department: { type: 'string', enum: ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'], description: 'Department-specific config (null for shared/default)' },
+                stages: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['stageType', 'steps'],
+                    properties: {
+                      stageType: { type: 'string', enum: ['PURCHASE_REQUISITION', 'PURCHASE_ORDER', 'INVOICE', 'GRN'] },
+                      steps: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          required: ['stepNumber', 'stepName', 'stepType'],
+                          properties: {
+                            stepNumber: { type: 'integer', description: 'Step number (must be sequential)' },
+                            stepName: { type: 'string', description: 'Step name' },
+                            stepType: { type: 'string', enum: ['USER', 'ROLE', 'DEPARTMENT', 'AMOUNT_THRESHOLD'] },
+                            roleCode: { type: 'string', description: 'Hardcoded role code (PROC_MGR, FIN_MGR, etc.) when stepType is ROLE' },
+                            isRequired: { type: 'boolean', default: true },
+                            approvalOrder: { type: 'string', enum: ['SEQUENTIAL', 'PARALLEL'], default: 'SEQUENTIAL' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: { description: 'Procurement approval configuration created successfully' },
+        400: { description: 'Bad request / config already exists' },
+        401: { description: 'Unauthorized' }
+      }
     }
   },
   '/procurement-approval-configs/{id}': {
