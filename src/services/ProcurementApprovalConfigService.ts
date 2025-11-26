@@ -190,80 +190,131 @@ export class ProcurementApprovalConfigService {
         }
       }
 
-      // Flatten stages - each step becomes a stage record
-      const allStages: any[] = [];
-      for (const stage of stages) {
-        for (const step of stage.steps) {
-          allStages.push({
-            stageType: stage.stageType,
-            stepNumber: step.stepNumber,
-            stepName: step.stepName,
-            stepType: step.stepType,
-            userId: step.userId,
-            roleId: step.roleId,           // DEPRECATED - keeping for backwards compatibility
-            roleCode: step.roleCode,       // NEW! Hardcoded role
-            departmentId: step.departmentId,
-            amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
-            isRequired: step.isRequired ?? true,
-            canDelegate: step.canDelegate ?? false,
-            autoApprove: step.autoApprove ?? false,
-            approvalOrder: step.approvalOrder ?? 'SEQUENTIAL'
+      const config = await prisma.$transaction(async (tx) => {
+        const existingStages = await tx.procurementApprovalStage.findMany({
+          where: { configId: id },
+          include: {
+            _count: {
+              select: {
+                approvals: true
+              }
+            }
+          }
+        });
+
+        const stageMap = new Map<string, typeof existingStages[0]>();
+        for (const stage of existingStages) {
+          stageMap.set(`${stage.stageType}-${stage.stepNumber}`, stage);
+        }
+
+        const processedKeys = new Set<string>();
+
+        for (const stage of stages) {
+          for (const step of stage.steps) {
+            const key = `${stage.stageType}-${step.stepNumber}`;
+
+            const stageData = {
+              stageType: stage.stageType,
+              stepNumber: step.stepNumber,
+              stepName: step.stepName,
+              stepType: step.stepType,
+              userId: step.userId,
+              roleId: step.roleId,
+              roleCode: step.roleCode,
+              departmentId: step.departmentId,
+              amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
+              isRequired: step.isRequired ?? true,
+              canDelegate: step.canDelegate ?? false,
+              autoApprove: step.autoApprove ?? false,
+              approvalOrder: step.approvalOrder ?? 'SEQUENTIAL'
+            };
+
+            const existingStage = stageMap.get(key);
+
+            if (existingStage) {
+              await tx.procurementApprovalStage.update({
+                where: { id: existingStage.id },
+                data: stageData
+              });
+              processedKeys.add(key);
+            } else {
+              await tx.procurementApprovalStage.create({
+                data: {
+                  configId: id,
+                  ...stageData
+                }
+              });
+              processedKeys.add(key);
+            }
+          }
+        }
+
+        for (const [key, stage] of stageMap.entries()) {
+          if (processedKeys.has(key)) continue;
+
+          if (stage._count.approvals > 0) {
+            throw new Error(
+              `Cannot remove step ${stage.stepNumber} (${stage.stepName}) for stage ${stage.stageType} because approvals already exist.`
+            );
+          }
+
+          await tx.procurementApprovalStage.delete({
+            where: { id: stage.id }
           });
         }
-      }
 
-      // Update configuration - delete old stages and create new ones
-      const config = await prisma.procurementApprovalConfig.update({
-        where: { id },
-        data: {
-          name,
-          description,
-          department,
-          stages: {
-            deleteMany: {}, // Delete all existing stages
-            create: allStages // Create new stages
+        await tx.procurementApprovalConfig.update({
+          where: { id },
+          data: {
+            name,
+            description,
+            department
           }
-        },
-        include: {
-          createdBy: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          },
-          stages: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  email: true
-                }
-              },
-              role: {
-                select: {
-                  id: true,
-                  name: true,
-                  description: true
-                }
-              },
-              department: {
-                select: {
-                  id: true,
-                  name: true,
-                  description: true
-                }
+        });
+
+        return tx.procurementApprovalConfig.findUnique({
+          where: { id },
+          include: {
+            createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
               }
             },
-            orderBy: [
-              { stageType: 'asc' },
-              { stepNumber: 'asc' }
-            ]
+            stages: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                },
+                role: {
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true
+                  }
+                },
+                department: {
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true
+                  }
+                }
+              },
+              orderBy: [
+                { stageType: 'asc' },
+                { stepNumber: 'asc' }
+              ]
+            }
           }
-        }
+        });
       });
 
       return config;
