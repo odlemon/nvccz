@@ -27,6 +27,86 @@ router.get("/", ProcurementApprovalConfigController.getAllProcurementApprovalCon
 
 /**
  * @swagger
+ * /procurement-approval-configs:
+ *   post:
+ *     summary: Create a new department-specific procurement approval configuration
+ *     description: **Required Role:** ADMIN. Only one procurement approval configuration is permitted; use this endpoint once to seed the first config, then use PUT for updates. Setting `department` ties the workflow to that department.
+ *     tags: [Procurement - Approval Configuration]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - stages
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: Configuration name
+ *               description:
+ *                 type: string
+ *                 description: Configuration description
+ *               department:
+ *                 type: string
+ *                 enum: [Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT]
+ *                 description: Department-specific config (null for the shared/general workflow)
+ *               stages:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - stageType
+ *                     - steps
+ *                   properties:
+ *                     stageType:
+ *                       type: string
+ *                       enum: [PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, GRN]
+ *                       description: Procurement stage type
+ *                     steps:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         required:
+ *                           - stepNumber
+ *                           - stepName
+ *                           - stepType
+ *                         properties:
+ *                           stepNumber:
+ *                             type: integer
+ *                             description: Step number (must start at 1 and be sequential)
+ *                           stepName:
+ *                             type: string
+ *                             description: Step name
+ *                           stepType:
+ *                             type: string
+ *                             enum: [USER, ROLE, DEPARTMENT, AMOUNT_THRESHOLD]
+ *                             description: Who/what approves this step
+ *                           roleCode:
+ *                             type: string
+ *                             description: Hardcoded role code (e.g., PROC_MGR, FIN_MGR) when stepType is ROLE
+ *                           isRequired:
+ *                             type: boolean
+ *                             default: true
+ *                           approvalOrder:
+ *                             type: string
+ *                             enum: [SEQUENTIAL, PARALLEL]
+ *                             default: SEQUENTIAL
+ *     responses:
+ *       201:
+ *         description: Procurement approval configuration created successfully
+ *       400:
+ *         description: Bad request / config already exists
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/", ProcurementApprovalConfigController.createProcurementApprovalConfig);
+
+/**
+ * @swagger
  * /procurement-approval-configs/{id}:
  *   put:
  *     summary: Update existing procurement approval configuration (SINGLE CONFIG SYSTEM)
