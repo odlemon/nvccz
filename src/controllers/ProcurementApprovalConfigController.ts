@@ -68,19 +68,6 @@ export class ProcurementApprovalConfigController {
         }
       }
 
-      // ⚠️ SINGLE CONFIG ENFORCEMENT: Only ONE config allowed in entire system
-      // Check if ANY config already exists (regardless of department)
-      const existingConfigs = await ProcurementApprovalConfigService.getAllProcurementApprovalConfigs();
-      if (existingConfigs && existingConfigs.length > 0) {
-        const existingConfig = existingConfigs[0];
-        return res.status(400).json({
-          success: false,
-          message: `Only ONE approval configuration is allowed in the system. An existing configuration already exists (ID: ${existingConfig.id}, Name: "${existingConfig.name}"). Please update the existing configuration instead of creating a new one. Use PUT /api/procurement-approval-configs/${existingConfig.id} to update it.`,
-          existingConfigId: existingConfig.id,
-          existingConfigName: existingConfig.name
-        });
-      }
-
       const config = await ProcurementApprovalConfigService.createProcurementApprovalConfig({
         name,
         description,
@@ -94,7 +81,7 @@ export class ProcurementApprovalConfigController {
 
       res.status(201).json({
         success: true,
-        message: "Procurement approval configuration created successfully. This is the only configuration allowed in the system. Use PUT /api/procurement-approval-configs/{id} to update it.",
+      message: "Procurement approval configuration created successfully.",
         data: cleanedConfig
       });
     } catch (error: any) {
