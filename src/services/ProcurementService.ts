@@ -374,12 +374,6 @@ export class ProcurementService {
               email: true
             }
           },
-          department: {
-            select: {
-              id: true,
-              name: true
-            }
-          },
           items: true
         },
         orderBy: {
@@ -954,8 +948,27 @@ export class ProcurementService {
       }
 
       // Get RFQs from audit logs
-      const audits = await prisma.auditLog.findMany({
+      const grouped = await prisma.auditLog.groupBy({
+        by: ['entityId'],
         where,
+        _max: {
+          createdAt: true
+        },
+        orderBy: {
+          _max: {
+            createdAt: 'desc'
+          }
+        },
+        skip: offset,
+        take: limit
+      });
+
+      const entityIds = grouped.map(item => item.entityId);
+
+      const audits = await prisma.auditLog.findMany({
+        where: {
+          entityId: { in: entityIds }
+        },
         include: {
           user: {
             select: {
@@ -966,39 +979,41 @@ export class ProcurementService {
             }
           }
         },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset,
-        distinct: ['entityId'] // Only get unique RFQ numbers
+        orderBy: { createdAt: 'desc' }
       });
 
-      // Parse RFQ data from newValues JSON
-      const rfqs = audits.map(audit => {
-        const rfqData = audit.newValues as any;
-        return {
-          rfqNumber: audit.entityId,
-          ...rfqData,
-          createdBy: audit.user,
-          createdAt: audit.createdAt
-        };
-      });
-
-      // Filter by requisitionId if provided
-      let filteredRFQs = rfqs;
-      if (requisitionId) {
-        filteredRFQs = rfqs.filter((rfq: any) => 
-          rfq.requisitionId === requisitionId
-        );
+      const auditMap = new Map<string, typeof audits[0]>();
+      for (const audit of audits) {
+        const existing = auditMap.get(audit.entityId);
+        if (!existing || audit.createdAt > existing.createdAt) {
+          auditMap.set(audit.entityId, audit);
+        }
       }
 
-      // Get count (distinct RFQ numbers)
-      const count = await prisma.auditLog.count({
-        where: {
-          entityType: "RFQ",
-          ...(rfqNumber ? { entityId: rfqNumber } : {})
-        },
-        distinct: ['entityId']
+      const rfqs = entityIds
+        .map(id => auditMap.get(id))
+        .filter(Boolean)
+        .map(audit => {
+          const rfqData = audit!.newValues as any;
+          return {
+            rfqNumber: audit!.entityId,
+            ...rfqData,
+            createdBy: audit!.user,
+            createdAt: audit!.createdAt
+          };
+        });
+
+      let filteredRFQs = rfqs;
+      if (requisitionId) {
+        filteredRFQs = rfqs.filter((rfq: any) => rfq.requisitionId === requisitionId);
+      }
+
+      const countGroup = await prisma.auditLog.groupBy({
+        by: ['entityId'],
+        where
       });
+
+      const count = countGroup.length;
 
       return {
         rfqs: filteredRFQs,
