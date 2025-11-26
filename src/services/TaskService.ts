@@ -2,7 +2,7 @@
 import { PrismaClient, Json } from "@prisma/client";
 import { prisma } from "../utils/database";
 
-const TASK_APPLICATION_INCLUDE = {
+const TASK_APPLICATION_FULL_INCLUDE = {
   fund: {
     select: {
       id: true,
@@ -74,7 +74,22 @@ const TASK_APPLICATION_INCLUDE = {
   }
 };
 
-async function attachApplicationDataToTasks(tasks: any[]) {
+const TASK_APPLICATION_MINIMAL_SELECT = {
+  id: true,
+  businessName: true,
+  applicantName: true,
+  currentStage: true,
+  submittedAt: true,
+  fundId: true,
+  fund: {
+    select: {
+      id: true,
+      name: true
+    }
+  }
+};
+
+async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: boolean }) {
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return tasks;
   }
@@ -105,7 +120,9 @@ async function attachApplicationDataToTasks(tasks: any[]) {
         in: applicationIds
       }
     },
-    include: TASK_APPLICATION_INCLUDE
+    ...(options?.minimal
+      ? { select: TASK_APPLICATION_MINIMAL_SELECT }
+      : { include: TASK_APPLICATION_FULL_INCLUDE })
   });
 
   const applicationMap = new Map(applications.map(app => [app.id, app]));
@@ -481,7 +498,7 @@ export class TaskService {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
-      const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask]);
+      const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask], { minimal: true });
       return taskWithApplication;
     } catch (error) {
       throw error;
