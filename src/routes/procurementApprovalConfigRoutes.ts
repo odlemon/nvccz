@@ -39,69 +39,69 @@ router.get("/", ProcurementApprovalConfigController.getAllProcurementApprovalCon
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - name
- *               - stages
- *             properties:
- *               name:
- *                 type: string
- *                 description: Configuration name
- *               description:
- *                 type: string
- *                 description: Configuration description
- *               department:
- *                 type: string
- *                 enum: [Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT]
- *                 description: Department-specific config (null for the shared/general workflow)
- *               stages:
- *                 type: array
- *                 items:
- *                   type: object
- *                   required:
- *                     - stageType
- *                     - steps
- *                   properties:
- *                     stageType:
- *                       type: string
- *                       enum: [PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, GRN]
- *                       description: Procurement stage type
- *                     steps:
- *                       type: array
- *                       items:
- *                         type: object
- *                         required:
- *                           - stepNumber
- *                           - stepName
- *                           - stepType
- *                         properties:
- *                           stepNumber:
- *                             type: integer
- *                             description: Step number (must start at 1 and be sequential)
- *                           stepName:
- *                             type: string
- *                             description: Step name
- *                           stepType:
- *                             type: string
- *                             enum: [USER, ROLE, DEPARTMENT, AMOUNT_THRESHOLD]
- *                             description: Who/what approves this step
- *                           roleCode:
- *                             type: string
- *                             description: Hardcoded role code (e.g., PROC_MGR, FIN_MGR) when stepType is ROLE
- *                           isRequired:
- *                             type: boolean
- *                             default: true
- *                           approvalOrder:
- *                             type: string
- *                             enum: [SEQUENTIAL, PARALLEL]
- *                             default: SEQUENTIAL
- *     responses:
- *       201:
- *         description: Procurement approval configuration created successfully
- *       400:
- *         description: Bad request / config already exists
- *       401:
- *         description: Unauthorized
+             type: object
+             required:
+               - name
+               - stages
+             properties:
+               name:
+                 type: string
+                 description: Configuration name
+               description:
+                 type: string
+                 description: Configuration description
+               department:
+                 type: string
+                 enum: [Finance, Operations, Procurement, Human Resources, Marketing, Legal, IT]
+                 description: Department-specific config (null for the shared/general workflow)
+               stages:
+                 type: array
+                 items:
+                   type: object
+                   required:
+                     - stageType
+                     - steps
+                   properties:
+                     stageType:
+                       type: string
+                       enum: [PURCHASE_REQUISITION, PURCHASE_ORDER, INVOICE, GRN]
+                       description: Procurement stage type
+                     steps:
+                       type: array
+                       items:
+                         type: object
+                         required:
+                           - stepNumber
+                           - stepName
+                           - stepType
+                         properties:
+                           stepNumber:
+                             type: integer
+                             description: Step number (must start at 1 and be sequential)
+                           stepName:
+                             type: string
+                             description: Step name
+                           stepType:
+                             type: string
+                             enum: [USER, ROLE, DEPARTMENT, AMOUNT_THRESHOLD]
+                             description: Who/what approves this step
+                           roleCode:
+                             type: string
+                             description: Hardcoded role code (e.g., PROC_MGR, FIN_MGR) when stepType is ROLE
+                           isRequired:
+                             type: boolean
+                             default: true
+                           approvalOrder:
+                             type: string
+                             enum: [SEQUENTIAL, PARALLEL]
+                             default: SEQUENTIAL
+     responses:
+       201:
+         description: Procurement approval configuration created successfully
+       400:
+         description: Bad request / config already exists
+       401:
+         description: Unauthorized
  */
 router.post("/", ProcurementApprovalConfigController.createProcurementApprovalConfig);
 
