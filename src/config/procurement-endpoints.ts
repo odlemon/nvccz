@@ -355,6 +355,7 @@ export const procurementEndpoints = {
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' }
+      , { in: 'query', name: 'reviewNotes', schema: { type: 'string' }, description: 'Optional internal notes about acceptance', example: 'Best price and delivery time' }
       ],
       responses: {
         200: { description: 'Quotation details' },
@@ -387,20 +388,6 @@ export const procurementEndpoints = {
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' }
       ],
-      requestBody: {
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                reviewNotes: { type: 'string', example: 'Best price and delivery time' },
-                createPO: { type: 'boolean', default: true, description: 'Whether to automatically create a Purchase Order' },
-                createInvoice: { type: 'boolean', default: false, description: 'Whether to automatically create an invoice' }
-              }
-            }
-          }
-        }
-      },
       responses: {
         200: { description: 'Quotation accepted successfully' },
         400: { description: 'Bad request' },
