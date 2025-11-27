@@ -152,6 +152,41 @@ export const procurementEndpoints = {
       }
     }
   },
+  '/procurement/requisitions/{id}/reject': {
+    put: {
+      summary: 'Reject a purchase requisition',
+      description: '**Required Role:** Department HEAD or DEPUTY for the owning department. ⚠️ Once rejected, status becomes REJECTED and cannot be modified',
+      tags: ['Procurement - Requisitions'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['rejectionReason'],
+              properties: {
+                rejectionReason: {
+                  type: 'string',
+                  description: 'Reason for rejecting the requisition',
+                  example: 'Budget reallocated'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: { description: 'Requisition rejected successfully' },
+        400: { description: 'Bad request (missing reason or invalid state)' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Forbidden - only department HEAD or DEPUTY can reject' }
+      }
+    }
+  },
 
   // ========== PROCUREMENT - RFQ ==========
   '/procurement/rfq': {

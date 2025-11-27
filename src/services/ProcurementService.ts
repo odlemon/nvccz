@@ -672,6 +672,99 @@ export class ProcurementService {
   }
 
   /**
+   * Reject a purchase requisition with a reason
+   */
+  static async rejectPurchaseRequisition(requisitionId: string, rejectedById: string, rejectionReason: string) {
+    try {
+      const requisition = await prisma.purchaseRequisition.findUnique({
+        where: { id: requisitionId },
+        include: {
+          items: true,
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true
+            }
+          }
+        }
+      });
+
+      if (!requisition) {
+        throw new Error("Purchase requisition not found");
+      }
+
+      if (requisition.status !== "PENDING_APPROVAL") {
+        throw new Error("Requisition is not pending approval");
+      }
+
+      const approver = await prisma.user.findUnique({
+        where: { id: rejectedById },
+        select: {
+          userDepartment: true,
+          departmentRole: true
+        }
+      });
+
+      if (!approver) {
+        throw new Error("Approver not found");
+      }
+
+      if (approver.userDepartment !== requisition.department) {
+        throw new Error(`You are not assigned to the ${requisition.department} department`);
+      }
+
+      if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
+        throw new Error(`Only department HEAD or DEPUTY can reject requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+      }
+
+      const updatedRequisition = await prisma.purchaseRequisition.update({
+        where: { id: requisitionId },
+        data: {
+          status: "REJECTED",
+          rejectionReason
+        },
+        include: {
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          approvedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          items: true
+        }
+      });
+
+      await AuditService.log({
+        userId: rejectedById,
+        action: "REJECT",
+        entityType: "PurchaseRequisition",
+        entityId: requisitionId,
+        newValues: updatedRequisition
+      });
+
+      return updatedRequisition;
+    } catch (error) {
+      console.error("Error rejecting purchase requisition:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Create and send RFQ (Request for Quote) to multiple vendors
    * This replaces the old PO sending - now we send RFQs to get quotes first
    */

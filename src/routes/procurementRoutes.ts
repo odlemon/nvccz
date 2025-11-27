@@ -335,6 +335,47 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
 
 /**
  * @swagger
+ * /procurement/requisitions/{id}/reject:
+ *   put:
+ *     summary: Reject a purchase requisition
+ *     description: **Required Role:** Department HEAD or DEPUTY for the department that owns the requisition. ⚠️ Once rejected, status becomes REJECTED and cannot be modified
+ *     tags: [Procurement - Requisitions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Requisition ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - rejectionReason
+ *             properties:
+ *               rejectionReason:
+ *                 type: string
+ *                 description: Reason for rejecting the requisition
+ *                 example: "Budget no longer available"
+ *     responses:
+ *       200:
+ *         description: Requisition rejected successfully
+ *       400:
+ *         description: Bad request (missing reason or invalid state)
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (not department head/deputy)
+ */
+router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequisition);
+
+/**
+ * @swagger
  * /procurement/purchase-orders:
  *   post:
  *     summary: Create a new purchase order
