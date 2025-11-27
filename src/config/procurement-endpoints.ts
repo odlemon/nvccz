@@ -430,6 +430,68 @@ export const procurementEndpoints = {
   },
 
   // ========== PROCUREMENT - INVOICES ==========
+  '/procurement/invoices': {
+    post: {
+      summary: 'Create a new procurement invoice (PUBLIC)',
+      description: '**PUBLIC ENDPOINT** - Vendors submit invoices without authentication.',
+      tags: ['Procurement - Invoices'],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['vendorId', 'invoiceDate', 'items'],
+              properties: {
+                purchaseOrderId: { type: 'string', description: 'Related purchase order ID' },
+                vendorId: { type: 'string', description: 'Vendor ID' },
+                invoiceDate: { type: 'string', format: 'date-time', description: 'Invoice date' },
+                dueDate: { type: 'string', format: 'date-time', description: 'Due date' },
+                currencyId: { type: 'string', description: 'Currency ID' },
+                documentPath: { type: 'string', description: 'Path to uploaded document' },
+                documentType: { type: 'string', description: 'Document type (PDF, IMAGE, etc.)' },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['itemName', 'quantity', 'unitPrice'],
+                    properties: {
+                      itemName: { type: 'string' },
+                      description: { type: 'string' },
+                      quantity: { type: 'number' },
+                      unitPrice: { type: 'number' },
+                      unit: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: { description: 'Procurement invoice created successfully' },
+        400: { description: 'Bad request' }
+      }
+    },
+    get: {
+      summary: 'Get all procurement invoices',
+      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
+      tags: ['Procurement - Invoices'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'status', schema: { type: 'string', enum: ['RECEIVED', 'PROCESSING', 'MATCHED', 'DISCREPANCY', 'APPROVED', 'PAID', 'REJECTED'] } },
+        { in: 'query', name: 'vendorId', schema: { type: 'string' } },
+        { in: 'query', name: 'matchingStatus', schema: { type: 'string', enum: ['PENDING', 'MATCHED', 'DISCREPANCY', 'MANUAL_REVIEW'] } },
+        { in: 'query', name: 'limit', schema: { type: 'integer', default: 50 } },
+        { in: 'query', name: 'offset', schema: { type: 'integer', default: 0 } }
+      ],
+      responses: {
+        200: { description: 'List of procurement invoices' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
   '/procurement/invoices/{id}/approve': {
     put: {
       summary: 'Approve a procurement invoice',
