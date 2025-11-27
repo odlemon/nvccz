@@ -384,6 +384,45 @@ export class ProcurementController {
   }
 
   /**
+   * Reject a purchase requisition
+   */
+  static async rejectPurchaseRequisition(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { rejectionReason } = req.body;
+      const rejectedById = req.user?.id;
+
+      if (!rejectedById) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      if (!rejectionReason) {
+        return res.status(400).json({
+          success: false,
+          message: "Rejection reason is required"
+        });
+      }
+
+      const requisition = await ProcurementService.rejectPurchaseRequisition(id, rejectedById, rejectionReason);
+
+      res.status(200).json({
+        success: true,
+        message: "Purchase requisition rejected successfully",
+        data: requisition
+      });
+    } catch (error: any) {
+      console.error("Error rejecting purchase requisition:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to reject purchase requisition"
+      });
+    }
+  }
+
+  /**
    * Create a purchase order
    */
   static async createPurchaseOrder(req: Request, res: Response) {
