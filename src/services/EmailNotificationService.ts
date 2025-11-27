@@ -2969,6 +2969,7 @@ export class EmailNotificationService {
     currencyCode: string;
     reviewNotes?: string;
     companyName?: string;
+    rfqNumber?: string;
   }): Promise<void> {
     try {
       const subject = `Quotation Accepted - ${data.quotationNumber}`;
@@ -3339,14 +3340,16 @@ export class EmailNotificationService {
         })
       : 'To be discussed';
     const deadline = data.rfqDeadline
-      ? data.rfqDeadline.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
+      ? data.rfqDeadline.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
         })
       : 'As soon as possible';
     const frontendBase = (process.env.FRONTEND_URL || 'https://nvccz.com').replace(/\/$/, '');
-    const vendorSubmissionUrl = `${frontendBase}/vendor/quotation/submit?rfq=${encodeURIComponent(data.rfqNumber)}`;
+    const vendorSubmissionUrl = `${frontendBase}/vendor/quotation/submit?rfqNumber=${encodeURIComponent(
+      data.rfqNumber
+    )}&vendorEmail=${encodeURIComponent(data.vendorEmail)}&vendorName=${encodeURIComponent(data.vendorName)}`;
     const apiBase = (process.env.API_URL || 'https://nvccz-pi.vercel.app/api').replace(/\/$/, '');
     const apiEndpoint = `${apiBase}/vendor-quotations/submit`;
     const sampleItem = data.items[0] || { itemName: 'Item 1', quantity: 1, unit: 'unit' };
@@ -3354,6 +3357,7 @@ export class EmailNotificationService {
       rfqNumber: data.rfqNumber,
       vendorName: data.vendorName,
       vendorEmail: data.vendorEmail,
+      rfqId: data.rfqNumber,
       items: [
         {
           itemName: sampleItem.itemName,
@@ -4059,7 +4063,12 @@ export class EmailNotificationService {
     currencyCode: string;
     reviewNotes?: string;
     companyName?: string;
+    rfqNumber?: string;
   }): string {
+    const frontendBase = (process.env.FRONTEND_URL || 'https://nvccz.com').replace(/\/$/, '');
+    const invoiceUrl = `${frontendBase}/vendor/invoice/submit?quotationNumber=${encodeURIComponent(
+      data.quotationNumber
+    )}&vendorEmail=${encodeURIComponent(data.vendorEmail)}${data.rfqNumber ? `&rfqNumber=${encodeURIComponent(data.rfqNumber)}` : ''}`;
     return `
       <!DOCTYPE html>
       <html>
@@ -4100,12 +4109,13 @@ export class EmailNotificationService {
 
           <p><strong>Next Steps:</strong></p>
           <ul>
-            <li>An invoice will be created based on your quotation</li>
-            <li>You will receive the official purchase order shortly</li>
-            <li>Please prepare the items/services as per the agreed specifications</li>
-            <li>Ensure delivery within the timeframe specified in your quote</li>
-            <li>Send your invoice referencing the quotation number (and PO when issued) to <strong>procurement@nvccz.com</strong></li>
+            <li>Finalize the preparation of the items/services you quoted</li>
+            <li>Ensure delivery aligns with the timeframe you submitted</li>
+            <li>Use the button below to submit your invoice referencing <strong>${data.quotationNumber}</strong></li>
           </ul>
+          <div style="text-align:center; margin:30px 0;">
+            <a href="${invoiceUrl}" class="button">Submit Your Invoice</a>
+          </div>
 
           <p>Thank you for your competitive pricing and professional service. We look forward to a successful transaction and continued business relationship.</p>
           
