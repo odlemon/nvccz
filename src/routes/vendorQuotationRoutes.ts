@@ -293,23 +293,12 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  *         schema:
  *           type: string
  *         description: Quotation ID
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reviewNotes:
- *                 type: string
- *                 description: Notes about the acceptance
- *                 example: "Best price and delivery time"
- *               createInvoice:
- *                 type: boolean
- *                 description: Whether to automatically create an invoice
- *                 default: true
- *           example:
- *             reviewNotes: "Best price and delivery time"
- *             createInvoice: true
+ *       - in: query
+ *         name: reviewNotes
+ *         schema:
+ *           type: string
+ *         description: Optional notes about the acceptance
+ *         example: "Best price and delivery time"
  *     responses:
  *       200:
  *         description: Quotation accepted successfully
@@ -329,7 +318,7 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  *                       type: object
  *                     invoice:
  *                       type: object
- *                       description: Created invoice (if createInvoice was true)
+ *                       description: Created invoice (if any)
  *       400:
  *         description: Bad request
  *       401:

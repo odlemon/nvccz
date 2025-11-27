@@ -95,7 +95,7 @@ export class VendorQuotationController {
   static async acceptQuotation(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { reviewNotes, createPO = true, createInvoice = false } = req.body;
+      const reviewNotes = req.query.reviewNotes as string | undefined;
       const userId = req.user?.id;
 
       if (!userId) {
@@ -109,9 +109,7 @@ export class VendorQuotationController {
         quotationId: id,
         action: "ACCEPT",
         reviewedById: userId,
-        reviewNotes,
-        createPO,
-        createInvoice
+        reviewNotes
       });
 
       let message = "Quotation accepted successfully. Vendor has been notified.";
