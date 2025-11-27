@@ -209,24 +209,24 @@ export class ProcurementApprovalConfigService {
 
         const processedKeys = new Set<string>();
 
-        for (const stage of stages) {
-          for (const step of stage.steps) {
+      for (const stage of stages) {
+        for (const step of stage.steps) {
             const key = `${stage.stageType}-${step.stepNumber}`;
 
             const stageData = {
-              stageType: stage.stageType,
-              stepNumber: step.stepNumber,
-              stepName: step.stepName,
-              stepType: step.stepType,
-              userId: step.userId,
+            stageType: stage.stageType,
+            stepNumber: step.stepNumber,
+            stepName: step.stepName,
+            stepType: step.stepType,
+            userId: step.userId,
               roleId: step.roleId,
               roleCode: step.roleCode,
-              departmentId: step.departmentId,
-              amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
-              isRequired: step.isRequired ?? true,
-              canDelegate: step.canDelegate ?? false,
-              autoApprove: step.autoApprove ?? false,
-              approvalOrder: step.approvalOrder ?? 'SEQUENTIAL'
+            departmentId: step.departmentId,
+            amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
+            isRequired: step.isRequired ?? true,
+            canDelegate: step.canDelegate ?? false,
+            autoApprove: step.autoApprove ?? false,
+            approvalOrder: step.approvalOrder ?? 'SEQUENTIAL'
             };
 
             const existingStage = stageMap.get(key);
@@ -264,56 +264,56 @@ export class ProcurementApprovalConfigService {
         }
 
         await tx.procurementApprovalConfig.update({
-          where: { id },
-          data: {
-            name,
-            description,
+        where: { id },
+        data: {
+          name,
+          description,
             department
           }
         });
 
         return tx.procurementApprovalConfig.findUnique({
           where: { id },
-          include: {
-            createdBy: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            },
-            stages: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    email: true
-                  }
-                },
-                role: {
-                  select: {
-                    id: true,
-                    name: true,
-                    description: true
-                  }
-                },
-                department: {
-                  select: {
-                    id: true,
-                    name: true,
-                    description: true
-                  }
+        include: {
+          createdBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          stages: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true
                 }
               },
-              orderBy: [
-                { stageType: 'asc' },
-                { stepNumber: 'asc' }
-              ]
-            }
+              role: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true
+                }
+              },
+              department: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true
+                }
+              }
+            },
+            orderBy: [
+              { stageType: 'asc' },
+              { stepNumber: 'asc' }
+            ]
           }
+        }
         });
       });
 

@@ -47,5 +47,18 @@ All users share the password: `TestPass123!`.
 5. **Role coverage**
    - Ensure every role used in your approval config can reach its stage (`PROC_MGR`, `PROC_COORD`, `BUYER`, etc.).
 
+## RFQ Vendors
+
+- **Logix Vine Supplies** (`logixvine@gmail.com`)
+  - Target vendor for RFQs that supply general office/IT items.
+  - Receives the formatted RFQ email with item table, deadline, and links to submit.
+  - Re-run `node scripts/setup-rfq-vendors.js` if you ever need to recreate the vendor/user record.
+
+- **Vexima Games Ltd** (`veximagames@gmail.com`)
+  - Use for testing gaming/performance hardware RFQ flows.
+  - Same RFQ email behavior as above; the action button opens the vendor quote form and the email also spells out the `POST /vendor-quotations/submit` API call that vendors can hit directly.
+
+When you create the RFQ, those two vendors will automatically receive the styled email with the item table plus the frontend link or API instructions they can use to submit their quote.
+
 
 
