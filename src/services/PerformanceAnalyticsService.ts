@@ -161,12 +161,12 @@ export class PerformanceAnalyticsService {
           // Only use accounting data if KPI is marked as financial
           // Currency filtering is automatically applied via loaders (only for Balance Sheet/Income Statement)
           if (kpiConfig.isFinancial) {
-            accountingValue = await this.getAccountingValueForKPI(
-              kpiConfig,
-              effectiveDateRange,
-              needsIncomeStatement ? loadIncomeStatement : null,
-              needsBalanceSheet ? loadBalanceSheet : null
-            );
+          accountingValue = await this.getAccountingValueForKPI(
+            kpiConfig,
+            effectiveDateRange,
+            needsIncomeStatement ? loadIncomeStatement : null,
+            needsBalanceSheet ? loadBalanceSheet : null
+          );
           }
         }
 

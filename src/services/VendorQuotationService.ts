@@ -164,6 +164,47 @@ export class VendorQuotationService {
       console.log(`   Status: ${quotation.status}`);
       console.log("════════════════════════════════════════════════════════════════\n");
 
+      // Notify procurement requester (if the requisition exists and has an owner)
+      if (requisitionId) {
+        const requisition = await prisma.purchaseRequisition.findUnique({
+          where: { id: requisitionId },
+          include: {
+            requestedBy: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        });
+
+        if (requisition && requisition.requestedBy?.email) {
+          const requesterName = `${requisition.requestedBy.firstName} ${requisition.requestedBy.lastName}`;
+          await EmailNotificationService.sendQuotationSubmittedNotification({
+            requesterName,
+            requesterEmail: requisition.requestedBy.email,
+            vendorName: companyName || vendorName,
+            vendorEmail,
+            rfqNumber,
+            quotationNumber: quotation.quotationNumber,
+            totalAmount: Number(quotation.totalAmount),
+            currencyCode,
+            items: quotation.items.map(item => ({
+              itemName: item.itemName,
+              description: item.description,
+              quantity: Number(item.quantity),
+              unit: item.unit || 'unit',
+              unitPrice: Number(item.unitPrice),
+              totalPrice: Number(item.totalPrice)
+            })),
+            requisitionNumber: requisition.requisitionNumber,
+            requisitionTitle: requisition.title,
+            notes
+          });
+        }
+      }
+
       return quotation;
     } catch (error: any) {
       console.error("❌ Error creating vendor quotation:", error);
@@ -370,6 +411,10 @@ export class VendorQuotationService {
             reviewNotes
           });
           console.log("✅ Acceptance email sent to vendor");
+
+          if (quotation.rfqNumber) {
+            await this.rejectOtherQuotations(quotation.rfqNumber, quotation, reviewedById);
+          }
         } else {
           await EmailNotificationService.sendQuotationRejectedEmail({
             vendorName: quotation.companyName || quotation.vendorName,
@@ -531,6 +576,66 @@ export class VendorQuotationService {
     } catch (error: any) {
       console.error("❌ Error reviewing quotation:", error);
       throw error;
+    }
+  }
+
+  private static async rejectOtherQuotations(
+    rfqNumber: string,
+    acceptedQuotation: any,
+    reviewedById: string
+  ) {
+    try {
+      const remainingQuotations = await prisma.vendorQuotation.findMany({
+        where: {
+          rfqNumber,
+          status: { in: ["SUBMITTED", "UNDER_REVIEW"] },
+          id: { not: acceptedQuotation.id }
+        }
+      });
+
+      if (remainingQuotations.length === 0) {
+        return;
+      }
+
+      const rejectionReason = `RFQ ${rfqNumber} was awarded to ${acceptedQuotation.companyName || acceptedQuotation.vendorName}.`;
+
+      for (const quote of remainingQuotations) {
+        const updated = await prisma.vendorQuotation.update({
+          where: { id: quote.id },
+          data: {
+            status: "REJECTED",
+            reviewedById,
+            reviewedAt: new Date(),
+            rejectionReason
+          },
+          include: {
+            items: true
+          }
+        });
+
+        await AuditService.log({
+          userId: reviewedById,
+          action: "REJECT",
+          entityType: "VendorQuotation",
+          entityId: updated.id,
+          newValues: {
+            status: updated.status,
+            rejectionReason
+          }
+        });
+
+        await EmailNotificationService.sendQuotationRejectedEmail({
+          vendorName: updated.companyName || updated.vendorName,
+          vendorEmail: updated.vendorEmail,
+          quotationNumber: updated.quotationNumber,
+          quotationAmount: Number(updated.totalAmount),
+          currencyCode: updated.currencyCode,
+          rejectionReason
+        });
+      }
+    } catch (error: any) {
+      console.error("⚠️  Failed to reject competing quotations:", error.message || error);
+      // Continue even if auto rejection fails
     }
   }
 

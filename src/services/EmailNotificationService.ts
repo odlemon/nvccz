@@ -376,6 +376,58 @@ export class EmailNotificationService {
     });
   }
 
+  /**
+   * Notify procurement requester when a vendor submits a quotation
+   */
+  static async sendQuotationSubmittedNotification(data: {
+    requesterName: string;
+    requesterEmail: string;
+    rfqNumber: string;
+    requisitionNumber?: string;
+    requisitionTitle?: string;
+    quotationNumber: string;
+    vendorName: string;
+    vendorEmail: string;
+    totalAmount: number;
+    currencyCode: string;
+    items: Array<{
+      itemName: string;
+      description?: string;
+      quantity: number;
+      unit?: string;
+      unitPrice: number;
+      totalPrice: number;
+    }>;
+    notes?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Quotation submitted for ${data.rfqNumber}`;
+      const htmlContent = this.getQuotationSubmittedNotificationTemplate(data);
+
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: "NVCCZ Procurement Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.requesterEmail,
+              name: data.requesterName
+            }
+          }
+        ],
+        subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Quotation submission notification sent to ${data.requesterEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending quotation submission notification:", error);
+      throw error;
+    }
+  }
+
   static async sendFinancialReportAcceptedEmail(data: {
     recipientEmail: string;
     companyName: string;
@@ -3293,6 +3345,25 @@ export class EmailNotificationService {
           day: 'numeric' 
         })
       : 'As soon as possible';
+    const frontendBase = (process.env.FRONTEND_URL || 'https://nvccz.com').replace(/\/$/, '');
+    const vendorSubmissionUrl = `${frontendBase}/vendor/quotation/submit?rfq=${encodeURIComponent(data.rfqNumber)}`;
+    const apiBase = (process.env.API_URL || 'https://nvccz-pi.vercel.app/api').replace(/\/$/, '');
+    const apiEndpoint = `${apiBase}/vendor-quotations/submit`;
+    const sampleItem = data.items[0] || { itemName: 'Item 1', quantity: 1, unit: 'unit' };
+    const apiPayload = {
+      rfqNumber: data.rfqNumber,
+      vendorName: data.vendorName,
+      vendorEmail: data.vendorEmail,
+      items: [
+        {
+          itemName: sampleItem.itemName,
+          quantity: sampleItem.quantity,
+          unit: sampleItem.unit || 'unit',
+          unitPrice: 0
+        }
+      ]
+    };
+    const payloadExample = JSON.stringify(apiPayload, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     return `
       <!DOCTYPE html>
@@ -3517,7 +3588,7 @@ export class EmailNotificationService {
               <p><strong>Option 1: Submit Online (Recommended) 🌟</strong></p>
               <p>Click the button below to submit your quotation through our secure online form:</p>
               <div style="text-align: center; margin: 20px 0;">
-                <a href="${process.env.FRONTEND_URL || 'https://nvccz.com'}/vendor/quotation/submit?rfq=${encodeURIComponent(data.rfqNumber)}" class="action-button" style="color: white;">
+                <a href="${vendorSubmissionUrl}" class="action-button" style="color: white;">
                   📝 Submit Your Quotation Online
                 </a>
               </div>
@@ -3539,6 +3610,13 @@ export class EmailNotificationService {
                 <li><strong>Validity Period</strong> of your quote</li>
                 <li>Any <strong>additional notes</strong> or terms</li>
               </ol>
+            </div>
+
+            <div class="instruction-list" style="margin-top: 10px;">
+              <p><strong>Option 3: Submit via API</strong></p>
+              <p>POST the following JSON to <a href="${apiEndpoint}" target="_blank" rel="noreferrer">${apiEndpoint}</a> with <code>Content-Type: application/json</code>:</p>
+              <pre style="background-color: #f5f5f5; border-radius: 8px; padding: 15px; overflow-x: auto; font-size: 0.85em;">${payloadExample}</pre>
+              <p>Send the request when you are ready to submit your best pricing; the body can include the full item list plus pricing, delivery and payment terms.</p>
             </div>
 
             <div class="highlight-box">
@@ -3574,6 +3652,142 @@ export class EmailNotificationService {
             <p>For any inquiries, please reply to this email or contact procurement@nvccz.com</p>
             <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
           </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Generate notification template for new vendor quotation (sent to requester)
+   */
+  private static getQuotationSubmittedNotificationTemplate(data: {
+    requesterName: string;
+    rfqNumber: string;
+    requisitionNumber?: string;
+    requisitionTitle?: string;
+    quotationNumber: string;
+    vendorName: string;
+    totalAmount: number;
+    currencyCode: string;
+    items: Array<{
+      itemName: string;
+      description?: string;
+      quantity: number;
+      unit?: string;
+      unitPrice: number;
+      totalPrice: number;
+    }>;
+    notes?: string;
+  }): string {
+    const currencySymbol = data.currencyCode === 'USD' ? '$' : data.currencyCode === 'ZWL' ? 'ZWL' : data.currencyCode;
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Quotation Submitted</title>
+        <style>
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #222;
+            background-color: #f8fafc;
+            margin: 0;
+            padding: 20px;
+          }
+          .card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+            max-width: 700px;
+            margin: 0 auto;
+          }
+          h1 {
+            color: #0f766e;
+            margin-bottom: 5px;
+          }
+          .meta-table, .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+          }
+          .meta-table td {
+            padding: 6px 0;
+          }
+          .items-table th,
+          .items-table td {
+            padding: 10px;
+            border-bottom: 1px solid #e2e8f0;
+          }
+          .items-table th {
+            background: #0f766e;
+            color: white;
+            text-align: left;
+          }
+          .total-row td {
+            font-weight: bold;
+          }
+          .note {
+            background: #f0fdf4;
+            border-left: 4px solid #22c55e;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>New quotation received</h1>
+          <p>Dear ${data.requesterName},</p>
+          <p><strong>${data.vendorName}</strong> has submitted a quotation for RFQ <strong>${data.rfqNumber}</strong>.</p>
+          ${data.requisitionNumber ? `<p><strong>Requisition:</strong> ${data.requisitionNumber}${data.requisitionTitle ? ` – ${data.requisitionTitle}` : ''}</p>` : ''}
+          <table class="meta-table">
+            <tr>
+              <td><strong>Quotation Number:</strong></td>
+              <td>${data.quotationNumber}</td>
+            </tr>
+            <tr>
+              <td><strong>Total Amount:</strong></td>
+              <td>${currencySymbol}${data.totalAmount.toFixed(2)}</td>
+            </tr>
+          </table>
+          <h3>Items</h3>
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Qty</th>
+                <th>Unit</th>
+                <th style="text-align:right;">Unit Price</th>
+                <th style="text-align:right;">Line Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.items.map(item => `
+                <tr>
+                  <td>
+                    <strong>${item.itemName}</strong>
+                    ${item.description ? `<br><small>${item.description}</small>` : ''}
+                  </td>
+                  <td>${item.quantity}</td>
+                  <td>${item.unit || 'unit'}</td>
+                  <td style="text-align:right;">${currencySymbol}${item.unitPrice.toFixed(2)}</td>
+                  <td style="text-align:right;">${currencySymbol}${item.totalPrice.toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr class="total-row">
+                <td colspan="4" style="text-align:right;">Total</td>
+                <td style="text-align:right;">${currencySymbol}${data.totalAmount.toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+          ${data.notes ? `<div class="note"><strong>Vendor notes:</strong> ${data.notes}</div>` : ''}
+          <p style="margin-top: 20px;">You can review the submitted quotation in the Procurement → Vendor Quotations panel.</p>
+          <p>Best regards,<br><strong>NVCCZ Procurement Team</strong></p>
         </div>
       </body>
       </html>
@@ -3890,6 +4104,7 @@ export class EmailNotificationService {
             <li>You will receive the official purchase order shortly</li>
             <li>Please prepare the items/services as per the agreed specifications</li>
             <li>Ensure delivery within the timeframe specified in your quote</li>
+            <li>Send your invoice referencing the quotation number (and PO when issued) to <strong>procurement@nvccz.com</strong></li>
           </ul>
 
           <p>Thank you for your competitive pricing and professional service. We look forward to a successful transaction and continued business relationship.</p>
