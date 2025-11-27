@@ -374,13 +374,21 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  */
 router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequisition);
 
-router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
+/**
+ * @swagger
+ router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
 
-router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
+/**
+ * @swagger
+ router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
 
-router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder);
+/**
+ * @swagger
+ router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder);
 
-router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.convertPOToBill);
+/**
+ * @swagger
+ router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.convertPOToBill);
 
 /**
  * @swagger

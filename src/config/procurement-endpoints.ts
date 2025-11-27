@@ -382,12 +382,11 @@ export const procurementEndpoints = {
   '/vendor-quotations/{id}/accept': {
     post: {
       summary: 'Accept a vendor quotation',
-      description: '**Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and triggers the invoice flow. Once accepted, status becomes ACCEPTED and cannot be modified.',
+      description: '**Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.',
       tags: ['Procurement - Vendor Quotations'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' }
-        , { in: 'query', name: 'reviewNotes', schema: { type: 'string' }, description: 'Optional acceptance notes', example: 'Best price and delivery time' }
       ],
       responses: {
         200: { description: 'Quotation accepted successfully' },
@@ -430,6 +429,7 @@ export const procurementEndpoints = {
     }
   },
 
+  // ========== PROCUREMENT - INVOICES ==========
   '/procurement/invoices/{id}/approve': {
     put: {
       summary: 'Approve a procurement invoice',
