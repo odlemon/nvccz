@@ -399,7 +399,7 @@ export const procurementEndpoints = {
   '/vendor-quotations/{id}/reject': {
     post: {
       summary: 'Reject a vendor quotation',
-      description: '**Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once rejected, status becomes REJECTED and cannot be modified',
+      description: '**Required Role:** PROC_MGR or PROC_OFF',
       tags: ['Procurement - Vendor Quotations'],
       security: [{ bearerAuth: [] }],
       parameters: [

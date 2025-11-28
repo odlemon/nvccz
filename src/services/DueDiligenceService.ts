@@ -307,7 +307,8 @@ export class DueDiligenceService {
           return {
             ...activity,
             byUser,
-            by: byUser ? `${byUser.firstName} ${byUser.lastName}`.trim() : activity.by || activity.userId || null
+            by: byUser ? `${byUser.firstName} ${byUser.lastName}`.trim() : activity.by || activity.userId || null,
+            status: activity.status || 'pending_approval' // Ensure status field is included
           };
         });
 
@@ -422,12 +423,9 @@ export class DueDiligenceService {
           const activities = task.activityLogs || [];
           
           if (activities.length > 0) {
-            // Check if all activities are approved
+            // Check if all activities are approved using status field
             const unapprovedActivities = activities.filter((activity: any) => {
-              const approvalMatch = activity.description?.match(/\[APPROVAL:(.+?)\]/);
-              if (!approvalMatch) return true; // No approval found
-              const approvalParts = approvalMatch[1].split(':');
-              return approvalParts[0] !== 'APPROVED';
+              return activity.status !== 'approved';
             });
 
             if (unapprovedActivities.length > 0) {
