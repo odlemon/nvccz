@@ -57,7 +57,8 @@ export class ActivityService {
           goalId: finalGoalId,
           userId: activityData.userId,
           monetaryValueAchieved: activityData.valueCollected ? new Decimal(activityData.valueCollected) : null,
-          percentValueAchieved: null // We'll calculate this if needed
+          percentValueAchieved: null, // We'll calculate this if needed
+          status: 'pending_approval'
         },
         include: {
           user: {
@@ -525,7 +526,8 @@ export class ActivityService {
             goalId: goalId, // Can be null
             userId: userId,
             monetaryValueAchieved: updateData.valueCollected ? new Decimal(updateData.valueCollected) : null,
-            percentValueAchieved: null
+            percentValueAchieved: null,
+            status: 'pending_approval'
           },
           include: {
             task: {
@@ -681,13 +683,13 @@ export class ActivityService {
       }
 
       // Update activity with approval status
-      // Store approval in description for now (in production, add approval fields to schema)
-      const approvalStatus = approvalData?.approved !== false ? 'APPROVED' : 'REJECTED';
-      const approvalInfo = `\n\n[APPROVAL:${approvalStatus}:${approverId}:${new Date().toISOString()}:${approvalData?.comments || ''}]`;
+      const approvalStatus = approvalData?.approved !== false ? 'approved' : 'rejected';
+      const approvalInfo = `\n\n[APPROVAL:${approvalStatus.toUpperCase()}:${approverId}:${new Date().toISOString()}:${approvalData?.comments || ''}]`;
       
       const updatedActivity = await prisma.activityLog.update({
         where: { id: activityId },
         data: {
+          status: approvalStatus,
           description: `${activity.description || ''}${approvalInfo}`
         },
         include: {
@@ -703,14 +705,14 @@ export class ActivityService {
           assigneeEmail: activity.user.email,
           taskTitle: activity.task?.title || 'Task',
           activityTitle: activity.title,
-          approved: approvalStatus === 'APPROVED',
+          approved: approvalStatus === 'approved',
           comments: approvalData?.comments,
           activityId: activityId
         });
         logger.info('Activity approval email sent to assignee', {
           activityId,
           assigneeId: activity.userId,
-          approved: approvalStatus === 'APPROVED'
+          approved: approvalStatus === 'approved'
         });
       } catch (emailError: any) {
         logger.error('Failed to send activity approval email', {
@@ -723,7 +725,7 @@ export class ActivityService {
       logger.info('Activity approved', {
         activityId,
         approverId,
-        approved: approvalStatus === 'APPROVED'
+        approved: approvalStatus === 'approved'
       });
 
       return {

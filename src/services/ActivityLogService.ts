@@ -55,7 +55,8 @@ export class ActivityLogService {
           taskId: request.taskId,
           kpiId: request.kpiId,
           monetaryValueAchieved: request.monetaryValueAchieved,
-          percentValueAchieved: request.percentValueAchieved
+          percentValueAchieved: request.percentValueAchieved,
+          status: 'pending_approval'
         },
         include: {
           user: {

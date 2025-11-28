@@ -1388,6 +1388,7 @@ model ActivityLog {
   kpiId                 String?
   monetaryValueAchieved Decimal?         @db.Decimal(15, 2)
   percentValueAchieved  Decimal?         @db.Decimal(5, 2)
+  status                String           @default("pending_approval")
   createdAt             DateTime         @default(now())
   user                  User             @relation(fields: [userId], references: [id])
   goal                  PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
