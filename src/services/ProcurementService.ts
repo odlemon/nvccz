@@ -1721,46 +1721,63 @@ export class ProcurementService {
         console.log(`   ℹ️  FULL PAYMENT: Paying entire invoice amount`);
       }
 
-      console.log("\n💰 Step 3: Creating accounting entries (EXPENSE + PAYMENT)...");
+      console.log("\n💰 Step 3: Creating accounting entries...");
       console.log("   ⚠️  IMPORTANT: Accounting entries created when payment is processed");
-      console.log("   This will create TWO journal entries:");
-      console.log("");
-      console.log("   ENTRY 1: Expense Recognition");
-      if (isTaxable) {
-      console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
-      console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
-      console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+      
+      // Check if expense entry already exists (for partial payments scenario)
+      const hasExistingExpenseEntry = invoice.journalEntry !== null;
+      
+      let expenseJournalEntry;
+      
+      if (!hasExistingExpenseEntry) {
+        // First payment - create expense recognition entry
+        console.log("   This will create TWO journal entries:");
+        console.log("");
+        console.log("   ENTRY 1: Expense Recognition");
+        if (isTaxable) {
+          console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
+          console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
+          console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+        } else {
+          console.log(`   • DEBIT Expense Account: $${Number(invoice.totalAmount).toFixed(2)}`);
+          console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+        }
+        console.log("");
+        
+        // First, create expense journal entry (Dr. Expense, Dr. VAT if taxable, Cr. AP)
+        console.log("\n   📊 Creating Entry 1: Expense Recognition...");
+        const expenseJournalEntryParams = {
+          vendorId: invoice.vendorId,
+          categoryName: "PROCUREMENT", // You might want to get this from invoice items/category
+          amount: Number(invoice.subtotal),
+          vatAmount: isTaxable ? Number(invoice.taxAmount) : 0,
+          totalAmount: Number(invoice.totalAmount),
+          currencyId: invoice.currencyId || "default-currency",
+          transactionDate: paymentData.paymentDate,
+          description: `Purchase Invoice: ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
+          receiptNumber: invoice.invoiceNumber, // Use invoice number as receipt number
+          isTaxable: isTaxable,
+          paymentMethod: "CREDIT" as const, // Creates AP liability
+          createdById: processedById
+        };
+
+        expenseJournalEntry = await JournalEntryService.createExpenseJournalEntry(expenseJournalEntryParams);
+        console.log(`   ✅ Expense Entry Created: ${expenseJournalEntry.journalEntry.referenceNumber}`);
+        console.log(`   ℹ️  Expense recognized: ${isTaxable ? `$${Number(invoice.subtotal).toFixed(2)} + VAT $${Number(invoice.taxAmount).toFixed(2)}` : `$${Number(invoice.totalAmount).toFixed(2)}`}`);
       } else {
-        console.log(`   • DEBIT Expense Account: $${Number(invoice.totalAmount).toFixed(2)}`);
-        console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+        // Subsequent payment (partial payment scenario) - expense already recognized
+        console.log("   ℹ️  Expense already recognized in previous payment");
+        console.log("   ℹ️  Only creating payment entry (Entry 2)");
+        expenseJournalEntry = {
+          journalEntry: invoice.journalEntry! // Use existing expense entry
+        };
       }
-      console.log("");
-      console.log("   ENTRY 2: Payment Processing");
+      
+      // Always create payment journal entry (Dr. AP, Cr. Bank/Cash)
+      console.log("\n   💳 Creating Entry 2: Payment Processing...");
       console.log(`   • DEBIT Accounts Payable: $${paymentData.paymentAmount.toFixed(2)}`);
       console.log(`   • CREDIT ${paymentData.paymentMethod} Account: $${paymentData.paymentAmount.toFixed(2)}`);
-      
-      // First, create expense journal entry (Dr. Expense, Dr. VAT if taxable, Cr. AP)
-      console.log("\n   📊 Creating Entry 1: Expense Recognition...");
-      const expenseJournalEntryParams = {
-        vendorId: invoice.vendorId,
-        categoryName: "PROCUREMENT", // You might want to get this from invoice items/category
-        amount: Number(invoice.subtotal),
-        vatAmount: isTaxable ? Number(invoice.taxAmount) : 0,
-        totalAmount: Number(invoice.totalAmount),
-        currencyId: invoice.currencyId || "default-currency",
-        transactionDate: paymentData.paymentDate,
-        description: `Purchase Invoice: ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
-        receiptNumber: invoice.invoiceNumber, // Use invoice number as receipt number
-        isTaxable: isTaxable,
-        paymentMethod: "CREDIT" as const, // Creates AP liability
-        createdById: processedById
-      };
 
-      const expenseJournalEntry = await JournalEntryService.createExpenseJournalEntry(expenseJournalEntryParams);
-      console.log(`   ✅ Expense Entry Created: ${expenseJournalEntry.journalEntry.referenceNumber}`);
-
-      // Then, create payment journal entry (Dr. AP, Cr. Bank/Cash)
-      console.log("\n   💳 Creating Entry 2: Payment Processing...");
       const paymentJournalEntryResult = await JournalEntryService.createVendorPaymentJournalEntry({
         vendorId: invoice.vendorId,
         invoiceId: invoice.id,
