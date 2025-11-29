@@ -2523,7 +2523,17 @@ export class ProcurementService {
       const recentInvoices = await prisma.procurementInvoice.findMany({
         take: 10,
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          paymentStatus: true,
+          subtotal: true,
+          taxAmount: true,
+          totalAmount: true,
+          invoiceDate: true,
+          paymentDate: true,
+          createdAt: true,
           vendor: {
             select: {
               id: true,
@@ -2546,21 +2556,6 @@ export class ProcurementService {
               email: true
             }
           }
-        },
-        select: {
-          id: true,
-          invoiceNumber: true,
-          status: true,
-          paymentStatus: true,
-          subtotal: true,
-          taxAmount: true,
-          totalAmount: true,
-          vendor: true,
-          currency: true,
-          approvedBy: true,
-          invoiceDate: true,
-          paymentDate: true,
-          createdAt: true
         }
       });
 
@@ -2619,7 +2614,11 @@ export class ProcurementService {
         },
         take: 10,
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          entityId: true,
+          newValues: true,
+          createdAt: true,
           user: {
             select: {
               id: true,
@@ -2628,13 +2627,6 @@ export class ProcurementService {
               email: true
             }
           }
-        },
-        select: {
-          id: true,
-          entityId: true,
-          newValues: true,
-          user: true,
-          createdAt: true
         }
       });
 
@@ -2642,7 +2634,14 @@ export class ProcurementService {
       const recentQuotations = await prisma.vendorQuotation.findMany({
         take: 10,
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          quotationNumber: true,
+          rfqNumber: true,
+          status: true,
+          totalAmount: true,
+          createdAt: true,
+          updatedAt: true,
           vendor: {
             select: {
               id: true,
@@ -2650,16 +2649,6 @@ export class ProcurementService {
               email: true
             }
           }
-        },
-        select: {
-          id: true,
-          quotationNumber: true,
-          rfqNumber: true,
-          status: true,
-          totalAmount: true,
-          vendor: true,
-          createdAt: true,
-          updatedAt: true
         }
       });
 
@@ -2677,7 +2666,13 @@ export class ProcurementService {
         },
         take: 10,
         orderBy: { paymentDate: 'desc' },
-        include: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          totalAmount: true,
+          paymentStatus: true,
+          paymentDate: true,
+          paymentReference: true,
           vendor: {
             select: {
               id: true,
@@ -2690,16 +2685,6 @@ export class ProcurementService {
               symbol: true
             }
           }
-        },
-        select: {
-          id: true,
-          invoiceNumber: true,
-          totalAmount: true,
-          vendor: true,
-          currency: true,
-          paymentStatus: true,
-          paymentDate: true,
-          paymentReference: true
         }
       });
 
