@@ -2633,14 +2633,14 @@ export class ProcurementService {
       // Get recent quotations
       const recentQuotations = await prisma.vendorQuotation.findMany({
         take: 10,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { submittedAt: 'desc' }, // VendorQuotation uses submittedAt, not createdAt
         select: {
           id: true,
           quotationNumber: true,
           rfqNumber: true,
           status: true,
           totalAmount: true,
-          createdAt: true,
+          submittedAt: true,
           updatedAt: true,
           vendor: {
             select: {
@@ -2823,7 +2823,7 @@ export class ProcurementService {
             status: q.status,
             totalAmount: Number(q.totalAmount),
             vendor: q.vendor,
-            createdAt: q.createdAt,
+            submittedAt: q.submittedAt,
             updatedAt: q.updatedAt
           }))
         },
