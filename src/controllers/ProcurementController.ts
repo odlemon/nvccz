@@ -878,13 +878,41 @@ export class ProcurementController {
         });
       }
 
+      // Handle file upload
+      const file = (req as any).file;
+      if (!file) {
+        return res.status(400).json({
+          success: false,
+          message: "Proof of payment file is required (PDF or image)"
+        });
+      }
+
+      // Upload file to Firebase Storage
+      let proofOfPaymentPath: string | undefined;
+      try {
+        const { FirebaseStorageService } = await import('../services/FirebaseStorageService');
+        const fileName = `proof-${id}-${Date.now()}.${file.originalname.split('.').pop()}`;
+        const { filePath, downloadURL } = await FirebaseStorageService.uploadImportFile(
+          file.buffer,
+          fileName,
+          id, // Use invoice ID as "batchId"
+          processedById
+        );
+        proofOfPaymentPath = downloadURL; // Store download URL as path
+      } catch (uploadError: any) {
+        console.error("Error uploading proof of payment:", uploadError);
+        return res.status(400).json({
+          success: false,
+          message: `Failed to upload proof of payment: ${uploadError.message}`
+        });
+      }
+
       const {
         paymentAmount,
         paymentDate,
         paymentMethod,
         bankAccountId,
         paymentReference,
-        proofOfPaymentPath,
         notes
       } = req.body;
 

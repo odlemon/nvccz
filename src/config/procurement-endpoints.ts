@@ -513,7 +513,7 @@ export const procurementEndpoints = {
   '/procurement/invoices/{id}/payment': {
     post: {
       summary: 'Process payment for an approved procurement invoice',
-      description: '**Required Role:** FIN_MGR, PROC_MGR, or ACCOUNTANT. Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT if taxable, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash). Supports full and partial payments. Taxable status is automatically determined from invoice tax amount.',
+      description: '**Required Role:** FIN_MGR, PROC_MGR, or ACCOUNTANT. Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT if taxable, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash). Supports full and partial payments. Taxable status is automatically determined from invoice tax amount. **Proof of payment file is required** (PDF or image).',
       tags: ['Procurement - Payments'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -522,17 +522,17 @@ export const procurementEndpoints = {
       requestBody: {
         required: true,
         content: {
-          'application/json': {
+          'multipart/form-data': {
             schema: {
               type: 'object',
-              required: ['paymentAmount', 'paymentMethod'],
+              required: ['paymentAmount', 'paymentMethod', 'proofOfPayment'],
               properties: {
                 paymentAmount: { type: 'number', description: 'Amount to pay (can be partial or full). For partial payments, remaining balance will be tracked.', example: 5725.00 },
                 paymentDate: { type: 'string', format: 'date-time', description: 'Date of payment (defaults to current date)', example: '2025-10-14T10:00:00Z' },
                 paymentMethod: { type: 'string', enum: ['CASH', 'BANK'], description: 'Payment method', example: 'BANK' },
                 bankAccountId: { type: 'string', description: 'Specific bank account ID (e.g., ZIG account). If not provided, uses default.', example: 'cmg97iy320003ung8aau6zqbv' },
                 paymentReference: { type: 'string', description: 'Bank transaction reference number', example: 'TXN-12345-2025' },
-                proofOfPaymentPath: { type: 'string', description: 'Path to uploaded proof of payment document (e.g., receipt, bank statement)', example: '/uploads/payments/proof-2025-10-14.pdf' },
+                proofOfPayment: { type: 'string', format: 'binary', description: 'Proof of payment document (PDF or image: JPG, PNG, GIF, WEBP). Required. Max size: 10MB.', example: 'Receipt or bank statement file' },
                 notes: { type: 'string', description: 'Additional payment notes', example: 'Paid via CBZ Bank' }
               }
             }
