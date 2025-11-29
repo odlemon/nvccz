@@ -402,7 +402,7 @@ export class VendorQuotationService {
       // Send email notification to vendor
       try {
         if (action === "ACCEPT") {
-        await EmailNotificationService.sendQuotationAcceptedEmail({
+          await EmailNotificationService.sendQuotationAcceptedEmail({
             vendorName: quotation.companyName || quotation.vendorName,
             vendorEmail: quotation.vendorEmail,
             quotationNumber: quotation.quotationNumber,

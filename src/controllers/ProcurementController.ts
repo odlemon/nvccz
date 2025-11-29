@@ -814,7 +814,13 @@ export class ProcurementController {
         });
       }
 
-      const invoice = await ProcurementService.approveProcurementInvoice(id, approvedById);
+      const {
+        isTaxable
+      } = req.body;
+
+      const invoice = await ProcurementService.approveProcurementInvoice(id, approvedById, {
+        isTaxable: isTaxable !== undefined ? Boolean(isTaxable) : undefined
+      });
 
       res.status(200).json({
         success: true,
