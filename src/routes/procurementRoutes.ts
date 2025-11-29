@@ -815,14 +815,14 @@ router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNo
  * @swagger
  * /procurement/dashboard:
  *   get:
- *     summary: Get procurement dashboard data
- *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)
+ *     summary: Get procurement dashboard data with detailed information
+ *     description: **Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). Returns detailed data for requisitions, invoices, RFQs, quotations, payments, and vendors. Excludes GRN and Purchase Orders.
  *     tags: [Procurement - Dashboard]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Dashboard data retrieved successfully
+ *         description: Dashboard data retrieved successfully. Returns detailed statistics, recent items, and analytics.
  *         content:
  *           application/json:
  *             schema:
@@ -836,37 +836,96 @@ router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNo
  *                     requisitions:
  *                       type: object
  *                       properties:
- *                         total:
- *                           type: number
- *                         pending:
- *                           type: number
- *                         approved:
- *                           type: number
- *                     purchaseOrders:
- *                       type: object
- *                       properties:
- *                         total:
- *                           type: number
- *                         pending:
- *                           type: number
- *                         received:
- *                           type: number
+ *                         summary:
+ *                           type: object
+ *                           properties:
+ *                             total: { type: number }
+ *                             pending: { type: number }
+ *                             approved: { type: number }
+ *                             rejected: { type: number }
+ *                             draft: { type: number }
+ *                         byStatus:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               status: { type: string }
+ *                               count: { type: number }
+ *                               totalAmount: { type: number }
+ *                         recent:
+ *                           type: array
+ *                           items: { type: object }
  *                     invoices:
  *                       type: object
  *                       properties:
- *                         total:
- *                           type: number
- *                         pending:
- *                           type: number
- *                         approved:
- *                           type: number
- *                     grns:
+ *                         summary:
+ *                           type: object
+ *                           properties:
+ *                             total: { type: number }
+ *                             pending: { type: number }
+ *                             approved: { type: number }
+ *                             paid: { type: number }
+ *                             partiallyPaid: { type: number }
+ *                         amounts:
+ *                           type: object
+ *                           properties:
+ *                             totalSubtotal: { type: number }
+ *                             totalTax: { type: number }
+ *                             totalAmount: { type: number }
+ *                             averageAmount: { type: number }
+ *                             paidAmount: { type: number }
+ *                             pendingPaymentAmount: { type: number }
+ *                         byStatus:
+ *                           type: array
+ *                           items: { type: object }
+ *                         byPaymentStatus:
+ *                           type: array
+ *                           items: { type: object }
+ *                         recent:
+ *                           type: array
+ *                           items: { type: object }
+ *                     rfqs:
  *                       type: object
  *                       properties:
- *                         total:
- *                           type: number
- *                         pending:
- *                           type: number
+ *                         summary:
+ *                           type: object
+ *                           properties:
+ *                             total: { type: number }
+ *                             active: { type: number }
+ *                         recent:
+ *                           type: array
+ *                           items: { type: object }
+ *                     quotations:
+ *                       type: object
+ *                       properties:
+ *                         summary:
+ *                           type: object
+ *                           properties:
+ *                             total: { type: number }
+ *                             pending: { type: number }
+ *                             accepted: { type: number }
+ *                             rejected: { type: number }
+ *                         byStatus:
+ *                           type: array
+ *                           items: { type: object }
+ *                         recent:
+ *                           type: array
+ *                           items: { type: object }
+ *                     payments:
+ *                       type: object
+ *                       properties:
+ *                         recent:
+ *                           type: array
+ *                           items: { type: object }
+ *                     vendors:
+ *                       type: object
+ *                       properties:
+ *                         topVendors:
+ *                           type: array
+ *                           items: { type: object }
+ *                     lastUpdated:
+ *                       type: string
+ *                       format: date-time
  *       401:
  *         description: Unauthorized
  */

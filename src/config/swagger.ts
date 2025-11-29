@@ -4,6 +4,7 @@ import { performanceEndpoints } from './performance-endpoints';
 import { taskAssignmentEndpoints } from './task-assignment-endpoints';
 import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
+import { eventsEndpoints } from './events-endpoints';
 
 const options = {
   definition: {
@@ -75,6 +76,30 @@ const options = {
       {
         name: 'Procurement - Approval Configuration',
         description: 'Approval configuration management - Create and manage approval workflows (SINGLE CONFIG SYSTEM). Also includes approval request endpoints for approvers.'
+      },
+      {
+        name: 'Events Management - Core Events',
+        description: 'Core event management - Create, view, update, and delete events with enhanced features including event types, RSVP requirements, and Google Calendar integration'
+      },
+      {
+        name: 'Events Management - Guest Management',
+        description: 'Guest management - Add guests, send invitations, handle RSVPs, and manage check-ins for events'
+      },
+      {
+        name: 'Events Management - Budget Management',
+        description: 'Budget management - Plan event budgets, add budget items, and approve budgets with accounting integration'
+      },
+      {
+        name: 'Events Management - Expense Management',
+        description: 'Expense management - Record event expenses with automatic journal entry creation and VAT calculation'
+      },
+      {
+        name: 'Events Management - Feedback Management',
+        description: 'Feedback management - Collect and view multi-dimensional event feedback from attendees'
+      },
+      {
+        name: 'Events Management - Analytics & Reporting',
+        description: 'Analytics and reporting - Get event analytics and generate comprehensive event reports with metrics and recommendations'
       }
     ],
     components: {
@@ -8393,15 +8418,15 @@ try {
     specs = fallbackSpec;
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
-    // Merge accounting, cashbook, performance, task assignment, financial reporting, and procurement endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints };
-    console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, and procurement endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
+    // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, and events endpoints with generated spec
+    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints };
+    console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, and events endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error: any) {
   // Silently use fallback spec - it already includes all endpoints
   // Suppress error logging to avoid cluttering console with known parsing issues
   specs = fallbackSpec;
-  console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + cashbook)`);
+  console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + events + cashbook)`);
 }
 
 export { specs }; 
