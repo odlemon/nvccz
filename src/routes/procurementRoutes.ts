@@ -2,8 +2,33 @@
 import express from "express";
 import { ProcurementController } from "../controllers/ProcurementController";
 import { authenticate } from "../middleware/authenticate";
+import multer from "multer";
 
 const router = express.Router();
+
+// Configure multer for proof of payment file uploads (PDF or images)
+const uploadProofOfPayment = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept PDF and image files
+    const allowedMimes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/gif',
+      'image/webp'
+    ];
+    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(pdf|jpg|jpeg|png|gif|webp)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF and image files (JPG, PNG, GIF, WEBP) are allowed'), false);
+    }
+  }
+});
 
 /**
  * @swagger
@@ -551,12 +576,13 @@ router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvo
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             required:
  *               - paymentAmount
  *               - paymentMethod
+ *               - proofOfPayment
  *             properties:
  *               paymentAmount:
  *                 type: number
@@ -580,10 +606,10 @@ router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvo
  *                 type: string
  *                 description: Bank transaction reference number
  *                 example: "TXN-12345-2025"
- *               proofOfPaymentPath:
+ *               proofOfPayment:
  *                 type: string
- *                 description: Path to uploaded proof of payment document (e.g., receipt, bank statement)
- *                 example: "/uploads/payments/proof-2025-10-14.pdf"
+ *                 format: binary
+ *                 description: Proof of payment document (PDF or image: JPG, PNG, GIF, WEBP). Required. Max size: 10MB.
  *               notes:
  *                 type: string
  *                 description: Additional payment notes
@@ -660,7 +686,7 @@ router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvo
  *       404:
  *         description: Invoice not found
  */
-router.post("/invoices/:id/payment", ProcurementController.payProcurementInvoice);
+router.post("/invoices/:id/payment", uploadProofOfPayment.single('proofOfPayment'), ProcurementController.payProcurementInvoice);
 
 /**
  * @swagger
