@@ -1508,6 +1508,7 @@ const fallbackSpec = {
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
     ...procurementEndpoints,
+    ...eventsEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
