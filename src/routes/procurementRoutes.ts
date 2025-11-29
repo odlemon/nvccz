@@ -537,7 +537,7 @@ router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvo
  * /procurement/invoices/{id}/payment:
  *   post:
  *     summary: Process payment for an approved procurement invoice
- *     description: **Required Role:** FIN_MGR, PROC_MGR, or ACCOUNTANT. Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash)
+ *     description: **Required Role:** FIN_MGR, PROC_MGR, or ACCOUNTANT. Creates accounting entries: Expense Recognition (Dr. Expense, Dr. VAT if taxable, Cr. AP) and Payment Processing (Dr. AP, Cr. Bank/Cash). Supports full and partial payments. Taxable status is automatically determined from invoice tax amount.
  *     tags: [Procurement - Payments]
  *     security:
  *       - bearerAuth: []
@@ -580,6 +580,10 @@ router.put("/invoices/:id/approve", ProcurementController.approveProcurementInvo
  *                 type: string
  *                 description: Bank transaction reference number
  *                 example: "TXN-12345-2025"
+ *               proofOfPaymentPath:
+ *                 type: string
+ *                 description: Path to uploaded proof of payment document (e.g., receipt, bank statement)
+ *                 example: "/uploads/payments/proof-2025-10-14.pdf"
  *               notes:
  *                 type: string
  *                 description: Additional payment notes
