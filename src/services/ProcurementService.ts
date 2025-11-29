@@ -2492,7 +2492,12 @@ export class ProcurementService {
       const recentRequisitions = await prisma.purchaseRequisition.findMany({
         take: 10,
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          requisitionNumber: true,
+          title: true,
+          status: true,
+          totalAmount: true,
           requestedBy: {
             select: {
               id: true,
@@ -2506,16 +2511,7 @@ export class ProcurementService {
               id: true,
               name: true
             }
-          }
-        },
-        select: {
-          id: true,
-          requisitionNumber: true,
-          title: true,
-          status: true,
-          totalAmount: true,
-          requestedBy: true,
-          department: true,
+          },
           createdAt: true,
           updatedAt: true
         }
