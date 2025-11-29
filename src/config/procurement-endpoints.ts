@@ -604,12 +604,12 @@ export const procurementEndpoints = {
   },
   '/procurement/dashboard': {
     get: {
-      summary: 'Get procurement dashboard data',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
+      summary: 'Get procurement dashboard data with detailed information',
+      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). Returns detailed data for requisitions, invoices, RFQs, quotations, payments, and vendors. Excludes GRN and Purchase Orders.',
       tags: ['Procurement - Dashboard'],
       security: [{ bearerAuth: [] }],
       responses: {
-        200: { description: 'Dashboard data retrieved successfully' },
+        200: { description: 'Dashboard data retrieved successfully. Returns detailed statistics, recent items, and analytics for requisitions, invoices, RFQs, quotations, payments, and top vendors.' },
         401: { description: 'Unauthorized' }
       }
     }

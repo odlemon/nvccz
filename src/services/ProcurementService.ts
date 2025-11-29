@@ -2434,56 +2434,439 @@ export class ProcurementService {
   }
 
   /**
-   * Get procurement dashboard data
+   * Get procurement dashboard data with detailed information
    */
   static async getProcurementDashboard() {
     try {
+      // Get summary counts
       const [
         totalRequisitions,
         pendingRequisitions,
         approvedRequisitions,
-        totalPurchaseOrders,
-        pendingPOs,
-        receivedPOs,
+        rejectedRequisitions,
+        draftRequisitions,
         totalInvoices,
         pendingInvoices,
         approvedInvoices,
-        totalGRNs,
-        pendingGRNs
+        paidInvoices,
+        partiallyPaidInvoices,
+        totalRFQs,
+        activeRFQs,
+        totalQuotations,
+        pendingQuotations,
+        acceptedQuotations,
+        rejectedQuotations
       ] = await Promise.all([
         prisma.purchaseRequisition.count(),
         prisma.purchaseRequisition.count({ where: { status: "PENDING_APPROVAL" } }),
         prisma.purchaseRequisition.count({ where: { status: "APPROVED" } }),
-        prisma.purchaseOrder.count(),
-        prisma.purchaseOrder.count({ where: { status: "SENT" } }),
-        prisma.purchaseOrder.count({ where: { status: "RECEIVED" } }),
+        prisma.purchaseRequisition.count({ where: { status: "REJECTED" } }),
+        prisma.purchaseRequisition.count({ where: { status: "DRAFT" } }),
         prisma.procurementInvoice.count(),
-        prisma.procurementInvoice.count({ where: { status: "PROCESSING" } }),
+        prisma.procurementInvoice.count({ where: { status: { in: ["PROCESSING", "MATCHED", "DISCREPANCY"] } } }),
         prisma.procurementInvoice.count({ where: { status: "APPROVED" } }),
-        prisma.goodsReceivedNote.count(),
-        prisma.goodsReceivedNote.count({ where: { status: "RECEIVED" } })
+        prisma.procurementInvoice.count({ where: { paymentStatus: "PAID" } }),
+        prisma.procurementInvoice.count({ where: { paymentStatus: "PARTIALLY_PAID" } }),
+        prisma.auditLog.count({ 
+          where: { 
+            entityType: "RequestForQuotation",
+            action: "CREATE"
+          }
+        }),
+        prisma.auditLog.count({
+          where: {
+            entityType: "RequestForQuotation",
+            action: "CREATE",
+            createdAt: {
+              gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // Last 30 days
+            }
+          }
+        }),
+        prisma.vendorQuotation.count(),
+        prisma.vendorQuotation.count({ where: { status: "PENDING" } }),
+        prisma.vendorQuotation.count({ where: { status: "ACCEPTED" } }),
+        prisma.vendorQuotation.count({ where: { status: "REJECTED" } })
       ]);
+
+      // Get recent requisitions with details
+      const recentRequisitions = await prisma.purchaseRequisition.findMany({
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          department: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        },
+        select: {
+          id: true,
+          requisitionNumber: true,
+          title: true,
+          status: true,
+          totalAmount: true,
+          requestedBy: true,
+          department: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      // Get requisitions by status
+      const requisitionsByStatus = await prisma.purchaseRequisition.groupBy({
+        by: ['status'],
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      // Get recent invoices with details
+      const recentInvoices = await prisma.procurementInvoice.findMany({
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          currency: {
+            select: {
+              id: true,
+              code: true,
+              symbol: true
+            }
+          },
+          approvedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          paymentStatus: true,
+          subtotal: true,
+          taxAmount: true,
+          totalAmount: true,
+          vendor: true,
+          currency: true,
+          approvedBy: true,
+          invoiceDate: true,
+          paymentDate: true,
+          createdAt: true
+        }
+      });
+
+      // Get invoices by status
+      const invoicesByStatus = await prisma.procurementInvoice.groupBy({
+        by: ['status'],
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      // Get invoices by payment status
+      const invoicesByPaymentStatus = await prisma.procurementInvoice.groupBy({
+        by: ['paymentStatus'],
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      // Calculate invoice amounts
+      const invoiceAmounts = await prisma.procurementInvoice.aggregate({
+        _sum: {
+          subtotal: true,
+          taxAmount: true,
+          totalAmount: true
+        },
+        _avg: {
+          totalAmount: true
+        }
+      });
+
+      // Get paid invoices total
+      const paidInvoicesAmount = await prisma.procurementInvoice.aggregate({
+        where: {
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] }
+        },
+        _sum: {
+          totalAmount: true
+        }
+      });
+
+      // Get pending invoices total
+      const pendingInvoicesAmount = await prisma.procurementInvoice.aggregate({
+        where: {
+          paymentStatus: 'PENDING',
+          status: 'APPROVED'
+        },
+        _sum: {
+          totalAmount: true
+        }
+      });
+
+      // Get recent RFQs from audit logs
+      const recentRFQsLogs = await prisma.auditLog.findMany({
+        where: {
+          entityType: "RequestForQuotation",
+          action: "CREATE"
+        },
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        },
+        select: {
+          id: true,
+          entityId: true,
+          newValues: true,
+          user: true,
+          createdAt: true
+        }
+      });
+
+      // Get recent quotations
+      const recentQuotations = await prisma.vendorQuotation.findMany({
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          }
+        },
+        select: {
+          id: true,
+          quotationNumber: true,
+          rfqNumber: true,
+          status: true,
+          totalAmount: true,
+          vendor: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      // Get quotations by status
+      const quotationsByStatus = await prisma.vendorQuotation.groupBy({
+        by: ['status'],
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      // Get recent payments (invoices with payment status)
+      const recentPayments = await prisma.procurementInvoice.findMany({
+        where: {
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] }
+        },
+        take: 10,
+        orderBy: { paymentDate: 'desc' },
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          currency: {
+            select: {
+              code: true,
+              symbol: true
+            }
+          }
+        },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          totalAmount: true,
+          vendor: true,
+          currency: true,
+          paymentStatus: true,
+          paymentDate: true,
+          paymentReference: true
+        }
+      });
+
+      // Get top vendors by invoice count
+      const topVendors = await prisma.procurementInvoice.groupBy({
+        by: ['vendorId'],
+        _count: { id: true },
+        _sum: { totalAmount: true },
+        orderBy: {
+          _count: {
+            id: 'desc'
+          }
+        },
+        take: 5
+      });
+
+      // Get vendor details for top vendors
+      const vendorIds = topVendors.map(v => v.vendorId);
+      const vendors = await prisma.vendor.findMany({
+        where: { id: { in: vendorIds } },
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      });
+
+      const topVendorsWithDetails = topVendors.map(tv => {
+        const vendor = vendors.find(v => v.id === tv.vendorId);
+        return {
+          vendor: vendor || { id: tv.vendorId, name: 'Unknown', email: null },
+          invoiceCount: tv._count.id,
+          totalAmount: Number(tv._sum.totalAmount || 0)
+        };
+      });
 
       return {
         requisitions: {
-          total: totalRequisitions,
-          pending: pendingRequisitions,
-          approved: approvedRequisitions
-        },
-        purchaseOrders: {
-          total: totalPurchaseOrders,
-          pending: pendingPOs,
-          received: receivedPOs
+          summary: {
+            total: totalRequisitions,
+            pending: pendingRequisitions,
+            approved: approvedRequisitions,
+            rejected: rejectedRequisitions,
+            draft: draftRequisitions
+          },
+          byStatus: requisitionsByStatus.map(rs => ({
+            status: rs.status,
+            count: rs._count.id,
+            totalAmount: Number(rs._sum.totalAmount || 0)
+          })),
+          recent: recentRequisitions.map(r => ({
+            id: r.id,
+            requisitionNumber: r.requisitionNumber,
+            title: r.title,
+            status: r.status,
+            totalAmount: Number(r.totalAmount),
+            requestedBy: r.requestedBy,
+            department: r.department,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt
+          }))
         },
         invoices: {
-          total: totalInvoices,
-          pending: pendingInvoices,
-          approved: approvedInvoices
+          summary: {
+            total: totalInvoices,
+            pending: pendingInvoices,
+            approved: approvedInvoices,
+            paid: paidInvoices,
+            partiallyPaid: partiallyPaidInvoices
+          },
+          amounts: {
+            totalSubtotal: Number(invoiceAmounts._sum.subtotal || 0),
+            totalTax: Number(invoiceAmounts._sum.taxAmount || 0),
+            totalAmount: Number(invoiceAmounts._sum.totalAmount || 0),
+            averageAmount: Number(invoiceAmounts._avg.totalAmount || 0),
+            paidAmount: Number(paidInvoicesAmount._sum.totalAmount || 0),
+            pendingPaymentAmount: Number(pendingInvoicesAmount._sum.totalAmount || 0)
+          },
+          byStatus: invoicesByStatus.map(is => ({
+            status: is.status,
+            count: is._count.id,
+            totalAmount: Number(is._sum.totalAmount || 0)
+          })),
+          byPaymentStatus: invoicesByPaymentStatus.map(ps => ({
+            paymentStatus: ps.paymentStatus,
+            count: ps._count.id,
+            totalAmount: Number(ps._sum.totalAmount || 0)
+          })),
+          recent: recentInvoices.map(inv => ({
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            status: inv.status,
+            paymentStatus: inv.paymentStatus,
+            subtotal: Number(inv.subtotal),
+            taxAmount: Number(inv.taxAmount),
+            totalAmount: Number(inv.totalAmount),
+            vendor: inv.vendor,
+            currency: inv.currency,
+            approvedBy: inv.approvedBy,
+            invoiceDate: inv.invoiceDate,
+            paymentDate: inv.paymentDate,
+            createdAt: inv.createdAt
+          }))
         },
-        grns: {
-          total: totalGRNs,
-          pending: pendingGRNs
-        }
+        rfqs: {
+          summary: {
+            total: totalRFQs,
+            active: activeRFQs
+          },
+          recent: recentRFQsLogs.map(log => {
+            const newValues = log.newValues as any;
+            return {
+              id: log.entityId,
+              rfqNumber: newValues?.rfqNumber || 'N/A',
+              createdBy: log.user,
+              createdAt: log.createdAt
+            };
+          })
+        },
+        quotations: {
+          summary: {
+            total: totalQuotations,
+            pending: pendingQuotations,
+            accepted: acceptedQuotations,
+            rejected: rejectedQuotations
+          },
+          byStatus: quotationsByStatus.map(qs => ({
+            status: qs.status,
+            count: qs._count.id,
+            totalAmount: Number(qs._sum.totalAmount || 0)
+          })),
+          recent: recentQuotations.map(q => ({
+            id: q.id,
+            quotationNumber: q.quotationNumber,
+            rfqNumber: q.rfqNumber,
+            status: q.status,
+            totalAmount: Number(q.totalAmount),
+            vendor: q.vendor,
+            createdAt: q.createdAt,
+            updatedAt: q.updatedAt
+          }))
+        },
+        payments: {
+          recent: recentPayments.map(p => ({
+            id: p.id,
+            invoiceNumber: p.invoiceNumber,
+            totalAmount: Number(p.totalAmount),
+            vendor: p.vendor,
+            currency: p.currency,
+            paymentStatus: p.paymentStatus,
+            paymentDate: p.paymentDate,
+            paymentReference: p.paymentReference
+          }))
+        },
+        vendors: {
+          topVendors: topVendorsWithDetails
+        },
+        lastUpdated: new Date()
       };
     } catch (error) {
       console.error("Error getting procurement dashboard:", error);
