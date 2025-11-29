@@ -90,7 +90,7 @@ export interface CreateProcurementInvoiceParams {
   currencyId?: string;
   documentPath?: string;
   documentType?: string;
-  createdById: string;
+  createdById?: string; // Optional for public vendor submissions
   items: {
     itemName: string;
     description?: string;
@@ -1860,6 +1860,26 @@ export class ProcurementService {
         throw new Error("Vendor not found");
       }
 
+      // If createdById is not provided (public vendor submission), find a system admin user
+      let finalCreatedById = createdById;
+      if (!finalCreatedById) {
+        const systemUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { email: 'admin@nvccz.co.zw' },
+              { role: 'ADMIN' }
+            ]
+          },
+          select: { id: true }
+        });
+
+        if (!systemUser) {
+          throw new Error("System user not found. Please contact administrator.");
+        }
+
+        finalCreatedById = systemUser.id;
+      }
+
       // Calculate totals
       const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
       const taxAmount = subtotal * 0.15; // Assuming 15% tax rate
@@ -1879,7 +1899,7 @@ export class ProcurementService {
           currencyId,
           documentPath,
           documentType,
-          createdById,
+          createdById: finalCreatedById,
           status: "DRAFT", // Start as DRAFT so it can go through approval workflow
           items: {
             create: items.map(item => ({
