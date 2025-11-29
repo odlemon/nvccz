@@ -2498,18 +2498,13 @@ export class ProcurementService {
           title: true,
           status: true,
           totalAmount: true,
+          department: true, // Scalar field (String), not a relation
           requestedBy: {
             select: {
               id: true,
               firstName: true,
               lastName: true,
               email: true
-            }
-          },
-          department: {
-            select: {
-              id: true,
-              name: true
             }
           },
           createdAt: true,
@@ -2761,8 +2756,8 @@ export class ProcurementService {
             title: r.title,
             status: r.status,
             totalAmount: Number(r.totalAmount),
+            department: r.department, // String field (department name)
             requestedBy: r.requestedBy,
-            department: r.department,
             createdAt: r.createdAt,
             updatedAt: r.updatedAt
           }))
