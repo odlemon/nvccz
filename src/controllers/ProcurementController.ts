@@ -1129,4 +1129,159 @@ export class ProcurementController {
       });
     }
   }
+
+  /**
+   * Get all procurement invoice payments
+   */
+  static async getAllPayments(req: Request, res: Response) {
+    try {
+      const {
+        paymentStatus,
+        vendorId,
+        paymentMethod,
+        startDate,
+        endDate,
+        limit = 50,
+        offset = 0
+      } = req.query;
+
+      const where: any = {
+        paymentStatus: {
+          in: ['PAID', 'PARTIALLY_PAID']
+        }
+      };
+
+      if (paymentStatus) where.paymentStatus = paymentStatus;
+      if (vendorId) where.vendorId = vendorId;
+      if (startDate || endDate) {
+        where.paymentDate = {};
+        if (startDate) where.paymentDate.gte = new Date(startDate as string);
+        if (endDate) where.paymentDate.lte = new Date(endDate as string);
+      }
+
+      const [invoices, total] = await Promise.all([
+        prisma.procurementInvoice.findMany({
+          where,
+          take: Number(limit),
+          skip: Number(offset),
+          orderBy: { paymentDate: 'desc' },
+          include: {
+            vendor: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true
+              }
+            },
+            currency: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                symbol: true
+              }
+            },
+            journalEntry: {
+              select: {
+                id: true,
+                referenceNumber: true,
+                status: true,
+                transactionDate: true
+              }
+            },
+            createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            }
+          }
+        }),
+        prisma.procurementInvoice.count({ where })
+      ]);
+
+      // Filter by payment method if provided (this is stored in journal entries)
+      let filteredInvoices = invoices;
+      if (paymentMethod) {
+        const journalEntryIds = invoices
+          .filter(inv => inv.journalEntry)
+          .map(inv => inv.journalEntry!.id);
+
+        if (journalEntryIds.length > 0) {
+          const journalEntries = await prisma.journalEntry.findMany({
+            where: {
+              id: { in: journalEntryIds }
+            },
+            include: {
+              journalEntryLines: {
+                include: {
+                  chartOfAccount: true
+                }
+              }
+            }
+          });
+
+          // Check if journal entry has payment method account (Bank/Cash)
+          const matchingEntryIds = journalEntries
+            .filter(entry => {
+              const hasPaymentAccount = entry.journalEntryLines.some(line => {
+                const accountName = line.chartOfAccount.accountName.toLowerCase();
+                if (paymentMethod === 'BANK') {
+                  return accountName.includes('bank') && !accountName.includes('cash');
+                } else if (paymentMethod === 'CASH') {
+                  return accountName.includes('cash') || accountName.includes('petty');
+                }
+                return false;
+              });
+              return hasPaymentAccount;
+            })
+            .map(entry => entry.id);
+
+          filteredInvoices = invoices.filter(inv => 
+            inv.journalEntry && matchingEntryIds.includes(inv.journalEntry.id)
+          );
+        } else {
+          filteredInvoices = [];
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Payments retrieved successfully",
+        data: {
+          payments: filteredInvoices.map(inv => ({
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            vendor: inv.vendor,
+            subtotal: Number(inv.subtotal),
+            taxAmount: Number(inv.taxAmount),
+            totalAmount: Number(inv.totalAmount),
+            currency: inv.currency,
+            paymentStatus: inv.paymentStatus,
+            paymentDate: inv.paymentDate,
+            paymentReference: inv.paymentReference,
+            invoiceDate: inv.invoiceDate,
+            dueDate: inv.dueDate,
+            documentPath: inv.documentPath,
+            documentType: inv.documentType,
+            journalEntry: inv.journalEntry,
+            createdBy: inv.createdBy,
+            createdAt: inv.createdAt
+          })),
+          total: filteredInvoices.length,
+          limit: Number(limit),
+          offset: Number(offset)
+        }
+      });
+    } catch (error: any) {
+      console.error("Error getting payments:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to get payments"
+      });
+    }
+  }
 }

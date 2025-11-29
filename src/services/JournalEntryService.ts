@@ -193,11 +193,16 @@ export class JournalEntryService {
       const vatInputAccount = await this.getVATInputAccount();
       const creditAccount = await this.getCreditAccount(paymentMethod);
 
+      // Generate unique reference number with timestamp and receipt number
+      const timestamp = Date.now();
+      const receiptSuffix = receiptNumber ? `-${receiptNumber.substring(0, 20)}` : '';
+      const referenceNumber = `EXP-${timestamp}${receiptSuffix}`;
+      
       // Create the journal entry
       const journalEntry = await prisma.journalEntry.create({
         data: {
           transactionDate,
-          referenceNumber: JournalEntryService.generateReferenceNumber(),
+          referenceNumber: referenceNumber,
           description: `Expense: ${description}`,
           totalAmount: new Decimal(totalAmount),
           currencyId,
@@ -346,7 +351,10 @@ export class JournalEntryService {
       }
 
       console.log("\n📋 Step 3: Creating Journal Entry Header...");
-      const referenceNumber = `VENDOR-PAY-${invoiceNumber}`;
+      // Generate unique reference number with timestamp to avoid conflicts
+      const timestamp = Date.now();
+      const invoiceSuffix = invoiceNumber ? `-${invoiceNumber.substring(0, 20)}` : '';
+      const referenceNumber = `VENDOR-PAY-${timestamp}${invoiceSuffix}`;
       console.log(`   Reference: ${referenceNumber}`);
       console.log(`   Status: POSTED (immediately posted)`);
       

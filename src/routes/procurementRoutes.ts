@@ -872,4 +872,112 @@ router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNo
  */
 router.get("/dashboard", ProcurementController.getProcurementDashboard);
 
+/**
+ * @swagger
+ * /procurement/payments:
+ *   get:
+ *     summary: Get all procurement invoice payments
+ *     description: **Required Role:** ANY user in Procurement or Finance department. Returns all paid and partially paid invoices with payment details including journal entries.
+ *     tags: [Procurement - Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: paymentStatus
+ *         schema:
+ *           type: string
+ *           enum: [PAID, PARTIALLY_PAID]
+ *         description: Filter by payment status
+ *       - in: query
+ *         name: vendorId
+ *         schema:
+ *           type: string
+ *         description: Filter by vendor ID
+ *       - in: query
+ *         name: paymentMethod
+ *         schema:
+ *           type: string
+ *           enum: [BANK, CASH]
+ *         description: Filter by payment method (BANK or CASH)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter payments from this date (YYYY-MM-DD)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter payments until this date (YYYY-MM-DD)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of items to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *         description: Number of items to skip
+ *     responses:
+ *       200:
+ *         description: Payments retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     payments:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           invoiceNumber:
+ *                             type: string
+ *                           vendor:
+ *                             type: object
+ *                           subtotal:
+ *                             type: number
+ *                           taxAmount:
+ *                             type: number
+ *                           totalAmount:
+ *                             type: number
+ *                           currency:
+ *                             type: object
+ *                           paymentStatus:
+ *                             type: string
+ *                             enum: [PAID, PARTIALLY_PAID]
+ *                           paymentDate:
+ *                             type: string
+ *                             format: date-time
+ *                           paymentReference:
+ *                             type: string
+ *                           journalEntry:
+ *                             type: object
+ *                     total:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     offset:
+ *                       type: integer
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/payments", ProcurementController.getAllPayments);
+
 export default router;
