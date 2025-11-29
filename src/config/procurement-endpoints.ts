@@ -495,15 +495,46 @@ export const procurementEndpoints = {
   '/procurement/invoices/{id}/approve': {
     put: {
       summary: 'Approve a procurement invoice',
-      description: '**Required Role:** User\'s roleCode must match approval config roleCode (e.g., FIN_MGR, PROC_MGR). ⚠️ Once approved, status becomes APPROVED and cannot be modified. Accounting entries created on payment, not approval.',
+      description: '**Required Role:** User\'s roleCode must match approval config roleCode (e.g., FIN_MGR, PROC_MGR). ⚠️ Once approved, status becomes APPROVED and cannot be modified. Accounting entries created on payment, not approval. **Use this endpoint to set taxable status and tax rate/amount.**',
       tags: ['Procurement - Invoices'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Invoice ID' }
       ],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                isTaxable: {
+                  type: 'boolean',
+                  description: 'Whether the invoice is taxable. If true, VAT will be calculated automatically using the standard VAT rate (14.5%). If false, tax amount will be set to 0. If not provided, existing invoice tax amounts will be kept.',
+                  example: true
+                }
+              }
+            },
+            examples: {
+              taxable: {
+                summary: 'Taxable invoice (VAT calculated automatically at 14.5%)',
+                value: {
+                  isTaxable: true
+                }
+              },
+              nonTaxable: {
+                summary: 'Non-taxable invoice',
+                value: {
+                  isTaxable: false
+                }
+              }
+            }
+          }
+        }
+      },
       responses: {
         200: { description: 'Invoice approved successfully' },
-        400: { description: 'Bad request' },
+        400: { description: 'Bad request (invalid tax rate/amount, missing required fields, etc.)' },
         401: { description: 'Unauthorized' }
       }
     }

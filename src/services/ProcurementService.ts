@@ -1003,13 +1003,13 @@ export class ProcurementService {
         .filter(Boolean)
         .map(audit => {
           const rfqData = audit!.newValues as any;
-          return {
+        return {
             rfqNumber: audit!.entityId,
-            ...rfqData,
+          ...rfqData,
             createdBy: audit!.user,
             createdAt: audit!.createdAt
-          };
-        });
+        };
+      });
 
       let filteredRFQs = rfqs;
       if (requisitionId) {
@@ -1424,8 +1424,17 @@ export class ProcurementService {
 
   /**
    * Approve a procurement invoice and create journal entry
+   * @param invoiceId - ID of the invoice to approve
+   * @param approvedById - ID of the user approving the invoice
+   * @param approvalData - Optional approval data including taxable status (VAT calculated automatically)
    */
-  static async approveProcurementInvoice(invoiceId: string, approvedById: string) {
+  static async approveProcurementInvoice(
+    invoiceId: string, 
+    approvedById: string,
+    approvalData?: {
+      isTaxable?: boolean;
+    }
+  ) {
     try {
       console.log("\n");
       console.log("════════════════════════════════════════════════════════════════");
@@ -1463,26 +1472,77 @@ export class ProcurementService {
       }
       console.log("   ✅ Invoice is ready for approval");
 
+      // Handle taxable status and tax calculation using VATService
+      console.log("\n💰 Step 3: Calculating tax and totals...");
+      let finalSubtotal = Number(invoice.subtotal);
+      let finalTaxAmount = Number(invoice.taxAmount);
+      let finalTotalAmount = Number(invoice.totalAmount);
+      
+      // Import VATService
+      const VATService = (await import('./VATService')).default;
+      
+      // If approval data provided, recalculate based on taxable status
+      if (approvalData && approvalData.isTaxable !== undefined) {
+        const isTaxable = approvalData.isTaxable;
+        
+        if (isTaxable) {
+          // Calculate VAT automatically using VATService (14.5% rate)
+          finalTaxAmount = VATService.isVATEligible(finalSubtotal, true)
+            ? VATService.calculateVAT(finalSubtotal)
+            : 0;
+          finalTotalAmount = finalSubtotal + finalTaxAmount;
+          console.log(`   ✅ Invoice is TAXABLE`);
+          console.log(`   • Using VAT rate: ${VATService.getVATRate()}% (from VATService)`);
+          console.log(`   • Subtotal: $${finalSubtotal.toFixed(2)}`);
+          console.log(`   • Tax (VAT): $${finalTaxAmount.toFixed(2)}`);
+          console.log(`   • Total: $${finalTotalAmount.toFixed(2)}`);
+        } else {
+          // Not taxable - zero out tax
+          finalTaxAmount = 0;
+          finalTotalAmount = finalSubtotal;
+          console.log(`   ✅ Invoice is NOT TAXABLE`);
+          console.log(`   • Subtotal: $${finalSubtotal.toFixed(2)}`);
+          console.log(`   • Tax: $0.00`);
+          console.log(`   • Total: $${finalTotalAmount.toFixed(2)}`);
+        }
+      } else {
+        // No approval data - keep existing values
+        const isTaxable = finalTaxAmount > 0;
+        console.log(`   ℹ️  Using existing invoice amounts`);
+        console.log(`   • Taxable: ${isTaxable ? 'YES' : 'NO'}`);
+        console.log(`   • Subtotal: $${finalSubtotal.toFixed(2)}`);
+        console.log(`   • Tax: $${finalTaxAmount.toFixed(2)}`);
+        console.log(`   • Total: $${finalTotalAmount.toFixed(2)}`);
+      }
+
       // ⚠️ IMPORTANT: Accounting entries will be created when invoice is PAID, not when approved
-      console.log("\n📝 Step 3: Updating invoice status...");
+      console.log("\n📝 Step 4: Updating invoice status...");
       console.log("   New Status: APPROVED");
       console.log("   Payment Status: PENDING (awaiting payment)");
       console.log("");
       console.log("   ℹ️  Accounting entries will be created when payment is processed");
       console.log("   ℹ️  This includes:");
-      console.log(`      • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
-      console.log(`      • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
-      console.log(`      • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)} (on payment)`);
+      if (finalTaxAmount > 0) {
+        console.log(`      • DEBIT Expense Account: $${finalSubtotal.toFixed(2)}`);
+        console.log(`      • DEBIT VAT Input Account: $${finalTaxAmount.toFixed(2)}`);
+        console.log(`      • CREDIT Accounts Payable: $${finalTotalAmount.toFixed(2)} (on payment)`);
+      } else {
+        console.log(`      • DEBIT Expense Account: $${finalTotalAmount.toFixed(2)}`);
+        console.log(`      • CREDIT Accounts Payable: $${finalTotalAmount.toFixed(2)} (on payment)`);
+      }
       console.log(`      • Then: DEBIT Accounts Payable, CREDIT Bank/Cash (on payment)`);
       
-      // Update invoice with approval (NO journal entry yet)
+      // Update invoice with approval and recalculated amounts (NO journal entry yet)
       const updatedInvoice = await prisma.procurementInvoice.update({
         where: { id: invoiceId },
         data: {
           status: "APPROVED",
           approvedById,
           approvedAt: new Date(),
-          paymentStatus: "PENDING"
+          paymentStatus: "PENDING",
+          subtotal: new Decimal(finalSubtotal),
+          taxAmount: new Decimal(finalTaxAmount),
+          totalAmount: new Decimal(finalTotalAmount)
           // NO journalEntryId here - will be created on payment
         },
         include: {
@@ -1501,7 +1561,7 @@ export class ProcurementService {
       console.log("   ✅ Invoice updated successfully");
 
       // Audit log
-      console.log("\n📊 Step 4: Creating audit log...");
+      console.log("\n📊 Step 5: Creating audit log...");
       await AuditService.log({
         userId: approvedById,
         action: "APPROVE",
@@ -1512,7 +1572,7 @@ export class ProcurementService {
       console.log("   ✅ Audit log created");
 
       // Send approval email to vendor
-      console.log("\n📧 Step 5: Sending approval email to vendor...");
+      console.log("\n📧 Step 6: Sending approval email to vendor...");
       try {
         const { EmailNotificationService } = await import('./EmailNotificationService');
         await EmailNotificationService.sendInvoiceApprovedEmail({
@@ -1667,9 +1727,9 @@ export class ProcurementService {
       console.log("");
       console.log("   ENTRY 1: Expense Recognition");
       if (isTaxable) {
-        console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
-        console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
-        console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+      console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
+      console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
+      console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
       } else {
         console.log(`   • DEBIT Expense Account: $${Number(invoice.totalAmount).toFixed(2)}`);
         console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
