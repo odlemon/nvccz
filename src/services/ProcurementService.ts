@@ -1654,9 +1654,6 @@ export class ProcurementService {
       const isPartialPayment = paymentData.paymentAmount < remainingInvoiceBalance;
       const remainingBalance = remainingInvoiceBalance - paymentData.paymentAmount;
       
-      // Determine if invoice is taxable
-      const isTaxable = Number(invoice.taxAmount) > 0;
-      
       if (isPartialPayment) {
         console.log(`   ℹ️  PARTIAL PAYMENT: Paying $${paymentData.paymentAmount.toFixed(2)} of $${invoiceTotal.toFixed(2)}`);
         console.log(`   ℹ️  Remaining Balance: $${remainingBalance.toFixed(2)}`);
