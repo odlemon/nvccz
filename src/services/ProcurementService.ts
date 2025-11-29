@@ -1867,7 +1867,8 @@ export class ProcurementService {
           where: {
             OR: [
               { email: 'admin@nvccz.co.zw' },
-              { role: 'ADMIN' }
+              { roleCode: 'ADMIN' },
+              { role: { name: 'ADMIN' } }
             ]
           },
           select: { id: true }
