@@ -3040,6 +3040,47 @@ export class EmailNotificationService {
   }
 
   /**
+   * Send invoice approved notification to vendor
+   */
+  static async sendInvoiceApprovedEmail(data: {
+    vendorName: string;
+    vendorEmail: string;
+    invoiceNumber: string;
+    invoiceAmount: number;
+    currencyCode: string;
+    approvedDate: Date;
+    dueDate?: Date;
+    companyName?: string;
+  }): Promise<void> {
+    try {
+      const subject = `Invoice Approved - ${data.invoiceNumber}`;
+      const htmlContent = this.getInvoiceApprovedTemplate(data);
+      
+      await zeptoClient.sendMail({
+        from: {
+          address: "noreply@lysp.io",
+          name: data.companyName || "NVCCZ Finance Team"
+        },
+        to: [
+          {
+            email_address: {
+              address: data.vendorEmail,
+              name: data.vendorName
+            }
+          }
+        ],
+        subject: subject,
+        htmlbody: htmlContent
+      });
+
+      console.log(`✅ Invoice approved email sent to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending invoice approved email:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Send invoice paid notification to vendor
    */
   static async sendInvoicePaidEmail(data: {
@@ -3051,6 +3092,8 @@ export class EmailNotificationService {
     paymentDate: Date;
     paymentReference?: string;
     paymentMethod: string;
+    isPartialPayment?: boolean;
+    remainingBalance?: number;
     companyName?: string;
   }): Promise<void> {
     try {
@@ -4210,6 +4253,101 @@ export class EmailNotificationService {
   }
 
   /**
+   * Invoice Approved Email Template
+   */
+  private static getInvoiceApprovedTemplate(data: {
+    vendorName: string;
+    invoiceNumber: string;
+    invoiceAmount: number;
+    currencyCode: string;
+    approvedDate: Date;
+    dueDate?: Date;
+    companyName?: string;
+  }): string {
+    const formattedDate = data.approvedDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const dueDateFormatted = data.dueDate ? new Date(data.dueDate).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }) : null;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #ecfdf5; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .amount { font-size: 28px; font-weight: bold; color: #10b981; margin: 15px 0; text-align: center; }
+          .details { background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .detail-row { display: flex; justify-content: space-between; margin: 10px 0; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 10px 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 style="margin: 0; font-size: 28px;">✅ Invoice Approved</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || 'NVCCZ'}</p>
+        </div>
+        <div class="content">
+          <p>Dear ${data.vendorName},</p>
+          
+          <p>We are pleased to inform you that your invoice has been approved and is ready for payment processing.</p>
+          
+          <div class="amount">
+            ${data.currencyCode} ${data.invoiceAmount.toFixed(2)}
+          </div>
+
+          <div class="details">
+            <h3 style="margin-top: 0;">📋 Invoice Details</h3>
+            <div class="detail-row">
+              <span><strong>Invoice Number:</strong></span>
+              <span>${data.invoiceNumber}</span>
+            </div>
+            <div class="detail-row">
+              <span><strong>Amount:</strong></span>
+              <span>${data.currencyCode} ${data.invoiceAmount.toFixed(2)}</span>
+            </div>
+            <div class="detail-row">
+              <span><strong>Approved Date:</strong></span>
+              <span>${formattedDate}</span>
+            </div>
+            ${dueDateFormatted ? `
+            <div class="detail-row">
+              <span><strong>Due Date:</strong></span>
+              <span>${dueDateFormatted}</span>
+            </div>
+            ` : ''}
+          </div>
+
+          <div class="info-box">
+            <p style="margin: 0;"><strong>ℹ️ Next Steps:</strong></p>
+            <p style="margin: 5px 0 0 0;">Payment will be processed according to our payment terms. You will receive a separate payment confirmation email once the payment has been completed.</p>
+          </div>
+
+          <p>Thank you for your business. We appreciate your patience during the approval process.</p>
+          
+          <p>Best regards,<br>
+          <strong>Finance Team</strong><br>
+          ${data.companyName || 'NVCCZ'}</p>
+        </div>
+        <div class="footer">
+          <p>This is an official notification from ${data.companyName || 'NVCCZ'}.</p>
+          <p>For any inquiries, please contact finance@nvccz.com</p>
+          <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
    * Invoice Paid Email Template
    */
   private static getInvoicePaidTemplate(data: {
@@ -4220,6 +4358,8 @@ export class EmailNotificationService {
     paymentDate: Date;
     paymentReference?: string;
     paymentMethod: string;
+    isPartialPayment?: boolean;
+    remainingBalance?: number;
     companyName?: string;
   }): string {
     const formattedDate = data.paymentDate.toLocaleDateString('en-US', {
@@ -4281,7 +4421,20 @@ export class EmailNotificationService {
               <span>${data.paymentReference}</span>
             </div>
             ` : ''}
+            ${data.isPartialPayment && data.remainingBalance ? `
+            <div class="payment-row" style="border-bottom: none;">
+              <span><strong>Remaining Balance:</strong></span>
+              <span style="color: #dc2626; font-weight: bold;">${data.currencyCode} ${data.remainingBalance.toFixed(2)}</span>
+            </div>
+            ` : ''}
           </div>
+
+          ${data.isPartialPayment ? `
+          <div class="info-box" style="background: #fef3c7; border-left-color: #f59e0b;">
+            <p style="margin: 0;"><strong>⚠️ Partial Payment:</strong></p>
+            <p style="margin: 5px 0 0 0;">This is a partial payment. A remaining balance of <strong>${data.currencyCode} ${data.remainingBalance?.toFixed(2) || '0.00'}</strong> is still pending.</p>
+          </div>
+          ` : ''}
 
           <div class="info-box">
             <p style="margin: 0;"><strong>ℹ️ Important:</strong></p>

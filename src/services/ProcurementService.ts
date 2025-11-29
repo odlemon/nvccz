@@ -1511,6 +1511,25 @@ export class ProcurementService {
       });
       console.log("   ✅ Audit log created");
 
+      // Send approval email to vendor
+      console.log("\n📧 Step 5: Sending approval email to vendor...");
+      try {
+        const { EmailNotificationService } = await import('./EmailNotificationService');
+        await EmailNotificationService.sendInvoiceApprovedEmail({
+          vendorName: invoice.vendor.name,
+          vendorEmail: invoice.vendor.email || '',
+          invoiceNumber: invoice.invoiceNumber,
+          invoiceAmount: Number(invoice.totalAmount),
+          currencyCode: invoice.currency?.code || 'USD',
+          approvedDate: new Date(),
+          dueDate: invoice.dueDate || undefined
+        });
+        console.log("   ✅ Approval email sent to vendor");
+      } catch (emailError: any) {
+        console.error("   ⚠️  Failed to send approval email:", emailError.message);
+        // Don't fail the entire approval if email fails
+      }
+
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("✅ INVOICE APPROVED SUCCESSFULLY!");
       console.log("════════════════════════════════════════════════════════════════");
@@ -1557,6 +1576,7 @@ export class ProcurementService {
       paymentMethod: "CASH" | "BANK";
       bankAccountId?: string; // Optional: specific bank account (e.g., ZIG account)
       paymentReference?: string; // Bank transaction reference
+      proofOfPaymentPath?: string; // Path to uploaded proof of payment document
       notes?: string;
     },
     processedById: string
@@ -1590,9 +1610,15 @@ export class ProcurementService {
       }
       console.log(`✅ Invoice Found: ${invoice.invoiceNumber}`);
       console.log(`   Vendor: ${invoice.vendor.name}`);
+      console.log(`   Subtotal: $${Number(invoice.subtotal).toFixed(2)}`);
+      console.log(`   Tax (VAT): $${Number(invoice.taxAmount).toFixed(2)}`);
       console.log(`   Total Amount: $${Number(invoice.totalAmount).toFixed(2)}`);
       console.log(`   Status: ${invoice.status}`);
       console.log(`   Payment Status: ${invoice.paymentStatus}`);
+      
+      // Determine if invoice is taxable
+      const isTaxable = Number(invoice.taxAmount) > 0;
+      console.log(`   Taxable: ${isTaxable ? 'YES (15% VAT)' : 'NO'}`);
 
       // Validation checks
       console.log("\n🔒 Step 2: Validating payment request...");
@@ -1603,23 +1629,33 @@ export class ProcurementService {
       }
       console.log("   ✅ Invoice is approved");
 
+      // Check if invoice is already fully paid (but allow partial payments if partially paid)
       if (invoice.paymentStatus === "PAID") {
-        console.error("❌ VALIDATION FAILED: Invoice has already been paid");
-        throw new Error("Invoice has already been paid");
+        console.error("❌ VALIDATION FAILED: Invoice has already been fully paid");
+        throw new Error("Invoice has already been fully paid");
       }
-      console.log("   ✅ Invoice is not already paid");
+      console.log("   ✅ Invoice can be paid (not fully paid)");
 
       // Validate payment amount
       const invoiceTotal = Number(invoice.totalAmount);
-      if (paymentData.paymentAmount > invoiceTotal) {
-        console.error(`❌ VALIDATION FAILED: Payment amount ($${paymentData.paymentAmount}) exceeds invoice total ($${invoiceTotal})`);
-        throw new Error(`Payment amount ($${paymentData.paymentAmount}) cannot exceed invoice total ($${invoiceTotal})`);
+      // Check if there's an existing partial payment
+      const existingPaidAmount = invoice.paymentStatus === "PARTIALLY_PAID" 
+        ? 0 // We don't track partial amounts yet, so treat as 0 for now
+        : 0;
+      const remainingInvoiceBalance = invoiceTotal - existingPaidAmount;
+      
+      if (paymentData.paymentAmount > remainingInvoiceBalance) {
+        console.error(`❌ VALIDATION FAILED: Payment amount ($${paymentData.paymentAmount}) exceeds remaining balance ($${remainingInvoiceBalance})`);
+        throw new Error(`Payment amount ($${paymentData.paymentAmount}) cannot exceed remaining balance ($${remainingInvoiceBalance})`);
       }
-      console.log(`   ✅ Payment amount valid ($${paymentData.paymentAmount.toFixed(2)} <= $${invoiceTotal.toFixed(2)})`);
+      console.log(`   ✅ Payment amount valid ($${paymentData.paymentAmount.toFixed(2)} <= $${remainingInvoiceBalance.toFixed(2)})`);
 
       // Determine payment type
-      const isPartialPayment = paymentData.paymentAmount < invoiceTotal;
-      const remainingBalance = invoiceTotal - paymentData.paymentAmount;
+      const isPartialPayment = paymentData.paymentAmount < remainingInvoiceBalance;
+      const remainingBalance = remainingInvoiceBalance - paymentData.paymentAmount;
+      
+      // Determine if invoice is taxable
+      const isTaxable = Number(invoice.taxAmount) > 0;
       
       if (isPartialPayment) {
         console.log(`   ℹ️  PARTIAL PAYMENT: Paying $${paymentData.paymentAmount.toFixed(2)} of $${invoiceTotal.toFixed(2)}`);
@@ -1633,27 +1669,32 @@ export class ProcurementService {
       console.log("   This will create TWO journal entries:");
       console.log("");
       console.log("   ENTRY 1: Expense Recognition");
-      console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
-      console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
-      console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+      if (isTaxable) {
+        console.log(`   • DEBIT Expense Account: $${Number(invoice.subtotal).toFixed(2)}`);
+        console.log(`   • DEBIT VAT Input Account: $${Number(invoice.taxAmount).toFixed(2)}`);
+        console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+      } else {
+        console.log(`   • DEBIT Expense Account: $${Number(invoice.totalAmount).toFixed(2)}`);
+        console.log(`   • CREDIT Accounts Payable: $${Number(invoice.totalAmount).toFixed(2)}`);
+      }
       console.log("");
       console.log("   ENTRY 2: Payment Processing");
       console.log(`   • DEBIT Accounts Payable: $${paymentData.paymentAmount.toFixed(2)}`);
       console.log(`   • CREDIT ${paymentData.paymentMethod} Account: $${paymentData.paymentAmount.toFixed(2)}`);
       
-      // First, create expense journal entry (Dr. Expense, Dr. VAT, Cr. AP)
+      // First, create expense journal entry (Dr. Expense, Dr. VAT if taxable, Cr. AP)
       console.log("\n   📊 Creating Entry 1: Expense Recognition...");
       const expenseJournalEntryParams = {
         vendorId: invoice.vendorId,
         categoryName: "PROCUREMENT", // You might want to get this from invoice items/category
         amount: Number(invoice.subtotal),
-        vatAmount: Number(invoice.taxAmount),
+        vatAmount: isTaxable ? Number(invoice.taxAmount) : 0,
         totalAmount: Number(invoice.totalAmount),
         currencyId: invoice.currencyId || "default-currency",
         transactionDate: paymentData.paymentDate,
         description: `Purchase Invoice: ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
         receiptNumber: invoice.invoiceNumber, // Use invoice number as receipt number
-        isTaxable: Number(invoice.taxAmount) > 0,
+        isTaxable: isTaxable,
         paymentMethod: "CREDIT" as const, // Creates AP liability
         createdById: processedById
       };
@@ -1728,8 +1769,12 @@ export class ProcurementService {
       console.log("\n📝 Step 5: Updating invoice payment status...");
       console.log(`   New Payment Status: ${paymentStatus}`);
       console.log(`   Payment Date: ${paymentData.paymentDate.toISOString().split('T')[0]}`);
+      console.log(`   Taxable: ${isTaxable ? 'YES (15% VAT)' : 'NO'}`);
       if (paymentData.paymentReference) {
         console.log(`   Payment Reference: ${paymentData.paymentReference}`);
+      }
+      if (paymentData.proofOfPaymentPath) {
+        console.log(`   Proof of Payment: ${paymentData.proofOfPaymentPath}`);
       }
       console.log(`   Receipt Number: ${receiptNumber}`);
 
@@ -1740,7 +1785,9 @@ export class ProcurementService {
           paymentStatus,
           paymentDate: paymentData.paymentDate,
           paymentReference: paymentData.paymentReference || receiptNumber, // Store receipt number in payment reference if no ref provided
-          journalEntryId: expenseJournalEntry.journalEntry.id // Link to expense entry
+          journalEntryId: expenseJournalEntry.journalEntry.id, // Link to expense entry
+          documentPath: paymentData.proofOfPaymentPath || invoice.documentPath, // Store proof of payment if provided
+          documentType: paymentData.proofOfPaymentPath ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE') : invoice.documentType
           // Note: paymentJournalEntryId might not exist in schema, storing receipt number in paymentReference
         },
         include: {
@@ -1781,13 +1828,15 @@ export class ProcurementService {
         const { EmailNotificationService } = await import('./EmailNotificationService');
         await EmailNotificationService.sendInvoicePaidEmail({
           vendorName: invoice.vendor.name,
-          vendorEmail: invoice.vendor.email,
+          vendorEmail: invoice.vendor.email || '',
           invoiceNumber: invoice.invoiceNumber,
           invoiceAmount: paymentData.paymentAmount,
           currencyCode: invoice.currency?.code || "USD",
           paymentDate: paymentData.paymentDate,
-          paymentReference: paymentData.paymentReference,
-          paymentMethod: paymentData.paymentMethod
+          paymentReference: paymentData.paymentReference || receiptNumber,
+          paymentMethod: paymentData.paymentMethod,
+          isPartialPayment: isPartialPayment,
+          remainingBalance: isPartialPayment ? remainingBalance : 0
         });
         console.log("   ✅ Payment confirmation email sent to vendor");
       } catch (emailError: any) {

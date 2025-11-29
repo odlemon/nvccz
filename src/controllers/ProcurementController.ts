@@ -884,6 +884,7 @@ export class ProcurementController {
         paymentMethod,
         bankAccountId,
         paymentReference,
+        proofOfPaymentPath,
         notes
       } = req.body;
 
@@ -911,6 +912,7 @@ export class ProcurementController {
           paymentMethod,
           bankAccountId,
           paymentReference,
+          proofOfPaymentPath,
           notes
         },
         processedById
