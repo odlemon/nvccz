@@ -526,13 +526,14 @@ export const eventsEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['description', 'amount', 'category'],
+              required: ['description', 'amount', 'category', 'vendorId'],
               properties: {
                 description: { type: 'string', example: 'Catering services for lunch', description: 'Expense description' },
                 amount: { type: 'number', example: 5000, description: 'Expense amount (before VAT)' },
                 category: { type: 'string', enum: ['VENUE', 'CATERING', 'DECORATIONS', 'ENTERTAINMENT', 'TRANSPORT', 'MARKETING', 'TECHNOLOGY', 'STAFFING', 'SECURITY', 'CLEANING', 'INSURANCE', 'UTILITIES', 'OTHER'], example: 'CATERING', description: 'Expense category' },
+                vendorId: { type: 'string', example: 'vendor-id-123', description: 'Required: Vendor ID from the vendors list' },
                 budgetItemId: { type: 'string', example: 'budget-item-id', description: 'Optional: Link expense to a specific budget item' },
-                vendor: { type: 'string', example: 'Catering Co', description: 'Vendor name' },
+                vendor: { type: 'string', example: 'Catering Co', description: 'Optional: Vendor name for display purposes' },
                 paymentMethod: { type: 'string', enum: ['BANK', 'CASH'], example: 'BANK', description: 'Payment method used' },
                 paymentDate: { type: 'string', format: 'date-time', example: '2024-12-15T12:00:00.000Z', description: 'Date of payment' },
                 isTaxable: { type: 'boolean', default: true, example: true, description: 'Whether the expense is taxable (VAT will be calculated at 14.5%)' },

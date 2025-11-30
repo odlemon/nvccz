@@ -383,7 +383,7 @@ export class EventService {
           description: expenseData.description,
           amount: new Decimal(expenseData.amount),
           category: expenseData.category,
-          vendor: expenseData.vendor,
+          vendor: expenseData.vendor || null, // Optional vendor name for display
           paymentMethod: expenseData.paymentMethod,
           paymentDate: expenseData.paymentDate ? new Date(expenseData.paymentDate) : null,
           isReimbursable: expenseData.isReimbursable || true,
@@ -393,11 +393,13 @@ export class EventService {
 
       // Create journal entry for accounting integration
       try {
+        // Validate vendorId is provided
+        if (!expenseData.vendorId) {
+          throw new Error('vendorId is required for expense recording');
+        }
+
         // Map event expense category to expense category ID
         const expenseCategoryId = await this.getExpenseCategoryId(expenseData.category);
-        
-        // Create vendor if not exists (for journal entry)
-        const vendorId = await this.getOrCreateVendor(expenseData.vendor, createdById);
         
         // Get currency ID (default to USD if not specified)
         const currencyId = expenseData.currencyId || await this.getDefaultCurrencyId();
@@ -409,7 +411,7 @@ export class EventService {
         const categoryName = expenseCategory?.name || expenseData.category;
 
         const journalEntryParams: CreateExpenseJournalEntryParams = {
-          vendorId,
+          vendorId: expenseData.vendorId,
           categoryName: categoryName,
           amount: Number(expenseData.amount),
           vatAmount,
@@ -636,41 +638,6 @@ export class EventService {
     }
   }
 
-  /**
-   * Get or create vendor for journal entry
-   */
-  private static async getOrCreateVendor(vendorName: string, createdById: string): Promise<string> {
-    try {
-      if (!vendorName) {
-        // Create a default vendor for event expenses
-        vendorName = 'Event Vendor';
-      }
-
-      // Find existing vendor
-      let vendor = await prisma.vendor.findFirst({
-        where: { name: vendorName }
-      });
-
-      if (!vendor) {
-        vendor = await prisma.vendor.create({
-          data: {
-            name: vendorName,
-            contactPerson: 'Event Contact',
-            email: 'events@company.com',
-            phone: 'N/A',
-            address: 'Event Address',
-            isActive: true,
-            createdById
-          }
-        });
-      }
-
-      return vendor.id;
-    } catch (error) {
-      console.error('Error getting or creating vendor:', error);
-      throw error;
-    }
-  }
 
   /**
    * Get default currency ID
