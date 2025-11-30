@@ -533,7 +533,6 @@ export const eventsEndpoints = {
                 category: { type: 'string', enum: ['VENUE', 'CATERING', 'DECORATIONS', 'ENTERTAINMENT', 'TRANSPORT', 'MARKETING', 'TECHNOLOGY', 'STAFFING', 'SECURITY', 'CLEANING', 'INSURANCE', 'UTILITIES', 'OTHER'], example: 'CATERING', description: 'Expense category' },
                 budgetItemId: { type: 'string', example: 'budget-item-id', description: 'Optional: Link expense to a specific budget item' },
                 vendor: { type: 'string', example: 'Catering Co', description: 'Vendor name' },
-                receiptPath: { type: 'string', example: '/uploads/receipts/receipt.pdf', description: 'Path to uploaded receipt document' },
                 paymentMethod: { type: 'string', enum: ['BANK', 'CASH'], example: 'BANK', description: 'Payment method used' },
                 paymentDate: { type: 'string', format: 'date-time', example: '2024-12-15T12:00:00.000Z', description: 'Date of payment' },
                 isTaxable: { type: 'boolean', default: true, example: true, description: 'Whether the expense is taxable (VAT will be calculated at 14.5%)' },

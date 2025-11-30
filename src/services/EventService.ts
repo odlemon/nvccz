@@ -384,7 +384,6 @@ export class EventService {
           amount: new Decimal(expenseData.amount),
           category: expenseData.category,
           vendor: expenseData.vendor,
-          receiptPath: expenseData.receiptPath,
           paymentMethod: expenseData.paymentMethod,
           paymentDate: expenseData.paymentDate ? new Date(expenseData.paymentDate) : null,
           isReimbursable: expenseData.isReimbursable || true,
@@ -625,8 +624,7 @@ export class EventService {
           data: {
             name: mappedCategory,
             description: `Event expense category for ${categoryName}`,
-            isActive: true,
-            createdById: 'system' // You might want to pass a real user ID
+            isActive: true
           }
         });
       }

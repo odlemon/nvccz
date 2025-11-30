@@ -615,7 +615,6 @@ router.post("/:eventId/budget/approve", eventController.approveBudget);
  *                 enum: [VENUE, CATERING, DECORATIONS, ENTERTAINMENT, TRANSPORT, MARKETING, TECHNOLOGY, STAFFING, SECURITY, CLEANING, INSURANCE, UTILITIES, OTHER]
  *               budgetItemId: { type: string }
  *               vendor: { type: string }
- *               receiptPath: { type: string }
  *               paymentMethod: { type: string, enum: [BANK, CASH] }
  *               paymentDate: { type: string, format: date-time }
  *               isTaxable: { type: boolean, default: true }
