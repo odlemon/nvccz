@@ -4,6 +4,7 @@ import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { EventService } from "../services/EventService";
 import { GoogleCalendarService } from "../services/GoogleCalendarService";
+import { Decimal } from "@prisma/client/runtime/library";
 const googleCalendarService = new GoogleCalendarService();
 
 export const eventController = {
@@ -179,7 +180,7 @@ export const eventController = {
   async updateEvent(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { title, description, startDate, endDate, location } = req.body;
+      const { title, description, startDate, endDate, location, rsvpDeadline, eventType, maxAttendees, isPublic, requiresRSVP, estimatedBudget, checkInRequired, feedbackRequired } = req.body;
       const userId = req.user.id;
 
       // Check if event exists and user is author
@@ -220,16 +221,40 @@ export const eventController = {
         return;
       }
 
+      // Validate RSVP deadline if provided
+      if (rsvpDeadline && new Date(rsvpDeadline) > new Date(endDate)) {
+        res.status(400).json({
+          success: false,
+          message: "RSVP deadline cannot be after event end date"
+        });
+        return;
+      }
+
+      // Build update data object (only include fields that are provided)
+      const updateData: any = {
+        title,
+        description,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        location: location !== undefined ? location : null
+      };
+
+      // Add optional fields if provided
+      if (rsvpDeadline !== undefined) {
+        updateData.rsvpDeadline = rsvpDeadline ? new Date(rsvpDeadline) : null;
+      }
+      if (eventType !== undefined) updateData.eventType = eventType;
+      if (maxAttendees !== undefined) updateData.maxAttendees = maxAttendees;
+      if (isPublic !== undefined) updateData.isPublic = isPublic;
+      if (requiresRSVP !== undefined) updateData.requiresRSVP = requiresRSVP;
+      if (estimatedBudget !== undefined) updateData.estimatedBudget = estimatedBudget ? new Decimal(estimatedBudget) : null;
+      if (checkInRequired !== undefined) updateData.checkInRequired = checkInRequired;
+      if (feedbackRequired !== undefined) updateData.feedbackRequired = feedbackRequired;
+
       // Update event
       const updatedEvent = await prisma.event.update({
         where: { id },
-        data: {
-          title,
-          description,
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
-          location: location || null
-        },
+        data: updateData,
         include: {
           author: {
             select: {
