@@ -104,8 +104,8 @@ Follow this order to test the complete workflow:
 **Expected Response:**
 - Status: `201 Created`
 - `success: true`
-- `data.status: "PLANNING"`
 - `data.budgetStatus: "DRAFT"`
+- `data.status: "PLANNING"`
 - `data.id` - Save this event ID for next tests
 
 **Verify:**

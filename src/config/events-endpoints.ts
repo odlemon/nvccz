@@ -143,7 +143,15 @@ export const eventsEndpoints = {
                 description: { type: 'string', example: 'Updated event description' },
                 startDate: { type: 'string', format: 'date-time', example: '2024-12-15T09:00:00.000Z' },
                 endDate: { type: 'string', format: 'date-time', example: '2024-12-15T17:00:00.000Z' },
-                location: { type: 'string', example: 'Updated Location' }
+                location: { type: 'string', example: 'Updated Location' },
+                rsvpDeadline: { type: 'string', format: 'date-time', example: '2024-12-10T23:59:59.000Z', description: 'RSVP deadline (optional, can be null to remove deadline)' },
+                eventType: { type: 'string', enum: ['CONFERENCE', 'MEETING', 'WORKSHOP', 'SOCIAL', 'SEMINAR', 'TRAINING', 'OTHER'], example: 'CONFERENCE' },
+                maxAttendees: { type: 'integer', example: 500 },
+                isPublic: { type: 'boolean', example: false },
+                requiresRSVP: { type: 'boolean', example: true },
+                estimatedBudget: { type: 'number', example: 50000 },
+                checkInRequired: { type: 'boolean', example: true },
+                feedbackRequired: { type: 'boolean', example: true }
               }
             }
           }
