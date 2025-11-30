@@ -606,15 +606,16 @@ router.post("/:eventId/budget/approve", eventController.approveBudget);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [description, amount, category]
+ *             required: [description, amount, category, vendorId]
  *             properties:
  *               description: { type: string }
  *               amount: { type: number }
  *               category:
  *                 type: string
  *                 enum: [VENUE, CATERING, DECORATIONS, ENTERTAINMENT, TRANSPORT, MARKETING, TECHNOLOGY, STAFFING, SECURITY, CLEANING, INSURANCE, UTILITIES, OTHER]
+ *               vendorId: { type: string, description: "Required: Vendor ID from the vendors list" }
  *               budgetItemId: { type: string }
- *               vendor: { type: string }
+ *               vendor: { type: string, description: "Optional: Vendor name for display purposes" }
  *               paymentMethod: { type: string, enum: [BANK, CASH] }
  *               paymentDate: { type: string, format: date-time }
  *               isTaxable: { type: boolean, default: true }
