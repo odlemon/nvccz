@@ -522,7 +522,7 @@ export const eventController = {
         return;
       }
 
-      const feedback = await EventService.submitFeedback(eventId, feedbackData, feedbackData.guestId);
+      const feedback = await EventService.submitFeedback(eventId, feedbackData);
 
       res.status(201).json({
         success: true,

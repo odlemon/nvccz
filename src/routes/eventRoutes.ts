@@ -694,7 +694,6 @@ router.get("/:eventId/expenses", eventController.getEventExpenses);
  *               wouldRecommend: { type: boolean }
  *               additionalComments: { type: string }
  *               anonymous: { type: boolean, default: false }
- *               guestId: { type: string }
  *     responses:
  *       201:
  *         description: Feedback submitted successfully

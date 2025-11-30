@@ -622,8 +622,7 @@ export const eventsEndpoints = {
                 wouldAttendAgain: { type: 'boolean', example: true, description: 'Would attend again' },
                 wouldRecommend: { type: 'boolean', example: true, description: 'Would recommend to others' },
                 additionalComments: { type: 'string', example: 'Overall excellent event!', description: 'Additional comments' },
-                anonymous: { type: 'boolean', default: false, example: false, description: 'Submit feedback anonymously' },
-                guestId: { type: 'string', example: 'guest-id', description: 'Optional: Guest ID if feedback is from a registered guest' }
+                anonymous: { type: 'boolean', default: false, example: false, description: 'Submit feedback anonymously' }
               }
             }
           }
