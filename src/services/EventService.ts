@@ -286,6 +286,19 @@ export class EventService {
    */
   static async approveBudget(eventId: string, approverId: string, approvedBudget: number, notes?: string): Promise<any> {
     try {
+      // First check if event exists and budget is in SUBMITTED status
+      const existingEvent = await prisma.event.findUnique({
+        where: { id: eventId }
+      });
+
+      if (!existingEvent) {
+        throw new Error('Event not found');
+      }
+
+      if (existingEvent.budgetStatus !== 'SUBMITTED') {
+        throw new Error(`Budget cannot be approved. Current budget status: ${existingEvent.budgetStatus}. Budget must be in SUBMITTED status to be approved.`);
+      }
+
       const event = await prisma.event.update({
         where: { id: eventId },
         data: {
@@ -350,6 +363,11 @@ export class EventService {
         throw new Error('Event not found');
       }
 
+      // Validate that budget is approved before recording expenses
+      if (event.budgetStatus !== 'APPROVED') {
+        throw new Error('Event budget must be approved before recording expenses. Current budget status: ' + event.budgetStatus);
+      }
+
       // Calculate VAT if taxable
       const isTaxable = expenseData.isTaxable || false;
       const vatAmount = VATService.isVATEligible(Number(expenseData.amount), isTaxable)
@@ -385,9 +403,15 @@ export class EventService {
         // Get currency ID (default to USD if not specified)
         const currencyId = expenseData.currencyId || await this.getDefaultCurrencyId();
 
+        // Get category name for journal entry (it expects categoryName, not categoryId)
+        const expenseCategory = await prisma.expenseCategory.findUnique({
+          where: { id: expenseCategoryId }
+        });
+        const categoryName = expenseCategory?.name || expenseData.category;
+
         const journalEntryParams: CreateExpenseJournalEntryParams = {
           vendorId,
-          categoryId: expenseCategoryId,
+          categoryName: categoryName,
           amount: Number(expenseData.amount),
           vatAmount,
           totalAmount,

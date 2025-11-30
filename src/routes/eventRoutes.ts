@@ -469,7 +469,7 @@ router.post("/:eventId/guests/:guestId/check-in", eventController.checkInGuest);
  * /events/{eventId}/budget-items:
  *   post:
  *     summary: Add budget items to an event
- *     description: Add one or more budget items to an event. Budget items are categorized expenses with estimated costs. Adding budget items changes the event budget status to SUBMITTED.
+ *     description: Add one or more budget items to an event. Budget items are categorized expenses with estimated costs. Adding budget items automatically changes the event budget status from DRAFT to SUBMITTED and event status to BUDGET_PENDING, making it ready for approval.
  *     tags: [Events Management - Budget Management]
  *     security:
  *       - bearerAuth: []
@@ -546,7 +546,7 @@ router.get("/:eventId/budget-items", eventController.getEventBudgetItems);
  * /events/{eventId}/budget/approve:
  *   post:
  *     summary: Approve event budget
- *     description: Approve an event budget. Creates a journal entry for budget allocation (Dr. Event Budget Account, Cr. Cash/Bank). Sends email notification to event organizer. Once approved, budget status becomes APPROVED and event status becomes BUDGET_APPROVED.
+ *     description: Approve an event budget. **Required:** Budget must be in SUBMITTED status. Creates a journal entry for budget allocation (Dr. Event Budget Account, Cr. Cash/Bank). Sends email notification to event organizer. Once approved, budget status becomes APPROVED and event status becomes BUDGET_APPROVED, allowing expenses to be recorded.
  *     tags: [Events Management - Budget Management]
  *     security:
  *       - bearerAuth: []
@@ -589,7 +589,7 @@ router.post("/:eventId/budget/approve", eventController.approveBudget);
  * /events/{eventId}/expenses:
  *   post:
  *     summary: Record event expense
- *     description: Record an expense for an event. Automatically creates accounting journal entries (Dr. Expense, Dr. VAT if taxable, Cr. AP). VAT is calculated automatically at 14.5% if expense is taxable. Links expense to budget items if provided.
+ *     description: Record an expense for an event. **Requires budget to be approved first.** Automatically creates accounting journal entries (Dr. Expense, Dr. VAT if taxable, Cr. AP). VAT is calculated automatically at 14.5% if expense is taxable. Links expense to budget items if provided.
  *     tags: [Events Management - Expense Management]
  *     security:
  *       - bearerAuth: []
