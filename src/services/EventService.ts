@@ -774,7 +774,7 @@ export class EventService {
     try {
       let account = await prisma.chartOfAccounts.findFirst({
         where: { 
-          name: 'Event Budget Allocation',
+          accountName: 'Event Budget Allocation',
           accountType: 'ASSET'
         }
       });
@@ -782,12 +782,12 @@ export class EventService {
       if (!account) {
         account = await prisma.chartOfAccounts.create({
           data: {
-            code: 'EBA-001',
-            name: 'Event Budget Allocation',
+            accountNo: 'EBA-001',
+            accountName: 'Event Budget Allocation',
             accountType: 'ASSET',
-            description: 'Allocated budget for events',
-            isActive: true,
-            createdById: 'system'
+            financialStatement: 'BALANCE_SHEET',
+            notes: 'Allocated budget for events',
+            isActive: true
           }
         });
       }
@@ -806,7 +806,7 @@ export class EventService {
     try {
       let account = await prisma.chartOfAccounts.findFirst({
         where: { 
-          name: 'Cash',
+          accountName: 'Cash',
           accountType: 'ASSET'
         }
       });
@@ -814,12 +814,12 @@ export class EventService {
       if (!account) {
         account = await prisma.chartOfAccounts.create({
           data: {
-            code: 'CASH-001',
-            name: 'Cash',
+            accountNo: 'CASH-001',
+            accountName: 'Cash',
             accountType: 'ASSET',
-            description: 'Cash on hand',
-            isActive: true,
-            createdById: 'system'
+            financialStatement: 'BALANCE_SHEET',
+            notes: 'Cash on hand',
+            isActive: true
           }
         });
       }
