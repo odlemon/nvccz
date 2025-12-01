@@ -38,7 +38,7 @@ async function testTermSheetsResponse() {
       'applicationId',
       'title',
       'investmentAmount',
-      'equityAmount',
+      'equityPercentage',
       'valuation',
       'status',
       'isDraft',
@@ -61,7 +61,7 @@ async function testTermSheetsResponse() {
 
     // Check new required fields specifically
     console.log('\n💰 New Required Fields:');
-    console.log(`  equityAmount: ${formatted.equityAmount} ${formatted.equityAmount ? '✅' : '❌ MISSING'}`);
+    console.log(`  equityPercentage: ${formatted.equityPercentage} ${formatted.equityPercentage ? '✅' : '❌ MISSING'}`);
     console.log(`  valuation: ${formatted.valuation} ${formatted.valuation ? '✅' : '❌ MISSING'}`);
 
     // Check related data
@@ -84,10 +84,10 @@ async function testTermSheetsResponse() {
     console.log('\n📊 Testing all term sheets:');
     result.termSheets.forEach((ts: any, index: number) => {
       const formatted = TermSheetController.formatTermSheetResponse(ts);
-      const hasEquityAmount = formatted.equityAmount !== null && formatted.equityAmount !== undefined;
+      const hasEquityPercentage = formatted.equityPercentage !== null && formatted.equityPercentage !== undefined;
       const hasValuation = formatted.valuation !== null && formatted.valuation !== undefined;
-      const status = hasEquityAmount && hasValuation ? '✅' : '⚠️';
-      console.log(`  ${status} Term Sheet ${index + 1}: equityAmount=${formatted.equityAmount}, valuation=${formatted.valuation}`);
+      const status = hasEquityPercentage && hasValuation ? '✅' : '⚠️';
+      console.log(`  ${status} Term Sheet ${index + 1}: equityPercentage=${formatted.equityPercentage}, valuation=${formatted.valuation}`);
     });
 
     if (allPresent) {

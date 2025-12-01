@@ -57,11 +57,9 @@ const upload = multer({
  *           enum: [DRAFT, FINAL, SIGNED]
  *         investmentAmount:
  *           type: number
- *         equityAmount:
+ *         equityPercentage:
  *           type: number
  *         valuation:
- *           type: number
- *         equityPercentage:
  *           type: number
  *         keyTerms:
  *           type: string
@@ -100,18 +98,16 @@ const upload = multer({
  *       required:
  *         - title
  *         - investmentAmount
- *         - equityAmount
+ *         - equityPercentage
  *         - valuation
  *       properties:
  *         title:
  *           type: string
  *         investmentAmount:
  *           type: number
- *         equityAmount:
+ *         equityPercentage:
  *           type: number
  *         valuation:
- *           type: number
- *         equityPercentage:
  *           type: number
  *         keyTerms:
  *           type: string
@@ -133,11 +129,9 @@ const upload = multer({
  *           type: string
  *         investmentAmount:
  *           type: number
- *         equityAmount:
+ *         equityPercentage:
  *           type: number
  *         valuation:
- *           type: number
- *         equityPercentage:
  *           type: number
  *         keyTerms:
  *           type: string
@@ -183,18 +177,16 @@ const upload = multer({
  *             required:
  *               - title
  *               - investmentAmount
- *               - equityAmount
+ *               - equityPercentage
  *               - valuation
  *             properties:
  *               title:
  *                 type: string
  *               investmentAmount:
  *                 type: number
- *               equityAmount:
+ *               equityPercentage:
  *                 type: number
  *               valuation:
- *                 type: number
- *               equityPercentage:
  *                 type: number
  *               keyTerms:
  *                 type: string
