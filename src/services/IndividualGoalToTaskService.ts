@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
-import { TaskService } from "./TaskService";
+import { TaskService, computeTaskPercentage } from "./TaskService";
 
 export class IndividualGoalToTaskService {
   /**
@@ -157,7 +157,11 @@ export class IndividualGoalToTaskService {
         }
       });
 
-      return tasks;
+      // Add taskPercentage to each task
+      return tasks.map(task => ({
+        ...task,
+        taskPercentage: computeTaskPercentage(task)
+      }));
     } catch (error) {
       console.error('❌ Error getting user performance tasks:', error);
       throw error;
@@ -198,7 +202,11 @@ export class IndividualGoalToTaskService {
         }
       });
 
-      return tasks;
+      // Add taskPercentage to each task
+      return tasks.map(task => ({
+        ...task,
+        taskPercentage: computeTaskPercentage(task)
+      }));
     } catch (error) {
       console.error('❌ Error getting department performance tasks:', error);
       throw error;

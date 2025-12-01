@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { FirebaseStorageService } from './FirebaseStorageService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { logger } from '../utils/logger';
+import { computeTaskPercentage } from './TaskService';
 
 export class ActivityService {
   /**
@@ -432,7 +433,11 @@ export class ActivityService {
         }
       });
 
-      return tasks;
+      // Add taskPercentage to each task
+      return tasks.map(task => ({
+        ...task,
+        taskPercentage: computeTaskPercentage(task)
+      }));
     } catch (error) {
       console.error('Error getting manager created tasks:', error);
       throw error;
