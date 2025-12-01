@@ -89,6 +89,54 @@ const TASK_APPLICATION_MINIMAL_SELECT = {
   }
 };
 
+/**
+ * Compute task percentage based on task data
+ * - If status is "completed" or stage is "completed", return 100%
+ * - Otherwise compute based on monetaryValueAchieved/monetaryValue or percentValueAchieved/percentValue
+ * - If no values exist, use stage-based defaults
+ */
+function computeTaskPercentage(task: any): number {
+  // If task is completed, return 100%
+  if (task.status === 'completed' || task.stage === 'completed') {
+    return 100;
+  }
+
+  // Try to compute from monetary values
+  if (task.monetaryValue && task.monetaryValue > 0 && task.monetaryValueAchieved !== null && task.monetaryValueAchieved !== undefined) {
+    const monetaryValue = Number(task.monetaryValue);
+    const monetaryValueAchieved = Number(task.monetaryValueAchieved || 0);
+    if (monetaryValue > 0) {
+      const percentage = (monetaryValueAchieved / monetaryValue) * 100;
+      return Math.min(Math.max(percentage, 0), 100); // Clamp between 0 and 100
+    }
+  }
+
+  // Try to compute from percent values
+  if (task.percentValue && task.percentValue > 0 && task.percentValueAchieved !== null && task.percentValueAchieved !== undefined) {
+    const percentValue = Number(task.percentValue);
+    const percentValueAchieved = Number(task.percentValueAchieved || 0);
+    if (percentValue > 0) {
+      const percentage = (percentValueAchieved / percentValue) * 100;
+      return Math.min(Math.max(percentage, 0), 100); // Clamp between 0 and 100
+    }
+  }
+
+  // Fallback to stage-based defaults
+  const stage = task.stage?.toLowerCase() || '';
+  switch (stage) {
+    case 'completed':
+      return 100;
+    case 'in_progress':
+      return 50;
+    case 'todo':
+      return 0;
+    case 'overdue':
+      return task.percentValueAchieved ? Number(task.percentValueAchieved) : 0;
+    default:
+      return 0;
+  }
+}
+
 async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: boolean }) {
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return tasks;
@@ -110,7 +158,8 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
   if (applicationIds.length === 0) {
     return tasks.map(task => ({
       ...task,
-      application: task.application ?? null
+      application: task.application ?? null,
+      taskPercentage: computeTaskPercentage(task)
     }));
   }
 
@@ -134,7 +183,8 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
 
     return {
       ...task,
-      application: application || null
+      application: application || null,
+      taskPercentage: computeTaskPercentage(task)
     };
   });
 }
