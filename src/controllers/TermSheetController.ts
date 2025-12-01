@@ -18,7 +18,7 @@ export class TermSheetController {
       applicationId: termSheet.applicationId,
       title: termSheet.title,
       investmentAmount: termSheet.investmentAmount ? Number(termSheet.investmentAmount) : null,
-      equityAmount: termSheet.equityAmount ? Number(termSheet.equityAmount) : null,
+      equityPercentage: termSheet.equityPercentage ? Number(termSheet.equityPercentage) : null,
       valuation: termSheet.valuation ? Number(termSheet.valuation) : null,
       status: termSheet.status,
       isDraft: termSheet.isDraft,
@@ -113,10 +113,10 @@ export class TermSheetController {
         });
         return;
       }
-      if (!req.body.equityAmount) {
+      if (!req.body.equityPercentage) {
         res.status(400).json({
           success: false,
-          message: 'Equity amount is required'
+          message: 'Equity percentage is required'
         });
         return;
       }
@@ -133,9 +133,8 @@ export class TermSheetController {
         createdById: userId,
         title: req.body.title,
         investmentAmount: req.body.investmentAmount,
-        equityAmount: req.body.equityAmount,
-        valuation: req.body.valuation,
         equityPercentage: req.body.equityPercentage,
+        valuation: req.body.valuation,
         keyTerms: req.body.keyTerms,
         conditions: req.body.conditions,
         timeline: req.body.timeline,
@@ -249,9 +248,8 @@ export class TermSheetController {
 
         if (req.body.title !== undefined) updateData.title = req.body.title;
         if (req.body.investmentAmount !== undefined) updateData.investmentAmount = req.body.investmentAmount;
-        if (req.body.equityAmount !== undefined) updateData.equityAmount = req.body.equityAmount;
-        if (req.body.valuation !== undefined) updateData.valuation = req.body.valuation;
         if (req.body.equityPercentage !== undefined) updateData.equityPercentage = req.body.equityPercentage;
+        if (req.body.valuation !== undefined) updateData.valuation = req.body.valuation;
         if (req.body.keyTerms !== undefined) updateData.keyTerms = req.body.keyTerms;
         if (req.body.conditions !== undefined) updateData.conditions = req.body.conditions;
         if (req.body.timeline !== undefined) updateData.timeline = req.body.timeline;
