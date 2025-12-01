@@ -492,7 +492,7 @@ export class EventService {
       const feedback = await prisma.eventFeedback.create({
         data: {
           eventId,
-          guestId,
+          // guestId is not set - feedback is not linked to guests
           rating: feedbackData.rating,
           overallSatisfaction: feedbackData.overallSatisfaction,
           contentQuality: feedbackData.contentQuality,
@@ -507,6 +507,26 @@ export class EventService {
           additionalComments: feedbackData.additionalComments,
           anonymous: feedbackData.anonymous || false,
         },
+        select: {
+          id: true,
+          eventId: true,
+          rating: true,
+          overallSatisfaction: true,
+          contentQuality: true,
+          venueQuality: true,
+          foodQuality: true,
+          organization: true,
+          positiveAspects: true,
+          areasForImprovement: true,
+          suggestions: true,
+          wouldAttendAgain: true,
+          wouldRecommend: true,
+          additionalComments: true,
+          anonymous: true,
+          createdAt: true,
+          updatedAt: true
+          // guestId is excluded
+        }
       });
 
       return feedback;
@@ -583,6 +603,28 @@ export class EventService {
             budgetVariance,
           }),
         },
+        select: {
+          id: true,
+          eventId: true,
+          reportType: true,
+          generatedBy: true,
+          generatedAt: true,
+          totalAttendees: true,
+          rsvpRate: true,
+          checkInRate: true,
+          averageRating: true,
+          totalBudget: true,
+          totalExpenses: true,
+          budgetVariance: true,
+          costPerAttendee: true,
+          summary: true,
+          keyMetrics: true,
+          recommendations: true,
+          reportData: true,
+          createdAt: true,
+          updatedAt: true
+          // pdfPath and excelPath are excluded
+        }
       });
 
       return report;

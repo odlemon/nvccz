@@ -3383,10 +3383,10 @@ export class EmailNotificationService {
         })
       : 'To be discussed';
     const deadline = data.rfqDeadline
-      ? data.rfqDeadline.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
+      ? data.rfqDeadline.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
         })
       : 'As soon as possible';
     const frontendBase = (process.env.FRONTEND_URL || 'https://nvccz.com').replace(/\/$/, '');
