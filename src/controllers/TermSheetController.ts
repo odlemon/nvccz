@@ -8,6 +8,43 @@ import { prisma } from '../utils/database';
 
 export class TermSheetController {
   /**
+   * Format term sheet response to only include required fields
+   */
+  private static formatTermSheetResponse(termSheet: any) {
+    if (!termSheet) return null;
+
+    return {
+      id: termSheet.id,
+      applicationId: termSheet.applicationId,
+      title: termSheet.title,
+      investmentAmount: termSheet.investmentAmount ? Number(termSheet.investmentAmount) : null,
+      equityAmount: termSheet.equityAmount ? Number(termSheet.equityAmount) : null,
+      valuation: termSheet.valuation ? Number(termSheet.valuation) : null,
+      status: termSheet.status,
+      isDraft: termSheet.isDraft,
+      isFinal: termSheet.isFinal,
+      isSigned: termSheet.isSigned,
+      createdAt: termSheet.createdAt,
+      updatedAt: termSheet.updatedAt,
+      // Include application basic info
+      application: termSheet.application ? {
+        id: termSheet.application.id,
+        businessName: termSheet.application.businessName,
+        applicantName: termSheet.application.applicantName,
+        applicantEmail: termSheet.application.applicantEmail,
+        currentStage: termSheet.application.currentStage
+      } : null,
+      // Include creator basic info
+      createdBy: termSheet.createdBy ? {
+        id: termSheet.createdBy.id,
+        firstName: termSheet.createdBy.firstName,
+        lastName: termSheet.createdBy.lastName,
+        email: termSheet.createdBy.email
+      } : null
+    };
+  }
+
+  /**
    * Check if user is an applicant
    * Applicants are identified by having an application, not by roles
    */
@@ -61,13 +98,44 @@ export class TermSheetController {
         console.log(`📁 Term sheet document uploaded: ${documentFileName} -> ${documentUrl}`);
       }
 
+      // Validate required fields
+      if (!req.body.title) {
+        res.status(400).json({
+          success: false,
+          message: 'Title is required'
+        });
+        return;
+      }
+      if (!req.body.investmentAmount) {
+        res.status(400).json({
+          success: false,
+          message: 'Investment amount is required'
+        });
+        return;
+      }
+      if (!req.body.equityAmount) {
+        res.status(400).json({
+          success: false,
+          message: 'Equity amount is required'
+        });
+        return;
+      }
+      if (!req.body.valuation) {
+        res.status(400).json({
+          success: false,
+          message: 'Valuation is required'
+        });
+        return;
+      }
+
       const termSheetData: CreateTermSheetRequest = {
         applicationId,
         createdById: userId,
         title: req.body.title,
         investmentAmount: req.body.investmentAmount,
-        equityPercentage: req.body.equityPercentage,
+        equityAmount: req.body.equityAmount,
         valuation: req.body.valuation,
+        equityPercentage: req.body.equityPercentage,
         keyTerms: req.body.keyTerms,
         conditions: req.body.conditions,
         timeline: req.body.timeline,
@@ -115,7 +183,7 @@ export class TermSheetController {
       res.status(201).json({
         success: true,
         message: 'Term sheet created successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -145,7 +213,7 @@ export class TermSheetController {
       res.status(200).json({
         success: true,
         message: 'Term sheet retrieved successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -181,8 +249,9 @@ export class TermSheetController {
 
         if (req.body.title !== undefined) updateData.title = req.body.title;
         if (req.body.investmentAmount !== undefined) updateData.investmentAmount = req.body.investmentAmount;
-        if (req.body.equityPercentage !== undefined) updateData.equityPercentage = req.body.equityPercentage;
+        if (req.body.equityAmount !== undefined) updateData.equityAmount = req.body.equityAmount;
         if (req.body.valuation !== undefined) updateData.valuation = req.body.valuation;
+        if (req.body.equityPercentage !== undefined) updateData.equityPercentage = req.body.equityPercentage;
         if (req.body.keyTerms !== undefined) updateData.keyTerms = req.body.keyTerms;
         if (req.body.conditions !== undefined) updateData.conditions = req.body.conditions;
         if (req.body.timeline !== undefined) updateData.timeline = req.body.timeline;
@@ -208,7 +277,7 @@ export class TermSheetController {
       res.status(200).json({
         success: true,
         message: 'Term sheet updated successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -230,7 +299,7 @@ export class TermSheetController {
       res.status(200).json({
         success: true,
         message: 'Term sheet marked as final successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -366,7 +435,7 @@ export class TermSheetController {
       res.status(200).json({
         success: true,
         message: 'Term sheet signed successfully',
-        data: termSheet
+        data: TermSheetController.formatTermSheetResponse(termSheet)
       });
     } catch (error: any) {
       res.status(400).json({
@@ -387,10 +456,16 @@ export class TermSheetController {
 
       const result = await TermSheetService.getAllTermSheets(page, limit, status);
 
+      // Format term sheets in the result
+      const formattedResult = {
+        ...result,
+        termSheets: result.termSheets.map((ts: any) => TermSheetController.formatTermSheetResponse(ts))
+      };
+
       res.status(200).json({
         success: true,
         message: 'Term sheets retrieved successfully',
-        data: result
+        data: formattedResult
       });
     } catch (error: any) {
       res.status(400).json({
@@ -438,10 +513,16 @@ export class TermSheetController {
 
       const result = await TermSheetService.getMyTermSheets(userId, page, limit);
 
+      // Format term sheets in the result
+      const formattedResult = {
+        ...result,
+        termSheets: result.termSheets.map((ts: any) => TermSheetController.formatTermSheetResponse(ts))
+      };
+
       res.status(200).json({
         success: true,
         message: 'My term sheets retrieved successfully',
-        data: result
+        data: formattedResult
       });
     } catch (error: any) {
       // Return empty result instead of error

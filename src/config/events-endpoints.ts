@@ -633,15 +633,26 @@ export const eventsEndpoints = {
           description: 'Feedback submitted successfully',
           content: {
             'application/json': {
-              example: {
-                success: true,
-                message: 'Feedback submitted successfully',
-                data: {
-                  id: 'feedback-id',
-                  rating: 5,
-                  overallSatisfaction: 5
+                example: {
+                  success: true,
+                  message: 'Feedback submitted successfully',
+                  data: {
+                    id: 'feedback-id',
+                    eventId: 'event-id',
+                    rating: 5,
+                    overallSatisfaction: 5,
+                    contentQuality: 4,
+                    venueQuality: 5,
+                    foodQuality: 4,
+                    organization: 5,
+                    positiveAspects: 'Great speakers and networking',
+                    areasForImprovement: 'Better signage',
+                    wouldAttendAgain: true,
+                    wouldRecommend: true,
+                    anonymous: false,
+                    createdAt: '2024-12-15T14:00:00.000Z'
+                  }
                 }
-              }
             }
           }
         },
@@ -651,7 +662,7 @@ export const eventsEndpoints = {
     },
     get: {
       summary: 'Get event feedback',
-      description: '**Required Role:** Any authenticated user. Retrieve all feedback for an event. Includes guest information unless feedback is anonymous.',
+      description: '**Required Role:** Any authenticated user. Retrieve all feedback for an event. Guest information is not included in the response.',
       tags: ['Events Management - Feedback Management'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -664,7 +675,24 @@ export const eventsEndpoints = {
             'application/json': {
               example: {
                 success: true,
-                data: []
+                data: [
+                  {
+                    id: 'feedback-id-1',
+                    eventId: 'event-id',
+                    rating: 5,
+                    overallSatisfaction: 5,
+                    contentQuality: 4,
+                    venueQuality: 5,
+                    foodQuality: 4,
+                    organization: 5,
+                    positiveAspects: 'Great event',
+                    areasForImprovement: 'Could improve',
+                    wouldAttendAgain: true,
+                    wouldRecommend: true,
+                    anonymous: false,
+                    createdAt: '2024-12-15T14:00:00.000Z'
+                  }
+                ]
               }
             }
           }

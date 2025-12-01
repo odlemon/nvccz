@@ -1055,8 +1055,9 @@ model TermSheet {
   version          String      @default("1.0")
   status           String      @default("DRAFT")
   investmentAmount Decimal     @db.Decimal(15, 2)
+  equityAmount     Decimal     @db.Decimal(15, 2)
+  valuation        Decimal     @db.Decimal(15, 2)
   equityPercentage Decimal?    @db.Decimal(5, 2)
-  valuation        Decimal?    @db.Decimal(15, 2)
   keyTerms         String?     @db.Text
   conditions       String?     @db.Text
   timeline         String?     @db.Text

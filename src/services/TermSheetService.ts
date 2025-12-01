@@ -10,8 +10,9 @@ export interface CreateTermSheetRequest {
   createdById: string;
   title: string;
   investmentAmount: number;
+  equityAmount: number;
+  valuation: number;
   equityPercentage?: number;
-  valuation?: number;
   keyTerms?: string;
   conditions?: string;
   timeline?: string;
@@ -23,8 +24,9 @@ export interface CreateTermSheetRequest {
 export interface UpdateTermSheetRequest {
   title?: string;
   investmentAmount?: number;
-  equityPercentage?: number;
+  equityAmount?: number;
   valuation?: number;
+  equityPercentage?: number;
   keyTerms?: string;
   conditions?: string;
   timeline?: string;
@@ -88,8 +90,9 @@ export class TermSheetService {
           createdById: params.createdById,
           title: params.title,
           investmentAmount: new Decimal(params.investmentAmount),
+          equityAmount: new Decimal(params.equityAmount),
+          valuation: new Decimal(params.valuation),
           equityPercentage: params.equityPercentage ? new Decimal(params.equityPercentage) : null,
-          valuation: params.valuation ? new Decimal(params.valuation) : null,
           keyTerms: params.keyTerms,
           conditions: params.conditions,
           timeline: params.timeline,
@@ -224,11 +227,14 @@ export class TermSheetService {
       if (params.investmentAmount !== undefined) {
         updateData.investmentAmount = new Decimal(params.investmentAmount);
       }
-      if (params.equityPercentage !== undefined) {
-        updateData.equityPercentage = new Decimal(params.equityPercentage);
+      if (params.equityAmount !== undefined) {
+        updateData.equityAmount = new Decimal(params.equityAmount);
       }
       if (params.valuation !== undefined) {
         updateData.valuation = new Decimal(params.valuation);
+      }
+      if (params.equityPercentage !== undefined) {
+        updateData.equityPercentage = new Decimal(params.equityPercentage);
       }
       if (params.keyTerms !== undefined) {
         updateData.keyTerms = params.keyTerms;

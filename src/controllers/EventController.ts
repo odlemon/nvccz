@@ -680,13 +680,25 @@ export const eventController = {
 
       const feedback = await prisma.eventFeedback.findMany({
         where: { eventId },
-        include: {
-          guest: {
-            select: {
-              name: true,
-              email: true
-            }
-          }
+        select: {
+          id: true,
+          eventId: true,
+          rating: true,
+          overallSatisfaction: true,
+          contentQuality: true,
+          venueQuality: true,
+          foodQuality: true,
+          organization: true,
+          positiveAspects: true,
+          areasForImprovement: true,
+          suggestions: true,
+          wouldAttendAgain: true,
+          wouldRecommend: true,
+          additionalComments: true,
+          anonymous: true,
+          createdAt: true,
+          updatedAt: true
+          // guestId and guest are excluded
         },
         orderBy: { createdAt: 'desc' }
       });

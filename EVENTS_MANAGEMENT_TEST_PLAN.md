@@ -552,7 +552,7 @@ Follow this order to test the complete workflow:
 {
   "description": "Catering services for lunch",
   "amount": 5000,
-  "category": "CATERING",
+  "category": "CATERING", 
   "vendor": "Catering Co",
   "paymentMethod": "BANK",
   "paymentDate": "2024-12-15T12:00:00.000Z",

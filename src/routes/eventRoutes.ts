@@ -709,7 +709,7 @@ router.post("/:eventId/feedback", eventController.submitFeedback);
  * /events/{eventId}/feedback:
  *   get:
  *     summary: Get event feedback
- *     description: Retrieve all feedback for an event. Includes guest information unless feedback is anonymous.
+ *     description: Retrieve all feedback for an event. Guest information is not included in the response.
  *     tags: [Events Management - Feedback Management]
  *     security:
  *       - bearerAuth: []
