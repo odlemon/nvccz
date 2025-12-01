@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { CEODashboardService } from "../services/CEODashboardService";
 import { DataIntegrationService } from "../services/DataIntegrationService";
 import { prisma } from "../utils/database";
+import { computeTaskPercentage } from "../services/TaskService";
 
 export class CEODashboardController {
   /**
@@ -218,9 +219,15 @@ export class CEODashboardController {
           where: { id: departmentId as string }
         });
 
+        // Add taskPercentage to each task
+        const tasksWithPercentage = tasks.map(task => ({
+          ...task,
+          taskPercentage: computeTaskPercentage(task)
+        }));
+
         taskData = {
           department: department,
-          tasks: tasks,
+          tasks: tasksWithPercentage,
           summary: {
             total: tasks.length,
             completed: tasks.filter(t => t.status === 'completed').length,

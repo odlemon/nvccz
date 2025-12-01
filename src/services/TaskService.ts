@@ -95,7 +95,7 @@ const TASK_APPLICATION_MINIMAL_SELECT = {
  * - Otherwise compute based on monetaryValueAchieved/monetaryValue or percentValueAchieved/percentValue
  * - If no values exist, use stage-based defaults
  */
-function computeTaskPercentage(task: any): number {
+export function computeTaskPercentage(task: any): number {
   // If task is completed, return 100%
   if (task.status === 'completed' || task.stage === 'completed') {
     return 100;
