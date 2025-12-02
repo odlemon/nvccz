@@ -397,6 +397,181 @@ export class ProcurementService {
   }
 
   /**
+   * Create default approval request when no config exists
+   * Default: Department HEAD approval (1 step)
+   */
+  private static async createDefaultApprovalRequest(params: {
+    stageType: "PURCHASE_REQUISITION" | "PURCHASE_ORDER" | "INVOICE" | "GRN";
+    entityId: string;
+    entityData?: any;
+    requestedById: string;
+    department: Department;
+  }) {
+    console.log("\n════════════════════════════════════════════════════════════════");
+    console.log("📝 CREATING DEFAULT APPROVAL REQUEST");
+    console.log("════════════════════════════════════════════════════════════════");
+    console.log(`🔖 Stage Type: ${params.stageType}`);
+    console.log(`🆔 Entity ID: ${params.entityId}`);
+    console.log(`👤 Requested By: ${params.requestedById}`);
+    console.log(`🏢 Department: ${params.department}`);
+    console.log("");
+
+    // Find or create default approval config
+    let defaultConfig = await prisma.procurementApprovalConfig.findFirst({
+      where: {
+        name: "Default Approval Config",
+        isActive: true
+      }
+    });
+
+    if (!defaultConfig) {
+      // Create default config
+      defaultConfig = await prisma.procurementApprovalConfig.create({
+        data: {
+          name: "Default Approval Config",
+          description: "Default approval configuration for department HEAD approval",
+          isActive: true,
+          createdById: params.requestedById,
+          department: null // General config
+        }
+      });
+      console.log(`✅ Created default approval config: ${defaultConfig.id}`);
+    } else {
+      console.log(`✅ Using existing default approval config: ${defaultConfig.id}`);
+    }
+
+    // Find or create default approval stage for department HEAD
+    let defaultStage = await prisma.procurementApprovalStage.findFirst({
+      where: {
+        configId: defaultConfig.id,
+        stageType: params.stageType,
+        stepNumber: 1
+      }
+    });
+
+    if (!defaultStage) {
+      // Create default stage for department HEAD approval
+      defaultStage = await prisma.procurementApprovalStage.create({
+        data: {
+          configId: defaultConfig.id,
+          stageType: params.stageType,
+          stepNumber: 1,
+          stepName: "Department Head Approval",
+          stepType: "DEPARTMENT",
+          requiredDepartmentRole: "HEAD",
+          requiredUserDepartment: params.department,
+          isRequired: true,
+          canDelegate: false,
+          autoApprove: false,
+          approvalOrder: "SEQUENTIAL"
+        }
+      });
+      console.log(`✅ Created default approval stage: ${defaultStage.id}`);
+    } else {
+      console.log(`✅ Using existing default approval stage: ${defaultStage.id}`);
+    }
+
+    // Find department HEAD users
+    const departmentHeads = await prisma.user.findMany({
+      where: {
+        userDepartment: params.department,
+        departmentRole: "HEAD"
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true
+      }
+    });
+
+    if (departmentHeads.length === 0) {
+      // If no HEAD, try DEPUTY
+      const departmentDeputies = await prisma.user.findMany({
+        where: {
+          userDepartment: params.department,
+          departmentRole: "DEPUTY"
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
+      });
+
+      if (departmentDeputies.length === 0) {
+        throw new Error(`No department HEAD or DEPUTY found for ${params.department} department. Cannot create default approval workflow.`);
+      }
+
+      console.log(`⚠️  No HEAD found, using DEPUTY users (${departmentDeputies.length})`);
+      departmentHeads.push(...departmentDeputies);
+    }
+
+    console.log(`📋 Found ${departmentHeads.length} approver(s) for ${params.department} department`);
+    departmentHeads.forEach(head => {
+      console.log(`   - ${head.firstName} ${head.lastName} (${head.email})`);
+    });
+    console.log("");
+
+    // Create approval request and approval records in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create approval request
+      const approvalRequest = await tx.approvalRequest.create({
+        data: {
+          configId: defaultConfig.id,
+          stageType: params.stageType,
+          entityId: params.entityId,
+          entityData: params.entityData || {},
+          requestedById: params.requestedById,
+          status: "PENDING",
+          currentStep: 1,
+          totalSteps: 1
+        }
+      });
+
+      console.log(`✅ Approval request created: ${approvalRequest.id}`);
+
+      // Create approval records for each department HEAD
+      const approvals = [];
+      for (const head of departmentHeads) {
+        const approval = await tx.approval.create({
+          data: {
+            requestId: approvalRequest.id,
+            stageId: defaultStage.id,
+            approverId: head.id,
+            status: "PENDING"
+          }
+        });
+        approvals.push(approval);
+        console.log(`   ✅ Approval created for ${head.firstName} ${head.lastName} (${head.id})`);
+      }
+
+      console.log("");
+      console.log(`✅ Created ${approvals.length} approval record(s)`);
+      console.log("════════════════════════════════════════════════════════════════");
+      console.log("");
+
+      // Send email notifications
+      try {
+        const { ProcurementApprovalConfigService } = await import('./ProcurementApprovalConfigService');
+        await ProcurementApprovalConfigService.sendApprovalStepNotifications(
+          approvalRequest.id,
+          defaultStage,
+          params.stageType
+        );
+      } catch (emailError: any) {
+        console.error("⚠️  Error sending approval notifications:", emailError.message || emailError);
+        // Don't throw - email failure shouldn't block approval request creation
+      }
+
+      return { approvalRequest, approvals };
+    });
+
+    return result;
+  }
+
+  /**
    * Submit a purchase requisition for approval
    */
   static async submitPurchaseRequisition(requisitionId: string, submittedById: string) {
@@ -456,13 +631,25 @@ export class ProcurementService {
         });
         if (approvalResult) {
           console.log("✅ Approval request created successfully");
-        } else {
-          console.log("⚠️  No approval request created - check approval config");
         }
       } catch (error: any) {
-        console.error("❌ Error creating approval request:", error.message || error);
-        // Don't throw - we'll keep status as DRAFT if approval fails
-        approvalResult = null;
+        console.log("⚠️  No active approval configuration found - using default workflow (Department HEAD approval)");
+        console.log(`   Error: ${error.message || error}`);
+        
+        // Create default approval workflow with department HEAD approval
+        approvalResult = await this.createDefaultApprovalRequest({
+          stageType: "PURCHASE_REQUISITION",
+          entityId: requisition.id,
+          entityData: {
+            requisitionNumber: requisition.requisitionNumber,
+            title: requisition.title,
+            department: requisition.department,
+            totalAmount: requisition.totalAmount.toString(),
+            itemCount: requisition.items.length
+          },
+          requestedById: submittedById,
+          department: requisition.department
+        });
       }
 
       // Update requisition status based on approval workflow
@@ -539,33 +726,9 @@ export class ProcurementService {
           // Don't throw - email failure shouldn't block requisition submission
         }
       } else {
-        // No approval stages configured - keep as DRAFT
-        updatedRequisition = await prisma.purchaseRequisition.findUnique({
-          where: { id: requisitionId },
-          include: {
-            requestedBy: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                userDepartment: true,
-                departmentRole: true,
-                roleCode: true
-              }
-            },
-            currency: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                symbol: true
-              }
-            },
-            items: true
-          }
-        });
-        console.log("⚠️  No approval stages configured - Requisition remains in DRAFT status");
+        // This should not happen if default workflow is created, but handle it just in case
+        console.log("⚠️  No approval workflow could be created - Requisition remains in DRAFT status");
+        throw new Error("Failed to create approval workflow. Please contact administrator.");
       }
 
       // Audit log
