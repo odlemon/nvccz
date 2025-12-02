@@ -7,9 +7,8 @@ interface PasswordResetTarget {
 }
 
 const targets: PasswordResetTarget[] = [
-  { email: "blessingmwale@nvccz.co.zw", newPassword: "123pass" },
-
-  { email: "blessingmwalein+10@gmail.com", newPassword: "123pass" }
+  { email: "proc.officer@testnvccz.com", newPassword: "123pass" },
+  { email: "blessingmwalein+50@gmail.com", newPassword: "123pass" }
 ];
 
 async function resetPassword({ email, newPassword }: PasswordResetTarget) {
