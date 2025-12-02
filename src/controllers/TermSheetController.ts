@@ -24,6 +24,7 @@ export class TermSheetController {
       isDraft: termSheet.isDraft,
       isFinal: termSheet.isFinal,
       isSigned: termSheet.isSigned,
+      signedAt: termSheet.signedAt,
       createdAt: termSheet.createdAt,
       updatedAt: termSheet.updatedAt,
       // Include application basic info
@@ -40,6 +41,30 @@ export class TermSheetController {
         firstName: termSheet.createdBy.firstName,
         lastName: termSheet.createdBy.lastName,
         email: termSheet.createdBy.email
+      } : null,
+      // Include applicant signature data
+      applicantSignature: termSheet.applicantSignatureUrl ? {
+        signatureUrl: termSheet.applicantSignatureUrl,
+        signatureFileName: termSheet.applicantSignatureFileName,
+        signedAt: termSheet.applicantSignedAt,
+        signedBy: termSheet.applicantSignedBy ? {
+          id: termSheet.applicantSignedBy.id,
+          firstName: termSheet.applicantSignedBy.firstName,
+          lastName: termSheet.applicantSignedBy.lastName,
+          email: termSheet.applicantSignedBy.email
+        } : null
+      } : null,
+      // Include investor signature data
+      investorSignature: termSheet.investorSignatureUrl ? {
+        signatureUrl: termSheet.investorSignatureUrl,
+        signatureFileName: termSheet.investorSignatureFileName,
+        signedAt: termSheet.investorSignedAt,
+        signedBy: termSheet.investorSignedBy ? {
+          id: termSheet.investorSignedBy.id,
+          firstName: termSheet.investorSignedBy.firstName,
+          lastName: termSheet.investorSignedBy.lastName,
+          email: termSheet.investorSignedBy.email
+        } : null
       } : null
     };
   }
@@ -246,26 +271,28 @@ export class TermSheetController {
           return;
         }
 
-        if (req.body.title !== undefined) updateData.title = req.body.title;
-        if (req.body.investmentAmount !== undefined) updateData.investmentAmount = req.body.investmentAmount;
-        if (req.body.equityPercentage !== undefined) updateData.equityPercentage = req.body.equityPercentage;
-        if (req.body.valuation !== undefined) updateData.valuation = req.body.valuation;
-        if (req.body.keyTerms !== undefined) updateData.keyTerms = req.body.keyTerms;
-        if (req.body.conditions !== undefined) updateData.conditions = req.body.conditions;
-        if (req.body.timeline !== undefined) updateData.timeline = req.body.timeline;
-        if (req.body.documentUrl !== undefined) updateData.documentUrl = req.body.documentUrl;
-        if (req.body.documentFileName !== undefined) updateData.documentFileName = req.body.documentFileName;
-        if (req.body.documentSize !== undefined) updateData.documentSize = req.body.documentSize;
-        if (req.body.status !== undefined) updateData.status = req.body.status;
-        if (req.body.isDraft !== undefined) updateData.isDraft = req.body.isDraft;
-        if (req.body.isFinal !== undefined) updateData.isFinal = req.body.isFinal;
+        // Allow updating mandatory fields (title, investmentAmount, equityPercentage, valuation)
+        // Use hasOwnProperty to check if field exists in request body (even if null or empty string)
+        if ('title' in req.body) updateData.title = req.body.title;
+        if ('investmentAmount' in req.body) updateData.investmentAmount = req.body.investmentAmount;
+        if ('equityPercentage' in req.body) updateData.equityPercentage = req.body.equityPercentage;
+        if ('valuation' in req.body) updateData.valuation = req.body.valuation;
+        if ('keyTerms' in req.body) updateData.keyTerms = req.body.keyTerms;
+        if ('conditions' in req.body) updateData.conditions = req.body.conditions;
+        if ('timeline' in req.body) updateData.timeline = req.body.timeline;
+        if ('documentUrl' in req.body) updateData.documentUrl = req.body.documentUrl;
+        if ('documentFileName' in req.body) updateData.documentFileName = req.body.documentFileName;
+        if ('documentSize' in req.body) updateData.documentSize = req.body.documentSize;
+        if ('status' in req.body) updateData.status = req.body.status;
+        if ('isDraft' in req.body) updateData.isDraft = req.body.isDraft;
+        if ('isFinal' in req.body) updateData.isFinal = req.body.isFinal;
       }
 
       // Check if any fields were provided
       if (Object.keys(updateData).length === 0) {
         res.status(400).json({
           success: false,
-          message: 'No update fields provided'
+          message: 'No update fields provided. You can update: title, investmentAmount, equityPercentage, valuation, keyTerms, conditions, timeline, documentUrl, documentFileName, documentSize, status, isDraft, isFinal'
         });
         return;
       }

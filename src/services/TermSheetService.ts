@@ -118,6 +118,22 @@ export class TermSheetService {
               lastName: true,
               email: true
             }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
       });
@@ -162,6 +178,22 @@ export class TermSheetService {
             }
           },
           createdBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
             select: {
               id: true,
               firstName: true,
@@ -280,6 +312,22 @@ export class TermSheetService {
               lastName: true,
               email: true
             }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
       });
@@ -331,6 +379,22 @@ export class TermSheetService {
             }
           },
           createdBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
             select: {
               id: true,
               firstName: true,
@@ -469,6 +533,22 @@ export class TermSheetService {
               lastName: true,
               email: true
             }
+          },
+          applicantSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          investorSignedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
       });
@@ -557,6 +637,22 @@ export class TermSheetService {
                 lastName: true,
                 email: true
               }
+            },
+            applicantSignedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            investorSignedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
             }
           }
         }),
@@ -627,6 +723,22 @@ export class TermSheetService {
               }
             },
             createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            applicantSignedBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            investorSignedBy: {
               select: {
                 id: true,
                 firstName: true,
