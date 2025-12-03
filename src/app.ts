@@ -129,6 +129,7 @@ app.use(cors({
     const allowedOrigins = [
       "https://nvcczz.vercel.app",
       "https://nvccz-new-taupe.vercel.app",
+      " http://31.220.82.129",
       "https://nvccz-frontend.vercel.app", 
       "https://arcus-eight.vercel.app",
       "https://nvccz-new.vercel.app",
