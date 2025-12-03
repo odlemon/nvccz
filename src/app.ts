@@ -130,6 +130,8 @@ app.use(cors({
       "https://nvcczz.vercel.app",
       "https://nvccz-new-taupe.vercel.app",
       "http://31.220.82.129",
+      "http://kyntaro.com",
+      "https://kyntaro.com",
       "https://nvccz-frontend.vercel.app", 
       "https://arcus-eight.vercel.app",
       "https://nvccz-new.vercel.app",
