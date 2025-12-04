@@ -71,13 +71,12 @@ async function updateAdminPassword() {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     console.log('✅ Password hashed');
 
-    // Update the password and set passwordChangedAt to invalidate old tokens
+    // Update the password
     console.log('💾 Updating password in database...');
     await prisma.user.update({
       where: { email: ADMIN_EMAIL },
       data: {
-        password: hashedPassword,
-        passwordChangedAt: new Date() // This will invalidate all existing tokens
+        password: hashedPassword
       }
     });
 

@@ -42,18 +42,8 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        passwordChangedAt: true, // CRITICAL: Must select this field
-        role: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
+      include: {
+        role: true
       }
     });
     
@@ -65,44 +55,6 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
         message: "Unauthorized" 
       });
       return;
-    }
-    
-    // FORCE INVALIDATE: Check if password was changed - if passwordChangedAt exists, invalidate ALL tokens
-    // This ensures all existing sessions are logged out when password changes
-    if (user.passwordChangedAt) {
-      const passwordChangedAt = new Date(user.passwordChangedAt);
-      console.log(`🔐 Password change detected for user ${user.email}`);
-      console.log(`   Password changed at: ${passwordChangedAt.toISOString()}`);
-      
-      // If token has iat (issued at), check if it was issued before password change
-      if (decoded.iat) {
-        const tokenIssuedAt = new Date(decoded.iat * 1000); // JWT iat is in seconds, convert to milliseconds
-        console.log(`   Token issued at: ${tokenIssuedAt.toISOString()}`);
-        
-        if (tokenIssuedAt < passwordChangedAt) {
-          console.log(`❌ TOKEN INVALIDATED: Token issued before password change for ${req.path}`);
-          console.log(`   Token issued: ${tokenIssuedAt.toISOString()}`);
-          console.log(`   Password changed: ${passwordChangedAt.toISOString()}`);
-          res.status(401).json({ 
-            success: false,
-            message: "Session expired. Please login again." 
-          });
-          return;
-        } else {
-          console.log(`✅ Token issued after password change - allowing access`);
-        }
-      } else {
-        // If token doesn't have iat, invalidate it anyway if passwordChangedAt exists
-        // This is a safety measure - if password was changed, all tokens should be invalid
-        console.log(`❌ TOKEN INVALIDATED: Token missing iat claim and password was changed - invalidating for ${req.path}`);
-        res.status(401).json({ 
-          success: false,
-          message: "Session expired. Please login again." 
-        });
-        return;
-      }
-    } else {
-      console.log(`✅ No password change detected - token valid`);
     }
     
     req.user = user;
