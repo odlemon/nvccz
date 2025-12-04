@@ -18,6 +18,7 @@ model User {
   createdAt                         DateTime                     @default(now())
   updatedAt                         DateTime                     @updatedAt
   lastSeen                          DateTime                     @default(now())
+  passwordChangedAt                 DateTime?                    // Timestamp when password was last changed (invalidates old tokens)
   backgroundImage                   String?
   departmentId                      String?
   departmentRole                    String?
