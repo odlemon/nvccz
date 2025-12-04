@@ -1,0 +1,20 @@
+[
+  {
+    "id": "cmhk9tj1c0001unjkghtd88gx",
+    "userId": "cmh3by4p40002unl07zgzpgrb",
+    "employeeNumber": "EMP001",
+    "bankName": null,
+    "branchCode": null,
+    "accountNumber": null,
+    "basicSalary": "2000",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "isActive": true,
+    "createdAt": "2025-11-04T07:52:07.576Z",
+    "updatedAt": "2025-11-04T07:52:07.576Z",
+    "address": null,
+    "idNumber": null,
+    "nextOfKin": null,
+    "pictureUrl": null,
+    "nextOfKinContact": null
+  }
+]

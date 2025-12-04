@@ -1,0 +1,17 @@
+[
+  {
+    "id": "cmhxc705o0001un2gff7fezee",
+    "fileName": "manual-upload-1763032775809.json",
+    "fileUrl": "manual-entry",
+    "status": "COMPLETED",
+    "totalTransactions": 3,
+    "matchedCount": 1,
+    "unmatchedCount": 2,
+    "confidenceThreshold": "90",
+    "overallAccuracy": "33.33",
+    "notes": "{\"bankId\":\"cmh5u1h3y0001unagy8qtrkng\",\"statementDate\":\"2025-11-03\",\"openingBalance\":100000,\"closingBalance\":97350,\"totalDebits\":3150,\"totalCredits\":500}",
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-13T11:19:35.818Z",
+    "updatedAt": "2025-11-13T11:19:48.826Z"
+  }
+]

@@ -1,0 +1,40 @@
+[
+  {
+    "id": "cmhkmbebt0001l504kmqc3kz7",
+    "name": "New Fund",
+    "description": "New Fund yes yes ",
+    "totalAmount": "3400",
+    "remainingAmount": "3400",
+    "minInvestment": "100",
+    "maxInvestment": "4500",
+    "focusIndustries": [
+      "E-commerce",
+      "Manufactoring",
+      "Healthcare"
+    ],
+    "applicationStart": "2025-09-01T22:00:00.000Z",
+    "applicationEnd": "2025-11-28T22:00:00.000Z",
+    "status": "OPEN",
+    "createdById": "cmh3by4p40002unl07zgzpgrb",
+    "createdAt": "2025-11-04T13:41:56.681Z",
+    "updatedAt": "2025-11-15T12:36:18.370Z"
+  },
+  {
+    "id": "cmht6ve7x0001jx04kz890uj6",
+    "name": "Fashion",
+    "description": "threads, clothes, fashion",
+    "totalAmount": "50000000",
+    "remainingAmount": "49918910",
+    "minInvestment": "10000",
+    "maxInvestment": "200000",
+    "focusIndustries": [
+      "Manufactoring"
+    ],
+    "applicationStart": "2025-11-08T22:00:00.000Z",
+    "applicationEnd": "2025-11-29T22:00:00.000Z",
+    "status": "OPEN",
+    "createdById": "cmhn8poyr0001kv04fde4145j",
+    "createdAt": "2025-11-10T13:39:31.389Z",
+    "updatedAt": "2025-12-02T07:22:28.744Z"
+  }
+]
