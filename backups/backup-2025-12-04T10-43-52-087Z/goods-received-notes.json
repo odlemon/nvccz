@@ -1,0 +1,72 @@
+[
+  {
+    "id": "cmi1oxjcp000run28obirgsrj",
+    "grnNumber": "GRN-1763296033845-233",
+    "purchaseOrderId": "cmi1ox814000kun28ik7l0r66",
+    "status": "RECEIVED",
+    "receivedDate": "2025-11-16T12:27:13.848Z",
+    "receivedById": "cmi1giv140001unm8e66xumx6",
+    "qualityStatus": "PENDING",
+    "qualityNotes": null,
+    "approvedById": null,
+    "approvedAt": null,
+    "createdAt": "2025-11-16T12:27:13.848Z",
+    "updatedAt": "2025-11-16T12:27:13.848Z"
+  },
+  {
+    "id": "cmi1oz3f4001qun28fkiotr5b",
+    "grnNumber": "GRN-1763296106511-028",
+    "purchaseOrderId": "cmi1oyufn001jun28e53cp0sa",
+    "status": "RECEIVED",
+    "receivedDate": "2025-11-16T12:28:26.513Z",
+    "receivedById": "cmi1giv140001unm8e66xumx6",
+    "qualityStatus": "PENDING",
+    "qualityNotes": null,
+    "approvedById": null,
+    "approvedAt": null,
+    "createdAt": "2025-11-16T12:28:26.513Z",
+    "updatedAt": "2025-11-16T12:28:26.513Z"
+  },
+  {
+    "id": "cmi1p20p0000run7gei2ntt7n",
+    "grnNumber": "GRN-1763296242941-605",
+    "purchaseOrderId": "cmi1p1pca000kun7grngnd8m3",
+    "status": "RECEIVED",
+    "receivedDate": "2025-11-16T12:30:42.947Z",
+    "receivedById": "cmi1giv140001unm8e66xumx6",
+    "qualityStatus": "PENDING",
+    "qualityNotes": null,
+    "approvedById": null,
+    "approvedAt": null,
+    "createdAt": "2025-11-16T12:30:42.947Z",
+    "updatedAt": "2025-11-16T12:30:42.947Z"
+  },
+  {
+    "id": "cmi1p3eyl001uun7g74nj2t23",
+    "grnNumber": "GRN-1763296308090-537",
+    "purchaseOrderId": "cmi1p35zj001nun7gijnwlkpz",
+    "status": "RECEIVED",
+    "receivedDate": "2025-11-16T12:31:48.093Z",
+    "receivedById": "cmi1giv140001unm8e66xumx6",
+    "qualityStatus": "PENDING",
+    "qualityNotes": null,
+    "approvedById": null,
+    "approvedAt": null,
+    "createdAt": "2025-11-16T12:31:48.093Z",
+    "updatedAt": "2025-11-16T12:31:48.093Z"
+  },
+  {
+    "id": "cmi1p4lys002xun7gy0fbpfpa",
+    "grnNumber": "GRN-1763296363826-959",
+    "purchaseOrderId": "cmi1p4d5a002qun7glgyy04lw",
+    "status": "RECEIVED",
+    "receivedDate": "2025-11-16T12:32:43.828Z",
+    "receivedById": "cmi1giv140001unm8e66xumx6",
+    "qualityStatus": "PENDING",
+    "qualityNotes": null,
+    "approvedById": null,
+    "approvedAt": null,
+    "createdAt": "2025-11-16T12:32:43.828Z",
+    "updatedAt": "2025-11-16T12:32:43.828Z"
+  }
+]

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "cmhyk6k6d000cund8pamto0mt",
+    "invoiceId": "cmhyk63080001und8sk83pv6y",
+    "transactionDate": "2025-11-14T07:50:58.210Z",
+    "fromCurrencyId": "cmh3bymy70000una4yk8leusu",
+    "toCurrencyId": "cmh3byol60001una4029pus8w",
+    "originalAmount": "320000",
+    "convertedAmount": "340000",
+    "exchangeRate": "340",
+    "gainLossAmount": "20000",
+    "gainLossType": "GAIN",
+    "description": "Multi-currency payment for invoice INV-2025-034",
+    "journalEntryId": null,
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-14T07:50:58.214Z"
+  },
+  {
+    "id": "cmhyk8der000cunms0vpz64d6",
+    "invoiceId": "cmhyk7w4b0001unmshnaoczkt",
+    "transactionDate": "2025-11-14T07:52:22.753Z",
+    "fromCurrencyId": "cmh3bymy70000una4yk8leusu",
+    "toCurrencyId": "cmh3byol60001una4029pus8w",
+    "originalAmount": "320000",
+    "convertedAmount": "340000",
+    "exchangeRate": "340",
+    "gainLossAmount": "20000",
+    "gainLossType": "GAIN",
+    "description": "Multi-currency payment for invoice INV-2025-035",
+    "journalEntryId": null,
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-14T07:52:22.755Z"
+  }
+]

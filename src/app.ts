@@ -128,6 +128,8 @@ app.use(cors({
     
     const allowedOrigins = [
       "https://nvcczz.vercel.app",
+      "http://app.kyntaro.com",
+      "https://app.kyntaro.com",
       "https://nvccz-new-taupe.vercel.app",
       "http://31.220.82.129",
       "http://kyntaro.com",

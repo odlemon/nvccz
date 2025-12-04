@@ -1,0 +1,42 @@
+[
+  {
+    "id": "cmh3c7fjx0000jp04hshkrg5f",
+    "date": "2025-10-23T00:00:00.000Z",
+    "fromCurrencyId": "cmh3bymy70000una4yk8leusu",
+    "toCurrencyId": "cmh3byol60001una4029pus8w",
+    "rate": "23",
+    "isActive": true,
+    "createdById": "cmh3by4p40002unl07zgzpgrb",
+    "createdAt": "2025-10-23T11:26:50.494Z"
+  },
+  {
+    "id": "cmhyjqefu0000un68oy0qnfg0",
+    "date": "2025-10-15T00:00:00.000Z",
+    "fromCurrencyId": "cmh3bymy70000una4yk8leusu",
+    "toCurrencyId": "cmh3byol60001una4029pus8w",
+    "rate": "50",
+    "isActive": true,
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-14T07:38:24.281Z"
+  },
+  {
+    "id": "cmhyjqm4p0003un681colgbuw",
+    "date": "2025-11-14T00:00:00.000Z",
+    "fromCurrencyId": "cmh3bymy70000una4yk8leusu",
+    "toCurrencyId": "cmh3byol60001una4029pus8w",
+    "rate": "340",
+    "isActive": true,
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-14T07:38:34.249Z"
+  },
+  {
+    "id": "cmi00glh20000unbg7zfqczay",
+    "date": "2025-11-14T00:00:00.000Z",
+    "fromCurrencyId": "cmh3byol60001una4029pus8w",
+    "toCurrencyId": "cmh3bymy70000una4yk8leusu",
+    "rate": "0.001",
+    "isActive": true,
+    "createdById": "cmhlnqd460001unnslmw98ry8",
+    "createdAt": "2025-11-15T08:14:26.487Z"
+  }
+]

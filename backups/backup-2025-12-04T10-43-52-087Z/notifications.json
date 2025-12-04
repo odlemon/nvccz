@@ -1,0 +1,3154 @@
+[
+  {
+    "id": "cmhg7fxjt0002l704gv4ng110",
+    "title": "New Event: Soses",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhbnu3rn0001unjc4pe6666l",
+    "isRead": false,
+    "data": {
+      "eventId": "cmhg7fvph0001l704xoke0l5j",
+      "authorId": "cmh3by4p40002unl07zgzpgrb"
+    },
+    "createdAt": "2025-11-01T11:34:29.273Z",
+    "updatedAt": "2025-11-01T11:34:29.273Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmhg7fxjt0003l7049io6paoq",
+    "title": "New Event: Soses",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhbqqk430001l204f71u6t2w",
+    "isRead": false,
+    "data": {
+      "eventId": "cmhg7fvph0001l704xoke0l5j",
+      "authorId": "cmh3by4p40002unl07zgzpgrb"
+    },
+    "createdAt": "2025-11-01T11:34:29.273Z",
+    "updatedAt": "2025-11-01T11:34:29.273Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0002l8047lrtynz4",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmh3by4p40002unl07zgzpgrb",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0003l804mfmhokvv",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhbnu3rn0001unjc4pe6666l",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0004l8049anf24v7",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhbqqk430001l204f71u6t2w",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0005l804tt73jqco",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhk80u990001jj04t1ssmtzk",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0006l804rnryysw7",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhlgd8n50001kz0421mjn5r3",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0007l804m96zhbfn",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhli9swu0001jw04n650w8b5",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0008l804bqlw8grf",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhlnqd460001unnslmw98ry8",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0009l804jnwfog4v",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhlp0s2i000bl704m2xgc0yj",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000al804e6z429c8",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhlu3aa70001unv4hzvifg3u",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000bl804w1k7w5k2",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhmnvmpf0003l8045pw73e9c",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000cl8046e9mxg1n",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhmsxja10001kw04c2hfmv3i",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000dl804hdafyhfh",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhn1hn7l0003ld04bwwyb1ci",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000el804ycktqhdg",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhn27ecz000bky04we1i40x4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000fl804c3n2h55a",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhn8poyr0001kv04fde4145j",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000gl8043b44boc5",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhna8vux0003ih045jy1oyhr",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000hl804452tv5nm",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhnaukru0001l904divtin2t",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000il8042zy8afp2",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhnuwcev0001ii04wz7es15b",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000jl8049e63hcjx",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhoseslf0001i904af133qul",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000kl804fda93mml",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhratnyd0001l504zpgl6uaw",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000ll804sm1wa9qk",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmht6b2xv0001jm041rc8sxi4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000ml8041p00q84n",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmhyta00g0001i204j98bfpzq",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000nl804ulx5hcj5",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmi1giwn60003unm86iiyyk9m",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000ol804he6gfxl5",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmi1gixxs0005unm8q6mgy9gn",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000pl80483g5rmaw",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmi1giz840007unm8anh2wody",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000ql804xnhgl0lg",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmi1gj0hz0009unm82jt9dpsa",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000rl804am4c9r82",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmi5t2pea0001ju04doz2bvpi",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000sl8042jaa782b",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmi79ai1m0008jx0445tsb81a",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000tl804x7ubj40l",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmi8mg57e000dun6stf95yp8r",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000ul804lht278vk",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmiakd8qc0001js04rszrmvhz",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000vl804s7s4itka",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmialloym0001jx04v0tx7h04",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000wl804ydnazle6",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmialmrej0003jx04ahjc2yo7",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000xl804pp712p0u",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmialnmk90005jx045c2iyjub",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000yl80445ygj6r9",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmialocxx0007jx04k16h44k0",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc000zl804342tmajm",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmiblk8ln0001jl04n51sugjl",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0010l804wl747k36",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmiblnvxs0003jl045uy7dbsz",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0011l804m72xy1b1",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmiblouug0005jl04286lsked",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0012l804s6gqxnuq",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmiblpe7q0007jl0440ciorus",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0013l8042hrjc288",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmibnjwye0001l704f88xpbx3",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0014l8041r073zy9",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmift25x80007jr041ckgb7ed",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0015l804gisuxoni",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmifzhtpw0001un1cvin4qp02",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0016l8048t8n6t3k",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmifzhv300003un1cz9bslpkh",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0017l804qhgwodp3",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmih638le0001l80402rflc5n",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0018l804nvkknhb3",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmih655ff0003l8047bsl0u0f",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc0019l80466mo6t7m",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmih667b70005l8048fqhgobg",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc001al8048mrih5tn",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmih6bpoo0007l804zu5sv3b4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc001bl804u1qlyq0v",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmih6m7rw0001jo04u5vqes4p",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc001cl8042pydwj70",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmihcn99x0001ld04tkagsibv",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmilisxqc001dl804va59k621",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Procurement Manager",
+    "type": "event",
+    "userId": "cmiivigjd0001la04opx47i2i",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiliswzv0001l804q64g8rdu",
+      "authorId": "cmi1giv140001unm8e66xumx6"
+    },
+    "createdAt": "2025-11-30T09:31:05.028Z",
+    "updatedAt": "2025-11-30T09:31:05.028Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv30002gp04ieyr9swg",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmh3by4p40002unl07zgzpgrb",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv30003gp04wrx9z61m",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhbnu3rn0001unjc4pe6666l",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv30004gp0473lmu0jc",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhbqqk430001l204f71u6t2w",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv30005gp045jwp7ogn",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhk80u990001jj04t1ssmtzk",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv30006gp04wocmll7n",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhlgd8n50001kz0421mjn5r3",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv30007gp04saxtazso",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhli9swu0001jw04n650w8b5",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv30008gp04ilmciws8",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhlnqd460001unnslmw98ry8",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv30009gp04ace9fb76",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhlp0s2i000bl704m2xgc0yj",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000agp04zjezonjb",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhlu3aa70001unv4hzvifg3u",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000bgp04daaiqxjk",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhmnvmpf0003l8045pw73e9c",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000cgp04vxfj1dvl",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhmsxja10001kw04c2hfmv3i",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000dgp04qep1grh0",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhn1hn7l0003ld04bwwyb1ci",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000egp040gs0muf8",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhn27ecz000bky04we1i40x4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000fgp04pahj0q2n",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhn8poyr0001kv04fde4145j",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000ggp04afj87w6n",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhna8vux0003ih045jy1oyhr",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000hgp04p9htrf70",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhnaukru0001l904divtin2t",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000igp04oj42cahp",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhnuwcev0001ii04wz7es15b",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000jgp0451stk91p",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhoseslf0001i904af133qul",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000kgp04pm0jfmwj",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhratnyd0001l504zpgl6uaw",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000lgp047v8si4mg",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmht6b2xv0001jm041rc8sxi4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000mgp04zhx0sese",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmhyta00g0001i204j98bfpzq",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000ngp04gbf90dxu",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmi1giv140001unm8e66xumx6",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000ogp04oxnzl6jq",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmi1giwn60003unm86iiyyk9m",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv3000pgp04b01xr95i",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmi1gixxs0005unm8q6mgy9gn",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000qgp04yp1mnu8x",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmi1giz840007unm8anh2wody",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000rgp04w9en68il",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmi1gj0hz0009unm82jt9dpsa",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000sgp04mg1o1w0t",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmi5t2pea0001ju04doz2bvpi",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000tgp04lfv44onz",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmi79ai1m0008jx0445tsb81a",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000ugp04b7hv24im",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmi8mg57e000dun6stf95yp8r",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000vgp04e5ir61mv",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmiakd8qc0001js04rszrmvhz",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000wgp04qwscutyd",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmialloym0001jx04v0tx7h04",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000xgp04vzadtvei",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmialmrej0003jx04ahjc2yo7",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000ygp04obavrx8q",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmialnmk90005jx045c2iyjub",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4000zgp047r8w63fv",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmialocxx0007jx04k16h44k0",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40010gp049hn1fnun",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmiblk8ln0001jl04n51sugjl",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40011gp04nejwg1l5",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmiblnvxs0003jl045uy7dbsz",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40012gp04p5q9vff0",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmiblouug0005jl04286lsked",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40013gp04u0tcdh10",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmiblpe7q0007jl0440ciorus",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40014gp04ufz3ouh8",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmibnjwye0001l704f88xpbx3",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40015gp0489qk8hbr",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmifzhtpw0001un1cvin4qp02",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40016gp047x63l9wz",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmifzhv300003un1cz9bslpkh",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40017gp043ahbzewj",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmih638le0001l80402rflc5n",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40018gp04ltc1il9z",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmih655ff0003l8047bsl0u0f",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv40019gp0452wnpu11",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmih667b70005l8048fqhgobg",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4001agp04l289pmjl",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmih6bpoo0007l804zu5sv3b4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4001bgp044wc0ksyv",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmih6m7rw0001jo04u5vqes4p",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4001cgp04fll3vr2d",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmihcn99x0001ld04tkagsibv",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4001dgp04z2ln5m95",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmiivigjd0001la04opx47i2i",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiprkrv4001egp04ai28p7jt",
+    "title": "New Event: Annual Company Conference",
+    "message": "A new event has been created by Proc Manager",
+    "type": "event",
+    "userId": "cmin12qg10001l2044ttu2za6",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiprkr6t0001gp04ws4y1qgu",
+      "authorId": "cmift25x80007jr041ckgb7ed"
+    },
+    "createdAt": "2025-12-03T08:47:45.423Z",
+    "updatedAt": "2025-12-03T08:47:45.423Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93950002l204k6ktekp8",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmh3by4p40002unl07zgzpgrb",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93950003l204l16cmxis",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhbnu3rn0001unjc4pe6666l",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93950004l204xs432d5i",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhbqqk430001l204f71u6t2w",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93950005l204jjvzfwpp",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhk80u990001jj04t1ssmtzk",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93950006l2042cc1r4k4",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhlgd8n50001kz0421mjn5r3",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93950007l204qx91af6i",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhli9swu0001jw04n650w8b5",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93950008l2044uzm3fkh",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhlp0s2i000bl704m2xgc0yj",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93950009l204ghmq64z8",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhlu3aa70001unv4hzvifg3u",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9395000al204lcfeeqlm",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhmnvmpf0003l8045pw73e9c",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9395000bl204z0s796q8",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhmsxja10001kw04c2hfmv3i",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9395000cl204xp5qzvs4",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhn1hn7l0003ld04bwwyb1ci",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000dl2047iad65w6",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhn27ecz000bky04we1i40x4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000el204bsgdony1",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhn8poyr0001kv04fde4145j",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000fl204cios9sgr",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhna8vux0003ih045jy1oyhr",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000gl2041kt42lxw",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhnaukru0001l904divtin2t",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000hl2047dn6ljwk",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhnuwcev0001ii04wz7es15b",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000il204rh724tq5",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhoseslf0001i904af133qul",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000jl204sqh2lf6k",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhratnyd0001l504zpgl6uaw",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000kl2045mrka1pb",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmht6b2xv0001jm041rc8sxi4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000ll2043pnvf76n",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhyta00g0001i204j98bfpzq",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000ml204ni45am8v",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1giv140001unm8e66xumx6",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000nl204zwylyfbs",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1giwn60003unm86iiyyk9m",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000ol204ifd694qf",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1gixxs0005unm8q6mgy9gn",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000pl204yj4cdy0c",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1giz840007unm8anh2wody",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000ql204w7rids9l",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1gj0hz0009unm82jt9dpsa",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000rl204f0evaz63",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi5t2pea0001ju04doz2bvpi",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000sl204no6my6ua",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi79ai1m0008jx0445tsb81a",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000tl204b0bzefjo",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi8mg57e000dun6stf95yp8r",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000ul204ww6do2h0",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiakd8qc0001js04rszrmvhz",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000vl204xpibrwwm",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmialloym0001jx04v0tx7h04",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000wl204bvsvpi72",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmialmrej0003jx04ahjc2yo7",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000xl204bw5fp5ak",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmialnmk90005jx045c2iyjub",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000yl204hevy0v3j",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmialocxx0007jx04k16h44k0",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396000zl204d4lfl8gn",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiblk8ln0001jl04n51sugjl",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960010l204wtgig27y",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiblnvxs0003jl045uy7dbsz",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960011l204wd794h9h",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiblouug0005jl04286lsked",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960012l2044nz94m3g",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiblpe7q0007jl0440ciorus",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960013l204v6hr0gmb",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmibnjwye0001l704f88xpbx3",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960014l204pa0n4x77",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmift25x80007jr041ckgb7ed",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960015l204gqelm8bf",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmifzhtpw0001un1cvin4qp02",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960016l2049vckwhhs",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmifzhv300003un1cz9bslpkh",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960017l204bzvqrfx5",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih638le0001l80402rflc5n",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960018l204rv57ydbf",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih655ff0003l8047bsl0u0f",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw93960019l2041f0f5cog",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih667b70005l8048fqhgobg",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396001al2048xj52x0m",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih6bpoo0007l804zu5sv3b4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396001bl2042wv25r7y",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih6m7rw0001jo04u5vqes4p",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396001cl204t92xrew6",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmihcn99x0001ld04tkagsibv",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396001dl204ogz6ewny",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiivigjd0001la04opx47i2i",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmipw9396001el204arv9xgwr",
+    "title": "New Event: Anual Grand Tour",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmin12qg10001l2044ttu2za6",
+    "isRead": false,
+    "data": {
+      "eventId": "cmipw92i60001l2041ppveh41",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T10:58:38.393Z",
+    "updatedAt": "2025-12-03T10:58:38.393Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0002lb043mibz3r2",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmh3by4p40002unl07zgzpgrb",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0003lb04crs6wbt6",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhbnu3rn0001unjc4pe6666l",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0004lb04tuojswwg",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhbqqk430001l204f71u6t2w",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0005lb04fz5jwmym",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhk80u990001jj04t1ssmtzk",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0006lb04p60ik6k9",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhlgd8n50001kz0421mjn5r3",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0007lb041emtlwuu",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhli9swu0001jw04n650w8b5",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0008lb04ordsbe1o",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhlp0s2i000bl704m2xgc0yj",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0009lb04wgzk2l7j",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhlu3aa70001unv4hzvifg3u",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000alb04o43fetgr",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhmnvmpf0003l8045pw73e9c",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000blb04f0h2tucl",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhmsxja10001kw04c2hfmv3i",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000clb0471iloy7w",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhn1hn7l0003ld04bwwyb1ci",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000dlb04bl3u9z0g",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhn27ecz000bky04we1i40x4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000elb04wgxnoa2d",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhn8poyr0001kv04fde4145j",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000flb04bdq26oop",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhna8vux0003ih045jy1oyhr",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000glb043f15mpkh",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhnaukru0001l904divtin2t",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000hlb04hv7n89uo",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhnuwcev0001ii04wz7es15b",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000ilb04ujvwt1ju",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhoseslf0001i904af133qul",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000jlb048qxuyq3q",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhratnyd0001l504zpgl6uaw",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000klb0476f7ffwa",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmht6b2xv0001jm041rc8sxi4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000llb0458p6hbkc",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmhyta00g0001i204j98bfpzq",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000mlb04clz017x1",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1giv140001unm8e66xumx6",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000nlb04sdgftv7v",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1giwn60003unm86iiyyk9m",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000olb04wfpfowac",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1gixxs0005unm8q6mgy9gn",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000plb043x0i0uzq",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1giz840007unm8anh2wody",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000qlb04fncop3fd",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi1gj0hz0009unm82jt9dpsa",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000rlb04ebygxk7t",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi5t2pea0001ju04doz2bvpi",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000slb046ow36hcu",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi79ai1m0008jx0445tsb81a",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000tlb04bctz2vp6",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmi8mg57e000dun6stf95yp8r",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000ulb0431vuv89m",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiakd8qc0001js04rszrmvhz",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000vlb04y96mdrd3",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmialloym0001jx04v0tx7h04",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000wlb047sl8mybk",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmialmrej0003jx04ahjc2yo7",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000xlb048x9mgxwi",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmialnmk90005jx045c2iyjub",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000ylb04xlvn5vev",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmialocxx0007jx04k16h44k0",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi000zlb04b2vktj15",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiblk8ln0001jl04n51sugjl",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0010lb04ge9ulz52",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiblnvxs0003jl045uy7dbsz",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0011lb048mx8nkuj",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiblouug0005jl04286lsked",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0012lb04c7au4kta",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiblpe7q0007jl0440ciorus",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0013lb04uw5dxvd1",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmibnjwye0001l704f88xpbx3",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0014lb044y21wnnl",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmift25x80007jr041ckgb7ed",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0015lb04f1s3hhyl",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmifzhtpw0001un1cvin4qp02",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0016lb042wuquh8r",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmifzhv300003un1cz9bslpkh",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0017lb04ss2h1hgb",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih638le0001l80402rflc5n",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0018lb04bb9ipk38",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih655ff0003l8047bsl0u0f",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi0019lb04k2eyk76s",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih667b70005l8048fqhgobg",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi001alb04fao3rfox",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih6bpoo0007l804zu5sv3b4",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi001blb04sfqj14ui",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmih6m7rw0001jo04u5vqes4p",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi001clb043dn6zi7t",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmihcn99x0001ld04tkagsibv",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi001dlb0434wzz6n1",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmiivigjd0001la04opx47i2i",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  },
+  {
+    "id": "cmiq5jrpi001elb041utohezg",
+    "title": "New Event: ZB AGM",
+    "message": "A new event has been created by Admin User",
+    "type": "event",
+    "userId": "cmin12qg10001l2044ttu2za6",
+    "isRead": false,
+    "data": {
+      "eventId": "cmiq5jqyn0001lb048hjz6unu",
+      "authorId": "cmhlnqd460001unnslmw98ry8"
+    },
+    "createdAt": "2025-12-03T15:18:53.190Z",
+    "updatedAt": "2025-12-03T15:18:53.190Z",
+    "relatedEntity": null,
+    "relatedEntityId": null
+  }
+]
