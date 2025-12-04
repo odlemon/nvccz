@@ -180,7 +180,7 @@ export class UserService {
             <p>You can now access the system using these credentials. If you have any questions or need assistance, please contact the IT department.</p>
             
             <p style="text-align: center;">
-              <a href="${process.env.FRONTEND_URL || 'https://nvccz-frontend.vercel.app'}/login" class="button">Login to NVCCZ</a>
+              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login" class="button">Login to NVCCZ</a>
             </p>
           </div>
           <div class="footer">
@@ -215,7 +215,7 @@ IMPORTANT SECURITY NOTICE:
 
 You can now access the system using these credentials. If you have any questions or need assistance, please contact the IT department.
 
-Login URL: ${process.env.FRONTEND_URL || 'https://nvccz-frontend.vercel.app'}/login
+Login URL: ${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login
 
 © 2024 NVCCZ. All rights reserved.
 This is an automated message. Please do not reply to this email.

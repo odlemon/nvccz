@@ -32,7 +32,7 @@ export class EmailService {
    */
   public async sendConfirmationEmail(email: string, firstName: string | null, confirmationToken: string): Promise<boolean> {
     try {
-      const confirmationUrl = `${process.env.FRONTEND_URL || 'https://nvccz-frontend.vercel.app'}/confirm-newsletter?token=${confirmationToken}`;
+      const confirmationUrl = `${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/confirm-newsletter?token=${confirmationToken}`;
       
       const emailData: EmailData = {
         to: email,
@@ -192,7 +192,7 @@ If you didn't request this subscription, you can safely ignore this email.
           </div>
           <div class="footer">
             <p>© 2024 NVCCZ. All rights reserved.</p>
-            <p><a href="${process.env.FRONTEND_URL || 'https://nvccz-frontend.vercel.app'}/unsubscribe">Unsubscribe</a></p>
+            <p><a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/unsubscribe">Unsubscribe</a></p>
           </div>
         </div>
       </body>
