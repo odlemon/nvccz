@@ -1811,7 +1811,7 @@ export class EmailNotificationService {
             
             <div style="background-color: #e5f3ff; padding: 15px; border-radius: 5px; margin: 15px 0;">
               <h4>🌐 Platform Access</h4>
-              <p><strong>Login URL:</strong> <a href="http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io/" target="_blank" style="color: #1e40af;">http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io/</a></p>
+              <p><strong>Login URL:</strong> <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login" target="_blank" style="color: #1e40af;">${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login</a></p>
               <p><strong>Your Email:</strong> ${data.applicantEmail}</p>
               <p>Use your existing login credentials to access the platform.</p>
             </div>
@@ -1993,7 +1993,7 @@ export class EmailNotificationService {
               <h3>🔐 Your Login Credentials</h3>
               <p><strong>Email:</strong> ${data.applicantEmail}</p>
               <p><strong>Temporary Password:</strong> ${data.tempPassword}</p>
-              <p><strong>Login URL:</strong> <a href="http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io/" target="_blank">http://k8cgsgsckswkkkgo0k4sko84.31.220.82.129.sslip.io/</a></p>
+              <p><strong>Login URL:</strong> <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login" target="_blank">${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login</a></p>
             </div>
             
             <h3>⚠️ Important Security Note</h3>
@@ -2700,9 +2700,9 @@ export class EmailNotificationService {
             <div class="rsvp-section">
               <h3>📝 Please RSVP</h3>
               <p>Click one of the buttons below to respond to this invitation:</p>
-              <a href="${process.env.FRONTEND_URL}/events/rsvp/${data.invitationToken}?status=accepted" class="rsvp-button">✅ Accept</a>
-              <a href="${process.env.FRONTEND_URL}/events/rsvp/${data.invitationToken}?status=declined" class="rsvp-button decline">❌ Decline</a>
-              <a href="${process.env.FRONTEND_URL}/events/rsvp/${data.invitationToken}?status=maybe" class="rsvp-button maybe">🤔 Maybe</a>
+              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=accepted" class="rsvp-button">✅ Accept</a>
+              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=declined" class="rsvp-button decline">❌ Decline</a>
+              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=maybe" class="rsvp-button maybe">🤔 Maybe</a>
             </div>
             
             <p><strong>Note:</strong> This invitation is personalized for you. Please use the RSVP links above to respond.</p>
@@ -3389,7 +3389,7 @@ export class EmailNotificationService {
           day: 'numeric' 
         })
       : 'As soon as possible';
-    const frontendBase = (process.env.FRONTEND_URL || 'https://nvccz.com').replace(/\/$/, '');
+    const frontendBase = (process.env.FRONTEND_URL || 'http://app.kyntaro.com').replace(/\/$/, '');
     const vendorSubmissionUrl = `${frontendBase}/vendor/quotation/submit?rfqNumber=${encodeURIComponent(
       data.rfqNumber
     )}&vendorEmail=${encodeURIComponent(data.vendorEmail)}&vendorName=${encodeURIComponent(data.vendorName)}`;
@@ -4108,7 +4108,7 @@ export class EmailNotificationService {
     companyName?: string;
     rfqNumber?: string;
   }): string {
-    const frontendBase = (process.env.FRONTEND_URL || 'https://nvccz.com').replace(/\/$/, '');
+    const frontendBase = (process.env.FRONTEND_URL || 'http://app.kyntaro.com').replace(/\/$/, '');
     const invoiceUrl = `${frontendBase}/vendor/invoice/submit?quotationNumber=${encodeURIComponent(
       data.quotationNumber
     )}&vendorEmail=${encodeURIComponent(data.vendorEmail)}${data.rfqNumber ? `&rfqNumber=${encodeURIComponent(data.rfqNumber)}` : ''}`;

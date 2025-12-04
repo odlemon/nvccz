@@ -601,7 +601,7 @@ export class BoardReviewService {
 
       try {
         const boardMembers = await UserService.getBoardVotingMembers();
-        const voteUrlBase = process.env.FRONTEND_URL || 'https://nvccz-frontend.vercel.app';
+        const voteUrlBase = process.env.FRONTEND_URL || 'http://app.kyntaro.com';
 
         await Promise.all(
           boardMembers.map(member =>
