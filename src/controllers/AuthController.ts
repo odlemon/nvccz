@@ -161,12 +161,11 @@ export class AuthController {
       // Hash new password
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      // Update password and set passwordChangedAt to invalidate old tokens
+      // Update password
       await prisma.user.update({
         where: { id: userId },
         data: {
-          password: hashedPassword,
-          passwordChangedAt: new Date() // This will invalidate all existing tokens
+          password: hashedPassword
         }
       });
 
