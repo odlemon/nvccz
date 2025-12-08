@@ -474,8 +474,8 @@ export class EmailNotificationService {
         contentLength: htmlContent.length
       });
 
-      const result =     const from = getFromAddress('investment');
-    await emailTransport.sendMail({
+      const from = getFromAddress('investment');
+      const result = await emailTransport.sendMail({
         from: `"${from.name}" <${from.address}>`,
         to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
