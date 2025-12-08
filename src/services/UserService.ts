@@ -1,14 +1,9 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import bcrypt from "bcrypt";
-import { SendMailClient } from "zeptomail";
+import { emailTransport, getFromAddress } from "../config/email.config";
 
 const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER"];
-
-// Email configuration
-const zeptoUrl = "api.zeptomail.com/";
-const zeptoToken = "Zoho-enczapikey wSsVR61/+xejCqZ6mzOpJuptkQxSVlmgER993FKmuHb7HKiT8MdvxELKDFWmTfJMFmZvRTRAorookUoIgGZa3dUszgsFASiF9mqRe1U4J3x17qnvhDzPX29dmxCAL4wPwQ1jmWVjFc8q+g==";
-const zeptoClient = new SendMailClient({ url: zeptoUrl, token: zeptoToken });
 
 export class UserService {
   private static isBoardVotingRole(roleCode?: string | null): boolean {
@@ -231,22 +226,13 @@ This is an automated message. Please do not reply to this email.
       const htmlContent = this.getCredentialsEmailHTML(firstName, lastName, email, password, department, roleName);
       const textContent = this.getCredentialsEmailText(firstName, lastName, email, password, department, roleName);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ IT Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: email,
-              name: `${firstName} ${lastName}`
-            }
-          }
-        ],
+      const from = getFromAddress('it');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${firstName} ${lastName}" <${email}>`,
         subject: subject,
-        htmlbody: htmlContent,
-        textbody: textContent
+        html: htmlContent,
+        text: textContent
       });
 
       console.log(`✅ Credentials email sent to ${email}`);

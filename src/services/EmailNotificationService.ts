@@ -1,10 +1,5 @@
 //@ts-nocheck
-import { SendMailClient } from "zeptomail";
-
-const zeptoUrl = "api.zeptomail.com/";
-const zeptoToken = "Zoho-enczapikey wSsVR61/+xejCqZ6mzOpJuptkQxSVlmgER993FKmuHb7HKiT8MdvxELKDFWmTfJMFmZvRTRAorookUoIgGZa3dUszgsFASiF9mqRe1U4J3x17qnvhDzPX29dmxCAL4wPwQ1jmWVjFc8q+g==";
-
-const zeptoClient = new SendMailClient({ url: zeptoUrl, token: zeptoToken });
+import { emailTransport, getFromAddress } from "../config/email.config";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -24,21 +19,12 @@ export class EmailNotificationService {
       const subject = "Investment Application Received - NVCCZ";
       const htmlContent = this.getApplicationReceivedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Application received email sent to ${data.applicantEmail}`);
@@ -56,21 +42,12 @@ export class EmailNotificationService {
       const subject = "Due Diligence Process Started - NVCCZ";
       const htmlContent = this.getDueDiligenceStartedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Due diligence started email sent to ${data.applicantEmail}`);
@@ -88,21 +65,12 @@ export class EmailNotificationService {
       const subject = "Due Diligence Process Completed - NVCCZ";
       const htmlContent = this.getDueDiligenceCompletedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Due diligence completed email sent to ${data.applicantEmail}`);
@@ -127,21 +95,12 @@ export class EmailNotificationService {
       const subject = "New Due Diligence Task Assigned - NVCCZ";
       const htmlContent = this.getDueDiligenceTaskAssignedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.assigneeEmail,
-              name: data.assigneeName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.assigneeName}" <${data.assigneeEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Due diligence task assigned email sent to ${data.assigneeEmail}`);
@@ -168,21 +127,12 @@ export class EmailNotificationService {
       const subject = "Due Diligence Activity Update - NVCCZ";
       const htmlContent = this.getDueDiligenceActivityUpdateTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.cioEmail,
-              name: data.cioName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.cioName}" <${data.cioEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Due diligence activity update email sent to ${data.cioEmail}`);
@@ -210,21 +160,12 @@ export class EmailNotificationService {
         : "Due Diligence Activity Rejected - NVCCZ";
       const htmlContent = this.getDueDiligenceActivityApprovedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.assigneeEmail,
-              name: data.assigneeName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.assigneeName}" <${data.assigneeEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Due diligence activity ${data.approved ? 'approved' : 'rejected'} email sent to ${data.assigneeEmail}`);
@@ -242,21 +183,12 @@ export class EmailNotificationService {
       const subject = "Board Review Process Started - NVCCZ";
       const htmlContent = this.getBoardReviewStartedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Board review started email sent to ${data.applicantEmail}`);
@@ -277,21 +209,12 @@ export class EmailNotificationService {
       const subject = `Board Vote Requested - ${data.businessName}`;
       const htmlContent = this.getBoardVoteRequestTemplate(data);
 
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.recipientEmail,
-              name: data.recipientName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.recipientName}" <${data.recipientEmail}>`,
         subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Board vote request email sent to ${data.recipientEmail}`);
@@ -315,21 +238,12 @@ export class EmailNotificationService {
       const subject = `Board Vote Results - ${data.businessName}`;
       const htmlContent = this.getBoardVoteResultsTemplate(data);
 
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.recipientEmail,
-              name: data.recipientName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.recipientName}" <${data.recipientEmail}>`,
         subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Board vote results email sent to ${data.recipientEmail}`);
@@ -360,19 +274,15 @@ export class EmailNotificationService {
       <p>Please review the report in the portfolio dashboard.</p>
     `;
 
-    await zeptoClient.sendMail({
-      from: {
-        address: "noreply@lysp.io",
-        name: "NVCCZ Investment Team"
-      },
-      to: data.recipients.map(recipient => ({
-        email_address: {
-          address: recipient.email,
-          name: `${recipient.firstName} ${recipient.lastName}`.trim()
-        }
-      })),
+    const from = getFromAddress('investment');
+    const recipients = data.recipients.map(recipient => 
+      `"${`${recipient.firstName} ${recipient.lastName}`.trim()}" <${recipient.email}>`
+    ).join(', ');
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: recipients,
       subject,
-      htmlbody: html
+      html: html
     });
   }
 
@@ -404,21 +314,12 @@ export class EmailNotificationService {
       const subject = `Quotation submitted for ${data.rfqNumber}`;
       const htmlContent = this.getQuotationSubmittedNotificationTemplate(data);
 
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Procurement Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.requesterEmail,
-              name: data.requesterName
-            }
-          }
-        ],
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.requesterName}" <${data.requesterEmail}>`,
         subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Quotation submission notification sent to ${data.requesterEmail}`);
@@ -448,21 +349,12 @@ export class EmailNotificationService {
       <p>Thank you for keeping your financials up to date.</p>
     `;
 
-    await zeptoClient.sendMail({
-      from: {
-        address: "noreply@lysp.io",
-        name: "NVCCZ Investment Team"
-      },
-      to: [
-        {
-          email_address: {
-            address: data.recipientEmail,
-            name: data.companyName
-          }
-        }
-      ],
+    const from = getFromAddress('investment');
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${data.companyName}" <${data.recipientEmail}>`,
       subject,
-      htmlbody: html
+      html: html
     });
   }
 
@@ -485,21 +377,12 @@ export class EmailNotificationService {
       ${data.comment ? `<p><strong>Reviewer Comment:</strong> ${data.comment}</p>` : '<p>Please review and resubmit the report.</p>'}
     `;
 
-    await zeptoClient.sendMail({
-      from: {
-        address: "noreply@lysp.io",
-        name: "NVCCZ Investment Team"
-      },
-      to: [
-        {
-          email_address: {
-            address: data.recipientEmail,
-            name: data.companyName
-          }
-        }
-      ],
+    const from = getFromAddress('investment');
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${data.companyName}" <${data.recipientEmail}>`,
       subject,
-      htmlbody: html
+      html: html
     });
   }
 
@@ -511,21 +394,12 @@ export class EmailNotificationService {
       const subject = "Investment Decision Update - NVCCZ";
       const htmlContent = EmailNotificationService.getInvestmentDecisionTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Investment decision email sent to ${data.applicantEmail}`);
@@ -543,21 +417,12 @@ export class EmailNotificationService {
       const subject = "Investment Implementation Started - NVCCZ";
       const htmlContent = this.getInvestmentImplementationStartedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Investment implementation started email sent to ${data.applicantEmail}`);
@@ -575,21 +440,12 @@ export class EmailNotificationService {
       const subject = "Application Shortlisted - NVCCZ";
       const htmlContent = this.getApplicationShortlistedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Application shortlisted email sent to ${data.applicantEmail}`);
@@ -612,27 +468,18 @@ export class EmailNotificationService {
       const subject = "Application Update - NVCCZ";
       const htmlContent = this.getApplicationBelowThresholdTemplate(data);
       
-      console.log(`📧 Email content generated, sending via Zeptomail...`, {
+      console.log(`📧 Email content generated, sending via email service...`, {
         applicantEmail: data.applicantEmail,
         subject: subject,
         contentLength: htmlContent.length
       });
 
-      const result = await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const result =     const from = getFromAddress('investment');
+    await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Application below threshold email sent successfully to ${data.applicantEmail}`, {
@@ -667,21 +514,12 @@ export class EmailNotificationService {
       const subject = "Your Term Sheet is Ready for Review - NVCCZ";
       const htmlContent = this.getTermSheetCreatedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Term sheet created email sent to ${data.applicantEmail}`);
@@ -699,21 +537,12 @@ export class EmailNotificationService {
       const subject = "Term Sheet Approved - NVCCZ";
       const htmlContent = this.getTermSheetApprovedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Term sheet approved email sent to ${data.applicantEmail}`);
@@ -731,21 +560,12 @@ export class EmailNotificationService {
       const subject = "Term Sheet Update - NVCCZ";
       const htmlContent = this.getTermSheetRejectedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Term sheet rejected email sent to ${data.applicantEmail}`);
@@ -763,21 +583,12 @@ export class EmailNotificationService {
       const subject = "Investment Approved - Welcome to NVCCZ Portfolio!";
       const htmlContent = this.getInvestmentApprovedAccountCreatedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Investment approved account created email sent to ${data.applicantEmail}`);
@@ -795,21 +606,12 @@ export class EmailNotificationService {
       const subject = "Welcome to NVCCZ Portfolio - NVCCZ";
       const htmlContent = this.getPortfolioCompanyCreatedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Portfolio company created email sent to ${data.applicantEmail}`);
@@ -827,21 +629,12 @@ export class EmailNotificationService {
       const subject = `Application Status Update - ${data.currentStage} - NVCCZ`;
       const htmlContent = this.getStageUpdateTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Investment Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.applicantEmail,
-              name: data.applicantName
-            }
-          }
-        ],
+      const from = getFromAddress('investment');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Stage update email sent to ${data.applicantEmail}`);
@@ -2150,11 +1943,12 @@ export class EmailNotificationService {
       const subject = "Fund Disbursement Completed - NVCCZ";
       const htmlBody = this.getDisbursementCompletedTemplate(data);
 
-      await zeptoClient.sendMail({
-        from: { address: "noreply@nvccz.co.zw", name: "NVCCZ Investment Platform" },
-        to: [{ address: data.applicantEmail, name: data.applicantName }],
+      const from = getFromAddress('platform');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject,
-        htmlbody: htmlBody
+        html: htmlBody
       });
 
       console.log("Disbursement completed email sent successfully", {
@@ -2242,21 +2036,13 @@ export class EmailNotificationService {
       const subject = `Your Payslip - ${payslipData.payrollRun.payPeriod} - NVCCZ`;
       const htmlContent = this.getPayslipTemplate(payslipData);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Payroll Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: payslipData.employee.user.email,
-              name: `${payslipData.employee.user.firstName} ${payslipData.employee.user.lastName}`
-            }
-          }
-        ],
+      const from = getFromAddress('payroll');
+      const employeeName = `${payslipData.employee.user.firstName} ${payslipData.employee.user.lastName}`;
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${employeeName}" <${payslipData.employee.user.email}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Payslip email sent to ${payslipData.employee.user.email}`);
@@ -2493,21 +2279,12 @@ export class EmailNotificationService {
       const subject = `You're Invited: ${data.eventTitle} - NVCCZ`;
       const htmlContent = this.getEventInvitationTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Events Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.guestEmail,
-              name: data.guestName
-            }
-          }
-        ],
+      const from = getFromAddress('events');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.guestName}" <${data.guestEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Event invitation email sent to ${data.guestEmail}`);
@@ -2525,21 +2302,12 @@ export class EmailNotificationService {
       const subject = `RSVP Update: ${data.eventTitle} - NVCCZ`;
       const htmlContent = this.getRSVPNotificationTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Events Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.organizerEmail,
-              name: data.organizerName
-            }
-          }
-        ],
+      const from = getFromAddress('events');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.organizerName}" <${data.organizerEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`RSVP notification email sent to ${data.organizerEmail}`);
@@ -2557,21 +2325,12 @@ export class EmailNotificationService {
       const subject = `Budget Approved: ${data.eventTitle} - NVCCZ`;
       const htmlContent = this.getBudgetApprovalTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: "NVCCZ Finance Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.organizerEmail,
-              name: data.organizerName
-            }
-          }
-        ],
+      const from = getFromAddress('finance');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.organizerName}" <${data.organizerEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`Budget approval email sent to ${data.organizerEmail}`);
@@ -2934,21 +2693,13 @@ export class EmailNotificationService {
       const subject = `Request for Quote ${data.rfqNumber} - ${data.companyName || 'NVCCZ'}`;
       const htmlContent = this.getRFQTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Procurement Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.vendorEmail,
-              name: data.vendorName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('procurement').name;
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ RFQ ${data.rfqNumber} sent to ${data.vendorEmail}`);
@@ -2975,21 +2726,13 @@ export class EmailNotificationService {
       const subject = `Quotation Accepted - ${data.quotationNumber}`;
       const htmlContent = this.getQuotationAcceptedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Procurement Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.vendorEmail,
-              name: data.vendorName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('procurement').name;
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Quotation accepted email sent to ${data.vendorEmail}`);
@@ -3015,21 +2758,13 @@ export class EmailNotificationService {
       const subject = `Quotation Status Update - ${data.quotationNumber}`;
       const htmlContent = this.getQuotationRejectedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Procurement Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.vendorEmail,
-              name: data.vendorName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('procurement').name;
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Quotation rejected email sent to ${data.vendorEmail}`);
@@ -3056,21 +2791,13 @@ export class EmailNotificationService {
       const subject = `Invoice Approved - ${data.invoiceNumber}`;
       const htmlContent = this.getInvoiceApprovedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Finance Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.vendorEmail,
-              name: data.vendorName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('finance').name;
+      const from = getFromAddress('finance');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Invoice approved email sent to ${data.vendorEmail}`);
@@ -3100,21 +2827,13 @@ export class EmailNotificationService {
       const subject = `Payment Confirmation - Invoice ${data.invoiceNumber}`;
       const htmlContent = this.getInvoicePaidTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Finance Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.vendorEmail,
-              name: data.vendorName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('finance').name;
+      const from = getFromAddress('finance');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Invoice paid email sent to ${data.vendorEmail}`);
@@ -3144,21 +2863,13 @@ export class EmailNotificationService {
       const subject = `New Requisition Requires Approval - ${data.requisitionNumber}`;
       const htmlContent = this.getRequisitionSubmittedToHeadTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Procurement System"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.headEmail,
-              name: data.headName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('procurement').name;
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.headName}" <${data.headEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Requisition submitted notification sent to ${data.headEmail}`);
@@ -3186,21 +2897,13 @@ export class EmailNotificationService {
       const subject = `Requisition Approved - ${data.requisitionNumber}`;
       const htmlContent = this.getRequisitionApprovedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Procurement System"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.submitterEmail,
-              name: data.submitterName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('procurement').name;
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.submitterName}" <${data.submitterEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Requisition approved notification sent to ${data.submitterEmail}`);
@@ -3228,21 +2931,13 @@ export class EmailNotificationService {
       const subject = `Requisition Rejected - ${data.requisitionNumber}`;
       const htmlContent = this.getRequisitionRejectedTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Procurement System"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.submitterEmail,
-              name: data.submitterName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('procurement').name;
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.submitterName}" <${data.submitterEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Requisition rejected notification sent to ${data.submitterEmail}`);
@@ -3273,21 +2968,13 @@ export class EmailNotificationService {
       const subject = `Approval Required - ${data.entityType}: ${data.entityNumber}`;
       const htmlContent = this.getApprovalStepNotificationTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Procurement System"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.approverEmail,
-              name: data.approverName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('procurement').name;
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.approverName}" <${data.approverEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Approval step notification sent to ${data.approverEmail}`);
@@ -3324,21 +3011,13 @@ export class EmailNotificationService {
       const subject = `Purchase Order ${data.poNumber} - ${data.companyName || 'NVCCZ'}`;
       const htmlContent = this.getPurchaseOrderTemplate(data);
       
-      await zeptoClient.sendMail({
-        from: {
-          address: "noreply@lysp.io",
-          name: data.companyName || "NVCCZ Procurement Team"
-        },
-        to: [
-          {
-            email_address: {
-              address: data.vendorEmail,
-              name: data.vendorName
-            }
-          }
-        ],
+      const fromName = data.companyName || getFromAddress('procurement').name;
+      const from = getFromAddress('procurement');
+      await emailTransport.sendMail({
+        from: `"${fromName}" <${from.address}>`,
+        to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        htmlbody: htmlContent
+        html: htmlContent
       });
 
       console.log(`✅ Purchase Order ${data.poNumber} sent to ${data.vendorEmail}`);
