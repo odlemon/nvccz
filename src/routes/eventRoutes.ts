@@ -5,7 +5,47 @@ import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
 
-// All routes require authentication
+// PUBLIC ROUTES - Must be defined BEFORE authentication middleware
+/**
+ * @swagger
+ * /events/rsvp/{invitationToken}:
+ *   post:
+ *     summary: Handle RSVP response (PUBLIC)
+ *     description: **PUBLIC ENDPOINT** - No authentication required. Guests use this endpoint to respond to event invitations using their unique invitation token. Organizers receive email notifications when guests respond.
+ *     tags: [Events Management - Guest Management]
+ *     parameters:
+ *       - in: path
+ *         name: invitationToken
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Unique invitation token sent to guest via email
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [rsvpStatus]
+ *             properties:
+ *               rsvpStatus:
+ *                 type: string
+ *                 enum: [ACCEPTED, DECLINED, MAYBE]
+ *                 description: RSVP response status
+ *               notes:
+ *                 type: string
+ *                 description: Optional notes from guest
+ *     responses:
+ *       200:
+ *         description: RSVP response recorded successfully
+ *       400:
+ *         description: Bad request - invalid RSVP status or RSVP deadline has passed
+ *       404:
+ *         description: Invalid invitation token
+ */
+router.post("/rsvp/:invitationToken", eventController.handleRSVP);
+
+// All other routes require authentication
 router.use(authenticate);
 
 /**
@@ -379,45 +419,7 @@ router.post("/:eventId/guests", eventController.addGuests);
  */
 router.get("/:eventId/guests", eventController.getEventGuests);
 
-// RSVP Management
-/**
- * @swagger
- * /events/rsvp/{invitationToken}:
- *   post:
- *     summary: Handle RSVP response (PUBLIC)
- *     description: **PUBLIC ENDPOINT** - No authentication required. Guests use this endpoint to respond to event invitations using their unique invitation token. Organizers receive email notifications when guests respond.
- *     tags: [Events Management - Guest Management]
- *     parameters:
- *       - in: path
- *         name: invitationToken
- *         required: true
- *         schema:
- *           type: string
- *         description: Unique invitation token sent to guest via email
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [rsvpStatus]
- *             properties:
- *               rsvpStatus:
- *                 type: string
- *                 enum: [ACCEPTED, DECLINED, MAYBE]
- *                 description: RSVP response status
- *               notes:
- *                 type: string
- *                 description: Optional notes from guest
- *     responses:
- *       200:
- *         description: RSVP response recorded successfully
- *       400:
- *         description: Bad request - invalid RSVP status or RSVP deadline has passed
- *       404:
- *         description: Invalid invitation token
- */
-router.post("/rsvp/:invitationToken", eventController.handleRSVP);
+// RSVP Management - Route moved above authentication middleware (see top of file)
 
 /**
  * @swagger
