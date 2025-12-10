@@ -6,6 +6,7 @@ import { authenticate } from "../middleware/authenticate";
 const router = express.Router();
 
 // PUBLIC ROUTES - Must be defined BEFORE authentication middleware
+
 /**
  * @swagger
  * /events/rsvp/{invitationToken}:
@@ -44,6 +45,51 @@ const router = express.Router();
  *         description: Invalid invitation token
  */
 router.post("/rsvp/:invitationToken", eventController.handleRSVP);
+
+/**
+ * @swagger
+ * /events/{eventId}/feedback:
+ *   post:
+ *     summary: Submit event feedback (PUBLIC)
+ *     description: **PUBLIC ENDPOINT** - No authentication required. Submit feedback for an event. Supports anonymous feedback. Multi-dimensional rating system for overall satisfaction, content quality, venue quality, food quality, and organization.
+ *     tags: [Events Management - Feedback Management]
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Event ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [rating, overallSatisfaction]
+ *             properties:
+ *               rating: { type: integer, minimum: 1, maximum: 5 }
+ *               overallSatisfaction: { type: integer, minimum: 1, maximum: 5 }
+ *               contentQuality: { type: integer, minimum: 1, maximum: 5 }
+ *               venueQuality: { type: integer, minimum: 1, maximum: 5 }
+ *               foodQuality: { type: integer, minimum: 1, maximum: 5 }
+ *               organization: { type: integer, minimum: 1, maximum: 5 }
+ *               positiveAspects: { type: string }
+ *               areasForImprovement: { type: string }
+ *               suggestions: { type: string }
+ *               wouldAttendAgain: { type: boolean }
+ *               wouldRecommend: { type: boolean }
+ *               additionalComments: { type: string }
+ *               anonymous: { type: boolean, default: false }
+ *     responses:
+ *       201:
+ *         description: Feedback submitted successfully
+ *       400:
+ *         description: Bad request - rating and overall satisfaction are required
+ *       404:
+ *         description: Event not found
+ */
+router.post("/:eventId/feedback", eventController.submitFeedback);
 
 // All other routes require authentication
 router.use(authenticate);
@@ -660,51 +706,7 @@ router.post("/:eventId/expenses", eventController.recordExpense);
  */
 router.get("/:eventId/expenses", eventController.getEventExpenses);
 
-// Feedback Management
-/**
- * @swagger
- * /events/{eventId}/feedback:
- *   post:
- *     summary: Submit event feedback (PUBLIC)
- *     description: **PUBLIC ENDPOINT** - No authentication required. Submit feedback for an event. Supports anonymous feedback. Multi-dimensional rating system for overall satisfaction, content quality, venue quality, food quality, and organization.
- *     tags: [Events Management - Feedback Management]
- *     parameters:
- *       - in: path
- *         name: eventId
- *         required: true
- *         schema:
- *           type: string
- *         description: Event ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [rating, overallSatisfaction]
- *             properties:
- *               rating: { type: integer, minimum: 1, maximum: 5 }
- *               overallSatisfaction: { type: integer, minimum: 1, maximum: 5 }
- *               contentQuality: { type: integer, minimum: 1, maximum: 5 }
- *               venueQuality: { type: integer, minimum: 1, maximum: 5 }
- *               foodQuality: { type: integer, minimum: 1, maximum: 5 }
- *               organization: { type: integer, minimum: 1, maximum: 5 }
- *               positiveAspects: { type: string }
- *               areasForImprovement: { type: string }
- *               suggestions: { type: string }
- *               wouldAttendAgain: { type: boolean }
- *               wouldRecommend: { type: boolean }
- *               additionalComments: { type: string }
- *               anonymous: { type: boolean, default: false }
- *     responses:
- *       201:
- *         description: Feedback submitted successfully
- *       400:
- *         description: Bad request - rating and overall satisfaction are required
- *       404:
- *         description: Event not found
- */
-router.post("/:eventId/feedback", eventController.submitFeedback);
+// Feedback Management - Submit feedback route moved above authentication middleware (see top of file)
 
 /**
  * @swagger

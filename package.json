@@ -62,9 +62,9 @@
     "multer": "^2.0.2",
     "mysql2": "^3.14.3",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^6.10.1",
     "pdf-parse": "^1.1.4",
-    "swagger-jsdoc": "^6.2.8",
-    "nodemailer": "^6.9.8"
+    "swagger-jsdoc": "^6.2.8"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
