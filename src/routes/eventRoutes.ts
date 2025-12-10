@@ -91,6 +91,93 @@ router.post("/rsvp/:invitationToken", eventController.handleRSVP);
  */
 router.post("/:eventId/feedback", eventController.submitFeedback);
 
+/**
+ * @swagger
+ * /events/public:
+ *   get:
+ *     summary: Get all active events (PUBLIC)
+ *     description: **PUBLIC ENDPOINT** - No authentication required. Retrieve all active events ordered by start date. Returns events with author information. Perfect for public event listings.
+ *     tags: [Events Management - Core Events]
+ *     responses:
+ *       200:
+ *         description: Events retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Event'
+ */
+router.get("/public", eventController.getAllEvents);
+
+/**
+ * @swagger
+ * /events/public/upcoming:
+ *   get:
+ *     summary: Get upcoming events (PUBLIC)
+ *     description: **PUBLIC ENDPOINT** - No authentication required. Retrieve all upcoming events (start date >= current date) ordered by start date. Perfect for public event calendars.
+ *     tags: [Events Management - Core Events]
+ *     responses:
+ *       200:
+ *         description: Upcoming events retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Event'
+ */
+router.get("/public/upcoming", eventController.getUpcomingEvents);
+
+/**
+ * @swagger
+ * /events/public/{id}:
+ *   get:
+ *     summary: Get event by ID (PUBLIC)
+ *     description: **PUBLIC ENDPOINT** - No authentication required. Retrieve a specific event by ID with full details including author information. Perfect for public event detail pages.
+ *     tags: [Events Management - Core Events]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Event ID
+ *         example: clx1234567890abcdef
+ *     responses:
+ *       200:
+ *         description: Event retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/Event'
+ *       404:
+ *         description: Event not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get("/public/:id", eventController.getEventById);
+
 // All other routes require authentication
 router.use(authenticate);
 
