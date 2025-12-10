@@ -86,6 +86,38 @@ export const eventsEndpoints = {
       }
     }
   },
+  '/events/public': {
+    get: {
+      summary: 'Get all active events (PUBLIC)',
+      description: '**PUBLIC ENDPOINT** - No authentication required. Retrieve all active events ordered by start date. Returns events with author information. Perfect for public event listings.',
+      tags: ['Events Management - Core Events'],
+      responses: {
+        200: {
+          description: 'Events retrieved successfully',
+          content: {
+            'application/json': {
+              example: {
+                success: true,
+                data: [
+                  {
+                    id: 'event-id',
+                    title: 'Annual Company Conference',
+                    description: 'Our annual company-wide conference',
+                    startDate: '2024-12-15T09:00:00.000Z',
+                    endDate: '2024-12-15T17:00:00.000Z',
+                    location: 'Convention Center, Harare',
+                    status: 'PLANNING',
+                    isActive: true,
+                    author: { id: 'user-id', firstName: 'John', lastName: 'Doe', email: 'john@example.com' }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   '/events/upcoming': {
     get: {
       summary: 'Get upcoming events',

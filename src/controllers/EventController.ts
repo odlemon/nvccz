@@ -71,8 +71,8 @@ export const eventController = {
     }
   },
 
-  // Get all active events
-  async getAllEvents(req: AuthRequest, res: Response) {
+  // Get all active events (works for both authenticated and public)
+  async getAllEvents(req: AuthRequest | Request, res: Response) {
     try {
       const events = await prisma.event.findMany({
         where: { isActive: true },
@@ -102,8 +102,8 @@ export const eventController = {
     }
   },
 
-  // Get upcoming events
-  async getUpcomingEvents(req: AuthRequest, res: Response) {
+  // Get upcoming events (works for both authenticated and public)
+  async getUpcomingEvents(req: AuthRequest | Request, res: Response) {
     try {
       const events = await prisma.event.findMany({
         where: {
@@ -136,8 +136,8 @@ export const eventController = {
     }
   },
 
-  // Get event by ID
-  async getEventById(req: AuthRequest, res: Response) {
+  // Get event by ID (works for both authenticated and public)
+  async getEventById(req: AuthRequest | Request, res: Response) {
     try {
       const { id } = req.params;
 
