@@ -33,11 +33,27 @@ export const emailConfig = {
 export const emailTransport = nodemailer.createTransport({
   host: emailConfig.smtp.host,
   port: emailConfig.smtp.port,
+  secure: false, // Use TLS for port 587
   auth: {
     user: emailConfig.smtp.auth.user,
     pass: emailConfig.smtp.auth.pass
+  },
+  tls: {
+    rejectUnauthorized: false // Allow self-signed certificates if needed
   }
 });
+
+// Verify email transport connection on startup (optional - can be called manually)
+export async function verifyEmailConnection(): Promise<boolean> {
+  try {
+    await emailTransport.verify();
+    console.log('✅ Email transport connection verified successfully');
+    return true;
+  } catch (error: any) {
+    console.error('❌ Email transport connection failed:', error);
+    return false;
+  }
+}
 
 // Helper function to get from address with name
 export function getFromAddress(module: keyof typeof emailConfig.fromNames | 'default' = 'default'): { name: string; address: string } {

@@ -211,6 +211,7 @@ export class AuthController {
       }
 
       const normalizedEmail = email.trim().toLowerCase();
+      console.log(`[Forgot Password] Request received for email: ${normalizedEmail}`);
 
       const user = await prisma.user.findUnique({
         where: { email: normalizedEmail },
@@ -219,11 +220,14 @@ export class AuthController {
 
       // For security, always return success, even if user doesn't exist
       if (!user) {
+        console.log(`[Forgot Password] User not found for email: ${normalizedEmail}`);
         return res.status(200).json({
           success: true,
           message: "If an account with that email exists, a password reset link has been sent"
         });
       }
+
+      console.log(`[Forgot Password] User found: ${user.id} - ${user.email}`);
 
       // Invalidate any existing tokens for this user
       await prisma.passwordResetToken.updateMany({
@@ -253,6 +257,8 @@ export class AuthController {
         }
       });
 
+      console.log(`[Forgot Password] Reset token created for user: ${user.id}`);
+
       const frontendUrl = process.env.FRONTEND_URL || "http://app.kyntaro.com";
       const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
 
@@ -274,18 +280,41 @@ export class AuthController {
         <p>Best regards,<br/>NVCCZ IT Team</p>
       `;
 
-      await emailTransport.sendMail({
+      const mailOptions = {
         from: `"${from.name}" <${from.address}>`,
-        to: `"${user.firstName} ${user.lastName}" <${user.email}>`,
+        to: user.email, // Simplified - just use email address
         subject,
         html
-      });
+      };
+
+      console.log(`[Forgot Password] Attempting to send email to: ${user.email}`);
+      console.log(`[Forgot Password] From: "${from.name}" <${from.address}>`);
+
+      try {
+        const emailResult = await emailTransport.sendMail(mailOptions);
+        console.log(`[Forgot Password] ✅ Email sent successfully!`);
+        console.log(`[Forgot Password] Message ID: ${emailResult.messageId}`);
+        console.log(`[Forgot Password] Response: ${JSON.stringify(emailResult.response)}`);
+      } catch (emailError: any) {
+        console.error(`[Forgot Password] ❌ Error sending email:`, emailError);
+        console.error(`[Forgot Password] Error details:`, {
+          message: emailError.message,
+          code: emailError.code,
+          command: emailError.command,
+          response: emailError.response,
+          responseCode: emailError.responseCode
+        });
+        // Still return success to user for security, but log the error
+        // The token is already created, so they can request again if needed
+      }
 
       return res.status(200).json({
         success: true,
         message: "If an account with that email exists, a password reset link has been sent"
       });
-    } catch (error) {
+    } catch (error: any) {
+      console.error(`[Forgot Password] ❌ Unexpected error:`, error);
+      console.error(`[Forgot Password] Error stack:`, error.stack);
       next(error);
     }
   }
