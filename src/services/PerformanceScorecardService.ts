@@ -236,7 +236,11 @@ export class PerformanceScorecardService {
     
     // Calculate final score
     const totalScore = parseFloat(resultsDelivery.totalScore) + parseFloat(budgetPerformance.totalScore);
-    const performanceBand = this.getPerformanceBand(totalScore);
+    
+    // If no goals and no tasks, mark as "Not Assessed" (cannot evaluate performance without data)
+    const hasNoData = goals.length === 0 && tasks.length === 0;
+    const performanceBand = hasNoData ? "Not Assessed" : this.getPerformanceBand(totalScore);
+    const rating = hasNoData ? "No performance data available" : this.getRatingDescription(totalScore);
 
     return {
       sections: {
@@ -246,7 +250,7 @@ export class PerformanceScorecardService {
       finalScore: {
         total: totalScore.toFixed(2),
         performanceBand,
-        rating: this.getRatingDescription(totalScore)
+        rating
       },
       summary: {
         totalGoals: goals.length,
@@ -348,6 +352,18 @@ export class PerformanceScorecardService {
    * Calculate Budget Performance section (10% max)
    */
   private static calculateBudgetPerformance(goals: any[]) {
+    // If no goals, return 0 score (cannot assess budget performance without goals)
+    if (goals.length === 0) {
+      return {
+        maxScore: 10,
+        totalScore: "0.00",
+        budgetUtilization: "0.00",
+        targetUtilization: 100,
+        variance: "0.00",
+        rating: 0 // 0 = Not Assessed
+      };
+    }
+    
     // Simplified budget calculation based on goal achievement
     const totalTargetValue = goals.reduce((sum, goal) => 
       sum + parseFloat(goal.targetValue?.toString() || '0'), 0);
@@ -502,6 +518,8 @@ export class PerformanceScorecardService {
    * Get performance band based on total score
    */
   private static getPerformanceBand(score: number): string {
+    // Score of 0 with no data should be handled by caller, but add safety check
+    if (score === 0) return "Not Assessed";
     if (score >= 90) return "Exceptional";
     if (score >= 75) return "Very Good";
     if (score >= 60) return "Satisfactory";
