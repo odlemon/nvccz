@@ -136,6 +136,8 @@ app.use(cors({
       "https://kyntaro.com",
       "https://nvccz-frontend.vercel.app", 
       "https://arcus-eight.vercel.app",
+      "http://dev.kyntaro.com",
+      "https://dev.kyntaro.com",
       "https://nvccz-new.vercel.app",
       "https://nvcc.vercel.app",
       "https://nvccz-pi.vercel.app",  // Added Swagger UI origin
