@@ -255,6 +255,21 @@ const options = {
             newPassword: { type: 'string', example: 'newpassword123' }
           }
         },
+        ForgotPasswordRequest: {
+          type: 'object',
+          required: ['email'],
+          properties: {
+            email: { type: 'string', format: 'email', example: 'user@example.com' }
+          }
+        },
+        ResetPasswordRequest: {
+          type: 'object',
+          required: ['token', 'newPassword'],
+          properties: {
+            token: { type: 'string', example: 'reset-token-from-email' },
+            newPassword: { type: 'string', example: 'newPassword123' }
+          }
+        },
         CreateRoleRequest: {
           type: 'object',
           required: ['name', 'permissions'],
