@@ -113,7 +113,7 @@ dotenv.config()
 
 
 const app = express()
-const port = process.env.PORT || 3000
+const port = envConfig.get("PORT")
 
 // Disable automatic ETag generation so successful JSON responses aren't converted to 304s
 app.set("etag", false)
