@@ -140,6 +140,7 @@ model User {
   cashbookPeriodsCreated            PeriodLockout[]              @relation("PeriodCreatedBy")
   transactionsReversed              CashbookEntry[]              @relation("TransactionReversedBy")
   transactionsPosted                CashbookEntry[]              @relation("TransactionPostedBy")
+  passwordResetTokens               PasswordResetToken[]
 
   @@map("users")
 }
