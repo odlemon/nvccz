@@ -506,8 +506,19 @@ export class PayrollService {
         }
       });
 
+      // Sync payroll data to performance goals (before journal entry)
+      try {
+        const { PerformanceGoalService } = await import('./PerformanceGoalService');
+        await PerformanceGoalService.syncPayrollToGoals(payrollRunId, totalGrossPay, createdById);
+      } catch (syncError: any) {
+        // Log but don't fail payroll processing
+        console.error('[FAIL] Failed to sync payroll to performance goals:', syncError.message);
+        console.error('Error type:', syncError.constructor.name);
+        console.error('Stack:', syncError.stack);
+      }
+
       // Create Payroll Journal Entry (SRD 2.0) - Gross Pay Expense + Liability Posting
-      // Requirement: DR Salaries Expense (5010) for full Gross Pay amount (before deductions)
+      // Requirement: DR Salaries and Wages (5030) for full Gross Pay amount (before deductions)
       // Requirement: CR split between PAYE Payable (2150), NSSA/Pension Payable (2160), and Net Wages Payable (2250)
       console.log('📝 Starting payroll journal entry creation...');
       console.log(`   Payroll Run ID: ${payrollRunId}`);
@@ -538,7 +549,7 @@ export class PayrollService {
 
   /**
    * Create Payroll Journal Entry (SRD 2.0)
-   * Posts the full Gross Pay amount (before deductions) as DR to Salaries Expense (5010)
+   * Posts the full Gross Pay amount (before deductions) as DR to Salaries and Wages (5030)
    * Splits credit side between: PAYE Payable (2150), NSSA/Pension Payable (2160), and Net Wages Payable (2250)
    */
   static async createPayrollJournalEntry(
@@ -653,35 +664,60 @@ export class PayrollService {
         console.log(`   Adjusted Net Wages Payable: $${totalNetPay.toString()}`);
       }
 
-      // Get or find Salaries Expense account (5010)
+      // Get or find Salaries and Wages account (5030 - correct account for payroll)
+      // Check 5030 first explicitly, then fallback to 5010, then search by name
       let salariesExpenseAccount = await prisma.chartOfAccounts.findFirst({
         where: {
-          OR: [
-            { accountNo: '5010' },
-            { 
-              accountName: { 
-                contains: 'Salaries Expense'
-              } 
-            },
-            {
-              accountName: {
-                contains: 'Salaries'
-              },
-              accountType: 'Expense'
-            }
-          ],
+          accountNo: '5030', // Salaries and Wages (correct account) - check this first
           isActive: true
         }
       });
 
+      // If 5030 not found, try 5010
+      if (!salariesExpenseAccount) {
+        salariesExpenseAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            accountNo: '5010', // Fallback to Salaries Expense
+            isActive: true
+          }
+        });
+      }
+
+      // If still not found, search by name
+      if (!salariesExpenseAccount) {
+        salariesExpenseAccount = await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { 
+                accountName: { 
+                  contains: 'Salaries and Wages'
+                } 
+              },
+              { 
+                accountName: { 
+                  contains: 'Salaries Expense'
+                } 
+              },
+              {
+                accountName: {
+                  contains: 'Salaries'
+                },
+                accountType: 'Expense'
+              }
+            ],
+            isActive: true
+          }
+        });
+      }
+
       // If not found, try to create it
       if (!salariesExpenseAccount) {
-        console.log('⚠️  Salaries Expense account (5010) not found. Attempting to create...');
+        console.log('⚠️  Salaries and Wages account (5030) not found. Attempting to create...');
         try {
           salariesExpenseAccount = await prisma.chartOfAccounts.create({
             data: {
-              accountNo: '5010',
-              accountName: 'Salaries Expense',
+              accountNo: '5030',
+              accountName: 'Salaries and Wages',
               accountType: 'Expense',
               financialStatement: 'Income Statement',
               isActive: true
@@ -699,7 +735,7 @@ export class PayrollService {
           });
           
           if (!salariesExpenseAccount) {
-            throw new Error('Salaries Expense account (5010) not found and could not be created. Please create account 5010 in Chart of Accounts.');
+            throw new Error('Salaries and Wages account (5030) not found and could not be created. Please create account 5030 in Chart of Accounts.');
           }
           
           console.log(`⚠️  Using alternative expense account: ${salariesExpenseAccount.accountNo} - ${salariesExpenseAccount.accountName}`);
@@ -899,10 +935,16 @@ export class PayrollService {
       }
 
       // Create journal entry
+      // Use processing date (today) instead of payroll run endDate to ensure entry appears in Journal view
+      // The endDate might be in the future, which would exclude it from default Journal view date range
+      // Generate unique reference number by including timestamp to avoid duplicate reference number errors
+      const timestamp = Date.now();
+      const uniqueReferenceNumber = `PAYROLL-${payrollRun.payPeriod.replace(/\s+/g, '-').toUpperCase()}-${timestamp}`;
+      
       const journalEntry = await prisma.journalEntry.create({
         data: {
-          transactionDate: payrollRun.endDate,
-          referenceNumber: `PAYROLL-${payrollRun.payPeriod.replace(/\s+/g, '-').toUpperCase()}`,
+          transactionDate: new Date(), // Use processing date so entry appears in Journal view immediately
+          referenceNumber: uniqueReferenceNumber,
           description: `Payroll Journal - Gross Pay: ${payrollRun.name} (${payrollRun.payPeriod})`,
           totalAmount: totalGrossPay,
           currencyId: finalCurrencyId,
@@ -914,7 +956,7 @@ export class PayrollService {
       // Create journal entry lines
       console.log('Step 4: Creating journal entry lines...');
       
-      // DR Salaries Expense (5010) - Full Gross Pay amount (before deductions)
+      // DR Salaries and Wages (5030) - Full Gross Pay amount (before deductions)
       await prisma.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,

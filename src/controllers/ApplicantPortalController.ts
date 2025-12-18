@@ -175,6 +175,12 @@ export class ApplicantPortalController {
         return ResponseHelper.error(res, "Financial report file is required", undefined, 400);
       }
 
+      // Validate file extension (accept .xlsx and .csv)
+      const fileExtension = req.file.originalname.split('.').pop()?.toLowerCase();
+      if (!fileExtension || !['xlsx', 'csv'].includes(fileExtension)) {
+        return ResponseHelper.error(res, "Invalid file type. Only .xlsx and .csv files are allowed", undefined, 400);
+      }
+
       const userId = user.id || user.userId;
       if (!userId) {
         return ResponseHelper.error(res, "User ID not provided", undefined, 400);
@@ -387,8 +393,19 @@ export class ApplicantPortalController {
       const { reportType } = req.params;
       const template = await FinancialReportService.downloadReportTemplate(reportType);
 
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=${reportType.toLowerCase()}_template.csv`);
+      // Determine if it's XLSX or CSV based on report type
+      const normalizedType = reportType?.toUpperCase();
+      const isXLSX = ['INCOME_STATEMENTS', 'STATEMENT_OF_FINANCIAL_POSITION', 
+                      'CASHFLOW_STATEMENTS', 'NON_FINANCIAL_KPIS'].includes(normalizedType);
+      
+      if (isXLSX) {
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=${reportType.toLowerCase()}_template.xlsx`);
+      } else {
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=${reportType.toLowerCase()}_template.csv`);
+      }
+      
       return res.send(template);
     } catch (error: any) {
       next(error);

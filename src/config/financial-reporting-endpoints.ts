@@ -2,7 +2,7 @@ export const financialReportingEndpoints = {
   '/applicant/financial-reports': {
     post: {
       summary: 'Upload financial report (draft)',
-      description: 'Upload a CSV/XLSX file to create a draft financial report. Submit it later to share with the venture team.',
+      description: 'Upload a CSV or XLSX file to create a draft financial report. New report types (INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, NON_FINANCIAL_KPIS) use XLSX format. Legacy types (BALANCE_SHEET, INCOME_STATEMENT, CASHFLOW_STATEMENT) support CSV. Submit it later to share with the venture team.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -15,15 +15,27 @@ export const financialReportingEndpoints = {
               properties: {
                 file: {
                   type: 'string',
-                  format: 'binary'
+                  format: 'binary',
+                  description: 'Financial report file. Accepts .xlsx (for new report types) or .csv (for legacy types).'
                 },
                 reportType: {
                   type: 'string',
-                  enum: ['BALANCE_SHEET', 'INCOME_STATEMENT', 'CASHFLOW_STATEMENT']
+                  enum: [
+                    'INCOME_STATEMENTS', 
+                    'STATEMENT_OF_FINANCIAL_POSITION', 
+                    'CASHFLOW_STATEMENTS', 
+                    'NON_FINANCIAL_KPIS',
+                    // Legacy types (backward compatibility)
+                    'BALANCE_SHEET', 
+                    'INCOME_STATEMENT', 
+                    'CASHFLOW_STATEMENT'
+                  ],
+                  description: 'INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, and NON_FINANCIAL_KPIS use XLSX format. Legacy types use CSV.'
                 },
                 periodType: {
                   type: 'string',
-                  enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL']
+                  enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'],
+                  description: 'WEEKLY for cashflow, MONTHLY for income statements, QUARTERLY aggregates last 3 months, ANNUAL sums all periods for year revenue'
                 },
                 periodStart: {
                   type: 'string',
@@ -68,7 +80,7 @@ export const financialReportingEndpoints = {
   '/applicant/financial-reports/template/{reportType}': {
     get: {
       summary: 'Download financial report template',
-      description: 'Download a CSV template for a specific financial report type.',
+      description: 'Download a template for a specific financial report type. New report types (INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, NON_FINANCIAL_KPIS) return XLSX format. Legacy types return CSV format.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -78,14 +90,31 @@ export const financialReportingEndpoints = {
           required: true,
           schema: {
             type: 'string',
-            enum: ['BALANCE_SHEET', 'INCOME_STATEMENT', 'CASHFLOW_STATEMENT']
+            enum: [
+              'INCOME_STATEMENTS', 
+              'STATEMENT_OF_FINANCIAL_POSITION', 
+              'CASHFLOW_STATEMENTS', 
+              'NON_FINANCIAL_KPIS',
+              // Legacy types (backward compatibility)
+              'BALANCE_SHEET', 
+              'INCOME_STATEMENT', 
+              'CASHFLOW_STATEMENT'
+            ]
           },
-          description: 'Type of financial report template to download.'
+          description: 'Type of financial report template to download. New types return XLSX, legacy types return CSV.'
         }
       ],
       responses: {
         200: {
-          description: 'CSV template download'
+          description: 'Template file download (XLSX for new types, CSV for legacy types)',
+          content: {
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+              schema: { type: 'string', format: 'binary' }
+            },
+            'text/csv': {
+              schema: { type: 'string', format: 'binary' }
+            }
+          }
         }
       }
     }
@@ -147,7 +176,17 @@ export const financialReportingEndpoints = {
         { name: 'reportId', in: 'path', required: true, schema: { type: 'string' } }
       ],
       responses: {
-        200: { description: 'CSV download' },
+        200: { 
+          description: 'Report file download (XLSX or CSV depending on original upload format)',
+          content: {
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+              schema: { type: 'string', format: 'binary' }
+            },
+            'text/csv': {
+              schema: { type: 'string', format: 'binary' }
+            }
+          }
+        },
         400: { description: 'Missing identifiers' },
         401: { description: 'Unauthorized' },
         404: { description: 'Report not found' },
