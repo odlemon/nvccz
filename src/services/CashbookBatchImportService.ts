@@ -1,24 +1,7 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
 import { prisma } from '../utils/database';
-import { initializeApp } from 'firebase/app';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-
-// const prisma = dbConnection.getPrismaClient(); // Moved inside methods
-
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyAjxju0tSJoLtKnwOVqLRTMkVkpZ_iEstw",
-  authDomain: "otcebp.firebaseapp.com",
-  projectId: "otcebp",
-  storageBucket: "otcebp.appspot.com",
-  messagingSenderId: "904504797201",
-  appId: "1:904504797201:web:091e69c41ba296362fe9b0",
-  measurementId: "G-RS3VTZWQ3D"
-};
-
-const app = initializeApp(firebaseConfig);
-const storage = getStorage(app);
+import { remoteUploadService } from './RemoteUploadService';
 
 export interface CSVTransaction {
   bankName: string;
@@ -58,12 +41,18 @@ export class CashbookBatchImportService {
     try {
       console.log(`📁 Processing CSV import: ${fileName}`);
       
-      // 1. Upload file to Firebase
-      const fileRef = ref(storage, `cashbook-imports/${Date.now()}-${fileName}`);
-      const uploadResult = await uploadBytes(fileRef, file);
-      const fileUrl = await getDownloadURL(uploadResult.ref);
+      // 1. Upload file to remote server
+      const uploadResult = await remoteUploadService.uploadSingleFile(
+        {
+          buffer: file,
+          originalname: fileName,
+          mimetype: 'text/csv',
+        },
+        'cashbook-imports'
+      );
       
-      console.log(`✅ File uploaded to Firebase: ${fileUrl}`);
+      const fileUrl = uploadResult.downloadURL;
+      console.log(`✅ File uploaded to remote server: ${fileUrl}`);
       
       // 2. Parse CSV content
       const csvContent = file.toString('utf-8');
@@ -968,13 +957,19 @@ Notes:
         )
       ].join('\n');
 
-      // Upload to Firebase Storage
+      // Upload to remote server
       const fileName = `batch-export-${batchId}-${Date.now()}.csv`;
-      const storageRef = ref(storage, `cashbook-exports/${fileName}`);
-      const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+      const csvBuffer = Buffer.from(csvContent, 'utf-8');
       
-      await uploadBytes(storageRef, csvBlob);
-      const downloadUrl = await getDownloadURL(storageRef);
+      const uploadResult = await remoteUploadService.uploadSingleFile(
+        {
+          buffer: csvBuffer,
+          originalname: fileName,
+          mimetype: 'text/csv',
+        },
+        'cashbook-imports' // Use same type as imports
+      );
+      const downloadUrl = uploadResult.downloadURL;
 
       console.log(`✅ Batch exported: ${batchId}`);
       return {
@@ -1082,13 +1077,19 @@ Notes:
         )
       ].join('\n');
 
-      // Upload to Firebase Storage
+      // Upload to remote server
       const fileName = `all-batches-export-${userId}-${Date.now()}.csv`;
-      const storageRef = ref(storage, `cashbook-exports/${fileName}`);
-      const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+      const csvBuffer = Buffer.from(csvContent, 'utf-8');
       
-      await uploadBytes(storageRef, csvBlob);
-      const downloadUrl = await getDownloadURL(storageRef);
+      const uploadResult = await remoteUploadService.uploadSingleFile(
+        {
+          buffer: csvBuffer,
+          originalname: fileName,
+          mimetype: 'text/csv',
+        },
+        'cashbook-imports' // Use same type as imports
+      );
+      const downloadUrl = uploadResult.downloadURL;
 
       console.log(`✅ All batches exported for user: ${userId}`);
       return {

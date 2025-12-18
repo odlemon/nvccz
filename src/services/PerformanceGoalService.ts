@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 
 export interface CreatePerformanceGoalRequest {
@@ -474,9 +475,11 @@ export class PerformanceGoalService {
       }
 
       if (filters.search) {
+        // MySQL doesn't support mode: 'insensitive', so we use case-insensitive search via SQL
+        const searchLower = filters.search.toLowerCase();
         where.OR = [
-          { title: { contains: filters.search, mode: 'insensitive' } },
-          { description: { contains: filters.search, mode: 'insensitive' } }
+          { title: { contains: filters.search } },
+          { description: { contains: filters.search } }
         ];
       }
 
@@ -804,6 +807,142 @@ export class PerformanceGoalService {
       };
     } catch (error) {
       throw error;
+    }
+  }
+
+  /**
+   * Sync payroll data to performance goals linked to Payroll Expense KPI
+   * Called after payroll run is processed to update goal progress
+   */
+  static async syncPayrollToGoals(payrollRunId: string, totalGrossPay: Decimal, createdById: string): Promise<void> {
+    try {
+      console.log('🔄 Syncing payroll data to performance goals...');
+      console.log(`   Payroll Run ID: ${payrollRunId}`);
+      console.log(`   Total Gross Pay: ${totalGrossPay.toString()}`);
+
+      // Get the Payroll Expense KPI
+      const payrollKPI = await prisma.kPI.findFirst({
+        where: {
+          name: 'Payroll Expense'
+        }
+      });
+
+      if (!payrollKPI) {
+        console.log('⚠️ Payroll Expense KPI not found. Skipping goal sync.');
+        return;
+      }
+
+      console.log(`   Found Payroll Expense KPI: ${payrollKPI.id}`);
+
+      // Get payroll run to check date range
+      const payrollRun = await prisma.payrollRun.findUnique({
+        where: { id: payrollRunId },
+        select: {
+          endDate: true,
+          startDate: true
+        }
+      });
+
+      if (!payrollRun) {
+        console.log('⚠️ Payroll run not found. Skipping goal sync.');
+        return;
+      }
+
+      // Find all active goals linked to Payroll Expense KPI
+      const goals = await prisma.performanceGoal.findMany({
+        where: {
+          kpiId: payrollKPI.id,
+          status: {
+            in: ['active', 'completed'] // Include completed to handle updates
+          }
+        },
+        select: {
+          id: true,
+          title: true,
+          targetValue: true,
+          currentValue: true,
+          startDate: true,
+          endDate: true,
+          monetaryValue: true,
+          kpiId: true,
+          completedAt: true
+        }
+      });
+
+      console.log(`   Found ${goals.length} goal(s) linked to Payroll Expense KPI`);
+
+      // Update each goal
+      for (const goal of goals) {
+        // Check if payroll run falls within goal's date range
+        const payrollEndDate = new Date(payrollRun.endDate);
+        const goalStartDate = new Date(goal.startDate);
+        const goalEndDate = new Date(goal.endDate);
+
+        if (payrollEndDate < goalStartDate || payrollEndDate > goalEndDate) {
+          console.log(`   ⏭️ Skipping goal "${goal.title}" - payroll run date (${payrollEndDate.toISOString()}) outside goal range (${goalStartDate.toISOString()} to ${goalEndDate.toISOString()})`);
+          continue;
+        }
+
+        // Sum all COMPLETED payroll runs within goal's date range
+        const relevantPayrollRuns = await prisma.payrollRun.findMany({
+          where: {
+            status: 'COMPLETED',
+            endDate: {
+              gte: goalStartDate,
+              lte: goalEndDate
+            }
+          },
+          select: {
+            totalGrossPay: true
+          }
+        });
+
+        // Calculate total payroll expense for this goal
+        let totalPayrollExpense = new Decimal(0);
+        for (const run of relevantPayrollRuns) {
+          if (run.totalGrossPay) {
+            totalPayrollExpense = totalPayrollExpense.add(run.totalGrossPay);
+          }
+        }
+
+        const totalPayrollValue = parseFloat(totalPayrollExpense.toString());
+        const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+        const progressPercentage = targetValue > 0 
+          ? Math.min((totalPayrollValue / targetValue) * 100, 100) 
+          : 0;
+        const isCompleted = totalPayrollValue >= targetValue;
+
+        // Update goal
+        await prisma.performanceGoal.update({
+          where: { id: goal.id },
+          data: {
+            currentValue: totalPayrollValue,
+            monetaryValueAchieved: totalPayrollValue,
+            progressPercentage: progressPercentage,
+            status: isCompleted ? 'completed' : 'active',
+            stage: isCompleted ? 'completed' : 'in_progress',
+            completedAt: isCompleted && !goal.completedAt ? new Date() : undefined,
+            updatedAt: new Date()
+          }
+        });
+
+        console.log(`   ✅ Updated goal "${goal.title}": ${totalPayrollValue.toFixed(2)}/${targetValue.toFixed(2)} (${progressPercentage.toFixed(1)}%)`);
+
+        // If goal is completed and has KPI integration, trigger accounting
+        if (isCompleted && goal.kpiId) {
+          try {
+            await this.triggerAccountingIntegration(goal.id, totalPayrollValue, createdById);
+          } catch (accountingError) {
+            console.error(`   ⚠️ Failed to trigger accounting integration for goal ${goal.id}:`, accountingError);
+            // Don't fail the sync if accounting integration fails
+          }
+        }
+      }
+
+      console.log('✅ Payroll-to-goals sync completed');
+    } catch (error) {
+      console.error('❌ Error syncing payroll to goals:', error);
+      // Don't throw - we don't want to fail payroll processing if goal sync fails
     }
   }
 }

@@ -363,8 +363,8 @@ const upload = multer({
  *       properties:
  *         reportType:
  *           type: string
- *           enum: [BALANCE_SHEET, INCOME_STATEMENT, CASHFLOW_STATEMENT]
- *           example: BALANCE_SHEET
+ *           enum: [INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, NON_FINANCIAL_KPIS, BALANCE_SHEET, INCOME_STATEMENT, CASHFLOW_STATEMENT]
+ *           example: INCOME_STATEMENTS
  *         periodType:
  *           type: string
  *           enum: [WEEKLY, MONTHLY, QUARTERLY, ANNUAL]
@@ -940,7 +940,7 @@ router.post(
  *         required: true
  *         schema:
  *           type: string
- *           enum: [BALANCE_SHEET, INCOME_STATEMENT, CASHFLOW_STATEMENT]
+ *           enum: [INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, NON_FINANCIAL_KPIS, BALANCE_SHEET, INCOME_STATEMENT, CASHFLOW_STATEMENT]
  *         description: Financial report type.
  *     responses:
  *       200:

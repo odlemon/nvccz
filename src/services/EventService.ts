@@ -410,6 +410,20 @@ export class EventService {
         });
         const categoryName = expenseCategory?.name || expenseData.category;
 
+        // Normalize payment method: convert common variations to standard values
+        let normalizedPaymentMethod = expenseData.paymentMethod || 'BANK';
+        if (normalizedPaymentMethod === 'BANK_TRANSFER' || normalizedPaymentMethod === 'BANK_TRANSFER') {
+          normalizedPaymentMethod = 'BANK';
+        } else if (normalizedPaymentMethod === 'CASH_PAYMENT' || normalizedPaymentMethod === 'CASH') {
+          normalizedPaymentMethod = 'CASH';
+        } else if (normalizedPaymentMethod === 'CREDIT' || normalizedPaymentMethod === 'ON_CREDIT' || normalizedPaymentMethod === 'ACCOUNTS_PAYABLE') {
+          normalizedPaymentMethod = 'CREDIT';
+        }
+        // Ensure it's one of the valid values
+        if (!['BANK', 'CASH', 'CREDIT'].includes(normalizedPaymentMethod)) {
+          normalizedPaymentMethod = 'BANK'; // Default to BANK if invalid
+        }
+
         const journalEntryParams: CreateExpenseJournalEntryParams = {
           vendorId: expenseData.vendorId,
           categoryName: categoryName,
@@ -421,7 +435,7 @@ export class EventService {
           description: `Event Expense: ${expenseData.description} (Event: ${event.title})`,
           receiptNumber: expenseData.receiptNumber,
           isTaxable,
-          paymentMethod: expenseData.paymentMethod || 'BANK',
+          paymentMethod: normalizedPaymentMethod as "CASH" | "BANK" | "CREDIT",
           createdById
         };
 

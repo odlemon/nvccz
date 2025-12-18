@@ -8,7 +8,15 @@ import { PortfolioCompanyAccountingService } from './PortfolioCompanyAccountingS
 import { join } from 'path';
 import { readFileSync } from 'fs';
 
-export type FinancialReportType = 'BALANCE_SHEET' | 'INCOME_STATEMENT' | 'CASHFLOW_STATEMENT';
+export type FinancialReportType = 
+  'INCOME_STATEMENTS' | 
+  'STATEMENT_OF_FINANCIAL_POSITION' | 
+  'CASHFLOW_STATEMENTS' | 
+  'NON_FINANCIAL_KPIS' |
+  // Keep old types for backward compatibility
+  'BALANCE_SHEET' | 
+  'INCOME_STATEMENT' | 
+  'CASHFLOW_STATEMENT';
 export type FinancialReportPeriod = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
 export type FinancialReportStatus = 'DRAFT' | 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'NEEDS_REVISION';
 
@@ -144,6 +152,20 @@ export class FinancialReportService {
     let filePath: string;
 
     switch (normalized) {
+      // New XLSX templates
+      case 'INCOME_STATEMENTS':
+        filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'income_statement_template.xlsx');
+        break;
+      case 'STATEMENT_OF_FINANCIAL_POSITION':
+        filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'statement_of_financial_position_template.xlsx');
+        break;
+      case 'CASHFLOW_STATEMENTS':
+        filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'cashflow_statement_template.xlsx');
+        break;
+      case 'NON_FINANCIAL_KPIS':
+        filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'non_financial_kpis_template.xlsx');
+        break;
+      // Old CSV templates (backward compatibility)
       case 'BALANCE_SHEET':
         filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'balance_sheet_template.csv');
         break;
@@ -447,7 +469,7 @@ export class FinancialReportService {
     processing: FinancialReportProcessingResult | undefined,
     mapping: any
   ) {
-    if (!processing || processing.reportType !== 'BALANCE_SHEET') {
+    if (!processing || (processing.reportType !== 'BALANCE_SHEET' && processing.reportType !== 'STATEMENT_OF_FINANCIAL_POSITION')) {
       return;
     }
 
@@ -456,11 +478,17 @@ export class FinancialReportService {
       return; // mapping already handled
     }
 
+    // Handle both old and new formats
+    let equityValue = processing.parsedData?.shareholdersEquity;
+    if (!equityValue && processing.parsedData?.ownerEquity?.total !== undefined) {
+      equityValue = processing.parsedData.ownerEquity.total;
+    }
+    if (!equityValue && processing.parsedData?.totalAssets !== undefined && processing.parsedData?.totalLiabilities !== undefined) {
+      equityValue = processing.parsedData.totalAssets - processing.parsedData.totalLiabilities;
+    }
+
     const newAmount = this.ensureNumeric(
-      processing.parsedData?.shareholdersEquity ??
-        (processing.parsedData?.totalAssets !== undefined && processing.parsedData?.totalLiabilities !== undefined
-          ? processing.parsedData.totalAssets - processing.parsedData.totalLiabilities
-          : undefined),
+      equityValue,
       'Balance sheet automation requires shareholders equity or totals'
     );
 
