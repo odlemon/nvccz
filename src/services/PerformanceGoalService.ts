@@ -912,21 +912,48 @@ export class PerformanceGoalService {
           : 0;
         const isCompleted = totalPayrollValue >= targetValue;
 
-        // Update goal
-        await prisma.performanceGoal.update({
+        // Set monetaryValue to targetValue if not already set (for KPI calculations)
+        const monetaryValue = goal.monetaryValue ? parseFloat(goal.monetaryValue.toString()) : targetValue;
+
+        // Update goal with all necessary fields
+        const updatedGoal = await prisma.performanceGoal.update({
           where: { id: goal.id },
           data: {
             currentValue: totalPayrollValue,
-            monetaryValueAchieved: totalPayrollValue,
+            monetaryValue: monetaryValue, // Set target monetary value
+            monetaryValueAchieved: totalPayrollValue, // Set achieved monetary value
             progressPercentage: progressPercentage,
             status: isCompleted ? 'completed' : 'active',
             stage: isCompleted ? 'completed' : 'in_progress',
             completedAt: isCompleted && !goal.completedAt ? new Date() : undefined,
             updatedAt: new Date()
+          },
+          include: {
+            parentGoal: {
+              select: { id: true }
+            }
           }
         });
 
         console.log(`   ✅ Updated goal "${goal.title}": ${totalPayrollValue.toFixed(2)}/${targetValue.toFixed(2)} (${progressPercentage.toFixed(1)}%)`);
+
+        // Update parent goal progress if this is a sub-goal
+        if (updatedGoal.parentGoalId) {
+          try {
+            await this.updateParentGoalProgress(updatedGoal.parentGoalId);
+          } catch (parentError) {
+            console.error(`   ⚠️ Failed to update parent goal ${updatedGoal.parentGoalId}:`, parentError);
+          }
+        }
+
+        // Recalculate KPI progress after goal update
+        if (goal.kpiId) {
+          try {
+            await this.recalculateKPIProgress(goal.kpiId);
+          } catch (kpiError) {
+            console.error(`   ⚠️ Failed to recalculate KPI progress for ${goal.kpiId}:`, kpiError);
+          }
+        }
 
         // If goal is completed and has KPI integration, trigger accounting
         if (isCompleted && goal.kpiId) {
@@ -943,6 +970,149 @@ export class PerformanceGoalService {
     } catch (error) {
       console.error('❌ Error syncing payroll to goals:', error);
       // Don't throw - we don't want to fail payroll processing if goal sync fails
+    }
+  }
+
+  /**
+   * Update parent goal progress based on child goals
+   */
+  static async updateParentGoalProgress(parentGoalId: string): Promise<void> {
+    try {
+      const parentGoal = await prisma.performanceGoal.findUnique({
+        where: { id: parentGoalId },
+        include: {
+          subGoals: {
+            select: {
+              id: true,
+              currentValue: true,
+              targetValue: true,
+              stage: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      if (!parentGoal || !parentGoal.subGoals || parentGoal.subGoals.length === 0) {
+        return;
+      }
+
+      // Calculate totals from sub-goals
+      let totalTargetValue = 0;
+      let totalCurrentValue = 0;
+      let allCompleted = true;
+      let anyInProgress = false;
+
+      for (const subGoal of parentGoal.subGoals) {
+        const subTarget = subGoal.targetValue ? parseFloat(subGoal.targetValue.toString()) : 0;
+        const subCurrent = subGoal.currentValue ? parseFloat(subGoal.currentValue.toString()) : 0;
+        
+        totalTargetValue += subTarget;
+        totalCurrentValue += subCurrent;
+
+        if (subGoal.stage !== 'completed') {
+          allCompleted = false;
+        }
+        if (subGoal.stage === 'in_progress' || subGoal.status === 'active') {
+          anyInProgress = true;
+        }
+      }
+
+      // Calculate progress percentage
+      const progressPercentage = totalTargetValue > 0 
+        ? Math.min((totalCurrentValue / totalTargetValue) * 100, 100) 
+        : 0;
+
+      // Determine new stage
+      let newStage = parentGoal.stage;
+      if (allCompleted && parentGoal.subGoals.length > 0) {
+        newStage = 'completed';
+      } else if (anyInProgress || totalCurrentValue > 0) {
+        newStage = 'in_progress';
+      }
+
+      // Update parent goal
+      await prisma.performanceGoal.update({
+        where: { id: parentGoalId },
+        data: {
+          currentValue: totalCurrentValue,
+          progressPercentage: progressPercentage,
+          stage: newStage,
+          status: allCompleted ? 'completed' : 'active',
+          updatedAt: new Date()
+        }
+      });
+
+      // Recursively update grandparent if exists
+      if (parentGoal.parentGoalId) {
+        await this.updateParentGoalProgress(parentGoal.parentGoalId);
+      }
+    } catch (error) {
+      console.error(`❌ Error updating parent goal progress for ${parentGoalId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recalculate KPI progress based on all linked goals
+   */
+  static async recalculateKPIProgress(kpiId: string): Promise<void> {
+    try {
+      const kpi = await prisma.kPI.findUnique({
+        where: { id: kpiId },
+        include: {
+          performanceGoals: {
+            select: {
+              id: true,
+              monetaryValue: true,
+              monetaryValueAchieved: true,
+              percentValue: true,
+              percentValueAchieved: true,
+              currentValue: true,
+              targetValue: true,
+              status: true
+            }
+          }
+        }
+      });
+
+      if (!kpi) {
+        return;
+      }
+
+      // Calculate total monetary progress
+      let totalMonetaryTarget = 0;
+      let totalMonetaryAchieved = 0;
+      let totalPercentTarget = 0;
+      let totalPercentAchieved = 0;
+
+      for (const goal of kpi.performanceGoals) {
+        // Use monetaryValue if set, otherwise use targetValue
+        const monetaryTarget = goal.monetaryValue 
+          ? parseFloat(goal.monetaryValue.toString()) 
+          : (goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0);
+        
+        const monetaryAchieved = goal.monetaryValueAchieved 
+          ? parseFloat(goal.monetaryValueAchieved.toString()) 
+          : (goal.currentValue ? parseFloat(goal.currentValue.toString()) : 0);
+
+        totalMonetaryTarget += monetaryTarget;
+        totalMonetaryAchieved += monetaryAchieved;
+
+        if (goal.percentValue) {
+          totalPercentTarget += parseFloat(goal.percentValue.toString());
+        }
+        if (goal.percentValueAchieved) {
+          totalPercentAchieved += parseFloat(goal.percentValueAchieved.toString());
+        }
+      }
+
+      // Note: KPI progress is calculated on-the-fly in KPIService.getKPIAnalyticsSummary
+      // We don't store it in the KPI table, but we ensure goal values are correct
+      console.log(`   ✅ KPI ${kpiId} progress recalculated: Monetary ${totalMonetaryAchieved}/${totalMonetaryTarget}`);
+    } catch (error) {
+      console.error(`❌ Error recalculating KPI progress for ${kpiId}:`, error);
+      throw error;
     }
   }
 }

@@ -16,16 +16,16 @@ export const emailConfig = {
   // From Address Configuration
   fromAddress: "noreply@kyntaro.com",
   
-  // From Names by Module
+  // From Names by Module (using environment variables)
   fromNames: {
-    investment: "NVCCZ Investment Team",
-    payroll: "NVCCZ Payroll Team",
-    procurement: "NVCCZ Procurement Team",
-    finance: "NVCCZ Finance Team",
-    events: "NVCCZ Events Team",
-    it: "NVCCZ IT Team",
-    platform: "NVCCZ Investment Platform",
-    default: "NVCCZ Notifications"
+    investment: process.env.EMAIL_FROM_NAME_INVESTMENT || "NVCCZ Investment Team",
+    payroll: process.env.EMAIL_FROM_NAME_PAYROLL || "NVCCZ Payroll Team",
+    procurement: process.env.EMAIL_FROM_NAME_PROCUREMENT || "NVCCZ Procurement Team",
+    finance: process.env.EMAIL_FROM_NAME_FINANCE || "NVCCZ Finance Team",
+    events: process.env.EMAIL_FROM_NAME_EVENTS || "NVCCZ Events Team",
+    it: process.env.EMAIL_FROM_NAME_IT || "NVCCZ IT Team",
+    platform: process.env.EMAIL_FROM_NAME_PLATFORM || "NVCCZ Investment Platform",
+    default: process.env.EMAIL_FROM_NAME_DEFAULT || "NVCCZ Notifications"
   }
 };
 

@@ -124,7 +124,7 @@ export class EmailService {
             <p>If you didn't request this subscription, you can safely ignore this email.</p>
           </div>
           <div class="footer">
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -151,7 +151,7 @@ This link will expire in 24 hours for security reasons.
 
 If you didn't request this subscription, you can safely ignore this email.
 
-© 2024 NVCCZ. All rights reserved.
+© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.
     `;
   }
 
@@ -191,7 +191,7 @@ If you didn't request this subscription, you can safely ignore this email.
             <p>Best regards,<br>The NVCCZ Team</p>
           </div>
           <div class="footer">
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
             <p><a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/unsubscribe">Unsubscribe</a></p>
           </div>
         </div>
@@ -221,7 +221,7 @@ We're excited to share valuable content with you. Stay tuned for our next newsle
 Best regards,
 The NVCCZ Team
 
-© 2024 NVCCZ. All rights reserved.
+© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.
     `;
   }
 }

@@ -15,7 +15,7 @@ const options = {
       description: 'A comprehensive API for managing users, roles, and permissions with role-based access control.',
       contact: {
         name: 'API Support',
-        email: 'support@nvccz.co.zw'
+        email: process.env.EMAIL_SUPPORT || 'support@nvccz.co.zw'
       },
       license: {
         name: 'ISC',

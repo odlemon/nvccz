@@ -187,7 +187,7 @@ export class GoogleCalendarService {
    */
   generateRSVPLink(eventId: string, attendeeEmail: string): string {
     // This would typically be a custom RSVP page that handles the response
-    return `${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/events/${eventId}/rsvp?email=${encodeURIComponent(attendeeEmail)}`;
+    return `${process.env.EVENTS_PORTAL_URL || 'http://app.kyntaro.com'}/events/${eventId}/rsvp?email=${encodeURIComponent(attendeeEmail)}`;
   }
 
   /**
