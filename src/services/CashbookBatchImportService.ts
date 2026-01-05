@@ -84,6 +84,28 @@ export class CashbookBatchImportService {
       
       console.log(`📊 Parsed ${transactions.length} transactions from CSV`);
       
+      // Debug: Log first transaction to verify parsing
+      if (transactions.length > 0) {
+        console.log(`📋 Sample parsed transaction:`, {
+          bankName: transactions[0].bankName,
+          counterpartyType: transactions[0].counterpartyType,
+          customerName: transactions[0].customerName || '(empty)',
+          vendorName: transactions[0].vendorName || '(empty)',
+          glAccountNo: transactions[0].glAccountNo || '(empty)'
+        });
+      }
+      
+      // Debug: Log first transaction to verify parsing
+      if (transactions.length > 0) {
+        console.log(`📋 Sample transaction:`, {
+          bankName: transactions[0].bankName,
+          counterpartyType: transactions[0].counterpartyType,
+          customerName: transactions[0].customerName,
+          vendorName: transactions[0].vendorName,
+          glAccountNo: transactions[0].glAccountNo
+        });
+      }
+      
       // 3. Validate transactions
       const validationResult = await this.validateTransactions(transactions);
       
@@ -194,6 +216,42 @@ export class CashbookBatchImportService {
   }
   
   /**
+   * Parse a CSV line properly handling quoted fields
+   */
+  private static parseCSVLine(line: string): string[] {
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+      
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          // Escaped quote
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // End of field
+        values.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    
+    // Add last field
+    values.push(current.trim());
+    
+    return values;
+  }
+  
+  /**
    * Parse CSV content into transaction objects
    */
   private static parseCSV(csvContent: string): CSVTransaction[] {
@@ -207,7 +265,8 @@ export class CashbookBatchImportService {
       throw new Error('CSV file must have at least a header row and one data row');
     }
     
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    // Parse header row properly
+    const headers = this.parseCSVLine(lines[0]).map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
     
     if (headers.length === 0) {
       throw new Error('CSV file has no headers');
@@ -250,26 +309,38 @@ export class CashbookBatchImportService {
     const discountIdx = getColumnIndex('discount');
     
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const line = lines[i].trim();
+      if (!line) continue; // Skip empty lines
       
-      if (values.length !== headers.length) {
-        // Try to handle quoted values that might contain commas
+      // Parse line properly handling quoted fields
+      const values = this.parseCSVLine(line).map(v => v.replace(/^"|"$/g, '')); // Remove surrounding quotes
+      
+      // Skip if column count doesn't match (might be a malformed row)
+      if (values.length < headers.length) {
+        console.warn(`⚠️ Row ${i + 1}: Column count mismatch (expected ${headers.length}, got ${values.length}), skipping`);
         continue;
       }
       
+      // Extract values, handling empty strings properly
+      const getValue = (idx: number): string | undefined => {
+        if (idx < 0 || idx >= values.length) return undefined;
+        const val = values[idx]?.trim();
+        return val && val.length > 0 ? val : undefined;
+      };
+      
       const transaction: CSVTransaction = {
-        bankName: bankNameIdx >= 0 ? values[bankNameIdx] || '' : '',
-        transactionDate: dateIdx >= 0 ? values[dateIdx] || '' : '',
-        description: descIdx >= 0 ? values[descIdx] || '' : '',
-        amount: amountIdx >= 0 ? parseFloat(values[amountIdx]) || 0 : 0,
-        reference: refIdx >= 0 ? values[refIdx] || '' : '',
-        counterpartyType: counterpartyIdx >= 0 ? (values[counterpartyIdx] as any)?.toUpperCase() || 'GL' : 'GL',
-        customerName: customerIdx >= 0 ? values[customerIdx] || undefined : undefined,
-        vendorName: vendorIdx >= 0 ? values[vendorIdx] || undefined : undefined,
-        glAccountNo: glAccountIdx >= 0 ? values[glAccountIdx] || undefined : undefined,
-        vatCode: vatIdx >= 0 ? values[vatIdx] || '15%' : '15%',
-        projectCode: projectIdx >= 0 ? values[projectIdx] || undefined : undefined,
-        discount: discountIdx >= 0 ? parseFloat(values[discountIdx]) || 0 : 0
+        bankName: bankNameIdx >= 0 ? (values[bankNameIdx]?.trim() || '') : '',
+        transactionDate: dateIdx >= 0 ? (values[dateIdx]?.trim() || '') : '',
+        description: descIdx >= 0 ? (values[descIdx]?.trim() || '') : '',
+        amount: amountIdx >= 0 ? parseFloat(values[amountIdx] || '0') || 0 : 0,
+        reference: refIdx >= 0 ? (values[refIdx]?.trim() || '') : '',
+        counterpartyType: counterpartyIdx >= 0 ? (values[counterpartyIdx]?.trim().toUpperCase() || 'GL') : 'GL',
+        customerName: getValue(customerIdx),
+        vendorName: getValue(vendorIdx),
+        glAccountNo: getValue(glAccountIdx),
+        vatCode: vatIdx >= 0 ? (values[vatIdx]?.trim() || '15%') : '15%',
+        projectCode: getValue(projectIdx),
+        discount: discountIdx >= 0 ? parseFloat(values[discountIdx] || '0') || 0 : 0
       };
       
       transactions.push(transaction);
@@ -408,7 +479,11 @@ export class CashbookBatchImportService {
         // Validate and resolve counterparty
         if (transaction.counterpartyType === 'CUSTOMER') {
           if (!transaction.customerName || transaction.customerName.trim() === '') {
-            errors.push(`Row ${rowNumber}: Customer name is required for CUSTOMER transactions`);
+            if (allCustomers.length === 0) {
+              errors.push(`Row ${rowNumber}: Customer name is required for CUSTOMER transactions. No customers exist in the system. Please create customers first.`);
+            } else {
+              errors.push(`Row ${rowNumber}: Customer name is required for CUSTOMER transactions. Available customers: ${allCustomers.slice(0, 10).map(c => c.name).join(', ')}${allCustomers.length > 10 ? ` (and ${allCustomers.length - 10} more)` : ''}`);
+            }
           continue;
         }
         
@@ -425,7 +500,11 @@ export class CashbookBatchImportService {
             if (matchedCustomer) {
               transaction.customerId = matchedCustomer.id;
             } else {
-              errors.push(`Row ${rowNumber}: Customer "${transaction.customerName}" not found. Available customers: ${allCustomers.map(c => c.name).join(', ')}`);
+              if (allCustomers.length === 0) {
+                errors.push(`Row ${rowNumber}: Customer "${transaction.customerName}" not found. No customers exist in the system. Please create customers first.`);
+              } else {
+                errors.push(`Row ${rowNumber}: Customer "${transaction.customerName}" not found. Available customers: ${allCustomers.slice(0, 10).map(c => c.name).join(', ')}${allCustomers.length > 10 ? ` (and ${allCustomers.length - 10} more)` : ''}`);
+              }
             continue;
           }
           } else {
@@ -435,7 +514,11 @@ export class CashbookBatchImportService {
         
         if (transaction.counterpartyType === 'SUPPLIER') {
           if (!transaction.vendorName || transaction.vendorName.trim() === '') {
-            errors.push(`Row ${rowNumber}: Vendor name is required for SUPPLIER transactions`);
+            if (allVendors.length === 0) {
+              errors.push(`Row ${rowNumber}: Vendor name is required for SUPPLIER transactions. No vendors exist in the system. Please create vendors first.`);
+            } else {
+              errors.push(`Row ${rowNumber}: Vendor name is required for SUPPLIER transactions. Available vendors: ${allVendors.slice(0, 10).map(v => v.name).join(', ')}${allVendors.length > 10 ? ` (and ${allVendors.length - 10} more)` : ''}`);
+            }
             continue;
           }
           
@@ -452,7 +535,11 @@ export class CashbookBatchImportService {
             if (matchedVendor) {
               transaction.vendorId = matchedVendor.id;
             } else {
-              errors.push(`Row ${rowNumber}: Vendor "${transaction.vendorName}" not found. Available vendors: ${allVendors.map(v => v.name).join(', ')}`);
+              if (allVendors.length === 0) {
+                errors.push(`Row ${rowNumber}: Vendor "${transaction.vendorName}" not found. No vendors exist in the system. Please create vendors first.`);
+              } else {
+                errors.push(`Row ${rowNumber}: Vendor "${transaction.vendorName}" not found. Available vendors: ${allVendors.slice(0, 10).map(v => v.name).join(', ')}${allVendors.length > 10 ? ` (and ${allVendors.length - 10} more)` : ''}`);
+              }
             continue;
           }
           } else {
@@ -523,68 +610,111 @@ export class CashbookBatchImportService {
    * Generate CSV template with actual data from database
    */
   static async generateTemplate(): Promise<string> {
-    // Get all active banks
+    // Get ALL active banks (not just samples)
     const banks = await prisma.bank.findMany({
       where: { isActive: true },
       select: { name: true },
       orderBy: { name: 'asc' }
     });
     
-    // Get sample customers
+    // Get ALL active customers (not just samples)
     const customers = await prisma.customer.findMany({
       where: { isActive: true },
       select: { name: true },
-      orderBy: { name: 'asc' },
-      take: 5
+      orderBy: { name: 'asc' }
     });
     
-    // Get sample vendors
+    // Get ALL active vendors (not just samples)
     const vendors = await prisma.vendor.findMany({
       where: { isActive: true },
       select: { name: true },
-      orderBy: { name: 'asc' },
-      take: 5
+      orderBy: { name: 'asc' }
     });
     
-    // Get sample GL accounts
+    // Get ALL active GL accounts (not just samples)
     const glAccounts = await prisma.chartOfAccounts.findMany({
       where: { isActive: true },
       select: { accountNo: true, accountName: true },
-      orderBy: { accountNo: 'asc' },
-      take: 10
+      orderBy: { accountNo: 'asc' }
     });
     
-    const bankNames = banks.map(b => b.name).join(', ');
-    const customerNames = customers.map(c => c.name).join(', ');
-    const vendorNames = vendors.map(v => v.name).join(', ');
-    const glAccountList = glAccounts.map(a => `${a.accountNo} - ${a.accountName}`).join(', ');
-    
-    // Use first available data for examples
-    const exampleBank = banks[0]?.name || 'Main Bank';
+    // Use actual data for examples - must exist in system
+    const exampleBank = banks[0]?.name || '';
     const exampleCustomer = customers[0]?.name || '';
     const exampleVendor = vendors[0]?.name || '';
     const exampleGLAccount = glAccounts[0]?.accountNo || '';
     
+    if (!exampleBank) {
+      throw new Error('No active bank accounts found. Please create at least one bank account first.');
+    }
+    
     const today = new Date().toISOString().split('T')[0];
     
-    let template = `bankName,transactionDate,description,amount,reference,counterpartyType,customerName,vendorName,glAccountNo,vatCode,projectCode,discount
-${exampleBank},${today},Customer Payment - Invoice #INV-001,1500.00,RCP-001,CUSTOMER,${exampleCustomer},,,15%,PROJ-001,0
-${exampleBank},${today},GL Receipt - Share Capital,5000.00,RCP-002,GL,,,${exampleGLAccount},15%,,0
-${exampleBank},${today},Supplier Payment - Office Supplies,250.00,PAY-001,SUPPLIER,,${exampleVendor},,15%,PROJ-002,0
-
-Available Options:
-- Banks: ${bankNames}
-- Customers: ${customerNames}
-- Vendors: ${vendorNames}
-- GL Accounts: ${glAccountList}
-
-Notes:
-- Use exact names/account numbers as shown above (case-insensitive)
-- counterpartyType must be: CUSTOMER, SUPPLIER, or GL
+    // Build template with actual examples
+    let template = `bankName,transactionDate,description,amount,reference,counterpartyType,customerName,vendorName,glAccountNo,vatCode,projectCode,discount`;
+    
+    // Add example rows only if we have the required data
+    if (exampleCustomer) {
+      template += `\n${exampleBank},${today},Customer Payment - Invoice #INV-001,1500.00,RCP-001,CUSTOMER,${exampleCustomer},,,15%,PROJ-001,0`;
+    }
+    
+    if (exampleGLAccount) {
+      template += `\n${exampleBank},${today},GL Receipt - Share Capital,5000.00,RCP-002,GL,,,${exampleGLAccount},15%,,0`;
+    }
+    
+    if (exampleVendor) {
+      template += `\n${exampleBank},${today},Supplier Payment - Office Supplies,250.00,PAY-001,SUPPLIER,,${exampleVendor},,15%,PROJ-002,0`;
+    }
+    
+    // Add comprehensive list of available options
+    template += `\n\n=== AVAILABLE OPTIONS (Use exact names/account numbers from below) ===`;
+    
+    template += `\n\nBanks (${banks.length} available):`;
+    banks.forEach((bank, idx) => {
+      template += `\n  ${idx + 1}. ${bank.name}`;
+    });
+    
+    if (customers.length > 0) {
+      template += `\n\nCustomers (${customers.length} available):`;
+      customers.forEach((customer, idx) => {
+        template += `\n  ${idx + 1}. ${customer.name}`;
+      });
+    } else {
+      template += `\n\nCustomers: NONE - Please create customers first if you need CUSTOMER transactions`;
+    }
+    
+    if (vendors.length > 0) {
+      template += `\n\nVendors (${vendors.length} available):`;
+      vendors.forEach((vendor, idx) => {
+        template += `\n  ${idx + 1}. ${vendor.name}`;
+      });
+    } else {
+      template += `\n\nVendors: NONE - Please create vendors first if you need SUPPLIER transactions`;
+    }
+    
+    if (glAccounts.length > 0) {
+      template += `\n\nGL Accounts (${glAccounts.length} available):`;
+      glAccounts.slice(0, 20).forEach((account) => {
+        template += `\n  ${account.accountNo} - ${account.accountName}`;
+      });
+      if (glAccounts.length > 20) {
+        template += `\n  ... and ${glAccounts.length - 20} more`;
+      }
+    } else {
+      template += `\n\nGL Accounts: NONE - Please create GL accounts first if you need GL transactions`;
+    }
+    
+    template += `\n\n=== IMPORTANT NOTES ===
+- Use EXACT names/account numbers as shown above (case-insensitive matching)
+- counterpartyType must be exactly: CUSTOMER, SUPPLIER, or GL
+- For CUSTOMER transactions: customerName is REQUIRED and must match a customer from the list above
+- For SUPPLIER transactions: vendorName is REQUIRED and must match a vendor from the list above
+- For GL transactions: glAccountNo is REQUIRED and must match an account number from the list above
 - vatCode must be: 15%, 0%, or EXEMPT
-- Date format: YYYY-MM-DD
-- Amount must be positive number
-- Leave fields empty if not applicable`;
+- Date format: YYYY-MM-DD (e.g., ${today})
+- Amount must be a positive number
+- Leave fields empty if not applicable
+- Do NOT use customer/vendor/GL account names that are not in the lists above`;
     
     return template;
   }
