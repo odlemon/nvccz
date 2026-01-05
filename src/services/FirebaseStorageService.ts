@@ -105,8 +105,38 @@ export class FirebaseStorageService {
         downloadURL: result.downloadURL
       };
     } catch (error: any) {
-      console.error('❌ Error uploading application document:', error.message);
-      throw new Error(`Failed to upload application document: ${error.message}`);
+      console.error('❌ Error uploading application document:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      // Extract detailed error message
+      let errorMessage = error.message || 'Unknown error occurred during document upload';
+      
+      // Handle axios/network errors
+      if (error.response) {
+        errorMessage = `Upload service error: ${error.response.status} - ${error.response.statusText}`;
+        if (error.response.data?.message) {
+          errorMessage += ` - ${error.response.data.message}`;
+        } else if (error.response.data) {
+          errorMessage += ` - ${JSON.stringify(error.response.data)}`;
+        }
+      } else if (error.code) {
+        if (error.code === 'ECONNREFUSED') {
+          errorMessage = `Cannot connect to upload server (connection refused). Please check if the upload service is running.`;
+        } else if (error.code === 'ETIMEDOUT') {
+          errorMessage = `Upload timeout - the server took too long to respond. Please try again.`;
+        } else if (error.code === 'ENOTFOUND') {
+          errorMessage = `Upload server not found. Please check the server configuration.`;
+        } else {
+          errorMessage = `Network error (${error.code}): ${errorMessage}`;
+        }
+      }
+      
+      throw new Error(`Failed to upload application document: ${errorMessage}`);
     }
   }
 
