@@ -142,14 +142,66 @@ export class RemoteUploadService {
         };
       }
     } catch (error: any) {
-      logger.error("Error uploading files to remote server:", {
-        error: error.message,
-        stack: error.stack,
-        uploadType,
-      });
+      // Extract detailed error from server response
+      let errorMessage = error.message || "Failed to upload files to remote server";
+      
+      if (error.response) {
+        // Server responded with an error status
+        const status = error.response.status;
+        const statusText = error.response.statusText;
+        const responseData = error.response.data;
+        
+        logger.error("Error uploading files to remote server:", {
+          status: status,
+          statusText: statusText,
+          responseData: responseData,
+          uploadType,
+          error: error.message,
+          stack: error.stack,
+        });
+        
+        // Extract actual error message from server response
+        if (responseData) {
+          if (responseData.message) {
+            errorMessage = `Server error (${status}): ${responseData.message}`;
+          } else if (responseData.error) {
+            errorMessage = `Server error (${status}): ${responseData.error}`;
+          } else if (typeof responseData === 'string') {
+            errorMessage = `Server error (${status}): ${responseData}`;
+          } else {
+            errorMessage = `Server error (${status} ${statusText}): ${JSON.stringify(responseData)}`;
+          }
+        } else {
+          errorMessage = `Server error (${status} ${statusText}): No error details provided`;
+        }
+      } else if (error.code) {
+        // Network/connection error
+        logger.error("Network error uploading files to remote server:", {
+          code: error.code,
+          message: error.message,
+          uploadType,
+        });
+        
+        if (error.code === 'ECONNREFUSED') {
+          errorMessage = `Cannot connect to upload server at ${UPLOAD_SERVICE_URL} (connection refused). The upload service may be down.`;
+        } else if (error.code === 'ETIMEDOUT') {
+          errorMessage = `Upload timeout - the server at ${UPLOAD_SERVICE_URL} took too long to respond.`;
+        } else if (error.code === 'ENOTFOUND') {
+          errorMessage = `Upload server not found: ${UPLOAD_SERVICE_URL}. Please check the server configuration.`;
+        } else {
+          errorMessage = `Network error (${error.code}): ${errorMessage}`;
+        }
+      } else {
+        logger.error("Unknown error uploading files to remote server:", {
+          error: error.message,
+          stack: error.stack,
+          uploadType,
+        });
+      }
+      
       return {
         success: false,
-        error: error.message || "Failed to upload files to remote server",
+        error: errorMessage,
       };
     }
   }
@@ -164,7 +216,15 @@ export class RemoteUploadService {
     const result = await this.uploadFiles(file, uploadType);
 
     if (!result.success || !result.files || result.files.length === 0) {
-      throw new Error(result.error || "Failed to upload file");
+      // Throw error with the actual server error message
+      const errorMessage = result.error || "Failed to upload file";
+      logger.error("uploadSingleFile failed", {
+        error: errorMessage,
+        uploadType,
+        hasFiles: !!result.files,
+        fileCount: result.files?.length || 0
+      });
+      throw new Error(errorMessage);
     }
 
     const uploadedFile = result.files[0];
