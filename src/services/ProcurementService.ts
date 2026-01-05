@@ -2152,7 +2152,7 @@ export class ProcurementService {
         const systemUser = await prisma.user.findFirst({
           where: {
             OR: [
-              { email: 'admin@nvccz.co.zw' },
+              { email: process.env.EMAIL_ADMIN || 'admin@nvccz.co.zw' },
               { roleCode: 'ADMIN' },
               { role: { name: 'ADMIN' } }
             ]
@@ -2414,7 +2414,7 @@ export class ProcurementService {
         genericCustomer = await prisma.customer.create({
           data: {
             name: 'Generic Supplier - Internal Use',
-            email: 'suppliers@nvccz.co.zw',
+            email: process.env.EMAIL_SUPPLIERS || 'suppliers@nvccz.co.zw',
             phone: '+263-XXX-XXX-XXXX',
             address: 'Internal Use Only',
             isActive: true

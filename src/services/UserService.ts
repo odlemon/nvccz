@@ -175,11 +175,11 @@ export class UserService {
             <p>You can now access the system using these credentials. If you have any questions or need assistance, please contact the IT department.</p>
             
             <p style="text-align: center;">
-              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login" class="button">Login to NVCCZ</a>
+              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login" class="button">Login to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</a>
             </p>
           </div>
           <div class="footer">
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
             <p>This is an automated message. Please do not reply to this email.</p>
           </div>
         </div>
@@ -212,7 +212,7 @@ You can now access the system using these credentials. If you have any questions
 
 Login URL: ${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login
 
-© 2024 NVCCZ. All rights reserved.
+© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.
 This is an automated message. Please do not reply to this email.
     `;
   }

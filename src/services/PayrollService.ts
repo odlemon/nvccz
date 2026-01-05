@@ -1239,7 +1239,7 @@ export class PayrollService {
         payrollRun: payslip.payrollRun,
         currency: payslip.currency,
         // Company information
-        companyName: "National Venture Capital Company of Zimbabwe"
+        companyName: process.env.COMPANY_NAME_FULL || "National Venture Capital Company of Zimbabwe"
       };
 
       return transformedPayslip;
@@ -1323,7 +1323,7 @@ export class PayrollService {
         employee: payslip.employee,
         payrollRun: payslip.payrollRun,
         currency: payslip.currency,
-        companyName: "National Venture Capital Company of Zimbabwe"
+        companyName: process.env.COMPANY_NAME_FULL || "National Venture Capital Company of Zimbabwe"
       };
 
       // Send the email

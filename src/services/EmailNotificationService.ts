@@ -16,7 +16,7 @@ export class EmailNotificationService {
    */
   static async sendApplicationReceivedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Investment Application Received - NVCCZ";
+      const subject = `Investment Application Received - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getApplicationReceivedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -39,7 +39,7 @@ export class EmailNotificationService {
    */
   static async sendDueDiligenceStartedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Due Diligence Process Started - NVCCZ";
+      const subject = `Due Diligence Process Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getDueDiligenceStartedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -62,7 +62,7 @@ export class EmailNotificationService {
    */
   static async sendDueDiligenceCompletedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Due Diligence Process Completed - NVCCZ";
+      const subject = `Due Diligence Process Completed - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getDueDiligenceCompletedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -92,7 +92,7 @@ export class EmailNotificationService {
     taskId: string;
   }): Promise<void> {
     try {
-      const subject = "New Due Diligence Task Assigned - NVCCZ";
+      const subject = `New Due Diligence Task Assigned - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getDueDiligenceTaskAssignedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -124,7 +124,7 @@ export class EmailNotificationService {
     hasDocuments: boolean;
   }): Promise<void> {
     try {
-      const subject = "Due Diligence Activity Update - NVCCZ";
+      const subject = `Due Diligence Activity Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getDueDiligenceActivityUpdateTemplate(data);
       
       const from = getFromAddress('investment');
@@ -156,8 +156,8 @@ export class EmailNotificationService {
   }): Promise<void> {
     try {
       const subject = data.approved 
-        ? "Due Diligence Activity Approved - NVCCZ"
-        : "Due Diligence Activity Rejected - NVCCZ";
+        ? `Due Diligence Activity Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`
+        : `Due Diligence Activity Rejected - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getDueDiligenceActivityApprovedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -180,7 +180,7 @@ export class EmailNotificationService {
    */
   static async sendBoardReviewStartedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Board Review Process Started - NVCCZ";
+      const subject = `Board Review Process Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getBoardReviewStartedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -391,7 +391,7 @@ export class EmailNotificationService {
    */
   static async sendInvestmentDecisionEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Investment Decision Update - NVCCZ";
+      const subject = `Investment Decision Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = EmailNotificationService.getInvestmentDecisionTemplate(data);
       
       const from = getFromAddress('investment');
@@ -414,7 +414,7 @@ export class EmailNotificationService {
    */
   static async sendInvestmentImplementationStartedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Investment Implementation Started - NVCCZ";
+      const subject = `Investment Implementation Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getInvestmentImplementationStartedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -437,7 +437,7 @@ export class EmailNotificationService {
    */
   static async sendApplicationShortlistedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Application Shortlisted - NVCCZ";
+      const subject = `Application Shortlisted - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getApplicationShortlistedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -465,7 +465,7 @@ export class EmailNotificationService {
         businessName: data.businessName
       });
 
-      const subject = "Application Update - NVCCZ";
+      const subject = `Application Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getApplicationBelowThresholdTemplate(data);
       
       console.log(`📧 Email content generated, sending via email service...`, {
@@ -511,7 +511,7 @@ export class EmailNotificationService {
    */
   static async sendTermSheetCreatedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Your Term Sheet is Ready for Review - NVCCZ";
+      const subject = `Your Term Sheet is Ready for Review - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getTermSheetCreatedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -534,7 +534,7 @@ export class EmailNotificationService {
    */
   static async sendTermSheetApprovedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Term Sheet Approved - NVCCZ";
+      const subject = `Term Sheet Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getTermSheetApprovedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -557,7 +557,7 @@ export class EmailNotificationService {
    */
   static async sendTermSheetRejectedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Term Sheet Update - NVCCZ";
+      const subject = `Term Sheet Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getTermSheetRejectedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -580,7 +580,7 @@ export class EmailNotificationService {
    */
   static async sendInvestmentApprovedAccountCreatedEmail(data: EmailNotificationData & { tempPassword: string }): Promise<void> {
     try {
-      const subject = "Investment Approved - Welcome to NVCCZ Portfolio!";
+      const subject = `Investment Approved - Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio!`;
       const htmlContent = this.getInvestmentApprovedAccountCreatedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -603,7 +603,7 @@ export class EmailNotificationService {
    */
   static async sendPortfolioCompanyCreatedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = "Welcome to NVCCZ Portfolio - NVCCZ";
+      const subject = `Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getPortfolioCompanyCreatedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -626,7 +626,7 @@ export class EmailNotificationService {
    */
   static async sendStageUpdateEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Application Status Update - ${data.currentStage} - NVCCZ`;
+      const subject = `Application Status Update - ${data.currentStage} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getStageUpdateTemplate(data);
       
       const from = getFromAddress('investment');
@@ -652,7 +652,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Application Received - NVCCZ</title>
+        <title>Application Received - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -665,7 +665,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Application Received</h2>
           </div>
           <div class="content">
@@ -695,11 +695,11 @@ export class EmailNotificationService {
             <p>If you have any questions, please don't hesitate to contact our investment team.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -713,7 +713,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Due Diligence Started - NVCCZ</title>
+        <title>Due Diligence Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -725,7 +725,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Due Diligence Process Started</h2>
           </div>
           <div class="content">
@@ -759,11 +759,11 @@ export class EmailNotificationService {
             <p>Thank you for your patience and cooperation.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -784,7 +784,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>New Due Diligence Task Assigned - NVCCZ</title>
+        <title>New Due Diligence Task Assigned - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -816,10 +816,10 @@ export class EmailNotificationService {
             <p>Please ensure you complete this task within the specified deadline.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from NVCCZ Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -842,7 +842,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Due Diligence Activity Update - NVCCZ</title>
+        <title>Due Diligence Activity Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -872,10 +872,10 @@ export class EmailNotificationService {
             <p>Please review the activity update and attached documents (if any) in the due diligence panel. You can approve or request changes as needed.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from NVCCZ Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -901,7 +901,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Activity ${statusText} - NVCCZ</title>
+        <title>Activity ${statusText} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -939,10 +939,10 @@ export class EmailNotificationService {
             }
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from NVCCZ Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -956,7 +956,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Due Diligence Completed - NVCCZ</title>
+        <title>Due Diligence Completed - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -968,7 +968,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Due Diligence Process Completed</h2>
           </div>
           <div class="content">
@@ -992,11 +992,11 @@ export class EmailNotificationService {
             <p>We will keep you updated throughout the process.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1010,7 +1010,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Board Review Started - NVCCZ</title>
+        <title>Board Review Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1022,7 +1022,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Board Review Process Started</h2>
           </div>
           <div class="content">
@@ -1053,11 +1053,11 @@ export class EmailNotificationService {
             <p>This is the final stage of our evaluation process, and we appreciate your patience.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1110,7 +1110,7 @@ export class EmailNotificationService {
             <p>Thank you for your prompt attention.</p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from NVCCZ Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -1187,7 +1187,7 @@ export class EmailNotificationService {
             <p>Thank you for participating in the board review process.</p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from NVCCZ Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -1223,7 +1223,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Investment Decision - NVCCZ</title>
+        <title>Investment Decision - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1235,7 +1235,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>${statusText}</h2>
           </div>
           <div class="content">
@@ -1265,14 +1265,14 @@ export class EmailNotificationService {
             <p>Our team will contact you to discuss the specific conditions and next steps.</p>
             `}
             
-            <p>Thank you for your interest in NVCCZ and for the time and effort you put into your application.</p>
+            <p>Thank you for your interest in ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} and for the time and effort you put into your application.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1286,7 +1286,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Investment Implementation Started - NVCCZ</title>
+        <title>Investment Implementation Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1298,7 +1298,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Investment Implementation Started</h2>
           </div>
           <div class="content">
@@ -1325,14 +1325,14 @@ export class EmailNotificationService {
             
             <p>You will receive regular updates throughout the implementation process and will have a dedicated point of contact for any questions or concerns.</p>
             
-            <p>Welcome to the NVCCZ portfolio!</p>
+            <p>Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} portfolio!</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1346,7 +1346,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Application Shortlisted - NVCCZ</title>
+        <title>Application Shortlisted - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1358,7 +1358,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Application Shortlisted</h2>
           </div>
           <div class="content">
@@ -1401,11 +1401,11 @@ export class EmailNotificationService {
             <p>We anticipate completing the due diligence process within 2-3 weeks.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1476,7 +1476,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Application Update - NVCCZ</title>
+        <title>Application Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1488,13 +1488,13 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Application Update</h2>
           </div>
           <div class="content">
             <p>Dear ${data.applicantName},</p>
             
-            <p>Thank you for your interest in NVCCZ and for submitting your application for <strong>${data.businessName}</strong>.</p>
+            <p>Thank you for your interest in ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} and for submitting your application for <strong>${data.businessName}</strong>.</p>
             
             <h3>Application Details:</h3>
             <ul>
@@ -1538,11 +1538,11 @@ export class EmailNotificationService {
             <p>We appreciate the time and effort you put into your application and wish you success with your business.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1556,7 +1556,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Term Sheet Created - NVCCZ</title>
+        <title>Term Sheet Created - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1568,7 +1568,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Term Sheet Created</h2>
           </div>
           <div class="content">
@@ -1594,7 +1594,7 @@ export class EmailNotificationService {
             </ul>
             
             <h3>🔐 Access Your Term Sheet</h3>
-            <p>Your term sheet is now available for review on the NVCCZ platform. You can:</p>
+            <p>Your term sheet is now available for review on the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} platform. You can:</p>
             <ul>
               <li>Log in to your account to view the term sheet</li>
               <li>Review all terms and conditions</li>
@@ -1613,11 +1613,11 @@ export class EmailNotificationService {
             <p>Please log in to review your term sheet and let us know if you have any questions or concerns.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1631,7 +1631,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Term Sheet Approved - NVCCZ</title>
+        <title>Term Sheet Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1643,7 +1643,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Term Sheet Approved</h2>
           </div>
           <div class="content">
@@ -1673,11 +1673,11 @@ export class EmailNotificationService {
             <p>Congratulations on reaching this important milestone!</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1691,7 +1691,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Term Sheet Update - NVCCZ</title>
+        <title>Term Sheet Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1703,7 +1703,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Term Sheet Update</h2>
           </div>
           <div class="content">
@@ -1733,11 +1733,11 @@ export class EmailNotificationService {
             <p>We appreciate your understanding and encourage you to consider other funding opportunities.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1751,7 +1751,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Investment Approved - Welcome to NVCCZ Portfolio!</title>
+        <title>Investment Approved - Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio!</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1766,7 +1766,7 @@ export class EmailNotificationService {
         <div class="container">
           <div class="header">
             <h1>🎉 Congratulations!</h1>
-            <h2>Investment Approved - Welcome to NVCCZ Portfolio!</h2>
+            <h2>Investment Approved - Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio!</h2>
           </div>
           <div class="content">
             <p>Dear ${data.applicantName},</p>
@@ -1774,7 +1774,7 @@ export class EmailNotificationService {
             <p><strong>Excellent news!</strong> We are thrilled to inform you that your investment application for <strong>${data.businessName}</strong> has been approved by our board!</p>
             
             <h3>🎯 What happens next?</h3>
-            <p>We have created your company account and you can now access the NVCCZ platform to:</p>
+            <p>We have created your company account and you can now access the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} platform to:</p>
             <ul>
               <li>View and sign your term sheet</li>
               <li>Access your company dashboard</li>
@@ -1800,16 +1800,16 @@ export class EmailNotificationService {
               <li>Review and sign your term sheet</li>
             </ol>
             
-            <p>Welcome to the NVCCZ family! We're excited to support your growth and success.</p>
+            <p>Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} family! We're excited to support your growth and success.</p>
             
             <p>If you have any questions or need assistance, please don't hesitate to contact our team.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1823,7 +1823,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Welcome to NVCCZ Portfolio - NVCCZ</title>
+        <title>Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1835,13 +1835,13 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Welcome to NVCCZ Portfolio</h2>
           </div>
           <div class="content">
             <p>Dear ${data.applicantName},</p>
             
-            <p>Congratulations! <strong>${data.businessName}</strong> is now officially part of the NVCCZ portfolio.</p>
+            <p>Congratulations! <strong>${data.businessName}</strong> is now officially part of the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} portfolio.</p>
             
             <h3>Portfolio Company Details:</h3>
             <ul>
@@ -1869,14 +1869,14 @@ export class EmailNotificationService {
               <li>Monitor progress and milestones</li>
             </ul>
             
-            <p>Welcome to the NVCCZ family! We're excited to support your growth and success.</p>
+            <p>Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} family! We're excited to support your growth and success.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1890,7 +1890,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Application Status Update - NVCCZ</title>
+        <title>Application Status Update - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -1902,7 +1902,7 @@ export class EmailNotificationService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>NVCCZ Investment Team</h1>
+            <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
             <h2>Application Status Update</h2>
           </div>
           <div class="content">
@@ -1923,11 +1923,11 @@ export class EmailNotificationService {
             <p>If you have any questions, please don't hesitate to contact our investment team.</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -1940,7 +1940,7 @@ export class EmailNotificationService {
    */
   static async sendDisbursementCompletedEmail(data: EmailNotificationData & { disbursementAmount: number, transactionReference?: string }): Promise<void> {
     try {
-      const subject = "Fund Disbursement Completed - NVCCZ";
+      const subject = `Fund Disbursement Completed - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlBody = this.getDisbursementCompletedTemplate(data);
 
       const from = getFromAddress('platform');
@@ -1966,7 +1966,7 @@ export class EmailNotificationService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Fund Disbursement Completed - NVCCZ</title>
+        <title>Fund Disbursement Completed - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -2016,11 +2016,11 @@ export class EmailNotificationService {
             <p>Congratulations on reaching this important milestone in your investment journey!</p>
             
             <p>Best regards,<br>
-            <strong>NVCCZ Investment Team</strong></p>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -2033,7 +2033,7 @@ export class EmailNotificationService {
    */
   static async sendPayslipEmail(payslipData: any): Promise<void> {
     try {
-      const subject = `Your Payslip - ${payslipData.payrollRun.payPeriod} - NVCCZ`;
+      const subject = `Your Payslip - ${payslipData.payrollRun.payPeriod} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getPayslipTemplate(payslipData);
       
       const from = getFromAddress('payroll');
@@ -2263,7 +2263,7 @@ export class EmailNotificationService {
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 ${companyName}. All rights reserved.</p>
+            <p>© 2026 ${companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -2276,7 +2276,7 @@ export class EmailNotificationService {
    */
   static async sendEventInvitationEmail(data: any): Promise<void> {
     try {
-      const subject = `You're Invited: ${data.eventTitle} - NVCCZ`;
+      const subject = `You're Invited: ${data.eventTitle} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getEventInvitationTemplate(data);
       
       const from = getFromAddress('events');
@@ -2299,7 +2299,7 @@ export class EmailNotificationService {
    */
   static async sendRSVPNotificationEmail(data: any): Promise<void> {
     try {
-      const subject = `RSVP Update: ${data.eventTitle} - NVCCZ`;
+      const subject = `RSVP Update: ${data.eventTitle} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getRSVPNotificationTemplate(data);
       
       const from = getFromAddress('events');
@@ -2322,7 +2322,7 @@ export class EmailNotificationService {
    */
   static async sendBudgetApprovalEmail(data: any): Promise<void> {
     try {
-      const subject = `Budget Approved: ${data.eventTitle} - NVCCZ`;
+      const subject = `Budget Approved: ${data.eventTitle} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getBudgetApprovalTemplate(data);
       
       const from = getFromAddress('finance');
@@ -2459,9 +2459,9 @@ export class EmailNotificationService {
             <div class="rsvp-section">
               <h3>📝 Please RSVP</h3>
               <p>Click one of the buttons below to respond to this invitation:</p>
-              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=accepted" class="rsvp-button">✅ Accept</a>
-              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=declined" class="rsvp-button decline">❌ Decline</a>
-              <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=maybe" class="rsvp-button maybe">🤔 Maybe</a>
+              <a href="${process.env.EVENTS_PORTAL_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=accepted" class="rsvp-button">✅ Accept</a>
+              <a href="${process.env.EVENTS_PORTAL_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=declined" class="rsvp-button decline">❌ Decline</a>
+              <a href="${process.env.EVENTS_PORTAL_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=maybe" class="rsvp-button maybe">🤔 Maybe</a>
             </div>
             
             <p><strong>Note:</strong> This invitation is personalized for you. Please use the RSVP links above to respond.</p>
@@ -2473,7 +2473,7 @@ export class EmailNotificationService {
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -2571,7 +2571,7 @@ export class EmailNotificationService {
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -2658,7 +2658,7 @@ export class EmailNotificationService {
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2024 NVCCZ. All rights reserved.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -2690,7 +2690,7 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
-      const subject = `Request for Quote ${data.rfqNumber} - ${data.companyName || 'NVCCZ'}`;
+      const subject = `Request for Quote ${data.rfqNumber} - ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getRFQTemplate(data);
       
       const fromName = data.companyName || getFromAddress('procurement').name;
@@ -3008,7 +3008,7 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
-      const subject = `Purchase Order ${data.poNumber} - ${data.companyName || 'NVCCZ'}`;
+      const subject = `Purchase Order ${data.poNumber} - ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getPurchaseOrderTemplate(data);
       
       const fromName = data.companyName || getFromAddress('procurement').name;
@@ -3068,7 +3068,7 @@ export class EmailNotificationService {
           day: 'numeric' 
         })
       : 'As soon as possible';
-    const frontendBase = (process.env.FRONTEND_URL || 'http://app.kyntaro.com').replace(/\/$/, '');
+    const frontendBase = (process.env.PROCUREMENT_PORTAL_URL || 'http://app.kyntaro.com').replace(/\/$/, '');
     const vendorSubmissionUrl = `${frontendBase}/vendor/quotation/submit?rfqNumber=${encodeURIComponent(
       data.rfqNumber
     )}&vendorEmail=${encodeURIComponent(data.vendorEmail)}&vendorName=${encodeURIComponent(data.vendorName)}`;
@@ -3234,7 +3234,7 @@ export class EmailNotificationService {
         <div class="container">
           <div class="header">
             <h1>📋 REQUEST FOR QUOTE</h1>
-            <h2>${data.companyName || 'NVCCZ'}</h2>
+            <h2>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</h2>
           </div>
           <div class="content">
             <p>Dear ${data.vendorName},</p>
@@ -3370,13 +3370,13 @@ export class EmailNotificationService {
             
             <p>Best regards,<br>
             <strong>Procurement Team</strong><br>
-            ${data.companyName || 'NVCCZ'}</p>
+            ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
           </div>
           <div class="footer">
-            <p>This is an official Request for Quote from ${data.companyName || 'NVCCZ'}.</p>
+            <p>This is an official Request for Quote from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
             <p>RFQ Reference: ${data.rfqNumber}</p>
-            <p>For any inquiries, please reply to this email or contact procurement@nvccz.com</p>
-            <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+            <p>For any inquiries, please reply to this email or contact ${process.env.EMAIL_CONTACT_PROCUREMENT || 'procurement@nvccz.com'}</p>
+            <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -3673,7 +3673,7 @@ export class EmailNotificationService {
         <div class="container">
           <div class="header">
             <h1>📦 Purchase Order</h1>
-            <h2>${data.companyName || 'NVCCZ'}</h2>
+            <h2>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</h2>
           </div>
           <div class="content">
             <p>Dear ${data.vendorName},</p>
@@ -3762,12 +3762,12 @@ export class EmailNotificationService {
             
             <p>Best regards,<br>
             <strong>Procurement Team</strong><br>
-            ${data.companyName || 'NVCCZ'}</p>
+            ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
           </div>
           <div class="footer">
-            <p>This is an official purchase order from ${data.companyName || 'NVCCZ'}.</p>
-            <p>For any inquiries, please contact procurement@nvccz.com</p>
-            <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+            <p>This is an official purchase order from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
+            <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_PROCUREMENT || 'procurement@nvccz.com'}</p>
+            <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -3787,7 +3787,7 @@ export class EmailNotificationService {
     companyName?: string;
     rfqNumber?: string;
   }): string {
-    const frontendBase = (process.env.FRONTEND_URL || 'http://app.kyntaro.com').replace(/\/$/, '');
+    const frontendBase = (process.env.PROCUREMENT_PORTAL_URL || 'http://app.kyntaro.com').replace(/\/$/, '');
     const invoiceUrl = `${frontendBase}/vendor/invoice/submit?quotationNumber=${encodeURIComponent(
       data.quotationNumber
     )}&vendorEmail=${encodeURIComponent(data.vendorEmail)}${data.rfqNumber ? `&rfqNumber=${encodeURIComponent(data.rfqNumber)}` : ''}`;
@@ -3810,7 +3810,7 @@ export class EmailNotificationService {
       <body>
         <div class="header">
           <h1 style="margin: 0; font-size: 28px;">✅ Quotation Accepted!</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || 'NVCCZ'}</p>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
         </div>
         <div class="content">
           <p>Dear ${data.vendorName},</p>
@@ -3848,9 +3848,9 @@ export class EmailNotificationService {
           ${data.companyName || 'NVCCZ'}</p>
         </div>
         <div class="footer">
-          <p>This is an official notification from ${data.companyName || 'NVCCZ'}.</p>
-          <p>For any inquiries, please contact procurement@nvccz.com</p>
-          <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+          <p>This is an official notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
+          <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_PROCUREMENT || 'procurement@nvccz.com'}</p>
+          <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
         </div>
       </body>
       </html>
@@ -3885,7 +3885,7 @@ export class EmailNotificationService {
       <body>
         <div class="header">
           <h1 style="margin: 0; font-size: 28px;">📋 Quotation Status Update</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || 'NVCCZ'}</p>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
         </div>
         <div class="content">
           <p>Dear ${data.vendorName},</p>
@@ -3922,9 +3922,9 @@ export class EmailNotificationService {
           ${data.companyName || 'NVCCZ'}</p>
         </div>
         <div class="footer">
-          <p>This is an official notification from ${data.companyName || 'NVCCZ'}.</p>
-          <p>For any inquiries, please contact procurement@nvccz.com</p>
-          <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+          <p>This is an official notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
+          <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_PROCUREMENT || 'procurement@nvccz.com'}</p>
+          <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
         </div>
       </body>
       </html>
@@ -3972,7 +3972,7 @@ export class EmailNotificationService {
       <body>
         <div class="header">
           <h1 style="margin: 0; font-size: 28px;">✅ Invoice Approved</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || 'NVCCZ'}</p>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
         </div>
         <div class="content">
           <p>Dear ${data.vendorName},</p>
@@ -4017,9 +4017,9 @@ export class EmailNotificationService {
           ${data.companyName || 'NVCCZ'}</p>
         </div>
         <div class="footer">
-          <p>This is an official notification from ${data.companyName || 'NVCCZ'}.</p>
-          <p>For any inquiries, please contact finance@nvccz.com</p>
-          <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+          <p>This is an official notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
+          <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_FINANCE || 'finance@nvccz.com'}</p>
+          <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
         </div>
       </body>
       </html>
@@ -4065,7 +4065,7 @@ export class EmailNotificationService {
       <body>
         <div class="header">
           <h1 style="margin: 0; font-size: 28px;">💰 Payment Confirmation</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || 'NVCCZ'}</p>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
         </div>
         <div class="content">
           <p>Dear ${data.vendorName},</p>
@@ -4134,9 +4134,9 @@ export class EmailNotificationService {
           ${data.companyName || 'NVCCZ'}</p>
         </div>
         <div class="footer">
-          <p>This is an official payment confirmation from ${data.companyName || 'NVCCZ'}.</p>
-          <p>For any inquiries, please contact finance@nvccz.com</p>
-          <p>© 2025 ${data.companyName || 'NVCCZ'}. All rights reserved.</p>
+          <p>This is an official payment confirmation from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
+          <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_FINANCE || 'finance@nvccz.com'}</p>
+          <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
         </div>
       </body>
       </html>
@@ -4196,10 +4196,10 @@ export class EmailNotificationService {
             <p>Please review and approve or reject this requisition in the procurement system.</p>
             
             <p>Best regards,<br>
-            <strong>${data.companyName || 'NVCCZ'} Procurement System</strong></p>
+            <strong>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${data.companyName || 'NVCCZ'} Procurement System.</p>
+            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System.</p>
           </div>
         </div>
       </body>
@@ -4262,10 +4262,10 @@ export class EmailNotificationService {
             <p>You can now proceed with the next steps in the procurement process.</p>
             
             <p>Best regards,<br>
-            <strong>${data.companyName || 'NVCCZ'} Procurement System</strong></p>
+            <strong>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${data.companyName || 'NVCCZ'} Procurement System.</p>
+            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System.</p>
           </div>
         </div>
       </body>
@@ -4328,10 +4328,10 @@ export class EmailNotificationService {
             <p>Please review the rejection reason and make necessary changes before resubmitting.</p>
             
             <p>Best regards,<br>
-            <strong>${data.companyName || 'NVCCZ'} Procurement System</strong></p>
+            <strong>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${data.companyName || 'NVCCZ'} Procurement System.</p>
+            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System.</p>
           </div>
         </div>
       </body>
@@ -4392,10 +4392,10 @@ export class EmailNotificationService {
             <p>Please review and approve or reject this request in the procurement system.</p>
             
             <p>Best regards,<br>
-            <strong>${data.companyName || 'NVCCZ'} Procurement System</strong></p>
+            <strong>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${data.companyName || 'NVCCZ'} Procurement System.</p>
+            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System.</p>
           </div>
         </div>
       </body>
