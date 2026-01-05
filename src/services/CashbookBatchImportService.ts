@@ -41,27 +41,55 @@ export class CashbookBatchImportService {
     try {
       console.log(`📁 Processing CSV import: ${fileName}`);
       
-      // 1. Upload file to remote server
-      const uploadResult = await remoteUploadService.uploadSingleFile(
-        {
-          buffer: file,
-          originalname: fileName,
-          mimetype: 'text/csv',
-        },
-        'cashbook-imports'
-      );
-      
-      const fileUrl = uploadResult.downloadURL;
-      console.log(`✅ File uploaded to remote server: ${fileUrl}`);
+      // 1. Upload file to remote server (optional - continue even if it fails)
+      let fileUrl: string | null = null;
+      try {
+        const uploadResult = await remoteUploadService.uploadSingleFile(
+          {
+            buffer: file,
+            originalname: fileName,
+            mimetype: 'text/csv',
+          },
+          'cashbook-imports'
+        );
+        
+        fileUrl = uploadResult.downloadURL;
+        console.log(`✅ File uploaded to remote server: ${fileUrl}`);
+      } catch (uploadError: any) {
+        // Extract detailed error message from axios errors
+        let errorMsg = uploadError.message || 'Unknown upload error';
+        if (uploadError.response) {
+          errorMsg = `Upload service error: ${uploadError.response.status} - ${uploadError.response.statusText}`;
+          if (uploadError.response.data?.message) {
+            errorMsg += ` - ${uploadError.response.data.message}`;
+          }
+        } else if (uploadError.code) {
+          errorMsg = `Upload network error: ${uploadError.code} - ${errorMsg}`;
+        }
+        console.warn(`⚠️ File upload failed (continuing with import): ${errorMsg}`);
+        // Continue processing even if upload fails
+      }
       
       // 2. Parse CSV content
       const csvContent = file.toString('utf-8');
+      if (!csvContent || csvContent.trim().length === 0) {
+        throw new Error('CSV file is empty');
+      }
+      
       const transactions = this.parseCSV(csvContent);
+      
+      if (transactions.length === 0) {
+        throw new Error('No transactions found in CSV file. Please check the file format.');
+      }
       
       console.log(`📊 Parsed ${transactions.length} transactions from CSV`);
       
       // 3. Validate transactions
       const validationResult = await this.validateTransactions(transactions);
+      
+      if (validationResult.validTransactions.length === 0) {
+        throw new Error(`No valid transactions found. Errors: ${validationResult.errors.join('; ')}`);
+      }
       
       // 4. Create batch
       const batch = await prisma.cashbookBatch.create({
@@ -126,12 +154,42 @@ export class CashbookBatchImportService {
         validTransactions: validCount,
         invalidTransactions: validationResult.errors.length,
         errors: validationResult.errors,
-        fileUrl
+        fileUrl: fileUrl || ''
       };
       
     } catch (error: any) {
-      console.error('❌ Error importing CSV:', error.message);
-      throw error;
+      console.error('❌ Error importing CSV:', error);
+      console.error('Error message:', error.message);
+      console.error('Error code:', error.code);
+      console.error('Stack trace:', error.stack);
+      
+      // Extract detailed error message
+      let errorMessage = error.message || 'Unknown error occurred during CSV import';
+      
+      // Handle Prisma errors
+      if (error.code) {
+        if (error.code === 'P2002') {
+          errorMessage = `Duplicate entry: ${error.meta?.target?.join(', ') || 'unique constraint violation'}`;
+        } else if (error.code === 'P2025') {
+          errorMessage = `Record not found: ${error.meta?.cause || 'resource does not exist'}`;
+        } else if (error.code === 'P2003') {
+          errorMessage = `Foreign key constraint failed: ${error.meta?.field_name || 'invalid reference'}`;
+        } else {
+          errorMessage = `Database error (${error.code}): ${errorMessage}`;
+        }
+      }
+      
+      // Handle axios/network errors
+      if (error.response) {
+        errorMessage = `Remote service error: ${error.response.status} - ${error.response.statusText}`;
+        if (error.response.data?.message) {
+          errorMessage += ` - ${error.response.data.message}`;
+        }
+      } else if (error.code && (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND')) {
+        errorMessage = `Network error (${error.code}): ${errorMessage}`;
+      }
+      
+      throw new Error(errorMessage);
     }
   }
   
@@ -140,7 +198,35 @@ export class CashbookBatchImportService {
    */
   private static parseCSV(csvContent: string): CSVTransaction[] {
     const lines = csvContent.split('\n').filter(line => line.trim());
+    
+    if (lines.length === 0) {
+      throw new Error('CSV file is empty or has no content');
+    }
+    
+    if (lines.length < 2) {
+      throw new Error('CSV file must have at least a header row and one data row');
+    }
+    
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    
+    if (headers.length === 0) {
+      throw new Error('CSV file has no headers');
+    }
+    
+    // Validate required headers
+    const hasBankName = headers.some(h => h === 'bankname' || h === 'bank');
+    const hasDate = headers.some(h => h === 'transactiondate' || h === 'date');
+    const hasAmount = headers.some(h => h === 'amount');
+    
+    if (!hasBankName) {
+      throw new Error('CSV file must have a "bankName" or "bank" column');
+    }
+    if (!hasDate) {
+      throw new Error('CSV file must have a "transactionDate" or "date" column');
+    }
+    if (!hasAmount) {
+      throw new Error('CSV file must have an "amount" column');
+    }
     
     const transactions: CSVTransaction[] = [];
     
