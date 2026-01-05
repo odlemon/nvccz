@@ -135,7 +135,7 @@ export class UserService {
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Your NVCCZ Account Credentials</title>
+        <title>Your ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Account Credentials</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -150,12 +150,12 @@ export class UserService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>Welcome to NVCCZ!</h1>
+            <h1>Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}!</h1>
             <p>Your account has been created successfully</p>
           </div>
           <div class="content">
             <p>Hi ${firstName} ${lastName},</p>
-            <p>Welcome to the NVCCZ system! Your account has been created and you've been assigned to the <strong>${department} Department</strong> as a <strong>${roleName}</strong>.</p>
+            <p>Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} system! Your account has been created and you've been assigned to the <strong>${department} Department</strong> as a <strong>${roleName}</strong>.</p>
             
             <div class="credentials">
               <h3>🔐 Your Login Credentials</h3>
@@ -193,11 +193,11 @@ export class UserService {
    */
   static getCredentialsEmailText(firstName: string, lastName: string, email: string, password: string, department: string, roleName: string): string {
     return `
-Welcome to NVCCZ!
+Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}!
 
 Hi ${firstName} ${lastName},
 
-Welcome to the NVCCZ system! Your account has been created and you've been assigned to the ${department} Department as a ${roleName}.
+Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} system! Your account has been created and you've been assigned to the ${department} Department as a ${roleName}.
 
 Your Login Credentials:
 Email: ${email}
@@ -222,7 +222,7 @@ This is an automated message. Please do not reply to this email.
    */
   static async sendCredentialsEmail(email: string, firstName: string, lastName: string, password: string, department: string, roleName: string): Promise<boolean> {
     try {
-      const subject = "Your NVCCZ Account Credentials - Welcome!";
+      const subject = `Your ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Account Credentials - Welcome!`;
       const htmlContent = this.getCredentialsEmailHTML(firstName, lastName, email, password, department, roleName);
       const textContent = this.getCredentialsEmailText(firstName, lastName, email, password, department, roleName);
       
