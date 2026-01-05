@@ -1,17 +1,6 @@
 bankName,transactionDate,description,amount,reference,counterpartyType,customerName,vendorName,glAccountNo,vatCode,projectCode,discount
-Main Bank Account,2025-11-14,Customer Payment - Invoice #INV-001,1500.00,RCP-001,CUSTOMER,ABC Investment Fund,,,15%,PROJ-001,0
-Main Bank Account,2025-11-14,GL Receipt - Share Capital,5000.00,RCP-002,GL,,,3000,15%,,0
-Main Bank Account,2025-11-14,Supplier Payment - Office Supplies,250.00,PAY-001,SUPPLIER,,Office Supplies Ltd,,15%,PROJ-002,0
-Cash and Cash Equivalents,2025-11-14,GL Payment - Rent,1200.00,PAY-002,GL,,,2000,15%,,0
-Savings Account - USD,2025-11-14,Customer Payment - Invoice #INV-002,2200.00,RCP-003,CUSTOMER,Global Ventures Ltd,,,15%,PROJ-001,0
-Main Bank Account,2025-11-14,Customer Payment - Invoice #INV-003,8500.75,RCP-004,CUSTOMER,Healthcare Group,,,15%,PROJ-003,0
-Petty Cash,2025-11-14,Supplier Payment - Utilities,450.50,PAY-003,SUPPLIER,,Utilities Provider,,15%,PROJ-002,0
-Main Bank Account,2025-11-14,GL Receipt - Loan Received,15000.00,RCP-005,GL,,,3000,0%,,0
-Savings Account - USD,2025-11-14,Supplier Payment - Legal Services,3200.25,PAY-004,SUPPLIER,,Legal Associates,,15%,PROJ-004,0
-Cash and Cash Equivalents,2025-11-14,Customer Payment - Invoice #INV-004,6750.00,RCP-006,CUSTOMER,Manufacturing Co,,,15%,PROJ-001,0
-Main Bank Account,2025-11-14,GL Payment - Salaries,12500.00,PAY-005,GL,,,2250,0%,,0
-Savings Account - USD,2025-11-14,Supplier Payment - Marketing Services,1850.80,PAY-006,SUPPLIER,,Marketing Pro,,15%,PROJ-005,0
-Petty Cash,2025-11-14,Customer Payment - Invoice #INV-005,950.25,RCP-007,CUSTOMER,Retail Chain Stores,,,15%,PROJ-003,0
-Main Bank Account,2025-11-14,GL Receipt - Interest Income,250.50,RCP-008,GL,,,3200,0%,,0
-Cash and Cash Equivalents,2025-11-14,Supplier Payment - Travel Expenses,1250.00,PAY-007,SUPPLIER,,Travel Services Co,,15%,PROJ-006,0
-
+Bank Account - ZWL,2026-01-05,Customer Payment - Invoice #INV-001,1500.00,RCP-001,CUSTOMER,Chipo Chimhundu,,,15%,PROJ-001,0
+Bank Account - ZWL,2026-01-05,GL Receipt - Share Capital,5000.00,RCP-002,GL,,,1000,15%,,0
+Bank Account - ZWL,2026-01-05,Supplier Payment - Office Supplies,250.00,PAY-001,SUPPLIER,,niakazi,,15%,PROJ-002,0
+Bank Account - ZWL,2026-01-05,Supplier Payment - Utilities,450.50,PAY-003,SUPPLIER,,Test Event Vendor,,15%,PROJ-002,0
+Bank Account - ZWL,2026-01-05,GL Payment - Rent,1200.00,PAY-002,GL,,,1010,15%,,0
