@@ -819,7 +819,7 @@ export class EmailNotificationService {
             <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -875,7 +875,7 @@ export class EmailNotificationService {
             <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -942,7 +942,7 @@ export class EmailNotificationService {
             <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -1110,7 +1110,7 @@ export class EmailNotificationService {
             <p>Thank you for your prompt attention.</p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -1187,7 +1187,7 @@ export class EmailNotificationService {
             <p>Thank you for participating in the board review process.</p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Investment Management System.</p>
+            <p>This is an automated notification from ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Investment Management System.</p>
           </div>
         </div>
       </body>
@@ -1325,7 +1325,7 @@ export class EmailNotificationService {
             
             <p>You will receive regular updates throughout the implementation process and will have a dedicated point of contact for any questions or concerns.</p>
             
-            <p>Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} portfolio!</p>
+            <p>Welcome to the ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} portfolio!</p>
             
             <p>Best regards,<br>
             <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
@@ -1594,7 +1594,7 @@ export class EmailNotificationService {
             </ul>
             
             <h3>🔐 Access Your Term Sheet</h3>
-            <p>Your term sheet is now available for review on the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} platform. You can:</p>
+            <p>Your term sheet is now available for review on the ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} platform. You can:</p>
             <ul>
               <li>Log in to your account to view the term sheet</li>
               <li>Review all terms and conditions</li>
@@ -1774,7 +1774,7 @@ export class EmailNotificationService {
             <p><strong>Excellent news!</strong> We are thrilled to inform you that your investment application for <strong>${data.businessName}</strong> has been approved by our board!</p>
             
             <h3>🎯 What happens next?</h3>
-            <p>We have created your company account and you can now access the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} platform to:</p>
+            <p>We have created your company account and you can now access the ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} platform to:</p>
             <ul>
               <li>View and sign your term sheet</li>
               <li>Access your company dashboard</li>
@@ -1836,12 +1836,12 @@ export class EmailNotificationService {
         <div class="container">
           <div class="header">
             <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
-            <h2>Welcome to NVCCZ Portfolio</h2>
+            <h2>Welcome to ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Portfolio</h2>
           </div>
           <div class="content">
             <p>Dear ${data.applicantName},</p>
             
-            <p>Congratulations! <strong>${data.businessName}</strong> is now officially part of the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} portfolio.</p>
+            <p>Congratulations! <strong>${data.businessName}</strong> is now officially part of the ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} portfolio.</p>
             
             <h3>Portfolio Company Details:</h3>
             <ul>
@@ -2564,7 +2564,7 @@ export class EmailNotificationService {
               ${data.rsvpNotes ? `<p><strong>Notes:</strong> ${data.rsvpNotes}</p>` : ''}
             </div>
             
-            <p>You can view all RSVP responses and manage your event through the NVCCZ platform.</p>
+            <p>You can view all RSVP responses and manage your event through the ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} platform.</p>
             
             <p>Best regards,<br>
             <strong>NVCCZ Events Team</strong></p>
@@ -4196,10 +4196,10 @@ export class EmailNotificationService {
             <p>Please review and approve or reject this requisition in the procurement system.</p>
             
             <p>Best regards,<br>
-            <strong>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System</strong></p>
+            <strong>${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System.</p>
+            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System.</p>
           </div>
         </div>
       </body>
@@ -4262,10 +4262,10 @@ export class EmailNotificationService {
             <p>You can now proceed with the next steps in the procurement process.</p>
             
             <p>Best regards,<br>
-            <strong>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System</strong></p>
+            <strong>${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System.</p>
+            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System.</p>
           </div>
         </div>
       </body>
@@ -4328,10 +4328,10 @@ export class EmailNotificationService {
             <p>Please review the rejection reason and make necessary changes before resubmitting.</p>
             
             <p>Best regards,<br>
-            <strong>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System</strong></p>
+            <strong>${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System.</p>
+            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System.</p>
           </div>
         </div>
       </body>
@@ -4392,10 +4392,10 @@ export class EmailNotificationService {
             <p>Please review and approve or reject this request in the procurement system.</p>
             
             <p>Best regards,<br>
-            <strong>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System</strong></p>
+            <strong>${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Procurement System.</p>
+            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System.</p>
           </div>
         </div>
       </body>
