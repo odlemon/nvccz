@@ -13,10 +13,23 @@ export class ApplicationController {
    * Supports both multipart/form-data (with files) and application/json (with document URLs)
    */
   static async createApplication(req: Request, res: Response): Promise<void> {
+    // Declare files outside try block so it's accessible in catch
+    let files: Express.Multer.File[] = [];
+    let isMultipart = false;
+    
     try {
-      // Handle both multipart/form-data (with files) and application/json
-      const files = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['files'] || [];
-      const isMultipart = files.length > 0;
+      // Safely extract files from request
+      try {
+        if (req.files) {
+          const filesObj = req.files as { [fieldname: string]: Express.Multer.File[] };
+          files = filesObj['files'] || [];
+        }
+        isMultipart = files.length > 0;
+      } catch (filesError: any) {
+        logger.warn('Error extracting files from request', { error: filesError.message });
+        files = [];
+        isMultipart = false;
+      }
 
       let {
         applicantName,
@@ -228,16 +241,32 @@ export class ApplicationController {
 
       ResponseHelper.success(res, "Application created successfully", application, 201);
     } catch (error: any) {
+      // Ensure files and isMultipart are defined even if error occurred early
+      const fileCount = files ? files.length : 0;
+      const hasFiles = isMultipart || false;
+      
       logger.error("❌ Error creating application", {
         error: error.message,
         stack: error.stack,
         applicantEmail: req.body?.applicantEmail,
         businessName: req.body?.businessName,
-        fileCount: files?.length || 0
+        fileCount: fileCount,
+        hasFiles: hasFiles,
+        errorName: error.name,
+        errorCode: error.code
       });
       
       // Extract meaningful error message
       let errorMessage = error.message || 'Unknown error occurred';
+      
+      // Handle ReferenceError specifically (like "files is not defined")
+      if (error.name === 'ReferenceError') {
+        errorMessage = `Code error: ${error.message}. This is a programming error, please check server logs.`;
+        logger.error("ReferenceError detected - this is a code bug", {
+          message: error.message,
+          stack: error.stack
+        });
+      }
       
       // Handle specific error types
       if (error.message?.includes('upload')) {
