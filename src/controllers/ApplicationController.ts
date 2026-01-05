@@ -13,10 +13,11 @@ export class ApplicationController {
    * Supports both multipart/form-data (with files) and application/json (with document URLs)
    */
   static async createApplication(req: Request, res: Response): Promise<void> {
+    // Declare files outside try block so it's accessible in catch
+    const files = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['files'] || [];
+    const isMultipart = files.length > 0;
+    
     try {
-      // Handle both multipart/form-data (with files) and application/json
-      const files = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['files'] || [];
-      const isMultipart = files.length > 0;
 
       let {
         applicantName,
@@ -233,7 +234,8 @@ export class ApplicationController {
         stack: error.stack,
         applicantEmail: req.body?.applicantEmail,
         businessName: req.body?.businessName,
-        fileCount: files?.length || 0
+        fileCount: files.length || 0,
+        hasFiles: isMultipart
       });
       
       // Extract meaningful error message
