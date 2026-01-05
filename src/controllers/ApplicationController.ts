@@ -120,21 +120,46 @@ export class ApplicationController {
           const file = files[i];
           const documentType = docTypes[i] || 'OTHER';
 
-          // Upload to Firebase
-          const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
-            file.buffer,
-            file.originalname,
-            tempApplicationId,
-            documentType
-          );
+          try {
+            logger.info(`Uploading document ${i + 1}/${files.length}: ${file.originalname}`, {
+              fileName: file.originalname,
+              fileSize: file.size,
+              documentType: documentType
+            });
 
-          processedDocuments.push({
-            documentType: documentType,
-            fileName: file.originalname,
-            fileUrl: downloadURL,
-            fileSize: file.size,
-            isRequired: ['BUSINESS_PLAN', 'PROOF_OF_CONCEPT', 'MARKET_RESEARCH', 'PROJECTED_CASH_FLOWS'].includes(documentType)
-          });
+            // Upload to Firebase
+            const { filePath, downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
+              file.buffer,
+              file.originalname,
+              tempApplicationId,
+              documentType
+            );
+
+            logger.info(`✅ Successfully uploaded document ${i + 1}/${files.length}`, {
+              fileName: file.originalname,
+              downloadURL: downloadURL
+            });
+
+            processedDocuments.push({
+              documentType: documentType,
+              fileName: file.originalname,
+              fileUrl: downloadURL,
+              fileSize: file.size,
+              isRequired: ['BUSINESS_PLAN', 'PROOF_OF_CONCEPT', 'MARKET_RESEARCH', 'PROJECTED_CASH_FLOWS'].includes(documentType)
+            });
+          } catch (uploadError: any) {
+            logger.error(`❌ Failed to upload document ${i + 1}/${files.length}`, {
+              fileName: file.originalname,
+              fileSize: file.size,
+              documentType: documentType,
+              error: uploadError.message,
+              stack: uploadError.stack
+            });
+            
+            // Provide detailed error message
+            const errorMessage = uploadError.message || 'Unknown upload error';
+            throw new Error(`Failed to upload document "${file.originalname}" (${i + 1} of ${files.length}): ${errorMessage}`);
+          }
         }
       } else if (documents && Array.isArray(documents)) {
         // Use provided document URLs (from JSON request)
@@ -203,8 +228,30 @@ export class ApplicationController {
 
       ResponseHelper.success(res, "Application created successfully", application, 201);
     } catch (error: any) {
-      logger.error("Error creating application", { error: error.message });
-      ResponseHelper.error(res, `Failed to create application: ${error.message}`, undefined, 500);
+      logger.error("❌ Error creating application", {
+        error: error.message,
+        stack: error.stack,
+        applicantEmail: req.body?.applicantEmail,
+        businessName: req.body?.businessName,
+        fileCount: files?.length || 0
+      });
+      
+      // Extract meaningful error message
+      let errorMessage = error.message || 'Unknown error occurred';
+      
+      // Handle specific error types
+      if (error.message?.includes('upload')) {
+        // Upload-related errors - provide detailed message
+        errorMessage = error.message;
+      } else if (error.message?.includes('email already')) {
+        ResponseHelper.error(res, error.message, undefined, 400);
+        return;
+      } else if (error.message?.includes('Missing required')) {
+        ResponseHelper.error(res, error.message, undefined, 400);
+        return;
+      }
+      
+      ResponseHelper.error(res, `Failed to create application: ${errorMessage}`, undefined, 500);
     }
   }
 
