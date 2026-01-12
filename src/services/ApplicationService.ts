@@ -642,7 +642,7 @@ export class ApplicationService {
   static async getAllApplications(
     page?: number,
     limit?: number,
-    stage?: string,
+    stage?: string | string[],
     fundId?: string,
     paginate: boolean = false
   ): Promise<{ applications: ApplicationWithRelations[]; total: number; page: number; totalPages: number }> {
@@ -653,10 +653,18 @@ export class ApplicationService {
       const where: any = {};
       
       if (stage) {
-        where.currentStage = stage;
+        // Handle both single stage string and array of stages
+        if (Array.isArray(stage)) {
+          where.currentStage = {
+            in: stage
+          };
+        } else {
+          where.currentStage = stage;
+        }
       } else {
+        // Exclude rejected applications (both REJECTED and BELOW_THRESHOLD)
         where.currentStage = {
-          notIn: ['BELOW_THRESHOLD', 'PENDING_SHORTLISTING']
+          notIn: ['REJECTED', 'BELOW_THRESHOLD', 'PENDING_SHORTLISTING']
         };
       }
       

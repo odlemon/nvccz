@@ -701,16 +701,18 @@ export class ApplicationController {
 
   /**
    * Get applications below threshold (PROTECTED - admin/fund manager access)
+   * Returns both REJECTED and BELOW_THRESHOLD applications
    */
   static async getBelowThresholdApplications(req: Request, res: Response): Promise<void> {
     try {
       const page = req.query.page ? parseInt(req.query.page as string) : 1;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
 
+      // Fetch both REJECTED and BELOW_THRESHOLD applications
       const result = await ApplicationService.getAllApplications(
         page,
         limit,
-        "BELOW_THRESHOLD",
+        ["REJECTED", "BELOW_THRESHOLD"],
         undefined,
         true  // Enable pagination
       );
