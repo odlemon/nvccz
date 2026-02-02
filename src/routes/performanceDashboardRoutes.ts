@@ -8,7 +8,14 @@ const router = Router();
 
 /**
  * @swagger
- * /api/performance/dashboard:
+ * tags:
+ *   name: Dashboards
+ *   description: Dashboard endpoints for comprehensive data visualization - Accounting, Payroll, Performance, and Portfolio Management dashboards with filtering capabilities
+ */
+
+/**
+ * @swagger
+ * /performance/dashboard:
  *   get:
  *     summary: Get performance dashboard data
  *     description: Returns comprehensive performance dashboard data including task metrics, monthly productivity, performance distribution, worker insights, budget tracker, and employee of the month

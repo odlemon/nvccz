@@ -8,7 +8,14 @@ const router = Router();
 
 /**
  * @swagger
- * /api/accounting/dashboard:
+ * tags:
+ *   name: Dashboards
+ *   description: Dashboard endpoints for comprehensive data visualization - Accounting, Payroll, Performance, and Portfolio Management dashboards with filtering capabilities
+ */
+
+/**
+ * @swagger
+ * /accounting/dashboard:
  *   get:
  *     summary: Get accounting dashboard data
  *     description: Returns comprehensive accounting dashboard data including key metrics (Revenue, COGS, Gross Profit, Net Profit), monthly chart data, expense breakdowns, and assets/liabilities breakdowns. All calculations match the Income Statement and Balance Sheet reports.
