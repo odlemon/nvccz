@@ -319,6 +319,14 @@ export class PayrollController {
 
       const payslip = await PayrollService.getEmployeePayslip(employeeId, payrollRunId);
 
+      if (!payslip) {
+        return res.json({
+          success: true,
+          message: 'No payslip found for this employee and payroll run',
+          data: null
+        });
+      }
+
       res.json({
         success: true,
         data: payslip
