@@ -8,7 +8,14 @@ const router = Router();
 
 /**
  * @swagger
- * /api/payroll/dashboard:
+ * tags:
+ *   name: Dashboards
+ *   description: Dashboard endpoints for comprehensive data visualization - Accounting, Payroll, Performance, and Portfolio Management dashboards with filtering capabilities
+ */
+
+/**
+ * @swagger
+ * /payroll/dashboard:
  *   get:
  *     summary: Get payroll dashboard data
  *     description: Returns comprehensive payroll dashboard data including key metrics, monthly trends, department distribution, and payroll list

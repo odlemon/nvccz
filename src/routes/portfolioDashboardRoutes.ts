@@ -8,7 +8,14 @@ const router = Router();
 
 /**
  * @swagger
- * /api/portfolio/dashboard:
+ * tags:
+ *   name: Dashboards
+ *   description: Dashboard endpoints for comprehensive data visualization - Accounting, Payroll, Performance, and Portfolio Management dashboards with filtering capabilities
+ */
+
+/**
+ * @swagger
+ * /portfolio/dashboard:
  *   get:
  *     summary: Get portfolio management dashboard data
  *     description: Returns comprehensive portfolio dashboard data including metrics, performance overview, J curve, deal allocation, IRR by quarter, and portfolio summary
