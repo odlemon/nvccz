@@ -100,6 +100,10 @@ const options = {
       {
         name: 'Events Management - Analytics & Reporting',
         description: 'Analytics and reporting - Get event analytics and generate comprehensive event reports with metrics and recommendations'
+      },
+      {
+        name: 'Dashboards',
+        description: 'Dashboard endpoints for comprehensive data visualization - Accounting, Payroll, Performance, and Portfolio Management dashboards with filtering capabilities'
       }
     ],
     components: {

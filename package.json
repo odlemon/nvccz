@@ -1,6 +1,7 @@
 {
   "name": "pine-fluent",
   "version": "1.0.0",
+  "type": "commonjs",
   "main": "index.js",
   "scripts": {
     "build": "npm run prisma:generate && tsc",

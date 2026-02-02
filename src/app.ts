@@ -40,6 +40,7 @@ import customerRoutes from "./routes/customerRoutes"
 import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import cashFlowRoutes from "./routes/cashFlowRoutes"
 import balanceSheetRoutes from "./routes/balanceSheetRoutes"
+import accountingDashboardRoutes from "./routes/accountingDashboardRoutes"
 import statementOfEquityRoutes from "./routes/statementOfEquityRoutes"
 import revenueRoutes from "./routes/revenueRoutes"
 import revenueSourceRoutes from "./routes/revenueSourceRoutes"
@@ -69,6 +70,7 @@ import auditRoutes from "./routes/auditRoutes"
 import performanceGoalRoutes from "./routes/performanceGoalRoutes"
 import performanceETLRoutes from "./routes/performanceETLRoutes"
 import performanceWorkflowRoutes from "./routes/performanceWorkflowRoutes"
+import performanceDashboardRoutes from "./routes/performanceDashboardRoutes"
 import taskRoutes from "./routes/taskRoutes"
 import kpiRoutes from "./routes/kpiRoutes"
 import hardcodedKPIRoutes from "./routes/hardcodedKPIRoutes"
@@ -82,6 +84,7 @@ import researchReportRoutes from "./routes/researchReportRoutes"
 import riskAssessmentRoutes from "./routes/riskAssessmentRoutes"
 import budgetManagementRoutes from "./routes/budgetManagementRoutes"
 import portfolioValuationRoutes from "./routes/portfolioValuationRoutes"
+import portfolioDashboardRoutes from "./routes/portfolioDashboardRoutes"
 import exitInterviewRoutes from "./routes/exitInterviewRoutes"
 import enhancedGoalTrackingRoutes from "./routes/enhancedGoalTrackingRoutes"
 import enhancedETLRoutes from "./routes/enhancedETLRoutes"
@@ -89,6 +92,7 @@ import performanceReviewCycleRoutes from "./routes/performanceReviewCycleRoutes"
 import performanceBreakdownRoutes from "./routes/performanceBreakdownRoutes"
 import individualGoalToTaskRoutes from "./routes/individualGoalToTaskRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
+import payrollDashboardRoutes from "./routes/payrollDashboardRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import vendorQuotationRoutes from "./routes/vendorQuotationRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
@@ -379,6 +383,7 @@ app.use("/api/accounting/customers", customerRoutes)
 app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/cash-flow", cashFlowRoutes)
 app.use("/api/accounting/balance-sheet", balanceSheetRoutes)
+app.use("/api/accounting/dashboard", accountingDashboardRoutes)
 app.use("/api/accounting/statement-of-equity", statementOfEquityRoutes)
 app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
@@ -450,6 +455,7 @@ app.use("/api/audit-logs", auditRoutes)
 // Performance Management routes
 app.use("/api/performance/goals", performanceGoalRoutes)
 app.use("/api/performance/etl", performanceETLRoutes)
+app.use("/api/performance/dashboard", performanceDashboardRoutes)
 app.use("/api/performance/workflow", performanceWorkflowRoutes)
 app.use("/api/tasks", taskRoutes)
 app.use("/api/activities", activityRoutes)
@@ -486,6 +492,7 @@ app.use("/api/budget-management", budgetManagementRoutes)
 
 // Portfolio Valuation routes
 app.use("/api/portfolio-valuations", portfolioValuationRoutes)
+app.use("/api/portfolio/dashboard", portfolioDashboardRoutes)
 
 // Exit Interview routes
 app.use("/api/exit-interviews", exitInterviewRoutes)
@@ -498,6 +505,7 @@ app.use("/api/performance/individual-goals", individualGoalToTaskRoutes)
 
 // Payroll Management routes
 app.use("/api/payroll", payrollRoutes)
+app.use("/api/payroll/dashboard", payrollDashboardRoutes)
 
 // Procurement Management routes
 app.use("/api/procurement", procurementRoutes)

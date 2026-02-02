@@ -1201,7 +1201,7 @@ export class PayrollService {
       });
 
       if (!payslip) {
-        throw new Error('Payslip not found');
+        return null;
       }
 
       // Transform the response to include all employee fields and company name
