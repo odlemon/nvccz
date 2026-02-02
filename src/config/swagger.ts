@@ -5,6 +5,7 @@ import { taskAssignmentEndpoints } from './task-assignment-endpoints';
 import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
 import { eventsEndpoints } from './events-endpoints';
+import { dashboardsEndpoints } from './dashboards-endpoints';
 
 const options = {
   definition: {
@@ -1536,6 +1537,7 @@ const fallbackSpec = {
     ...financialReportingEndpoints,
     ...procurementEndpoints,
     ...eventsEndpoints,
+    ...dashboardsEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -8261,15 +8263,15 @@ try {
     specs = fallbackSpec;
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
-    // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, and events endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints };
-    console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, and events endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
+    // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints with generated spec
+    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
+    console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error: any) {
   // Silently use fallback spec - it already includes all endpoints
   // Suppress error logging to avoid cluttering console with known parsing issues
   specs = fallbackSpec;
-  console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + events + cashbook)`);
+  console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + events + dashboards + cashbook)`);
 }
 
 export { specs }; 
