@@ -120,8 +120,45 @@ export class PortfolioDashboardService {
             investmentCommitments: true
           }
         });
+        // If fund not found, return empty dashboard with zeros
         if (!fund) {
-          throw new Error("Fund not found");
+          const asOfDate = params.asOfDate || new Date();
+          return {
+            metrics: {
+              totalInvested: 0,
+              availableForDrawdown: 0,
+              fundGrossIRR: 0,
+              lpNetIRR: 0,
+              tvpi: 0
+            },
+            performanceOverview: {
+              paidIn: 0,
+              totalInvestment: 0,
+              managementExpenses: 0,
+              otherExpenses: 0,
+              realizedProceedsAndIncome: 0,
+              fmvUnrealizedPortfolio: 0
+            },
+            jCurve: [],
+            dealAllocation: [],
+            irrByQuarter: [],
+            portfolioSummary: [],
+            totals: {
+              totalInvestmentCost: 0,
+              currentInvestmentCost: 0,
+              realized: 0,
+              fairMarketValue: 0,
+              totalValue: 0,
+              multiplesOfCost: 0,
+              grossIRR: 0
+            },
+            period: {
+              asOfDate,
+              fundName: null,
+              year: params.year || null
+            },
+            generatedAt: new Date()
+          };
         }
         funds = [fund];
       } else {
@@ -139,8 +176,45 @@ export class PortfolioDashboardService {
             investmentCommitments: true
           }
         });
+        // If no funds found, return empty dashboard with zeros
         if (funds.length === 0) {
-          throw new Error("No funds found");
+          const asOfDate = params.asOfDate || new Date();
+          return {
+            metrics: {
+              totalInvested: 0,
+              availableForDrawdown: 0,
+              fundGrossIRR: 0,
+              lpNetIRR: 0,
+              tvpi: 0
+            },
+            performanceOverview: {
+              paidIn: 0,
+              totalInvestment: 0,
+              managementExpenses: 0,
+              otherExpenses: 0,
+              realizedProceedsAndIncome: 0,
+              fmvUnrealizedPortfolio: 0
+            },
+            jCurve: [],
+            dealAllocation: [],
+            irrByQuarter: [],
+            portfolioSummary: [],
+            totals: {
+              totalInvestmentCost: 0,
+              currentInvestmentCost: 0,
+              realized: 0,
+              fairMarketValue: 0,
+              totalValue: 0,
+              multiplesOfCost: 0,
+              grossIRR: 0
+            },
+            period: {
+              asOfDate,
+              fundName: null,
+              year: params.year || null
+            },
+            generatedAt: new Date()
+          };
         }
       }
       
@@ -787,19 +861,34 @@ export class PortfolioDashboardService {
    */
   private static async getManagementExpenses(): Promise<number> {
     try {
+      // First, find chart of accounts that match "Management"
+      // MySQL is case-insensitive by default with standard collations
+      const managementAccounts = await prisma.chartOfAccounts.findMany({
+        where: {
+          accountType: 'EXPENSE',
+          accountName: {
+            contains: 'Management'
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (managementAccounts.length === 0) {
+        return 0;
+      }
+
+      const accountIds = managementAccounts.map(acc => acc.id);
+
       // Get expenses from journal entries with management fee account codes
-      // This is simplified - in reality you'd filter by specific account codes
       const expenseEntries = await prisma.journalEntryLine.findMany({
         where: {
           journalEntry: {
             status: 'POSTED'
           },
-          chartOfAccount: {
-            accountType: 'EXPENSE',
-            accountName: {
-              contains: 'Management',
-              mode: 'insensitive'
-            }
+          chartOfAccountId: {
+            in: accountIds
           }
         },
         select: {
@@ -821,6 +910,22 @@ export class PortfolioDashboardService {
    */
   private static async getOtherExpenses(): Promise<number> {
     try {
+      // First, find management accounts to exclude them
+      // MySQL is case-insensitive by default with standard collations
+      const managementAccounts = await prisma.chartOfAccounts.findMany({
+        where: {
+          accountType: 'EXPENSE',
+          accountName: {
+            contains: 'Management'
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+
+      const managementAccountIds = managementAccounts.map(acc => acc.id);
+
       // Get all expenses except management expenses
       const expenseEntries = await prisma.journalEntryLine.findMany({
         where: {
@@ -829,11 +934,11 @@ export class PortfolioDashboardService {
           },
           chartOfAccount: {
             accountType: 'EXPENSE',
-            accountName: {
-              not: {
-                contains: 'Management'
+            ...(managementAccountIds.length > 0 && {
+              id: {
+                notIn: managementAccountIds
               }
-            }
+            })
           }
         },
         select: {
