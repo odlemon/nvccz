@@ -193,7 +193,8 @@ export class FinancialReportService {
   }
 
   static async listReportsForCompany(portfolioCompanyId: string) {
-    return prisma.$queryRawUnsafe(
+    // Get reports
+    const reports: any[] = await prisma.$queryRawUnsafe(
       `SELECT fr.*, u.firstName as submittedByFirstName, u.lastName as submittedByLastName
        FROM financial_reports fr
        JOIN users u ON u.id = fr.submittedById
@@ -202,6 +203,28 @@ export class FinancialReportService {
        ORDER BY fr.createdAt DESC`,
       portfolioCompanyId
     );
+
+    // Get portfolio company to fetch period KPIs
+    const company = await prisma.portfolioCompany.findUnique({
+      where: { id: portfolioCompanyId },
+      select: { financialKpis: true }
+    });
+
+    const kpiValues = company?.financialKpis?.kpiValues || {};
+
+    // Enrich each report with period-level KPIs
+    return reports.map((report: any) => {
+      const periodKey = new Date(report.periodEnd).toISOString().split('T')[0];
+      const periodKPIs = kpiValues[periodKey] || {};
+
+      return {
+        ...report,
+        // Include period-level KPIs (these are stored at period level, not per report)
+        totalRevenue: periodKPIs.TOTAL_REVENUE ?? null,
+        netProfit: periodKPIs.NET_PROFIT ?? null,
+        cashFlowNet: periodKPIs.CASH_FLOW_NET ?? null
+      };
+    });
   }
 
   static async getReportById(reportId: string) {
@@ -548,7 +571,13 @@ export class FinancialReportService {
     totalRevenue?: number | null;
     netProfit?: number | null;
     cashFlowNet?: number | null;
-  }): Promise<void> {
+  }): Promise<{
+    periodStart: string;
+    periodEnd: string;
+    totalRevenue: number | null;
+    netProfit: number | null;
+    cashFlowNet: number | null;
+  }> {
     const company = await prisma.portfolioCompany.findUnique({
       where: { id: params.portfolioCompanyId },
       select: { financialKpis: true }
@@ -613,5 +642,14 @@ export class FinancialReportService {
     });
 
     console.log(`✅ Saved period KPIs for ${params.portfolioCompanyId}, period: ${periodKey}`);
+
+    // Return the saved values
+    return {
+      periodStart: this.formatDate(params.periodStart),
+      periodEnd: periodKey,
+      totalRevenue,
+      netProfit,
+      cashFlowNet
+    };
   }
 }
