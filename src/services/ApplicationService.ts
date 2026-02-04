@@ -637,6 +637,65 @@ export class ApplicationService {
   }
 
   /**
+   * Calculate application progress percentage based on current stage
+   * For DISBURSED stage, calculates based on disbursed amount vs requested amount
+   */
+  private static calculateApplicationProgress(
+    currentStage: string, 
+    requestedAmount?: number | Decimal | null,
+    disbursements?: Array<{ status: string; amount: number | Decimal }>
+  ): number {
+    const stageProgressMap: { [key: string]: number } = {
+      'SUBMITTED': 5,
+      'PENDING_SHORTLISTING': 5,
+      'SHORTLISTED': 10,
+      'UNDER_DUE_DILIGENCE': 20,
+      'DUE_DILIGENCE_COMPLETED': 30,
+      'TERM_SHEET': 40,
+      'TERM_SHEET_NEGOTIATION': 45,
+      'UNDER_BOARD_REVIEW': 50,
+      'BOARD_APPROVED': 60,
+      'BOARD_REJECTED': 0,
+      'BOARD_CONDITIONAL': 55,
+      'INVESTMENT_IMPLEMENTATION': 70,
+      'DISBURSED': 85, // Base percentage, will be adjusted based on amount
+      'FUNDED': 95,
+      'PORTFOLIO_MANAGEMENT': 100,
+      'BELOW_THRESHOLD': 0,
+      'REJECTED': 0,
+      'NOT_SELECTED': 0
+    };
+
+    let baseProgress = stageProgressMap[currentStage] ?? 0;
+
+    // Special calculation for DISBURSED stage
+    if (currentStage === 'DISBURSED' && requestedAmount && disbursements) {
+      // Calculate total disbursed amount (only DISBURSED status)
+      const totalDisbursed = disbursements
+        .filter(d => d.status === 'DISBURSED')
+        .reduce((sum, d) => {
+          const amount = typeof d.amount === 'number' ? d.amount : Number(d.amount);
+          return sum + amount;
+        }, 0);
+
+      const requested = typeof requestedAmount === 'number' ? requestedAmount : Number(requestedAmount);
+
+      if (requested > 0) {
+        if (totalDisbursed >= requested) {
+          // Full amount disbursed → 100%
+          return 100;
+        } else {
+          // Partial amount disbursed → 85% + (15% * (disbursed/requested))
+          const disbursedRatio = totalDisbursed / requested;
+          return 85 + (15 * disbursedRatio);
+        }
+      }
+    }
+
+    return baseProgress;
+  }
+
+  /**
    * Get all applications (admin/fund manager access)
    */
   static async getAllApplications(
@@ -741,6 +800,11 @@ export class ApplicationService {
                   email: true
                 }
               }
+            }
+          },
+          investmentImplementation: {
+            select: {
+              id: true
             }
           }
         }
@@ -849,12 +913,18 @@ export class ApplicationService {
         const portfolioCompany = userId ? portfolioCompanyMap.get(userId) : null;
         const implementationId = app.investmentImplementation?.id;
         const disbursementList = implementationId ? disbursementMap.get(implementationId) || [] : [];
+        const applicationProgress = this.calculateApplicationProgress(
+          app.currentStage,
+          app.requestedAmount,
+          disbursementList
+        );
         
         return {
           ...app,
           portfolioCompanyId: portfolioCompany?.id || null,
           portfolioCompany: portfolioCompany || null,
-          disbursements: disbursementList
+          disbursements: disbursementList,
+          applicationProgress: applicationProgress
         };
       });
 

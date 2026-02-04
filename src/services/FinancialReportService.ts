@@ -1,9 +1,8 @@
 // @ts-nocheck
 import { randomUUID } from 'crypto';
 import { prisma } from '../utils/database';
-import { FirebaseStorageService } from './FirebaseStorageService';
+import { remoteUploadService } from './RemoteUploadService';
 import { EmailNotificationService } from './EmailNotificationService';
-import { FinancialReportProcessingService, FinancialReportProcessingResult } from './FinancialReportProcessingService';
 import { PortfolioCompanyAccountingService } from './PortfolioCompanyAccountingService';
 import { join } from 'path';
 import { readFileSync } from 'fs';
@@ -46,14 +45,20 @@ export class FinancialReportService {
   static async createReport(params: CreateReportParams) {
     const id = randomUUID();
 
-    const uploadResult = await FirebaseStorageService.uploadFinancialReport(
-      params.fileBuffer,
-      params.portfolioCompanyId,
-      id,
-      params.originalFileName
+    // Upload file using remoteUploadService (like term sheet signatures)
+    const sanitizedName = params.originalFileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+    const timestamp = Date.now();
+    
+    const uploadResult = await remoteUploadService.uploadSingleFile(
+      {
+        buffer: params.fileBuffer,
+        originalname: `${timestamp}-${sanitizedName}`,
+        mimetype: this.getMimeType(params.originalFileName),
+      },
+      'financial-reports'
     );
 
-    await prisma.$executeRawUnsafe(
+      await prisma.$executeRawUnsafe(
       `INSERT INTO financial_reports (
         id,
         portfolioCompanyId,
@@ -115,6 +120,9 @@ export class FinancialReportService {
               fr.storagePath,
               fr.templateVersion,
               fr.status,
+              fr.totalRevenue,
+              fr.netProfit,
+              fr.cashFlowNet,
               fr.createdAt,
               fr.updatedAt,
               pc.name AS companyName
@@ -139,6 +147,9 @@ export class FinancialReportService {
       storagePath: row.storagePath,
       templateVersion: row.templateVersion,
       status: row.status,
+      totalRevenue: row.totalRevenue,
+      netProfit: row.netProfit,
+      cashFlowNet: row.cashFlowNet,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       isDraft: row.status === 'DRAFT',
@@ -195,7 +206,10 @@ export class FinancialReportService {
 
   static async getReportById(reportId: string) {
     const [report] = await prisma.$queryRawUnsafe(
-      `SELECT fr.*, pc.contactEmail, pc.name as companyName, pc.id as portfolioCompanyId
+      `SELECT fr.*, 
+              pc.contactEmail, 
+              pc.name as companyName, 
+              pc.id as portfolioCompanyId
        FROM financial_reports fr
        JOIN portfolio_companies pc ON pc.id = fr.portfolioCompanyId
        WHERE fr.id = ?
@@ -236,20 +250,20 @@ export class FinancialReportService {
 
     if (params.action === 'ACCEPT') {
       try {
-        const processingResult = await FinancialReportProcessingService.process(report);
-        await this.runPostApprovalAutomations(report, params.reviewerId, mappingPayload, processingResult);
+        // Run valuation/dividend automations if mapping provided
+        await this.runPostApprovalAutomations(report, params.reviewerId, mappingPayload);
         await this.notifyOutcome(report, 'ACCEPTED', params.comment);
       } catch (error: any) {
-        console.error('❌ Failed to process accepted financial report:', error);
+        console.error('❌ Failed to sync accepted financial report:', error);
         await prisma.$executeRawUnsafe(
           `UPDATE financial_reports
            SET status = 'NEEDS_REVISION',
-               reviewerComment = CONCAT(COALESCE(reviewerComment, ''), '\nProcessing error: ', ?)
+               reviewerComment = CONCAT(COALESCE(reviewerComment, ''), '\nSync error: ', ?)
            WHERE id = ?`,
-          error.message || 'Processing error',
+          error.message || 'Sync error',
           params.reportId
         );
-        await this.notifyOutcome(report, 'REJECTED', `${params.comment ? params.comment + '\n' : ''}Processing error: ${error.message || error}`);
+        await this.notifyOutcome(report, 'REJECTED', `${params.comment ? params.comment + '\n' : ''}Sync error: ${error.message || error}`);
         throw error;
       }
     } else {
@@ -383,6 +397,22 @@ export class FinancialReportService {
     return instance.toISOString().split('T')[0];
   }
 
+  private static getMimeType(fileName: string): string {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      'pdf': 'application/pdf',
+      'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'xls': 'application/vnd.ms-excel',
+      'csv': 'text/csv',
+      'png': 'image/png',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'gif': 'image/gif',
+      'webp': 'image/webp'
+    };
+    return mimeTypes[extension || ''] || 'application/octet-stream';
+  }
+
   private static normalizeMapping(raw: any): any | null {
     if (!raw) {
       return null;
@@ -400,9 +430,10 @@ export class FinancialReportService {
     return raw;
   }
 
-  private static async runPostApprovalAutomations(report: any, reviewerId: string, mapping: any, processing?: FinancialReportProcessingResult): Promise<void> {
-    if (!mapping && !processing) {
-      // nothing extra to do
+  private static async runPostApprovalAutomations(report: any, reviewerId: string, mapping: any): Promise<void> {
+    if (!mapping) {
+      // No mapping provided, nothing to automate
+      return;
     }
 
     const automations: Promise<any>[] = [];
@@ -459,92 +490,8 @@ export class FinancialReportService {
     }
 
     await Promise.all(automations);
-
-    await this.runDerivedValuationAutomation(report, reviewerId, processing, mapping);
   }
 
-  private static async runDerivedValuationAutomation(
-    report: any,
-    reviewerId: string,
-    processing: FinancialReportProcessingResult | undefined,
-    mapping: any
-  ) {
-    if (!processing || (processing.reportType !== 'BALANCE_SHEET' && processing.reportType !== 'STATEMENT_OF_FINANCIAL_POSITION')) {
-      return;
-    }
-
-    const mappingHasValuation = !!(mapping?.valuationAdjustment || mapping?.valuation);
-    if (mappingHasValuation) {
-      return; // mapping already handled
-    }
-
-    // Handle both old and new formats
-    let equityValue = processing.parsedData?.shareholdersEquity;
-    if (!equityValue && processing.parsedData?.ownerEquity?.total !== undefined) {
-      equityValue = processing.parsedData.ownerEquity.total;
-    }
-    if (!equityValue && processing.parsedData?.totalAssets !== undefined && processing.parsedData?.totalLiabilities !== undefined) {
-      equityValue = processing.parsedData.totalAssets - processing.parsedData.totalLiabilities;
-    }
-
-    const newAmount = this.ensureNumeric(
-      equityValue,
-      'Balance sheet automation requires shareholders equity or totals'
-    );
-
-    if (!Number.isFinite(newAmount)) {
-      return;
-    }
-
-    const latestValuationRows: any[] = await prisma.$queryRawUnsafe(
-      `SELECT newAmount
-         FROM portfolio_company_valuations
-        WHERE portfolioCompanyId = ?
-        ORDER BY valuationDate DESC
-        LIMIT 1`,
-      processing.portfolioCompanyId
-    );
-
-    const existingValuationAmount = latestValuationRows.length > 0
-      ? Number(Number(latestValuationRows[0].newAmount).toFixed(2))
-      : undefined;
-
-    const previousAmountRaw =
-      processing.previousSnapshot?.latestValuation?.amount ??
-      processing.previousSnapshot?.latest?.balanceSheet?.shareholdersEquity ??
-      processing.previousSnapshot?.latestKpiValues?.PORTFOLIO_FAIR_VALUE ??
-      existingValuationAmount ??
-      0;
-
-    const previousAmount = Number(Number(previousAmountRaw).toFixed(2));
-    const difference = Number((newAmount - previousAmount).toFixed(2));
-
-    if (Math.abs(difference) < 0.01) {
-      return;
-    }
-
-    const duplicates = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT id FROM portfolio_company_valuations
-        WHERE portfolioCompanyId = ?
-          AND notes LIKE ?
-        LIMIT 1`,
-      processing.portfolioCompanyId,
-      `%financial report ${report.id}%`
-    );
-
-    if (duplicates.length > 0) {
-      return;
-    }
-
-    await PortfolioCompanyAccountingService.recordValuationAdjustment({
-      portfolioCompanyId: processing.portfolioCompanyId,
-      previousAmount,
-      newAmount,
-      valuationDate: report.periodEnd || new Date(),
-      approvedById: reviewerId,
-      notes: `Automated from financial report ${report.id}`
-    });
-  }
 
   private static normalizeDividends(mapping: any): any[] {
     if (!mapping) {
@@ -588,5 +535,83 @@ export class FinancialReportService {
     }
 
     return 0;
+  }
+
+  /**
+   * Save period-level KPI values (not tied to a specific report)
+   * Used when user enters KPIs in the stepper after uploading files
+   */
+  static async savePeriodKPIs(params: {
+    portfolioCompanyId: string;
+    periodStart: Date;
+    periodEnd: Date;
+    totalRevenue?: number | null;
+    netProfit?: number | null;
+    cashFlowNet?: number | null;
+  }): Promise<void> {
+    const company = await prisma.portfolioCompany.findUnique({
+      where: { id: params.portfolioCompanyId },
+      select: { financialKpis: true }
+    });
+
+    if (!company) {
+      throw new Error('Portfolio company not found');
+    }
+
+    const snapshot = company.financialKpis || {};
+    const periodKey = new Date(params.periodEnd).toISOString().split('T')[0];
+
+    // Parse numeric values (allow null/undefined)
+    const parseNumeric = (value: any): number | null => {
+      if (value === null || value === undefined || value === '') {
+        return null;
+      }
+      const parsed = Number(value);
+      return isNaN(parsed) ? null : parsed;
+    };
+
+    const totalRevenue = parseNumeric(params.totalRevenue);
+    const netProfit = parseNumeric(params.netProfit);
+    const cashFlowNet = parseNumeric(params.cashFlowNet);
+
+    // Update period-specific KPIs
+    snapshot.kpiValues = snapshot.kpiValues || {};
+    snapshot.kpiValues[periodKey] = snapshot.kpiValues[periodKey] || {};
+    
+    if (totalRevenue !== null) {
+      snapshot.kpiValues[periodKey].TOTAL_REVENUE = totalRevenue;
+    }
+    
+    if (netProfit !== null) {
+      snapshot.kpiValues[periodKey].NET_PROFIT = netProfit;
+    }
+    
+    if (cashFlowNet !== null) {
+      snapshot.kpiValues[periodKey].CASH_FLOW_NET = cashFlowNet;
+    }
+
+    // Update latest KPI values (use the most recent period)
+    snapshot.latestKpiValues = snapshot.latestKpiValues || {};
+    if (totalRevenue !== null) {
+      snapshot.latestKpiValues.TOTAL_REVENUE = totalRevenue;
+    }
+    if (netProfit !== null) {
+      snapshot.latestKpiValues.NET_PROFIT = netProfit;
+    }
+    if (cashFlowNet !== null) {
+      snapshot.latestKpiValues.CASH_FLOW_NET = cashFlowNet;
+    }
+
+    // Update metadata
+    snapshot.lastReportDate = periodKey;
+    snapshot.lastUpdatedAt = new Date().toISOString();
+
+    // Save to database
+    await prisma.portfolioCompany.update({
+      where: { id: params.portfolioCompanyId },
+      data: { financialKpis: snapshot }
+    });
+
+    console.log(`✅ Saved period KPIs for ${params.portfolioCompanyId}, period: ${periodKey}`);
   }
 }

@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
 import { FirebaseStorageService } from './FirebaseStorageService';
+import { EmailNotificationService } from './EmailNotificationService';
 
 export interface CreateTermSheetRequest {
   applicationId: string;
@@ -563,6 +564,27 @@ export class TermSheetService {
             updatedAt: new Date()
           }
         });
+
+        // Send email notification to applicant that application is going to board review
+        try {
+          await EmailNotificationService.sendBoardReviewStartedEmail({
+            applicantName: termSheet.application.applicantName,
+            applicantEmail: termSheet.application.applicantEmail,
+            businessName: termSheet.application.businessName,
+            applicationId: applicationId,
+            currentStage: 'UNDER_BOARD_REVIEW'
+          });
+          console.log("Board review started email sent successfully", {
+            applicationId: applicationId,
+            applicantEmail: termSheet.application.applicantEmail
+          });
+        } catch (emailError: any) {
+          console.error("Failed to send board review started email", {
+            applicationId,
+            error: emailError.message
+          });
+          // Don't fail the term sheet signing if email fails
+        }
       }
 
       // Create notification based on signature status

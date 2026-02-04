@@ -229,6 +229,48 @@ export class ApplicantPortalController {
     }
   }
 
+  async savePeriodKPIs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
+      }
+
+      const portfolioCompany = await prisma.portfolioCompany.findFirst({
+        where: { userId },
+        select: { id: true }
+      });
+
+      if (!portfolioCompany) {
+        return ResponseHelper.error(res, "No portfolio company found for this applicant", undefined, 400);
+      }
+
+      const { periodStart, periodEnd, totalRevenue, netProfit, cashFlowNet } = req.body;
+
+      if (!periodStart || !periodEnd) {
+        return ResponseHelper.error(res, "periodStart and periodEnd are required", undefined, 400);
+      }
+
+      await FinancialReportService.savePeriodKPIs({
+        portfolioCompanyId: portfolioCompany.id,
+        periodStart: new Date(periodStart),
+        periodEnd: new Date(periodEnd),
+        totalRevenue,
+        netProfit,
+        cashFlowNet
+      });
+
+      return ResponseHelper.success(res, "Period KPIs saved successfully", null, 200);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
   async getFinancialReports(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;

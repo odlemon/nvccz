@@ -283,17 +283,36 @@ This is an automated message. Please do not reply to this email.
         throw new Error("An application already exists with this email address");
       }
 
-      // Find the role by code or name
-      const role = await prisma.role.findFirst({
+      // Find the role by mapping roleCode to role name using hardcoded roles
+      const { getRoleByCode } = await import('../config/hardcodedRoles');
+      const hardcodedRole = getRoleByCode(userData.roleCode);
+      
+      if (!hardcodedRole) {
+        throw new Error(`Invalid roleCode: ${userData.roleCode}. Role code not found in hardcoded roles.`);
+      }
+
+      // Find the Role record in database by name
+      // Try exact match first, then case-insensitive if needed
+      let role = await prisma.role.findFirst({
         where: { 
-          name: { 
-            notIn: ["admin", "applicant"]
-          }
+          name: hardcodedRole.name
         }
       });
 
+      // If exact match fails, try case-insensitive (for MySQL compatibility)
       if (!role) {
-        throw new Error("Could not find appropriate role for user");
+        const allRoles = await prisma.role.findMany({
+          where: {
+            name: {
+              notIn: ["admin", "applicant"]
+            }
+          }
+        });
+        role = allRoles.find(r => r.name.toLowerCase() === hardcodedRole.name.toLowerCase());
+      }
+
+      if (!role) {
+        throw new Error(`Role "${hardcodedRole.name}" not found in database. Please ensure roles are synced by running: npx ts-node scripts/sync-hardcoded-roles.ts`);
       }
 
       const isBoardRole = this.isBoardVotingRole(userData.roleCode);

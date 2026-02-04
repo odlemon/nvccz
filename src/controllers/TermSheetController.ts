@@ -384,14 +384,22 @@ export class TermSheetController {
       let signatureType: 'applicant' | 'investor';
       if (isApplicant && user.email === application.applicantEmail) {
         signatureType = 'applicant';
-      } else if (user.role?.name === 'admin' || user.role?.name === 'fund_manager') {
-        signatureType = 'investor';
       } else {
-        res.status(403).json({
-          success: false,
-          message: 'You are not authorized to sign this term sheet'
-        });
-        return;
+        // Check if user has investor signing permissions
+        // Admin and Fund Manager roles can sign as investor
+        const roleName = user.role?.name?.toLowerCase() || '';
+        const isAdmin = roleName === 'admin';
+        const isFundManager = roleName === 'fund manager';
+        
+        if (isAdmin || isFundManager) {
+          signatureType = 'investor';
+        } else {
+          res.status(403).json({
+            success: false,
+            message: 'You are not authorized to sign this term sheet. Only admin or Fund Manager roles can sign as investor.'
+          });
+          return;
+        }
       }
 
       // Get signature file from request
