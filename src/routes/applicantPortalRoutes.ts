@@ -919,6 +919,12 @@ router.post(
   applicantPortalController.submitFinancialReport
 );
 router.post(
+  "/financial-reports/period-kpis",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.savePeriodKPIs
+);
+router.post(
   "/financial-reports/:reportId/submit",
   authenticate,
   requireApplicantRole(),

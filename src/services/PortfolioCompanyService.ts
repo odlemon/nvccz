@@ -719,6 +719,23 @@ export class PortfolioCompanyService {
             return sum + Number(d.amount);
           }, 0);
 
+        // Determine status based on fund disbursements only
+        // Priority: DISBURSED > APPROVED > PENDING > NO_INVESTMENT
+        let disbursementStatus = 'NO_INVESTMENT';
+        if (allDisbursements.length > 0) {
+          const hasDisbursed = allDisbursements.some(d => d.status === 'DISBURSED');
+          const hasApproved = allDisbursements.some(d => d.status === 'APPROVED');
+          const hasPending = allDisbursements.some(d => d.status === 'PENDING');
+          
+          if (hasDisbursed) {
+            disbursementStatus = 'DISBURSED';
+          } else if (hasApproved) {
+            disbursementStatus = 'APPROVED';
+          } else if (hasPending) {
+            disbursementStatus = 'PENDING';
+          }
+        }
+
         // Use fund from investmentImplementation if available, otherwise from portfolioCompany
         const fund = company.investmentImplementation?.fund || company.fund;
 
@@ -727,7 +744,7 @@ export class PortfolioCompanyService {
           name: company.name,
           registrationNumber: company.registrationNumber,
           industry: company.industry,
-          status: company.status,
+          status: disbursementStatus, // Status based on fund disbursements only
           fund: fund,
           user: company.user,
           totalInvested: totalInvested,

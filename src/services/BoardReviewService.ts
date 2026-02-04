@@ -888,6 +888,43 @@ export class BoardReviewService {
         }
       });
 
+      // Send email notification to applicant about board decision
+      try {
+        if (investmentApproved) {
+          // Application approved - send investment decision email
+          await EmailNotificationService.sendInvestmentDecisionEmail({
+            applicantName: updatedBoardReview.application.applicantName,
+            applicantEmail: updatedBoardReview.application.applicantEmail,
+            businessName: updatedBoardReview.application.businessName,
+            applicationId: applicationId,
+            currentStage: 'BOARD_APPROVED'
+          });
+          console.log("Board approval email sent successfully", {
+            applicationId: applicationId,
+            applicantEmail: updatedBoardReview.application.applicantEmail
+          });
+        } else {
+          // Application rejected - send rejection email
+          await EmailNotificationService.sendApplicationRejectedEmail({
+            applicantName: updatedBoardReview.application.applicantName,
+            applicantEmail: updatedBoardReview.application.applicantEmail,
+            businessName: updatedBoardReview.application.businessName,
+            applicationId: applicationId,
+            currentStage: 'BOARD_REJECTED'
+          });
+          console.log("Board rejection email sent successfully", {
+            applicationId: applicationId,
+            applicantEmail: updatedBoardReview.application.applicantEmail
+          });
+        }
+      } catch (emailError: any) {
+        console.error("Failed to send board decision email to applicant", {
+          applicationId,
+          error: emailError.message
+        });
+        // Don't fail the board review completion if email fails
+      }
+
       try {
         const boardMembers = await UserService.getBoardVotingMembers();
         const votesForEmail = voteSummary.votes.map(vote => ({
