@@ -256,7 +256,7 @@ export class ApplicantPortalController {
         return ResponseHelper.error(res, "periodStart and periodEnd are required", undefined, 400);
       }
 
-      await FinancialReportService.savePeriodKPIs({
+      const savedKPIs = await FinancialReportService.savePeriodKPIs({
         portfolioCompanyId: portfolioCompany.id,
         periodStart: new Date(periodStart),
         periodEnd: new Date(periodEnd),
@@ -265,7 +265,7 @@ export class ApplicantPortalController {
         cashFlowNet
       });
 
-      return ResponseHelper.success(res, "Period KPIs saved successfully", null, 200);
+      return ResponseHelper.success(res, "Period KPIs saved successfully", savedKPIs, 200);
     } catch (error: any) {
       next(error);
     }
