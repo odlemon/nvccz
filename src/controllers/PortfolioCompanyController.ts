@@ -339,7 +339,7 @@ export class PortfolioCompanyController {
         return res.status(400).json({ success: false, message: "Report ID is required" });
       }
 
-      const { action, comment, mapping } = req.body;
+      const { action, comment, mapping, totalRevenue, netProfit, cashFlowNet } = req.body;
       if (!action || !['ACCEPT', 'REJECT'].includes(action)) {
         return res.status(400).json({ success: false, message: "Invalid action" });
       }
@@ -349,7 +349,10 @@ export class PortfolioCompanyController {
         reviewerId: user.id || user.userId,
         action,
         comment,
-        mappingSnapshot: mapping || null
+        mappingSnapshot: mapping || null,
+        totalRevenue: totalRevenue !== undefined ? totalRevenue : null,
+        netProfit: netProfit !== undefined ? netProfit : null,
+        cashFlowNet: cashFlowNet !== undefined ? cashFlowNet : null
       });
 
       return res.status(200).json({ success: true, message: "Financial report review recorded" });

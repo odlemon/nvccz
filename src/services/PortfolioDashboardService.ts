@@ -70,6 +70,9 @@ export interface PortfolioDashboardData {
     totalValue: number;
     multiplesOfCost: number;
     grossIRR: number;
+    totalRevenue: number | null;
+    netProfit: number | null;
+    cashFlowNet: number | null;
   }>;
   
   // Totals Row
@@ -673,6 +676,9 @@ export class PortfolioDashboardService {
     totalValue: number;
     multiplesOfCost: number;
     grossIRR: number;
+    totalRevenue: number | null;
+    netProfit: number | null;
+    cashFlowNet: number | null;
   }>> {
     const summary = portfolioCompanies.map(company => {
       const disbursements = company.investmentImplementation?.fundDisbursements || [];
@@ -714,15 +720,15 @@ export class PortfolioDashboardService {
       
       // Fair market value
       const fairMarketValue = this.getFairMarketValue(company);
-      
+
       // Total value = realized + fair market value
       const totalValue = realized + fairMarketValue;
-      
+
       // Multiples of cost = totalValue / totalInvestmentCost
       const multiplesOfCost = totalInvestmentCost > 0 
         ? totalValue / totalInvestmentCost 
         : 0;
-      
+
       // Gross IRR (simplified calculation)
       const yearsSinceInvestment = initialInvestment 
         ? (new Date().getTime() - new Date(initialInvestment).getTime()) / (1000 * 60 * 60 * 24 * 365)
@@ -730,7 +736,20 @@ export class PortfolioDashboardService {
       const grossIRR = totalInvestmentCost > 0 && yearsSinceInvestment > 0
         ? (Math.pow(totalValue / totalInvestmentCost, 1 / yearsSinceInvestment) - 1) * 100
         : 0;
-      
+
+      // Get KPI values from financialKpis
+      const financialKpis = company.financialKpis as any;
+      const latestKpiValues = financialKpis?.latestKpiValues || {};
+      const totalRevenue = latestKpiValues.TOTAL_REVENUE !== undefined && latestKpiValues.TOTAL_REVENUE !== null
+        ? parseFloat(latestKpiValues.TOTAL_REVENUE.toString())
+        : null;
+      const netProfit = latestKpiValues.NET_PROFIT !== undefined && latestKpiValues.NET_PROFIT !== null
+        ? parseFloat(latestKpiValues.NET_PROFIT.toString())
+        : null;
+      const cashFlowNet = latestKpiValues.CASH_FLOW_NET !== undefined && latestKpiValues.CASH_FLOW_NET !== null
+        ? parseFloat(latestKpiValues.CASH_FLOW_NET.toString())
+        : null;
+
       return {
         companyId: company.id,
         name: company.name,
@@ -744,7 +763,10 @@ export class PortfolioDashboardService {
         fairMarketValue: Math.round(fairMarketValue * 100) / 100,
         totalValue: Math.round(totalValue * 100) / 100,
         multiplesOfCost: Math.round(multiplesOfCost * 10000) / 10000, // Round to 4 decimals
-        grossIRR: Math.round(grossIRR * 100) / 100
+        grossIRR: Math.round(grossIRR * 100) / 100,
+        totalRevenue: totalRevenue !== null ? Math.round(totalRevenue * 100) / 100 : null,
+        netProfit: netProfit !== null ? Math.round(netProfit * 100) / 100 : null,
+        cashFlowNet: cashFlowNet !== null ? Math.round(cashFlowNet * 100) / 100 : null
       };
     });
     
