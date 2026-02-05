@@ -39,6 +39,9 @@ interface ReviewReportParams {
   action: 'ACCEPT' | 'REJECT';
   comment?: string;
   mappingSnapshot?: any;
+  totalRevenue?: number | null;
+  netProfit?: number | null;
+  cashFlowNet?: number | null;
 }
 
 export class FinancialReportService {
@@ -256,23 +259,53 @@ export class FinancialReportService {
     const mappingPayload = this.normalizeMapping(params.mappingSnapshot) || this.normalizeMapping(report.mappingSnapshot);
     let status = params.action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED';
 
+    // Parse numeric values (allow null/undefined)
+    const parseNumeric = (value: any): number | null => {
+      if (value === null || value === undefined || value === '') {
+        return null;
+      }
+      const parsed = Number(value);
+      return isNaN(parsed) ? null : parsed;
+    };
+
+    const totalRevenue = parseNumeric(params.totalRevenue);
+    const netProfit = parseNumeric(params.netProfit);
+    const cashFlowNet = parseNumeric(params.cashFlowNet);
+
     await prisma.$executeRawUnsafe(
       `UPDATE financial_reports
        SET status = ?,
            reviewerId = ?,
            reviewedAt = NOW(),
            reviewerComment = ?,
-           mappingSnapshot = ?
+           mappingSnapshot = ?,
+           totalRevenue = ?,
+           netProfit = ?,
+           cashFlowNet = ?
        WHERE id = ?`,
       status,
       params.reviewerId,
       params.comment || null,
       params.mappingSnapshot ? JSON.stringify(params.mappingSnapshot) : (report.mappingSnapshot ?? null),
+      totalRevenue,
+      netProfit,
+      cashFlowNet,
       params.reportId
     );
 
     if (params.action === 'ACCEPT') {
       try {
+        // Sync approved KPI values to portfolio company
+        if (totalRevenue !== null || netProfit !== null || cashFlowNet !== null) {
+          await this.syncApprovedKPIsToPortfolioCompany(
+            report.portfolioCompanyId,
+            report.periodEnd,
+            totalRevenue,
+            netProfit,
+            cashFlowNet
+          );
+        }
+        
         // Run valuation/dividend automations if mapping provided
         await this.runPostApprovalAutomations(report, params.reviewerId, mappingPayload);
         await this.notifyOutcome(report, 'ACCEPTED', params.comment);
@@ -558,6 +591,70 @@ export class FinancialReportService {
     }
 
     return 0;
+  }
+
+  /**
+   * Sync approved KPI values from financial report to portfolio company
+   * Called when a report is accepted with KPI values
+   */
+  private static async syncApprovedKPIsToPortfolioCompany(
+    portfolioCompanyId: string,
+    periodEnd: Date,
+    totalRevenue: number | null,
+    netProfit: number | null,
+    cashFlowNet: number | null
+  ): Promise<void> {
+    const company = await prisma.portfolioCompany.findUnique({
+      where: { id: portfolioCompanyId },
+      select: { financialKpis: true }
+    });
+
+    if (!company) {
+      throw new Error('Portfolio company not found');
+    }
+
+    const snapshot = company.financialKpis || {};
+    const periodKey = new Date(periodEnd).toISOString().split('T')[0];
+
+    // Update period-specific KPIs
+    snapshot.kpiValues = snapshot.kpiValues || {};
+    snapshot.kpiValues[periodKey] = snapshot.kpiValues[periodKey] || {};
+    
+    if (totalRevenue !== null) {
+      snapshot.kpiValues[periodKey].TOTAL_REVENUE = totalRevenue;
+    }
+    
+    if (netProfit !== null) {
+      snapshot.kpiValues[periodKey].NET_PROFIT = netProfit;
+    }
+    
+    if (cashFlowNet !== null) {
+      snapshot.kpiValues[periodKey].CASH_FLOW_NET = cashFlowNet;
+    }
+
+    // Update latest KPI values (use the most recent period)
+    snapshot.latestKpiValues = snapshot.latestKpiValues || {};
+    if (totalRevenue !== null) {
+      snapshot.latestKpiValues.TOTAL_REVENUE = totalRevenue;
+    }
+    if (netProfit !== null) {
+      snapshot.latestKpiValues.NET_PROFIT = netProfit;
+    }
+    if (cashFlowNet !== null) {
+      snapshot.latestKpiValues.CASH_FLOW_NET = cashFlowNet;
+    }
+
+    // Update metadata
+    snapshot.lastReportDate = periodKey;
+    snapshot.lastUpdatedAt = new Date().toISOString();
+
+    // Save to database
+    await prisma.portfolioCompany.update({
+      where: { id: portfolioCompanyId },
+      data: { financialKpis: snapshot }
+    });
+
+    console.log(`✅ Synced approved KPIs to portfolio company ${portfolioCompanyId}, period: ${periodKey}`);
   }
 
   /**

@@ -748,9 +748,12 @@ export class InvestmentImplementationService {
         });
       }
 
-      // Update disbursement status and fund remaining amount in a transaction
-      const [updatedDisbursement, updatedFund] = await prisma.$transaction([
-        prisma.fundDisbursement.update({
+      // Get portfolio company to update fundId
+      const portfolioCompanyId = disbursement.investmentImplementation?.portfolioCompany?.id;
+      
+      // Update disbursement status, fund remaining amount, and portfolio company fundId in a transaction
+      const updatedDisbursement = await prisma.$transaction(async (tx) => {
+        const disbursementUpdate = await tx.fundDisbursement.update({
           where: { id: disbursementId },
           data: {
             status: "APPROVED",
@@ -759,15 +762,29 @@ export class InvestmentImplementationService {
             cashbookEntryId: cashbookResult.transaction.id, // Link to cashbook entry
             updatedAt: new Date()
           }
-        }),
-        prisma.fund.update({
+        });
+
+        await tx.fund.update({
           where: { id: disbursement.fundId },
           data: {
             remainingAmount: disbursement.fund.remainingAmount.minus(disbursement.amount),
             updatedAt: new Date()
           }
-        })
-      ]);
+        });
+
+        // Update portfolio company fundId if not already set
+        if (portfolioCompanyId) {
+          await tx.portfolioCompany.update({
+            where: { id: portfolioCompanyId },
+            data: {
+              fundId: disbursement.fundId,
+              updatedAt: new Date()
+            }
+          });
+        }
+
+        return disbursementUpdate;
+      });
 
       console.log(`✅ Fund disbursement approved and cashbook payment created:`);
       console.log(`   Cashbook Entry: ${cashbookResult.transaction.id}`);
@@ -796,6 +813,11 @@ export class InvestmentImplementationService {
       const disbursement = await prisma.fundDisbursement.findUnique({
         where: { id: disbursementId },
         include: {
+          fund: {
+            select: {
+              id: true
+            }
+          },
           investmentImplementation: {
             select: {
               id: true,
@@ -832,6 +854,17 @@ export class InvestmentImplementationService {
             updatedAt: new Date()
           }
         });
+
+        // Update portfolio company fundId if not already set (safety net)
+        if (implementation.portfolioCompanyId && disbursement.fund?.id) {
+          await tx.portfolioCompany.update({
+            where: { id: implementation.portfolioCompanyId },
+            data: {
+              fundId: disbursement.fund.id,
+              updatedAt: new Date()
+            }
+          });
+        }
 
         const remaining = await tx.fundDisbursement.count({
           where: {
