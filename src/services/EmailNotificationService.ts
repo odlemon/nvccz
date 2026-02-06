@@ -1936,6 +1936,31 @@ export class EmailNotificationService {
   }
 
   /**
+   * Send disbursement approved email
+   */
+  static async sendDisbursementApprovedEmail(data: EmailNotificationData & { disbursementAmount: number, disbursementDate: Date }): Promise<void> {
+    try {
+      const subject = `Fund Disbursement Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
+      const htmlBody = this.getDisbursementApprovedTemplate(data);
+
+      const from = getFromAddress('platform');
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
+        subject,
+        html: htmlBody
+      });
+
+      console.log("Disbursement approved email sent successfully", {
+        applicantEmail: data.applicantEmail,
+        applicationId: data.applicationId
+      });
+    } catch (error) {
+      console.error("Failed to send disbursement approved email:", error);
+    }
+  }
+
+  /**
    * Send disbursement completed email
    */
   static async sendDisbursementCompletedEmail(data: EmailNotificationData & { disbursementAmount: number, transactionReference?: string }): Promise<void> {
@@ -1958,6 +1983,72 @@ export class EmailNotificationService {
     } catch (error) {
       console.error("Failed to send disbursement completed email:", error);
     }
+  }
+
+  private static getDisbursementApprovedTemplate(data: EmailNotificationData & { disbursementAmount: number, disbursementDate: Date }): string {
+    const disbursementDate = data.disbursementDate instanceof Date ? data.disbursementDate : new Date(data.disbursementDate);
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Fund Disbursement Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background-color: #f8fafc; }
+          .footer { padding: 20px; text-align: center; color: #666; font-size: 14px; }
+          .highlight { background-color: #dbeafe; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .amount { font-size: 24px; font-weight: bold; color: #2563eb; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>✅ Fund Disbursement Approved</h1>
+            <h2>NVCCZ Investment Platform</h2>
+          </div>
+          <div class="content">
+            <p>Dear ${data.applicantName},</p>
+            
+            <div class="highlight">
+              <h3>✅ Disbursement Approved</h3>
+              <p>We are pleased to inform you that your fund disbursement request has been approved and is now being processed.</p>
+            </div>
+            
+            <h3>Disbursement Details:</h3>
+            <ul>
+              <li><strong>Application ID:</strong> ${data.applicationId}</li>
+              <li><strong>Business Name:</strong> ${data.businessName}</li>
+              <li><strong>Disbursement Amount:</strong> <span class="amount">$${data.disbursementAmount.toLocaleString()}</span></li>
+              <li><strong>Scheduled Disbursement Date:</strong> ${disbursementDate.toLocaleDateString()}</li>
+              <li><strong>Status:</strong> Approved - Processing</li>
+            </ul>
+            
+            <h3>What Happens Next:</h3>
+            <ul>
+              <li>The disbursement has been approved and is now in the processing queue</li>
+              <li>Our finance team will process the transfer according to the scheduled disbursement date</li>
+              <li>You will receive another notification once the funds have been successfully transferred to your account</li>
+              <li>Please ensure your bank account details are up to date in your profile</li>
+            </ul>
+            
+            <p><strong>Important:</strong> Please note that the actual transfer may take a few business days to complete. You will receive a confirmation email with the transaction reference once the funds have been disbursed.</p>
+            
+            <p>If you have any questions about this disbursement or need to update your bank account information, please contact our investment team immediately.</p>
+            
+            <p>Best regards,<br>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
   }
 
   private static getDisbursementCompletedTemplate(data: EmailNotificationData & { disbursementAmount: number, transactionReference?: string }): string {

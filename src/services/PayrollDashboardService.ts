@@ -88,6 +88,9 @@ export class PayrollDashboardService {
       const currentMonth = params.month || now.getMonth() + 1;
       const currentYear = params.year || now.getFullYear();
       
+      // If no month/year filter is provided, show ALL completed payroll runs
+      const showAllData = !params.month && !params.year;
+      
       // Calculate date ranges
       const currentMonthStart = new Date(currentYear, currentMonth - 1, 1);
       const currentMonthEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
@@ -97,16 +100,61 @@ export class PayrollDashboardService {
       const lastMonthStart = new Date(lastMonthYear, lastMonth - 1, 1);
       const lastMonthEnd = new Date(lastMonthYear, lastMonth, 0, 23, 59, 59, 999);
       
-      // Get current month payroll runs (COMPLETED status)
-      const currentMonthPayrollRuns = await prisma.payrollRun.findMany({
-        where: {
-          status: 'COMPLETED',
-          endDate: {
-            gte: currentMonthStart,
-            lte: currentMonthEnd
+      // Get payroll runs based on filter
+      let currentMonthPayrollRuns: any[];
+      
+      if (showAllData) {
+        // Show ALL completed payroll runs when no filter is provided
+        currentMonthPayrollRuns = await prisma.payrollRun.findMany({
+          where: {
+            status: 'COMPLETED',
+            ...(params.currencyId && { currencyId: params.currencyId })
           },
-          ...(params.currencyId && { currencyId: params.currencyId })
-        },
+          orderBy: {
+            updatedAt: 'desc'
+          },
+          include: {
+            employeePayrolls: {
+              include: {
+                employee: {
+                  select: {
+                    id: true,
+                    pictureUrl: true,
+                    user: {
+                      select: {
+                        firstName: true,
+                        lastName: true,
+                        departmentId: true,
+                        userDepartment: true,
+                        department: {
+                          select: {
+                            name: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                allowances: {
+                  include: {
+                    allowanceType: true
+                  }
+                }
+              }
+            }
+          }
+        });
+      } else {
+        // Get current month payroll runs (COMPLETED status)
+        currentMonthPayrollRuns = await prisma.payrollRun.findMany({
+          where: {
+            status: 'COMPLETED',
+            updatedAt: {
+              gte: currentMonthStart,
+              lte: currentMonthEnd
+            },
+            ...(params.currencyId && { currencyId: params.currencyId })
+          },
         include: {
           employeePayrolls: {
             include: {
@@ -138,21 +186,104 @@ export class PayrollDashboardService {
           }
         }
       });
+
+        // If no runs in current month, get the most recent completed run instead
+        // We only take the most recent ONE run to avoid summing multiple runs incorrectly
+        if (currentMonthPayrollRuns.length === 0) {
+          console.log('⚠️ No completed payroll runs found for current month, fetching most recent completed run...');
+          const mostRecentRun = await prisma.payrollRun.findFirst({
+            where: {
+              status: 'COMPLETED',
+              ...(params.currencyId && { currencyId: params.currencyId })
+            },
+            orderBy: {
+              updatedAt: 'desc'
+            },
+            include: {
+              employeePayrolls: {
+                include: {
+                  employee: {
+                    select: {
+                      id: true,
+                      pictureUrl: true,
+                      user: {
+                        select: {
+                          firstName: true,
+                          lastName: true,
+                          departmentId: true,
+                          userDepartment: true,
+                          department: {
+                            select: {
+                              name: true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  allowances: {
+                    include: {
+                      allowanceType: true
+                    }
+                  }
+                }
+              }
+            }
+          });
+          
+          if (mostRecentRun) {
+            currentMonthPayrollRuns = [mostRecentRun];
+          }
+        }
+      }
       
       // Get last month payroll runs for comparison
-      const lastMonthPayrollRuns = await prisma.payrollRun.findMany({
-        where: {
-          status: 'COMPLETED',
-          endDate: {
-            gte: lastMonthStart,
-            lte: lastMonthEnd
+      // If showing all data, skip comparison (set to empty array)
+      let lastMonthPayrollRuns: any[] = [];
+      
+      if (!showAllData) {
+        // Filter by updatedAt (when payroll was completed) instead of endDate
+        lastMonthPayrollRuns = await prisma.payrollRun.findMany({
+          where: {
+            status: 'COMPLETED',
+            updatedAt: {
+              gte: lastMonthStart,
+              lte: lastMonthEnd
+            },
+            ...(params.currencyId && { currencyId: params.currencyId })
           },
-          ...(params.currencyId && { currencyId: params.currencyId })
-        },
-        include: {
-          employeePayrolls: true
+          include: {
+            employeePayrolls: true
+          }
+        });
+
+        // If no runs in last month and we're using recent runs for current month,
+        // use the second most recent set of runs for comparison
+        if (lastMonthPayrollRuns.length === 0 && currentMonthPayrollRuns.length > 0) {
+          // Get runs from a different time period for comparison
+          // Use runs that are older than the current month runs
+          const currentRunsOldestDate = currentMonthPayrollRuns.length > 0
+            ? new Date(Math.min(...currentMonthPayrollRuns.map(r => new Date(r.updatedAt).getTime())))
+            : new Date();
+          
+          lastMonthPayrollRuns = await prisma.payrollRun.findMany({
+            where: {
+              status: 'COMPLETED',
+              updatedAt: {
+                lt: currentRunsOldestDate
+              },
+              ...(params.currencyId && { currencyId: params.currencyId })
+            },
+            orderBy: {
+              updatedAt: 'desc'
+            },
+            take: 10,
+            include: {
+              employeePayrolls: true
+            }
+          });
         }
-      });
+      }
       
       // Calculate current month metrics
       const currentMonthTotal = currentMonthPayrollRuns.reduce((sum, run) => 
@@ -347,7 +478,7 @@ export class PayrollDashboardService {
       const payrollRuns = await prisma.payrollRun.findMany({
         where: {
           status: 'COMPLETED',
-          endDate: {
+          updatedAt: {
             gte: monthStart,
             lte: monthEnd
           },
