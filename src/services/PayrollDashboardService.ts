@@ -88,12 +88,38 @@ export class PayrollDashboardService {
       const currentMonth = params.month || now.getMonth() + 1;
       const currentYear = params.year || now.getFullYear();
       
-      // If no month/year filter is provided, show ALL completed payroll runs
+      // Resolve currencyId if it's a currency code (e.g., "USD") instead of an ID
+      let resolvedCurrencyId = params.currencyId;
+      if (params.currencyId && params.currencyId.length <= 5) {
+        // Likely a currency code, look it up
+        const currency = await prisma.currency.findFirst({
+          where: {
+            code: params.currencyId.toUpperCase()
+          },
+          select: { id: true }
+        });
+        if (currency) {
+          resolvedCurrencyId = currency.id;
+        } else {
+          // Invalid currency code, return empty results
+          resolvedCurrencyId = 'INVALID_CURRENCY_CODE';
+        }
+      }
+      
+      // Determine filter mode:
+      // - No filters: show ALL completed payroll runs
+      // - Year only: show ALL runs from that year
+      // - Month + Year: show runs from that specific month/year
       const showAllData = !params.month && !params.year;
+      const showYearOnly = !params.month && !!params.year;
       
       // Calculate date ranges
       const currentMonthStart = new Date(currentYear, currentMonth - 1, 1);
       const currentMonthEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
+      
+      // For year-only filter, get the full year range
+      const yearStart = params.year ? new Date(params.year, 0, 1) : currentMonthStart;
+      const yearEnd = params.year ? new Date(params.year, 11, 31, 23, 59, 59, 999) : currentMonthEnd;
       
       const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
       const lastMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
@@ -108,7 +134,52 @@ export class PayrollDashboardService {
         currentMonthPayrollRuns = await prisma.payrollRun.findMany({
           where: {
             status: 'COMPLETED',
-            ...(params.currencyId && { currencyId: params.currencyId })
+            ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
+          },
+          orderBy: {
+            updatedAt: 'desc'
+          },
+          include: {
+            employeePayrolls: {
+              include: {
+                employee: {
+                  select: {
+                    id: true,
+                    pictureUrl: true,
+                    user: {
+                      select: {
+                        firstName: true,
+                        lastName: true,
+                        departmentId: true,
+                        userDepartment: true,
+                        department: {
+                          select: {
+                            name: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                allowances: {
+                  include: {
+                    allowanceType: true
+                  }
+                }
+              }
+            }
+          }
+        });
+      } else if (showYearOnly) {
+        // Show ALL runs from the specified year
+        currentMonthPayrollRuns = await prisma.payrollRun.findMany({
+          where: {
+            status: 'COMPLETED',
+            updatedAt: {
+              gte: yearStart,
+              lte: yearEnd
+            },
+            ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
           },
           orderBy: {
             updatedAt: 'desc'
@@ -145,7 +216,7 @@ export class PayrollDashboardService {
           }
         });
       } else {
-        // Get current month payroll runs (COMPLETED status)
+        // Get current month payroll runs (COMPLETED status) - month + year specified
         currentMonthPayrollRuns = await prisma.payrollRun.findMany({
           where: {
             status: 'COMPLETED',
@@ -153,7 +224,7 @@ export class PayrollDashboardService {
               gte: currentMonthStart,
               lte: currentMonthEnd
             },
-            ...(params.currencyId && { currencyId: params.currencyId })
+            ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
           },
         include: {
           employeePayrolls: {
@@ -194,7 +265,7 @@ export class PayrollDashboardService {
           const mostRecentRun = await prisma.payrollRun.findFirst({
             where: {
               status: 'COMPLETED',
-              ...(params.currencyId && { currencyId: params.currencyId })
+              ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
             },
             orderBy: {
               updatedAt: 'desc'
@@ -238,10 +309,10 @@ export class PayrollDashboardService {
       }
       
       // Get last month payroll runs for comparison
-      // If showing all data, skip comparison (set to empty array)
+      // If showing all data or year-only, skip comparison (set to empty array)
       let lastMonthPayrollRuns: any[] = [];
       
-      if (!showAllData) {
+      if (!showAllData && !showYearOnly) {
         // Filter by updatedAt (when payroll was completed) instead of endDate
         lastMonthPayrollRuns = await prisma.payrollRun.findMany({
           where: {
@@ -250,7 +321,7 @@ export class PayrollDashboardService {
               gte: lastMonthStart,
               lte: lastMonthEnd
             },
-            ...(params.currencyId && { currencyId: params.currencyId })
+            ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
           },
           include: {
             employeePayrolls: true
@@ -272,7 +343,7 @@ export class PayrollDashboardService {
               updatedAt: {
                 lt: currentRunsOldestDate
               },
-              ...(params.currencyId && { currencyId: params.currencyId })
+              ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
             },
             orderBy: {
               updatedAt: 'desc'
@@ -336,7 +407,7 @@ export class PayrollDashboardService {
       const alert = this.calculateAlert(nextPayrollRun);
       
       // Get monthly trend (last 6 months)
-      const monthlyTrend = await this.getMonthlyTrend(currentYear, currentMonth, params.currencyId);
+      const monthlyTrend = await this.getMonthlyTrend(currentYear, currentMonth, resolvedCurrencyId);
       
       // Get department distribution
       const departmentDistribution = await this.getDepartmentDistribution(
@@ -444,7 +515,7 @@ export class PayrollDashboardService {
   private static async getMonthlyTrend(
     currentYear: number,
     currentMonth: number,
-    currencyId?: string
+    resolvedCurrencyId?: string
   ): Promise<Array<{
     month: string;
     monthNumber: number;
@@ -482,7 +553,7 @@ export class PayrollDashboardService {
             gte: monthStart,
             lte: monthEnd
           },
-          ...(currencyId && { currencyId })
+          ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
         },
         include: {
           employeePayrolls: true
@@ -582,7 +653,8 @@ export class PayrollDashboardService {
   }
   
   /**
-   * Get payroll list with employee details - shows ALL active employees
+   * Get payroll list with employee details - only shows employees with payroll data
+   * If no payroll runs exist, returns empty array
    */
   private static async getPayrollList(
     payrollRuns: any[]
@@ -598,30 +670,12 @@ export class PayrollDashboardService {
     totalSalary: number;
     payrollRunId: string | null;
   }>> {
-    // Get ALL active employees
-    const allEmployees = await prisma.employee.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        pictureUrl: true,
-        basicSalary: true,
-        user: {
-          select: {
-            firstName: true,
-            lastName: true,
-            departmentId: true,
-            userDepartment: true,
-            department: {
-              select: {
-                name: true
-              }
-            }
-          }
-        }
-      }
-    });
+    // If no payroll runs, return empty list
+    if (!payrollRuns || payrollRuns.length === 0) {
+      return [];
+    }
     
-    // Create a map of employee payroll entries from current month runs
+    // Create a map of employee payroll entries from payroll runs
     const payrollMap = new Map<string, {
       payDate: Date;
       status: "Paid" | "Pending" | "Draft";
@@ -629,6 +683,7 @@ export class PayrollDashboardService {
       bonuses: number;
       totalSalary: number;
       payrollRunId: string;
+      employee: any;
     }>();
     
     for (const run of payrollRuns) {
@@ -650,18 +705,20 @@ export class PayrollDashboardService {
           status = "Draft";
         }
         
+        // Store employee data along with payroll entry
         payrollMap.set(employeePayroll.employeeId, {
           payDate: run.endDate,
           status,
           baseSalary: parseFloat(employeePayroll.basicSalary.toString()),
           bonuses: bonusAmount,
           totalSalary: parseFloat(employeePayroll.netPay.toString()),
-          payrollRunId: run.id
+          payrollRunId: run.id,
+          employee: employeePayroll.employee
         });
       }
     }
     
-    // Build payroll list for ALL employees
+    // Build payroll list ONLY for employees with payroll data
     const payrollList: Array<{
       employeeId: string;
       name: string;
@@ -675,14 +732,13 @@ export class PayrollDashboardService {
       payrollRunId: string | null;
     }> = [];
     
-    for (const employee of allEmployees) {
-      const user = employee.user;
-      const payrollEntry = payrollMap.get(employee.id);
+    for (const [employeeId, payrollEntry] of payrollMap.entries()) {
+      const employee = payrollEntry.employee;
+      const user = employee?.user;
       
-      if (payrollEntry) {
-        // Employee has payroll entry
+      if (user) {
         payrollList.push({
-          employeeId: employee.id,
+          employeeId: employeeId,
           name: `${user.firstName} ${user.lastName}`,
           pictureUrl: employee.pictureUrl,
           department: user.department?.name || user.userDepartment || 'Unassigned',
@@ -692,20 +748,6 @@ export class PayrollDashboardService {
           bonuses: payrollEntry.bonuses,
           totalSalary: payrollEntry.totalSalary,
           payrollRunId: payrollEntry.payrollRunId
-        });
-      } else {
-        // Employee doesn't have payroll entry yet - show as Pending
-        payrollList.push({
-          employeeId: employee.id,
-          name: `${user.firstName} ${user.lastName}`,
-          pictureUrl: employee.pictureUrl,
-          department: user.department?.name || user.userDepartment || 'Unassigned',
-          payDate: null,
-          status: "Pending",
-          baseSalary: parseFloat(employee.basicSalary.toString()),
-          bonuses: 0,
-          totalSalary: parseFloat(employee.basicSalary.toString()),
-          payrollRunId: null
         });
       }
     }
