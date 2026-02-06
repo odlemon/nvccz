@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
 import { CashbookService } from './CashbookService';
+import { EmailNotificationService } from './EmailNotificationService';
 
 export interface CreateInvestmentImplementationRequest {
   portfolioCompanyId: string;
@@ -653,7 +654,22 @@ export class InvestmentImplementationService {
               portfolioCompany: {
                 select: {
                   id: true,
-                  name: true
+                  name: true,
+                  user: {
+                    select: {
+                      email: true,
+                      firstName: true,
+                      lastName: true
+                    }
+                  }
+                }
+              },
+              application: {
+                select: {
+                  id: true,
+                  applicantName: true,
+                  applicantEmail: true,
+                  businessName: true
                 }
               }
             }
@@ -795,6 +811,28 @@ export class InvestmentImplementationService {
       console.log(`   Credit: ${bankGLAccount.accountNo} - ${bankGLAccount.accountName} - $${disbursementAmount.toLocaleString()}`);
       console.log(`   ✅ Balanced: Debit = Credit = $${disbursementAmount.toLocaleString()}`);
 
+      // Send email notification to applicant
+      try {
+        const applicantInfo = this.getApplicantInfoFromDisbursement(disbursement);
+        if (applicantInfo) {
+          await EmailNotificationService.sendDisbursementApprovedEmail({
+            applicantName: applicantInfo.name,
+            applicantEmail: applicantInfo.email,
+            businessName: applicantInfo.businessName,
+            applicationId: applicantInfo.applicationId,
+            currentStage: 'INVESTMENT_IMPLEMENTATION',
+            disbursementAmount: disbursementAmount,
+            disbursementDate: disbursement.disbursementDate
+          });
+          console.log(`✅ Disbursement approval email sent to ${applicantInfo.email}`);
+        } else {
+          console.warn(`⚠️ Could not find applicant info for disbursement ${disbursementId}`);
+        }
+      } catch (emailError: any) {
+        console.error(`❌ Failed to send disbursement approval email: ${emailError.message}`);
+        // Don't throw - email failure shouldn't fail the disbursement approval
+      }
+
       return updatedDisbursement;
     } catch (error: any) {
       throw new Error(`Failed to approve fund disbursement: ${error.message}`);
@@ -819,12 +857,28 @@ export class InvestmentImplementationService {
             }
           },
           investmentImplementation: {
-            select: {
-              id: true,
-              applicationId: true,
-              portfolioCompanyId: true,
-              status: true,
-              fundsDisbursed: true
+            include: {
+              portfolioCompany: {
+                select: {
+                  id: true,
+                  name: true,
+                  user: {
+                    select: {
+                      email: true,
+                      firstName: true,
+                      lastName: true
+                    }
+                  }
+                }
+              },
+              application: {
+                select: {
+                  id: true,
+                  applicantName: true,
+                  applicantEmail: true,
+                  businessName: true
+                }
+              }
             }
           }
         }
@@ -900,9 +954,73 @@ export class InvestmentImplementationService {
         return disbursed;
       });
 
+      // Send email notification to applicant
+      try {
+        const applicantInfo = this.getApplicantInfoFromDisbursement(disbursement);
+        if (applicantInfo) {
+          await EmailNotificationService.sendDisbursementCompletedEmail({
+            applicantName: applicantInfo.name,
+            applicantEmail: applicantInfo.email,
+            businessName: applicantInfo.businessName,
+            applicationId: applicantInfo.applicationId,
+            currentStage: 'DISBURSED',
+            disbursementAmount: Number(disbursement.amount),
+            transactionReference: transactionReference
+          });
+          console.log(`✅ Disbursement completed email sent to ${applicantInfo.email}`);
+        } else {
+          console.warn(`⚠️ Could not find applicant info for disbursement ${disbursementId}`);
+        }
+      } catch (emailError: any) {
+        console.error(`❌ Failed to send disbursement completed email: ${emailError.message}`);
+        // Don't throw - email failure shouldn't fail the disbursement marking
+      }
+
       return updatedDisbursement;
     } catch (error: any) {
       throw new Error(`Failed to mark disbursement as disbursed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Helper method to get applicant information from disbursement
+   */
+  private static getApplicantInfoFromDisbursement(disbursement: any): {
+    name: string;
+    email: string;
+    businessName: string;
+    applicationId: string;
+  } | null {
+    try {
+      const application = disbursement.investmentImplementation?.application;
+      const portfolioCompany = disbursement.investmentImplementation?.portfolioCompany;
+      const user = portfolioCompany?.user;
+
+      // Try to get applicant info from application first (most reliable)
+      if (application?.applicantEmail && application?.applicantName) {
+        return {
+          name: application.applicantName,
+          email: application.applicantEmail,
+          businessName: application.businessName || portfolioCompany?.name || 'Portfolio Company',
+          applicationId: application.id
+        };
+      }
+
+      // Fallback to user email if available
+      if (user?.email) {
+        const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ') || 'Applicant';
+        return {
+          name: fullName,
+          email: user.email,
+          businessName: portfolioCompany?.name || application?.businessName || 'Portfolio Company',
+          applicationId: application?.id || 'N/A'
+        };
+      }
+
+      return null;
+    } catch (error: any) {
+      console.error('Error getting applicant info from disbursement:', error);
+      return null;
     }
   }
 
