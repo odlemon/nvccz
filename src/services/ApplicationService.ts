@@ -327,11 +327,111 @@ export class ApplicationService {
                 }
               }
             }
+          },
+          investmentImplementation: {
+            select: {
+              id: true,
+              disbursementMode: true,
+              totalCommittedAmount: true,
+              fundDisbursements: {
+                select: {
+                  id: true,
+                  amount: true,
+                  disbursementDate: true,
+                  disbursementType: true,
+                  status: true,
+                  notes: true,
+                  transactionReference: true,
+                  approvedAt: true,
+                  disbursedAt: true,
+                  createdAt: true,
+                  updatedAt: true,
+                  approvedBy: {
+                    select: {
+                      id: true,
+                      firstName: true,
+                      lastName: true,
+                      email: true
+                    }
+                  },
+                  disbursedBy: {
+                    select: {
+                      id: true,
+                      firstName: true,
+                      lastName: true,
+                      email: true
+                    }
+                  },
+                  milestone: {
+                    select: {
+                      id: true,
+                      title: true,
+                      description: true
+                    }
+                  }
+                },
+                orderBy: {
+                  disbursementDate: 'desc'
+                }
+              }
+            }
           }
         }
       });
 
-      return application;
+      if (!application) {
+        return null;
+      }
+
+      // Build disbursements object
+      let disbursementsData: any = {
+        disbursementMode: null,
+        totalCommittedAmount: null,
+        totalDisbursedAmount: 0,
+        disbursements: []
+      };
+
+      if (application.investmentImplementation) {
+        const implementation = application.investmentImplementation;
+        disbursementsData.disbursementMode = implementation.disbursementMode || 'ONE_TIME';
+        disbursementsData.totalCommittedAmount = implementation.totalCommittedAmount 
+          ? Number(implementation.totalCommittedAmount) 
+          : null;
+
+        // Calculate total disbursed amount (only from DISBURSED status)
+        const totalDisbursed = implementation.fundDisbursements
+          .filter(d => d.status === 'DISBURSED')
+          .reduce((sum, d) => {
+            const amount = typeof d.amount === 'number' ? d.amount : Number(d.amount);
+            return sum + amount;
+          }, 0);
+        
+        disbursementsData.totalDisbursedAmount = totalDisbursed;
+
+        // Format disbursements array
+        disbursementsData.disbursements = implementation.fundDisbursements.map(d => ({
+          id: d.id,
+          amount: typeof d.amount === 'number' ? d.amount : Number(d.amount),
+          disbursementDate: d.disbursementDate,
+          disbursementType: d.disbursementType,
+          status: d.status,
+          notes: d.notes,
+          transactionReference: d.transactionReference,
+          approvedAt: d.approvedAt,
+          disbursedAt: d.disbursedAt,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+          approvedBy: d.approvedBy,
+          disbursedBy: d.disbursedBy,
+          milestone: d.milestone
+        }));
+      }
+
+      // Add disbursements object to application
+      return {
+        ...application,
+        disbursements: disbursementsData
+      } as any;
     } catch (error: any) {
       throw new Error(`Failed to get application: ${error.message}`);
     }

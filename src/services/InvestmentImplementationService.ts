@@ -764,10 +764,11 @@ export class InvestmentImplementationService {
         });
       }
 
-      // Get portfolio company to update fundId
+      // Get portfolio company and application to update fundId
       const portfolioCompanyId = disbursement.investmentImplementation?.portfolioCompany?.id;
+      const applicationId = disbursement.investmentImplementation?.application?.id;
       
-      // Update disbursement status, fund remaining amount, and portfolio company fundId in a transaction
+      // Update disbursement status, fund remaining amount, portfolio company fundId, and application fundId in a transaction
       const updatedDisbursement = await prisma.$transaction(async (tx) => {
         const disbursementUpdate = await tx.fundDisbursement.update({
           where: { id: disbursementId },
@@ -792,6 +793,17 @@ export class InvestmentImplementationService {
         if (portfolioCompanyId) {
           await tx.portfolioCompany.update({
             where: { id: portfolioCompanyId },
+            data: {
+              fundId: disbursement.fundId,
+              updatedAt: new Date()
+            }
+          });
+        }
+
+        // Update application fundId if not already set
+        if (applicationId) {
+          await tx.application.update({
+            where: { id: applicationId },
             data: {
               fundId: disbursement.fundId,
               updatedAt: new Date()
@@ -913,6 +925,17 @@ export class InvestmentImplementationService {
         if (implementation.portfolioCompanyId && disbursement.fund?.id) {
           await tx.portfolioCompany.update({
             where: { id: implementation.portfolioCompanyId },
+            data: {
+              fundId: disbursement.fund.id,
+              updatedAt: new Date()
+            }
+          });
+        }
+
+        // Update application fundId if not already set (safety net)
+        if (implementation.applicationId && disbursement.fund?.id) {
+          await tx.application.update({
+            where: { id: implementation.applicationId },
             data: {
               fundId: disbursement.fund.id,
               updatedAt: new Date()
