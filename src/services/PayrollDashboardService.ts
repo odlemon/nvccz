@@ -258,10 +258,10 @@ export class PayrollDashboardService {
         }
       });
 
-        // If no runs in current month, get the most recent completed run instead
-        // We only take the most recent ONE run to avoid summing multiple runs incorrectly
-        if (currentMonthPayrollRuns.length === 0) {
-          console.log('⚠️ No completed payroll runs found for current month, fetching most recent completed run...');
+        // Only fallback to most recent run if NO filters are provided
+        // If filters are provided and no data matches, respect the filter and return empty
+        if (currentMonthPayrollRuns.length === 0 && showAllData) {
+          console.log('⚠️ No completed payroll runs found, fetching most recent completed run...');
           const mostRecentRun = await prisma.payrollRun.findFirst({
             where: {
               status: 'COMPLETED',
@@ -306,6 +306,7 @@ export class PayrollDashboardService {
             currentMonthPayrollRuns = [mostRecentRun];
           }
         }
+        // If filters are provided and no data found, keep currentMonthPayrollRuns as empty array
       }
       
       // Get last month payroll runs for comparison
@@ -407,7 +408,13 @@ export class PayrollDashboardService {
       const alert = this.calculateAlert(nextPayrollRun);
       
       // Get monthly trend (last 6 months)
-      const monthlyTrend = await this.getMonthlyTrend(currentYear, currentMonth, resolvedCurrencyId);
+      // If year filter is provided, show months from that year only
+      const monthlyTrend = await this.getMonthlyTrend(
+        currentYear, 
+        currentMonth, 
+        resolvedCurrencyId,
+        params.year ? params.year : undefined // Pass year filter if provided
+      );
       
       // Get department distribution
       const departmentDistribution = await this.getDepartmentDistribution(
@@ -438,10 +445,10 @@ export class PayrollDashboardService {
         departmentDistribution,
         payrollList,
         period: {
-          currentMonth,
-          currentYear,
-          startDate: currentMonthStart,
-          endDate: currentMonthEnd
+          currentMonth: params.month || currentMonth,
+          currentYear: params.year || currentYear,
+          startDate: showAllData ? new Date(0) : (showYearOnly ? yearStart : currentMonthStart),
+          endDate: showAllData ? new Date() : (showYearOnly ? yearEnd : currentMonthEnd)
         },
         generatedAt: new Date()
       };
@@ -511,11 +518,13 @@ export class PayrollDashboardService {
   
   /**
    * Get monthly trend data (last 6 months)
+   * If yearFilter is provided, only show months from that year
    */
   private static async getMonthlyTrend(
     currentYear: number,
     currentMonth: number,
-    resolvedCurrencyId?: string
+    resolvedCurrencyId?: string,
+    yearFilter?: number
   ): Promise<Array<{
     month: string;
     monthNumber: number;
@@ -534,17 +543,60 @@ export class PayrollDashboardService {
       averageSalary: number;
     }> = [];
     
-    for (let i = 5; i >= 0; i--) {
-      let month = currentMonth - i;
-      let year = currentYear;
-      
-      if (month <= 0) {
-        month += 12;
-        year -= 1;
+    if (yearFilter) {
+      // If year filter is provided, show all 12 months of that year
+      for (let month = 1; month <= 12; month++) {
+        const monthStart = new Date(yearFilter, month - 1, 1);
+        const monthEnd = new Date(yearFilter, month, 0, 23, 59, 59, 999);
+        
+        const payrollRuns = await prisma.payrollRun.findMany({
+          where: {
+            status: 'COMPLETED',
+            updatedAt: {
+              gte: monthStart,
+              lte: monthEnd
+            },
+            ...(resolvedCurrencyId && resolvedCurrencyId !== 'INVALID_CURRENCY_CODE' && { currencyId: resolvedCurrencyId })
+          },
+          include: {
+            employeePayrolls: true
+          }
+        });
+        
+        const totalPayroll = payrollRuns.reduce((sum, run) => 
+          sum + parseFloat(run.totalNetPay.toString()), 0
+        );
+        
+        const employeeCount = new Set(
+          payrollRuns.flatMap(run => 
+            run.employeePayrolls.map(ep => ep.employeeId)
+          )
+        ).size;
+        
+        const averageSalary = employeeCount > 0 ? totalPayroll / employeeCount : 0;
+        
+        trend.push({
+          month: monthNames[month - 1],
+          monthNumber: month,
+          year: yearFilter,
+          totalPayroll,
+          employeeCount,
+          averageSalary
+        });
       }
-      
-      const monthStart = new Date(year, month - 1, 1);
-      const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+    } else {
+      // Default: show last 6 months from current date
+      for (let i = 5; i >= 0; i--) {
+        let month = currentMonth - i;
+        let year = currentYear;
+        
+        if (month <= 0) {
+          month += 12;
+          year -= 1;
+        }
+        
+        const monthStart = new Date(year, month - 1, 1);
+        const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
       
       const payrollRuns = await prisma.payrollRun.findMany({
         where: {
