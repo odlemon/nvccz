@@ -728,19 +728,28 @@ export class PayrollDashboardService {
       return [];
     }
     
-    // Create a map of employee payroll entries from payroll runs
-    const payrollMap = new Map<string, {
-      payDate: Date;
+    // Build payroll list - show ALL payroll entries (not just one per employee)
+    // This ensures the list matches the metrics which sum all runs
+    const payrollList: Array<{
+      employeeId: string;
+      name: string;
+      pictureUrl: string | null;
+      department: string;
+      payDate: Date | null;
       status: "Paid" | "Pending" | "Draft";
       baseSalary: number;
       bonuses: number;
       totalSalary: number;
-      payrollRunId: string;
-      employee: any;
-    }>();
+      payrollRunId: string | null;
+    }> = [];
     
     for (const run of payrollRuns) {
       for (const employeePayroll of run.employeePayrolls) {
+        const employee = employeePayroll.employee;
+        const user = employee?.user;
+        
+        if (!user) continue;
+        
         // Calculate bonuses
         let bonusAmount = 0;
         for (const allowance of employeePayroll.allowances || []) {
@@ -758,49 +767,17 @@ export class PayrollDashboardService {
           status = "Draft";
         }
         
-        // Store employee data along with payroll entry
-        payrollMap.set(employeePayroll.employeeId, {
+        payrollList.push({
+          employeeId: employeePayroll.employeeId,
+          name: `${user.firstName} ${user.lastName}`,
+          pictureUrl: employee.pictureUrl,
+          department: user.department?.name || user.userDepartment || 'Unassigned',
           payDate: run.endDate,
           status,
           baseSalary: parseFloat(employeePayroll.basicSalary.toString()),
           bonuses: bonusAmount,
           totalSalary: parseFloat(employeePayroll.netPay.toString()),
-          payrollRunId: run.id,
-          employee: employeePayroll.employee
-        });
-      }
-    }
-    
-    // Build payroll list ONLY for employees with payroll data
-    const payrollList: Array<{
-      employeeId: string;
-      name: string;
-      pictureUrl: string | null;
-      department: string;
-      payDate: Date | null;
-      status: "Paid" | "Pending" | "Draft";
-      baseSalary: number;
-      bonuses: number;
-      totalSalary: number;
-      payrollRunId: string | null;
-    }> = [];
-    
-    for (const [employeeId, payrollEntry] of payrollMap.entries()) {
-      const employee = payrollEntry.employee;
-      const user = employee?.user;
-      
-      if (user) {
-        payrollList.push({
-          employeeId: employeeId,
-          name: `${user.firstName} ${user.lastName}`,
-          pictureUrl: employee.pictureUrl,
-          department: user.department?.name || user.userDepartment || 'Unassigned',
-          payDate: payrollEntry.payDate,
-          status: payrollEntry.status,
-          baseSalary: payrollEntry.baseSalary,
-          bonuses: payrollEntry.bonuses,
-          totalSalary: payrollEntry.totalSalary,
-          payrollRunId: payrollEntry.payrollRunId
+          payrollRunId: run.id
         });
       }
     }
