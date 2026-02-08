@@ -632,6 +632,7 @@ export class PayrollDashboardService {
         employeeCount,
         averageSalary
       });
+      }
     }
     
     return trend;
