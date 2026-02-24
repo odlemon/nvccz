@@ -1610,6 +1610,7 @@ model ProcurementInvoice {
   paymentDate      DateTime?
   paymentReference String?
   journalEntryId   String?
+  cashbookEntryId  String?                  @unique @map("cashbook_entry_id")
   createdById      String
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
@@ -1620,6 +1621,7 @@ model ProcurementInvoice {
   currency         Currency?                @relation("InvoiceCurrency", fields: [currencyId], references: [id])
   approvedBy       User?                    @relation("InvoiceApprovedBy", fields: [approvedById], references: [id])
   journalEntry     JournalEntry?            @relation("ProcurementInvoiceJournal", fields: [journalEntryId], references: [id])
+  cashbookEntry    CashbookEntry?           @relation("ProcurementInvoiceCashbook", fields: [cashbookEntryId], references: [id])
   createdBy        User                     @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
   items            ProcurementInvoiceItem[]
 
@@ -2980,6 +2982,7 @@ model CashbookEntry {
   postedBy                 User?                    @relation("TransactionPostedBy", fields: [postedById], references: [id])
   purchaseInvoice          PurchaseInvoice?          @relation("PurchaseInvoiceCashbook")
   fundDisbursement         FundDisbursement?         @relation("FundDisbursementCashbook")
+  procurementInvoice       ProcurementInvoice?       @relation("ProcurementInvoiceCashbook")
 
   @@map("cashbook_entries")
 }

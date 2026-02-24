@@ -55,13 +55,13 @@ export class OpenItemService {
         include: {
           currency: true
         },
-        orderBy: { invoiceDate: 'asc' }
+        orderBy: { transactionDate: 'asc' }
       });
       
       const openItemInvoices = invoices.map(invoice => ({
         id: invoice.id,
         invoiceNumber: invoice.invoiceNumber || `INV-${invoice.id.substring(0, 8)}`,
-        invoiceDate: invoice.invoiceDate,
+        invoiceDate: invoice.transactionDate,
         dueDate: invoice.dueDate,
         totalAmount: Number(invoice.totalAmount),
         paidAmount: Number(invoice.paidAmount || 0),
