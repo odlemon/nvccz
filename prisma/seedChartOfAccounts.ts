@@ -121,6 +121,16 @@ async function seedChartOfAccounts() {
       }
     });
 
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1520",
+        accountName: "Delivery Van",
+        accountType: "Fixed Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Delivery van asset. Natural balance: Debit. Increases must be Debit."
+      }
+    });
+
     // Fixed Assets
     await prisma.chartOfAccounts.create({
       data: {

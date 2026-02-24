@@ -5,6 +5,7 @@ import { prisma } from "../utils/database";
 import JournalEntryService from "./JournalEntryService";
 import AuditService from "./AuditService";
 import { ApprovalService } from "./ApprovalService";
+import { CashbookService } from "./CashbookService";
 
 // Hardcoded departments
 export enum Department {
@@ -1936,29 +1937,65 @@ export class ProcurementService {
         };
       }
       
-      // Always create payment journal entry (Dr. AP, Cr. Bank/Cash)
-      console.log("\n   💳 Creating Entry 2: Payment Processing...");
+      // Create payment via cashbook (Dr. AP, Cr. Bank/Cash) and link to invoice
+      console.log("\n   💳 Creating Entry 2: Payment via Cashbook...");
       console.log(`   • DEBIT Accounts Payable: $${paymentData.paymentAmount.toFixed(2)}`);
       console.log(`   • CREDIT ${paymentData.paymentMethod} Account: $${paymentData.paymentAmount.toFixed(2)}`);
 
-      const paymentJournalEntryResult = await JournalEntryService.createVendorPaymentJournalEntry({
-        vendorId: invoice.vendorId,
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        paymentAmount: paymentData.paymentAmount,
-        currencyId: invoice.currencyId || "default-currency",
+      const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
+        where: {
+          OR: [
+            { accountNo: "2000" },
+            { accountName: { contains: "Accounts Payable" } }
+          ],
+          isActive: true
+        }
+      });
+      if (!accountsPayableAccount) {
+        throw new Error("Accounts Payable account (2000) not found in chart of accounts");
+      }
+
+      let bankId: string;
+      if (paymentData.paymentMethod === "BANK" && paymentData.bankAccountId) {
+        const bank = await prisma.bank.findUnique({
+          where: { id: paymentData.bankAccountId },
+          include: { glAccount: true }
+        });
+        if (!bank) throw new Error("Bank account not found");
+        bankId = bank.id;
+      } else {
+        const cashBank = await prisma.bank.findFirst({
+          where: { name: { contains: "Cash" } },
+          include: { glAccount: true }
+        });
+        if (cashBank) {
+          bankId = cashBank.id;
+        } else {
+          const firstBank = await prisma.bank.findFirst({ include: { glAccount: true } });
+          if (!firstBank) throw new Error("No bank account found for payment");
+          bankId = firstBank.id;
+        }
+      }
+
+      const cashbookResult = await CashbookService.createCashPayment({
+        bankId,
         transactionDate: paymentData.paymentDate,
-        description: `Payment to ${invoice.vendor.name} for Purchase Invoice ${invoice.invoiceNumber}`,
-        paymentMethod: paymentData.paymentMethod,
-        bankAccountId: paymentData.bankAccountId,
-        paymentReference: paymentData.paymentReference,
-        notes: paymentData.notes,
+        description: `Payment for Procurement Invoice ${invoice.invoiceNumber} - ${invoice.vendor.name}`,
+        amount: paymentData.paymentAmount,
+        reference: paymentData.paymentReference || `PAY-${invoice.invoiceNumber}`,
+        counterpartyType: "GL",
+        glAccountId: accountsPayableAccount.id,
         createdById: processedById
       });
-      console.log(`   ✅ Payment Entry Created: ${paymentJournalEntryResult.journalEntry.referenceNumber}`);
 
-      // Use payment entry as the main journal entry reference
-      const journalEntryResult = paymentJournalEntryResult;
+      if (!cashbookResult.success || !cashbookResult.transaction) {
+        throw new Error(cashbookResult.message || "Failed to create cashbook payment");
+      }
+      console.log(`   ✅ Cashbook payment created: ${cashbookResult.transaction.id}`);
+
+      const journalEntryResult = cashbookResult.journalEntry
+        ? { journalEntry: cashbookResult.journalEntry }
+        : { journalEntry: await prisma.journalEntry.findUnique({ where: { id: cashbookResult.transaction.journalEntryId! } }) };
 
       // Determine payment status based on amount paid
       let paymentStatus = "PAID";
@@ -2015,17 +2052,17 @@ export class ProcurementService {
       }
       console.log(`   Receipt Number: ${receiptNumber}`);
 
-      // Update invoice with payment details and journal entry
+      // Update invoice with payment details, journal entry, and cashbook entry link
       const updatedInvoice = await prisma.procurementInvoice.update({
         where: { id: invoiceId },
         data: {
           paymentStatus,
           paymentDate: paymentData.paymentDate,
-          paymentReference: paymentData.paymentReference || receiptNumber, // Store receipt number in payment reference if no ref provided
-          journalEntryId: expenseJournalEntry.journalEntry.id, // Link to expense entry
-          documentPath: paymentData.proofOfPaymentPath || invoice.documentPath, // Store proof of payment if provided
+          paymentReference: paymentData.paymentReference || receiptNumber,
+          journalEntryId: expenseJournalEntry.journalEntry.id,
+          cashbookEntryId: cashbookResult.transaction.id,
+          documentPath: paymentData.proofOfPaymentPath || invoice.documentPath,
           documentType: paymentData.proofOfPaymentPath ? (paymentData.proofOfPaymentPath.endsWith('.pdf') ? 'PDF' : 'IMAGE') : invoice.documentType
-          // Note: paymentJournalEntryId might not exist in schema, storing receipt number in paymentReference
         },
         include: {
           vendor: true,
@@ -2036,6 +2073,14 @@ export class ProcurementService {
               id: true,
               referenceNumber: true,
               status: true
+            }
+          },
+          cashbookEntry: {
+            select: {
+              id: true,
+              reference: true,
+              status: true,
+              amount: true
             }
           }
         }
