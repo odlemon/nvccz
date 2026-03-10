@@ -115,7 +115,9 @@ export class VATReportService {
                 select: {
                   id: true,
                   invoiceNumber: true,
-                  description: true
+                  description: true,
+                  customerId: true,
+                  customer: { select: { name: true } }
                 }
               },
               expenses: {
@@ -182,7 +184,7 @@ export class VATReportService {
           description = rev.description || je.description;
         }
 
-        const transaction = {
+        const transaction: any = {
           id: je.id,
           date: je.transactionDate.toISOString().split('T')[0],
           reference: reference,
@@ -191,6 +193,9 @@ export class VATReportService {
           vatAmount: vatAmount,
           type: transactionType
         };
+        if (transactionType === 'Invoice' && je.invoices?.[0]) {
+          transaction.customerName = (je.invoices[0] as any).customer?.name ?? null;
+        }
 
         // Input Tax: VAT Input account (typically debited on payments/purchases)
         if (line.chartOfAccountId === vatInputAccount.id) {
@@ -301,6 +306,45 @@ export class VATReportService {
     if (month >= 4 && month <= 6) return `Q2 ${year}`;
     if (month >= 7 && month <= 9) return `Q3 ${year}`;
     return `Q4 ${year}`;
+  }
+
+  /**
+   * VAT Output Audit Trail: line-by-line list of every transaction (especially invoices) that contributed to VAT Output.
+   * Used when user clicks on the VAT Output total in the VAT Return report.
+   */
+  static async getVATOutputAuditTrail(params: VATReportParams): Promise<{
+    period: { startDate: string; endDate: string; quarter: string };
+    totalOutputTax: number;
+    lines: Array<{
+      id: string;
+      date: string;
+      reference: string;
+      description: string;
+      amount: number;
+      vatAmount: number;
+      type: string;
+      invoiceNumber?: string;
+      customerName?: string;
+    }>;
+  }> {
+    const report = await this.generateVATReport(params);
+    const outputTax = report.outputTax;
+    const lines = (outputTax.transactions || []).map((t: any) => ({
+      id: t.id,
+      date: t.date,
+      reference: t.reference,
+      description: t.description,
+      amount: t.amount,
+      vatAmount: t.vatAmount,
+      type: t.type,
+      invoiceNumber: t.type === "Invoice" ? t.reference : undefined,
+      customerName: t.customerName
+    }));
+    return {
+      period: report.period,
+      totalOutputTax: outputTax.total,
+      lines
+    };
   }
 
   /**

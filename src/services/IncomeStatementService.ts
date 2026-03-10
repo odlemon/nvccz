@@ -42,6 +42,14 @@ export interface IncomeStatementLine {
   netAmount: number;
   amount: number;
   transactions: IncomeStatementTransaction[]; // Transaction breakdown
+  /** When P&L is generated with budget variance: budget, actual, variance, % over-spend, flag for highlight in red */
+  budgetVariance?: {
+    budgetedAmount: number;
+    actualAmount: number;
+    variance: number;       // actual - budget (positive = over budget for expenses)
+    variancePercentage: number;
+    isOverBudget: boolean;
+  };
 }
 
 export interface IncomeStatementSection {
@@ -254,6 +262,69 @@ export class IncomeStatementService {
       if (error instanceof Error) throw error;
       throw new Error("Failed to generate income statement. Please try again.");
     }
+  }
+
+  /**
+   * Generate P&L with budget vs actual: each operating expense line gets budgetedAmount, variance, variancePercentage, isOverBudget.
+   * Use this so the UI can highlight variance in red or show percentage over-spend.
+   */
+  static async generateIncomeStatementWithBudgetVariance(params: IncomeStatementParams): Promise<IncomeStatement> {
+    const statement = await this.generateIncomeStatement(params);
+    const { startDate, endDate } = params;
+    const budget = await this.getBudgetForPeriod(startDate, endDate);
+    if (!budget || !budget.budgetItems || budget.budgetItems.length === 0) {
+      return statement;
+    }
+    const items = budget.budgetItems as Array<{ category: string; accountCode?: string | null; budgetedAmount: unknown }>;
+    for (const line of statement.sections.operatingExpenses.accounts) {
+      const budgetItem = this.matchBudgetItemToExpenseLine(line, items);
+      if (!budgetItem) continue;
+      const budgeted = Number(budgetItem.budgetedAmount ?? 0);
+      const actual = Math.abs(line.amount);
+      const variance = actual - budgeted;
+      const variancePercentage = budgeted > 0 ? (variance / budgeted) * 100 : 0;
+      (line as IncomeStatementLine).budgetVariance = {
+        budgetedAmount: budgeted,
+        actualAmount: actual,
+        variance,
+        variancePercentage,
+        isOverBudget: variance > 0
+      };
+    }
+    return statement;
+  }
+
+  /**
+   * Get the budget that overlaps the given period (prefer isActive).
+   */
+  private static async getBudgetForPeriod(startDate: Date, endDate: Date) {
+    const budgets = await prisma.budget.findMany({
+      where: {
+        startDate: { lte: endDate },
+        endDate: { gte: startDate }
+      },
+      include: { budgetItems: true },
+      orderBy: [{ isActive: "desc" }, { startDate: "desc" }],
+      take: 1
+    });
+    return budgets[0] ?? null;
+  }
+
+  /**
+   * Match a budget item to an expense line by accountCode (GL account number) or by category name in account name.
+   */
+  private static matchBudgetItemToExpenseLine(
+    line: IncomeStatementLine,
+    items: Array<{ category: string; accountCode?: string | null; budgetedAmount: unknown }>
+  ): (typeof items)[0] | null {
+    const accountNo = (line.accountNo || "").trim();
+    const accountName = (line.accountName || "").toLowerCase();
+    for (const item of items) {
+      if (item.accountCode && String(item.accountCode).trim() === accountNo) return item;
+      const cat = (item.category || "").toLowerCase();
+      if (cat && accountName.includes(cat)) return item;
+    }
+    return null;
   }
 
   /**
@@ -866,28 +937,144 @@ export class IncomeStatementService {
   }
 
   /**
-   * Get income statement for multiple periods (comparative)
+   * Get income statement for multiple periods (comparative) with variance column (dollar and percentage change).
+   * When exactly two periods are provided, response includes variance and lineItems for two-column + variance display.
+   * @param periods - Array of period params (startDate, endDate, currencyId?). For "This Month vs Last Month" pass [lastMonth, thisMonth].
+   * @param labels - Optional labels for each period (e.g. ["Last Month", "This Month"]).
    */
-  static async getComparativeIncomeStatement(periods: IncomeStatementParams[]): Promise<any> {
+  static async getComparativeIncomeStatement(
+    periods: IncomeStatementParams[],
+    labels?: string[]
+  ): Promise<any> {
     try {
-      const comparativeData = [];
+      const comparativeData: Array<{
+        label?: string;
+        period: { startDate: Date; endDate: Date };
+        revenue: number;
+        expenses: number;
+        netIncome: number;
+        currency: { id: string; code: string; name: string };
+        sections?: { revenue: IncomeStatementSection; operatingExpenses: IncomeStatementSection };
+      }> = [];
+      const fullStatements: IncomeStatement[] = [];
 
-      for (const period of periods) {
+      for (let i = 0; i < periods.length; i++) {
+        const period = periods[i];
         const incomeStatement = await this.generateIncomeStatement(period);
+        fullStatements.push(incomeStatement);
         comparativeData.push({
+          label: labels?.[i],
           period: incomeStatement.period,
           revenue: incomeStatement.sections.revenue.total,
           expenses: incomeStatement.sections.operatingExpenses.total,
           netIncome: incomeStatement.totals.netIncome,
-          currency: incomeStatement.currency
+          currency: incomeStatement.currency,
+          sections: incomeStatement.sections
         });
       }
 
-      return {
-        periods: comparativeData,
+      const result: any = {
+        periods: comparativeData.map((p) => ({
+          label: p.label,
+          period: p.period,
+          revenue: p.revenue,
+          expenses: p.expenses,
+          netIncome: p.netIncome,
+          currency: p.currency
+        })),
         currency: comparativeData[0]?.currency,
         generatedAt: new Date()
       };
+
+      if (periods.length === 2) {
+        const rev0 = comparativeData[0].revenue;
+        const rev1 = comparativeData[1].revenue;
+        const exp0 = comparativeData[0].expenses;
+        const exp1 = comparativeData[1].expenses;
+        const ni0 = comparativeData[0].netIncome;
+        const ni1 = comparativeData[1].netIncome;
+
+        const dollar = (a: number, b: number) => a - b;
+        const pct = (current: number, prior: number) =>
+          prior !== 0 ? ((current - prior) / Math.abs(prior)) * 100 : (current !== 0 ? 100 : 0);
+
+        result.variance = {
+          revenue: { dollarChange: dollar(rev1, rev0), percentChange: pct(rev1, rev0) },
+          expenses: { dollarChange: dollar(exp1, exp0), percentChange: pct(exp1, exp0) },
+          netIncome: { dollarChange: dollar(ni1, ni0), percentChange: pct(ni1, ni0) }
+        };
+
+        const lineItems: Array<{
+          accountNo: string;
+          accountName: string;
+          section: string;
+          amountPeriod0: number;
+          amountPeriod1: number;
+          varianceDollar: number;
+          variancePercent: number;
+        }> = [];
+        const byAccount = new Map<string, { amount0: number; amount1: number }>();
+
+        for (const section of [
+          { key: "revenue", accounts: fullStatements[0].sections.revenue.accounts },
+          { key: "operatingExpenses", accounts: fullStatements[0].sections.operatingExpenses.accounts }
+        ]) {
+          for (const line of section.accounts) {
+            byAccount.set(line.accountId, { amount0: line.amount, amount1: 0 });
+          }
+        }
+        for (const section of [
+          { key: "revenue", accounts: fullStatements[1].sections.revenue.accounts },
+          { key: "operatingExpenses", accounts: fullStatements[1].sections.operatingExpenses.accounts }
+        ]) {
+          for (const line of section.accounts) {
+            const prev = byAccount.get(line.accountId);
+            if (prev) prev.amount1 = line.amount;
+            else byAccount.set(line.accountId, { amount0: 0, amount1: line.amount });
+          }
+        }
+
+        const accountInfo = new Map<string, { accountNo: string; accountName: string; section: string }>();
+        for (const s of [
+          { section: "Revenue", accounts: fullStatements[0].sections.revenue.accounts },
+          { section: "Operating Expenses", accounts: fullStatements[0].sections.operatingExpenses.accounts }
+        ]) {
+          for (const line of s.accounts) {
+            accountInfo.set(line.accountId, { accountNo: line.accountNo, accountName: line.accountName, section: s.section });
+          }
+        }
+        for (const s of [
+          { section: "Operating Expenses", accounts: fullStatements[1].sections.operatingExpenses.accounts },
+          { section: "Revenue", accounts: fullStatements[1].sections.revenue.accounts }
+        ]) {
+          for (const line of s.accounts) {
+            if (!accountInfo.has(line.accountId)) {
+              accountInfo.set(line.accountId, { accountNo: line.accountNo, accountName: line.accountName, section: s.section });
+            }
+          }
+        }
+
+        for (const [accountId, amounts] of byAccount) {
+          const info = accountInfo.get(accountId) || { accountNo: "", accountName: "", section: "" };
+          const prior = amounts.amount0;
+          const current = amounts.amount1;
+          const varianceDollar = current - prior;
+          const variancePercent = prior !== 0 ? (varianceDollar / Math.abs(prior)) * 100 : (current !== 0 ? 100 : 0);
+          lineItems.push({
+            accountNo: info.accountNo,
+            accountName: info.accountName,
+            section: info.section,
+            amountPeriod0: prior,
+            amountPeriod1: current,
+            varianceDollar,
+            variancePercent
+          });
+        }
+        lineItems.sort((a, b) => a.section.localeCompare(b.section) || a.accountNo.localeCompare(b.accountNo));
+        result.lineItems = lineItems;
+      }
+
+      return result;
     } catch (error) {
       console.error("Error getting comparative income statement:", error);
       if (error instanceof Error) throw error;

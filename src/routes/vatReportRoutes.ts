@@ -155,5 +155,11 @@ router.use(authenticate);
  */
 router.get("/report", VATReportController.generateVATReport);
 
+/**
+ * GET /api/vat/report/output-tax-audit?startDate=...&endDate=...
+ * Returns line-by-line list of every invoice/transaction that contributed to VAT Output (for drill-down when clicking VAT Output total).
+ */
+router.get("/report/output-tax-audit", VATReportController.getVATOutputAuditTrail);
+
 export default router;
 

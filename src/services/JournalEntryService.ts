@@ -4,6 +4,7 @@ import { prisma } from "../utils/database";
 import VATService from "./VATService";
 import { Decimal } from "@prisma/client/runtime/library";
 import AuditService from "./AuditService";
+import { getNextAuditTrailSequenceNumber, ensureAuditTrailSequenceExists } from "./AuditTrailSequenceService";
 
 export interface CreateExpenseJournalEntryParams {
   vendorId: string;
@@ -32,6 +33,9 @@ export interface CreateManualJournalEntryParams {
     description: string;
   }>;
   createdById: string;
+  /** Optional: for system audit log (user and IP) */
+  ipAddress?: string | null;
+  userAgent?: string | null;
 }
 
 export interface CreateInvoiceJournalEntryParams {
@@ -114,7 +118,9 @@ export class JournalEntryService {
         description,
         currencyId,
         journalEntryLines,
-        createdById
+        createdById,
+        ipAddress,
+        userAgent,
       } = params;
 
       // Validate that debits equal credits
@@ -125,34 +131,52 @@ export class JournalEntryService {
         throw new Error("Total debits must equal total credits");
       }
 
-      // Create the journal entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate,
-          referenceNumber,
-          description,
-          totalAmount: new Decimal(totalDebits),
-          currencyId,
-          status: "PENDING",
-          createdById
-        }
-      });
+      const result = await prisma.$transaction(async (tx) => {
+        await ensureAuditTrailSequenceExists(tx as any);
+        const auditTrailSequenceNumber = await getNextAuditTrailSequenceNumber(tx as any);
 
-      // Create journal entry lines
-      const createdLines = [];
-      for (const line of journalEntryLines) {
-        const journalEntryLine = await prisma.journalEntryLine.create({
+        const journalEntry = await tx.journalEntry.create({
           data: {
-            journalEntryId: journalEntry.id,
-            chartOfAccountId: line.chartOfAccountId,
-            debitAmount: new Decimal(line.debitAmount),
-            creditAmount: new Decimal(line.creditAmount),
-            description: line.description,
-            createdAt: new Date()
+            transactionDate,
+            referenceNumber,
+            description,
+            totalAmount: new Decimal(totalDebits),
+            currencyId,
+            status: "PENDING",
+            auditTrailSequenceNumber,
+            createdById
           }
         });
-        createdLines.push(journalEntryLine);
-      }
+
+        const createdLines = [];
+        for (const line of journalEntryLines) {
+          const journalEntryLine = await tx.journalEntryLine.create({
+            data: {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: line.chartOfAccountId,
+              debitAmount: new Decimal(line.debitAmount),
+              creditAmount: new Decimal(line.creditAmount),
+              description: line.description,
+              createdAt: new Date()
+            }
+          });
+          createdLines.push(journalEntryLine);
+        }
+        return { journalEntry, journalEntryLines: createdLines };
+      });
+
+      const { journalEntry, journalEntryLines: createdLines } = result;
+
+      // System audit log: CREATE with user and IP when provided
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "JournalEntry",
+        entityId: journalEntry.id,
+        newValues: { id: journalEntry.id, referenceNumber: journalEntry.referenceNumber, description: journalEntry.description },
+        ipAddress: ipAddress ?? undefined,
+        userAgent: userAgent ?? undefined,
+      });
 
       return {
         success: true,
@@ -675,6 +699,7 @@ export class JournalEntryService {
       "Travel and Accommodation": "5070",  // Account 5070: Travel Expense
       "Operations": "5090",                 // Account 5090: Other Operating Expenses
       "Branding and Marketing": "5060",     // Account 5060: Marketing Expense
+      "Marketing": "5060",                  // Account 5060: Marketing Expense (alias)
       "Office Equipment": "1100"            // Account 1100: Office Equipment (Fixed Asset)
     };
 

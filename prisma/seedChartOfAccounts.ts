@@ -131,10 +131,21 @@ async function seedChartOfAccounts() {
       }
     });
 
-    // Fixed Assets
+    // Bank (1100) - for revenue receipting and bank register
     await prisma.chartOfAccounts.create({
       data: {
         accountNo: "1100",
+        accountName: "Bank",
+        accountType: "Current Asset",
+        financialStatement: "Balance Sheet",
+        notes: "Main bank account for receipts and payments"
+      }
+    });
+
+    // Fixed Assets - Office Equipment (1510, was 1100)
+    await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: "1510",
         accountName: "Office Equipment",
         accountType: "Fixed Asset",
         financialStatement: "Balance Sheet",

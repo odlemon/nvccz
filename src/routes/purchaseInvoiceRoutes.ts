@@ -108,6 +108,17 @@ router.post(
 );
 
 /**
+ * PO to Bill: convert approved Purchase Order to Vendor Bill (Purchase Invoice).
+ * Body: { purchaseOrderId, supplierInvoiceNumber [, dueDate ] }
+ * Items, quantities, prices carry over; only supplier invoice number is required.
+ */
+router.post(
+  "/from-purchase-order",
+  authenticate,
+  PurchaseInvoiceController.convertPOToVendorBill
+);
+
+/**
  * @swagger
  * /accounting/purchase-invoices:
  *   get:

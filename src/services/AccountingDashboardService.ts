@@ -71,6 +71,9 @@ export interface AccountingDashboardData {
   // Key Metrics (Top Cards)
   metrics: DashboardMetrics;
   
+  /** Three-Way Match: committed spend from Purchase Orders (not yet billed). GL unchanged until bill is posted. */
+  committedSpend: number;
+  
   // Monthly Chart Data
   monthlyData: MonthlyData[];
   
@@ -233,6 +236,9 @@ export class AccountingDashboardService {
         currency.id
       );
 
+      // Committed Spend: total of open Purchase Orders (DRAFT, SENT, APPROVED) in this currency. No GL impact until bill is posted.
+      const committedSpend = await this.getCommittedSpend(currency.id);
+
       // Get balance sheet data for assets and liabilities
       const balanceSheet = await BalanceSheetService.generateBalanceSheet({
         asOfDate: periodEnd,
@@ -277,6 +283,7 @@ export class AccountingDashboardService {
             changePercent: netProfitChangePercent
           }
         },
+        committedSpend,
         monthlyData,
         expenses,
         assets: {
@@ -310,6 +317,28 @@ export class AccountingDashboardService {
   }
 
   /**
+   * Committed Spend: sum of open Purchase Order totals (not yet billed).
+   * GL balances remain unchanged until the bill is posted; this is for dashboard visibility only.
+   * @param currencyId - only POs in this currency are summed (e.g. ZIG for 5000 ZIG)
+   */
+  private static async getCommittedSpend(currencyId: string): Promise<number> {
+    try {
+      const pos = await prisma.purchaseOrder.findMany({
+        where: {
+          currencyId,
+          status: { in: ["DRAFT", "SENT", "APPROVED"] },
+        },
+        select: { totalAmount: true },
+      });
+      const total = pos.reduce((sum, po) => sum + Number(po.totalAmount), 0);
+      return total;
+    } catch (error) {
+      console.error("Error getting committed spend:", error);
+      return 0;
+    }
+  }
+
+  /**
    * Calculate COGS from journal entries
    */
   private static async calculateCOGS(
@@ -318,12 +347,12 @@ export class AccountingDashboardService {
     currencyId: string
   ): Promise<number> {
     try {
-      // Find COGS account
+      // Find COGS account (contains is case-sensitive on MySQL; accountNo is primary)
       const cogsAccount = await prisma.chartOfAccounts.findFirst({
         where: {
           OR: [
-            { accountName: { contains: 'Cost of Goods Sold', mode: 'insensitive' } },
-            { accountName: { contains: 'COGS', mode: 'insensitive' } },
+            { accountName: { contains: 'Cost of Goods Sold' } },
+            { accountName: { contains: 'COGS' } },
             { accountNo: { startsWith: '5100' } } // Common COGS account range
           ],
           isActive: true

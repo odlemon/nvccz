@@ -50,10 +50,14 @@ export class TrialBalanceController {
         }
       }
 
+      const hideZeroBalances = req.query.hideZeroBalances === 'true' || req.query.hideZeroBalances === '1';
+      const includeTransactionDetails = req.query.includeTransactionDetails !== 'false' && req.query.includeTransactionDetails !== '0';
       const trialBalance = await TrialBalanceService.generateTrialBalance(
         trialBalanceDate || new Date(),
         start,
-        end
+        end,
+        hideZeroBalances,
+        includeTransactionDetails
       );
       
       return ResponseHelper.success(res, 'Trial balance generated successfully', trialBalance);
