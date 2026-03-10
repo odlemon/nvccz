@@ -89,6 +89,18 @@ export class AuthController {
       });
       const passwordChanged = !!passwordChangeLog;
 
+      // System audit log: LOGIN with user and IP
+      const ipAddress = (req as any).ip || req.headers["x-forwarded-for"] || (req as any).socket?.remoteAddress || null;
+      const userAgent = (req.headers["user-agent"] as string) || null;
+      await AuditService.log({
+        userId: user.id,
+        action: "LOGIN",
+        entityType: "User",
+        entityId: user.id,
+        ipAddress: typeof ipAddress === "string" ? ipAddress : (Array.isArray(ipAddress) ? ipAddress[0] : String(ipAddress ?? "")),
+        userAgent,
+      });
+
       return res.status(200).json({
         success: true,
         message: "Logged in successfully",

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import JournalEntryService from "../services/JournalEntryService";
+import { getLastAuditTrailEntries, verifySequentialIntegrity } from "../services/AuditTrailSequenceService";
 import { ResponseHelper } from "../utils/responseHelper";
 
 export class JournalEntryController {
@@ -35,13 +36,17 @@ export class JournalEntryController {
         return ResponseHelper.badRequest(res, "Total debits must equal total credits");
       }
 
+      const ipAddress = (req as any).ip || (req as any).headers?.["x-forwarded-for"] || (req as any).socket?.remoteAddress || null;
+      const userAgent = ((req as any).headers?.["user-agent"] as string) || null;
       const journalEntry = await JournalEntryService.createManualJournalEntry({
         transactionDate: new Date(transactionDate),
         referenceNumber,
         description,
         currencyId,
         journalEntryLines,
-        createdById: userId
+        createdById: userId,
+        ipAddress: typeof ipAddress === "string" ? ipAddress : (Array.isArray(ipAddress) ? ipAddress[0] : String(ipAddress ?? "")),
+        userAgent,
       });
 
       return ResponseHelper.success(res, "Manual journal entry created successfully", journalEntry);
@@ -158,6 +163,34 @@ export class JournalEntryController {
     } catch (error) {
       console.error("Error getting journal entries by date range:", error);
       return ResponseHelper.error(res, "Failed to retrieve journal entries", undefined, 500);
+    }
+  }
+
+  /**
+   * Get last 10 audit trail entries (journal entries with sequential audit trail IDs).
+   */
+  static async getLastAuditTrailEntries(req: Request, res: Response) {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit || "10"), 10) || 10, 100);
+      const entries = await getLastAuditTrailEntries(limit);
+      return ResponseHelper.success(res, "Last audit trail entries retrieved", { entries, count: entries.length });
+    } catch (error) {
+      console.error("Error getting last audit trail entries:", error);
+      return ResponseHelper.error(res, "Failed to retrieve audit trail entries", undefined, 500);
+    }
+  }
+
+  /**
+   * Verify sequential integrity of the last 10 audit trail IDs (no gaps).
+   */
+  static async verifySequentialIntegrity(req: Request, res: Response) {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit || "10"), 10) || 10, 100);
+      const result = await verifySequentialIntegrity(limit);
+      return ResponseHelper.success(res, result.message, result);
+    } catch (error) {
+      console.error("Error verifying audit trail sequential integrity:", error);
+      return ResponseHelper.error(res, "Failed to verify sequential integrity", undefined, 500);
     }
   }
 }

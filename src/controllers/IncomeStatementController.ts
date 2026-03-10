@@ -62,6 +62,45 @@ export class IncomeStatementController {
   }
 
   /**
+   * Generate P&L with budget vs actual variance (for highlighting over-spend in red / showing % over-spend).
+   * Same params as generateIncomeStatement; operating expense lines include budgetVariance when a budget exists.
+   */
+  static async getIncomeStatementWithBudgetVariance(req: Request, res: Response) {
+    try {
+      const periodFilter = extractPeriodFilter(req);
+      let params: IncomeStatementParams;
+      if (periodFilter) {
+        const dateRange = periodFilterToDateRange(periodFilter);
+        params = { startDate: dateRange.startDate, endDate: dateRange.endDate, currencyId: dateRange.currencyId };
+      } else {
+        const startDate = req.body?.startDate || req.query?.startDate;
+        const endDate = req.body?.endDate || req.query?.endDate;
+        const currencyId = req.body?.currencyId || req.query?.currencyId;
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
+          });
+        }
+        params = { startDate: new Date(startDate), endDate: new Date(endDate), currencyId };
+      }
+      const incomeStatement = await IncomeStatementService.generateIncomeStatementWithBudgetVariance(params);
+      return res.status(200).json({
+        success: true,
+        message: "Income statement with budget variance retrieved successfully",
+        data: incomeStatement
+      });
+    } catch (error) {
+      console.error("Error in getIncomeStatementWithBudgetVariance:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate income statement with budget variance",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+
+  /**
    * Get detailed income statement with transaction breakdown
    * Supports period filters: { periodType: 'month'|'quarter'|'year', periodValue: '2025-01'|'2025-Q1'|'2025' }
    * Or legacy date range: { startDate, endDate }
@@ -205,7 +244,8 @@ export class IncomeStatementController {
         currencyId: period.currencyId
       }));
 
-      const comparativeData = await IncomeStatementService.getComparativeIncomeStatement(periodParams);
+      const labels = req.body.periodLabels as string[] | undefined;
+      const comparativeData = await IncomeStatementService.getComparativeIncomeStatement(periodParams, labels);
 
       return res.status(200).json({
         success: true,
@@ -214,6 +254,52 @@ export class IncomeStatementController {
       });
     } catch (error) {
       console.error("Error in getComparativeIncomeStatement:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to get comparative income statement",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+
+  /**
+   * Get P&L comparing "This Month" vs "Last Month" with two columns and variance (dollar and percentage change).
+   * GET /api/accounting/income-statement/comparative/this-month-vs-last-month?currencyId=optional
+   * Optional query: asOfDate=YYYY-MM-DD to use a reference date (default: today).
+   */
+  static async getComparativeThisMonthVsLastMonth(req: Request, res: Response) {
+    try {
+      const asOf = (req.query.asOfDate as string) || new Date().toISOString().split("T")[0];
+      const ref = new Date(asOf);
+      if (isNaN(ref.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid asOfDate. Use YYYY-MM-DD."
+        });
+      }
+      const currencyId = req.query.currencyId as string | undefined;
+
+      const thisMonthStart = new Date(ref.getFullYear(), ref.getMonth(), 1, 0, 0, 0, 0);
+      const thisMonthEnd = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59, 999);
+      const lastMonthStart = new Date(ref.getFullYear(), ref.getMonth() - 1, 1, 0, 0, 0, 0);
+      const lastMonthEnd = new Date(ref.getFullYear(), ref.getMonth(), 0, 23, 59, 59, 999);
+
+      const periods: IncomeStatementParams[] = [
+        { startDate: lastMonthStart, endDate: lastMonthEnd, currencyId },
+        { startDate: thisMonthStart, endDate: thisMonthEnd, currencyId }
+      ];
+      const comparativeData = await IncomeStatementService.getComparativeIncomeStatement(
+        periods,
+        ["Last Month", "This Month"]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Comparative income statement (This Month vs Last Month) retrieved successfully",
+        data: comparativeData
+      });
+    } catch (error) {
+      console.error("Error in getComparativeThisMonthVsLastMonth:", error);
       return res.status(500).json({
         success: false,
         message: "Failed to get comparative income statement",

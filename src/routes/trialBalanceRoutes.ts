@@ -57,6 +57,18 @@ const router = Router();
  *           type: string
  *           format: date
  *         description: End date for date range (legacy format - use if period filters not provided)
+ *       - in: query
+ *         name: hideZeroBalances
+ *         schema:
+ *           type: boolean
+ *         description: When true, omit accounts with no transactions and zero balance (reduces clutter)
+ *         example: true
+ *       - in: query
+ *         name: includeTransactionDetails
+ *         schema:
+ *           type: boolean
+ *           default: true
+ *         description: When false, uses a minimal query for scale (e.g. 12 months, 10k entries in under 5s). Omit or true for full drill-down.
  *     responses:
  *       200:
  *         description: Trial balance generated successfully

@@ -270,6 +270,82 @@ export class PurchaseInvoiceService {
   }
 
   /**
+   * PO to Bill Conversion: create a Vendor Bill (Purchase Invoice) from an approved Purchase Order.
+   * Items, quantities, and prices carry over; only supplier invoice number is required.
+   */
+  static async createVendorBillFromPurchaseOrder(params: {
+    purchaseOrderId: string;
+    supplierInvoiceNumber: string;
+    createdById: string;
+    dueDate?: Date;
+  }): Promise<PurchaseInvoiceWithRelations> {
+    const { purchaseOrderId, supplierInvoiceNumber, createdById, dueDate } = params;
+
+    if (!supplierInvoiceNumber?.trim()) {
+      throw new Error("Supplier Invoice Number is required");
+    }
+
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id: purchaseOrderId },
+      include: {
+        items: true,
+        vendor: true,
+        currency: true,
+      },
+    });
+
+    if (!po) {
+      throw new Error("Purchase order not found");
+    }
+
+    const isApproved = po.status === "APPROVED" || po.approvedById != null;
+    if (!isApproved) {
+      throw new Error(
+        `Purchase order is not approved (status: ${po.status}). Only approved POs can be converted to a vendor bill.`
+      );
+    }
+
+    if (!po.items || po.items.length === 0) {
+      throw new Error("Purchase order has no line items; cannot create vendor bill");
+    }
+
+    let currencyId = po.currencyId;
+    if (!currencyId) {
+      const defaultCurrency = await prisma.currency.findFirst({
+        where: { code: "ZIG" },
+      }) || await prisma.currency.findFirst({ where: { isActive: true } });
+      if (!defaultCurrency) {
+        throw new Error("Purchase order has no currency and no default currency is configured");
+      }
+      currencyId = defaultCurrency.id;
+    }
+
+    const items = po.items.map((item) => ({
+      itemName: item.itemName,
+      description: item.description ?? undefined,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice),
+      unit: item.unit ?? undefined,
+      vatRate: 0,
+    }));
+
+    const invoice = await this.createPurchaseInvoice({
+      vendorId: po.vendorId,
+      invoiceDate: po.orderDate,
+      dueDate: dueDate ?? po.expectedDeliveryDate ?? undefined,
+      currencyId,
+      description: `From PO ${po.poNumber}`,
+      items,
+      isTaxable: false,
+      invoiceNumber: supplierInvoiceNumber.trim(),
+      notes: `Converted from Purchase Order ${po.poNumber}`,
+      createdById,
+    });
+
+    return invoice;
+  }
+
+  /**
    * Get purchase invoice by ID
    */
   static async getPurchaseInvoiceById(invoiceId: string): Promise<PurchaseInvoiceWithRelations | null> {

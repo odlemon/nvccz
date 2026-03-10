@@ -43,9 +43,17 @@ export interface TrialBalanceData {
 
 export class TrialBalanceService {
   /**
-   * Generate trial balance for a date range
+   * Generate trial balance for a date range.
+   * @param hideZeroBalances - When true, omit accounts with no transactions and zero balance (both debit and credit columns zero).
+   * @param includeTransactionDetails - When false, uses a minimal query (no cashbook/invoice/expense/revenue joins) for scale; report generates in under 5s with 10k+ entries.
    */
-  static async generateTrialBalance(date: Date, startDate?: Date, endDate?: Date): Promise<TrialBalanceData> {
+  static async generateTrialBalance(
+    date: Date,
+    startDate?: Date,
+    endDate?: Date,
+    hideZeroBalances?: boolean,
+    includeTransactionDetails: boolean = true
+  ): Promise<TrialBalanceData> {
     try {
       // If startDate and endDate are provided, use them; otherwise use date as endDate
       let start: Date;
@@ -72,137 +80,93 @@ export class TrialBalanceService {
         ]
       });
 
-      // Get all journal entry lines with full transaction details for breakdown
-      // Exclude journal entries linked to voided/reversed cashbook entries
-      // Note: We need to include currencyId to filter out null currency entries (matching GL Detail)
-      const journalEntryLinesRaw = await prisma.journalEntryLine.findMany({
-        where: {
-          journalEntry: {
-            transactionDate: {
-              gte: start,
-              lte: end
-            },
-            status: 'POSTED', // Only include POSTED entries (exclude VOID and PENDING)
-            // Exclude journal entries where ANY linked cashbook entry is voided or reversed
-            NOT: {
-              cashbookEntries: {
-                some: {
-                  OR: [
-                    { status: 'VOIDED' },
-                    { reversedAt: { not: null } } // Reversed entries have reversedAt set
-                  ]
-                }
-              }
-            },
-            // Exclude reversal journal entries (those with VR- or REV- prefix) - match Balance Sheet
-            AND: [
-              {
-                referenceNumber: {
-                  not: {
-                    startsWith: 'VR-'
-                  }
-                }
-              },
-              {
-                referenceNumber: {
-                  not: {
-                    startsWith: 'REV-'
-                  }
-                }
-              }
-            ]
-          }
-        },
-        select: {
-          id: true,
-          chartOfAccountId: true,
-          debitAmount: true,
-          creditAmount: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              description: true,
-              transactionDate: true,
-              status: true,
-              currencyId: true,
-              cashbookEntries: {
-                include: {
-                  bank: {
-                    select: {
-                      id: true,
-                      name: true,
-                      accountNumber: true
-                    }
-                  },
-                  customer: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true
-                    }
-                  },
-                  vendor: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true
-                    }
-                  }
-                },
-                take: 1
-              },
-              invoices: {
-                include: {
-                  customer: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true
-                    }
-                  }
-                },
-                take: 1
-              },
-              expenses: {
-                include: {
-                  vendor: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true
-                    }
-                  },
-                  category: {
-                    select: {
-                      id: true,
-                      name: true
-                    }
-                  }
-                },
-                take: 1
-              },
-              revenues: {
-                include: {
-                  source: {
-                    select: {
-                      id: true,
-                      name: true
-                    }
-                  },
-                  category: {
-                    select: {
-                      id: true,
-                      name: true
-                    }
-                  }
-                },
-                take: 1
+      const lineWhere = {
+        journalEntry: {
+          transactionDate: { gte: start, lte: end },
+          status: 'POSTED' as const,
+          NOT: {
+            cashbookEntries: {
+              some: {
+                OR: [
+                  { status: 'VOIDED' },
+                  { reversedAt: { not: null } }
+                ]
               }
             }
-          }
+          },
+          AND: [
+            { referenceNumber: { not: { startsWith: 'VR-' } } },
+            { referenceNumber: { not: { startsWith: 'REV-' } } }
+          ]
         }
-      });
+      };
+
+      // Lightweight path for scale (12 months, 10k+ entries): no cashbook/invoice/expense/revenue joins
+      const journalEntryLinesRaw = includeTransactionDetails
+        ? await prisma.journalEntryLine.findMany({
+            where: lineWhere,
+            select: {
+              id: true,
+              chartOfAccountId: true,
+              debitAmount: true,
+              creditAmount: true,
+              journalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  description: true,
+                  transactionDate: true,
+                  status: true,
+                  currencyId: true,
+                  cashbookEntries: {
+                    include: {
+                      bank: { select: { id: true, name: true, accountNumber: true } },
+                      customer: { select: { id: true, name: true, email: true } },
+                      vendor: { select: { id: true, name: true, email: true } }
+                    },
+                    take: 1
+                  },
+                  invoices: {
+                    include: { customer: { select: { id: true, name: true, email: true } } },
+                    take: 1
+                  },
+                  expenses: {
+                    include: {
+                      vendor: { select: { id: true, name: true, email: true } },
+                      category: { select: { id: true, name: true } }
+                    },
+                    take: 1
+                  },
+                  revenues: {
+                    include: {
+                      source: { select: { id: true, name: true } },
+                      category: { select: { id: true, name: true } }
+                    },
+                    take: 1
+                  }
+                }
+              }
+            }
+          })
+        : await prisma.journalEntryLine.findMany({
+            where: lineWhere,
+            select: {
+              id: true,
+              chartOfAccountId: true,
+              debitAmount: true,
+              creditAmount: true,
+              journalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  description: true,
+                  transactionDate: true,
+                  status: true,
+                  currencyId: true
+                }
+              }
+            }
+          });
 
       // Filter out entries with null currency (matching GL Detail behavior)
       const journalEntryLines = journalEntryLinesRaw.filter(line => line.journalEntry.currencyId !== null);
@@ -419,6 +383,15 @@ export class TrialBalanceService {
         return a.accountNo.localeCompare(b.accountNo);
       });
 
+      // Zero-balance suppression: omit accounts with no transactions and zero balance (reduce clutter)
+      const ZERO_TOLERANCE = 0.01;
+      const accountsToReturn =
+        hideZeroBalances === true
+          ? trialBalanceAccounts.filter(
+              (a) => (a.debitBalance || 0) >= ZERO_TOLERANCE || (a.creditBalance || 0) >= ZERO_TOLERANCE
+            )
+          : trialBalanceAccounts;
+
       // Determine if this is cumulative or period-based
       const isCumulative = !startDate || !endDate || (startDate.getTime() === new Date(0).getTime());
       
@@ -427,7 +400,7 @@ export class TrialBalanceService {
         startDate: startDate ? startDate.toISOString().split('T')[0] : undefined,
         endDate: endDate ? endDate.toISOString().split('T')[0] : undefined,
         isCumulative, // Indicates if this is cumulative (all entries up to date) or period-based (specific date range)
-        accounts: trialBalanceAccounts,
+        accounts: accountsToReturn,
         totals: {
           totalDebits,
           totalCredits,

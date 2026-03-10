@@ -26,10 +26,10 @@ async function seedBankAccounts() {
       return;
     }
     
-    // Get GL accounts for bank linking
+    // Get GL accounts for bank linking (1100 = Bank for revenue receipting tests)
     const glAccounts = await prisma.chartOfAccounts.findMany({
       where: {
-        accountNo: { in: ['1000', '1010', '1020', '1030'] }
+        accountNo: { in: ['1000', '1010', '1020', '1030', '1100'] }
       }
     });
     
@@ -37,11 +37,22 @@ async function seedBankAccounts() {
       acc[account.accountNo] = account.id;
       return acc;
     }, {} as Record<string, string>);
+    const gl1100 = glAccounts.find((a) => a.accountNo === '1100');
+    const hasBank1100 = gl1100 && (gl1100.accountName === 'Bank' || (gl1100 as any).accountType === 'Current Asset');
     
     console.log('📊 Creating Bank Accounts:');
     
-    // Create bank accounts linked to GL accounts
-    const banks = [
+    const banks: Array<{ name: string; accountNumber: string; currencyId: string; glAccountId: string; description: string }> = [];
+    if (hasBank1100 && glAccountMap['1100']) {
+      banks.push({
+        name: "Bank (1100)",
+        accountNumber: "BANK-1100",
+        currencyId: usdCurrency.id,
+        glAccountId: glAccountMap['1100'],
+        description: "Main bank account - GL 1100 for revenue receipting"
+      });
+    }
+    banks.push(
       {
         name: "Cash and Cash Equivalents",
         accountNumber: "CASH-001",
@@ -70,7 +81,7 @@ async function seedBankAccounts() {
         glAccountId: glAccountMap['1030'],
         description: "Petty cash for small transactions"
       }
-    ];
+    );
     
     const createdBanks = [];
     

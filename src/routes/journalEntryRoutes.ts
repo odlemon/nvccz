@@ -93,6 +93,10 @@ router.post("/", JournalEntryController.createJournalEntry);
 // Get journal entries by date range
 router.get("/by-date-range", JournalEntryController.getJournalEntriesByDateRange);
 
+// Audit trail sequential integrity (must be before /:id)
+router.get("/audit-trail/last-entries", JournalEntryController.getLastAuditTrailEntries);
+router.get("/audit-trail/verify-sequential", JournalEntryController.verifySequentialIntegrity);
+
 // Get a specific journal entry by ID
 router.get("/:id", JournalEntryController.getJournalEntry);
 

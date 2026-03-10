@@ -76,6 +76,49 @@ export class PurchaseInvoiceController {
   }
 
   /**
+   * PO to Bill: convert an approved Purchase Order into a Vendor Bill (Purchase Invoice).
+   * Body: purchaseOrderId, supplierInvoiceNumber; optional dueDate.
+   * Items, quantities, and prices carry over from the PO.
+   */
+  static async convertPOToVendorBill(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { purchaseOrderId, supplierInvoiceNumber, dueDate } = req.body;
+      const createdById = (req as any).user?.id;
+      if (!createdById) {
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+      if (!purchaseOrderId) {
+        ResponseHelper.badRequest(res, "purchaseOrderId is required");
+        return;
+      }
+      if (!supplierInvoiceNumber || !String(supplierInvoiceNumber).trim()) {
+        ResponseHelper.badRequest(res, "supplierInvoiceNumber is required");
+        return;
+      }
+
+      const invoice = await PurchaseInvoiceService.createVendorBillFromPurchaseOrder({
+        purchaseOrderId,
+        supplierInvoiceNumber: String(supplierInvoiceNumber).trim(),
+        createdById,
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+      });
+
+      logger.info("PO converted to vendor bill", {
+        purchaseOrderId,
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        userId: createdById,
+      });
+
+      ResponseHelper.success(res, "Vendor bill created from purchase order", invoice, 201);
+    } catch (error: any) {
+      logger.error("Error converting PO to vendor bill", { error: error.message });
+      ResponseHelper.error(res, error?.message ?? "Failed to convert PO to vendor bill", undefined, 400);
+    }
+  }
+
+  /**
    * Get purchase invoice by ID
    */
   static async getPurchaseInvoiceById(req: AuthRequest, res: Response): Promise<void> {

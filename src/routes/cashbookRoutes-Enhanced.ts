@@ -137,6 +137,37 @@ router.get("/entries", CashbookControllerEnhanced.getAllEntries);
 
 /**
  * @swagger
+ * /api/cashbook/export-audit:
+ *   get:
+ *     summary: Export month cashbook to Excel for tax audit
+ *     description: Export a month's cashbook with columns Date, Payee, Reference, Amount, Tax; totals match the system.
+ *     tags: [Cashbook]
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: month
+ *         required: true
+ *         schema: { type: integer, minimum: 1, maximum: 12 }
+ *       - in: query
+ *         name: bankId
+ *         schema: { type: string }
+ *         description: Optional; filter by bank
+ *     responses:
+ *       200:
+ *         description: Excel file attachment
+ *         content:
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema: { type: string, format: binary }
+ *       400:
+ *         description: Bad request - year/month required
+ */
+router.get("/export-audit", CashbookControllerEnhanced.exportAudit);
+
+/**
+ * @swagger
  * /api/cashbook/entries/{id}:
  *   put:
  *     summary: Update a cashbook entry

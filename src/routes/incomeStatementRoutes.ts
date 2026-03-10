@@ -77,6 +77,10 @@ const router = Router();
  */
 router.post("/generate", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.generateIncomeStatement);
 
+/** P&L with budget vs actual: operating expense lines include budgetVariance (variance, variancePercentage, isOverBudget) for red highlight / % over-spend */
+router.get("/with-budget-variance", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getIncomeStatementWithBudgetVariance);
+router.post("/with-budget-variance", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getIncomeStatementWithBudgetVariance);
+
 /**
  * @swagger
  * /accounting/income-statement/detailed:
@@ -304,6 +308,9 @@ router.post("/comprehensive", authenticate, authorize(["admin", "accountant"]), 
  *         description: Internal server error
  */
 router.post("/comparative", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getComparativeIncomeStatement);
+
+/** GET P&L comparing This Month vs Last Month; two columns + variance (dollar and %). Optional: ?asOfDate=YYYY-MM-DD&currencyId= */
+router.get("/comparative/this-month-vs-last-month", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getComparativeThisMonthVsLastMonth);
 
 /**
  * @swagger
