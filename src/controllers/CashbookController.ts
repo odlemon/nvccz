@@ -616,25 +616,54 @@ export default class CashbookController {
   }
   
   /**
-   * Get Bank Accounts
+   * Get Bank Accounts (dynamic from DB)
    * GET /api/cashbook/banks
+   * Query: includeInactive=true to include inactive banks (e.g. for admin/settings).
    */
   static async getBanks(req: Request, res: Response) {
     try {
+      const includeInactive = req.query.includeInactive === 'true';
+      const where: { isActive?: boolean } = {};
+      if (!includeInactive) {
+        where.isActive = true;
+      }
       const banks = await prisma.bank.findMany({
-        where: { isActive: true },
+        where,
         include: {
           currency: true,
           glAccount: true
         },
         orderBy: { name: 'asc' }
       });
-      
+
       return ResponseHelper.success(res, 'Banks retrieved successfully', banks);
-      
     } catch (error: any) {
       console.error('Error in CashbookController.getBanks:', error);
       return ResponseHelper.error(res, 'Failed to get banks', error.message);
+    }
+  }
+
+  /**
+   * Get single bank by ID
+   * GET /api/cashbook/banks/:id
+   */
+  static async getBankById(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const bank = await prisma.bank.findUnique({
+        where: { id },
+        include: {
+          currency: true,
+          glAccount: true
+        }
+      });
+      if (!bank) {
+        return ResponseHelper.notFound(res, 'Bank account not found');
+      }
+      return ResponseHelper.success(res, 'Bank retrieved successfully', bank);
+    } catch (error: any) {
+      console.error('Error in CashbookController.getBankById:', error);
+      return ResponseHelper.error(res, 'Failed to get bank', error.message);
     }
   }
   
@@ -696,6 +725,61 @@ export default class CashbookController {
       }
       
       return ResponseHelper.error(res, 'Failed to create bank account', error.message);
+    }
+  }
+
+  /**
+   * Update Bank Account
+   * PUT /api/cashbook/banks/:id
+   */
+  static async updateBank(req: Request, res: Response) {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      if (!userId) {
+        return ResponseHelper.unauthorized(res, 'User not authenticated.');
+      }
+      const { id } = req.params;
+      const { name, accountNumber, currencyId, glAccountId, isActive } = req.body;
+
+      const bank = await CashbookService.updateBank(id, {
+        name,
+        accountNumber,
+        currencyId,
+        glAccountId,
+        isActive
+      });
+      return ResponseHelper.success(res, 'Bank account updated successfully', bank);
+    } catch (error: any) {
+      console.error('Error in CashbookController.updateBank:', error);
+      if (error.message?.includes('not found')) {
+        return ResponseHelper.notFound(res, error.message);
+      }
+      if (error.message?.includes('already exists') || error.message?.includes('already associated')) {
+        return ResponseHelper.badRequest(res, error.message);
+      }
+      return ResponseHelper.error(res, 'Failed to update bank account', error.message);
+    }
+  }
+
+  /**
+   * Soft delete bank account (sets isActive: false)
+   * DELETE /api/cashbook/banks/:id
+   */
+  static async deleteBank(req: Request, res: Response) {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      if (!userId) {
+        return ResponseHelper.unauthorized(res, 'User not authenticated.');
+      }
+      const { id } = req.params;
+      const bank = await CashbookService.softDeleteBank(id);
+      return ResponseHelper.success(res, 'Bank account deactivated (soft delete) successfully', bank);
+    } catch (error: any) {
+      console.error('Error in CashbookController.deleteBank:', error);
+      if (error.message?.includes('not found')) {
+        return ResponseHelper.notFound(res, error.message);
+      }
+      return ResponseHelper.error(res, 'Failed to delete bank account', error.message);
     }
   }
 

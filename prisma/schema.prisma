@@ -685,22 +685,29 @@ model Revenue {
 }
 
 model BankReconciliation {
-  id                        String                     @id @default(cuid())
-  fileName                  String
-  fileUrl                   String
-  status                    String                     @default("PENDING")
-  totalTransactions         Int                        @default(0)
-  matchedCount              Int                        @default(0)
-  unmatchedCount            Int                        @default(0)
-  confidenceThreshold       Decimal                    @default(90.00) @db.Decimal(5, 2)
-  overallAccuracy           Decimal?                   @db.Decimal(5, 2)
-  notes                     String?                    @db.Text
-  createdById               String
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  createdBy                 User                       @relation(fields: [createdById], references: [id])
-  bankTransactions          BankTransaction[]
-  reconciliationResults     ReconciliationResult[]
+  id                String                     @id @default(cuid())
+  fileName          String
+  fileUrl           String
+  status            String                     @default("PENDING")
+  totalTransactions Int                        @default(0)
+  matchedCount      Int                        @default(0)
+  unmatchedCount    Int                        @default(0)
+  confidenceThreshold Decimal                  @default(90.00) @db.Decimal(5, 2)
+  overallAccuracy   Decimal?                   @db.Decimal(5, 2)
+  notes             String?                    @db.Text
+  bankId            String?                    @map("bank_id")
+  accountNumber     String?                    @map("account_number")
+  accountCurrency   String?                    @map("account_currency")
+  openingBalance    Decimal?                   @db.Decimal(18, 2) @map("opening_balance")
+  closingBalance    Decimal?                   @db.Decimal(18, 2) @map("closing_balance")
+  statementDate     DateTime?                  @map("statement_date")
+  createdById       String
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  createdBy         User                       @relation(fields: [createdById], references: [id])
+  bank              Bank?                      @relation(fields: [bankId], references: [id], onDelete: SetNull)
+  bankTransactions  BankTransaction[]
+  reconciliationResults ReconciliationResult[]
   reconciliationAuditTrails ReconciliationAuditTrail[]
 
   @@map("bank_reconciliations")
@@ -710,9 +717,13 @@ model BankTransaction {
   id                    String                 @id @default(cuid())
   reconciliationId      String
   transactionDate       DateTime
+  valueDate             DateTime?              @map("value_date")
   description           String
   amount                Decimal                @db.Decimal(15, 2)
   reference             String?
+  debitAmount           Decimal?               @db.Decimal(15, 2) @map("debit_amount")
+  creditAmount          Decimal?               @db.Decimal(15, 2) @map("credit_amount")
+  balance               Decimal?               @db.Decimal(18, 2)
   isMatched             Boolean                @default(false)
   confidenceScore       Decimal?               @db.Decimal(5, 2)
   matchedJournalEntryId String?
@@ -2924,20 +2935,21 @@ model Approval {
 }
 
 model Bank {
-  id              String             @id @default(cuid())
-  name            String
-  accountNumber   String             @unique
-  currencyId      String
-  glAccountId     String?            @unique
-  isActive        Boolean            @default(true)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  currency        Currency           @relation(fields: [currencyId], references: [id])
-  glAccount       ChartOfAccounts?   @relation("BankGLAccount", fields: [glAccountId], references: [id])
-  cashbookEntries CashbookEntry[]
-  statements      BankStatement[]
-  transfersFrom   CashbookTransfer[] @relation("TransferFromBank")
-  transfersTo     CashbookTransfer[] @relation("TransferToBank")
+  id                  String                @id @default(cuid())
+  name                String
+  accountNumber       String                @unique
+  currencyId          String
+  glAccountId         String?               @unique
+  isActive            Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  currency            Currency              @relation(fields: [currencyId], references: [id])
+  glAccount           ChartOfAccounts?      @relation("BankGLAccount", fields: [glAccountId], references: [id])
+  cashbookEntries     CashbookEntry[]
+  statements          BankStatement[]
+  bankReconciliations BankReconciliation[]
+  transfersFrom       CashbookTransfer[]     @relation("TransferFromBank")
+  transfersTo         CashbookTransfer[]    @relation("TransferToBank")
 
   @@map("banks")
 }

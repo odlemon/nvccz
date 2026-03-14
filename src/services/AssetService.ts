@@ -445,14 +445,31 @@ export class AssetService {
         throw new Error('Depreciation already posted');
       }
 
+      // Resolve currency: use default or first active (JournalEntry.currencyId is FK to Currency.id)
+      const currency = await prisma.currency.findFirst({
+        where: { isActive: true },
+        orderBy: [{ isDefault: 'desc' }]
+      });
+      if (!currency) {
+        throw new Error('No active currency found. Create a currency before posting depreciation.');
+      }
+
+      // Unique reference (JournalEntry.referenceNumber is unique; multiple assets can share same period)
+      const referenceNumber = `DEP-${depreciation.period}-${depreciationId.slice(-8)}`;
+
+      // Use last day of period month so the entry falls in the correct reporting period
+      const [year, month] = depreciation.period.split('-').map(Number);
+      const lastDay = new Date(year, month, 0);
+      const transactionDate = lastDay;
+
       // Create journal entry
       const journalEntry = await prisma.journalEntry.create({
         data: {
-          transactionDate: new Date(),
-          referenceNumber: `DEP-${depreciation.period}`,
+          transactionDate,
+          referenceNumber,
           description: `Depreciation for ${depreciation.asset.assetName} - ${depreciation.period}`,
           totalAmount: depreciation.depreciationAmount,
-          currencyId: 'default',
+          currencyId: currency.id,
           status: 'POSTED',
           createdById
         }

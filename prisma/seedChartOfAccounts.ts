@@ -431,6 +431,16 @@ async function seedChartOfAccounts() {
 
     await prisma.chartOfAccounts.create({
       data: {
+        accountNo: "5095",
+        accountName: "Depreciation Expense",
+        accountType: "Expense",
+        financialStatement: "Income Statement",
+        notes: "Depreciation of fixed assets for the period"
+      }
+    });
+
+    await prisma.chartOfAccounts.create({
+      data: {
         accountNo: "5100",
         accountName: "Rent Expense",
         accountType: "Expense",
