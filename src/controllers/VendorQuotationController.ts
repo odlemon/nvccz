@@ -36,10 +36,12 @@ export class VendorQuotationController {
         offset: offset ? parseInt(offset as string) : undefined
       });
 
+      // Ensure each quotation in list includes auto-generated quotationNumber
+      const data = (result.quotations || []).map((q: any) => ({ ...q, quotationNumber: q.quotationNumber ?? null }));
       res.json({
         success: true,
         message: "Quotations retrieved successfully",
-        data: result.quotations,
+        data,
         count: result.count,
         limit: result.limit,
         offset: result.offset
@@ -58,10 +60,12 @@ export class VendorQuotationController {
 
       const quotation = await VendorQuotationService.getQuotationById(id);
 
+      // Ensure auto-generated quotationNumber is always in response
+      const data = quotation ? { ...quotation, quotationNumber: (quotation as any).quotationNumber ?? null } : null;
       res.json({
         success: true,
         message: "Quotation retrieved successfully",
-        data: quotation
+        data
       });
     } catch (error: any) {
       next(error);
@@ -76,12 +80,13 @@ export class VendorQuotationController {
       const { rfqNumber } = req.params;
 
       const quotations = await VendorQuotationService.getQuotationsByRFQ(rfqNumber);
-
+      // Ensure each quotation includes auto-generated quotationNumber
+      const data = (quotations || []).map((q: any) => ({ ...q, quotationNumber: q.quotationNumber ?? null }));
       res.json({
         success: true,
         message: "Quotations retrieved successfully",
-        data: quotations,
-        count: quotations.length
+        data,
+        count: data.length
       });
     } catch (error: any) {
       next(error);

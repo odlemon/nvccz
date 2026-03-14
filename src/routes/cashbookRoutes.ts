@@ -548,8 +548,13 @@ router.get("/batches/export/all", CashbookBatchImportController.exportAllBatches
  * /api/cashbook/banks:
  *   get:
  *     summary: Get bank accounts
- *     description: Get list of active bank accounts
+ *     description: Get list of bank accounts (dynamic from DB). By default returns only active. Use ?includeInactive=true to include inactive banks.
  *     tags: [Cashbook]
+ *     parameters:
+ *       - in: query
+ *         name: includeInactive
+ *         schema: { type: boolean }
+ *         description: If true, include inactive bank accounts
  *     responses:
  *       200:
  *         description: Bank accounts retrieved successfully
@@ -634,6 +639,71 @@ router.get("/banks", CashbookController.getBanks);
  *         description: Unauthorized
  */
 router.post("/banks", CashbookController.createBank);
+
+/**
+ * @swagger
+ * /api/cashbook/banks/{id}:
+ *   get:
+ *     summary: Get bank account by ID
+ *     tags: [Cashbook]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Bank retrieved successfully }
+ *       404: { description: Bank not found }
+ */
+router.get("/banks/:id", CashbookController.getBankById);
+
+/**
+ * @swagger
+ * /api/cashbook/banks/{id}:
+ *   put:
+ *     summary: Update bank account
+ *     description: Update name, accountNumber, currencyId, glAccountId, or isActive. Cashbook list will reflect changes on next GET /banks.
+ *     tags: [Cashbook]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               accountNumber: { type: string }
+ *               currencyId: { type: string }
+ *               glAccountId: { type: string }
+ *               isActive: { type: boolean }
+ *     responses:
+ *       200: { description: Bank updated successfully }
+ *       400: { description: Validation error }
+ *       404: { description: Bank not found }
+ */
+router.put("/banks/:id", CashbookController.updateBank);
+
+/**
+ * @swagger
+ * /api/cashbook/banks/{id}:
+ *   delete:
+ *     summary: Soft delete bank account
+ *     description: Sets isActive to false. Bank is excluded from GET /banks; use ?includeInactive=true to see it. Reactivate with PUT /banks/:id body { isActive: true }.
+ *     tags: [Cashbook]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Bank deactivated successfully }
+ *       404: { description: Bank not found }
+ */
+router.delete("/banks/:id", CashbookController.deleteBank);
 
 /**
  * @swagger

@@ -1059,9 +1059,11 @@ export class ProcurementController {
         skip: parseInt(offset as string)
       });
 
+      // Ensure each invoice in response includes auto-generated invoiceNumber
+      const data = (invoices as any[]).map((inv: any) => ({ ...inv, invoiceNumber: inv.invoiceNumber ?? null }));
       res.status(200).json({
         success: true,
-        data: invoices
+        data
       });
     } catch (error: any) {
       console.error("Error getting procurement invoices:", error);

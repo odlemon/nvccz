@@ -33,8 +33,11 @@ export class CashbookInvoiceController {
       };
 
       const result = await InvoiceService.getInvoices(params);
-
-      ResponseHelper.success(res, "Invoices retrieved successfully", result);
+      const data = {
+        ...result,
+        invoices: (result.invoices || []).map((inv: any) => ({ ...inv, invoiceNumber: inv.invoiceNumber ?? null }))
+      };
+      ResponseHelper.success(res, "Invoices retrieved successfully", data);
     } catch (error: any) {
       logger.error("Error getting invoices", { error: error.message });
       ResponseHelper.error(res, `Failed to get invoices: ${error.message}`, undefined, 500);
@@ -61,7 +64,8 @@ export class CashbookInvoiceController {
         return;
       }
 
-      ResponseHelper.success(res, "Invoice retrieved successfully", invoice);
+      const data = { ...invoice, invoiceNumber: (invoice as any).invoiceNumber ?? null };
+      ResponseHelper.success(res, "Invoice retrieved successfully", data);
     } catch (error: any) {
       logger.error("Error getting invoice", { error: error.message });
       ResponseHelper.error(res, `Failed to get invoice: ${error.message}`, undefined, 500);

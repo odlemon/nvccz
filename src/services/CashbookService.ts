@@ -1123,6 +1123,106 @@ export class CashbookService {
 
     return bank;
   }
+
+  /**
+   * Update Bank Account
+   * Updates an existing bank account (name, accountNumber, currencyId, glAccountId, isActive).
+   */
+  static async updateBank(
+    bankId: string,
+    params: {
+      name?: string;
+      accountNumber?: string;
+      currencyId?: string;
+      glAccountId?: string;
+      isActive?: boolean;
+    }
+  ) {
+    const existing = await prisma.bank.findUnique({
+      where: { id: bankId },
+      include: { glAccount: true, currency: true }
+    });
+    if (!existing) {
+      throw new Error('Bank account not found');
+    }
+
+    const { name, accountNumber, currencyId, glAccountId, isActive } = params;
+
+    if (accountNumber !== undefined) {
+      const duplicate = await prisma.bank.findFirst({
+        where: { accountNumber, id: { not: bankId } }
+      });
+      if (duplicate) {
+        throw new Error('Bank account with this account number already exists');
+      }
+    }
+
+    if (glAccountId !== undefined) {
+      const glAccount = await prisma.chartOfAccounts.findUnique({
+        where: { id: glAccountId }
+      });
+      if (!glAccount) {
+        throw new Error('GL account not found');
+      }
+      if (!['Current Asset', 'Fixed Asset'].includes(glAccount.accountType)) {
+        throw new Error('GL account must be an asset type for bank accounts');
+      }
+      const otherBank = await prisma.bank.findFirst({
+        where: { glAccountId, id: { not: bankId } }
+      });
+      if (otherBank) {
+        throw new Error(`GL account is already associated with bank "${otherBank.name}". Each GL account can only be linked to one bank.`);
+      }
+    }
+
+    if (currencyId !== undefined) {
+      const currency = await prisma.currency.findUnique({
+        where: { id: currencyId }
+      });
+      if (!currency) {
+        throw new Error('Currency not found');
+      }
+    }
+
+    const data: Record<string, unknown> = {};
+    if (name !== undefined) data.name = name;
+    if (accountNumber !== undefined) data.accountNumber = accountNumber;
+    if (currencyId !== undefined) data.currencyId = currencyId;
+    if (glAccountId !== undefined) data.glAccountId = glAccountId;
+    if (isActive !== undefined) data.isActive = isActive;
+
+    const bank = await prisma.bank.update({
+      where: { id: bankId },
+      data,
+      include: {
+        currency: true,
+        glAccount: true
+      }
+    });
+    return bank;
+  }
+
+  /**
+   * Soft delete bank account (sets isActive: false).
+   * Bank remains in DB and can be reactivated via updateBank(id, { isActive: true }).
+   */
+  static async softDeleteBank(bankId: string) {
+    const existing = await prisma.bank.findUnique({
+      where: { id: bankId }
+    });
+    if (!existing) {
+      throw new Error('Bank account not found');
+    }
+    const bank = await prisma.bank.update({
+      where: { id: bankId },
+      data: { isActive: false },
+      include: {
+        currency: true,
+        glAccount: true
+      }
+    });
+    return bank;
+  }
 }
 
 export default CashbookService;
