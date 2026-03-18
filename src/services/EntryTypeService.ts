@@ -98,7 +98,8 @@ export class EntryTypeService {
    */
   static async getEntryTypes(
     transactionType?: 'RECEIPT' | 'PAYMENT',
-    isActive?: boolean
+    isActive?: boolean,
+    currencyId?: string
   ): Promise<EntryTypeResult> {
     try {
       
@@ -110,6 +111,18 @@ export class EntryTypeService {
       
       if (isActive !== undefined) {
         whereClause.isActive = isActive;
+      }
+
+      if (currencyId) {
+        const used = await prisma.cashbookEntry.groupBy({
+          by: ['entryTypeId'],
+          where: { bank: { currencyId }, entryTypeId: { not: null } }
+        });
+        const ids = used.map((e) => e.entryTypeId).filter(Boolean) as string[];
+        if (ids.length === 0) {
+          return { success: true, data: [], message: 'No entry types for this currency' };
+        }
+        whereClause.id = { in: ids };
       }
       
       const entryTypes = await prisma.cashbookEntryTypeConfig.findMany({

@@ -115,6 +115,25 @@ export default class ContraEntryController {
   }
 
   /**
+   * List all contra entries (optional ?currencyId= to filter by cashbook bank currency)
+   * GET /api/cashbook/contra/all-entries
+   */
+  static async listAllContraEntries(req: AuthRequest, res: Response) {
+    try {
+      const currencyId = req.query.currencyId as string | undefined;
+      const limit = Math.min(parseInt(String(req.query.limit || '200'), 10) || 200, 500);
+      const result = await ContraEntryService.listAllContraEntries(currencyId, limit);
+      if (result.success) {
+        return res.status(200).json(result);
+      }
+      return res.status(400).json(result);
+    } catch (error) {
+      console.error('Error in listAllContraEntries:', error);
+      return ResponseHelper.error(res, 'Internal server error');
+    }
+  }
+
+  /**
    * Get contra entries for a cashbook entry
    * GET /api/cashbook/contra/entries/:cashbookEntryId
    */

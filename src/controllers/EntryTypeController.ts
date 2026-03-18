@@ -73,7 +73,7 @@ export class EntryTypeController {
       const result = await EntryTypeService.createEntryType(entryTypeRequest, userId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
@@ -91,11 +91,12 @@ export class EntryTypeController {
     try {
       const transactionType = req.query.transactionType as 'RECEIPT' | 'PAYMENT';
       const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
+      const currencyId = req.query.currencyId as string | undefined;
       
-      const result = await EntryTypeService.getEntryTypes(transactionType, isActive);
+      const result = await EntryTypeService.getEntryTypes(transactionType, isActive, currencyId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
@@ -121,7 +122,7 @@ export class EntryTypeController {
       const result = await EntryTypeService.getEntryType(entryTypeId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
@@ -154,7 +155,7 @@ export class EntryTypeController {
       const result = await EntryTypeService.updateEntryType(entryTypeId, updateData, userId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
@@ -221,7 +222,7 @@ export class EntryTypeController {
       );
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
@@ -240,7 +241,7 @@ export class EntryTypeController {
       const result = await EntryTypeService.getEntryTypeStatistics();
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }
@@ -266,7 +267,7 @@ export class EntryTypeController {
       const result = await EntryTypeService.validateEntryTypeConfiguration(entryTypeId);
       
       if (result.success) {
-        ResponseHelper.success(res, result.data, result.message);
+        ResponseHelper.success(res, result.message, result.data);
       } else {
         ResponseHelper.badRequest(res, result.message);
       }

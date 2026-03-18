@@ -542,6 +542,7 @@ export class CashbookService {
    */
   static async getCashbookEntries(filters: {
     bankId?: string;
+    currencyId?: string;
     transactionType?: string;
     status?: string;
     dateFrom?: Date;
@@ -558,6 +559,9 @@ export class CashbookService {
       where.originalTransactionId = null;
       
       if (filters.bankId) where.bankId = filters.bankId;
+      if (filters.currencyId) {
+        where.bank = { currencyId: filters.currencyId };
+      }
       if (filters.transactionType) where.transactionType = filters.transactionType;
       if (filters.status) where.status = filters.status;
       if (filters.dateFrom || filters.dateTo) {

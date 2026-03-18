@@ -131,6 +131,8 @@ router.post('/configure', ContraEntryController.configureContraEntry);
  */
 router.get('/configs', ContraEntryController.getContraEntryConfigs);
 
+router.get('/all-entries', ContraEntryController.listAllContraEntries);
+
 /**
  * @swagger
  * /api/cashbook/contra/generate:

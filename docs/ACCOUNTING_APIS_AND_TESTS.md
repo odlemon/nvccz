@@ -154,3 +154,25 @@ Request bodies should **not** include `invoiceNumber` (or equivalent) for create
 **Test case:** PO to Bill conversion
 
 ---
+
+## 15. Currency filter (`currencyId` query param)
+
+Optional query **`currencyId`** (Currency record id) on these GET endpoints:
+
+| Endpoint | Behaviour |
+|----------|-----------|
+| `GET /api/accounting/journal-entries` | Journal entries for that currency only |
+| `GET /api/accounting/journal-entries/by-date-range` | Same, within date range |
+| `GET /api/accounting/trial-balance` (+ `/summary`, `/by-account-type`) | Trial balance from journal lines in that currency only |
+| `GET /api/cashbook/entries` | Entries on banks in that currency |
+| `GET /api/cashbook/batches` (batch import list) | Batches that have at least one entry in that currency |
+| `GET /api/cashbook/transfers` | Transfers where **from** or **to** bank uses that currency |
+| `GET /api/cashbook/entry-types` | Entry types that appear on cashbook entries in that currency |
+| `GET /api/cashbook/periods` | Accounting periods (YYYY-MM) that have cashbook activity in that currency |
+| `GET /api/cashbook/contra/all-entries` | Contra entries whose cashbook line is on a bank in that currency |
+| `GET /api/accounting/bank-reconciliation` | Reconciliations for banks in that currency **or** `accountCurrency` matching currency code |
+| `GET /api/accounting/purchase-invoices` | Purchase invoices in that currency |
+
+**Test:** `tests/accounting/test-currency-filters.ps1` (requires API running; uses first currency from `GET /api/accounting/currencies`).
+
+---

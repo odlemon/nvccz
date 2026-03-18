@@ -97,11 +97,12 @@ export default class PeriodLockoutController {
    */
   static async getAllPeriods(req: AuthRequest, res: Response) {
     try {
-      const { year, isLocked } = req.query;
+      const { year, isLocked, currencyId } = req.query;
 
       const filters: any = {};
       if (year) filters.year = parseInt(year as string);
       if (isLocked !== undefined) filters.isLocked = isLocked === 'true';
+      if (currencyId) filters.currencyId = currencyId as string;
 
       const result = await PeriodLockoutService.getAllPeriods(filters);
 

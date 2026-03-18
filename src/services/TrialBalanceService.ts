@@ -52,7 +52,8 @@ export class TrialBalanceService {
     startDate?: Date,
     endDate?: Date,
     hideZeroBalances?: boolean,
-    includeTransactionDetails: boolean = true
+    includeTransactionDetails: boolean = true,
+    currencyId?: string
   ): Promise<TrialBalanceData> {
     try {
       // If startDate and endDate are provided, use them; otherwise use date as endDate
@@ -80,10 +81,11 @@ export class TrialBalanceService {
         ]
       });
 
-      const lineWhere = {
+      const lineWhere: any = {
         journalEntry: {
           transactionDate: { gte: start, lte: end },
           status: 'POSTED' as const,
+          ...(currencyId ? { currencyId } : {}),
           NOT: {
             cashbookEntries: {
               some: {
@@ -425,7 +427,7 @@ export class TrialBalanceService {
   /**
    * Get trial balance summary
    */
-  static async getTrialBalanceSummary(date: Date, startDate?: Date, endDate?: Date): Promise<{
+  static async getTrialBalanceSummary(date: Date, startDate?: Date, endDate?: Date, currencyId?: string): Promise<{
     totalAccounts: number;
     totalDebits: number;
     totalCredits: number;
@@ -433,7 +435,7 @@ export class TrialBalanceService {
     balanceDifference: number;
   }> {
     try {
-      const trialBalance = await this.generateTrialBalance(date, startDate, endDate);
+      const trialBalance = await this.generateTrialBalance(date, startDate, endDate, undefined, true, currencyId);
       
       return {
         totalAccounts: trialBalance.accounts.length,
@@ -451,7 +453,7 @@ export class TrialBalanceService {
   /**
    * Get trial balance by account type
    */
-  static async getTrialBalanceByAccountType(date: Date, startDate?: Date, endDate?: Date): Promise<{
+  static async getTrialBalanceByAccountType(date: Date, startDate?: Date, endDate?: Date, currencyId?: string): Promise<{
     [accountType: string]: {
       accounts: TrialBalanceAccount[];
       totalDebits: number;
@@ -460,7 +462,7 @@ export class TrialBalanceService {
     };
   }> {
     try {
-      const trialBalance = await this.generateTrialBalance(date, startDate, endDate);
+      const trialBalance = await this.generateTrialBalance(date, startDate, endDate, undefined, true, currencyId);
       const groupedByType: { [key: string]: any } = {};
 
       for (const account of trialBalance.accounts) {

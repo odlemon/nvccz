@@ -102,6 +102,7 @@ export class CashbookTransferController {
       const toBankId = req.query.toBankId as string;
       const dateFrom = req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined;
       const dateTo = req.query.dateTo ? new Date(req.query.dateTo as string) : undefined;
+      const currencyId = req.query.currencyId as string | undefined;
       
       if (!userId) {
         return ResponseHelper.unauthorized(res, 'User not authenticated');
@@ -114,7 +115,8 @@ export class CashbookTransferController {
         fromBankId, 
         toBankId, 
         dateFrom, 
-        dateTo
+        dateTo,
+        currencyId
       );
       
       if (result.success) {
