@@ -932,7 +932,8 @@ export class CashbookBatchImportService {
     page: number = 1,
     limit: number = 10,
     status?: string,
-    userId?: string
+    userId?: string,
+    currencyId?: string
   ): Promise<{
     batches: any[];
     totalCount: number;
@@ -948,6 +949,9 @@ export class CashbookBatchImportService {
       }
       if (userId) {
         whereClause.createdById = userId;
+      }
+      if (currencyId) {
+        whereClause.transactions = { some: { bank: { currencyId } } };
       }
       
       const [batches, totalCount] = await Promise.all([

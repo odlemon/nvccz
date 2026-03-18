@@ -283,6 +283,7 @@ export default class CashbookController {
     try {
       const {
         bankId,
+        currencyId,
         transactionType,
         status,
         dateFrom,
@@ -290,10 +291,11 @@ export default class CashbookController {
         limit,
         offset
       } = req.query;
-      
+
       const filters: any = {};
-      
+
       if (bankId) filters.bankId = bankId as string;
+      if (currencyId) filters.currencyId = currencyId as string;
       if (transactionType) filters.transactionType = transactionType as string;
       if (status) filters.status = status as string;
       if (dateFrom) filters.dateFrom = new Date(dateFrom as string);
@@ -394,10 +396,13 @@ export default class CashbookController {
    */
   static async listBatches(req: Request, res: Response) {
     try {
-      const { status, limit, offset } = req.query;
+      const { status, limit, offset, currencyId } = req.query;
       
       const where: any = {};
       if (status) where.status = status;
+      if (currencyId) {
+        where.transactions = { some: { bank: { currencyId: currencyId as string } } };
+      }
       
       const batches = await prisma.cashbookBatch.findMany({
         where,

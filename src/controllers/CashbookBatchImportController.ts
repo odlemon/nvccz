@@ -154,7 +154,7 @@ export default class CashbookBatchImportController {
   static async listBatches(req: Request, res: Response) {
     try {
       const userId = (req as AuthRequest).user?.id;
-      const { page = 1, limit = 10, status } = req.query;
+      const { page = 1, limit = 10, status, currencyId } = req.query;
       
       if (!userId) {
         return ResponseHelper.unauthorized(res, 'User not authenticated.');
@@ -164,7 +164,8 @@ export default class CashbookBatchImportController {
         parseInt(page as string),
         parseInt(limit as string),
         status as string,
-        userId
+        userId,
+        currencyId as string | undefined
       );
       
       return ResponseHelper.success(res, 'Batches retrieved successfully', result);

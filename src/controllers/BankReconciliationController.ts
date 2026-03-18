@@ -10,6 +10,7 @@ import BankReconciliationService from "../services/BankReconciliationService";
 import { BankReconciliationEngineService } from "../services/BankReconciliationEngineService";
 import { parseBankStatementCSV } from "../services/BankStatementUploadService";
 import { Decimal } from "@prisma/client";
+import { prisma } from "../utils/database";
 
 interface AuthRequest extends Request {
   user?: {
@@ -270,11 +271,23 @@ export default class BankReconciliationController {
    */
   static async getReconciliationStatus(req: Request, res: Response) {
     try {
-      const { status, page = "1", limit = "10" } = req.query;
+      const { status, page = "1", limit = "10", currencyId } = req.query;
 
       const where: any = {};
       if (status && typeof status === "string") {
         where.status = status;
+      }
+      if (currencyId && typeof currencyId === "string") {
+        const curr = await prisma.currency.findUnique({ where: { id: currencyId } });
+        const banks = await prisma.bank.findMany({
+          where: { currencyId },
+          select: { id: true }
+        });
+        const bankIdList = banks.map((b) => b.id);
+        const orCond: any[] = [];
+        if (bankIdList.length) orCond.push({ bankId: { in: bankIdList } });
+        if (curr?.code) orCond.push({ accountCurrency: curr.code });
+        if (orCond.length) where.OR = orCond;
       }
 
       const pageNumber = Number(page) > 0 ? Number(page) : 1;
@@ -645,7 +658,3 @@ export default class BankReconciliationController {
     }
   }
 }
-
-// Import prisma for direct database access
-import { PrismaClient } from '@prisma/client';
-import { prisma } from '../utils/database';

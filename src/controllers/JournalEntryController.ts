@@ -66,14 +66,13 @@ export class JournalEntryController {
   static async getJournalEntries(req: Request, res: Response) {
     try {
       const status = req.query.status as 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | undefined;
-      
-      // Default to POSTED and PENDING only if no status specified
+      const currencyId = req.query.currencyId as string | undefined;
       const filterStatus = status || 'POSTED_AND_PENDING';
-      
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
-        new Date('2020-01-01'), // Default start date
-        new Date(), // Current date
-        filterStatus // Pass status filter (defaults to POSTED_AND_PENDING)
+        new Date('2020-01-01'),
+        new Date(),
+        filterStatus,
+        currencyId
       );
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
@@ -153,10 +152,12 @@ export class JournalEntryController {
         return ResponseHelper.badRequest(res, "Start date and end date are required");
       }
 
+      const currencyId = req.query.currencyId as string | undefined;
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
         new Date(startDate as string),
         new Date(endDate as string),
-        status // Pass status filter (defaults to POSTED)
+        status,
+        currencyId
       );
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);

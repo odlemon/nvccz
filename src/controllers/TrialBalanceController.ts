@@ -52,12 +52,14 @@ export class TrialBalanceController {
 
       const hideZeroBalances = req.query.hideZeroBalances === 'true' || req.query.hideZeroBalances === '1';
       const includeTransactionDetails = req.query.includeTransactionDetails !== 'false' && req.query.includeTransactionDetails !== '0';
+      const currencyId = req.query.currencyId as string | undefined;
       const trialBalance = await TrialBalanceService.generateTrialBalance(
         trialBalanceDate || new Date(),
         start,
         end,
         hideZeroBalances,
-        includeTransactionDetails
+        includeTransactionDetails,
+        currencyId
       );
       
       return ResponseHelper.success(res, 'Trial balance generated successfully', trialBalance);
@@ -95,7 +97,8 @@ export class TrialBalanceController {
         }
       }
 
-      const summary = await TrialBalanceService.getTrialBalanceSummary(trialBalanceDate, start, end);
+      const currencyId = req.query.currencyId as string | undefined;
+      const summary = await TrialBalanceService.getTrialBalanceSummary(trialBalanceDate, start, end, currencyId);
       
       return ResponseHelper.success(res, 'Trial balance summary retrieved successfully', summary);
     } catch (error: any) {
@@ -132,7 +135,8 @@ export class TrialBalanceController {
         }
       }
 
-      const trialBalanceByType = await TrialBalanceService.getTrialBalanceByAccountType(trialBalanceDate, start, end);
+      const currencyId = req.query.currencyId as string | undefined;
+      const trialBalanceByType = await TrialBalanceService.getTrialBalanceByAccountType(trialBalanceDate, start, end, currencyId);
       
       return ResponseHelper.success(res, 'Trial balance by account type retrieved successfully', trialBalanceByType);
     } catch (error: any) {

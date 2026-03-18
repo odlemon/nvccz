@@ -469,22 +469,30 @@ export class CashbookTransferService {
     fromBankId?: string,
     toBankId?: string,
     dateFrom?: Date,
-    dateTo?: Date
+    dateTo?: Date,
+    currencyId?: string
   ): Promise<{ success: boolean; data?: any; message: string }> {
     try {
-      
+
       const offset = (page - 1) * limit;
-      
+
       let whereClause: any = {
         createdById: userId
       };
-      
+
       if (fromBankId) {
         whereClause.fromBankId = fromBankId;
       }
-      
+
       if (toBankId) {
         whereClause.toBankId = toBankId;
+      }
+
+      if (currencyId) {
+        whereClause.OR = [
+          { fromBank: { currencyId } },
+          { toBank: { currencyId } }
+        ];
       }
       
       if (dateFrom || dateTo) {

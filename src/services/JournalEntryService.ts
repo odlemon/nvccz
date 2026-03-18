@@ -1021,13 +1021,21 @@ export class JournalEntryService {
    * @param endDate - End date for filtering
    * @param status - Optional status filter (defaults to 'POSTED' only)
    */
-  static async getJournalEntriesByDateRange(startDate: Date, endDate: Date, status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | 'POSTED_AND_PENDING'): Promise<any[]> {
+  static async getJournalEntriesByDateRange(
+    startDate: Date,
+    endDate: Date,
+    status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | 'POSTED_AND_PENDING',
+    currencyId?: string
+  ): Promise<any[]> {
     const whereClause: any = {
       transactionDate: {
         gte: startDate,
         lte: endDate
       }
     };
+    if (currencyId) {
+      whereClause.currencyId = currencyId;
+    }
 
     // Handle different status filters
     if (!status || status === 'POSTED') {

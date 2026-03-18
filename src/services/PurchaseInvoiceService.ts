@@ -386,7 +386,8 @@ export class PurchaseInvoiceService {
     page: number = 1,
     limit: number = 10,
     status?: string,
-    paymentStatus?: string
+    paymentStatus?: string,
+    currencyId?: string
   ): Promise<{ invoices: PurchaseInvoiceWithRelations[]; total: number; page: number; totalPages: number }> {
     try {
       const skip = (page - 1) * limit;
@@ -397,6 +398,9 @@ export class PurchaseInvoiceService {
       }
       if (paymentStatus) {
         where.paymentStatus = paymentStatus;
+      }
+      if (currencyId) {
+        where.currencyId = currencyId;
       }
 
       const [invoices, total] = await Promise.all([

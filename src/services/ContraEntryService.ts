@@ -66,6 +66,44 @@ export default class ContraEntryService {
   }
 
   /**
+   * List contra entries (optional filter by cashbook bank currency)
+   */
+  static async listAllContraEntries(currencyId?: string, limit: number = 200) {
+    try {
+      const where: any = {};
+      if (currencyId) {
+        where.cashbookEntry = { bank: { currencyId } };
+      }
+      const entries = await prisma.contraEntry.findMany({
+        where,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          cashbookEntry: {
+            include: {
+              bank: { include: { currency: true } }
+            }
+          },
+          debitAccount: { select: { id: true, accountNo: true, accountName: true } },
+          creditAccount: { select: { id: true, accountNo: true, accountName: true } }
+        }
+      });
+      return {
+        success: true,
+        message: 'Contra entries retrieved successfully',
+        data: entries
+      };
+    } catch (error: any) {
+      console.error('Error listing contra entries:', error);
+      return {
+        success: false,
+        message: 'Failed to list contra entries',
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * Get contra entry configurations
    */
   static async getContraEntryConfigs(filters: {

@@ -156,19 +156,48 @@ export default class PeriodLockoutService {
   static async getAllPeriods(filters: {
     year?: number;
     isLocked?: boolean;
+    currencyId?: string;
   } = {}) {
     try {
       
       const whereClause: any = {};
       
-      if (filters.year) {
-        whereClause.period = {
-          startsWith: filters.year.toString()
-        };
-      }
-      
       if (filters.isLocked !== undefined) {
         whereClause.isLocked = filters.isLocked;
+      }
+
+      let periodInSet: string[] | null = null;
+      if (filters.currencyId) {
+        const entries = await prisma.cashbookEntry.findMany({
+          where: { bank: { currencyId: filters.currencyId } },
+          select: { transactionDate: true }
+        });
+        const monthSet = new Set<string>();
+        for (const e of entries) {
+          const d = new Date(e.transactionDate);
+          monthSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        }
+        if (monthSet.size === 0) {
+          return {
+            success: true,
+            message: 'No accounting periods with cashbook activity in this currency',
+            data: []
+          };
+        }
+        periodInSet = [...monthSet];
+      }
+
+      if (filters.year && periodInSet) {
+        const y = filters.year.toString();
+        periodInSet = periodInSet.filter((p) => p.startsWith(y));
+        if (periodInSet.length === 0) {
+          return { success: true, message: 'No periods match year and currency', data: [] };
+        }
+        whereClause.period = { in: periodInSet };
+      } else if (periodInSet) {
+        whereClause.period = { in: periodInSet };
+      } else if (filters.year) {
+        whereClause.period = { startsWith: filters.year.toString() };
       }
 
       const periods = await prisma.accountingPeriod.findMany({

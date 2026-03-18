@@ -154,12 +154,14 @@ export class PurchaseInvoiceController {
       const limit = parseInt(req.query.limit as string) || 10;
       const status = req.query.status as string | undefined;
       const paymentStatus = req.query.paymentStatus as string | undefined;
+      const currencyId = req.query.currencyId as string | undefined;
 
       const result = await PurchaseInvoiceService.getAllPurchaseInvoices(
         page,
         limit,
         status,
-        paymentStatus
+        paymentStatus,
+        currencyId
       );
       // Ensure each invoice in list includes auto-generated invoiceNumber
       const data = {
