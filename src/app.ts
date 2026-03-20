@@ -136,6 +136,7 @@ app.use(cors({
       "http://app.kyntaro.com",
         "https://dev.arcus.co.zw",
       "https://app.arcus.co.zw",
+      "https://arcus.co.zw",
       "https://app.kyntaro.com",
       "https://nvccz-new-taupe.vercel.app",
       "http://31.220.82.129",
