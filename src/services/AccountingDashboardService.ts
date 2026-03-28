@@ -236,7 +236,7 @@ export class AccountingDashboardService {
         currency.id
       );
 
-      // Committed Spend: total of open Purchase Orders (DRAFT, SENT, APPROVED) in this currency. No GL impact until bill is posted.
+      // Committed Spend: open POs (DRAFT, SENT, APPROVED, PENDING) in this currency; BILLED excluded. No GL on PO — AP when bill posts.
       const committedSpend = await this.getCommittedSpend(currency.id);
 
       // Get balance sheet data for assets and liabilities
@@ -317,16 +317,16 @@ export class AccountingDashboardService {
   }
 
   /**
-   * Committed Spend: sum of open Purchase Order totals (not yet billed).
-   * GL balances remain unchanged until the bill is posted; this is for dashboard visibility only.
-   * @param currencyId - only POs in this currency are summed (e.g. ZIG for 5000 ZIG)
+   * Committed Spend: sum of open Purchase Order `totalAmount` (incl. PO VAT when applicable), excluding BILLED.
+   * GL balances stay unchanged on PO creation; AP posts when the purchase invoice is submitted.
+   * @param currencyId - filter POs by this currency (e.g. ZIG)
    */
   private static async getCommittedSpend(currencyId: string): Promise<number> {
     try {
       const pos = await prisma.purchaseOrder.findMany({
         where: {
           currencyId,
-          status: { in: ["DRAFT", "SENT", "APPROVED"] },
+          status: { in: ["DRAFT", "SENT", "APPROVED", "PENDING"] },
         },
         select: { totalAmount: true },
       });
@@ -339,9 +339,9 @@ export class AccountingDashboardService {
   }
 
   /**
-   * Calculate COGS from journal entries
+   * COGS from journal entries (single COGS account lookup). Public for reconciliation vs Income Statement period.
    */
-  private static async calculateCOGS(
+  static async calculateCOGS(
     startDate: Date,
     endDate: Date,
     currencyId: string

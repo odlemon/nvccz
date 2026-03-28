@@ -8,6 +8,7 @@ import VATService from './VATService';
 import crypto from 'crypto';
 
 import { prisma } from '../utils/database';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
 const googleCalendarService = new GoogleCalendarService();
 
 export interface EventCreationData {
@@ -742,16 +743,14 @@ export class EventService {
       const currencyId = await this.getDefaultCurrencyId();
 
       // Create journal entry for budget allocation
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: new Date(),
-          referenceNumber: `BUDGET-${eventId}-${Date.now()}`,
-          description: `Event Budget Allocation: ${event.title}`,
-          totalAmount: new Decimal(approvedBudget),
-          currencyId,
-          status: 'POSTED',
-          createdById: approverId
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: new Date(),
+        referenceNumber: `BUDGET-${eventId}-${Date.now()}`,
+        description: `Event Budget Allocation: ${event.title}`,
+        totalAmount: new Decimal(approvedBudget),
+        currencyId,
+        status: 'POSTED',
+        createdById: approverId,
       });
 
       // Create journal entry lines for budget allocation

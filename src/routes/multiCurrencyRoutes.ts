@@ -227,6 +227,11 @@ router.post('/payments', MultiCurrencyController.processMultiCurrencyPayment);
 router.get('/forex-gain-loss', MultiCurrencyController.getForexGainLoss);
 
 /**
+ * Unrealized FX (month-end): open invoices — original functional value vs current rates.
+ */
+router.get('/reports/unrealized-fx', MultiCurrencyController.getUnrealizedFxReport);
+
+/**
  * @swagger
  * /accounting/multi-currency/dashboard:
  *   get:

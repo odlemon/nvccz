@@ -35,8 +35,14 @@ export interface TrialBalanceData {
   isCumulative: boolean; // true = cumulative (all entries up to date), false = period-based (specific date range)
   accounts: TrialBalanceAccount[];
   totals: {
+    /** Sum of all debit amounts on lines in scope (gross). Equals totalCredits when books balance. */
     totalDebits: number;
+    /** Sum of all credit amounts on lines in scope (gross). */
     totalCredits: number;
+    /** Sum of per-account net debit column (display). Matches Excel SUM(debitBalance) on returned rows when hideZeroBalances is false or all active accounts included. */
+    netDebitColumnTotal: number;
+    /** Sum of per-account net credit column (display). Equals netDebitColumnTotal when books balance. */
+    netCreditColumnTotal: number;
     isBalanced: boolean;
   };
 }
@@ -342,6 +348,8 @@ export class TrialBalanceService {
       const trialBalanceAccounts: TrialBalanceAccount[] = [];
       let totalDebits = 0;
       let totalCredits = 0;
+      let netDebitColumnTotal = 0;
+      let netCreditColumnTotal = 0;
 
       // Create account map for quick lookup
       const accountMap = new Map(accounts.map(acc => [acc.id, acc]));
@@ -371,10 +379,12 @@ export class TrialBalanceService {
           transactions: transactions
         });
 
-        // IMPORTANT: For totals, sum ALL debits and ALL credits (gross totals), not net balances
-        // This ensures month-end totals match journal entry totals
-        totalDebits += debitBalance;  // Sum of ALL debit amounts
-        totalCredits += creditBalance; // Sum of ALL credit amounts
+        // Gross: sum of line debits / credits in period (matches sum of JE line sides; always equal if posted JEs balance).
+        totalDebits += debitBalance;
+        totalCredits += creditBalance;
+        // Net columns: what each row displays — Excel SUM(debitBalance)/SUM(creditBalance) must match these when summing the same account set.
+        netDebitColumnTotal += displayDebit;
+        netCreditColumnTotal += displayCredit;
       }
 
       // Sort accounts by account type and account number
@@ -385,12 +395,15 @@ export class TrialBalanceService {
         return a.accountNo.localeCompare(b.accountNo);
       });
 
-      // Zero-balance suppression: omit accounts with no transactions and zero balance (reduce clutter)
+      // Omit idle accounts only: keep rows that had period activity even if net DR/CR is zero (offsetting entries).
       const ZERO_TOLERANCE = 0.01;
       const accountsToReturn =
         hideZeroBalances === true
           ? trialBalanceAccounts.filter(
-              (a) => (a.debitBalance || 0) >= ZERO_TOLERANCE || (a.creditBalance || 0) >= ZERO_TOLERANCE
+              (a) =>
+                (a.transactions?.length ?? 0) > 0 ||
+                (a.debitBalance || 0) >= ZERO_TOLERANCE ||
+                (a.creditBalance || 0) >= ZERO_TOLERANCE
             )
           : trialBalanceAccounts;
 
@@ -406,7 +419,9 @@ export class TrialBalanceService {
         totals: {
           totalDebits,
           totalCredits,
-          isBalanced: Math.abs(totalDebits - totalCredits) < 0.01 // Allow for small rounding differences
+          netDebitColumnTotal,
+          netCreditColumnTotal,
+          isBalanced: Math.abs(totalDebits - totalCredits) < 0.0001 // Sub-cent when journals use DECIMAL(15,3)
         }
       };
     } catch (error: any) {
@@ -431,6 +446,8 @@ export class TrialBalanceService {
     totalAccounts: number;
     totalDebits: number;
     totalCredits: number;
+    netDebitColumnTotal: number;
+    netCreditColumnTotal: number;
     isBalanced: boolean;
     balanceDifference: number;
   }> {
@@ -441,6 +458,8 @@ export class TrialBalanceService {
         totalAccounts: trialBalance.accounts.length,
         totalDebits: trialBalance.totals.totalDebits,
         totalCredits: trialBalance.totals.totalCredits,
+        netDebitColumnTotal: trialBalance.totals.netDebitColumnTotal,
+        netCreditColumnTotal: trialBalance.totals.netCreditColumnTotal,
         isBalanced: trialBalance.totals.isBalanced,
         balanceDifference: Math.abs(trialBalance.totals.totalDebits - trialBalance.totals.totalCredits)
       };
@@ -478,7 +497,8 @@ export class TrialBalanceService {
         groupedByType[account.accountType].accounts.push(account);
         groupedByType[account.accountType].totalDebits += account.debitBalance;
         groupedByType[account.accountType].totalCredits += account.creditBalance;
-        groupedByType[account.accountType].netBalance += account.netBalance;
+        groupedByType[account.accountType].netBalance +=
+          (account.debitBalance || 0) - (account.creditBalance || 0);
       }
 
       return groupedByType;

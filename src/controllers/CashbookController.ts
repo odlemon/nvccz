@@ -7,6 +7,7 @@ import { ResponseHelper } from "../utils/responseHelper";
 import CashbookService from "../services/CashbookService";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
+import { createJournalEntryWithAuditSequence } from "../services/AuditTrailSequenceService";
 
 interface AuthRequest extends Request {
   user?: {
@@ -17,7 +18,36 @@ interface AuthRequest extends Request {
 }
 
 export default class CashbookController {
-  
+  /**
+   * Magic bankId values: resolve or create the operating ZiG bank (same as CashbookService.ensureZigCashbookBank).
+   * Use these instead of a separate flag — it's still just `bankId`.
+   */
+  private static readonly ZIG_BANK_SHORTCUTS = new Set([
+    'AUTO_ZIG',
+    'AUTO:ZIG',
+    '@ZIG',
+    '_ZIG',
+  ]);
+
+  private static bankIdRequestsZiGAutoProvision(bankId: unknown): boolean {
+    if (bankId == null || typeof bankId !== 'string') {
+      return false;
+    }
+    const key = bankId.trim().toUpperCase();
+    return CashbookController.ZIG_BANK_SHORTCUTS.has(key);
+  }
+
+  /** Resolves real `banks.id`, including ZiG aliases (`@ZIG`, `AUTO_ZIG`, …). */
+  private static async resolveCashbookBankId(bankId: unknown): Promise<string | undefined> {
+    let resolved: string | undefined =
+      typeof bankId === 'string' && bankId.trim() !== '' ? bankId.trim() : undefined;
+    if (CashbookController.bankIdRequestsZiGAutoProvision(resolved)) {
+      const ensured = await CashbookService.ensureZigCashbookBank();
+      return ensured.bank.id;
+    }
+    return resolved;
+  }
+
   /**
    * Create Cash Receipt
    * POST /api/cashbook/receipts
@@ -45,11 +75,16 @@ export default class CashbookController {
         discount
       } = req.body;
 
+      const resolvedBankId = await CashbookController.resolveCashbookBankId(bankId);
+
       // Validate required fields
-      if (!bankId || !transactionDate || !description || !amount || !counterpartyType) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: bankId, transactionDate, description, amount, counterpartyType');
+      if (!resolvedBankId || !transactionDate || !description || !amount || !counterpartyType) {
+        return ResponseHelper.badRequest(
+          res,
+          'Missing required fields: bankId (use AUTO_ZIG / @ZIG / _ZIG to auto-pick ZiG bank), transactionDate, description, amount, counterpartyType'
+        );
       }
-      
+
       // Validate counterparty type specific fields
       if (counterpartyType === 'GL' && !glAccountId) {
         return ResponseHelper.badRequest(res, 'glAccountId required for GL transactions');
@@ -60,9 +95,9 @@ export default class CashbookController {
       if (counterpartyType === 'SUPPLIER' && !vendorId) {
         return ResponseHelper.badRequest(res, 'vendorId required for supplier transactions');
       }
-      
+
       const result = await CashbookService.createCashReceipt({
-        bankId,
+        bankId: resolvedBankId,
         transactionDate: new Date(transactionDate),
         description,
         amount: parseFloat(amount),
@@ -116,11 +151,16 @@ export default class CashbookController {
         discount
       } = req.body;
 
+      const resolvedBankId = await CashbookController.resolveCashbookBankId(bankId);
+
       // Validate required fields
-      if (!bankId || !transactionDate || !description || !amount || !counterpartyType) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: bankId, transactionDate, description, amount, counterpartyType');
+      if (!resolvedBankId || !transactionDate || !description || !amount || !counterpartyType) {
+        return ResponseHelper.badRequest(
+          res,
+          'Missing required fields: bankId (use AUTO_ZIG / @ZIG / _ZIG for ZiG bank), transactionDate, description, amount, counterpartyType'
+        );
       }
-      
+
       // Validate counterparty type specific fields
       if (counterpartyType === 'GL' && !glAccountId) {
         return ResponseHelper.badRequest(res, 'glAccountId required for GL transactions');
@@ -131,9 +171,9 @@ export default class CashbookController {
       if (counterpartyType === 'SUPPLIER' && !vendorId) {
         return ResponseHelper.badRequest(res, 'vendorId required for supplier transactions');
       }
-      
+
       const result = await CashbookService.createCashPayment({
-        bankId,
+        bankId: resolvedBankId,
         transactionDate: new Date(transactionDate),
         description,
         amount: parseFloat(amount),
@@ -412,7 +452,11 @@ export default class CashbookController {
               id: true,
               type: true,
               amount: true,
-              status: true
+              status: true,
+              receiptAttachmentUrl: true,
+              receiptAttachmentPath: true,
+              receiptAttachmentFileName: true,
+              receiptAttachmentMimeType: true
             }
           },
           createdBy: {
@@ -492,17 +536,14 @@ export default class CashbookController {
           const originalLines = originalEntry.journalEntryLines;
           
           // Create reversal journal entry
-          reversalJournalEntry = await prisma.journalEntry.create({
-            data: {
-              transactionDate: new Date(),
-              referenceNumber: `VR-${originalEntry.referenceNumber}`,
-              description: `REVERSAL of CB Transaction ${id}: ${originalEntry.description}`,
-              totalAmount: originalEntry.totalAmount,
-              currencyId: originalEntry.currencyId,
-              status: 'POSTED', // Auto-post the reversal
-              createdById: userId,
-              cashbookEntryId: id // Link to the voided cashbook entry
-            }
+          reversalJournalEntry = await createJournalEntryWithAuditSequence({
+            transactionDate: new Date(),
+            referenceNumber: `VR-${originalEntry.referenceNumber}`,
+            description: `REVERSAL of CB Transaction ${id}: ${originalEntry.description}`,
+            totalAmount: originalEntry.totalAmount,
+            currencyId: originalEntry.currencyId,
+            status: 'POSTED',
+            createdById: userId,
           });
           
           // Create reversal journal entry lines (opposite debits/credits)

@@ -6,6 +6,7 @@ import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
 import { eventsEndpoints } from './events-endpoints';
 import { dashboardsEndpoints } from './dashboards-endpoints';
+import { userSavedFilterFavoriteEndpoints } from './user-saved-filter-favorite-endpoints';
 
 const options = {
   definition: {
@@ -105,6 +106,10 @@ const options = {
       {
         name: 'Dashboards',
         description: 'Dashboard endpoints for comprehensive data visualization - Accounting, Payroll, Performance, and Portfolio Management dashboards with filtering capabilities'
+      },
+      {
+        name: 'Saved filter favorites',
+        description: 'User-scoped named filter presets (routeKey + JSON filters) for lists and reports — not tied to a single report definition'
       }
     ],
     components: {
@@ -861,7 +866,7 @@ const options = {
                 amount: { type: 'number', example: 300.00 },
                 vatAmount: { type: 'number', example: 43.50 },
                 totalAmount: { type: 'number', example: 343.50 },
-                vatRate: { type: 'number', example: 0.145 }
+                vatRate: { type: 'number', example: 0.155 }
               }
             }
           }
@@ -1006,7 +1011,11 @@ const options = {
               }
             },
             isTaxable: { type: 'boolean', example: true },
-            status: { type: 'string', example: 'DRAFT', enum: ['DRAFT', 'SENT', 'PAID', 'VOID'] },
+            status: {
+              type: 'string',
+              example: 'DRAFT',
+              enum: ['DRAFT', 'SENT', 'PARTIALLY_PAID', 'PAID', 'VOID']
+            },
             paymentMethod: { 
               type: 'string', 
               enum: ['CASH', 'BANK', 'CREDIT'],
@@ -1016,8 +1025,8 @@ const options = {
             // Currency conversion fields
             exchangeRateAtCreation: { 
               type: 'number', 
-              example: 1.15,
-              description: 'Exchange rate when invoice was created (for multi-currency payments)'
+              example: 26.5,
+              description: 'USD/ZWG snapshot at creation; set automatically from live or stored rates (do not send on create)'
             },
             paymentCurrencyId: { 
               type: 'string', 
@@ -1057,11 +1066,6 @@ const options = {
             description: { type: 'string', example: 'Management Fees Q4 2024' },
             invoiceNumber: { type: 'string', example: 'INV-2024-001' },
             isTaxable: { type: 'boolean', example: true },
-            exchangeRateAtCreation: { 
-              type: 'number', 
-              example: 1.15,
-              description: 'Exchange rate when invoice was created (for multi-currency payments)'
-            },
             items: {
               type: 'array',
               items: {
@@ -1515,6 +1519,44 @@ const options = {
               }
             }
           }
+        },
+        SavedFilterFavorite: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clxxxxxxxxxxxxxxxxxxxxxxxx' },
+            userId: { type: 'string' },
+            name: { type: 'string', example: 'Western Region Sales' },
+            routeKey: { type: 'string', example: 'sales-invoices', description: 'Client route or module key' },
+            filters: {
+              type: 'object',
+              description: 'Arbitrary JSON the UI replays as query params or filters',
+              additionalProperties: true,
+              example: { status: 'OPEN', dateFrom: '2026-01-01' }
+            },
+            sortOrder: { type: 'integer', example: 0 },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        SavedFilterFavoriteCreate: {
+          type: 'object',
+          required: ['name', 'routeKey', 'filters'],
+          properties: {
+            name: { type: 'string', maxLength: 255, example: 'Western Region Sales' },
+            routeKey: { type: 'string', maxLength: 191, example: 'sales-invoices' },
+            filters: { type: 'object', additionalProperties: true },
+            sortOrder: { type: 'integer', example: 0 }
+          }
+        },
+        SavedFilterFavoriteUpdate: {
+          type: 'object',
+          minProperties: 1,
+          properties: {
+            name: { type: 'string', maxLength: 255 },
+            routeKey: { type: 'string', maxLength: 191 },
+            filters: { type: 'object', additionalProperties: true },
+            sortOrder: { type: 'integer' }
+          }
         }
       }
     },
@@ -1538,6 +1580,7 @@ const fallbackSpec = {
     ...procurementEndpoints,
     ...eventsEndpoints,
     ...dashboardsEndpoints,
+    ...userSavedFilterFavoriteEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -4428,7 +4471,10 @@ const fallbackSpec = {
               {
                 name: 'status',
                 in: 'query',
-                schema: { type: 'string', enum: ['DRAFT', 'SENT', 'PAID', 'VOID'] },
+                schema: {
+                  type: 'string',
+                  enum: ['DRAFT', 'SENT', 'PARTIALLY_PAID', 'PAID', 'VOID']
+                },
                 description: 'Filter by invoice status'
               }
             ],
@@ -8264,7 +8310,7 @@ try {
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
     // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints with generated spec
-    specs.paths = { ...specs.paths, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
+    specs.paths = { ...specs.paths, ...userSavedFilterFavoriteEndpoints, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
     console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error: any) {

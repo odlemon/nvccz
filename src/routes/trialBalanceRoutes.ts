@@ -61,7 +61,7 @@ const router = Router();
  *         name: hideZeroBalances
  *         schema:
  *           type: boolean
- *         description: When true, omit accounts with no transactions and zero balance (reduces clutter)
+ *         description: When true, omit accounts with no period activity and zero net balance. Accounts with offsetting debits/credits in the period (net zero) are still included so row sums align with totals.
  *         example: true
  *       - in: query
  *         name: includeTransactionDetails
@@ -110,8 +110,16 @@ const router = Router();
  *                       properties:
  *                         totalDebits:
  *                           type: number
+ *                           description: Gross sum of debit amounts on all lines in scope (journal activity).
  *                         totalCredits:
  *                           type: number
+ *                           description: Gross sum of credit amounts on all lines in scope.
+ *                         netDebitColumnTotal:
+ *                           type: number
+ *                           description: Sum of displayed debitBalance per account (net column). Matches Excel SUM(debitBalance) over full account list.
+ *                         netCreditColumnTotal:
+ *                           type: number
+ *                           description: Sum of displayed creditBalance per account. Equals netDebitColumnTotal when balanced.
  *                         isBalanced:
  *                           type: boolean
  *       400:
@@ -174,6 +182,10 @@ router.get('/', authenticate, TrialBalanceController.generateTrialBalance);
  *                     totalDebits:
  *                       type: number
  *                     totalCredits:
+ *                       type: number
+ *                     netDebitColumnTotal:
+ *                       type: number
+ *                     netCreditColumnTotal:
  *                       type: number
  *                     isBalanced:
  *                       type: boolean

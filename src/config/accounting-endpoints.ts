@@ -1622,6 +1622,16 @@ export const accountingEndpoints = {
       summary: 'Generate Balance Sheet (Assets = Liabilities + Equity)',
       tags: ['Balance Sheet'],
       security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'hideZeroBalances',
+          required: false,
+          schema: { type: 'string', enum: ['true', 'false', '1', '0'] },
+          description:
+            'Filter: true or 1 to hide idle zero-balance accounts from display lists; section/grand totals unchanged'
+        }
+      ],
       requestBody: {
         required: true,
         content: {
@@ -1688,7 +1698,14 @@ export const accountingEndpoints = {
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'query', name: 'asOfDate', required: true, schema: { type: 'string', format: 'date' }, description: 'As-of date (YYYY-MM-DD)' },
-        { in: 'query', name: 'currencyId', required: false, schema: { type: 'string' }, description: 'Currency ID (optional)' }
+        { in: 'query', name: 'currencyId', required: false, schema: { type: 'string' }, description: 'Currency ID (optional)' },
+        {
+          in: 'query',
+          name: 'hideZeroBalances',
+          required: false,
+          schema: { type: 'string', enum: ['true', 'false', '1', '0'] },
+          description: 'true or 1 to hide idle zero-balance accounts from lists; totals unchanged'
+        }
       ],
       responses: {
         200: { description: 'Balance sheet retrieved successfully' },
@@ -2306,7 +2323,7 @@ export const accountingEndpoints = {
                       quantity: { type: 'number', example: 5 },
                       unitPrice: { type: 'number', example: 150.00 },
                       unit: { type: 'string', example: 'pcs' },
-                      vatRate: { type: 'number', example: 0.15, description: 'VAT rate (0.15 for 15%)' }
+                      vatRate: { type: 'number', example: 0.155, description: 'VAT rate decimal (0.155 for 15.5%)' }
                     }
                   }
                 },
@@ -2407,7 +2424,7 @@ export const accountingEndpoints = {
     },
     put: {
       summary: 'Update purchase invoice',
-      description: 'Update a purchase invoice. Only DRAFT invoices can be updated. Currency cannot be changed after invoice creation. If isTaxable is true, VAT will be calculated (15% default if not specified in items).',
+      description: 'Update a purchase invoice. Only DRAFT invoices can be updated. Currency cannot be changed after invoice creation. If isTaxable is true, VAT will be calculated (15.5% default if not specified in items).',
       tags: ['Accounts Payables'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -2434,11 +2451,11 @@ export const accountingEndpoints = {
                       quantity: { type: 'number' },
                       unitPrice: { type: 'number' },
                       unit: { type: 'string' },
-                      vatRate: { type: 'number', description: 'VAT rate (0.15 for 15%). If not provided and isTaxable is true, defaults to 0.15' }
+                      vatRate: { type: 'number', description: 'VAT rate (0.155 for 15.5%). If not provided and isTaxable is true, defaults to 0.155' }
                     }
                   }
                 },
-                isTaxable: { type: 'boolean', description: 'If true, VAT will be calculated (15% default if not specified in items)' },
+                isTaxable: { type: 'boolean', description: 'If true, VAT will be calculated (15.5% default if not specified in items)' },
                 notes: { type: 'string' }
               }
             }

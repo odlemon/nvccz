@@ -63,7 +63,15 @@ async function main() {
     console.log('');
   }
 
+  deliveryVanAccount = await prisma.chartOfAccounts.findFirst({
+    where: { accountNo: '1520' }
+  });
+  if (!deliveryVanAccount) {
+    throw new Error('Delivery Van account 1520 missing after ensure step');
+  }
+
   assert(deliveryVanAccount.accountType === 'Fixed Asset' || deliveryVanAccount.accountType === 'Current Asset', 'Account 1520 must be an Asset type (Natural Balance = Debit)');
+  assert(deliveryVanAccount.naturalBalance === 'DEBIT', 'Account 1520 naturalBalance must be DEBIT (locked for asset types)');
 
   // --- 2. Get Bank account for the credit side ---
   const bankAccount = await prisma.chartOfAccounts.findFirst({

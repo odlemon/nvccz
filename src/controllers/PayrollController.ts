@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PayrollService } from '../services/PayrollService';
+import { StaffReimbursementVendorService } from '../services/StaffReimbursementVendorService';
 
 import { prisma } from '../utils/database';
 
@@ -111,7 +112,10 @@ export class PayrollController {
           user: {
             select: { firstName: true, lastName: true, email: true }
           },
-          currency: true
+          currency: true,
+          reimbursementVendor: {
+            select: { id: true, name: true, isActive: true, email: true }
+          }
         }
       });
 
@@ -125,6 +129,47 @@ export class PayrollController {
         success: false,
         message: 'Failed to get employees',
         error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Staff reimbursement: linked shell vendor for creditors sub-ledger (cashbook SUPPLIER payment).
+   */
+  static async getEmployeeReimbursementVendor(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const data = await StaffReimbursementVendorService.getReimbursementVendor(id);
+      res.json({ success: true, data });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (msg === 'Employee not found') {
+        return res.status(404).json({ success: false, message: msg });
+      }
+      console.error('Error getting reimbursement vendor:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get reimbursement vendor',
+        error: msg
+      });
+    }
+  }
+
+  static async ensureEmployeeReimbursementVendor(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const data = await StaffReimbursementVendorService.ensureReimbursementVendor(id);
+      res.json({ success: true, data });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (msg === 'Employee not found') {
+        return res.status(404).json({ success: false, message: msg });
+      }
+      console.error('Error ensuring reimbursement vendor:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to ensure reimbursement vendor',
+        error: msg
       });
     }
   }

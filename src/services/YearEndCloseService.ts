@@ -4,6 +4,7 @@
  */
 import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
 
 const PNL_ACCOUNT_NO_START = '4000';
 const PNL_ACCOUNT_NO_END = '5999';
@@ -187,16 +188,14 @@ export async function runYearEndClose(params: YearEndCloseParams): Promise<YearE
     }
 
     const ref = `YEC-${year}-${Date.now()}`;
-    const journalEntry = await prisma.journalEntry.create({
-      data: {
-        transactionDate: endOfYear,
-        referenceNumber: ref,
-        description: `Year-End Close ${year}`,
-        totalAmount: new Decimal(totalDebits),
-        currencyId: currency.id,
-        status: 'POSTED',
-        createdById
-      }
+    const journalEntry = await createJournalEntryWithAuditSequence({
+      transactionDate: endOfYear,
+      referenceNumber: ref,
+      description: `Year-End Close ${year}`,
+      totalAmount: new Decimal(totalDebits),
+      currencyId: currency.id,
+      status: 'POSTED',
+      createdById,
     });
 
     for (const line of lines) {

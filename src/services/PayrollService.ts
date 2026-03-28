@@ -4,6 +4,13 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { EmailNotificationService } from './EmailNotificationService';
 
 import { prisma } from '../utils/database';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
+import { resolveSalariesAndWagesExpenseAccount } from './payrollGlAccountResolver';
+import {
+  resolveNetWagesPayableAccount,
+  resolveNssaPensionPayableAccount,
+  resolvePayePayableAccount,
+} from './payrollLiabilityAccountHelpers';
 
 export interface PayrollCalculationResult {
   basicSalary: Decimal;
@@ -518,7 +525,7 @@ export class PayrollService {
       }
 
       // Create Payroll Journal Entry (SRD 2.0) - Gross Pay Expense + Liability Posting
-      // Requirement: DR Salaries and Wages (5030) for full Gross Pay amount (before deductions)
+      // Requirement: DR Payroll Expense (5010) preferred, else Salaries and Wages (5030), for full Gross Pay
       // Requirement: CR split between PAYE Payable (2150), NSSA/Pension Payable (2160), and Net Wages Payable (2250)
       console.log('📝 Starting payroll journal entry creation...');
       console.log(`   Payroll Run ID: ${payrollRunId}`);
@@ -549,7 +556,7 @@ export class PayrollService {
 
   /**
    * Create Payroll Journal Entry (SRD 2.0)
-   * Posts the full Gross Pay amount (before deductions) as DR to Salaries and Wages (5030)
+   * Posts the full Gross Pay amount (before deductions) as DR to 5010 (or 5030 fallback via resolver)
    * Splits credit side between: PAYE Payable (2150), NSSA/Pension Payable (2160), and Net Wages Payable (2250)
    */
   static async createPayrollJournalEntry(
@@ -664,250 +671,18 @@ export class PayrollService {
         console.log(`   Adjusted Net Wages Payable: $${totalNetPay.toString()}`);
       }
 
-      // Get or find Salaries and Wages account (5030 - correct account for payroll)
-      // Check 5030 first explicitly, then fallback to 5010, then search by name
-      let salariesExpenseAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          accountNo: '5030', // Salaries and Wages (correct account) - check this first
-          isActive: true
-        }
-      });
+      // DR Payroll expense (5010 preferred, 5030 fallback) — never an arbitrary 5xxx expense
+      const salariesExpenseAccount = await resolveSalariesAndWagesExpenseAccount();
+      console.log(
+        `[OK] Payroll salary expense GL: ${salariesExpenseAccount.accountNo} – ${salariesExpenseAccount.accountName}`
+      );
 
-      // If 5030 not found, try 5010
-      if (!salariesExpenseAccount) {
-        salariesExpenseAccount = await prisma.chartOfAccounts.findFirst({
-          where: {
-            accountNo: '5010', // Fallback to Salaries Expense
-            isActive: true
-          }
-        });
-      }
-
-      // If still not found, search by name
-      if (!salariesExpenseAccount) {
-        salariesExpenseAccount = await prisma.chartOfAccounts.findFirst({
-          where: {
-            OR: [
-              { 
-                accountName: { 
-                  contains: 'Salaries and Wages'
-                } 
-              },
-              { 
-                accountName: { 
-                  contains: 'Salaries Expense'
-                } 
-              },
-              {
-                accountName: {
-                  contains: 'Salaries'
-                },
-                accountType: 'Expense'
-              }
-            ],
-            isActive: true
-          }
-        });
-      }
-
-      // If not found, try to create it
-      if (!salariesExpenseAccount) {
-        console.log('⚠️  Salaries and Wages account (5030) not found. Attempting to create...');
-        try {
-          salariesExpenseAccount = await prisma.chartOfAccounts.create({
-            data: {
-              accountNo: '5030',
-              accountName: 'Salaries and Wages',
-              accountType: 'Expense',
-              financialStatement: 'Income Statement',
-              isActive: true
-            }
-          });
-          console.log(`[OK] Created Salaries Expense account: ${salariesExpenseAccount.accountNo}`);
-        } catch (createError: any) {
-          // If creation fails (e.g., account number exists), try to find any expense account in 5xxx range
-          salariesExpenseAccount = await prisma.chartOfAccounts.findFirst({
-            where: {
-              accountNo: { startsWith: '5' },
-              accountType: 'Expense',
-              isActive: true
-            }
-          });
-          
-          if (!salariesExpenseAccount) {
-            throw new Error('Salaries and Wages account (5030) not found and could not be created. Please create account 5030 in Chart of Accounts.');
-          }
-          
-          console.log(`⚠️  Using alternative expense account: ${salariesExpenseAccount.accountNo} - ${salariesExpenseAccount.accountName}`);
-        }
-      }
-
-      // Get or find PAYE Payable account (2150)
-      console.log('Step 3: Finding/creating liability accounts...');
-      let payePayableAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '2150' },
-            {
-              accountName: {
-                contains: 'PAYE Payable'
-              }
-            },
-            {
-              accountName: {
-                contains: 'PAYE'
-              },
-              accountType: 'Current Liability'
-            }
-          ],
-          isActive: true
-        }
-      });
-
-      if (!payePayableAccount) {
-        console.log('⚠️  PAYE Payable account (2150) not found. Attempting to create...');
-        try {
-          payePayableAccount = await prisma.chartOfAccounts.create({
-            data: {
-              accountNo: '2150',
-              accountName: 'PAYE Payable',
-              accountType: 'Current Liability',
-              financialStatement: 'Balance Sheet',
-              isActive: true
-            }
-          });
-          console.log(`[OK] Created PAYE Payable account: ${payePayableAccount.accountNo}`);
-        } catch (createError: any) {
-          console.log(`⚠️  Could not create PAYE Payable account. Will use alternative liability account.`);
-          payePayableAccount = await prisma.chartOfAccounts.findFirst({
-            where: {
-              accountNo: { startsWith: '21' },
-              accountType: 'Current Liability',
-              isActive: true
-            }
-          });
-          if (!payePayableAccount) {
-            throw new Error('PAYE Payable account (2150) not found and could not be created.');
-          }
-        }
-      }
-
-      // Get or find NSSA/Pension Payable account (2160)
-      let nssaPensionPayableAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '2160' },
-            {
-              accountName: {
-                contains: 'NSSA Payable'
-              }
-            },
-            {
-              accountName: {
-                contains: 'Pension Payable'
-              }
-            },
-            {
-              accountName: {
-                contains: 'NSSA'
-              },
-              accountType: 'Current Liability'
-            }
-          ],
-          isActive: true
-        }
-      });
-
-      if (!nssaPensionPayableAccount) {
-        console.log('⚠️  NSSA/Pension Payable account (2160) not found. Attempting to create...');
-        try {
-          nssaPensionPayableAccount = await prisma.chartOfAccounts.create({
-            data: {
-              accountNo: '2160',
-              accountName: 'NSSA/Pension Payable',
-              accountType: 'Current Liability',
-              financialStatement: 'Balance Sheet',
-              isActive: true
-            }
-          });
-          console.log(`[OK] Created NSSA/Pension Payable account: ${nssaPensionPayableAccount.accountNo}`);
-        } catch (createError: any) {
-          console.log(`⚠️  Could not create NSSA/Pension Payable account. Will use alternative liability account.`);
-          nssaPensionPayableAccount = await prisma.chartOfAccounts.findFirst({
-            where: {
-              accountNo: { startsWith: '21' },
-              accountType: 'Current Liability',
-              isActive: true
-            }
-          });
-          if (!nssaPensionPayableAccount) {
-            throw new Error('NSSA/Pension Payable account (2160) not found and could not be created.');
-          }
-        }
-      }
-
-      // Get or find Net Wages Payable account (2250)
-      let netWagesPayableAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '2250' },
-            {
-              accountName: {
-                contains: 'Net Wages Payable'
-              }
-            },
-            {
-              accountName: {
-                contains: 'Wages Payable'
-              },
-              accountType: 'Current Liability'
-            },
-            {
-              accountNo: { startsWith: '22' },
-              accountType: 'Current Liability'
-            }
-          ],
-          isActive: true
-        }
-      });
-
-      if (!netWagesPayableAccount) {
-        console.log('⚠️  Net Wages Payable account (2250) not found. Attempting to create...');
-        try {
-          netWagesPayableAccount = await prisma.chartOfAccounts.create({
-            data: {
-              accountNo: '2250',
-              accountName: 'Net Wages Payable',
-              accountType: 'Current Liability',
-              financialStatement: 'Balance Sheet',
-              isActive: true
-            }
-          });
-          console.log(`[OK] Created Net Wages Payable account: ${netWagesPayableAccount.accountNo}`);
-        } catch (createError: any) {
-          console.log(`⚠️  Could not create Net Wages Payable account. Will use alternative liability account.`);
-          netWagesPayableAccount = await prisma.chartOfAccounts.findFirst({
-            where: {
-              accountNo: { startsWith: '22' },
-              accountType: 'Current Liability',
-              isActive: true
-            }
-          });
-          if (!netWagesPayableAccount) {
-            // Fallback to any 2xxx liability account
-            netWagesPayableAccount = await prisma.chartOfAccounts.findFirst({
-              where: {
-                accountNo: { startsWith: '2' },
-                accountType: 'Current Liability',
-                isActive: true
-              }
-            });
-            if (!netWagesPayableAccount) {
-              throw new Error('Net Wages Payable account (2250) not found and could not be created.');
-            }
-          }
-        }
-      }
+      // PAYE (2150), NSSA/Pension (2160), Net Wages (2250) — exact codes only (no random 21xx/22xx fallback)
+      console.log('Step 3: Resolving payroll liability accounts (2150, 2160, 2250)...');
+      const payePayableAccount = await resolvePayePayableAccount();
+      const nssaPensionPayableAccount = await resolveNssaPensionPayableAccount();
+      const netWagesPayableAccount = await resolveNetWagesPayableAccount();
+      console.log(`   [OK] PAYE: ${payePayableAccount.accountNo} — NSSA/Pension: ${nssaPensionPayableAccount.accountNo} — Net wages: ${netWagesPayableAccount.accountNo}`);
 
       // Get default currency if not provided
       let finalCurrencyId = currencyId;
@@ -941,22 +716,20 @@ export class PayrollService {
       const timestamp = Date.now();
       const uniqueReferenceNumber = `PAYROLL-${payrollRun.payPeriod.replace(/\s+/g, '-').toUpperCase()}-${timestamp}`;
       
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: new Date(), // Use processing date so entry appears in Journal view immediately
-          referenceNumber: uniqueReferenceNumber,
-          description: `Payroll Journal - Gross Pay: ${payrollRun.name} (${payrollRun.payPeriod})`,
-          totalAmount: totalGrossPay,
-          currencyId: finalCurrencyId,
-          status: 'POSTED',
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: new Date(),
+        referenceNumber: uniqueReferenceNumber,
+        description: `Payroll Journal - Gross Pay: ${payrollRun.name} (${payrollRun.payPeriod})`,
+        totalAmount: totalGrossPay,
+        currencyId: finalCurrencyId,
+        status: 'POSTED',
+        createdById,
       });
 
       // Create journal entry lines
       console.log('Step 4: Creating journal entry lines...');
       
-      // DR Salaries and Wages (5030) - Full Gross Pay amount (before deductions)
+      // DR Payroll expense (5010 / 5030) - Full Gross Pay amount (before deductions)
       await prisma.journalEntryLine.create({
         data: {
           journalEntryId: journalEntry.id,
@@ -1408,33 +1181,17 @@ export class PayrollService {
       console.log(`[OK] Bank account found: ${bank.name} (${bank.accountNumber})`);
       console.log(`   GL Account: ${bank.glAccount?.accountNo} - ${bank.glAccount?.accountName}`);
 
-      // Step 3: Find or get Net Wages Payable account (2250)
-      console.log('Step 3: Finding Net Wages Payable account (2250)...');
-      let netWagesPayableAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '2250' },
-            {
-              accountName: {
-                contains: 'Net Wages Payable'
-              }
-            },
-            {
-              accountName: {
-                contains: 'Wages Payable'
-              },
-              accountType: 'Current Liability'
-            }
-          ],
-          isActive: true
-        }
-      });
-
-      if (!netWagesPayableAccount) {
-        throw new Error('Net Wages Payable account (2250) not found. Please create this account in Chart of Accounts.');
+      if (!bank.glAccountId || !bank.glAccount) {
+        throw new Error(
+          'Bank has no linked GL cash account. Link this bank to a Balance Sheet bank/cash account in Chart of Accounts before payroll payment.'
+        );
       }
 
-      console.log('[OK] Net Wages Payable account found: ' + netWagesPayableAccount.accountNo + ' - ' + netWagesPayableAccount.accountName);
+      console.log('Step 3: Resolving Net Wages Payable (2250)...');
+      const netWagesPayableAccount = await resolveNetWagesPayableAccount();
+      console.log(
+        '[OK] Net Wages Payable: ' + netWagesPayableAccount.accountNo + ' - ' + netWagesPayableAccount.accountName
+      );
 
       // Step 4: Create cashbook payment entry
       console.log('Step 4: Creating cashbook payment entry...');
@@ -1464,16 +1221,14 @@ export class PayrollService {
       console.log('   CR Bank Account (' + bank.glAccount?.accountNo + '): $' + payrollRun.totalNetPay.toString());
 
       // Use same reference number as cashbook entry
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: paymentDate,
-          referenceNumber: cashbookReference,
-          description: 'Payroll Payment - Wages Clearing: ' + payrollRun.name + ' (' + payrollRun.payPeriod + ')',
-          totalAmount: payrollRun.totalNetPay,
-          currencyId: bank.currency.id,
-          status: 'POSTED',
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: paymentDate,
+        referenceNumber: cashbookReference,
+        description: 'Payroll Payment - Wages Clearing: ' + payrollRun.name + ' (' + payrollRun.payPeriod + ')',
+        totalAmount: payrollRun.totalNetPay,
+        currencyId: bank.currency.id,
+        status: 'POSTED',
+        createdById,
       });
 
       // Step 6: Create journal entry lines

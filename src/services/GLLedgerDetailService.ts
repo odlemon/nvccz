@@ -2,6 +2,7 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { MultiCurrencyService } from "./MultiCurrencyService";
+import { isDebitNaturalBalance } from "../utils/chartOfAccountsNaturalBalance";
 
 export interface GLLedgerDetailParams {
   accountNo: string; // e.g., "1100"
@@ -37,6 +38,7 @@ export interface GLLedgerDetailResult {
     accountNo: string;
     accountName: string;
     accountType: string;
+    naturalBalance: 'DEBIT' | 'CREDIT';
     openingBalance: number;
     closingBalance: number;
   };
@@ -289,10 +291,9 @@ export class GLLedgerDetailService {
         // Calculate running balance based on account type
         // For Asset accounts: Debit increases, Credit decreases
         // For Liability/Equity accounts: Credit increases, Debit decreases
-        if (this.isAssetAccount(account.accountType)) {
+        if (isDebitNaturalBalance(account.naturalBalance, account.accountType)) {
           runningBalance = runningBalance + debitAmount - creditAmount;
         } else {
-          // Liability, Equity, Revenue accounts
           runningBalance = runningBalance + creditAmount - debitAmount;
         }
 
@@ -331,7 +332,7 @@ export class GLLedgerDetailService {
             creditAmountBaseCurrency = creditAmount * exchangeRate;
             
             // Update running balance in base currency
-            if (this.isAssetAccount(account.accountType)) {
+            if (isDebitNaturalBalance(account.naturalBalance, account.accountType)) {
               runningBalanceBaseCurrency = runningBalanceBaseCurrency + debitAmountBaseCurrency - creditAmountBaseCurrency;
             } else {
               runningBalanceBaseCurrency = runningBalanceBaseCurrency + creditAmountBaseCurrency - debitAmountBaseCurrency;
@@ -428,7 +429,7 @@ export class GLLedgerDetailService {
       const totalDebits = totalDebitsDecimal.toNumber();
       const totalCredits = totalCreditsDecimal.toNumber();
       
-      const netChange = this.isAssetAccount(account.accountType) 
+      const netChange = isDebitNaturalBalance(account.naturalBalance, account.accountType)
         ? totalDebitsDecimal.minus(totalCreditsDecimal).toNumber()
         : totalCreditsDecimal.minus(totalDebitsDecimal).toNumber();
       const closingBalance = new Decimal(openingBalance).plus(netChange).toNumber();
@@ -453,7 +454,7 @@ export class GLLedgerDetailService {
         
         totalDebitsBaseCurrency = totalDebitsBaseDecimal.toNumber();
         totalCreditsBaseCurrency = totalCreditsBaseDecimal.toNumber();
-        netChangeBaseCurrency = this.isAssetAccount(account.accountType)
+        netChangeBaseCurrency = isDebitNaturalBalance(account.naturalBalance, account.accountType)
           ? totalDebitsBaseDecimal.minus(totalCreditsBaseDecimal).toNumber()
           : totalCreditsBaseDecimal.minus(totalDebitsBaseDecimal).toNumber();
       }
@@ -489,6 +490,7 @@ export class GLLedgerDetailService {
           accountNo: account.accountNo,
           accountName: account.accountName,
           accountType: account.accountType,
+          naturalBalance: isDebitNaturalBalance(account.naturalBalance, account.accountType) ? 'DEBIT' : 'CREDIT',
           openingBalance: openingBalance,
           closingBalance: closingBalance
         },
@@ -553,7 +555,7 @@ export class GLLedgerDetailService {
         const debitAmount = new Decimal(line.debitAmount || 0).toNumber();
         const creditAmount = new Decimal(line.creditAmount || 0).toNumber();
         
-        if (this.isAssetAccount(account.accountType)) {
+        if (isDebitNaturalBalance(account.naturalBalance, account.accountType)) {
           balance = balance + debitAmount - creditAmount;
         } else {
           balance = balance + creditAmount - debitAmount;
@@ -646,7 +648,7 @@ export class GLLedgerDetailService {
           }
         }
         
-        if (this.isAssetAccount(account.accountType)) {
+        if (isDebitNaturalBalance(account.naturalBalance, account.accountType)) {
           balance = balance + debitAmountBase - creditAmountBase;
         } else {
           balance = balance + creditAmountBase - debitAmountBase;
@@ -660,20 +662,6 @@ export class GLLedgerDetailService {
     }
   }
 
-  /**
-   * Check if account is an Asset account
-   */
-  private static isAssetAccount(accountType: string): boolean {
-    const assetTypes = [
-      'Current Asset',
-      'Fixed Asset',
-      'Non-Current Asset',
-      'Asset',
-      'Bank',
-      'Cash'
-    ];
-    return assetTypes.includes(accountType);
-  }
 }
 
 export default GLLedgerDetailService;

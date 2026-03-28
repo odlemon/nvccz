@@ -1,12 +1,18 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
+import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
 
 export interface BalanceSheetParams {
   asOfDate: Date;
   currencyId?: string;
   startDate?: Date;
   endDate?: Date;
+  /**
+   * When true, omit line items with no GL activity through as-of date and ~zero balance (same idea as Trial Balance hide zero).
+   * Section totals (currentAssets.total, totalAssets, etc.) remain full figures — only the `accounts` / cash `breakdown` lists are filtered.
+   */
+  hideZeroBalances?: boolean;
 }
 
 export interface BalanceSheetTransaction {
@@ -73,7 +79,50 @@ export interface BalanceSheetData {
   difference: number;
 }
 
+const BS_ZERO_EPS = 0.01;
+
+/** UAT / COA: cash & bank GL bucket — 1100 through 1199 (string order, fixed width). */
+const CASH_EQUIV_ACCOUNT_NO_MIN = "1100";
+const CASH_EQUIV_ACCOUNT_NO_MAX = "1199";
+
 export class BalanceSheetService {
+  /** Current Asset GL accounts in 1100–1199 are treated as cash & cash equivalents (dashboard + BS line). */
+  static isCashEquivalentGlRange(accountNo: string): boolean {
+    return accountNo >= CASH_EQUIV_ACCOUNT_NO_MIN && accountNo <= CASH_EQUIV_ACCOUNT_NO_MAX;
+  }
+
+  /** Same rules as the balance-sheet cash bucket (used by cash flow ending/beginning cash). */
+  static isCashOrBankEquivalentForReporting(
+    account: { id: string; accountNo: string; accountName: string; accountType: string },
+    bankGLAccountIds: Set<string>
+  ): boolean {
+    const accountNameLower = account.accountName.toLowerCase();
+    const inLegacyCashRange1000 = account.accountNo >= "1000" && account.accountNo < "1100";
+    const inCashEquiv1100_1199 = BalanceSheetService.isCashEquivalentGlRange(account.accountNo);
+    const accountType = account.accountType;
+    const isCashAccount =
+      accountNameLower.includes("cash") ||
+      accountNameLower.includes("bank") ||
+      (accountType === "Current Asset" && inCashEquiv1100_1199) ||
+      (accountType === "Current Asset" &&
+        inLegacyCashRange1000 &&
+        (accountNameLower.includes("cash") ||
+          accountNameLower.includes("bank") ||
+          accountNameLower.includes("petty")));
+    const isBankAccount =
+      bankGLAccountIds.has(account.id) &&
+      accountType === "Current Asset" &&
+      (inCashEquiv1100_1199 || inLegacyCashRange1000);
+    return isCashAccount || isBankAccount;
+  }
+
+  /** Keep row if it has a non-zero balance or any transactions through as-of (offsetting activity still shown). */
+  static shouldShowBalanceSheetAccountRow(acc: BalanceSheetAccount, eps = BS_ZERO_EPS): boolean {
+    if (Math.abs(acc.balance) >= eps) return true;
+    if ((acc.transactions?.length ?? 0) > 0) return true;
+    return false;
+  }
+
   /**
    * Generate Balance Sheet as of a specific date
    */
@@ -127,60 +176,13 @@ export class BalanceSheetService {
         endDate.setHours(23, 59, 59, 999);
       }
 
-      // Get all posted journal entry lines within the date range
-      // Exclude journal entries linked to voided/reversed cashbook entries
-      // IMPORTANT: Use OR to explicitly include entries with NO cashbook entries (like asset acquisitions)
-      const journalEntryWhere: any = {
-        transactionDate: {
-          gte: startDate,
-          lte: endDate
-        },
-        status: 'POSTED',
-        // Exclude reversal journal entries AND handle cashbook entries filter
-        AND: [
-          {
-            referenceNumber: {
-              not: {
-                startsWith: 'VR-'
-              }
-            }
-          },
-          {
-            referenceNumber: {
-              not: {
-                startsWith: 'REV-'
-              }
-            }
-          },
-          {
-            // IMPORTANT: Explicitly include journal entries with NO cashbook entries
-            // (like asset acquisitions) while excluding entries with voided/reversed cashbook entries
-            OR: [
-              {
-                // Include entries with no cashbook entries (like asset acquisitions)
-                cashbookEntries: {
-                  none: {}
-                }
-              },
-              {
-                // Include entries where all cashbook entries are valid (not voided, not reversed)
-                cashbookEntries: {
-                  every: {
-                    AND: [
-                      { status: { not: 'VOIDED' } },
-                      { reversedAt: null }
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        ]
-      };
+      // Posted JEs in range; same cashbook / VR / REV rules as cash-flow ending cash (see journalEntryReportingFilter)
+      const journalEntryWhere: any = buildJournalEntryWhereForGlReporting(
+        { gte: startDate, lte: endDate },
+        params.currencyId
+      );
 
-      // Add currency filter if provided
       if (params.currencyId) {
-        journalEntryWhere.currencyId = params.currencyId;
         console.log(`   💱 Currency filter applied: ${params.currencyId}`);
         console.log(`   ⚠️  Only journal entries with this currency will be included`);
       } else {
@@ -667,29 +669,18 @@ export class BalanceSheetService {
         const accountNo = account.accountNo.toLowerCase();
         const accountType = account.accountType;
         const accountNameLower = accountName.toLowerCase();
-        const isCashAccount = 
-          accountNameLower.includes('cash') ||
-          accountNameLower.includes('bank') ||
-          (accountType === 'Current Asset' && 
-           account.accountNo >= '1000' && 
-           account.accountNo < '1100'); // Account numbers 1000-1099 are typically cash/bank accounts
-        // IMPORTANT: Only treat as bank account if it's actually a Current Asset, not Fixed Asset
-        // A Fixed Asset account should never be treated as a bank account, even if it's linked to a Bank record
-        // Bank accounts should be Current Assets in the 1000-1099 range
-        const isBankAccount = bankGLAccountIds.has(account.id) && 
-          accountType === 'Current Asset' && 
-          account.accountNo >= '1000' && 
-          account.accountNo < '1100';
-        const isCashOrBankAccount = isCashAccount || isBankAccount;
+        const isCashOrBankAccount = BalanceSheetService.isCashOrBankEquivalentForReporting(
+          account,
+          bankGLAccountIds
+        );
         
         // Debug for account 1100
         if (account.accountNo === '1100') {
           console.log(`   [DEBUG] Cash/Bank account check:`);
           console.log(`      - accountName: "${account.accountName}"`);
           console.log(`      - accountNameLower: "${accountNameLower}"`);
-          console.log(`      - isCashAccount: ${isCashAccount}`);
-          console.log(`      - isBankAccount: ${isBankAccount} (account.id in bankGLAccountIds?)`);
           console.log(`      - isCashOrBankAccount: ${isCashOrBankAccount}`);
+          console.log(`      - account.id in bankGLAccountIds? ${bankGLAccountIds.has(account.id)}`);
         }
 
         // Skip accounts with zero balance, EXCEPT:
@@ -972,41 +963,53 @@ export class BalanceSheetService {
       console.log("════════════════════════════════════════════════════════════════");
       console.log("");
 
+      const hideZero = params.hideZeroBalances === true;
+      const filterRows = (rows: BalanceSheetAccount[]) =>
+        hideZero ? rows.filter((a) => BalanceSheetService.shouldShowBalanceSheetAccountRow(a)) : rows;
+
+      const displayBreakdown = filterRows(cashAccountsBreakdown);
+      const displayCurrentAssets = filterRows(currentAssets);
+      const displayFixedAssets = filterRows(fixedAssets);
+      const displayOtherAssets = filterRows(otherAssets);
+      const displayCurrentLiabilities = filterRows(currentLiabilities);
+      const displayLongTermLiabilities = filterRows(longTermLiabilities);
+      const displayEquity = filterRows(equityAccounts);
+
       return {
         asOfDate: params.asOfDate,
         currency: params.currencyId || 'USD',
         assets: {
           cashAndCashEquivalents: {
             total: cashAndCashEquivalents, // Consolidated total of all cash/bank accounts
-            breakdown: cashAccountsBreakdown // Breakdown showing all accounts (petty cash, bank accounts) that make up this total
+            breakdown: displayBreakdown
           },
           currentAssets: {
-            accounts: currentAssets,
+            accounts: displayCurrentAssets,
             total: totalCurrentAssets
           },
           fixedAssets: {
-            accounts: fixedAssets,
+            accounts: displayFixedAssets,
             total: totalFixedAssets
           },
           otherAssets: {
-            accounts: otherAssets,
+            accounts: displayOtherAssets,
             total: totalOtherAssets
           },
           totalAssets
         },
         liabilities: {
           currentLiabilities: {
-            accounts: currentLiabilities,
+            accounts: displayCurrentLiabilities,
             total: totalCurrentLiabilities
           },
           longTermLiabilities: {
-            accounts: longTermLiabilities,
+            accounts: displayLongTermLiabilities,
             total: totalLongTermLiabilities
           },
           totalLiabilities
         },
         equity: {
-          accounts: equityAccounts,
+          accounts: displayEquity,
           total: totalEquity, // Total equity including retained earnings
           retainedEarnings
         },
@@ -1051,16 +1054,20 @@ export class BalanceSheetService {
         }
       });
 
-      const debtorsAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '1300' },
-            { accountName: { contains: 'Debtors Control' } },
-            { accountName: { contains: 'Accounts Receivable' }, accountType: 'Current Asset' }
-          ],
-          isActive: true
-        }
-      });
+      const debtorsAccount =
+        (await prisma.chartOfAccounts.findFirst({
+          where: { accountNo: '1200', isActive: true },
+        })) ||
+        (await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: '1300' },
+              { accountName: { contains: 'Debtors Control' } },
+              { accountName: { contains: 'Accounts Receivable' }, accountType: 'Current Asset' },
+            ],
+            isActive: true,
+          },
+        }));
 
       const creditorsAccount = await prisma.chartOfAccounts.findFirst({
         where: {
@@ -1190,16 +1197,20 @@ export class BalanceSheetService {
   ): Promise<number> {
     try {
       // Find the Accounts Receivable GL account
-      const arAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '1300' },
-            { accountName: { contains: 'Debtors Control' } },
-            { accountName: { contains: 'Accounts Receivable' }, accountType: 'Current Asset' }
-          ],
-          isActive: true
-        }
-      });
+      const arAccount =
+        (await prisma.chartOfAccounts.findFirst({
+          where: { accountNo: '1200', isActive: true },
+        })) ||
+        (await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: '1300' },
+              { accountName: { contains: 'Debtors Control' } },
+              { accountName: { contains: 'Accounts Receivable' }, accountType: 'Current Asset' },
+            ],
+            isActive: true,
+          },
+        }));
 
       if (!arAccount) {
         return 0;

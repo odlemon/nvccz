@@ -154,32 +154,20 @@ export class CashFlowCalculationService {
     const investingActivities = this.calculateInvestingActivities(categorizedAccounts);
     const financingActivities = this.calculateFinancingActivities(categorizedAccounts);
 
-    // Calculate net cash flow (excluding cash accounts - they are the result, not a source)
-    const netCashFlow = operatingActivities.total + investingActivities.total + financingActivities.total;
+    // Section totals use period P&L / balance-sheet movement heuristics; they do not include the cash GL leg,
+    // so they are not required to sum to the true change in cash.
+    const activityBasedNetCashFlow =
+      operatingActivities.total + investingActivities.total + financingActivities.total;
 
-    // Get beginning and ending cash balances from actual cash account balances
-    // NOTE: We use the actual ending balance from cash accounts, not beginning + netCashFlow
-    // because netCashFlow excludes cash accounts (they are the result, not included in activities)
     const cashBalances = await CashFlowBalanceService.getCashBalances(startDate, endDate, currency.id);
     const beginningCashBalance = cashBalances.beginning;
-    const endingCashBalance = cashBalances.ending; // Use actual ending balance from cash accounts
-    
-    // Verify: ending balance should equal beginning + netCashFlow (for reconciliation)
-    const calculatedEndingBalance = beginningCashBalance + netCashFlow;
-    const difference = Math.abs(endingCashBalance - calculatedEndingBalance);
-    
-    if (difference > 0.01) {
-      console.warn(`⚠️  Cash flow reconciliation difference: ${difference.toFixed(2)}`);
-      console.warn(`   Beginning: ${beginningCashBalance.toFixed(2)}`);
-      console.warn(`   Net Cash Flow: ${netCashFlow.toFixed(2)}`);
-      console.warn(`   Calculated Ending: ${calculatedEndingBalance.toFixed(2)}`);
-      console.warn(`   Actual Ending: ${endingCashBalance.toFixed(2)}`);
-    }
+    const endingCashBalance = cashBalances.ending;
+
+    // Authoritative net change in cash (same cash pool as balance sheet); ties beginning → ending.
+    const netCashFlow = endingCashBalance - beginningCashBalance;
 
     const presentation = this.buildPresentation({
       accounts: categorizedAccounts,
-      revenueAccounts: operatingActivities?.accounts || [],
-      netCashFlow,
       beginningCashBalance,
       endingCashBalance
     });
@@ -289,6 +277,7 @@ export class CashFlowCalculationService {
       investingActivities: formatActivityWithLineItems(investingActivities, 'investing'),
       financingActivities: formatActivityWithLineItems(financingActivities, 'financing'),
       netCashFlow,
+      activityBasedNetCashFlow,
       beginningCashBalance,
       endingCashBalance,
       currency: {
@@ -412,6 +401,7 @@ export class CashFlowCalculationService {
       investingActivities: cashFlowStatement.investingActivities,
       financingActivities: cashFlowStatement.financingActivities,
       netCashFlow: cashFlowStatement.netCashFlow,
+      activityBasedNetCashFlow: cashFlowStatement.activityBasedNetCashFlow,
       beginningCashBalance: cashFlowStatement.beginningCashBalance,
       endingCashBalance: cashFlowStatement.endingCashBalance,
       currency: cashFlowStatement.currency,
@@ -433,6 +423,7 @@ export class CashFlowCalculationService {
         investingActivities: cashFlowStatement.investingActivities.total,
         financingActivities: cashFlowStatement.financingActivities.total,
         netCashFlow: cashFlowStatement.netCashFlow,
+        activityBasedNetCashFlow: cashFlowStatement.activityBasedNetCashFlow,
         beginningCashBalance: cashFlowStatement.beginningCashBalance,
         endingCashBalance: cashFlowStatement.endingCashBalance,
         currency: cashFlowStatement.currency
@@ -817,6 +808,7 @@ export class CashFlowCalculationService {
           accounts: detailedFinancing
         },
         netCashFlow: cashFlowStatement.netCashFlow,
+        activityBasedNetCashFlow: cashFlowStatement.activityBasedNetCashFlow,
         beginningCashBalance: cashFlowStatement.beginningCashBalance,
         endingCashBalance: cashFlowStatement.endingCashBalance
       },
@@ -900,12 +892,10 @@ export class CashFlowCalculationService {
 
   private buildPresentation({
     accounts,
-    netCashFlow,
     beginningCashBalance,
     endingCashBalance
   }: {
     accounts: CashFlowAccount[];
-    netCashFlow: number;
     beginningCashBalance: number;
     endingCashBalance: number;
   }) {
@@ -1108,7 +1098,8 @@ export class CashFlowCalculationService {
         ],
         total: totalFinancing
       },
-      netChangeInCash: totalOperating + totalInvesting + totalFinancing,
+      // Must match GL: endingCashBalance − beginningCashBalance (section totals above are illustrative).
+      netChangeInCash: endingCashBalance - beginningCashBalance,
       beginningCashBalance,
       endingCashBalance
     };

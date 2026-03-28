@@ -23,6 +23,9 @@ export interface SystemAuditLogEntry {
   summary?: string; // Human-readable summary for display
 }
 
+/** UAT Activity Log: logins, record creations, report exports only */
+const UAT_SCOPE_ACTIONS = ["LOGIN", "CREATE", "CREATED", "REPORT_EXPORT"] as const;
+
 export interface GetSystemAuditLogParams {
   /** Time window in hours from now (default 24) */
   hours?: number;
@@ -32,6 +35,11 @@ export interface GetSystemAuditLogParams {
   entityType?: string;
   /** Max entries to return (default 200) */
   limit?: number;
+  /**
+   * `uat` — only login, record creation (CREATE/CREATED), and report exports.
+   * `all` — every audited action in the window (default).
+   */
+  scope?: "all" | "uat";
 }
 
 /**
@@ -48,6 +56,9 @@ export async function getSystemAuditLog(
   const where: any = { createdAt: { gte: since } };
   if (params.action) where.action = params.action;
   if (params.entityType) where.entityType = params.entityType;
+  if (params.scope === "uat" && !params.action) {
+    where.action = { in: [...UAT_SCOPE_ACTIONS] };
+  }
 
   const [entries, total] = await Promise.all([
     prisma.auditLog.findMany({
@@ -112,6 +123,7 @@ function formatSummary(
     case "REPORT_EXPORT":
       return `${who} exported ${entityType}: ${entityId}`;
     case "CREATE":
+    case "CREATED":
       return `${who} created ${entityType}`;
     case "UPDATE":
       return `${who} updated ${entityType}`;

@@ -1,6 +1,12 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
+import {
+  prismaCashbookEntrySnapshotSelect,
+  prismaCreditNoteSnapshotSelect,
+  prismaInvoiceSnapshotSelect,
+  prismaJournalEntryRateSelect
+} from "../config/accountingSnapshotResponseSelect";
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
 
@@ -25,6 +31,7 @@ const customerTransactionsInclude = {
       totalAmount: true,
       outstandingAmount: true,
       status: true,
+      ...prismaInvoiceSnapshotSelect,
       currency: {
         select: {
           code: true
@@ -34,7 +41,8 @@ const customerTransactionsInclude = {
         select: {
           id: true,
           referenceNumber: true,
-          status: true
+          status: true,
+          ...prismaJournalEntryRateSelect
         }
       }
     },
@@ -50,6 +58,7 @@ const customerTransactionsInclude = {
       totalAmount: true,
       status: true,
       createdAt: true,
+      ...prismaCreditNoteSnapshotSelect,
       currency: {
         select: {
           code: true
@@ -59,7 +68,8 @@ const customerTransactionsInclude = {
         select: {
           id: true,
           referenceNumber: true,
-          status: true
+          status: true,
+          ...prismaJournalEntryRateSelect
         }
       }
     },
@@ -77,6 +87,7 @@ const customerTransactionsInclude = {
       type: true,
       status: true,
       counterpartyType: true,
+      ...prismaCashbookEntrySnapshotSelect,
       bank: {
         select: {
           id: true,
@@ -88,7 +99,8 @@ const customerTransactionsInclude = {
         select: {
           id: true,
           referenceNumber: true,
-          status: true
+          status: true,
+          ...prismaJournalEntryRateSelect
         }
       }
     },
@@ -173,7 +185,11 @@ const formatCustomerWithTransactions = (customer: any) => {
             referenceNumber: entry.journalEntry.referenceNumber,
             status: entry.journalEntry.status
           }
-        : null
+        : null,
+      receiptAttachmentUrl: entry.receiptAttachmentUrl,
+      receiptAttachmentPath: entry.receiptAttachmentPath,
+      receiptAttachmentFileName: entry.receiptAttachmentFileName,
+      receiptAttachmentMimeType: entry.receiptAttachmentMimeType
     };
   });
 

@@ -3,7 +3,14 @@
  * Assigns strictly sequential audit trail IDs (e.g. 1001, 1002, 1003) for accounting entries.
  */
 
+import type { JournalEntry, Prisma } from "@prisma/client";
 import { prisma } from "../utils/database";
+
+/** Journal create payload without audit id (assigned automatically). */
+export type JournalEntryCreateWithoutAudit = Omit<
+  Prisma.JournalEntryUncheckedCreateInput,
+  "auditTrailSequenceNumber"
+>;
 
 const SEQUENCE_NAME = "journal_entry";
 const INITIAL_VALUE = 1000;
@@ -39,6 +46,32 @@ export async function ensureAuditTrailSequenceExists(tx?: PrismaLike): Promise<v
     create: { name: SEQUENCE_NAME, value: INITIAL_VALUE },
     update: {},
   });
+}
+
+/**
+ * Inside an existing transaction: reserve next audit id and create the journal header.
+ */
+export async function assignNextAuditIdAndCreateJournal(
+  tx: Prisma.TransactionClient,
+  data: JournalEntryCreateWithoutAudit
+): Promise<JournalEntry> {
+  await ensureAuditTrailSequenceExists(tx as PrismaLike);
+  const auditTrailSequenceNumber = await getNextAuditTrailSequenceNumber(tx as PrismaLike);
+  return tx.journalEntry.create({
+    data: { ...data, auditTrailSequenceNumber },
+  });
+}
+
+/**
+ * Standalone: atomically reserve audit id + create journal (use when not already in a transaction).
+ */
+export async function createJournalEntryWithAuditSequence(
+  data: JournalEntryCreateWithoutAudit
+): Promise<JournalEntry> {
+  return prisma.$transaction(
+    (tx) => assignNextAuditIdAndCreateJournal(tx, data),
+    { maxWait: 60000, timeout: 120000 }
+  );
 }
 
 export interface AuditTrailEntry {

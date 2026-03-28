@@ -91,6 +91,38 @@ router.get('/', AssetController.getAssets);
 
 /**
  * @swagger
+ * /accounting/assets/register:
+ *   get:
+ *     summary: Get asset register (active in-use assets)
+ *     tags: [Asset Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Asset register data
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/register', AssetController.getAssetRegister);
+
+/**
+ * @swagger
+ * /accounting/assets/depreciation-schedule:
+ *   get:
+ *     summary: Get depreciation schedule (alias)
+ *     tags: [Asset Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Depreciation schedule
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/depreciation-schedule', AssetController.getDepreciationSchedule);
+
+/**
+ * @swagger
  * /accounting/assets/{id}:
  *   get:
  *     summary: Get asset by ID
@@ -365,22 +397,6 @@ router.post('/:id/dispose', AssetController.disposeAsset); // Alias for requirem
 
 /**
  * @swagger
- * /accounting/assets/register:
- *   get:
- *     summary: Get asset register
- *     tags: [Asset Management]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Asset register data
- *       401:
- *         description: Unauthorized
- */
-router.get('/register', AssetController.getAssetRegister); // Alias for requirements
-
-/**
- * @swagger
  * /accounting/assets/{assetId}/depreciation-schedule:
  *   get:
  *     summary: Get depreciation schedule for an asset
@@ -402,22 +418,6 @@ router.get('/register', AssetController.getAssetRegister); // Alias for requirem
  *         description: Unauthorized
  */
 router.get('/:assetId/depreciation-schedule', AssetController.getDepreciationSchedule);
-
-/**
- * @swagger
- * /accounting/assets/depreciation-schedule:
- *   get:
- *     summary: Get depreciation schedule (alias)
- *     tags: [Asset Management]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Depreciation schedule
- *       401:
- *         description: Unauthorized
- */
-router.get('/depreciation-schedule', AssetController.getDepreciationSchedule); // Alias for requirements
 
 /**
  * @swagger

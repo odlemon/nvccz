@@ -110,6 +110,8 @@ model User {
   procurementInvoicesCreated        ProcurementInvoice[]         @relation("InvoiceCreatedBy")
   procurementInvoicesApproved       ProcurementInvoice[]         @relation("InvoiceApprovedBy")
   purchaseInvoicesCreated           PurchaseInvoice[]            @relation("PurchaseInvoiceCreatedBy")
+  purchaseInvoicePaymentsRecorded   PurchaseInvoicePayment[]     @relation("PurchaseInvoicePaymentCreatedBy")
+  recurringJournalTemplatesCreated RecurringJournalTemplate[]   @relation("RecurringJournalTemplateCreator")
   grnsReceived                      GoodsReceivedNote[]          @relation("GRNReceivedBy")
   grnsApproved                      GoodsReceivedNote[]          @relation("GRNApprovedBy")
   vendorQuotationsReviewed          VendorQuotation[]            @relation("QuotationReviewedBy")
@@ -141,8 +143,28 @@ model User {
   transactionsReversed              CashbookEntry[]              @relation("TransactionReversedBy")
   transactionsPosted                CashbookEntry[]              @relation("TransactionPostedBy")
   passwordResetTokens               PasswordResetToken[]
+  savedFilterFavorites              SavedFilterFavorite[]
+  cashbookReconSessionsCreated      CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
+  cashbookReconSessionsFinished     CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
 
   @@map("users")
+}
+
+/// Named filter presets per user (Favorites menu). Not tied to a report type — `routeKey` + `filters` are client-defined.
+model SavedFilterFavorite {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  name      String   @db.VarChar(255)
+  routeKey  String   @map("route_key") @db.VarChar(191)
+  filters   Json
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name], map: "saved_filter_favorites_user_name")
+  @@index([userId, routeKey], map: "saved_filter_favorites_user_route")
+  @@map("saved_filter_favorites")
 }
 
 model Role {
@@ -454,6 +476,14 @@ model Currency {
   purchaseOrders       PurchaseOrder[]       @relation("POCurrency")
   procurementInvoices  ProcurementInvoice[]  @relation("InvoiceCurrency")
   purchaseInvoices     PurchaseInvoice[]      @relation("PurchaseInvoiceCurrency")
+  cashbookEntriesRecorded CashbookEntry[]     @relation("CashbookRecordedCurrency")
+  assetsRecorded           Asset[]             @relation("AssetRecordedCurrency")
+  stockMovementsRecorded   StockMovement[]     @relation("StockMovementRecordedCurrency")
+  depreciationRecordsRecorded DepreciationRecord[] @relation("DepreciationRecordedCurrency")
+  assetDisposalsRecorded   AssetDisposalRecord[] @relation("AssetDisposalRecordedCurrency")
+  inventoryItemsRecorded   InventoryItem[]       @relation("InventoryItemRecordedCurrency")
+  journalEntryLinesRecorded JournalEntryLine[]   @relation("JournalLineRecordedCurrency")
+  recurringJournalTemplates RecurringJournalTemplate[]
 
   @@map("currencies")
 }
@@ -463,6 +493,8 @@ model ChartOfAccounts {
   accountNo                     String                    @unique
   accountName                   String
   accountType                   String
+  /// DEBIT | CREDIT — derived from accountType; enforced on create/update
+  naturalBalance                String                    @default("DEBIT")
   financialStatement            String
   notes                         String?
   parentId                      String?
@@ -509,6 +541,8 @@ model Vendor {
   invoices              Invoice[]
   discountConfigs       DiscountConfig[]          @relation("VendorDiscountConfig")
   cashbookEntries       CashbookEntry[]
+  /** Creditors sub-ledger shell for staff reimbursement (one employee ↔ one vendor). */
+  reimbursementEmployee Employee?                 @relation("EmployeeReimbursementVendor")
 
   @@map("vendors")
 }
@@ -548,6 +582,8 @@ model JournalEntry {
   createdById                String
   createdAt                  DateTime               @default(now())
   updatedAt                  DateTime               @updatedAt
+  /// USD/ZWG avg from Zimrate at posting (see ZimrateRateService + prisma middleware)
+  usdZwgRateSnapshot         Decimal?               @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
   currency              Currency               @relation(fields: [currencyId], references: [id])
   createdBy             User                   @relation(fields: [createdById], references: [id])
   journalEntryLines     JournalEntryLine[]
@@ -562,21 +598,61 @@ model JournalEntry {
   creditNotes           CreditNote[]           @relation("CreditNoteJournal")
   forexGainLoss         ForexGainLoss[]        @relation("ForexGainLossJournal")
   cashbookEntries       CashbookEntry[]
+  recurringJournalRun   RecurringJournalRun?
 
   @@map("journal_entries")
+}
+
+/// Scheduled template (e.g. Monthly Rent) — cron posts a POSTED JE on `dayOfMonth` each month.
+model RecurringJournalTemplate {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?  @db.Text
+  isActive        Boolean  @default(true) @map("is_active")
+  /// Calendar day (1–28 recommended) when the job should post (UTC unless server TZ differs).
+  dayOfMonth      Int      @default(1) @map("day_of_month")
+  currencyId      String   @map("currency_id")
+  /// Lines: [{ chartOfAccountId, debitAmount, creditAmount, description? }]
+  linesJson       Json     @map("lines_json")
+  referencePrefix String   @default("REC-JE") @map("reference_prefix")
+  createdById     String   @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  currency        Currency @relation(fields: [currencyId], references: [id])
+  createdBy       User     @relation("RecurringJournalTemplateCreator", fields: [createdById], references: [id])
+  runs            RecurringJournalRun[]
+
+  @@map("recurring_journal_templates")
+}
+
+model RecurringJournalRun {
+  id             String                   @id @default(cuid())
+  templateId     String                   @map("template_id")
+  yearMonth      String                   @map("year_month")
+  journalEntryId String                   @unique @map("journal_entry_id")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  template       RecurringJournalTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  journalEntry   JournalEntry             @relation(fields: [journalEntryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([templateId, yearMonth])
+  @@map("recurring_journal_runs")
 }
 
 model JournalEntryLine {
   id               String          @id @default(cuid())
   journalEntryId   String
   chartOfAccountId String
-  debitAmount      Decimal         @default(0.00) @db.Decimal(15, 2)
-  creditAmount     Decimal         @default(0.00) @db.Decimal(15, 2)
+  /// Supports sub-cent rounding variance (e.g. 0.001 ZiG) — apply `db:migrate:journal-line-amount-precision` on existing DBs.
+  debitAmount      Decimal         @default(0.000) @db.Decimal(15, 3)
+  creditAmount     Decimal         @default(0.000) @db.Decimal(15, 3)
   description      String
   vatAmount        Decimal?        @db.Decimal(15, 2)
   createdAt        DateTime        @default(now())
+  /// When set, line amounts are in this currency (manual multi-currency journals); omitted = journal header currencyId.
+  recordedCurrencyId String? @map("recorded_currency_id")
   journalEntry     JournalEntry    @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   chartOfAccount   ChartOfAccounts @relation(fields: [chartOfAccountId], references: [id])
+  recordedCurrency Currency?       @relation("JournalLineRecordedCurrency", fields: [recordedCurrencyId], references: [id])
 
   @@map("journal_entry_lines")
 }
@@ -605,6 +681,7 @@ model Expense {
   currency        Currency        @relation(fields: [currencyId], references: [id])
   journalEntry    JournalEntry?   @relation(fields: [journalEntryId], references: [id])
   createdBy       User            @relation(fields: [createdById], references: [id])
+  usdZwgRateSnapshot Decimal?     @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
 
   @@map("expenses")
 }
@@ -680,6 +757,7 @@ model Revenue {
   currency        Currency         @relation(fields: [currencyId], references: [id])
   journalEntry    JournalEntry?    @relation(fields: [journalEntryId], references: [id])
   createdBy       User             @relation(fields: [createdById], references: [id])
+  usdZwgRateSnapshot Decimal?      @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
 
   @@map("revenues")
 }
@@ -807,6 +885,17 @@ model Invoice {
   creditNotes             CreditNote[]        @relation("CreditNoteInvoice")
   forexGainLoss           ForexGainLoss[]     @relation("ForexGainLossInvoice")
   allocations             PaymentAllocation[]
+  usdZwgRateSnapshot      Decimal?            @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
+  /// ZWG (or ZWL) per 1 USD when invoice was sent to customer
+  exchangeRateAtSent      Decimal?            @map("exchange_rate_at_sent") @db.Decimal(15, 6)
+  usdZwgRateSnapshotSent  Decimal?            @map("usd_zwg_rate_snapshot_sent") @db.Decimal(18, 6)
+  /// ZWG (or ZWL) per 1 USD when invoice was marked paid
+  exchangeRateAtPaid      Decimal?            @map("exchange_rate_at_paid") @db.Decimal(15, 6)
+  usdZwgRateSnapshotPaid  Decimal?            @map("usd_zwg_rate_snapshot_paid") @db.Decimal(18, 6)
+  /// Normalized payment conversion + realized FX (set when marked PAID)
+  paymentSettlementSnapshot     Json?       @map("payment_settlement_snapshot")
+  /// Path-specific breakdown (e.g. USD_ZWL_ZAR) for API parity with mark-as-paid
+  crossCurrencyPaymentSnapshot  Json?       @map("cross_currency_payment_snapshot")
 
   @@map("invoices")
 }
@@ -1519,6 +1608,7 @@ model PurchaseOrder {
   items                PurchaseOrderItem[]
   invoices             ProcurementInvoice[]
   goodsReceivedNotes   GoodsReceivedNote[]
+  linkedVendorBills    PurchaseInvoice[]    @relation("PurchaseInvoiceSourcePO")
 
   @@map("purchase_orders")
 }
@@ -1644,6 +1734,7 @@ model ProcurementInvoice {
   cashbookEntry    CashbookEntry?           @relation("ProcurementInvoiceCashbook", fields: [cashbookEntryId], references: [id])
   createdBy        User                     @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
   items            ProcurementInvoiceItem[]
+  usdZwgRateSnapshot Decimal?               @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
 
   @@map("procurement_invoices")
 }
@@ -1669,6 +1760,8 @@ model ProcurementInvoiceItem {
 model PurchaseInvoice {
   id               String                @id @default(cuid())
   invoiceNumber    String                @unique @map("invoice_number")
+  /// Supplier's invoice / reference number; unique per vendor when set (see @@unique below).
+  vendorInvoiceReference String?         @map("vendor_invoice_reference")
   vendorId         String                @map("vendor_id")
   invoiceDate      DateTime              @map("invoice_date")
   dueDate          DateTime?             @map("due_date")
@@ -1689,9 +1782,12 @@ model PurchaseInvoice {
   paymentDate      DateTime?             @map("payment_date")
   paymentReference String?               @map("payment_reference")
   notes            String?               @db.Text
+  /** When set, bill is tied to a PO; posting cannot exceed PO total by >20% without manager override. */
+  sourcePurchaseOrderId String?          @map("source_purchase_order_id")
   createdById      String                @map("created_by_id")
   createdAt        DateTime              @default(now()) @map("created_at")
   updatedAt        DateTime              @updatedAt @map("updated_at")
+  sourcePurchaseOrder PurchaseOrder?     @relation("PurchaseInvoiceSourcePO", fields: [sourcePurchaseOrderId], references: [id], onDelete: SetNull)
   vendor           Vendor                @relation("PurchaseInvoiceVendor", fields: [vendorId], references: [id])
   currency         Currency              @relation("PurchaseInvoiceCurrency", fields: [currencyId], references: [id])
   journalEntry     JournalEntry?          @relation("PurchaseInvoiceJournal", fields: [journalEntryId], references: [id])
@@ -1699,8 +1795,33 @@ model PurchaseInvoice {
   cashbookEntry    CashbookEntry?         @relation("PurchaseInvoiceCashbook", fields: [cashbookEntryId], references: [id])
   createdBy        User                  @relation("PurchaseInvoiceCreatedBy", fields: [createdById], references: [id])
   items            PurchaseInvoiceItem[]
+  /// Batch vendor payments: one `CashbookEntry`, many rows here. Single-invoice pay uses `cashbookEntryId` on the bill only.
+  vendorBillPayments PurchaseInvoicePayment[] @relation("VendorBillPayment")
+  usdZwgRateSnapshot Decimal?               @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
 
+  @@unique([vendorId, vendorInvoiceReference], map: "purchase_invoices_vendor_vendor_invoice_ref_key")
   @@map("purchase_invoices")
+}
+
+/// Allocation line for vendor bill batch pay: many rows → one `CashbookEntry` (one bank movement).
+model PurchaseInvoicePayment {
+  id                  String          @id @default(cuid())
+  purchaseInvoiceId   String          @map("purchase_invoice_id")
+  cashbookEntryId     String          @map("cashbook_entry_id")
+  amount              Decimal         @db.Decimal(15, 2)
+  paymentDate         DateTime        @map("payment_date")
+  paymentReference    String?         @map("payment_reference")
+  notes               String?         @db.Text
+  createdById         String          @map("created_by_id")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+  purchaseInvoice     PurchaseInvoice @relation("VendorBillPayment", fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+  cashbookEntry       CashbookEntry   @relation("VendorBillPaymentCashbook", fields: [cashbookEntryId], references: [id], onDelete: Restrict)
+  createdBy           User            @relation("PurchaseInvoicePaymentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([cashbookEntryId])
+  @@index([purchaseInvoiceId])
+  @@map("purchase_invoice_payments")
 }
 
 model PurchaseInvoiceItem {
@@ -1759,6 +1880,15 @@ model GoodsReceivedNoteItem {
   @@map("goods_received_note_items")
 }
 
+/// Singleton row id `default` — perpetual inventory policy (e.g. allow sales into negative on-hand).
+model InventorySettings {
+  id                 String   @id @default("default")
+  allowNegativeStock Boolean  @default(false) @map("allow_negative_stock")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("inventory_settings")
+}
+
 model InventoryItem {
   id                      String             @id @default(cuid())
   itemName                String
@@ -1777,23 +1907,29 @@ model InventoryItem {
   inventoryAssetAccount   ChartOfAccounts    @relation("InventoryAssetAccount", fields: [inventoryAssetAccountId], references: [id])
   stockMovements          StockMovement[]
   salesInvoiceItems       SalesInvoiceItem[]
+  recordedCurrencyId      String?            @map("recorded_currency_id")
+  recordedCurrency        Currency?          @relation("InventoryItemRecordedCurrency", fields: [recordedCurrencyId], references: [id])
+  usdZwgRateSnapshot      Decimal?           @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
 
   @@map("inventory_items")
 }
 
 model StockMovement {
-  id           String        @id @default(cuid())
-  itemId       String
-  movementType String
-  quantity     Decimal       @db.Decimal(10, 2)
-  unitCost     Decimal       @db.Decimal(15, 2)
-  totalCost    Decimal       @db.Decimal(15, 2)
-  reference    String?
-  description  String?       @db.Text
-  createdById  String
-  createdAt    DateTime      @default(now())
-  item         InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  createdBy    User          @relation("StockMovementCreatedBy", fields: [createdById], references: [id])
+  id                 String        @id @default(cuid())
+  itemId             String
+  movementType       String
+  quantity           Decimal       @db.Decimal(10, 2)
+  unitCost           Decimal       @db.Decimal(15, 2)
+  totalCost          Decimal       @db.Decimal(15, 2)
+  reference          String?
+  description        String?       @db.Text
+  createdById        String
+  createdAt          DateTime      @default(now())
+  recordedCurrencyId String?       @map("recorded_currency_id")
+  recordedCurrency   Currency?     @relation("StockMovementRecordedCurrency", fields: [recordedCurrencyId], references: [id])
+  usdZwgRateSnapshot Decimal?      @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
+  item               InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdBy          User          @relation("StockMovementCreatedBy", fields: [createdById], references: [id])
 
   @@map("stock_movements")
 }
@@ -1846,6 +1982,9 @@ model Asset {
   createdBy                        User                  @relation("AssetCreatedBy", fields: [createdById], references: [id])
   depreciationRecords              DepreciationRecord[]
   disposalRecords                  AssetDisposalRecord[]
+  recordedCurrencyId               String?               @map("recorded_currency_id")
+  recordedCurrency                 Currency?             @relation("AssetRecordedCurrency", fields: [recordedCurrencyId], references: [id])
+  usdZwgRateSnapshot               Decimal?              @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
 
   @@map("assets")
 }
@@ -1861,6 +2000,9 @@ model DepreciationRecord {
   postedAt                DateTime?
   createdById             String
   createdAt               DateTime  @default(now())
+  recordedCurrencyId      String?   @map("recorded_currency_id")
+  recordedCurrency        Currency? @relation("DepreciationRecordedCurrency", fields: [recordedCurrencyId], references: [id])
+  usdZwgRateSnapshot      Decimal?  @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
   asset                   Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
   createdBy               User      @relation("DepreciationRecordCreatedBy", fields: [createdById], references: [id])
 
@@ -1869,17 +2011,20 @@ model DepreciationRecord {
 }
 
 model AssetDisposalRecord {
-  id             String   @id @default(cuid())
-  assetId        String
-  disposalDate   DateTime
-  disposalValue  Decimal  @db.Decimal(15, 2)
-  disposalMethod String
-  gainLoss       Decimal  @db.Decimal(15, 2)
-  description    String?  @db.Text
-  createdById    String
-  createdAt      DateTime @default(now())
-  asset          Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  createdBy      User     @relation("AssetDisposalCreatedBy", fields: [createdById], references: [id])
+  id                 String    @id @default(cuid())
+  assetId            String
+  disposalDate       DateTime
+  disposalValue      Decimal   @db.Decimal(15, 2)
+  disposalMethod     String
+  gainLoss           Decimal   @db.Decimal(15, 2)
+  description        String?   @db.Text
+  createdById        String
+  createdAt          DateTime  @default(now())
+  recordedCurrencyId String?   @map("recorded_currency_id")
+  recordedCurrency   Currency? @relation("AssetDisposalRecordedCurrency", fields: [recordedCurrencyId], references: [id])
+  usdZwgRateSnapshot Decimal?  @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
+  asset              Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdBy          User      @relation("AssetDisposalCreatedBy", fields: [createdById], references: [id])
 
   @@map("asset_disposal_records")
 }
@@ -1907,6 +2052,7 @@ model CreditNote {
   currency         Currency      @relation(fields: [currencyId], references: [id])
   journalEntry     JournalEntry? @relation("CreditNoteJournal", fields: [journalEntryId], references: [id])
   createdBy        User          @relation("CreditNoteCreatedBy", fields: [createdById], references: [id])
+  usdZwgRateSnapshot Decimal?     @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
 
   @@map("credit_notes")
 }
@@ -2597,29 +2743,32 @@ model ExitInterview {
 }
 
 model Employee {
-  id                 String              @id @default(cuid())
-  userId             String              @unique
-  employeeNumber     String              @unique
-  bankName           String?
-  branchCode         String?
-  accountNumber      String?
-  basicSalary        Decimal             @default(0.000000000000000000000000000000)
-  currencyId         String?
-  isActive           Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  address            String?
-  idNumber           String?
-  nextOfKin          String?
-  pictureUrl         String?
-  nextOfKinContact   Json?
-  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  currency           Currency?           @relation(fields: [currencyId], references: [id])
-  salaryStructures   SalaryStructure[]
-  leaveBalances      LeaveBalance[]
-  payslips           Payslip[]
-  employeePayrolls   EmployeePayroll[]
-  employeeDeductions EmployeeDeduction[]
+  id                      String              @id @default(cuid())
+  userId                  String              @unique
+  employeeNumber          String              @unique
+  bankName                String?
+  branchCode              String?
+  accountNumber           String?
+  basicSalary             Decimal             @default(0.000000000000000000000000000000)
+  currencyId              String?
+  isActive                Boolean             @default(true)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  address                 String?
+  idNumber                String?
+  nextOfKin               String?
+  pictureUrl              String?
+  nextOfKinContact        Json?
+  /** Vendor used for staff reimbursement / creditor tracking (cashbook SUPPLIER payments). */
+  reimbursementVendorId   String?             @unique @map("reimbursement_vendor_id")
+  user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency                Currency?           @relation(fields: [currencyId], references: [id])
+  reimbursementVendor     Vendor?             @relation("EmployeeReimbursementVendor", fields: [reimbursementVendorId], references: [id], onDelete: SetNull)
+  salaryStructures        SalaryStructure[]
+  leaveBalances           LeaveBalance[]
+  payslips                Payslip[]
+  employeePayrolls        EmployeePayroll[]
+  employeeDeductions      EmployeeDeduction[]
 
   @@map("employees")
 }
@@ -2950,8 +3099,48 @@ model Bank {
   bankReconciliations BankReconciliation[]
   transfersFrom       CashbookTransfer[]     @relation("TransferFromBank")
   transfersTo         CashbookTransfer[]    @relation("TransferToBank")
+  cashbookReconciliationSessions CashbookReconciliationSession[]
 
   @@map("banks")
+}
+
+/// Sage-style cashbook bank reconciliation session (draft → finish). Stores statement header + ticked lines; finishing marks entries reconciled.
+model CashbookReconciliationSession {
+  id                    String                            @id @default(cuid())
+  bankId                String                            @map("bank_id")
+  status                CashbookReconciliationSessionStatus @default(DRAFT)
+  statementDate         DateTime                          @map("statement_date")
+  statementEndBalance   Decimal                           @map("statement_end_balance") @db.Decimal(18, 2)
+  reference             String?                           @db.VarChar(255)
+  openingBalance        Decimal?                          @map("opening_balance") @db.Decimal(18, 2)
+  closingBalance        Decimal?                          @map("closing_balance") @db.Decimal(18, 2)
+  createdById           String                            @map("created_by_id")
+  finishedById          String?                           @map("finished_by_id")
+  finishedAt            DateTime?                         @map("finished_at")
+  createdAt             DateTime                          @default(now()) @map("created_at")
+  updatedAt             DateTime                          @updatedAt @map("updated_at")
+  bank                  Bank                              @relation(fields: [bankId], references: [id])
+  createdBy             User                              @relation("CashbookReconSessionCreatedBy", fields: [createdById], references: [id])
+  finishedBy            User?                             @relation("CashbookReconSessionFinishedBy", fields: [finishedById], references: [id])
+  lines                 CashbookReconciliationSessionLine[]
+  clearedEntries        CashbookEntry[]                   @relation("CashbookEntryReconciliationSession")
+
+  @@index([bankId, status])
+  @@index([bankId, statementDate])
+  @@map("cashbook_reconciliation_sessions")
+}
+
+model CashbookReconciliationSessionLine {
+  id              String                        @id @default(cuid())
+  sessionId       String                        @map("session_id")
+  cashbookEntryId String                        @map("cashbook_entry_id")
+  selected        Boolean                       @default(true)
+  session         CashbookReconciliationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  cashbookEntry   CashbookEntry                 @relation(fields: [cashbookEntryId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, cashbookEntryId], map: "cashbook_recon_session_line_unique")
+  @@index([cashbookEntryId], map: "cashbook_recon_session_line_entry")
+  @@map("cashbook_reconciliation_session_lines")
 }
 
 model CashbookEntry {
@@ -3002,9 +3191,22 @@ model CashbookEntry {
   reversedBy               User?                    @relation("TransactionReversedBy", fields: [reversedById], references: [id])
   postedBy                 User?                    @relation("TransactionPostedBy", fields: [postedById], references: [id])
   purchaseInvoice          PurchaseInvoice?          @relation("PurchaseInvoiceCashbook")
+  vendorBillPayments       PurchaseInvoicePayment[]  @relation("VendorBillPaymentCashbook")
   fundDisbursement         FundDisbursement?         @relation("FundDisbursementCashbook")
   procurementInvoice       ProcurementInvoice?       @relation("ProcurementInvoiceCashbook")
+  recordedCurrencyId       String?                   @map("recorded_currency_id")
+  recordedCurrency         Currency?                 @relation("CashbookRecordedCurrency", fields: [recordedCurrencyId], references: [id])
+  usdZwgRateSnapshot       Decimal?                  @map("usd_zwg_rate_snapshot") @db.Decimal(18, 6)
+  /// Physical receipt scan (PDF/image); uploaded via remote upload service (same stack as cashbook batch / portfolio uploads).
+  receiptAttachmentUrl       String?                 @map("receipt_attachment_url") @db.Text
+  receiptAttachmentPath      String?                 @map("receipt_attachment_path") @db.VarChar(512)
+  receiptAttachmentFileName  String?                 @map("receipt_attachment_file_name") @db.VarChar(255)
+  receiptAttachmentMimeType  String?                 @map("receipt_attachment_mime_type") @db.VarChar(128)
+  cashbookReconciliationSessionId String?            @map("cashbook_reconciliation_session_id")
+  cashbookReconciliationSession   CashbookReconciliationSession? @relation("CashbookEntryReconciliationSession", fields: [cashbookReconciliationSessionId], references: [id], onDelete: SetNull)
+  reconciliationSessionLines      CashbookReconciliationSessionLine[]
 
+  @@index([cashbookReconciliationSessionId], map: "cashbook_entries_recon_session_id")
   @@map("cashbook_entries")
 }
 
@@ -3346,6 +3548,12 @@ enum CashbookEntryStatus {
   PENDING
   POSTED
   VOIDED
+}
+
+enum CashbookReconciliationSessionStatus {
+  DRAFT
+  FINALIZED
+  CANCELLED
 }
 
 enum CounterpartyType {

@@ -41,7 +41,10 @@ export class AssetController {
         serialNumber,
         warrantyExpiry,
         invoiceId, // Optional: Link to creditor bill (procurement invoice)
-        cashbookEntryId // Optional: Link to cashbook payment
+        cashbookEntryId, // Optional: Link to cashbook payment
+        currencyId,
+        paymentBankId,
+        creditChartOfAccountId,
       } = req.body;
 
       // Validation
@@ -76,7 +79,10 @@ export class AssetController {
         warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : undefined,
         createdById: userId,
         invoiceId, // Optional: Link to creditor bill
-        cashbookEntryId // Optional: Link to cashbook payment
+        cashbookEntryId, // Optional: Link to cashbook payment
+        currencyId,
+        paymentBankId,
+        creditChartOfAccountId,
       });
 
       res.status(201).json({
@@ -334,16 +340,23 @@ export class AssetController {
         return;
       }
 
-      const { assetId } = req.params;
+      const assetId = req.params.assetId || req.params.id;
       const {
         disposalDate,
         disposalValue,
         disposalMethod,
-        description
+        description,
+        currencyId,
+        paymentBankId,
+        proceedsChartOfAccountId,
       } = req.body;
 
       // Validation
-      if (!disposalDate || !disposalValue || !disposalMethod) {
+      if (!assetId) {
+        res.status(400).json({ error: 'Asset id is required' });
+        return;
+      }
+      if (!disposalDate || disposalValue === undefined || disposalValue === null || !disposalMethod) {
         res.status(400).json({
           error: 'Missing required fields: disposalDate, disposalValue, disposalMethod'
         });
@@ -363,7 +376,10 @@ export class AssetController {
         disposalValue: parseFloat(disposalValue),
         disposalMethod,
         description,
-        createdById: userId
+        createdById: userId,
+        currencyId,
+        paymentBankId,
+        proceedsChartOfAccountId,
       });
 
       res.json({
@@ -404,7 +420,16 @@ export class AssetController {
    */
   static async getDepreciationSchedule(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { assetId } = req.params;
+      const assetId =
+        req.params.assetId ||
+        req.params.id ||
+        (typeof req.query.assetId === 'string' ? req.query.assetId : undefined);
+      if (!assetId) {
+        res.status(400).json({
+          error: 'assetId is required (e.g. /accounting/assets/:id/depreciation-schedule or ?assetId=)',
+        });
+        return;
+      }
 
       const depreciationSchedule = await AssetService.getDepreciationSchedule(assetId);
 

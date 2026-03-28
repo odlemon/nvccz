@@ -50,7 +50,8 @@ router.use(authenticate);
  * /api/cashbook/receipts:
  *   post:
  *     summary: Create cash receipt
- *     description: Create a new cash receipt transaction
+ *     description: |
+ *       Money in on the bank register. Creates and **posts** a `journal_entries` row (Dr bank GL, Cr AR / revenue / VAT as applicable).
  *     tags: [Cashbook]
  *     requestBody:
  *       required: true
@@ -67,8 +68,9 @@ router.use(authenticate);
  *             properties:
  *               bankId:
  *                 type: string
- *                 description: Bank account ID
- *                 example: "cmh5u1h3y0001unagy8qtrkng"
+ *                 description: |
+ *                   Bank row id, or alias `AUTO_ZIG` / `AUTO:ZIG` / `@ZIG` / `_ZIG` to auto-resolve or create the ZiG operating bank.
+ *                 example: "@ZIG"
  *               transactionDate:
  *                 type: string
  *                 format: date
@@ -142,7 +144,9 @@ router.post("/receipts", CashbookController.createReceipt);
  * /api/cashbook/payments:
  *   post:
  *     summary: Create cash payment
- *     description: Create a new cash payment transaction
+ *     description: |
+ *       Money out on the bank register. **GL** payments create a **posted** `journal_entries` row immediately (Dr expense/AP, Cr bank GL).
+ *       **SUPPLIER** / **CUSTOMER** payments stay **PENDING** until allocated and posted via `/transactions/{id}/post`.
  *     tags: [Cashbook]
  *     requestBody:
  *       required: true
@@ -159,8 +163,9 @@ router.post("/receipts", CashbookController.createReceipt);
  *             properties:
  *               bankId:
  *                 type: string
- *                 description: Bank account ID
- *                 example: "cmh5u1h3y0001unagy8qtrkng"
+ *                 description: |
+ *                   Bank row id, or alias `AUTO_ZIG` / `AUTO:ZIG` / `@ZIG` / `_ZIG` to auto-resolve or create the ZiG operating bank.
+ *                 example: "@ZIG"
  *               transactionDate:
  *                 type: string
  *                 format: date

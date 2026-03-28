@@ -56,7 +56,7 @@ router.use(authenticate);
  *                 example: "INV-2024-001"
  *               isTaxable:
  *                 type: boolean
- *                 description: Whether the invoice is taxable (14.5% VAT in Zimbabwe)
+ *                 description: Whether the invoice is taxable (15.5% VAT in Zimbabwe)
  *                 example: true
  *               items:
  *                 type: array
@@ -160,6 +160,30 @@ router.post("/", InvoiceController.createInvoice);
  *         description: Internal server error
  */
 router.get("/", InvoiceController.getInvoices);
+
+/**
+ * @swagger
+ * /api/accounting/invoices/debtors-age-analysis:
+ *   get:
+ *     summary: Debtors age analysis (open receivables by bucket)
+ *     description: Buckets outstanding SENT/PARTIALLY_PAID invoices using dueDate when set, else transactionDate. Short column titles follow common layouts (31–60 → "60 Days", 61–90 → "90 Days").
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: asOfDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Report date (UTC day); defaults to today
+ *     responses:
+ *       200:
+ *         description: Report payload
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/debtors-age-analysis", InvoiceController.getDebtorsAgeAnalysis);
 
 /**
  * @swagger
@@ -345,7 +369,7 @@ router.patch("/:id/send", InvoiceController.sendInvoice);
  * @swagger
  * /api/accounting/invoices/{id}/mark-as-paid:
  *   patch:
- *     summary: Mark invoice as paid (SENT -> PAID)
+ *     summary: Record payment (SENT or PARTIALLY_PAID -> PAID or PARTIALLY_PAID)
  *     tags: [Invoices]
  *     security:
  *       - bearerAuth: []
@@ -368,11 +392,17 @@ router.patch("/:id/send", InvoiceController.sendInvoice);
  *                 enum: [CASH, BANK, CREDIT]
  *                 default: BANK
  *                 description: Payment method used
+ *               paymentAmount:
+ *                 type: number
+ *                 description: Amount received in invoice currency (ZiG/ZWL). If less than outstanding, invoice stays PARTIALLY_PAID; omit to pay remaining balance in full.
+ *               paymentCurrencyId:
+ *                 type: string
+ *                 description: Optional; must match invoice currency for partial payments (same-currency path).
  *     responses:
  *       200:
- *         description: Invoice marked as paid successfully
+ *         description: Payment recorded; status PAID or PARTIALLY_PAID
  *       400:
- *         description: Bad request - invoice not in SENT status
+ *         description: Bad request - invoice cannot accept payment in current status
  *       404:
  *         description: Invoice not found
  *       401:

@@ -9,6 +9,7 @@ import { CashbookAuditExportService } from "../services/CashbookAuditExportServi
 import AuditService from "../services/AuditService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { prisma } from '../utils/database';
+import { prismaPurchaseInvoiceSnapshotSelect } from '../config/accountingSnapshotResponseSelect';
 
 interface AuthRequest extends Request {
   user?: {
@@ -17,6 +18,25 @@ interface AuthRequest extends Request {
     firstName: string;
     lastName: string;
   };
+}
+
+/** YYYY-MM-DD or ISO string; null if empty/invalid (avoids Prisma Invalid Date). */
+function parseCashbookRangeStart(raw: string | undefined): Date | null {
+  const s = raw != null ? String(raw).trim() : '';
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function parseCashbookRangeEnd(raw: string | undefined): Date | null {
+  const s = raw != null ? String(raw).trim() : '';
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setHours(23, 59, 59, 999);
+  return d;
 }
 
 export class CashbookControllerEnhanced {
@@ -169,7 +189,11 @@ export class CashbookControllerEnhanced {
       const { bankId } = req.params;
 
       const entries = await CashbookServiceEnhanced.getUnreconciledEntries(bankId);
-      return ResponseHelper.success(res, 'Unreconciled entries retrieved successfully', entries);
+      const data = entries.map((e) => ({
+        ...e,
+        reconciliationStatus: e.isReconciled ? 'Y' : 'N'
+      }));
+      return ResponseHelper.success(res, 'Unreconciled entries retrieved successfully', data);
 
     } catch (error: any) {
       console.error('Error in CashbookControllerEnhanced.getUnreconciledEntries:', error);
@@ -214,6 +238,66 @@ export class CashbookControllerEnhanced {
     } catch (error: any) {
       console.error('Error in CashbookControllerEnhanced.getEntryById:', error);
       return ResponseHelper.error(res, 'Failed to get cashbook entry', error.message);
+    }
+  }
+
+  /**
+   * POST /api/cashbook/entries/:id/receipt-attachment — multipart field "file" (PDF or image).
+   * Uploads to cloud storage (RemoteUploadService) and stores download URL on the entry.
+   */
+  static async uploadReceiptAttachment(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) {
+        return ResponseHelper.badRequest(res, 'file is required (multipart form field name: file)');
+      }
+      const userId = req.user?.id;
+      if (!userId) {
+        return ResponseHelper.error(res, 'Unauthorized', undefined, 401);
+      }
+
+      const result = await CashbookServiceEnhanced.attachReceiptDocument({
+        entryId: id,
+        file,
+        userId,
+      });
+
+      return ResponseHelper.success(res, result.message, result.entry);
+    } catch (error: any) {
+      const msg = error?.message || 'Failed to upload receipt attachment';
+      console.error('Error in CashbookControllerEnhanced.uploadReceiptAttachment:', error);
+      if (msg.includes('not found')) {
+        return ResponseHelper.notFound(res, msg);
+      }
+      if (msg.includes('voided')) {
+        return ResponseHelper.badRequest(res, msg);
+      }
+      return ResponseHelper.error(res, msg, undefined, 500);
+    }
+  }
+
+  /**
+   * Create five posted GL cashbook lines with reconciliationStatus N (isReconciled false).
+   * POST /api/cashbook/reconciliation/seed-five-unreconciled
+   * Body: { bankId: string }
+   */
+  static async seedFiveUnreconciledEntries(req: AuthRequest, res: Response) {
+    try {
+      const bankId = req.body?.bankId as string | undefined;
+      if (!bankId) {
+        return ResponseHelper.badRequest(res, 'bankId is required in body');
+      }
+      const result = await CashbookServiceEnhanced.seedFiveUnreconciledPostedEntries({
+        bankId,
+        createdById: req.user!.id
+      });
+      return ResponseHelper.success(res, result.message, {
+        entries: result.entries
+      });
+    } catch (error: any) {
+      console.error('Error in CashbookControllerEnhanced.seedFiveUnreconciledEntries:', error);
+      return ResponseHelper.error(res, 'Failed to seed unreconciled cashbook entries', error.message);
     }
   }
 
@@ -282,58 +366,126 @@ export class CashbookControllerEnhanced {
   /**
    * Get all cashbook entries (with advanced filtering)
    * GET /api/cashbook/entries
+   *
+   * Complex search (UAT): combine currencyId, date range, minAmount/maxAmount, and search (case-insensitive
+   * substring on description and reference). Aliases: dateFrom/dateTo → startDate/endDate; transactionType → type.
    */
   static async getAllEntries(req: AuthRequest, res: Response) {
     try {
-      const { 
-        bankId, 
-        type, 
-        status, 
+      const {
+        bankId,
+        type,
+        transactionType,
+        status,
         counterpartyType,
-        startDate, 
+        startDate,
         endDate,
+        dateFrom,
+        dateTo,
         isReconciled,
         minAmount,
         maxAmount,
         search,
+        currencyId,
         page = 1,
         limit = 50
       } = req.query;
 
+      const effectiveStart = (startDate || dateFrom) as string | undefined;
+      const effectiveEnd = (endDate || dateTo) as string | undefined;
+      const effectiveType = (type || transactionType) as string | undefined;
 
-      const where: any = {};
-      
-      // Exclude reversals from normal cashbook views (reversals have originalTransactionId set)
-      // Only show reversals if explicitly requested via query parameter
+      const andParts: any[] = [];
+
       const includeReversals = req.query.includeReversals === 'true';
       if (!includeReversals) {
-        where.originalTransactionId = null;
+        andParts.push({ originalTransactionId: null });
       }
-      
-      if (bankId) where.bankId = bankId;
-      if (type) where.type = type;
-      if (status) where.status = status;
-      if (counterpartyType) where.counterpartyType = counterpartyType;
-      if (isReconciled !== undefined) where.isReconciled = isReconciled === 'true';
-      if (startDate || endDate) {
-        where.transactionDate = {};
-        if (startDate) where.transactionDate.gte = new Date(startDate as string);
-        if (endDate) where.transactionDate.lte = new Date(endDate as string);
+
+      if (bankId) andParts.push({ bankId });
+      if (effectiveType) andParts.push({ type: effectiveType });
+      if (status) andParts.push({ status });
+      if (counterpartyType) andParts.push({ counterpartyType });
+      if (isReconciled !== undefined && String(isReconciled).trim() !== '') {
+        andParts.push({ isReconciled: isReconciled === 'true' || isReconciled === true });
       }
-      if (minAmount != null && minAmount !== '') where.amount = { ...(where.amount || {}), gte: Number(minAmount) };
-      if (maxAmount != null && maxAmount !== '') where.amount = { ...(where.amount || {}), lte: Number(maxAmount) };
-      if (search != null && String(search).trim() !== '') {
-        where.description = { contains: String(search).trim() };
+
+      if (effectiveStart != null && String(effectiveStart).trim() !== '') {
+        const gte = parseCashbookRangeStart(effectiveStart as string);
+        if (!gte) {
+          return ResponseHelper.badRequest(
+            res,
+            'Invalid startDate or dateFrom — use YYYY-MM-DD or a valid ISO date string'
+          );
+        }
+        const transactionDate: { gte?: Date; lte?: Date } = { gte };
+        const lte =
+          effectiveEnd != null && String(effectiveEnd).trim() !== ''
+            ? parseCashbookRangeEnd(effectiveEnd as string)
+            : null;
+        if (effectiveEnd != null && String(effectiveEnd).trim() !== '' && !lte) {
+          return ResponseHelper.badRequest(
+            res,
+            'Invalid endDate or dateTo — use YYYY-MM-DD or a valid ISO date string'
+          );
+        }
+        if (lte) transactionDate.lte = lte;
+        if (transactionDate.lte && transactionDate.gte > transactionDate.lte) {
+          return ResponseHelper.badRequest(res, 'startDate must be on or before endDate');
+        }
+        andParts.push({ transactionDate });
+      } else if (effectiveEnd != null && String(effectiveEnd).trim() !== '') {
+        const lte = parseCashbookRangeEnd(effectiveEnd as string);
+        if (!lte) {
+          return ResponseHelper.badRequest(
+            res,
+            'Invalid endDate or dateTo — use YYYY-MM-DD or a valid ISO date string'
+          );
+        }
+        andParts.push({ transactionDate: { lte } });
       }
+
+      const amountFilter: { gte?: number; lte?: number } = {};
+      if (minAmount != null && String(minAmount).trim() !== '') {
+        const n = Number(minAmount);
+        if (!Number.isNaN(n)) amountFilter.gte = n;
+      }
+      if (maxAmount != null && String(maxAmount).trim() !== '') {
+        const n = Number(maxAmount);
+        if (!Number.isNaN(n)) amountFilter.lte = n;
+      }
+      if (Object.keys(amountFilter).length > 0) {
+        andParts.push({ amount: amountFilter });
+      }
+
+      const searchTrim = search != null ? String(search).trim() : '';
+      if (searchTrim) {
+        // MySQL: Prisma has no mode:'insensitive' on String filters; LIKE uses column collation
+        // (utf8mb4_unicode_ci / general_ci) which is case-insensitive for substring match.
+        andParts.push({
+          OR: [
+            { description: { contains: searchTrim } },
+            { reference: { contains: searchTrim } }
+          ]
+        });
+      }
+
+      if (currencyId != null && String(currencyId).trim() !== '') {
+        const cid = String(currencyId).trim();
+        andParts.push({
+          OR: [{ bank: { currencyId: cid } }, { recordedCurrencyId: cid }]
+        });
+      }
+
+      const where: any =
+        andParts.length === 0 ? {} : andParts.length === 1 ? andParts[0] : { AND: andParts };
 
       const skip = (Number(page) - 1) * Number(limit);
       const take = Number(limit);
 
       const [entries, total] = await Promise.all([
         prisma.cashbookEntry.findMany({
-          where: {
-            ...where
-          },
+          where,
           include: {
             bank: { include: { glAccount: true, currency: true } },
             customer: true,
@@ -357,6 +509,7 @@ export class CashbookControllerEnhanced {
               select: {
                 id: true,
                 invoiceNumber: true,
+                ...prismaPurchaseInvoiceSnapshotSelect,
                 vendor: {
                   select: {
                     name: true
@@ -390,19 +543,21 @@ export class CashbookControllerEnhanced {
   }
 
   /**
-   * Export a month's cashbook to Excel for tax audit.
-   * GET /api/cashbook/export-audit?year=2025&month=2&bankId=optional
-   * Columns: Date, Payee, Reference, Amount, Tax. Totals match the system.
+   * Export a month's cashbook for tax audit (default CSV).
+   * GET /api/cashbook/export-audit?year=2025&month=2&bankId=optional&format=csv|xlsx
+   * POSTED lines only; columns Date, Payee, Reference, Amount, Tax; totals row = sum of those columns.
    */
   static async exportAudit(req: AuthRequest, res: Response) {
     try {
       const year = parseInt(req.query.year as string, 10);
       const month = parseInt(req.query.month as string, 10);
       const bankId = req.query.bankId as string | undefined;
+      const fmt = String(req.query.format ?? 'csv').toLowerCase();
+      const format = fmt === 'xlsx' ? 'xlsx' : 'csv';
       if (!year || !month || month < 1 || month > 12) {
         return ResponseHelper.badRequest(res, 'Query parameters year and month (1-12) are required');
       }
-      const result = await CashbookAuditExportService.exportMonthToExcel({ bankId, year, month });
+      const result = await CashbookAuditExportService.exportMonth({ bankId, year, month, format });
       if (!result.success) {
         return ResponseHelper.error(res, result.message, undefined, 400);
       }
@@ -420,7 +575,7 @@ export class CashbookControllerEnhanced {
           userAgent,
         });
       }
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Type', result.contentType || 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
       res.send(result.buffer);
     } catch (error: any) {

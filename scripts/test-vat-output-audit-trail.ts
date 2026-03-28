@@ -60,6 +60,8 @@ async function main() {
   for (let i = 0; i < auditTrail.lines.length; i++) {
     const line = auditTrail.lines[i];
     assert(line.id != null, `Line ${i + 1}: must have id`);
+    assert(line.journalEntryLineId != null, `Line ${i + 1}: must have journalEntryLineId`);
+    assert(line.journalEntryId != null, `Line ${i + 1}: must have journalEntryId`);
     assert(line.date != null, `Line ${i + 1}: must have date`);
     assert(typeof line.vatAmount === "number", `Line ${i + 1}: must have vatAmount (number)`);
     assert(line.type != null, `Line ${i + 1}: must have type (Invoice, Receipt, Revenue, etc.)`);

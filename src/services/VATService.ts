@@ -2,7 +2,23 @@
 import { Decimal } from "@prisma/client/runtime/library";
 
 export class VATService {
-  private static readonly VAT_RATE = 0.145; // 14.5% Zimbabwean VAT rate
+  /** Standard statutory VAT as decimal (15.5% = 0.155). Single source of truth. */
+  private static readonly VAT_RATE = 0.155;
+
+  /** Decimal multiplier for standard rate (use for line-item `vatRate` fields, etc.). */
+  static getDecimalRate(): number {
+    return this.VAT_RATE;
+  }
+
+  /**
+   * Cashbook / CSV codes that map to the standard rate. Label `15%` means "standard rate" (15.5%).
+   */
+  static standardRateFromVatCode(vatCode: string | undefined | null): number {
+    if (vatCode == null || String(vatCode).trim() === '') return 0;
+    const c = String(vatCode).trim();
+    if (c === '15%' || c === '15.5%') return this.VAT_RATE;
+    return 0;
+  }
 
   /**
    * Calculate VAT amount from a given amount

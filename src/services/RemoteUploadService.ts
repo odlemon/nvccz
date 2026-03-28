@@ -12,9 +12,11 @@ const MEDIA_BASE_URL = "http://31.220.82.129/uploads";
 
 // Upload type mapping - maps our internal types to server directory structure
 const UPLOAD_TYPE_MAP: Record<string, string> = {
-  // Cashbook imports
+  // Cashbook imports + entry receipt scans (same remote folder as batch imports)
   "cashbook-imports": "cashbook-imports",
   "cashbook": "cashbook-imports",
+  "cashbook-receipts": "cashbook-imports",
+  "cashbook-receipt": "cashbook-imports",
   
   // Financial reports
   "financial-reports": "financial-reports",

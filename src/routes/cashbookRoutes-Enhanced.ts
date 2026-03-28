@@ -3,18 +3,90 @@
 // Extends the existing cashbook routes with void, edit, batch posting, and reconciliation endpoints
 
 import express from "express";
+import multer from "multer";
 import CashbookController from "../controllers/CashbookController";
 import { CashbookControllerEnhanced } from "../controllers/CashbookController-Enhanced";
+import { CashbookReconciliationSessionController } from "../controllers/CashbookReconciliationSessionController";
 import { authenticate } from "../middleware/authenticate";
+import { ResponseHelper } from "../utils/responseHelper";
 
 const router = express.Router();
 
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
+/** Receipt PDF/images — same multer memory pattern as procurement proof-of-payment; upload via RemoteUploadService. */
+const uploadCashbookReceipt = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      "application/pdf",
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+    ];
+    if (allowedMimes.includes(file.mimetype) || /\.(pdf|jpe?g|png|gif|webp)$/i.test(file.originalname || "")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only PDF and image files (JPG, PNG, GIF, WEBP) are allowed"));
+    }
+  },
+});
+
 // Enhanced routes only - core routes are handled by cashbookRoutes.ts
 
 // Enhanced routes (new functionality)
+
+/**
+ * @swagger
+ * /api/cashbook/entries/{id}/receipt-attachment:
+ *   post:
+ *     summary: Upload receipt scan (PDF/image) for a cashbook entry
+ *     description: Stores file on cloud storage (same remote upload as cashbook batch imports) and saves the download URL on the entry.
+ *     tags: [Cashbook]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Attachment saved; entry includes receiptAttachmentUrl
+ *       400:
+ *         description: Missing file or invalid type
+ *       404:
+ *         description: Entry not found
+ */
+router.post(
+  "/entries/:id/receipt-attachment",
+  (req, res, next) => {
+    uploadCashbookReceipt.single("file")(req, res, (err) => {
+      if (err) {
+        return ResponseHelper.badRequest(res, err.message || "Invalid file upload");
+      }
+      next();
+    });
+  },
+  CashbookControllerEnhanced.uploadReceiptAttachment
+);
 
 /**
  * @swagger
@@ -76,13 +148,51 @@ router.get("/entries/:id", CashbookControllerEnhanced.getEntryById);
  *         schema:
  *           type: string
  *           format: date
- *         description: Filter from date
+ *         description: Filter from date (start of day). Alias of dateFrom.
  *       - in: query
  *         name: endDate
  *         schema:
  *           type: string
  *           format: date
- *         description: Filter to date
+ *         description: Filter to date (end of day inclusive). Alias of dateTo.
+ *       - in: query
+ *         name: dateFrom
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Same as startDate if startDate omitted
+ *       - in: query
+ *         name: dateTo
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Same as endDate if endDate omitted
+ *       - in: query
+ *         name: transactionType
+ *         schema:
+ *           type: string
+ *           enum: [RECEIPT, PAYMENT]
+ *         description: Same as type if type omitted
+ *       - in: query
+ *         name: minAmount
+ *         schema:
+ *           type: number
+ *         description: Minimum transaction amount (inclusive)
+ *       - in: query
+ *         name: maxAmount
+ *         schema:
+ *           type: number
+ *         description: Maximum transaction amount (inclusive)
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Substring match on description or reference (case-insensitive under typical MySQL utf8mb4_unicode_ci collation)
+ *       - in: query
+ *         name: currencyId
+ *         schema:
+ *           type: string
+ *         description: Bank currency or recorded currency on the entry (ZiG filter for UAT)
  *       - in: query
  *         name: isReconciled
  *         schema:
@@ -139,8 +249,11 @@ router.get("/entries", CashbookControllerEnhanced.getAllEntries);
  * @swagger
  * /api/cashbook/export-audit:
  *   get:
- *     summary: Export month cashbook to Excel for tax audit
- *     description: Export a month's cashbook with columns Date, Payee, Reference, Amount, Tax; totals match the system.
+ *     summary: Export month cashbook for tax audit (CSV by default)
+ *     description: >
+ *       CSV (default) or Excel (.xlsx) with columns Date, Payee, Reference, Amount, Tax; title rows and totals row.
+ *       UTF-8 BOM on CSV for Excel. Query format=xlsx for legacy spreadsheet download.
+ *       POSTED lines only; optional bankId. Totals row = sum of Amount and Tax on the export.
  *     tags: [Cashbook]
  *     parameters:
  *       - in: query
@@ -155,10 +268,16 @@ router.get("/entries", CashbookControllerEnhanced.getAllEntries);
  *         name: bankId
  *         schema: { type: string }
  *         description: Optional; filter by bank
+ *       - in: query
+ *         name: format
+ *         schema: { type: string, enum: [csv, xlsx] }
+ *         description: Response format; default csv
  *     responses:
  *       200:
- *         description: Excel file attachment
+ *         description: CSV or Excel attachment
  *         content:
+ *           text/csv:
+ *             schema: { type: string, format: binary }
  *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
  *             schema: { type: string, format: binary }
  *       400:
@@ -438,6 +557,37 @@ router.put("/entries/:id/unreconcile", CashbookControllerEnhanced.unreconcileEnt
  *       500:
  *         description: Internal server error
  */
+
+// Cashbook bank reconciliation sessions (Sage-style draft → finish). Register before /:bankId/* routes.
+router.get(
+  "/reconciliation/banks/:bankId/entries",
+  CashbookReconciliationSessionController.listEntries
+);
+router.get(
+  "/reconciliation/banks/:bankId/sessions",
+  CashbookReconciliationSessionController.listSessions
+);
+router.post(
+  "/reconciliation/banks/:bankId/sessions",
+  CashbookReconciliationSessionController.createDraft
+);
+router.get(
+  "/reconciliation/sessions/:sessionId",
+  CashbookReconciliationSessionController.getById
+);
+router.patch(
+  "/reconciliation/sessions/:sessionId",
+  CashbookReconciliationSessionController.updateDraft
+);
+router.post(
+  "/reconciliation/sessions/:sessionId/finish",
+  CashbookReconciliationSessionController.finish
+);
+router.post(
+  "/reconciliation/sessions/:sessionId/discard",
+  CashbookReconciliationSessionController.discard
+);
+
 router.get("/:bankId/summary", CashbookControllerEnhanced.getSummary);
 
 /**
@@ -488,6 +638,12 @@ router.get("/:bankId/summary", CashbookControllerEnhanced.getSummary);
  *                       status:
  *                         type: string
  *                         enum: [PENDING, POSTED, VOIDED]
+ *                       isReconciled:
+ *                         type: boolean
+ *                       reconciliationStatus:
+ *                         type: string
+ *                         enum: ['N', 'Y']
+ *                         description: N = unreconciled, Y = reconciled (derived from isReconciled)
  *                       counterparty:
  *                         type: string
  *       500:
@@ -595,6 +751,36 @@ router.get("/:bankId/unreconciled", CashbookControllerEnhanced.getUnreconciledEn
  *       500:
  *         description: Internal server error
  */
+/**
+ * @swagger
+ * /api/cashbook/reconciliation/seed-five-unreconciled:
+ *   post:
+ *     summary: Seed five posted unreconciled cashbook lines (reconciliationStatus N)
+ *     description: Creates 3 receipts and 2 payments for Bank Recon "Unreconciled" tab testing.
+ *     tags: [Cashbook]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [bankId]
+ *             properties:
+ *               bankId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Five entries created
+ *       400:
+ *         description: Missing bankId
+ *       500:
+ *         description: Internal server error
+ */
+router.post(
+  "/reconciliation/seed-five-unreconciled",
+  CashbookControllerEnhanced.seedFiveUnreconciledEntries
+);
+
 router.get("/reconciliation/display", CashbookControllerEnhanced.getReconciliationDisplay);
 
 export default router;

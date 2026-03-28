@@ -546,7 +546,7 @@ export const eventsEndpoints = {
   '/events/{eventId}/expenses': {
     post: {
       summary: 'Record event expense',
-      description: '**Required Role:** Event Organizer (Any authenticated user). Record an expense for an event. **Requires budget to be approved first.** Automatically creates accounting journal entries (Dr. Expense, Dr. VAT if taxable, Cr. AP). VAT is calculated automatically at 14.5% if expense is taxable. Links expense to budget items if provided.',
+      description: '**Required Role:** Event Organizer (Any authenticated user). Record an expense for an event. **Requires budget to be approved first.** Automatically creates accounting journal entries (Dr. Expense, Dr. VAT if taxable, Cr. AP). VAT is calculated automatically at 15.5% if expense is taxable. Links expense to budget items if provided.',
       tags: ['Events Management - Expense Management'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -568,7 +568,7 @@ export const eventsEndpoints = {
                 vendor: { type: 'string', example: 'Catering Co', description: 'Optional: Vendor name for display purposes' },
                 paymentMethod: { type: 'string', enum: ['BANK', 'CASH'], example: 'BANK', description: 'Payment method used' },
                 paymentDate: { type: 'string', format: 'date-time', example: '2024-12-15T12:00:00.000Z', description: 'Date of payment' },
-                isTaxable: { type: 'boolean', default: true, example: true, description: 'Whether the expense is taxable (VAT will be calculated at 14.5%)' },
+                isTaxable: { type: 'boolean', default: true, example: true, description: 'Whether the expense is taxable (VAT will be calculated at 15.5%)' },
                 isReimbursable: { type: 'boolean', default: true, example: true, description: 'Whether the expense is reimbursable' },
                 receiptNumber: { type: 'string', example: 'REC-001', description: 'Receipt or invoice number' },
                 currencyId: { type: 'string', example: 'currency-id', description: 'Currency ID (defaults to USD if not provided)' }

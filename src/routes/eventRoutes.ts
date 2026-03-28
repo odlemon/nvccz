@@ -724,7 +724,7 @@ router.post("/:eventId/budget/approve", eventController.approveBudget);
  * /events/{eventId}/expenses:
  *   post:
  *     summary: Record event expense
- *     description: Record an expense for an event. **Requires budget to be approved first.** Automatically creates accounting journal entries (Dr. Expense, Dr. VAT if taxable, Cr. AP). VAT is calculated automatically at 14.5% if expense is taxable. Links expense to budget items if provided.
+ *     description: Record an expense for an event. **Requires budget to be approved first.** Automatically creates accounting journal entries (Dr. Expense, Dr. VAT if taxable, Cr. AP). VAT is calculated automatically at 15.5% if expense is taxable. Links expense to budget items if provided.
  *     tags: [Events Management - Expense Management]
  *     security:
  *       - bearerAuth: []

@@ -30,7 +30,7 @@ async function addVATAccounts() {
         accountName: "VAT Output",
         accountType: "Current Liability",
         financialStatement: "Balance Sheet",
-        notes: "VAT collected on sales and receipts - Zimbabwe 15% standard rate"
+        notes: "VAT collected on sales and receipts - Zimbabwe 15.5% standard rate"
       }
     });
     
@@ -45,7 +45,7 @@ async function addVATAccounts() {
         accountName: "VAT Input",
         accountType: "Current Asset",
         financialStatement: "Balance Sheet",
-        notes: "VAT paid on purchases and payments - Zimbabwe 15% standard rate"
+        notes: "VAT paid on purchases and payments - Zimbabwe 15.5% standard rate"
       }
     });
     
@@ -58,19 +58,19 @@ async function addVATAccounts() {
     console.log('   VAT Output (2100):');
     console.log('     - Type: Current Liability');
     console.log('     - Purpose: VAT collected on sales and receipts');
-    console.log('     - Rate: 15% (Zimbabwe standard)');
+    console.log('     - Rate: 15.5% (Zimbabwe standard)');
     console.log('     - Usage: Credited when recording receipts');
     
     console.log('\n   VAT Input (2110):');
     console.log('     - Type: Current Asset');
     console.log('     - Purpose: VAT paid on purchases and payments');
-    console.log('     - Rate: 15% (Zimbabwe standard)');
+    console.log('     - Rate: 15.5% (Zimbabwe standard)');
     console.log('     - Usage: Debited when recording payments');
     
     console.log('\n💡 Cashbook Integration:');
     console.log('   ✅ Receipts: Dr. Bank, Cr. Revenue, Cr. VAT Output (2100)');
     console.log('   ✅ Payments: Dr. Expense, Dr. VAT Input (2110), Cr. Bank');
-    console.log('   ✅ VAT Calculation: Automatic 15% calculation');
+    console.log('   ✅ VAT Calculation: Automatic 15.5% calculation');
     console.log('   ✅ ZIMRA Compliance: Ready for VAT returns');
     
   } catch (error: any) {
