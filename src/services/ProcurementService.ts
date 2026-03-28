@@ -6,6 +6,7 @@ import JournalEntryService from "./JournalEntryService";
 import AuditService from "./AuditService";
 import { ApprovalService } from "./ApprovalService";
 import { CashbookService } from "./CashbookService";
+import VATService from "./VATService";
 
 // Hardcoded departments
 export enum Department {
@@ -1229,7 +1230,7 @@ export class ProcurementService {
 
       // Calculate totals
       const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-      const taxAmount = subtotal * 0.15; // Assuming 15% tax rate
+      const taxAmount = VATService.calculateVAT(subtotal);
       const totalAmount = subtotal + taxAmount;
 
       // Create purchase order
@@ -1650,7 +1651,7 @@ export class ProcurementService {
         const isTaxable = approvalData.isTaxable;
         
         if (isTaxable) {
-          // Calculate VAT automatically using VATService (14.5% rate)
+          // Calculate VAT automatically using VATService (standard 15.5%)
           finalTaxAmount = VATService.isVATEligible(finalSubtotal, true)
             ? VATService.calculateVAT(finalSubtotal)
             : 0;
@@ -1842,7 +1843,7 @@ export class ProcurementService {
       
       // Determine if invoice is taxable
       const isTaxable = Number(invoice.taxAmount) > 0;
-      console.log(`   Taxable: ${isTaxable ? 'YES (15% VAT)' : 'NO'}`);
+      console.log(`   Taxable: ${isTaxable ? 'YES (15.5% VAT)' : 'NO'}`);
 
       // Validation checks
       console.log("\n🔒 Step 2: Validating payment request...");
@@ -2043,7 +2044,7 @@ export class ProcurementService {
       console.log("\n📝 Step 5: Updating invoice payment status...");
       console.log(`   New Payment Status: ${paymentStatus}`);
       console.log(`   Payment Date: ${paymentData.paymentDate.toISOString().split('T')[0]}`);
-      console.log(`   Taxable: ${isTaxable ? 'YES (15% VAT)' : 'NO'}`);
+      console.log(`   Taxable: ${isTaxable ? 'YES (15.5% VAT)' : 'NO'}`);
       if (paymentData.paymentReference) {
         console.log(`   Payment Reference: ${paymentData.paymentReference}`);
       }
@@ -2214,7 +2215,7 @@ export class ProcurementService {
 
       // Calculate totals
       const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-      const taxAmount = subtotal * 0.15; // Assuming 15% tax rate
+      const taxAmount = VATService.calculateVAT(subtotal);
       const totalAmount = subtotal + taxAmount;
 
       // Create procurement invoice
@@ -2413,7 +2414,10 @@ export class ProcurementService {
   }
 
   /**
-   * Convert a Purchase Order to a Creditor Bill (Invoice) in the Accounting module
+   * Legacy: creates a sales-module `Invoice` with a generic customer.
+   * Prefer {@link PurchaseInvoiceService.createVendorBillFromPurchaseOrder} via
+   * `POST /api/procurement/purchase-orders/:id/convert-to-bill` or
+   * `POST /api/accounting/purchase-invoices/from-purchase-order`.
    */
   static async convertPOToBill(poId: string, createdById: string) {
     try {
@@ -2487,7 +2491,7 @@ export class ProcurementService {
         description: item.itemName + (item.description ? ' - ' + item.description : ''),
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
-        vatRate: taxAmount > 0 ? 15 : 0 // Assuming 15% VAT if tax exists
+        vatRate: taxAmount > 0 ? VATService.getVATRate() : 0
       }));
 
       console.log('   Items prepared: ' + invoiceItems.length);
@@ -2925,7 +2929,66 @@ export class ProcurementService {
         };
       });
 
+      const OPEN_PO_COMMITMENT_STATUSES = [
+        "DRAFT",
+        "SENT",
+        "APPROVED",
+        "PENDING"
+      ] as const;
+
+      const [committedGroup, openPoCommitmentCount] = await Promise.all([
+        prisma.purchaseOrder.groupBy({
+          by: ["currencyId"],
+          where: { status: { in: [...OPEN_PO_COMMITMENT_STATUSES] } },
+          _sum: { totalAmount: true },
+          _count: { id: true }
+        }),
+        prisma.purchaseOrder.count({
+          where: { status: { in: [...OPEN_PO_COMMITMENT_STATUSES] } }
+        })
+      ]);
+
+      const commitCurrencyIds = [
+        ...new Set(
+          committedGroup
+            .map((g) => g.currencyId)
+            .filter((id): id is string => id != null)
+        )
+      ];
+      const commitCurrencies =
+        commitCurrencyIds.length > 0
+          ? await prisma.currency.findMany({
+              where: { id: { in: commitCurrencyIds } }
+            })
+          : [];
+      const commitCurrencyMap = new Map(commitCurrencies.map((c) => [c.id, c]));
+
+      const committedSpendByCurrency = committedGroup.map((row) => {
+        const cur = row.currencyId
+          ? commitCurrencyMap.get(row.currencyId)
+          : null;
+        return {
+          currencyId: row.currencyId,
+          code: cur?.code ?? "UNSET",
+          symbol: cur?.symbol ?? null,
+          name: cur?.name ?? "No currency on PO",
+          committedSpend: Number(row._sum.totalAmount || 0),
+          openPurchaseOrderCount: row._count.id
+        };
+      });
+
+      const zigCommitted = committedSpendByCurrency.find(
+        (x) => x.code && x.code.toUpperCase() === "ZIG"
+      );
+
       return {
+        commitmentAccounting: {
+          note:
+            "Committed spend sums open purchase orders (DRAFT, SENT, APPROVED, PENDING). No GL posting occurs when a PO is created. When a vendor bill is created from the PO, status becomes BILLED and the amount leaves committed spend; Accounts Payable posts when the purchase invoice is submitted.",
+          openPurchaseOrderCount: openPoCommitmentCount,
+          committedSpendByCurrency,
+          committedSpendZIG: zigCommitted?.committedSpend ?? 0
+        },
         requisitions: {
           summary: {
             total: totalRequisitions,

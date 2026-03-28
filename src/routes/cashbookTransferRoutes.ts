@@ -23,9 +23,11 @@ router.use(authenticate);
  * @swagger
  * /api/cashbook/transfers:
  *   post:
- *     summary: Create cashbook transfer
- *     description: Create a transfer between two bank accounts
-     *     tags: [Cashbook Transfers]
+ *     summary: Create cashbook transfer (internal fund transfer)
+ *     description: >
+ *       Move funds from one bank to another. Creates TRANSFER OUT / TRANSFER IN cashbook lines and one balanced journal
+ *       (Dr destination bank GL, Cr source bank GL) — no P&L. Requires both banks in the same currency and both linked to GL accounts.
+ *     tags: [Cashbook Transfers]
  *     security:
  *       - bearerAuth: []
  *     requestBody:

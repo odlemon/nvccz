@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
 import { prisma } from '../utils/database';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
 import { remoteUploadService } from './RemoteUploadService';
 
 export interface CSVTransaction {
@@ -710,7 +711,7 @@ export class CashbookBatchImportService {
 - For CUSTOMER transactions: customerName is REQUIRED and must match a customer from the list above
 - For SUPPLIER transactions: vendorName is REQUIRED and must match a vendor from the list above
 - For GL transactions: glAccountNo is REQUIRED and must match an account number from the list above
-- vatCode must be: 15%, 0%, or EXEMPT
+- vatCode must be: 15%, 15.5%, 0%, or EXEMPT (15% and 15.5% use standard 15.5% rate)
 - Date format: YYYY-MM-DD (e.g., ${today})
 - Amount must be a positive number
 - Leave fields empty if not applicable
@@ -795,16 +796,14 @@ export class CashbookBatchImportService {
       throw new Error('Bank account not found');
     }
     
-    const journalEntry = await prisma.journalEntry.create({
-      data: {
-        transactionDate: transaction.transactionDate,
-        referenceNumber,
-        description: `Cashbook ${transaction.type}: ${transaction.description}`,
-        totalAmount: transaction.amount,
-        currencyId: bank.currency.id,
-        status: 'POSTED',
-        createdById: userId
-      }
+    const journalEntry = await createJournalEntryWithAuditSequence({
+      transactionDate: transaction.transactionDate,
+      referenceNumber,
+      description: `Cashbook ${transaction.type}: ${transaction.description}`,
+      totalAmount: transaction.amount,
+      currencyId: bank.currency.id,
+      status: 'POSTED',
+      createdById: userId,
     });
     
     // Create journal entry lines for double-entry accounting
@@ -967,7 +966,11 @@ export class CashbookBatchImportService {
                 type: true,
                 amount: true,
                 description: true,
-                status: true
+                status: true,
+                receiptAttachmentUrl: true,
+                receiptAttachmentPath: true,
+                receiptAttachmentFileName: true,
+                receiptAttachmentMimeType: true
               }
             },
             createdBy: {

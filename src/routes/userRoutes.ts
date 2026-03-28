@@ -2,6 +2,7 @@
 import express from "express";
 import { authenticate } from "../middleware/authenticate";
 import { UserController } from "../controllers/UserController";
+import { SavedFilterFavoriteController } from "../controllers/SavedFilterFavoriteController";
 
 const router = express.Router();
 
@@ -127,6 +128,78 @@ router.get("/", UserController.getAllUsers);
  *         description: Unauthorized
  */
 router.get("/by-department", UserController.getUsersByDepartmentAndRole);
+
+/**
+ * @swagger
+ * /users/me/saved-filter-favorites:
+ *   get:
+ *     summary: List my saved filter favorites
+ *     description: Optional query routeKey scopes to one screen/module (client-defined key).
+ *     tags: [Saved filter favorites]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: routeKey
+ *         schema: { type: string }
+ *         example: sales-invoices
+ *     responses:
+ *       200:
+ *         description: List of presets with name, routeKey, filters JSON
+ *   post:
+ *     summary: Save a named filter preset
+ *     tags: [Saved filter favorites]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, routeKey, filters]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: Western Region Sales
+ *               routeKey:
+ *                 type: string
+ *                 description: Client route or module key so the UI knows where to apply filters
+ *                 example: sales-invoices
+ *               filters:
+ *                 type: object
+ *                 description: Arbitrary JSON your frontend replays as query/body when opening the favorite
+ *               sortOrder:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: Created
+ */
+router.get("/me/saved-filter-favorites", SavedFilterFavoriteController.list);
+router.post("/me/saved-filter-favorites", SavedFilterFavoriteController.create);
+
+/**
+ * @swagger
+ * /users/me/saved-filter-favorites/{presetId}:
+ *   get:
+ *     summary: Get one saved filter favorite
+ *     tags: [Saved filter favorites]
+ *     security:
+ *       - bearerAuth: []
+ *   patch:
+ *     summary: Update name, routeKey, filters, or sortOrder
+ *     tags: [Saved filter favorites]
+ *     security:
+ *       - bearerAuth: []
+ *   delete:
+ *     summary: Remove a favorite
+ *     tags: [Saved filter favorites]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get("/me/saved-filter-favorites/:presetId", SavedFilterFavoriteController.getById);
+router.patch("/me/saved-filter-favorites/:presetId", SavedFilterFavoriteController.update);
+router.delete("/me/saved-filter-favorites/:presetId", SavedFilterFavoriteController.remove);
 
 /**
  * @swagger

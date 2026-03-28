@@ -4,6 +4,8 @@ import { MultiCurrencyService } from '../services/MultiCurrencyService';
 import { PrismaClient } from '@prisma/client';
 
 import { prisma } from '../utils/database';
+import { prismaInvoiceSnapshotSelect } from '../config/accountingSnapshotResponseSelect';
+import { UnrealizedFxReportService } from '../services/UnrealizedFxReportService';
 
 interface AuthRequest extends Request {
   user?: {
@@ -170,8 +172,9 @@ export class MultiCurrencyController {
         toCurrencyId: toCurrencyId as string,
         dateFrom: dateFrom ? new Date(dateFrom as string) : undefined,
         dateTo: dateTo ? new Date(dateTo as string) : undefined,
-        page: parseInt(page as string),
-        limit: parseInt(limit as string)
+        page: Number.isFinite(parseInt(page as string, 10)) ? parseInt(page as string, 10) : 1,
+        limit: Number.isFinite(parseInt(limit as string, 10)) ? parseInt(limit as string, 10) : 10,
+        userId: req.user?.id
       });
 
       res.json({
@@ -332,8 +335,10 @@ export class MultiCurrencyController {
           include: {
             invoice: {
               select: {
+                id: true,
                 invoiceNumber: true,
-                totalAmount: true
+                totalAmount: true,
+                ...prismaInvoiceSnapshotSelect
               }
             },
             fromCurrency: {
@@ -526,6 +531,34 @@ export class MultiCurrencyController {
       res.status(500).json({
         error: 'Failed to revalue foreign currency bank',
         details: error.message
+      });
+    }
+  }
+
+  /**
+   * Month-end unrealized FX: open AR revalued at current rates vs original post/sent rates.
+   * GET ?asOfDate=2026-03-31 (optional; defaults to now)
+   */
+  static async getUnrealizedFxReport(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const raw = req.query.asOfDate as string | undefined;
+      let asOfDate: Date | undefined;
+      if (raw) {
+        asOfDate = new Date(raw);
+        if (Number.isNaN(asOfDate.getTime())) {
+          res.status(400).json({ success: false, error: 'Invalid asOfDate' });
+          return;
+        }
+      }
+
+      const data = await UnrealizedFxReportService.run(asOfDate);
+      res.json({ success: true, data });
+    } catch (error: any) {
+      console.error('Error running unrealized FX report:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to run unrealized FX report',
+        details: error.message,
       });
     }
   }

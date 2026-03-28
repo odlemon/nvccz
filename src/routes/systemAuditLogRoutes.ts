@@ -44,6 +44,13 @@ router.use(authenticate);
  *           type: integer
  *           default: 200
  *         description: Max entries to return (max 500)
+ *       - in: query
+ *         name: scope
+ *         schema:
+ *           type: string
+ *           enum: [all, uat]
+ *           default: all
+ *         description: uat = login, CREATE/CREATED, REPORT_EXPORT only; all = every audit row
  *     responses:
  *       200:
  *         description: System audit log with entries (user and IP per entry)
@@ -63,6 +70,20 @@ router.get("/", SystemAuditLogController.getSystemAuditLog);
  *     tags: [System Audit Log]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: scope
+ *         schema:
+ *           type: string
+ *           enum: [uat, all]
+ *           default: uat
+ *         description: uat = Activity Log (login, creations, exports); all = full audit
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 500
+ *         description: Max rows (max 500)
  *     responses:
  *       200:
  *         description: Last 24 hours audit log

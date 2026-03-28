@@ -1,6 +1,10 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { ProcurementService } from "../services/ProcurementService";
+import {
+  PurchaseInvoiceService,
+  DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE,
+} from "../services/PurchaseInvoiceService";
 import { prisma } from "../utils/database";
 
 export class ProcurementController {
@@ -698,6 +702,88 @@ export class ProcurementController {
   }
 
   /**
+   * Get a single purchase order by ID (vendor, items, currency, etc.)
+   */
+  static async getPurchaseOrderById(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const purchaseOrder = await prisma.purchaseOrder.findUnique({
+        where: { id },
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              address: true,
+            },
+          },
+          requisition: {
+            select: {
+              id: true,
+              requisitionNumber: true,
+              title: true,
+            },
+          },
+          currency: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              symbol: true,
+            },
+          },
+          items: true,
+          createdBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          approvedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          sentBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      if (!purchaseOrder) {
+        return res.status(404).json({
+          success: false,
+          message: "Purchase order not found",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: purchaseOrder,
+      });
+    } catch (error: any) {
+      console.error("Error getting purchase order:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to get purchase order",
+      });
+    }
+  }
+
+  /**
    * Create a procurement invoice (PUBLIC - vendors submit invoices)
    * Vendors are not logged in, so no authentication required
    */
@@ -837,12 +923,14 @@ export class ProcurementController {
   }
 
   /**
-   * Convert a Purchase Order to a Creditor Bill (Invoice)
+   * PO → Vendor Bill (Accounts Payable): creates a Purchase Invoice from an approved/sent PO.
+   * Body: { supplierInvoiceNumber, dueDate? } — line items, qty, and unit prices copy from the PO.
    * POST /api/procurement/purchase-orders/:id/convert-to-bill
    */
   static async convertPOToBill(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      const { supplierInvoiceNumber, dueDate } = req.body;
       const createdById = req.user?.id;
 
       if (!createdById) {
@@ -852,18 +940,36 @@ export class ProcurementController {
         });
       }
 
-      const result = await ProcurementService.convertPOToBill(id, createdById);
+      if (!supplierInvoiceNumber || !String(supplierInvoiceNumber).trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "supplierInvoiceNumber is required (vendor's invoice reference)"
+        });
+      }
 
-      res.status(200).json({
+      const invoice = await PurchaseInvoiceService.createVendorBillFromPurchaseOrder({
+        purchaseOrderId: id,
+        supplierInvoiceNumber: String(supplierInvoiceNumber).trim(),
+        createdById,
+        dueDate: dueDate ? new Date(dueDate) : undefined
+      });
+
+      res.status(201).json({
         success: true,
-        message: result.message,
-        data: result
+        message: "Vendor bill created from purchase order",
+        data: invoice
       });
     } catch (error: any) {
+      if (error?.message === DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE) {
+        return res.status(400).json({
+          success: false,
+          message: DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE
+        });
+      }
       console.error("Error converting PO to bill:", error);
       res.status(400).json({
         success: false,
-        message: error.message || "Failed to convert purchase order to creditor bill"
+        message: error.message || "Failed to convert purchase order to vendor bill"
       });
     }
   }

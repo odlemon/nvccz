@@ -399,21 +399,11 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  */
 router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequisition);
 
-/**
- * @swagger
- router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
-
-/**
- * @swagger
- router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
-
-/**
- * @swagger
- router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder);
-
-/**
- * @swagger
- router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.convertPOToBill);
+router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
+router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
+router.get("/purchase-orders/:id", ProcurementController.getPurchaseOrderById);
+router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder);
+router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.convertPOToBill);
 
 /**
  * @swagger
@@ -556,11 +546,11 @@ router.get("/rfq", ProcurementController.getAllRFQs);
  *             properties:
  *               isTaxable:
  *                 type: boolean
- *                 description: Whether the invoice is taxable. If true, VAT will be calculated automatically using the standard VAT rate (14.5%). If false, tax amount will be set to 0. If not provided, existing invoice tax amounts will be kept.
+ *                 description: Whether the invoice is taxable. If true, VAT will be calculated automatically using the standard VAT rate (15.5%). If false, tax amount will be set to 0. If not provided, existing invoice tax amounts will be kept.
  *                 example: true
  *           examples:
  *             taxable:
- *               summary: Taxable invoice (VAT calculated automatically at 14.5%)
+ *               summary: Taxable invoice (VAT calculated automatically at 15.5%)
  *               value:
  *                 isTaxable: true
  *             nonTaxable:

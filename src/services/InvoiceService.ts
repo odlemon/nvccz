@@ -2,9 +2,18 @@
 import { PrismaClient, Invoice, Customer, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
+import { prismaJournalEntryRateSelect } from "../config/accountingSnapshotResponseSelect";
 import VATService from "./VATService";
 import JournalEntryService, { CreateInvoiceJournalEntryParams } from "./JournalEntryService";
 import AuditService from "./AuditService";
+import { resolveUsdZwgAvgForSnapshot } from "./UsdZwgRateResolver";
+import { MultiCurrencyService } from "./MultiCurrencyService";
+import {
+  buildInvoiceEquivalentAtCreation,
+  type InvoiceEquivalentAtCreation
+} from "../utils/invoiceEquivalentAtCreation";
+
+export type { InvoiceEquivalentAtCreation };
 
 export interface CreateInvoiceParams {
   customerId: string;
@@ -16,12 +25,77 @@ export interface CreateInvoiceParams {
   invoiceNumber?: string;
   isTaxable: boolean;
   createdById: string;
-  exchangeRateAtCreation?: number; // Rate when invoice was created
+  /** Optional override; normally omitted so middleware sets USD/ZWG from Zimrate / stored snapshot. */
+  exchangeRateAtCreation?: number;
+  /**
+   * When set with exchangeRateAtCreation, skips extra Zimrate calls in Prisma middleware and invoice JE create.
+   * Use the same USD/ZWG avg you already fetched (e.g. scripts / bulk jobs).
+   */
+  usdZwgRateSnapshot?: number;
 }
 
 export interface MarkAsPaidParams {
   paymentMethod?: string;
   paymentCurrencyId?: string; // Currency used for payment
+  /** Required for cross-currency: actual amount received in payment currency (e.g. ZAR). */
+  paymentAmount?: number;
+  /** ZAR bank used for settlement (USD invoice paid in ZAR). */
+  bankId?: string;
+  /**
+   * Optional USD→ZWL (ZiG) rate at payment for `ForexGainLoss.exchangeRate` when paying USD in ZWL.
+   * Omit to resolve from `exchange_rates` (may fail if none configured).
+   */
+  paymentExchangeRate?: number;
+}
+
+/** Populated on successful mark-as-paid: normalized conversion + realized FX for API clients. */
+export type PaymentSettlementPath =
+  | "SAME_CURRENCY"
+  | "LEGACY_INVOICE_RATE"
+  | "USD_ZWL"
+  | "USD_ZWL_ZAR";
+
+export interface PaymentSettlementConvertedAmounts {
+  invoiceTotalInInvoiceCurrency: number;
+  invoiceCurrencyCode: string;
+  /** Functional/book amount at invoice (e.g. USD total × exchangeRateAtCreation → ZWL). */
+  bookValueAtInvoiceCreation?: number;
+  bookCurrencyCode?: string;
+  /** Actual or implied settlement in payment currency. */
+  paymentAmountInPaymentCurrency: number;
+  paymentCurrencyCode: string;
+  /** Payment expressed in book currency when different from payment currency (e.g. ZWL equivalent of ZAR received). */
+  paymentEquivalentInBookCurrency?: number;
+  /** Obligation in payment currency at payment-date cross (USD→ZAR path). */
+  obligationInPaymentCurrency?: number;
+  /** Snapshot rate: local (ZWL/ZWG) per 1 invoice unit at creation, when set on invoice. */
+  exchangeRateAtCreation?: number;
+}
+
+export interface PaymentSettlementRealizedFx {
+  forexGainLossId: string;
+  gainLossType: "GAIN" | "LOSS";
+  /** Magnitude in book/functional currency (matches `ForexGainLoss.gainLossAmount` semantics). */
+  amountInBookCurrency: number;
+  bookCurrencyCode: string;
+  /** Optional: absolute ZAR difference between cash received and AR clearance (USD→ZAR path). */
+  amountInPaymentCurrency?: number;
+  paymentCurrencyCode?: string;
+  paymentJournalEntryId?: string;
+}
+
+export interface PaymentSettlementSummary {
+  path: PaymentSettlementPath;
+  convertedAmounts: PaymentSettlementConvertedAmounts;
+  realizedGainLoss?: PaymentSettlementRealizedFx | null;
+  /** Short note for non–forex paths (legacy conversion). */
+  note?: string;
+  /** Same-currency partial payment (open-item); full settlement omits this. */
+  partialPayment?: {
+    amountPaidThisCall: number;
+    outstandingAfter: number;
+    invoiceTotal: number;
+  };
 }
 
 export interface InvoiceWithRelations extends Invoice {
@@ -33,9 +107,119 @@ export interface InvoiceWithRelations extends Invoice {
     referenceNumber: string;
     status: string;
   } | null;
+  /** Total in the paired currency at creation-time USD/ZWG snapshot (USD ↔ ZWL/ZWG only). */
+  equivalentAtCreation?: InvoiceEquivalentAtCreation | null;
+  /** Populated when mark-as-paid used a cross-currency path (e.g. USD invoice settled in ZAR). */
+  crossCurrencyPayment?: Record<string, unknown>;
+  /** Populated on mark-as-paid: stable fields for conversions + realized gain/loss. */
+  paymentSettlement?: PaymentSettlementSummary;
+  /** Related forex rows when included (list/detail). */
+  forexGainLoss?: unknown[];
 }
 
 export class InvoiceService {
+  private static async getUsdLocalCurrencyLookup(): Promise<{
+    usd: { id: string; code: string; name: string; symbol: string } | null;
+    local: { id: string; code: string; name: string; symbol: string } | null;
+  }> {
+    const rows = await prisma.currency.findMany({
+      where: { isActive: true, code: { in: ["USD", "ZWL", "ZWG"] } },
+      select: { id: true, code: true, name: true, symbol: true }
+    });
+    const usd = rows.find((r) => r.code.toUpperCase() === "USD") ?? null;
+    const local =
+      rows.find((r) => r.code.toUpperCase() === "ZWG") ??
+      rows.find((r) => r.code.toUpperCase() === "ZWL") ??
+      null;
+    return { usd, local };
+  }
+
+  /** Include graph for invoice API (list, detail, mark-as-paid response). */
+  private static invoiceApiInclude() {
+    return {
+      customer: true,
+      currency: true,
+      paymentCurrency: true,
+      forexGainLoss: {
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          transactionDate: true,
+          gainLossType: true,
+          gainLossAmount: true,
+          originalAmount: true,
+          convertedAmount: true,
+          exchangeRate: true,
+          journalEntryId: true,
+          description: true,
+          createdAt: true,
+          fromCurrency: { select: { id: true, code: true, symbol: true } },
+          toCurrency: { select: { id: true, code: true, symbol: true } }
+        }
+      },
+      journalEntry: {
+        select: {
+          id: true,
+          referenceNumber: true,
+          status: true,
+          ...prismaJournalEntryRateSelect
+        }
+      }
+    };
+  }
+
+  private static paymentSnapshotsForDb(
+    paymentSettlement: PaymentSettlementSummary | null | undefined,
+    crossCurrencyPayment: Record<string, unknown> | null | undefined
+  ) {
+    return {
+      paymentSettlementSnapshot:
+        paymentSettlement == null ? null : JSON.parse(JSON.stringify(paymentSettlement)),
+      crossCurrencyPaymentSnapshot:
+        crossCurrencyPayment == null ? null : JSON.parse(JSON.stringify(crossCurrencyPayment))
+    };
+  }
+
+  /** Map DB JSON columns to API fields `paymentSettlement` / `crossCurrencyPayment`. */
+  private static applyPaymentSnapshotFields(inv: Record<string, unknown> | null) {
+    if (!inv) return null;
+    const o = { ...inv };
+    if (o.paymentSettlementSnapshot != null && typeof o.paymentSettlementSnapshot === "object") {
+      o.paymentSettlement = o.paymentSettlementSnapshot;
+    }
+    if (o.crossCurrencyPaymentSnapshot != null && typeof o.crossCurrencyPaymentSnapshot === "object") {
+      o.crossCurrencyPayment = o.crossCurrencyPaymentSnapshot;
+    }
+    delete o.paymentSettlementSnapshot;
+    delete o.crossCurrencyPaymentSnapshot;
+    return o;
+  }
+
+  private static async attachEquivalent<T extends InvoiceWithRelations>(
+    invoice: T | null
+  ): Promise<(T & { equivalentAtCreation: InvoiceEquivalentAtCreation | null }) | null> {
+    if (!invoice) return null;
+    const lookup = await this.getUsdLocalCurrencyLookup();
+    const merged = {
+      ...invoice,
+      equivalentAtCreation: buildInvoiceEquivalentAtCreation(invoice, lookup)
+    };
+    return this.applyPaymentSnapshotFields(merged) as any;
+  }
+
+  private static async attachEquivalentMany<T extends InvoiceWithRelations>(
+    invoices: T[]
+  ): Promise<Array<T & { equivalentAtCreation: InvoiceEquivalentAtCreation | null }>> {
+    if (!invoices.length) return [];
+    const lookup = await this.getUsdLocalCurrencyLookup();
+    return invoices.map((inv) =>
+      this.applyPaymentSnapshotFields({
+        ...inv,
+        equivalentAtCreation: buildInvoiceEquivalentAtCreation(inv, lookup)
+      }) as any
+    );
+  }
+
   /**
    * Get the next sequential invoice number
    */
@@ -115,6 +299,12 @@ export class InvoiceService {
       // Validate that customer and currency exist
       await this.validateInvoiceData(customerId, currencyId);
 
+      let lineItems = Array.isArray(items) ? items : [];
+      if (lineItems.length === 0 && Number(amount) > 0) {
+        lineItems = [{ quantity: 1, unitPrice: Number(amount), description: "Line" }];
+      }
+      this.validateInvoiceLineItems(lineItems, amount);
+
       // Calculate VAT if taxable (as number)
       const vatAmount: number = VATService.isVATEligible(amount, isTaxable)
         ? VATService.calculateVAT(amount)
@@ -122,83 +312,121 @@ export class InvoiceService {
       const totalAmount: number = Number(amount) + Number(vatAmount);
 
       // Generate invoice number if not provided
-      const finalInvoiceNumber = invoiceNumber || await this.generateInvoiceNumber();
+      const finalInvoiceNumber = invoiceNumber || (await this.generateInvoiceNumber());
 
-      // Create the invoice record (convert to Decimal at DB write)
-      const invoice = await prisma.invoice.create({
-        data: {
-          customerId,
-          amount: new Decimal(amount),
-          vatAmount: new Decimal(vatAmount),
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          transactionDate,
-          description,
-          items: items || [],
-          invoiceNumber: finalInvoiceNumber,
-          isTaxable,
-          status: "DRAFT",
-          createdById,
-          exchangeRateAtCreation: params.exchangeRateAtCreation ? new Decimal(params.exchangeRateAtCreation) : null,
-          outstandingAmount: new Decimal(totalAmount) // Initially, outstanding amount equals total amount
+      // Omit exchangeRateAtCreation unless client supplied a finite number; otherwise middleware fills from Zimrate/DB snapshot.
+      const manualExRate =
+        params.exchangeRateAtCreation != null && Number.isFinite(Number(params.exchangeRateAtCreation))
+          ? new Decimal(params.exchangeRateAtCreation)
+          : undefined;
+      const manualUsdZwgSnap =
+        params.usdZwgRateSnapshot != null && Number.isFinite(Number(params.usdZwgRateSnapshot))
+          ? new Decimal(params.usdZwgRateSnapshot)
+          : undefined;
+
+      const { updatedInvoice, journalEntryResult } = await prisma.$transaction(
+        async (tx) => {
+          const invoice = await tx.invoice.create({
+            data: {
+              customerId,
+              amount: new Decimal(amount),
+              vatAmount: new Decimal(vatAmount),
+              totalAmount: new Decimal(totalAmount),
+              currencyId,
+              transactionDate,
+              description,
+              items: lineItems,
+              invoiceNumber: finalInvoiceNumber,
+              isTaxable,
+              status: "DRAFT",
+              createdById,
+              ...(manualExRate != null ? { exchangeRateAtCreation: manualExRate } : {}),
+              ...(manualUsdZwgSnap != null ? { usdZwgRateSnapshot: manualUsdZwgSnap } : {}),
+              outstandingAmount: new Decimal(totalAmount)
+            },
+            include: this.invoiceApiInclude()
+          });
+
+          const journalEntryResult = await JournalEntryService.createInvoiceJournalEntry(
+            {
+              customerId,
+              amount,
+              vatAmount,
+              totalAmount,
+              currencyId,
+              transactionDate,
+              description,
+              invoiceNumber: finalInvoiceNumber,
+              isTaxable,
+              createdById,
+              ...(manualUsdZwgSnap != null
+                ? { usdZwgRateSnapshot: Number(manualUsdZwgSnap) }
+                : {})
+            },
+            tx
+          );
+
+          const updated = await tx.invoice.update({
+            where: { id: invoice.id },
+            data: { journalEntryId: journalEntryResult.journalEntry.id },
+            include: this.invoiceApiInclude()
+          });
+
+          return { updatedInvoice: updated, journalEntryResult };
         },
-        include: {
-          customer: true,
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        { maxWait: 10000, timeout: 30000 }
+      );
+
+      await AuditService.log({
+        userId: createdById,
+        action: "CREATE",
+        entityType: "JournalEntry",
+        entityId: journalEntryResult.journalEntry.id,
+        newValues: journalEntryResult.journalEntry
       });
 
-      // Create journal entry for double-entry bookkeeping
-      const journalEntryResult = await JournalEntryService.createInvoiceJournalEntry({
-        customerId,
-        amount,
-        vatAmount,
-        totalAmount,
-        currencyId,
-        transactionDate,
-        description,
-        invoiceNumber: finalInvoiceNumber,
-        isTaxable,
-        createdById
-      });
-
-      // Update invoice with journal entry reference
-      const updatedInvoice = await prisma.invoice.update({
-        where: { id: invoice.id },
-        data: { journalEntryId: journalEntryResult.journalEntry.id },
-        include: {
-          customer: true,
-          
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
-      });
-
-      // Audit: CREATE invoice
       await AuditService.log({
         userId: createdById,
         action: "CREATE",
         entityType: "Invoice",
         entityId: updatedInvoice.id,
-        newValues: updatedInvoice,
+        newValues: updatedInvoice
       });
 
-      return updatedInvoice;
+      return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
     } catch (error: any) {
       throw new Error(`Failed to create invoice: ${error.message}`);
+    }
+  }
+
+  /**
+   * Fail fast before any DB write: lines must be valid and sum to the header net amount.
+   */
+  private static validateInvoiceLineItems(items: unknown, netAmount: number): void {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error("At least one invoice line item is required");
+    }
+    let sum = 0;
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i];
+      if (row == null || typeof row !== "object") {
+        throw new Error(`Invoice line ${i + 1} is invalid`);
+      }
+      const q = Number(row.quantity);
+      const u = Number(row.unitPrice);
+      if (!Number.isFinite(q) || q <= 0) {
+        throw new Error(`Invoice line ${i + 1}: quantity must be a positive number`);
+      }
+      if (!Number.isFinite(u) || u < 0) {
+        throw new Error(`Invoice line ${i + 1}: unitPrice must be a non-negative number`);
+      }
+      sum += q * u;
+    }
+    const net = Number(netAmount);
+    if (Math.abs(sum - net) > 0.02) {
+      throw new Error(
+        `Line item totals (${sum.toFixed(2)}) do not match invoice net amount (${net.toFixed(2)})`
+      );
     }
   }
 
@@ -224,20 +452,11 @@ export class InvoiceService {
    */
   static async getInvoiceById(id: string): Promise<InvoiceWithRelations | null> {
     try {
-      return await prisma.invoice.findUnique({
+      const invoice = await prisma.invoice.findUnique({
         where: { id },
-        include: {
-          customer: true,
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        include: this.invoiceApiInclude()
       });
+      return (await this.attachEquivalent(invoice)) as InvoiceWithRelations | null;
     } catch (error: any) {
       throw new Error(`Failed to get invoice: ${error.message}`);
     }
@@ -279,7 +498,15 @@ export class InvoiceService {
 
       if (customerId) where.customerId = customerId;
       if (currencyId) where.currencyId = currencyId;
-      if (status) where.status = status;
+      if (status) {
+        const s = String(status).toUpperCase();
+        if (s === "OPEN") {
+          where.status = { in: ["SENT", "PARTIALLY_PAID"] };
+          where.outstandingAmount = { gt: 0 };
+        } else {
+          where.status = status;
+        }
+      }
       if (startDate || endDate) {
         where.transactionDate = {};
         if (startDate) where.transactionDate.gte = startDate;
@@ -292,24 +519,15 @@ export class InvoiceService {
           skip,
           take: limit,
           orderBy: { createdAt: 'desc' },
-          include: {
-            customer: true,
-            
-            currency: true,
-            journalEntry: {
-              select: {
-                id: true,
-                referenceNumber: true,
-                status: true
-              }
-            }
-          }
+          include: this.invoiceApiInclude()
         }),
         prisma.invoice.count({ where })
       ]);
 
+      const withEquiv = await this.attachEquivalentMany(invoices);
+
       return {
-        invoices,
+        invoices: withEquiv as InvoiceWithRelations[],
         total,
         page,
         limit,
@@ -337,7 +555,10 @@ export class InvoiceService {
                                updateData.vatAmount !== undefined;
 
       // If invoice is POSTED and this is a financial update, we need to create reversals
-      if (currentInvoice.status === "SENT" && isFinancialUpdate) {
+      if (
+        (currentInvoice.status === "SENT" || currentInvoice.status === "PARTIALLY_PAID") &&
+        isFinancialUpdate
+      ) {
         // Create reversal journal entry for the current invoice
         await JournalEntryService.createReversalInvoiceJournalEntry({
           customerId: currentInvoice.customerId,
@@ -385,22 +606,14 @@ export class InvoiceService {
           totalAmount: new Decimal(newTotalAmount),
           isTaxable: newIsTaxable
         },
-        include: {
-          customer: true,
-          
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        include: this.invoiceApiInclude()
       });
 
       // If this was a financial update on a POSTED invoice, create new journal entry
-      if (currentInvoice.status === "SENT" && isFinancialUpdate) {
+      if (
+        (currentInvoice.status === "SENT" || currentInvoice.status === "PARTIALLY_PAID") &&
+        isFinancialUpdate
+      ) {
         const journalEntryResult = await JournalEntryService.createInvoiceJournalEntry({
           customerId: updatedInvoice.customerId,
           
@@ -419,18 +632,7 @@ export class InvoiceService {
         const finalUpdatedInvoice = await prisma.invoice.update({
           where: { id },
           data: { journalEntryId: journalEntryResult.journalEntry.id },
-          include: {
-            customer: true,
-            
-            currency: true,
-            journalEntry: {
-              select: {
-                id: true,
-                referenceNumber: true,
-                status: true
-              }
-            }
-          }
+          include: this.invoiceApiInclude()
         });
 
         // Audit: UPDATE invoice (SENT with financial changes)
@@ -443,7 +645,7 @@ export class InvoiceService {
           newValues: finalUpdatedInvoice,
         });
 
-        return finalUpdatedInvoice;
+        return (await this.attachEquivalent(finalUpdatedInvoice)) as InvoiceWithRelations;
       }
 
       // Audit: UPDATE invoice (no financial changes)
@@ -456,7 +658,7 @@ export class InvoiceService {
         newValues: updatedInvoice,
       });
 
-      return updatedInvoice;
+      return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
     } catch (error: any) {
       throw new Error(`Failed to update invoice: ${error.message}`);
     }
@@ -473,7 +675,10 @@ export class InvoiceService {
       }
 
       // If invoice is POSTED, create reversal journal entry
-      if (invoice.status === "SENT" && invoice.journalEntry) {
+      if (
+        (invoice.status === "SENT" || invoice.status === "PARTIALLY_PAID") &&
+        invoice.journalEntry
+      ) {
         await JournalEntryService.createReversalInvoiceJournalEntry({
           customerId: invoice.customerId,
           
@@ -620,22 +825,16 @@ export class InvoiceService {
   /**
    * Send invoice to customer (DRAFT -> SENT)
    * No accounting impact - just status change
+   * @param options.usdZwgSnapshotForSend When set, skips Zimrate/DB resolver (use pre-fetched USD/ZWG avg).
    */
-  static async sendInvoice(id: string): Promise<InvoiceWithRelations> {
+  static async sendInvoice(
+    id: string,
+    options?: { usdZwgSnapshotForSend?: number }
+  ): Promise<InvoiceWithRelations> {
     try {
       const invoice = await prisma.invoice.findUnique({
         where: { id },
-        include: {
-          customer: true,
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        include: this.invoiceApiInclude()
       });
 
       if (!invoice) {
@@ -647,33 +846,73 @@ export class InvoiceService {
       }
 
       const before = invoice;
+      const preSend = options?.usdZwgSnapshotForSend;
+      const rateAtSend =
+        preSend != null && Number.isFinite(preSend) && preSend > 0
+          ? preSend
+          : await resolveUsdZwgAvgForSnapshot(prisma);
+      const rateDecSend =
+        rateAtSend != null && Number.isFinite(rateAtSend) && rateAtSend > 0
+          ? new Decimal(rateAtSend)
+          : null;
+
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
-        data: { status: "SENT" },
-        include: {
-          customer: true,
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        data: {
+          status: "SENT",
+          ...(rateDecSend != null
+            ? {
+                exchangeRateAtSent: rateDecSend,
+                usdZwgRateSnapshotSent: rateDecSend
+              }
+            : {})
+        },
+        include: this.invoiceApiInclude()
       });
 
+      // Post linked journal so GL Debtors Control (e.g. 1200) moves with the same amount as customer open balance
+      if (updatedInvoice.journalEntryId) {
+        const je = await prisma.journalEntry.findUnique({
+          where: { id: updatedInvoice.journalEntryId }
+        });
+        if (je?.status === "PENDING") {
+          try {
+            await JournalEntryService.postJournalEntry(je.id, updatedInvoice.createdById);
+          } catch (postErr: any) {
+            await prisma.invoice.update({
+              where: { id },
+              data: {
+                status: "DRAFT",
+                ...(rateDecSend != null
+                  ? {
+                      exchangeRateAtSent: null,
+                      usdZwgRateSnapshotSent: null
+                    }
+                  : {})
+              }
+            });
+            throw new Error(
+              `Failed to post invoice to the ledger (Debtors Control must match customer balance): ${postErr?.message || postErr}`
+            );
+          }
+        }
+      }
+
       // Audit: SEND invoice (status change)
+      const afterSend = await prisma.invoice.findUnique({
+        where: { id },
+        include: this.invoiceApiInclude()
+      });
       await AuditService.log({
         userId: updatedInvoice.createdById,
         action: "SEND",
         entityType: "Invoice",
         entityId: id,
         oldValues: before,
-        newValues: updatedInvoice,
+        newValues: afterSend ?? updatedInvoice,
       });
 
-      return updatedInvoice;
+      return (await this.attachEquivalent(afterSend ?? updatedInvoice)) as InvoiceWithRelations;
     } catch (error: any) {
       throw new Error(`Failed to send invoice: ${error.message}`);
     }
@@ -685,45 +924,245 @@ export class InvoiceService {
    * Supports multi-currency payments with conversion
    */
   static async markAsPaid(id: string, params: MarkAsPaidParams = {}): Promise<InvoiceWithRelations> {
-    const { paymentMethod = "BANK", paymentCurrencyId } = params;
+    const { paymentMethod = "BANK", paymentCurrencyId, paymentAmount, bankId, paymentExchangeRate } = params;
     try {
       const invoice = await prisma.invoice.findUnique({
         where: { id },
-        include: {
-          customer: true,
-          currency: true,
-          paymentCurrency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        include: this.invoiceApiInclude()
       });
 
       if (!invoice) {
         throw new Error("Invoice not found");
       }
 
-      if (invoice.status !== "SENT") {
-        throw new Error(`Cannot mark invoice as paid with status: ${invoice.status}. Only SENT invoices can be marked as paid.`);
+      if (invoice.status !== "SENT" && invoice.status !== "PARTIALLY_PAID") {
+        throw new Error(
+          `Cannot record payment for invoice with status: ${invoice.status}. Only SENT or PARTIALLY_PAID invoices accept payments.`
+        );
       }
 
-      // Handle currency conversion if payment currency is different from invoice currency
+      const outstandingDec = new Decimal(invoice.outstandingAmount ?? invoice.totalAmount);
+      if (outstandingDec.lte(0)) {
+        throw new Error("Invoice has no outstanding balance to pay.");
+      }
+
+      const invCur = invoice.currency.code.toUpperCase();
+      let paymentCurCode: string | null = null;
+      if (paymentCurrencyId) {
+        const pc = await prisma.currency.findUnique({ where: { id: paymentCurrencyId } });
+        paymentCurCode = pc?.code?.toUpperCase() ?? null;
+      }
+
+      const rateAtPaid = await resolveUsdZwgAvgForSnapshot(prisma);
+      const rateDecPaid =
+        rateAtPaid != null && Number.isFinite(rateAtPaid) && rateAtPaid > 0
+          ? new Decimal(rateAtPaid)
+          : null;
+
+      const before = invoice;
+      let crossCurrencyPayment: Record<string, unknown> | undefined;
+
+      const { local: localCurrency } = await this.getUsdLocalCurrencyLookup();
+      const bookCurrencyCodeDefault = localCurrency?.code?.toUpperCase() ?? "ZWL";
+
+      // --- USD invoice settled in ZAR via ZAR bank: USD → ZWL (creation) → ZAR (payment cross) ---
+      if (
+        paymentCurrencyId &&
+        paymentCurrencyId !== invoice.currencyId &&
+        invCur === "USD" &&
+        paymentCurCode === "ZAR"
+      ) {
+        if (paymentAmount == null || !Number.isFinite(Number(paymentAmount)) || Number(paymentAmount) <= 0) {
+          throw new Error("paymentAmount (ZAR received) is required when paying a USD invoice in ZAR");
+        }
+        if (!bankId) {
+          throw new Error("bankId is required for ZAR settlement (must be a ZAR cashbook bank)");
+        }
+        if (!invoice.exchangeRateAtCreation) {
+          throw new Error("Invoice is missing exchangeRateAtCreation; cannot value ZWL leg at creation");
+        }
+
+        const zarResult = await MultiCurrencyService.processUsdInvoicePaidWithZarBank({
+          invoiceId: id,
+          paymentAmountZar: Number(paymentAmount),
+          bankId,
+          createdById: invoice.createdById
+        });
+        crossCurrencyPayment = {
+          path: "USD_ZWL_ZAR",
+          ...zarResult.breakdown,
+          forexGainLossId: zarResult.forexGainLoss?.id,
+          paymentJournalEntryId: zarResult.journalEntryId
+        };
+
+        const b = zarResult.breakdown;
+        const payZarNum = Number(b.paymentZar);
+        const zarObNum = Number(b.zarObligationAtPayment);
+        const glType: "GAIN" | "LOSS" = b.gainLossType === "LOSS" ? "LOSS" : "GAIN";
+        const paymentSettlement: PaymentSettlementSummary = {
+          path: "USD_ZWL_ZAR",
+          convertedAmounts: {
+            invoiceTotalInInvoiceCurrency: Number(b.invoiceTotalUsd),
+            invoiceCurrencyCode: invCur,
+            bookValueAtInvoiceCreation: Number(b.originalZwlAtCreation),
+            bookCurrencyCode: bookCurrencyCodeDefault,
+            paymentAmountInPaymentCurrency: payZarNum,
+            paymentCurrencyCode: paymentCurCode!,
+            paymentEquivalentInBookCurrency: Number(b.paymentZwlEquivalent),
+            obligationInPaymentCurrency: zarObNum,
+            exchangeRateAtCreation: Number(b.usdZwlAtCreation)
+          },
+          realizedGainLoss: zarResult.forexGainLoss
+            ? {
+                forexGainLossId: zarResult.forexGainLoss.id,
+                gainLossType: glType,
+                amountInBookCurrency: Math.abs(Number(b.gainLossZwl)),
+                bookCurrencyCode: bookCurrencyCodeDefault,
+                amountInPaymentCurrency: Math.abs(payZarNum - zarObNum),
+                paymentCurrencyCode: paymentCurCode!,
+                paymentJournalEntryId: zarResult.journalEntryId
+              }
+            : null
+        };
+
+        const updatedInvoice = await prisma.invoice.update({
+          where: { id },
+          data: {
+            status: "PAID",
+            paidAmount: new Decimal(invoice.totalAmount),
+            outstandingAmount: new Decimal(0),
+            paymentMethod,
+            paymentCurrencyId,
+            amountInPaymentCurrency: new Decimal(Number(paymentAmount)),
+            paymentDate: new Date(),
+            ...(rateDecPaid != null
+              ? {
+                  exchangeRateAtPaid: rateDecPaid,
+                  usdZwgRateSnapshotPaid: rateDecPaid
+                }
+              : {}),
+            ...this.paymentSnapshotsForDb(paymentSettlement, crossCurrencyPayment)
+          },
+          include: this.invoiceApiInclude()
+        });
+
+        await AuditService.log({
+          userId: updatedInvoice.createdById,
+          action: "MARK_AS_PAID",
+          entityType: "Invoice",
+          entityId: id,
+          oldValues: before,
+          newValues: updatedInvoice
+        });
+
+        return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
+      }
+
+      // --- USD invoice paid in ZWL/ZWG: existing forex + journal path ---
+      if (
+        paymentCurrencyId &&
+        paymentCurrencyId !== invoice.currencyId &&
+        invCur === "USD" &&
+        (paymentCurCode === "ZWL" || paymentCurCode === "ZWG")
+      ) {
+        if (!invoice.exchangeRateAtCreation) {
+          throw new Error("Exchange rate at creation is required for currency conversion");
+        }
+        const payZwl =
+          paymentAmount != null && Number.isFinite(Number(paymentAmount)) && Number(paymentAmount) > 0
+            ? Number(paymentAmount)
+            : Number(invoice.totalAmount) * Number(invoice.exchangeRateAtCreation);
+
+        const mc = await MultiCurrencyService.processMultiCurrencyPayment({
+          invoiceId: id,
+          paymentCurrencyId,
+          paymentAmount: payZwl,
+          exchangeRate:
+            paymentExchangeRate != null &&
+            Number.isFinite(Number(paymentExchangeRate)) &&
+            Number(paymentExchangeRate) > 0
+              ? Number(paymentExchangeRate)
+              : undefined,
+          createdById: invoice.createdById
+        });
+
+        crossCurrencyPayment = {
+          path: "USD_ZWL",
+          paymentZwlAmount: payZwl,
+          forexGainLossId: mc.forexGainLoss?.id,
+          paymentJournalEntryId: mc.journalEntryId
+        };
+
+        const originalZwlBook =
+          Number(invoice.totalAmount) * Number(invoice.exchangeRateAtCreation);
+        const fxGlType: "GAIN" | "LOSS" =
+          mc.forexGainLoss?.gainLossType === "LOSS" ? "LOSS" : "GAIN";
+        const paymentSettlement: PaymentSettlementSummary = {
+          path: "USD_ZWL",
+          convertedAmounts: {
+            invoiceTotalInInvoiceCurrency: Number(invoice.totalAmount),
+            invoiceCurrencyCode: invCur,
+            bookValueAtInvoiceCreation: originalZwlBook,
+            bookCurrencyCode: paymentCurCode!,
+            paymentAmountInPaymentCurrency: payZwl,
+            paymentCurrencyCode: paymentCurCode!,
+            exchangeRateAtCreation: Number(invoice.exchangeRateAtCreation)
+          },
+          realizedGainLoss:
+            mc.forexGainLoss != null
+              ? {
+                  forexGainLossId: mc.forexGainLoss.id,
+                  gainLossType: fxGlType,
+                  amountInBookCurrency: Number(mc.forexGainLoss.gainLossAmount),
+                  bookCurrencyCode: paymentCurCode!,
+                  paymentJournalEntryId: mc.journalEntryId
+                }
+              : null
+        };
+
+        const updatedInvoice = await prisma.invoice.update({
+          where: { id },
+          data: {
+            status: "PAID",
+            paidAmount: new Decimal(invoice.totalAmount),
+            outstandingAmount: new Decimal(0),
+            paymentMethod,
+            paymentCurrencyId,
+            amountInPaymentCurrency: new Decimal(payZwl),
+            paymentDate: new Date(),
+            ...(rateDecPaid != null
+              ? {
+                  exchangeRateAtPaid: rateDecPaid,
+                  usdZwgRateSnapshotPaid: rateDecPaid
+                }
+              : {}),
+            ...this.paymentSnapshotsForDb(paymentSettlement, crossCurrencyPayment)
+          },
+          include: this.invoiceApiInclude()
+        });
+
+        await AuditService.log({
+          userId: updatedInvoice.createdById,
+          action: "MARK_AS_PAID",
+          entityType: "Invoice",
+          entityId: id,
+          oldValues: before,
+          newValues: updatedInvoice
+        });
+
+        return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
+      }
+
+      // --- Same currency or legacy single-step conversion (non-ZAR) ---
       let amountInPaymentCurrency = Number(invoice.amount);
       let vatAmountInPaymentCurrency = Number(invoice.vatAmount);
       let totalAmountInPaymentCurrency = Number(invoice.totalAmount);
       let finalCurrencyId = invoice.currencyId;
 
       if (paymentCurrencyId && paymentCurrencyId !== invoice.currencyId) {
-        // Use the exchange rate from invoice creation date for conversion
         if (!invoice.exchangeRateAtCreation) {
           throw new Error("Exchange rate at creation is required for currency conversion");
         }
-
-        // Convert all amounts using the rate from invoice creation date
         const exchangeRate = Number(invoice.exchangeRateAtCreation);
         amountInPaymentCurrency = Number(invoice.amount) * exchangeRate;
         vatAmountInPaymentCurrency = Number(invoice.vatAmount) * exchangeRate;
@@ -731,8 +1170,134 @@ export class InvoiceService {
         finalCurrencyId = paymentCurrencyId;
       }
 
-      // Create payment journal entry
-      const paymentJournalEntry = await JournalEntryService.createInvoicePaymentJournalEntry({
+      const payCode = paymentCurCode ?? invCur;
+      const crossLegacy = !!(paymentCurrencyId && paymentCurrencyId !== invoice.currencyId);
+
+      const invTotalDec = new Decimal(invoice.totalAmount);
+      const paidSoFarDec = new Decimal(invoice.paidAmount ?? 0);
+      let paymentSettlementLegacy: PaymentSettlementSummary;
+
+      if (!crossLegacy) {
+        const outstandingNow = Decimal.min(outstandingDec, invTotalDec.minus(paidSoFarDec));
+        if (outstandingNow.lte(0)) {
+          throw new Error("Invoice has no outstanding balance to pay.");
+        }
+        let payTotalDec: Decimal;
+        if (
+          paymentAmount != null &&
+          Number.isFinite(Number(paymentAmount)) &&
+          Number(paymentAmount) > 0
+        ) {
+          payTotalDec = Decimal.min(new Decimal(paymentAmount), outstandingNow);
+        } else {
+          payTotalDec = outstandingNow;
+        }
+        if (payTotalDec.lte(0)) {
+          throw new Error("Payment amount must be greater than zero.");
+        }
+
+        const ratio =
+          invTotalDec.gt(0) ? payTotalDec.div(invTotalDec) : new Decimal(1);
+        amountInPaymentCurrency = new Decimal(invoice.amount)
+          .mul(ratio)
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+          .toNumber();
+        vatAmountInPaymentCurrency = new Decimal(invoice.vatAmount)
+          .mul(ratio)
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+          .toNumber();
+        totalAmountInPaymentCurrency = payTotalDec.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+
+        const newOutstanding = outstandingNow.minus(payTotalDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+        const newPaid = paidSoFarDec.plus(payTotalDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+        const fullySettled = newOutstanding.lte(new Decimal(0.005));
+
+        paymentSettlementLegacy = {
+          path: "SAME_CURRENCY",
+          convertedAmounts: {
+            invoiceTotalInInvoiceCurrency: Number(invoice.totalAmount),
+            invoiceCurrencyCode: invCur,
+            paymentAmountInPaymentCurrency: totalAmountInPaymentCurrency,
+            paymentCurrencyCode: payCode
+          },
+          realizedGainLoss: null,
+          ...(fullySettled
+            ? {}
+            : {
+                partialPayment: {
+                  amountPaidThisCall: totalAmountInPaymentCurrency,
+                  outstandingAfter: Math.max(0, newOutstanding.toNumber()),
+                  invoiceTotal: Number(invoice.totalAmount)
+                },
+                note: "Partial payment; invoice remains open until outstanding is cleared."
+              })
+        };
+
+        await JournalEntryService.createInvoicePaymentJournalEntry({
+          invoiceId: id,
+          amount: amountInPaymentCurrency,
+          vatAmount: vatAmountInPaymentCurrency,
+          totalAmount: totalAmountInPaymentCurrency,
+          currencyId: finalCurrencyId,
+          transactionDate: new Date(),
+          description: `Payment for invoice: ${invoice.invoiceNumber}`,
+          paymentMethod,
+          createdById: invoice.createdById,
+          paymentBankId: bankId,
+        });
+
+        const updatedInvoice = await prisma.invoice.update({
+          where: { id },
+          data: {
+            status: fullySettled ? "PAID" : "PARTIALLY_PAID",
+            paidAmount: newPaid,
+            outstandingAmount: fullySettled
+              ? new Decimal(0)
+              : Decimal.max(new Decimal(0), newOutstanding),
+            paymentMethod,
+            paymentCurrencyId: paymentCurrencyId || invoice.currencyId,
+            amountInPaymentCurrency: null,
+            paymentDate: new Date(),
+            ...(rateDecPaid != null
+              ? {
+                  exchangeRateAtPaid: rateDecPaid,
+                  usdZwgRateSnapshotPaid: rateDecPaid
+                }
+              : {}),
+            ...this.paymentSnapshotsForDb(paymentSettlementLegacy, null)
+          },
+          include: this.invoiceApiInclude()
+        });
+
+        await AuditService.log({
+          userId: updatedInvoice.createdById,
+          action: "MARK_AS_PAID",
+          entityType: "Invoice",
+          entityId: id,
+          oldValues: before,
+          newValues: updatedInvoice
+        });
+
+        return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
+      }
+
+      paymentSettlementLegacy = {
+        path: "LEGACY_INVOICE_RATE",
+        convertedAmounts: {
+          invoiceTotalInInvoiceCurrency: Number(invoice.totalAmount),
+          invoiceCurrencyCode: invCur,
+          paymentAmountInPaymentCurrency: totalAmountInPaymentCurrency,
+          paymentCurrencyCode: payCode,
+          ...(invoice.exchangeRateAtCreation != null
+            ? { exchangeRateAtCreation: Number(invoice.exchangeRateAtCreation) }
+            : {})
+        },
+        realizedGainLoss: null,
+        note:
+          "Converted using invoice exchangeRateAtCreation only; no separate forex gain/loss record for this path."
+      };
+
+      await JournalEntryService.createInvoicePaymentJournalEntry({
         invoiceId: id,
         amount: amountInPaymentCurrency,
         vatAmount: vatAmountInPaymentCurrency,
@@ -741,47 +1306,44 @@ export class InvoiceService {
         transactionDate: new Date(),
         description: `Payment for invoice: ${invoice.invoiceNumber}`,
         paymentMethod,
-        createdById: invoice.createdById
+        createdById: invoice.createdById,
+        paymentBankId: bankId,
       });
 
-      // Update invoice status to PAID and save payment details
-      const before = invoice;
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
-        data: { 
+        data: {
           status: "PAID",
+          paidAmount: invTotalDec,
+          outstandingAmount: new Decimal(0),
           paymentMethod,
           paymentCurrencyId: paymentCurrencyId || null,
-          amountInPaymentCurrency: paymentCurrencyId && paymentCurrencyId !== invoice.currencyId 
-            ? new Decimal(amountInPaymentCurrency) 
-            : null,
-          paymentDate: new Date()
+          amountInPaymentCurrency:
+            paymentCurrencyId && paymentCurrencyId !== invoice.currencyId
+              ? new Decimal(amountInPaymentCurrency)
+              : null,
+          paymentDate: new Date(),
+          ...(rateDecPaid != null
+            ? {
+                exchangeRateAtPaid: rateDecPaid,
+                usdZwgRateSnapshotPaid: rateDecPaid
+              }
+            : {}),
+          ...this.paymentSnapshotsForDb(paymentSettlementLegacy, null)
         },
-        include: {
-          customer: true,
-          currency: true,
-          paymentCurrency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        include: this.invoiceApiInclude()
       });
 
-      // Audit: MARK_AS_PAID
       await AuditService.log({
         userId: updatedInvoice.createdById,
         action: "MARK_AS_PAID",
         entityType: "Invoice",
         entityId: id,
         oldValues: before,
-        newValues: updatedInvoice,
+        newValues: updatedInvoice
       });
 
-      return updatedInvoice;
+      return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
     } catch (error: any) {
       console.error("Error marking invoice as paid:", error);
       throw error; // Return the actual error instead of wrapping it
@@ -796,17 +1358,7 @@ export class InvoiceService {
     try {
       const invoice = await prisma.invoice.findUnique({
         where: { id },
-        include: {
-          customer: true,
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        include: this.invoiceApiInclude()
       });
 
       if (!invoice) {
@@ -839,17 +1391,7 @@ export class InvoiceService {
           // Note: We don't link the reversal journal entry to the invoice
           // as it's a separate transaction
         },
-        include: {
-          customer: true,
-          currency: true,
-          journalEntry: {
-            select: {
-              id: true,
-              referenceNumber: true,
-              status: true
-            }
-          }
-        }
+        include: this.invoiceApiInclude()
       });
 
       // Audit: VOID invoice
@@ -862,7 +1404,7 @@ export class InvoiceService {
         newValues: updatedInvoice,
       });
 
-      return updatedInvoice;
+      return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
     } catch (error: any) {
       throw new Error(`Failed to void invoice: ${error.message}`);
     }

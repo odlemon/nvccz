@@ -7,6 +7,8 @@ import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 import AuditService from "./AuditService";
 import JournalEntryService from "./JournalEntryService";
+import CashbookService from "./CashbookService";
+import { createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
 
 export interface VoidCashbookEntryParams {
   entryId: string;
@@ -301,7 +303,8 @@ export class CashbookServiceEnhanced {
         data: {
           isReconciled: false,
           reconciledAt: null,
-          reconciledById: null
+          reconciledById: null,
+          cashbookReconciliationSessionId: null,
         }
       });
 
@@ -480,7 +483,11 @@ export class CashbookServiceEnhanced {
         status: entry.status,
         counterparty: entry.customer?.name || entry.vendor?.name || entry.glAccount?.accountName,
         isReconciled: entry.isReconciled,
-        journalEntryRef: entry.journalEntry?.referenceNumber
+        journalEntryRef: entry.journalEntry?.referenceNumber,
+        receiptAttachmentUrl: entry.receiptAttachmentUrl,
+        receiptAttachmentPath: entry.receiptAttachmentPath,
+        receiptAttachmentFileName: entry.receiptAttachmentFileName,
+        receiptAttachmentMimeType: entry.receiptAttachmentMimeType
       }))
     };
   }
@@ -645,6 +652,8 @@ export class CashbookServiceEnhanced {
           amount: amount,
           signedAmount: signedAmount, // Positive for receipts, negative for payments
           status: entry.status,
+          isReconciled: entry.isReconciled,
+          reconciliationStatus: entry.isReconciled ? 'Y' : 'N',
           isTicked: isTicked,
           counterpartyType: entry.counterpartyType,
           counterparty: entry.counterpartyType === 'CUSTOMER' 
@@ -652,7 +661,11 @@ export class CashbookServiceEnhanced {
             : entry.counterpartyType === 'SUPPLIER' 
             ? entry.vendor?.name 
             : entry.glAccount?.accountName || 'N/A',
-          bank: entry.bank
+          bank: entry.bank,
+          receiptAttachmentUrl: entry.receiptAttachmentUrl,
+          receiptAttachmentPath: entry.receiptAttachmentPath,
+          receiptAttachmentFileName: entry.receiptAttachmentFileName,
+          receiptAttachmentMimeType: entry.receiptAttachmentMimeType
         };
       });
 
@@ -685,6 +698,121 @@ export class CashbookServiceEnhanced {
     }
   }
 
+  /**
+   * Create five posted GL cashbook lines with isReconciled false (Bank Recon "Unreconciled" tab).
+   * Uses income GL (pref. account 4000) and expense GL (pref. account 5000) when present.
+   */
+  static async seedFiveUnreconciledPostedEntries(params: {
+    bankId: string;
+    createdById: string;
+  }): Promise<{
+    entries: Array<{ id: string; type: string; amount: number; description: string; isReconciled: boolean; reconciliationStatus: 'N' }>;
+    message: string;
+  }> {
+    const { bankId, createdById } = params;
+    const bank = await prisma.bank.findUnique({ where: { id: bankId } });
+    if (!bank) {
+      throw new Error('Bank not found');
+    }
+
+    const incomeGl =
+      (await prisma.chartOfAccounts.findFirst({
+        where: { isActive: true, accountNo: '4000' }
+      })) ||
+      (await prisma.chartOfAccounts.findFirst({
+        where: { isActive: true, accountType: { contains: 'Revenue', mode: 'insensitive' } },
+        orderBy: { accountNo: 'asc' }
+      }));
+
+    const expenseGl =
+      (await prisma.chartOfAccounts.findFirst({
+        where: { isActive: true, accountNo: '5000' }
+      })) ||
+      (await prisma.chartOfAccounts.findFirst({
+        where: { isActive: true, accountType: { contains: 'Expense', mode: 'insensitive' } },
+        orderBy: { accountNo: 'asc' }
+      }));
+
+    if (!incomeGl || !expenseGl) {
+      throw new Error(
+        'Need at least one active income-style GL (e.g. account 4000) and one expense-style GL (e.g. account 5000) to seed demo entries.'
+      );
+    }
+
+    const baseDate = new Date();
+    baseDate.setHours(12, 0, 0, 0);
+
+    const specs: Array<{
+      kind: 'RECEIPT' | 'PAYMENT';
+      amount: number;
+      description: string;
+      reference: string;
+    }> = [
+      { kind: 'RECEIPT', amount: 100, description: 'Recon demo — receipt 1', reference: 'RECON-DEMO-1' },
+      { kind: 'PAYMENT', amount: 50, description: 'Recon demo — payment 1', reference: 'RECON-DEMO-2' },
+      { kind: 'RECEIPT', amount: 75.25, description: 'Recon demo — receipt 2', reference: 'RECON-DEMO-3' },
+      { kind: 'PAYMENT', amount: 200, description: 'Recon demo — payment 2', reference: 'RECON-DEMO-4' },
+      { kind: 'RECEIPT', amount: 33, description: 'Recon demo — receipt 3', reference: 'RECON-DEMO-5' }
+    ];
+
+    const created: Array<{ id: string; type: string; amount: number; description: string; isReconciled: boolean; reconciliationStatus: 'N' }> = [];
+
+    for (let i = 0; i < specs.length; i++) {
+      const s = specs[i];
+      const transactionDate = new Date(baseDate);
+      transactionDate.setDate(transactionDate.getDate() - (specs.length - 1 - i));
+
+      const common = {
+        bankId,
+        transactionDate,
+        description: s.description,
+        amount: s.amount,
+        reference: s.reference,
+        counterpartyType: 'GL' as const,
+        vatCode: '0%',
+        createdById
+      };
+
+      const result =
+        s.kind === 'RECEIPT'
+          ? await CashbookService.createCashReceipt({
+              ...common,
+              glAccountId: incomeGl.id
+            })
+          : await CashbookService.createCashPayment({
+              ...common,
+              glAccountId: expenseGl.id
+            });
+
+      if (!result.success || !result.transaction) {
+        throw new Error(result.message || `Failed to create ${s.kind} ${s.reference}`);
+      }
+
+      if (result.transaction.status !== 'POSTED') {
+        throw new Error(`Expected POSTED cashbook line for ${s.reference}, got ${result.transaction.status}`);
+      }
+
+      if (result.transaction.isReconciled) {
+        throw new Error(`Seed entry ${s.reference} was unexpectedly reconciled`);
+      }
+
+      created.push({
+        id: result.transaction.id,
+        type: result.transaction.type,
+        amount: parseFloat(String(result.transaction.amount)),
+        description: result.transaction.description,
+        isReconciled: false,
+        reconciliationStatus: 'N'
+      });
+    }
+
+    return {
+      entries: created,
+      message:
+        'Created 5 posted cashbook entries with reconciliationStatus N (isReconciled false). They appear on GET .../unreconciled and reconciliation/display for this bank.'
+    };
+  }
+
   // Helper methods (reuse from existing CashbookService)
   private static async createReversalJournalEntry(entry: CashbookEntry, reason: string, userId: string): Promise<JournalEntry> {
     // Create reversal journal entry with opposite debits/credits
@@ -715,17 +843,14 @@ export class CashbookServiceEnhanced {
       throw new Error('Invalid counterparty configuration');
     }
 
-    // Create reversal journal entry
-    const journalEntry = await prisma.journalEntry.create({
-      data: {
-        transactionDate: new Date(),
-        referenceNumber: this.generateReferenceNumber('VR'), // Void Reversal
-        description: `VOID REVERSAL: ${entry.description} - ${reason}`,
-        totalAmount: entry.amount,
-        currencyId: bank.currencyId,
-        status: 'POSTED',
-        createdById: userId
-      }
+    const journalEntry = await createJournalEntryWithAuditSequence({
+      transactionDate: new Date(),
+      referenceNumber: this.generateReferenceNumber('VR'),
+      description: `VOID REVERSAL: ${entry.description} - ${reason}`,
+      totalAmount: entry.amount,
+      currencyId: bank.currencyId,
+      status: 'POSTED',
+      createdById: userId
     });
 
     // Create reversal journal entry lines (opposite of original)
@@ -776,6 +901,69 @@ export class CashbookServiceEnhanced {
     }
 
     return journalEntry;
+  }
+
+  /**
+   * Store a physical receipt scan on a cashbook entry: upload via RemoteUploadService (same Ubuntu upload stack as cashbook CSV imports / batch exports).
+   */
+  static async attachReceiptDocument(params: {
+    entryId: string;
+    file: Express.Multer.File;
+    userId: string;
+  }): Promise<{ success: boolean; message: string; entry: CashbookEntry }> {
+    const { entryId, file, userId } = params;
+    if (!file?.buffer?.length) {
+      throw new Error("File is required");
+    }
+
+    const entry = await prisma.cashbookEntry.findUnique({ where: { id: entryId } });
+    if (!entry) {
+      throw new Error("Cashbook entry not found");
+    }
+    if (entry.status === "VOIDED") {
+      throw new Error("Cannot attach a receipt to a voided cashbook entry");
+    }
+
+    const ext = (file.originalname && file.originalname.split(".").pop()) || "pdf";
+    const safeName = `cb-receipt-${entryId.slice(-12)}-${Date.now()}.${ext}`.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    const { remoteUploadService } = await import("./RemoteUploadService");
+    const { downloadURL, filePath } = await remoteUploadService.uploadSingleFile(
+      {
+        buffer: file.buffer,
+        originalname: safeName,
+        mimetype: file.mimetype || "application/octet-stream",
+      },
+      "cashbook-receipts"
+    );
+
+    const updated = await prisma.cashbookEntry.update({
+      where: { id: entryId },
+      data: {
+        receiptAttachmentUrl: downloadURL,
+        receiptAttachmentPath: filePath,
+        receiptAttachmentFileName: file.originalname || safeName,
+        receiptAttachmentMimeType: file.mimetype || null,
+      },
+    });
+
+    await AuditService.log({
+      userId,
+      action: "UPDATE",
+      entityType: "CashbookEntry",
+      entityId: entryId,
+      oldValues: {
+        receiptAttachmentUrl: entry.receiptAttachmentUrl,
+        receiptAttachmentPath: entry.receiptAttachmentPath,
+      },
+      newValues: {
+        receiptAttachmentUrl: downloadURL,
+        receiptAttachmentPath: filePath,
+        receiptAttachmentFileName: file.originalname || safeName,
+      },
+    });
+
+    return { success: true, message: "Receipt attachment saved", entry: updated };
   }
 
   // Reuse helper methods from existing CashbookService

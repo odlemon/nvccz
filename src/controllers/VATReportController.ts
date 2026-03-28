@@ -21,7 +21,9 @@ export class VATReportController {
       }
 
       const start = new Date(startDate as string);
+      start.setHours(0, 0, 0, 0);
       const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
         return ResponseHelper.badRequest(res, "Invalid date format. Use YYYY-MM-DD");
@@ -74,7 +76,9 @@ export class VATReportController {
       }
 
       const start = new Date(startDate as string);
+      start.setHours(0, 0, 0, 0);
       const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
         return ResponseHelper.badRequest(res, "Invalid date format. Use YYYY-MM-DD");

@@ -2,6 +2,7 @@
 import { PrismaClient, Expense, Vendor, ExpenseCategory, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
+import { prismaJournalEntryRateSelect } from "../config/accountingSnapshotResponseSelect";
 import VATService from "./VATService";
 import JournalEntryService, { CreateExpenseJournalEntryParams } from "./JournalEntryService";
 import AuditService from "./AuditService";
@@ -101,7 +102,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -139,7 +141,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -202,7 +205,8 @@ export class ExpenseService {
           select: {
             id: true,
             referenceNumber: true,
-            status: true
+            status: true,
+            ...prismaJournalEntryRateSelect
           }
         }
       }
@@ -262,7 +266,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         },
@@ -333,7 +338,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -374,7 +380,8 @@ export class ExpenseService {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             }
           }
@@ -450,7 +457,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -497,7 +505,8 @@ export class ExpenseService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }

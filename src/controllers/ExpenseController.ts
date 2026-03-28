@@ -284,6 +284,7 @@ export class ExpenseController {
       res.status(200).json({
         success: true,
         data: {
+          amount: numericAmount,
           baseAmount: numericAmount,
           vatAmount,
           totalAmount,

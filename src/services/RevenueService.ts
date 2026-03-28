@@ -2,8 +2,12 @@
 import { PrismaClient, Revenue, Customer, RevenueSource, RevenueCategory, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
+import { prismaJournalEntryRateSelect } from "../config/accountingSnapshotResponseSelect";
 import VATService from "./VATService";
-import JournalEntryService, { CreateRevenueJournalEntryParams } from "./JournalEntryService";
+import JournalEntryService, {
+  CreateRevenueJournalEntryParams,
+  DoubleEntryLineSummary,
+} from "./JournalEntryService";
 import AuditService from "./AuditService";
 
 export interface CreateRevenueParams {
@@ -16,6 +20,8 @@ export interface CreateRevenueParams {
   isTaxable: boolean;
   paymentMethod?: "CASH" | "BANK" | "CREDIT";
   createdById: string;
+  /** Bank whose GL is debited; must match currencyId. */
+  paymentBankId?: string;
 }
 
 export interface RevenueWithRelations extends Revenue {
@@ -27,6 +33,8 @@ export interface RevenueWithRelations extends Revenue {
     referenceNumber: string;
     status: string;
   };
+  /** Balanced DR/CR lines in one currency (cash sale double-entry). */
+  doubleEntryLines?: DoubleEntryLineSummary[];
 }
 
 export class RevenueService {
@@ -44,7 +52,8 @@ export class RevenueService {
         description,
         isTaxable,
         paymentMethod = "BANK",
-        createdById
+        createdById,
+        paymentBankId,
       } = params;
 
       // Validate input parameters
@@ -87,7 +96,8 @@ export class RevenueService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -105,7 +115,8 @@ export class RevenueService {
         description,
         isTaxable,
         paymentMethod,
-        createdById
+        createdById,
+        paymentBankId,
       });
 
       // Update revenue with journal entry ID
@@ -120,11 +131,29 @@ export class RevenueService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
       });
+
+      const currencyCode = (updatedRevenue.currency?.code ?? "").toUpperCase();
+      const doubleEntryLines = await JournalEntryService.summarizeDoubleEntryLines(
+        journalEntry,
+        currencyCode
+      );
+      const drTot = doubleEntryLines
+        .filter((l) => l.side === "DR")
+        .reduce((s, l) => s + l.amount, 0);
+      const crTot = doubleEntryLines
+        .filter((l) => l.side === "CR")
+        .reduce((s, l) => s + l.amount, 0);
+      if (Math.abs(drTot - crTot) > 0.02) {
+        throw new Error(
+          `Revenue journal not balanced: total DR ${drTot} vs total CR ${crTot} (${currencyCode})`
+        );
+      }
 
       // Audit: CREATE revenue
       await AuditService.log({
@@ -135,7 +164,7 @@ export class RevenueService {
         newValues: updatedRevenue,
       });
 
-      return updatedRevenue;
+      return { ...updatedRevenue, doubleEntryLines };
     } catch (error: any) {
       console.error("Error creating revenue:", error);
       throw error;
@@ -182,7 +211,8 @@ export class RevenueService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         },
@@ -209,7 +239,8 @@ export class RevenueService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }
@@ -273,7 +304,8 @@ export class RevenueService {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             }
           }
@@ -314,7 +346,8 @@ export class RevenueService {
                 select: {
                   id: true,
                   referenceNumber: true,
-                  status: true
+                  status: true,
+                  ...prismaJournalEntryRateSelect
                 }
               }
             }
@@ -380,7 +413,8 @@ export class RevenueService {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             }
           }
@@ -415,7 +449,8 @@ export class RevenueService {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             }
           }
@@ -458,7 +493,8 @@ export class RevenueService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           }
         }

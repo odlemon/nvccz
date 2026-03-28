@@ -7,57 +7,51 @@ import { AuthRequest } from "../middleware/authenticate";
 import { ResponseHelper } from "../utils/responseHelper";
 
 import { prisma } from '../utils/database';
+import { naturalBalanceForAccountType } from '../utils/chartOfAccountsNaturalBalance';
+import { validateChartAccountNumberForType } from '../utils/chartOfAccountsNumberRange';
+import { bulkImportChartOfAccountsFromBuffer } from '../services/ChartOfAccountsBulkValidateService';
 
 export class ChartOfAccountsController {
   /**
-   * Validate that account number range matches account type
-   * Account Number Ranges:
-   * - 1000s = Assets (Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset)
-   * - 2000s = Liabilities (Current Liability, Long-Term Liability)
-   * - 3000s = Equity
-   * - 4000s = Revenue (Revenue, Income)
-   * - 5000s = Expenses (Expense)
+   * POST /api/accounting/chart-of-accounts/bulk-import — validate CSV; on success create all accounts in one transaction.
+   * Row numbers: line 1 = header, line 2 = first data row (Excel-style).
    */
-  private static validateAccountNumberType(accountNo: string, accountType: string): { valid: boolean; message?: string } {
-    // Extract first digit of account number
-    const firstDigit = accountNo.charAt(0);
-    
-    // Define valid account types for each number range
-    const accountTypeMappings: { [key: string]: string[] } = {
-      '1': ['Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Contra-Asset'],
-      '2': ['Current Liability', 'Long-Term Liability'],
-      '3': ['Equity'],
-      '4': ['Revenue', 'Income'],
-      '5': ['Expense']
-    };
+  static async bulkImportChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file?.buffer?.length) {
+        return ResponseHelper.badRequest(res, 'file is required (multipart field name: file, CSV)');
+      }
 
-    // Check if first digit is valid (1-5)
-    if (!['1', '2', '3', '4', '5'].includes(firstDigit)) {
-      return {
-        valid: false,
-        message: `Invalid account number range. Account numbers must start with 1-5 (1000s=Assets, 2000s=Liabilities, 3000s=Equity, 4000s=Revenue, 5000s=Expenses).`
-      };
+      const result = await bulkImportChartOfAccountsFromBuffer(file.buffer);
+
+      if (!result.ok) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bulk GL import failed validation; file rejected. Fix row errors and re-upload.',
+          data: {
+            totalDataRows: result.totalDataRows,
+            rowsWithErrors: result.rowErrors.length,
+            rowErrors: result.rowErrors,
+            reportLines: result.reportLines,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return ResponseHelper.created(
+        res,
+        `Created ${result.createdCount} chart of accounts.`,
+        {
+          totalDataRows: result.totalDataRows,
+          createdCount: result.createdCount,
+          accounts: result.created,
+        }
+      );
+    } catch (error: any) {
+      console.error('bulkImportChartOfAccounts:', error);
+      return ResponseHelper.error(res, error?.message || 'Failed to bulk import chart of accounts', undefined, 500);
     }
-
-    // Check if account type matches the number range
-    const validTypesForRange = accountTypeMappings[firstDigit];
-    if (!validTypesForRange.includes(accountType)) {
-      const expectedTypes = validTypesForRange.join(', ');
-      const rangeDescription = {
-        '1': '1000s (Assets)',
-        '2': '2000s (Liabilities)',
-        '3': '3000s (Equity)',
-        '4': '4000s (Revenue)',
-        '5': '5000s (Expenses)'
-      }[firstDigit];
-      
-      return {
-        valid: false,
-        message: `Account number conflict: Account number "${accountNo}" is in the ${rangeDescription} range, but Account Type "${accountType}" is selected. Valid account types for ${rangeDescription} are: ${expectedTypes}`
-      };
-    }
-
-    return { valid: true };
   }
 
   /**
@@ -65,7 +59,7 @@ export class ChartOfAccountsController {
    */
   static async createChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive = true } = req.body;
+      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive = true, naturalBalance: bodyNaturalBalance } = req.body;
 
       // Validate required fields
       if (!accountNo || !accountName || !accountType || !financialStatement) {
@@ -78,8 +72,15 @@ export class ChartOfAccountsController {
         return ResponseHelper.badRequest(res, "Invalid account type. Must be one of: Current Asset, Fixed Asset, Long-Term Asset, Contra-Asset, Current Liability, Long-Term Liability, Equity, Revenue, Expense, Income");
       }
 
-      // Validate that account number range matches account type
-      const accountNumberValidation = ChartOfAccountsController.validateAccountNumberType(accountNo, accountType);
+      const expectedNaturalBalance = naturalBalanceForAccountType(accountType);
+      if (bodyNaturalBalance != null && bodyNaturalBalance !== '' && bodyNaturalBalance !== expectedNaturalBalance) {
+        return ResponseHelper.badRequest(
+          res,
+          `Natural balance for "${accountType}" is ${expectedNaturalBalance} and cannot be changed.`
+        );
+      }
+
+      const accountNumberValidation = validateChartAccountNumberForType(accountNo, accountType);
       if (!accountNumberValidation.valid) {
         return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
       }
@@ -192,7 +193,16 @@ export class ChartOfAccountsController {
   static async updateChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive } = req.body;
+      const { accountNo, accountName, accountType, financialStatement, notes, parentId, isActive, naturalBalance: bodyNaturalBalance } = req.body || {};
+
+      const updatableKeys = ["accountNo", "accountName", "accountType", "financialStatement", "notes", "parentId", "isActive", "naturalBalance"];
+      const hasUpdatableField = updatableKeys.some((k) => req.body != null && Object.prototype.hasOwnProperty.call(req.body, k));
+      if (!hasUpdatableField) {
+        return ResponseHelper.validationError(
+          res,
+          "No updatable fields provided. Send at least one of: accountNo, accountName, accountType, financialStatement, notes, parentId, isActive."
+        );
+      }
 
       // Check if chart of accounts exists
       const existingAccount = await prisma.chartOfAccounts.findUnique({
@@ -203,6 +213,15 @@ export class ChartOfAccountsController {
         return ResponseHelper.notFound(res, "Chart of accounts not found");
       }
 
+      const typeForNaturalBalance = accountType || existingAccount.accountType;
+      const expectedNaturalBalance = naturalBalanceForAccountType(typeForNaturalBalance);
+      if (bodyNaturalBalance != null && bodyNaturalBalance !== '' && bodyNaturalBalance !== expectedNaturalBalance) {
+        return ResponseHelper.badRequest(
+          res,
+          `Natural balance for "${typeForNaturalBalance}" is ${expectedNaturalBalance} and cannot be changed.`
+        );
+      }
+
       // Validate account type if provided
       if (accountType) {
         const validAccountTypes = ["Current Asset", "Fixed Asset", "Long-Term Asset", "Contra-Asset", "Current Liability", "Long-Term Liability", "Equity", "Revenue", "Expense", "Income"];
@@ -211,10 +230,37 @@ export class ChartOfAccountsController {
         }
       }
 
+      const typeChanging = Boolean(accountType && accountType !== existingAccount.accountType);
+      const financialStatementChanging = Boolean(
+        financialStatement && financialStatement !== existingAccount.financialStatement
+      );
+
+      if (typeChanging || financialStatementChanging) {
+        const journalLineCount = await prisma.journalEntryLine.count({
+          where: { chartOfAccountId: id },
+        });
+        if (journalLineCount > 0) {
+          if (typeChanging) {
+            return ResponseHelper.conflict(
+              res,
+              `Cannot change account type from "${existingAccount.accountType}" to "${accountType}" because this account has ${journalLineCount} journal line(s). ` +
+                `Reclassifying would misstate historical profit and loss and balance sheet reporting. ` +
+                `Create a new chart account and post a transfer journal if reclassification is required.`
+            );
+          }
+          return ResponseHelper.conflict(
+            res,
+            `Cannot change financial statement classification because this account has ${journalLineCount} journal line(s). ` +
+              `Historical statements would no longer tie to the original presentation. ` +
+              `Create a new account and transfer balances if presentation must change.`
+          );
+        }
+      }
+
       // Validate that account number range matches account type (if either is being updated)
       const accountNoToValidate = accountNo || existingAccount.accountNo;
       const accountTypeToValidate = accountType || existingAccount.accountType;
-      const accountNumberValidation = ChartOfAccountsController.validateAccountNumberType(accountNoToValidate, accountTypeToValidate);
+      const accountNumberValidation = validateChartAccountNumberForType(accountNoToValidate, accountTypeToValidate);
       if (!accountNumberValidation.valid) {
         return ResponseHelper.badRequest(res, accountNumberValidation.message || "Account number range does not match account type");
       }

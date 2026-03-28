@@ -2,8 +2,13 @@
 import { PrismaClient, InventoryItem, StockMovement, SalesInvoiceItem } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
 import { JournalEntryService } from './JournalEntryService';
 import AuditService from './AuditService';
+import {
+  NegativeStockConfirmationRequiredError,
+  StockShortageDetail,
+} from '../errors/InventoryErrors';
 
 export interface CreateInventoryItemParams {
   itemName: string;
@@ -26,6 +31,8 @@ export interface StockMovementParams {
   reference?: string;
   description?: string;
   createdById: string;
+  /** When policy allows negative stock, must be true to record an OUT that drives on-hand below zero. */
+  acknowledgeNegativeStock?: boolean;
 }
 
 export interface InventoryValuationParams {
@@ -47,6 +54,80 @@ export interface InventoryItemWithRelations extends InventoryItem {
 }
 
 export class InventoryService {
+  /**
+   * Singleton perpetual-inventory policy (row id `default`).
+   */
+  static async getInventorySettings(): Promise<{
+    id: string;
+    allowNegativeStock: boolean;
+    updatedAt: Date;
+  }> {
+    let row = await prisma.inventorySettings.findUnique({ where: { id: 'default' } });
+    if (!row) {
+      row = await prisma.inventorySettings.create({
+        data: { id: 'default', allowNegativeStock: false },
+      });
+    }
+    return row;
+  }
+
+  static async updateInventorySettings(params: {
+    allowNegativeStock: boolean;
+  }): Promise<{ id: string; allowNegativeStock: boolean; updatedAt: Date }> {
+    return prisma.inventorySettings.upsert({
+      where: { id: 'default' },
+      create: { id: 'default', allowNegativeStock: params.allowNegativeStock },
+      update: { allowNegativeStock: params.allowNegativeStock },
+    });
+  }
+
+  /**
+   * Aggregate requested quantities per inventory line (sales invoice / preview).
+   */
+  private static aggregateDemandByItemId(
+    lines: Array<{ itemId: string; quantity: number }>
+  ): Map<string, number> {
+    const m = new Map<string, number>();
+    for (const line of lines) {
+      const q = Number(line.quantity);
+      if (!Number.isFinite(q) || q <= 0) {
+        throw new Error(`Invalid quantity for item ${line.itemId}`);
+      }
+      m.set(line.itemId, (m.get(line.itemId) || 0) + q);
+    }
+    return m;
+  }
+
+  /**
+   * Compute lines that would sell more than current on-hand (perpetual).
+   */
+  static async computeStockShortagesForDemand(
+    lines: Array<{ itemId: string; quantity: number }>
+  ): Promise<StockShortageDetail[]> {
+    const demand = this.aggregateDemandByItemId(lines);
+    const shortages: StockShortageDetail[] = [];
+    for (const [itemId, totalRequested] of demand) {
+      const inv = await prisma.inventoryItem.findUnique({ where: { id: itemId } });
+      if (!inv) {
+        throw new Error(`Inventory item ${itemId} not found`);
+      }
+      const onHand = Number(inv.quantityOnHand);
+      if (totalRequested > onHand) {
+        const shortfall = totalRequested - onHand;
+        shortages.push({
+          itemId: inv.id,
+          itemName: inv.itemName,
+          skuNumber: inv.skuNumber,
+          quantityOnHand: onHand,
+          quantityRequested: totalRequested,
+          shortfall,
+          projectedQuantityAfterSale: onHand - totalRequested,
+        });
+      }
+    }
+    return shortages;
+  }
+
   /**
    * Create a new inventory item
    */
@@ -195,7 +276,8 @@ export class InventoryService {
         unitCost,
         reference,
         description,
-        createdById
+        createdById,
+        acknowledgeNegativeStock,
       } = params;
 
       // Get current item
@@ -207,6 +289,8 @@ export class InventoryService {
         throw new Error('Inventory item not found');
       }
 
+      const settings = await this.getInventorySettings();
+
       // Calculate new quantity
       let newQuantity = Number(item.quantityOnHand);
       if (movementType === 'IN' || movementType === 'ADJUSTMENT') {
@@ -214,7 +298,29 @@ export class InventoryService {
       } else if (movementType === 'OUT') {
         newQuantity -= quantity;
         if (newQuantity < 0) {
-          throw new Error('Insufficient stock quantity');
+          if (!settings.allowNegativeStock) {
+            throw new Error(
+              `Insufficient stock for "${item.itemName}" (SKU ${item.skuNumber}): on hand ${Number(
+                item.quantityOnHand
+              )}, requested ${quantity}, shortfall ${quantity - Number(item.quantityOnHand)}`
+            );
+          }
+          if (!acknowledgeNegativeStock) {
+            throw new NegativeStockConfirmationRequiredError(
+              [
+                {
+                  itemId: item.id,
+                  itemName: item.itemName,
+                  skuNumber: item.skuNumber,
+                  quantityOnHand: Number(item.quantityOnHand),
+                  quantityRequested: quantity,
+                  shortfall: quantity - Number(item.quantityOnHand),
+                  projectedQuantityAfterSale: newQuantity,
+                },
+              ],
+              `Insufficient stock for "${item.itemName}" (SKU ${item.skuNumber}). Set acknowledgeNegativeStock: true to post this OUT.`
+            );
+          }
         }
       }
 
@@ -257,30 +363,50 @@ export class InventoryService {
   }
 
   /**
-   * Process sales invoice with inventory items
+   * Process sales invoice with inventory items (perpetual inventory).
+   * When total demand exceeds on-hand: blocked if allowNegativeStock is false; otherwise 409-style
+   * {@link NegativeStockConfirmationRequiredError} until client sends acknowledgeNegativeStock: true.
    */
-  static async processSalesInvoice(invoiceId: string, items: Array<{
-    itemId: string;
-    quantity: number;
-    unitPrice: number;
-  }>, createdById: string): Promise<void> {
+  static async processSalesInvoice(
+    invoiceId: string,
+    items: Array<{
+      itemId: string;
+      quantity: number;
+      unitPrice: number;
+    }>,
+    createdById: string,
+    options?: { acknowledgeNegativeStock?: boolean }
+  ): Promise<{ negativeStockApplied: boolean; shortages: StockShortageDetail[] }> {
     try {
+      const settings = await this.getInventorySettings();
+      const shortages = await this.computeStockShortagesForDemand(items);
+
+      if (shortages.length > 0) {
+        if (!settings.allowNegativeStock) {
+          const detail = shortages
+            .map(
+              (s) =>
+                `${s.itemName} (SKU ${s.skuNumber}): on hand ${s.quantityOnHand}, requested ${s.quantityRequested}, shortfall ${s.shortfall}`
+            )
+            .join('; ');
+          throw new Error(`Insufficient stock for perpetual inventory. ${detail}`);
+        }
+        if (!options?.acknowledgeNegativeStock) {
+          throw new NegativeStockConfirmationRequiredError(shortages);
+        }
+      }
+
+      const negativeStockApplied = shortages.length > 0 && settings.allowNegativeStock;
+
       for (const item of items) {
-        // Get item details
         const inventoryItem = await prisma.inventoryItem.findUnique({
-          where: { id: item.itemId }
+          where: { id: item.itemId },
         });
 
         if (!inventoryItem) {
           throw new Error(`Inventory item ${item.itemId} not found`);
         }
 
-        // Check stock availability
-        if (Number(inventoryItem.quantityOnHand) < item.quantity) {
-          throw new Error(`Insufficient stock for item ${inventoryItem.itemName}`);
-        }
-
-        // Create sales invoice item record
         const salesInvoiceItem = await prisma.salesInvoiceItem.create({
           data: {
             invoiceId,
@@ -289,11 +415,10 @@ export class InventoryService {
             unitPrice: new Decimal(item.unitPrice),
             totalPrice: new Decimal(item.quantity * item.unitPrice),
             unitCost: inventoryItem.costOfPurchase,
-            totalCost: new Decimal(item.quantity * Number(inventoryItem.costOfPurchase))
-          }
+            totalCost: new Decimal(item.quantity * Number(inventoryItem.costOfPurchase)),
+          },
         });
 
-        // Record stock movement (OUT)
         await this.recordStockMovement({
           itemId: item.itemId,
           movementType: 'OUT',
@@ -301,12 +426,17 @@ export class InventoryService {
           unitCost: Number(inventoryItem.costOfPurchase),
           reference: invoiceId,
           description: `Sales invoice ${invoiceId}`,
-          createdById
+          createdById,
+          acknowledgeNegativeStock: negativeStockApplied,
         });
 
-        // Create COGS journal entry
         await this.createCOGSJournalEntry(salesInvoiceItem, createdById);
       }
+
+      return {
+        negativeStockApplied,
+        shortages: negativeStockApplied ? shortages : [],
+      };
     } catch (error) {
       console.error('Error processing sales invoice:', error);
       throw error;
@@ -341,16 +471,14 @@ export class InventoryService {
       }
 
       // Create journal entry for COGS
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: new Date(),
-          referenceNumber: `COGS-${salesInvoiceItem.id}`,
-          description: `COGS for ${inventoryItem.itemName}`,
-          totalAmount: salesInvoiceItem.totalCost,
-          currencyId: 'default', // You might want to get this from invoice
-          status: 'POSTED',
-          createdById
-        }
+      const journalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: new Date(),
+        referenceNumber: `COGS-${salesInvoiceItem.id}`,
+        description: `COGS for ${inventoryItem.itemName}`,
+        totalAmount: salesInvoiceItem.totalCost,
+        currencyId: 'default',
+        status: 'POSTED',
+        createdById,
       });
 
       // Create journal entry lines

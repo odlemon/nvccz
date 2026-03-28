@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { PrismaClient, Decimal } from '@prisma/client';
 import { prisma } from '../utils/database';
+import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
 
 export interface ReversalRequest {
   transactionId: string;
@@ -198,16 +199,14 @@ export class TransactionReversalService {
       }
       
       // Create reversal journal entry
-      const reversalJournalEntry = await prisma.journalEntry.create({
-        data: {
-          transactionDate: reversalTransaction.transactionDate,
-          referenceNumber: `REV-${originalJournalEntry.referenceNumber}`,
-          description: `Reversal of ${originalJournalEntry.description}`,
-          totalAmount: originalJournalEntry.totalAmount,
-          currencyId: originalJournalEntry.currencyId,
-          status: 'POSTED',
-          createdById: userId
-        }
+      const reversalJournalEntry = await createJournalEntryWithAuditSequence({
+        transactionDate: reversalTransaction.transactionDate,
+        referenceNumber: `REV-${originalJournalEntry.referenceNumber}`,
+        description: `Reversal of ${originalJournalEntry.description}`,
+        totalAmount: originalJournalEntry.totalAmount,
+        currencyId: originalJournalEntry.currencyId,
+        status: 'POSTED',
+        createdById: userId,
       });
       
       // Create reversal journal entry lines (swap debit/credit)

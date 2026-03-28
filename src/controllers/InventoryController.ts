@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import { InventoryService } from '../services/InventoryService';
 import { PrismaClient } from '@prisma/client';
+import { isNegativeStockConfirmationRequiredError } from '../errors/InventoryErrors';
 
 import { prisma } from '../utils/database';
 
@@ -14,6 +15,40 @@ interface AuthRequest extends Request {
 }
 
 export class InventoryController {
+  /** GET /api/accounting/inventory/settings */
+  static async getInventorySettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const data = await InventoryService.getInventorySettings();
+      res.json({ success: true, data });
+    } catch (error: any) {
+      console.error('Error getting inventory settings:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /** PATCH /api/accounting/inventory/settings */
+  static async updateInventorySettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      const allowNegativeStock = req.body?.allowNegativeStock;
+      if (typeof allowNegativeStock !== 'boolean') {
+        res.status(400).json({
+          error: 'allowNegativeStock (boolean) is required',
+        });
+        return;
+      }
+      const data = await InventoryService.updateInventorySettings({ allowNegativeStock });
+      res.json({ success: true, message: 'Inventory settings updated', data });
+    } catch (error: any) {
+      console.error('Error updating inventory settings:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
   /**
    * Create a new inventory item
    */
@@ -267,6 +302,8 @@ export class InventoryController {
         return;
       }
 
+      const acknowledgeNegativeStock = !!req.body?.acknowledgeNegativeStock;
+
       const stockMovement = await InventoryService.recordStockMovement({
         itemId,
         movementType,
@@ -274,7 +311,8 @@ export class InventoryController {
         unitCost: parseFloat(unitCost),
         reference,
         description,
-        createdById: userId
+        createdById: userId,
+        acknowledgeNegativeStock,
       });
 
       res.status(201).json({
@@ -284,6 +322,25 @@ export class InventoryController {
       });
     } catch (error: any) {
       console.error('Error recording stock movement:', error);
+      if (isNegativeStockConfirmationRequiredError(error)) {
+        res.status(409).json({
+          success: false,
+          code: error.code,
+          message: error.message,
+          shortages: error.shortages,
+        });
+        return;
+      }
+      if (
+        error?.message &&
+        (error.message.includes('Insufficient stock') || error.message.includes('Insufficient stock for'))
+      ) {
+        res.status(400).json({
+          error: 'Insufficient stock',
+          details: error.message,
+        });
+        return;
+      }
       res.status(500).json({
         error: 'Failed to record stock movement',
         details: error.message
@@ -347,7 +404,7 @@ export class InventoryController {
         return;
       }
 
-      const { invoiceId, items } = req.body;
+      const { invoiceId, items, acknowledgeNegativeStock } = req.body;
 
       // Validation
       if (!invoiceId || !items || !Array.isArray(items)) {
@@ -367,14 +424,40 @@ export class InventoryController {
         }
       }
 
-      await InventoryService.processSalesInvoice(invoiceId, items, userId);
+      const result = await InventoryService.processSalesInvoice(invoiceId, items, userId, {
+        acknowledgeNegativeStock: !!acknowledgeNegativeStock,
+      });
 
       res.json({
         success: true,
-        message: 'Sales invoice processed successfully with inventory items'
+        message: 'Sales invoice processed successfully with inventory items',
+        negativeStockApplied: result.negativeStockApplied,
+        ...(result.negativeStockApplied && result.shortages?.length
+          ? { negativeStockShortages: result.shortages }
+          : {}),
       });
     } catch (error: any) {
       console.error('Error processing sales invoice:', error);
+      if (isNegativeStockConfirmationRequiredError(error)) {
+        res.status(409).json({
+          success: false,
+          code: error.code,
+          message: error.message,
+          shortages: error.shortages,
+        });
+        return;
+      }
+      if (
+        error?.message &&
+        typeof error.message === 'string' &&
+        error.message.includes('Insufficient stock for perpetual inventory')
+      ) {
+        res.status(400).json({
+          error: 'Insufficient stock',
+          details: error.message,
+        });
+        return;
+      }
       res.status(500).json({
         error: 'Failed to process sales invoice',
         details: error.message
@@ -394,6 +477,14 @@ export class InventoryController {
         prisma.stockMovement.findMany({
           where: { itemId },
           include: {
+            recordedCurrency: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                symbol: true
+              }
+            },
             createdBy: {
               select: {
                 id: true,
@@ -453,6 +544,14 @@ export class InventoryController {
           orderBy: { createdAt: 'desc' },
           take: 10,
           include: {
+            recordedCurrency: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                symbol: true
+              }
+            },
             item: {
               select: {
                 itemName: true,

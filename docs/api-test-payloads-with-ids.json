@@ -1,0 +1,130 @@
+{
+  "_meta": {
+    "currency": "USD",
+    "howToRefreshIds": "Run: npx ts-node scripts/dump-test-entity-ids.ts (uses DATABASE_URL). Replace values in this file if your database differs.",
+    "salesInvoiceNote": "Do not send exchangeRateAtCreation; Prisma middleware fills USD/ZWG from Zimrate or the latest stored snapshot."
+  },
+  "ids": {
+    "currencyUsd": "cmh3bymy70000una4yk8leusu",
+    "customer": "cmkdvw1kf0000ktb1awdd1ojk",
+    "vendor": "cmjbdtskq0000uni09a77vv7z",
+    "bank": "cmn6hgk5b0001unp8p9kik9xq",
+    "revenueSource": "cmn752wku0000unqw8j54hobx",
+    "revenueCategory": "cmn755ebk0000unugwut9431d",
+    "chartAccountMainBankUsd": "cmh3c1fdt0001unxkqzzihy55",
+    "chartAccountRevenueMgmtFees": "cmh3c1toy000dunxkn03z31zv",
+    "chartAccountAccountsReceivable": "cmh3c1js20005unxkedzvrnex"
+  },
+  "POST /api/accounting/invoices": {
+    "customerId": "cmkdvw1kf0000ktb1awdd1ojk",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "invoiceDate": "2025-03-25",
+    "description": "API test — USD services",
+    "isTaxable": true,
+    "items": [
+      {
+        "description": "Consulting hours",
+        "quantity": 2,
+        "unitPrice": 150
+      }
+    ]
+  },
+  "POST /api/accounting/purchase-invoices": {
+    "vendorId": "cmjbdtskq0000uni09a77vv7z",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "invoiceDate": "2025-03-25",
+    "dueDate": "2025-04-25",
+    "description": "API test vendor bill",
+    "isTaxable": true,
+    "items": [
+      {
+        "itemName": "Office supplies",
+        "description": "Paper and toner",
+        "quantity": 5,
+        "unitPrice": 20,
+        "unit": "ea"
+      }
+    ]
+  },
+  "POST /api/accounting/expenses": {
+    "vendorId": "cmjbdtskq0000uni09a77vv7z",
+    "category": "Operations",
+    "amount": 75.5,
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "transactionDate": "2025-03-25",
+    "description": "API test expense",
+    "isTaxable": false,
+    "paymentMethod": "BANK"
+  },
+  "POST /api/accounting/revenues": {
+    "sourceId": "cmn752wku0000unqw8j54hobx",
+    "categoryId": "cmn755ebk0000unugwut9431d",
+    "amount": 200,
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "transactionDate": "2025-03-25",
+    "description": "API test revenue",
+    "isTaxable": true,
+    "paymentMethod": "BANK"
+  },
+  "POST /api/accounting/journal-entries": {
+    "transactionDate": "2025-03-25",
+    "referenceNumber": "MANUAL-API-TEST-001",
+    "description": "Balanced manual journal (USD)",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "journalEntryLines": [
+      {
+        "chartOfAccountId": "cmh3c1fdt0001unxkqzzihy55",
+        "debitAmount": 100,
+        "creditAmount": 0,
+        "description": "Debit bank"
+      },
+      {
+        "chartOfAccountId": "cmh3c1toy000dunxkn03z31zv",
+        "debitAmount": 0,
+        "creditAmount": 100,
+        "description": "Credit revenue"
+      }
+    ]
+  },
+  "POST /api/accounting/credit-notes (standalone, no invoice)": {
+    "customerId": "cmkdvw1kf0000ktb1awdd1ojk",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "amount": 50,
+    "vatAmount": 0,
+    "totalAmount": 50,
+    "reason": "API test credit note"
+  },
+  "POST /api/procurement/invoices": {
+    "vendorId": "cmjbdtskq0000uni09a77vv7z",
+    "currencyId": "cmh3bymy70000una4yk8leusu",
+    "invoiceDate": "2025-03-25",
+    "dueDate": "2025-04-10",
+    "items": [
+      {
+        "itemName": "Delivered goods",
+        "description": "Line 1",
+        "quantity": 10,
+        "unitPrice": 12.5,
+        "unit": "ea"
+      }
+    ]
+  },
+  "POST /api/cashbook/receipts (customer)": {
+    "bankId": "cmn6hgk5b0001unp8p9kik9xq",
+    "transactionDate": "2025-03-25",
+    "description": "Customer receipt API test",
+    "amount": 80,
+    "reference": "RCPT-API-001",
+    "counterpartyType": "CUSTOMER",
+    "customerId": "cmkdvw1kf0000ktb1awdd1ojk"
+  },
+  "POST /api/cashbook/payments (supplier)": {
+    "bankId": "cmn6hgk5b0001unp8p9kik9xq",
+    "transactionDate": "2025-03-25",
+    "description": "Supplier payment API test",
+    "amount": 40,
+    "reference": "PAY-API-001",
+    "counterpartyType": "SUPPLIER",
+    "vendorId": "cmjbdtskq0000uni09a77vv7z"
+  }
+}

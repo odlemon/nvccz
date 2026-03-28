@@ -26,8 +26,8 @@ async function seedVATCodes() {
     const vatCodes = [
       {
         code: '15%',
-        description: 'Standard Rate - Zimbabwe',
-        rate: new Decimal(0.15),
+        description: 'Standard Rate - Zimbabwe (15.5%)',
+        rate: new Decimal(0.155),
         isActive: true
       },
       {
@@ -54,7 +54,7 @@ async function seedVATCodes() {
     
     console.log('\n🎉 VAT Codes Seeded Successfully!');
     console.log('\n📋 VAT Codes Summary:');
-    console.log('   15% - Standard Rate (Zimbabwe) - 15.00%');
+    console.log('   15% - Standard Rate (Zimbabwe) - 15.50%');
     console.log('   0% - Zero Rate (Exempt) - 0.00%');
     console.log('   EXEMPT - Exempt from VAT - 0.00%');
     

@@ -2,6 +2,7 @@
 import { PrismaClient } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
+import { createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
 
 export interface CreatePerformanceGoalRequest {
   title: string;
@@ -128,30 +129,30 @@ export class PerformanceGoalService {
 
       if (kpiConfig && kpiConfig.isFinancial) {
         // Create journal entry based on KPI completion
-        const journalEntry = await prisma.journalEntry.create({
-          data: {
-            description: `KPI Achievement: ${goal.title} - ${achievedValue} ${goal.targetUnit}`,
-            totalAmount: achievedValue,
-            currencyId: "USD", // Default currency
-            status: "POSTED",
-            createdById: updatedById,
-            journalEntryLines: {
-              create: [
-                {
-                  chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : "1000", // Cash
-                  debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-                  creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-                  description: `KPI: ${goal.kpi.name}`
-                },
-                {
-                  chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : "1000", // Cash
-                  debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-                  creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-                  description: `KPI: ${goal.kpi.name}`
-                }
-              ]
-            }
-          }
+        const journalEntry = await createJournalEntryWithAuditSequence({
+          transactionDate: new Date(),
+          referenceNumber: `KPI-${goal.id}-${Date.now()}`,
+          description: `KPI Achievement: ${goal.title} - ${achievedValue} ${goal.targetUnit}`,
+          totalAmount: achievedValue,
+          currencyId: "USD",
+          status: "POSTED",
+          createdById: updatedById,
+          journalEntryLines: {
+            create: [
+              {
+                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : "1000",
+                debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
+                creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
+                description: `KPI: ${goal.kpi.name}`,
+              },
+              {
+                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : "1000",
+                debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
+                creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
+                description: `KPI: ${goal.kpi.name}`,
+              },
+            ],
+          },
         });
 
         console.log(`✅ Accounting integration triggered for goal ${goalId}: Journal Entry ${journalEntry.id} created`);

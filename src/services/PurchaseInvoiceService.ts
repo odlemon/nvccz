@@ -2,10 +2,51 @@
 import { PrismaClient, PurchaseInvoice, Vendor, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
+import { prismaJournalEntryRateSelect } from "../config/accountingSnapshotResponseSelect";
 import VATService from "./VATService";
 import JournalEntryService from "./JournalEntryService";
 import { CashbookService } from "./CashbookService";
 import AuditService from "./AuditService";
+import { assignNextAuditIdAndCreateJournal, createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
+
+/** User-facing duplicate vendor bill reference (vendor invoice number) message. */
+export const DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE =
+  "A bill with this reference already exists for this vendor";
+
+/** Three-way match: bill must not exceed linked PO total by more than this ratio without override. */
+export const PO_VARIANCE_MAX_RATIO = 1.2;
+
+export const PO_VARIANCE_WARNING_MESSAGE =
+  "Variance Warning: vendor bill exceeds the linked purchase order by more than 20%. Manager override is required to post.";
+
+export type POVarianceWarningDetails = {
+  poNumber: string;
+  purchaseOrderId: string;
+  poTotal: number;
+  billTotal: number;
+  maxAllowedWithoutOverride: number;
+  overPoPercent: number;
+};
+
+export class POVarianceWarningError extends Error {
+  readonly code = "PO_VARIANCE_WARNING" as const;
+  readonly details: POVarianceWarningDetails;
+  constructor(details: POVarianceWarningDetails) {
+    super(PO_VARIANCE_WARNING_MESSAGE);
+    this.name = "POVarianceWarningError";
+    this.details = details;
+  }
+}
+
+export class POVarianceOverrideForbiddenError extends Error {
+  readonly code = "PO_VARIANCE_OVERRIDE_FORBIDDEN" as const;
+  constructor() {
+    super(
+      "Manager override denied: your role cannot post a vendor bill more than 20% above the linked PO (requires admin or manage_accounting / manage_ledger)."
+    );
+    this.name = "POVarianceOverrideForbiddenError";
+  }
+}
 
 export interface CreatePurchaseInvoiceParams {
   vendorId: string;
@@ -22,9 +63,12 @@ export interface CreatePurchaseInvoiceParams {
     vatRate?: number;
   }[];
   isTaxable?: boolean;
-  invoiceNumber?: string;
+  /** Supplier / vendor invoice number; must be unique per vendor when provided. */
+  vendorInvoiceReference?: string | null;
   notes?: string;
   createdById: string;
+  /** Links AP vendor bill to PO for variance check on submit (three-way match). */
+  sourcePurchaseOrderId?: string | null;
 }
 
 export interface PurchaseInvoiceWithRelations extends PurchaseInvoice {
@@ -104,6 +148,59 @@ export class PurchaseInvoiceService {
     }
   }
 
+  private static normalizeVendorInvoiceReference(
+    ref: string | null | undefined
+  ): string | null {
+    if (ref == null) return null;
+    const t = String(ref).trim();
+    return t.length ? t : null;
+  }
+
+  /**
+   * Blocks save when the same vendor already has a bill with this reference (new column or legacy
+   * rows that stored the supplier number in `invoiceNumber`).
+   */
+  private static async assertUniqueVendorBillReference(
+    vendorId: string,
+    reference: string | null,
+    excludeInvoiceId?: string
+  ): Promise<void> {
+    if (!reference) return;
+    const existing = await prisma.purchaseInvoice.findFirst({
+      where: {
+        vendorId,
+        id: excludeInvoiceId ? { not: excludeInvoiceId } : undefined,
+        OR: [
+          { vendorInvoiceReference: reference },
+          { invoiceNumber: reference }
+        ]
+      }
+    });
+    if (existing) {
+      throw new Error(DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE);
+    }
+  }
+
+  private static isVendorRefUniqueConstraintError(error: any): boolean {
+    if (error?.code !== "P2002") return false;
+    const t = error.meta?.target;
+    const fields = Array.isArray(t) ? t : t != null ? [t] : [];
+    return fields.some(
+      (x: string) =>
+        x === "vendor_invoice_reference" || x === "vendorInvoiceReference"
+    );
+  }
+
+  private static isInvoiceNumberUniqueConstraintError(error: any): boolean {
+    if (error?.code !== "P2002") return false;
+    const t = error.meta?.target;
+    const fields = Array.isArray(t) ? t : t != null ? [t] : [];
+    return fields.some(
+      (x: string) =>
+        x === "invoice_number" || x === "invoiceNumber" || String(x).includes("invoice_number")
+    );
+  }
+
   /**
    * Create a new purchase invoice
    */
@@ -117,9 +214,10 @@ export class PurchaseInvoiceService {
         description,
         items,
         isTaxable = false,
-        invoiceNumber,
+        vendorInvoiceReference,
         notes,
-        createdById
+        createdById,
+        sourcePurchaseOrderId
       } = params;
 
       // Validate input
@@ -130,6 +228,23 @@ export class PurchaseInvoiceService {
       // Validate vendor and currency
       await this.validateInvoiceData(vendorId, currencyId);
 
+      if (sourcePurchaseOrderId) {
+        const srcPo = await prisma.purchaseOrder.findUnique({
+          where: { id: sourcePurchaseOrderId },
+          select: { id: true, vendorId: true }
+        });
+        if (!srcPo) {
+          throw new Error("Source purchase order not found");
+        }
+        if (srcPo.vendorId !== vendorId) {
+          throw new Error("Vendor must match the linked purchase order");
+        }
+      }
+
+      const normalizedVendorRef =
+        this.normalizeVendorInvoiceReference(vendorInvoiceReference);
+      await this.assertUniqueVendorBillReference(vendorId, normalizedVendorRef);
+
       // Calculate totals from items
       let subtotal = new Decimal(0);
       let totalVAT = new Decimal(0);
@@ -139,7 +254,7 @@ export class PurchaseInvoiceService {
         const quantity = new Decimal(item.quantity);
         const unitPrice = new Decimal(item.unitPrice);
         const itemTotal = quantity.times(unitPrice);
-        const vatRate = item.vatRate || (isTaxable ? 0.15 : 0);
+        const vatRate = item.vatRate ?? (isTaxable ? VATService.getDecimalRate() : 0);
         const itemVAT = itemTotal.times(new Decimal(vatRate));
 
         subtotal = subtotal.add(itemTotal);
@@ -158,17 +273,15 @@ export class PurchaseInvoiceService {
 
       const totalAmount = subtotal.add(totalVAT);
 
-      // Generate invoice number if not provided, with retry logic for race conditions
-      let finalInvoiceNumber = invoiceNumber;
+      // Internal document number (PINV-…); always generated here — supplier reference is `vendorInvoiceReference`.
+      let finalInvoiceNumber: string | null = null;
       let invoice = null;
       let attempts = 0;
       const maxAttempts = 5;
 
       while (!invoice && attempts < maxAttempts) {
         try {
-          if (!finalInvoiceNumber) {
-            finalInvoiceNumber = await this.generateInvoiceNumber();
-          }
+          finalInvoiceNumber = await this.generateInvoiceNumber();
 
           // Check if invoice number already exists
           const existingInvoice = await prisma.purchaseInvoice.findUnique({
@@ -177,7 +290,6 @@ export class PurchaseInvoiceService {
 
           if (existingInvoice) {
             // Number already exists, generate a new one
-            finalInvoiceNumber = null; // Force regeneration
             attempts++;
             // Small delay to reduce race condition collisions
             await new Promise(resolve => setTimeout(resolve, 10 * attempts));
@@ -188,6 +300,7 @@ export class PurchaseInvoiceService {
           invoice = await prisma.purchaseInvoice.create({
             data: {
               invoiceNumber: finalInvoiceNumber,
+              vendorInvoiceReference: normalizedVendorRef,
               vendorId,
               invoiceDate,
               dueDate: dueDate || null,
@@ -203,6 +316,7 @@ export class PurchaseInvoiceService {
               paidAmount: new Decimal(0),
               notes: notes || null,
               createdById,
+              sourcePurchaseOrderId: sourcePurchaseOrderId || null,
               items: {
                 create: invoiceItems.map(item => ({
                   itemName: item.itemName,
@@ -222,29 +336,30 @@ export class PurchaseInvoiceService {
                 select: {
                   id: true,
                   referenceNumber: true,
-                  status: true
+                  status: true,
+                  ...prismaJournalEntryRateSelect
                 }
               },
               paymentJournalEntry: {
                 select: {
                   id: true,
                   referenceNumber: true,
-                  status: true
+                  status: true,
+                  ...prismaJournalEntryRateSelect
                 }
               },
               items: true
             }
           });
         } catch (error: any) {
-          // If it's a unique constraint error, try again with a new number
-          if (error.code === 'P2002' && error.meta?.target?.includes('invoice_number')) {
-            finalInvoiceNumber = null; // Force regeneration
+          if (this.isVendorRefUniqueConstraintError(error)) {
+            throw new Error(DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE);
+          }
+          if (this.isInvoiceNumberUniqueConstraintError(error)) {
             attempts++;
-            // Small delay to reduce race condition collisions
             await new Promise(resolve => setTimeout(resolve, 10 * attempts));
             continue;
           }
-          // If it's a different error, throw it
           throw error;
         }
       }
@@ -265,6 +380,9 @@ export class PurchaseInvoiceService {
 
       return invoice;
     } catch (error: any) {
+      if (error?.message === DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE) {
+        throw error;
+      }
       throw new Error(`Failed to create purchase invoice: ${error.message}`);
     }
   }
@@ -298,10 +416,19 @@ export class PurchaseInvoiceService {
       throw new Error("Purchase order not found");
     }
 
-    const isApproved = po.status === "APPROVED" || po.approvedById != null;
-    if (!isApproved) {
+    if (po.status === "BILLED") {
       throw new Error(
-        `Purchase order is not approved (status: ${po.status}). Only approved POs can be converted to a vendor bill.`
+        "Purchase order already converted to a vendor bill (status BILLED)"
+      );
+    }
+
+    const convertible =
+      po.status === "APPROVED" ||
+      po.status === "SENT" ||
+      po.approvedById != null;
+    if (!convertible) {
+      throw new Error(
+        `Purchase order cannot be converted to a vendor bill (status: ${po.status}). Send the PO to the vendor (SENT) or mark it APPROVED first.`
       );
     }
 
@@ -320,13 +447,13 @@ export class PurchaseInvoiceService {
       currencyId = defaultCurrency.id;
     }
 
+    const poHadVat = Number(po.taxAmount) > 0;
     const items = po.items.map((item) => ({
       itemName: item.itemName,
       description: item.description ?? undefined,
       quantity: Number(item.quantity),
       unitPrice: Number(item.unitPrice),
       unit: item.unit ?? undefined,
-      vatRate: 0,
     }));
 
     const invoice = await this.createPurchaseInvoice({
@@ -336,10 +463,16 @@ export class PurchaseInvoiceService {
       currencyId,
       description: `From PO ${po.poNumber}`,
       items,
-      isTaxable: false,
-      invoiceNumber: supplierInvoiceNumber.trim(),
+      isTaxable: poHadVat,
+      vendorInvoiceReference: supplierInvoiceNumber.trim(),
       notes: `Converted from Purchase Order ${po.poNumber}`,
       createdById,
+      sourcePurchaseOrderId: purchaseOrderId,
+    });
+
+    await prisma.purchaseOrder.update({
+      where: { id: purchaseOrderId },
+      data: { status: "BILLED" },
     });
 
     return invoice;
@@ -359,18 +492,31 @@ export class PurchaseInvoiceService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           },
           paymentJournalEntry: {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           },
-          items: true
-        }
+          items: true,
+          vendorBillPayments: {
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              amount: true,
+              paymentDate: true,
+              paymentReference: true,
+              cashbookEntryId: true,
+              createdAt: true,
+            },
+          },
+        },
       });
 
       return invoice;
@@ -416,14 +562,16 @@ export class PurchaseInvoiceService {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             },
             paymentJournalEntry: {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             },
             items: true
@@ -483,7 +631,7 @@ export class PurchaseInvoiceService {
           const quantity = new Decimal(item.quantity);
           const unitPrice = new Decimal(item.unitPrice);
           const itemTotal = quantity.times(unitPrice);
-          const vatRate = item.vatRate || (isTaxable ? 0.15 : 0);
+          const vatRate = item.vatRate ?? (isTaxable ? VATService.getDecimalRate() : 0);
           const itemVAT = itemTotal.times(new Decimal(vatRate));
 
           subtotal = subtotal.add(itemTotal);
@@ -516,6 +664,27 @@ export class PurchaseInvoiceService {
       if (params.description !== undefined) updateData.description = params.description;
       if (params.notes !== undefined) updateData.notes = params.notes;
 
+      const nextVendorId = params.vendorId ?? existingInvoice.vendorId;
+      let nextVendorRef: string | null;
+      if (params.vendorInvoiceReference !== undefined) {
+        nextVendorRef = this.normalizeVendorInvoiceReference(
+          params.vendorInvoiceReference
+        );
+      } else {
+        nextVendorRef = this.normalizeVendorInvoiceReference(
+          existingInvoice.vendorInvoiceReference
+        );
+      }
+      await this.assertUniqueVendorBillReference(
+        nextVendorId,
+        nextVendorRef,
+        invoiceId
+      );
+
+      if (params.vendorInvoiceReference !== undefined) {
+        updateData.vendorInvoiceReference = nextVendorRef;
+      }
+
       // Update invoice
       const updatedInvoice = await prisma.$transaction(async (tx) => {
         // Delete existing items
@@ -536,7 +705,7 @@ export class PurchaseInvoiceService {
                 unitPrice: new Decimal(item.unitPrice),
                 totalPrice: new Decimal(item.quantity * item.unitPrice),
                 unit: item.unit || null,
-                vatRate: new Decimal(item.vatRate || (params.isTaxable ? 0.15 : 0))
+                vatRate: new Decimal(item.vatRate ?? (params.isTaxable ? VATService.getDecimalRate() : 0))
               }))
             } : undefined
           },
@@ -547,14 +716,16 @@ export class PurchaseInvoiceService {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             },
             paymentJournalEntry: {
               select: {
                 id: true,
                 referenceNumber: true,
-                status: true
+                status: true,
+                ...prismaJournalEntryRateSelect
               }
             },
             items: true
@@ -576,6 +747,15 @@ export class PurchaseInvoiceService {
 
       return updatedInvoice;
     } catch (error: any) {
+      if (error?.message === DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE) {
+        throw error;
+      }
+      if (
+        error?.code === "P2002" &&
+        this.isVendorRefUniqueConstraintError(error)
+      ) {
+        throw new Error(DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE);
+      }
       throw new Error(`Failed to update purchase invoice: ${error.message}`);
     }
   }
@@ -615,6 +795,71 @@ export class PurchaseInvoiceService {
     }
   }
 
+  private static userCanOverridePoVariance(user: {
+    role?: { name?: string | null; permissions?: unknown } | null;
+  } | null): boolean {
+    if (!user?.role) return false;
+    const rn = (user.role.name || "").toLowerCase();
+    if (rn === "admin") return true;
+    const perms = user.role.permissions as { name: string; value: boolean }[] | undefined;
+    if (!Array.isArray(perms)) return false;
+    return perms.some(
+      (p) =>
+        p.value &&
+        (p.name === "manage_accounting" ||
+          p.name === "manage_ledger" ||
+          p.name === "manage_financial_reports")
+    );
+  }
+
+  /**
+   * Three-way match: if bill is linked to a PO and total > PO * 120%, block post unless manager override.
+   */
+  private static async assertPoVarianceAllowsSubmit(
+    invoice: {
+      sourcePurchaseOrderId: string | null;
+      totalAmount: Decimal;
+    },
+    submitData: { acknowledgePoVarianceOverride?: boolean },
+    processedById: string
+  ): Promise<void> {
+    if (!invoice.sourcePurchaseOrderId) return;
+
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id: invoice.sourcePurchaseOrderId },
+      select: { poNumber: true, totalAmount: true }
+    });
+    if (!po) return;
+
+    const poTotal = Number(po.totalAmount);
+    const billTotal = Number(invoice.totalAmount);
+    if (poTotal <= 0) return;
+
+    const maxAllowed = poTotal * PO_VARIANCE_MAX_RATIO + 1e-9;
+    if (billTotal <= maxAllowed) return;
+
+    const overPct = ((billTotal - poTotal) / poTotal) * 100;
+
+    if (!submitData.acknowledgePoVarianceOverride) {
+      throw new POVarianceWarningError({
+        poNumber: po.poNumber,
+        purchaseOrderId: invoice.sourcePurchaseOrderId,
+        poTotal,
+        billTotal,
+        maxAllowedWithoutOverride: maxAllowed,
+        overPoPercent: Math.round(overPct * 100) / 100
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: processedById },
+      include: { role: true }
+    });
+    if (!this.userCanOverridePoVariance(user)) {
+      throw new POVarianceOverrideForbiddenError();
+    }
+  }
+
   /**
    * Submit invoice - creates journal entries based on payment method
    * For BANK/CASH: Dr Expense, Dr VAT Input, Cr Bank/Cash
@@ -626,6 +871,8 @@ export class PurchaseInvoiceService {
       paymentMethod: "BANK" | "CASH" | "CREDIT";
       expenseAccountId: string;
       bankId?: string; // Required for BANK payment method
+      /** Required when bill total exceeds linked PO by >20% (three-way match). */
+      acknowledgePoVarianceOverride?: boolean;
     },
     processedById: string
   ): Promise<PurchaseInvoiceWithRelations> {
@@ -650,6 +897,15 @@ export class PurchaseInvoiceService {
       if (invoice.journalEntryId) {
         throw new Error("Invoice already has a journal entry");
       }
+
+      await this.assertPoVarianceAllowsSubmit(
+        {
+          sourcePurchaseOrderId: invoice.sourcePurchaseOrderId ?? null,
+          totalAmount: invoice.totalAmount
+        },
+        submitData,
+        processedById
+      );
 
       // Validate payment method
       if (!["BANK", "CASH", "CREDIT"].includes(submitData.paymentMethod)) {
@@ -731,19 +987,17 @@ export class PurchaseInvoiceService {
         });
 
         // Create journal entry
-        journalEntry = await prisma.journalEntry.create({
-          data: {
-            transactionDate: invoice.invoiceDate,
-            referenceNumber: `PINV-CREDIT-${invoice.invoiceNumber}`,
-            description: `Purchase Invoice - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
-            totalAmount: invoice.totalAmount,
-            currencyId: invoice.currencyId,
-            status: "POSTED",
-            createdById: processedById,
-            journalEntryLines: {
-              create: journalEntryLines
-            }
-          }
+        journalEntry = await createJournalEntryWithAuditSequence({
+          transactionDate: invoice.invoiceDate,
+          referenceNumber: `PINV-CREDIT-${invoice.invoiceNumber}`,
+          description: `Purchase Invoice - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
+          totalAmount: invoice.totalAmount,
+          currencyId: invoice.currencyId,
+          status: "POSTED",
+          createdById: processedById,
+          journalEntryLines: {
+            create: journalEntryLines,
+          },
         });
       } else {
         // BANK or CASH: Use cashbook to record payment, then create journal entry
@@ -925,14 +1179,16 @@ export class PurchaseInvoiceService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           },
           paymentJournalEntry: {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           },
           items: true
@@ -951,6 +1207,12 @@ export class PurchaseInvoiceService {
 
       return updatedInvoice;
     } catch (error: any) {
+      if (
+        error instanceof POVarianceWarningError ||
+        error instanceof POVarianceOverrideForbiddenError
+      ) {
+        throw error;
+      }
       throw new Error(`Failed to submit invoice: ${error.message}`);
     }
   }
@@ -1106,14 +1368,16 @@ export class PurchaseInvoiceService {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           },
           paymentJournalEntry: {
             select: {
               id: true,
               referenceNumber: true,
-              status: true
+              status: true,
+              ...prismaJournalEntryRateSelect
             }
           },
           items: true
@@ -1134,6 +1398,301 @@ export class PurchaseInvoiceService {
     } catch (error: any) {
       throw new Error(`Failed to pay invoice: ${error.message}`);
     }
+  }
+
+  /**
+   * Pay multiple CREDIT vendor bills in one bank/cashbook movement.
+   * Creates one POSTED cashbook payment + journal (Dr AP, Cr Bank) and one `PurchaseInvoicePayment` row per bill.
+   */
+  static async payInvoicesBatch(
+    invoiceIds: string[],
+    paymentData: {
+      paymentMethod: "BANK" | "CASH";
+      bankId?: string;
+      paymentDate: Date;
+      paymentReference?: string;
+      notes?: string;
+    },
+    processedById: string
+  ): Promise<{
+    cashbookEntryId: string;
+    journalEntryId: string;
+    batchReference: string;
+    totalAmount: string;
+    invoices: PurchaseInvoiceWithRelations[];
+  }> {
+    const ids = [...new Set((invoiceIds || []).filter(Boolean))];
+    if (ids.length < 1) {
+      throw new Error("At least one invoice is required");
+    }
+    if (ids.length > 100) {
+      throw new Error("Maximum 100 invoices per batch");
+    }
+
+    if (!["BANK", "CASH"].includes(paymentData.paymentMethod)) {
+      throw new Error("Payment method must be BANK or CASH");
+    }
+    if (paymentData.paymentMethod === "BANK" && !paymentData.bankId) {
+      throw new Error("Bank ID is required for BANK payment method");
+    }
+
+    const invoices = await prisma.purchaseInvoice.findMany({
+      where: { id: { in: ids } },
+      include: {
+        vendor: true,
+        currency: true,
+        journalEntry: true,
+        items: true,
+      },
+    });
+
+    if (invoices.length !== ids.length) {
+      throw new Error("One or more purchase invoices were not found");
+    }
+
+    const currencyId = invoices[0].currencyId;
+    for (const inv of invoices) {
+      if (inv.paymentStatus === "PAID") {
+        throw new Error(`Invoice ${inv.invoiceNumber} is already paid`);
+      }
+      if (inv.status !== "POSTED") {
+        throw new Error(`Invoice ${inv.invoiceNumber} must be submitted before payment`);
+      }
+      if (inv.paymentMethod !== "CREDIT") {
+        throw new Error(
+          `Only CREDIT invoices can be batch-paid (${inv.invoiceNumber} is ${inv.paymentMethod})`
+        );
+      }
+      if (!inv.journalEntryId) {
+        throw new Error(`Invoice ${inv.invoiceNumber} must be submitted before payment`);
+      }
+      const out = Number(inv.outstandingAmount);
+      if (!Number.isFinite(out) || out <= 0) {
+        throw new Error(`Invoice ${inv.invoiceNumber} has nothing to pay`);
+      }
+      if (inv.cashbookEntryId) {
+        throw new Error(
+          `Invoice ${inv.invoiceNumber} already has a single-invoice cashbook link; pay the remainder individually or reverse that payment first`
+        );
+      }
+      if (inv.currencyId !== currencyId) {
+        throw new Error("All invoices in a batch must use the same currency");
+      }
+    }
+
+    const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
+      where: {
+        OR: [{ accountNo: "2000" }, { accountName: { contains: "Accounts Payable" } }],
+        isActive: true,
+      },
+    });
+    if (!accountsPayableAccount) {
+      throw new Error("Accounts Payable account (2000) not found");
+    }
+
+    let bankId: string;
+    if (paymentData.paymentMethod === "BANK") {
+      const bank = await prisma.bank.findUnique({
+        where: { id: paymentData.bankId! },
+        include: { glAccount: true, currency: true },
+      });
+      if (!bank) {
+        throw new Error("Bank account not found");
+      }
+      if (!bank.glAccountId) {
+        throw new Error("Bank account has no GL account linked");
+      }
+      if (bank.currencyId !== currencyId) {
+        throw new Error("Bank account currency must match invoice currency");
+      }
+      bankId = bank.id;
+    } else {
+      const cashBank = await prisma.bank.findFirst({
+        where: { name: { contains: "Cash" } },
+        include: { glAccount: true, currency: true },
+      });
+      const pick = cashBank
+        ? cashBank
+        : await prisma.bank.findFirst({ include: { glAccount: true, currency: true } });
+      if (!pick || !pick.glAccountId) {
+        throw new Error("No bank account found for cash payment");
+      }
+      if (pick.currencyId !== currencyId) {
+        throw new Error("Cash/petty bank account currency must match invoice currency");
+      }
+      bankId = pick.id;
+    }
+
+    const bank = await prisma.bank.findUnique({
+      where: { id: bankId },
+      include: { glAccount: true, currency: true },
+    });
+    if (!bank?.glAccountId) {
+      throw new Error("Bank account not found or has no GL account");
+    }
+
+    let total = new Decimal(0);
+    for (const inv of invoices) {
+      total = total.add(inv.outstandingAmount);
+    }
+    const totalDec = new Decimal(total.toFixed(2));
+
+    const batchRef =
+      paymentData.paymentReference || `BATCH-PAY-${Date.now()}`;
+    const invNums = invoices.map((i) => i.invoiceNumber).join(", ");
+    const description = `Batch vendor payment (${invoices.length} bills): ${invNums}`.slice(0, 65000);
+    /** Journal header/lines use a short description — DB column is limited (e.g. VARCHAR 191). Detail stays on cashbook. */
+    const journalDescription = `Bank Payment: Batch ${invoices.length} bills ${batchRef}`.slice(0, 190);
+
+    const auditSnapshots = new Map(
+      invoices.map((inv) => [
+        inv.id,
+        {
+          paymentStatus: inv.paymentStatus,
+          paidAmount: inv.paidAmount.toString(),
+          outstandingAmount: inv.outstandingAmount.toString(),
+        },
+      ])
+    );
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const cashbookRow = await tx.cashbookEntry.create({
+          data: {
+            bankId,
+            transactionDate: paymentData.paymentDate,
+            type: "PAYMENT",
+            amount: totalDec,
+            reference: batchRef,
+            description,
+            status: "PENDING",
+            counterpartyType: "GL",
+            glAccountId: accountsPayableAccount.id,
+            createdById: processedById,
+          },
+        });
+
+        const refNo = `CB-${cashbookRow.id.slice(-8).toUpperCase()}`;
+        const je = await assignNextAuditIdAndCreateJournal(tx, {
+          transactionDate: paymentData.paymentDate,
+          referenceNumber: refNo,
+          description: journalDescription,
+          totalAmount: totalDec,
+          currencyId: bank.currencyId,
+          status: "POSTED",
+          createdById: processedById,
+        });
+
+        await tx.journalEntryLine.create({
+          data: {
+            journalEntryId: je.id,
+            chartOfAccountId: accountsPayableAccount.id,
+            debitAmount: totalDec,
+            creditAmount: new Decimal(0),
+            description: `Batch AP: ${journalDescription}`.slice(0, 500),
+          },
+        });
+        await tx.journalEntryLine.create({
+          data: {
+            journalEntryId: je.id,
+            chartOfAccountId: bank.glAccountId,
+            debitAmount: new Decimal(0),
+            creditAmount: totalDec,
+            description: `Bank: ${journalDescription}`.slice(0, 500),
+          },
+        });
+
+        await tx.cashbookEntry.update({
+          where: { id: cashbookRow.id },
+          data: { journalEntryId: je.id, status: "POSTED" },
+        });
+
+        const updatedInvoices: PurchaseInvoiceWithRelations[] = [];
+        for (const inv of invoices) {
+          const payAmt = inv.outstandingAmount;
+          await tx.purchaseInvoicePayment.create({
+            data: {
+              purchaseInvoiceId: inv.id,
+              cashbookEntryId: cashbookRow.id,
+              amount: payAmt,
+              paymentDate: paymentData.paymentDate,
+              paymentReference: batchRef,
+              notes: paymentData.notes ?? null,
+              createdById: processedById,
+            },
+          });
+          const newPaid = inv.paidAmount.add(payAmt);
+          const newOutstanding = inv.outstandingAmount.minus(payAmt);
+          const paidFully = newOutstanding.abs().lt(0.005) || newOutstanding.lte(0);
+          const updated = await tx.purchaseInvoice.update({
+            where: { id: inv.id },
+            data: {
+              paymentStatus: paidFully ? "PAID" : "PARTIALLY_PAID",
+              paidAmount: newPaid,
+              outstandingAmount: paidFully ? new Decimal(0) : newOutstanding,
+              paymentDate: paymentData.paymentDate,
+              paymentReference: batchRef,
+              notes: paymentData.notes || inv.notes,
+            },
+            include: {
+              vendor: true,
+              currency: true,
+              journalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  status: true,
+                  ...prismaJournalEntryRateSelect,
+                },
+              },
+              paymentJournalEntry: {
+                select: {
+                  id: true,
+                  referenceNumber: true,
+                  status: true,
+                  ...prismaJournalEntryRateSelect,
+                },
+              },
+              items: true,
+            },
+          });
+          updatedInvoices.push(updated as PurchaseInvoiceWithRelations);
+        }
+
+        return {
+          cashbookEntryId: cashbookRow.id,
+          journalEntryId: je.id,
+          batchReference: batchRef,
+          invoices: updatedInvoices,
+        };
+      },
+      { maxWait: 60000, timeout: 120000 }
+    );
+
+    for (const inv of result.invoices) {
+      await AuditService.log({
+        userId: processedById,
+        action: "UPDATE",
+        entityType: "PurchaseInvoice",
+        entityId: inv.id,
+        oldValues: auditSnapshots.get(inv.id),
+        newValues: {
+          paymentStatus: inv.paymentStatus,
+          paidAmount: inv.paidAmount?.toString?.() ?? inv.paidAmount,
+          outstandingAmount: inv.outstandingAmount?.toString?.() ?? inv.outstandingAmount,
+          batchPayCashbookEntryId: result.cashbookEntryId,
+          batchReference: result.batchReference,
+        },
+      });
+    }
+
+    return {
+      cashbookEntryId: result.cashbookEntryId,
+      journalEntryId: result.journalEntryId,
+      batchReference: result.batchReference,
+      totalAmount: totalDec.toFixed(2),
+      invoices: result.invoices,
+    };
   }
 
   /**

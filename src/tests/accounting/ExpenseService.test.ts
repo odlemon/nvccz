@@ -5,33 +5,26 @@ import VATService from '../../services/VATService';
 import JournalEntryService from '../../services/JournalEntryService';
 
 // Mock dependencies
-jest.mock('../../services/accounting/VATService');
-jest.mock('../../services/accounting/JournalEntryService');
-jest.mock('../../utils/database', () => ({
-  dbConnection: {
-    getPrismaClient: jest.fn(() => mockPrisma)
-  }
-}));
+jest.mock('../../services/VATService');
+jest.mock('../../services/JournalEntryService');
+jest.mock('../../utils/database', () => {
+  const prisma = {
+    expense: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      count: jest.fn(),
+    },
+    vendor: { findUnique: jest.fn() },
+    expenseCategory: { findUnique: jest.fn() },
+    currency: { findUnique: jest.fn() },
+  };
+  return { prisma };
+});
 
-const mockPrisma = {
-  expense: {
-    create: jest.fn(),
-    findUnique: jest.fn(),
-    findMany: jest.fn(),
-    update: jest.fn(),
-    delete: jest.fn(),
-    count: jest.fn()
-  },
-  vendor: {
-    findUnique: jest.fn()
-  },
-  expenseCategory: {
-    findUnique: jest.fn()
-  },
-  currency: {
-    findUnique: jest.fn()
-  }
-} as any;
+const { prisma: mockPrisma } = require('../../utils/database');
 
 describe('ExpenseService', () => {
   beforeEach(() => {
@@ -91,7 +84,7 @@ describe('ExpenseService', () => {
 
     beforeEach(() => {
       // Mock VAT calculation
-      (VATService.calculateVAT as jest.Mock).mockReturnValue(145);
+      (VATService.calculateVAT as jest.Mock).mockReturnValue(155);
       (VATService.isVATEligible as jest.Mock).mockReturnValue(true);
 
       // Mock account lookups

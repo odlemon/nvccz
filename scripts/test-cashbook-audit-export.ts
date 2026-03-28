@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
- * Audit-ready cashbook export: month to Excel for tax audit.
- * Columns Date, Payee, Reference, Amount, Tax; totals match the system.
+ * Audit cashbook export: default CSV; optional xlsx.
+ * Columns Date, Payee, Reference, Amount, Tax; totals match POSTED rows in DB for the month.
  *
  * Run: npx ts-node scripts/test-cashbook-audit-export.ts
  */
@@ -16,8 +16,12 @@ function assert(condition: boolean, msg: string) {
   if (!condition) failures.push(msg);
 }
 
+function round2(n: number) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 async function main() {
-  console.log('========== Cashbook Audit Export (month to Excel) ==========\n');
+  console.log('========== Cashbook audit export (CSV default + xlsx) ==========\n');
 
   const now = new Date();
   const year = now.getFullYear();
@@ -28,76 +32,93 @@ async function main() {
   const dbEntries = await prisma.cashbookEntry.findMany({
     where: {
       transactionDate: { gte: start, lte: end },
-      originalTransactionId: null
+      originalTransactionId: null,
+      status: 'POSTED'
     },
     include: {
       journalEntry: { include: { journalEntryLines: true } }
     }
   });
 
-  const dbTotalAmount = dbEntries.reduce((s, e) => s + Number(e.amount), 0);
+  const dbTotalAmount = round2(dbEntries.reduce((s, e) => s + Number(e.amount), 0));
   let dbTotalTax = 0;
   for (const e of dbEntries) {
     if (e.journalEntry?.journalEntryLines?.length) {
       dbTotalTax += e.journalEntry.journalEntryLines.reduce((s, l) => s + Number(l.vatAmount ?? 0), 0);
     }
   }
+  dbTotalTax = round2(dbTotalTax);
 
-  console.log(`Month ${year}-${String(month).padStart(2, '0')}: ${dbEntries.length} entries, DB total amount = ${dbTotalAmount}, DB total tax = ${dbTotalTax}\n`);
+  console.log(
+    `Month ${year}-${String(month).padStart(2, '0')}: ${dbEntries.length} POSTED entries, amount=${dbTotalAmount}, tax=${dbTotalTax}\n`
+  );
 
-  const result = await CashbookAuditExportService.exportMonthToExcel({ year, month });
-  assert(result.success, result.message ?? 'Export must succeed');
-  assert(!!result.buffer, 'Export must return buffer');
-  assert(result.totalAmount === dbTotalAmount, `Export totalAmount ${result.totalAmount} must match DB ${dbTotalAmount}`);
-  assert(result.totalTax === dbTotalTax, `Export totalTax ${result.totalTax} must match DB ${dbTotalTax}`);
-  assert(result.rowCount === dbEntries.length, `Export rowCount ${result.rowCount} must match DB entries ${dbEntries.length}`);
+  const resultCsv = await CashbookAuditExportService.exportMonth({ year, month, format: 'csv' });
+  assert(resultCsv.success, resultCsv.message ?? 'CSV export must succeed');
+  assert(!!resultCsv.buffer, 'CSV must return buffer');
+  assert(resultCsv.fileName?.endsWith('.csv'), 'CSV filename must end with .csv');
+  assert(resultCsv.contentType?.includes('csv'), 'CSV content type');
+  assert(resultCsv.totalAmount === dbTotalAmount, `CSV totalAmount ${resultCsv.totalAmount} vs DB ${dbTotalAmount}`);
+  assert(resultCsv.totalTax === dbTotalTax, `CSV totalTax ${resultCsv.totalTax} vs DB ${dbTotalTax}`);
+  assert(resultCsv.rowCount === dbEntries.length, `CSV rowCount ${resultCsv.rowCount} vs DB ${dbEntries.length}`);
 
-  if (!result.buffer) {
-    console.log('No buffer; skipping Excel parse checks.');
-    printResult();
-    return;
-  }
+  const csvText = resultCsv.buffer.toString('utf8').replace(/^\ufeff/, '');
+  assert(csvText.includes('Date,'), 'CSV must contain header');
+  assert(csvText.includes('Totals (sum of rows above)'), 'CSV must contain totals row');
 
-  const wb = XLSX.read(result.buffer, { type: 'buffer' });
-  const sheetName = wb.SheetNames[0];
-  const ws = wb.Sheets[sheetName];
+  const resultXlsx = await CashbookAuditExportService.exportMonth({ year, month, format: 'xlsx' });
+  assert(resultXlsx.success, resultXlsx.message ?? 'XLSX export must succeed');
+  assert(!!resultXlsx.buffer, 'XLSX must return buffer');
+
+  const wb = XLSX.read(resultXlsx.buffer, { type: 'buffer' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
   const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as (string | number)[][];
 
-  const headerRow = aoa[0] as (string | number)[];
-  assert(Array.isArray(headerRow) && headerRow.length >= EXPECTED_HEADERS.length, 'Sheet must have header row');
+  const headerIdx = aoa.findIndex(
+    (row) =>
+      Array.isArray(row) &&
+      String(row[0]).trim() === 'Date' &&
+      String(row[1]).trim() === 'Payee'
+  );
+  assert(headerIdx >= 0, 'XLSX must contain Date/Payee header row');
+  const headerRow = aoa[headerIdx] as (string | number)[];
   for (let i = 0; i < EXPECTED_HEADERS.length; i++) {
-    assert(String(headerRow[i]).trim() === EXPECTED_HEADERS[i], `Header col ${i + 1} must be "${EXPECTED_HEADERS[i]}", got "${headerRow[i]}"`);
+    assert(
+      String(headerRow[i]).trim() === EXPECTED_HEADERS[i],
+      `Header col ${i + 1} expected "${EXPECTED_HEADERS[i]}" got "${headerRow[i]}"`
+    );
   }
 
-  const dataRows = aoa.slice(1).filter((row: any) => Array.isArray(row) && row.length > 0 && row[0] !== '' && String(row[0]) !== 'Total');
-  const sheetSumAmount = dataRows.reduce((s, row) => s + (Number(row[3]) || 0), 0);
-  const sheetSumTax = dataRows.reduce((s, row) => s + (Number(row[4]) || 0), 0);
-  assert(Math.abs(sheetSumAmount - dbTotalAmount) < 0.01, `Sheet sum Amount ${sheetSumAmount} must match DB ${dbTotalAmount}`);
-  assert(Math.abs(sheetSumTax - dbTotalTax) < 0.01, `Sheet sum Tax ${sheetSumTax} must match DB ${dbTotalTax}`);
+  const dataRows = aoa
+    .slice(headerIdx + 1)
+    .filter(
+      (row: any) =>
+        Array.isArray(row) &&
+        row.length >= 5 &&
+        /^\d{4}-\d{2}-\d{2}$/.test(String(row[0]).trim())
+    );
+  const sheetSumAmount = round2(dataRows.reduce((s, row) => s + (Number(row[3]) || 0), 0));
+  const sheetSumTax = round2(dataRows.reduce((s, row) => s + (Number(row[4]) || 0), 0));
+  assert(sheetSumAmount === dbTotalAmount, `XLSX sum Amount ${sheetSumAmount} vs DB ${dbTotalAmount}`);
+  assert(sheetSumTax === dbTotalTax, `XLSX sum Tax ${sheetSumTax} vs DB ${dbTotalTax}`);
 
-  const totalRow = aoa.find((row: any) => Array.isArray(row) && String(row[0]).trim() === 'Total');
-  assert(!!totalRow, 'Sheet must have a Total row');
+  const totalRow = aoa.find(
+    (row: any) => Array.isArray(row) && String(row[0]).includes('Totals (sum of rows above)')
+  );
+  assert(!!totalRow, 'XLSX must have totals row');
   if (totalRow) {
-    assert(Math.abs((Number(totalRow[3]) || 0) - dbTotalAmount) < 0.01, 'Total row Amount must match system');
-    assert(Math.abs((Number(totalRow[4]) || 0) - dbTotalTax) < 0.01, 'Total row Tax must match system');
+    assert(round2(Number(totalRow[3]) || 0) === dbTotalAmount, 'XLSX totals Amount');
+    assert(round2(Number(totalRow[4]) || 0) === dbTotalTax, 'XLSX totals Tax');
   }
 
-  console.log('Headers:', headerRow.slice(0, 5).join(', '));
-  console.log('Data rows:', dataRows.length);
-  console.log('Sheet sum Amount:', sheetSumAmount, '| DB:', dbTotalAmount);
-  console.log('Sheet sum Tax:', sheetSumTax, '| DB:', dbTotalTax);
-  console.log('Totals row:', totalRow ? totalRow.slice(0, 5).join(', ') : 'N/A');
+  console.log('CSV sample (first 200 chars):', csvText.slice(0, 200).replace(/\r\n/g, '\\n'));
+  console.log('XLSX data rows:', dataRows.length);
 
-  printResult();
-}
-
-function printResult() {
-  console.log('');
   if (failures.length) {
-    console.log('FAILURES:', failures);
+    console.log('\nFAILURES:', failures);
     process.exit(1);
   }
-  console.log('All assertions passed.');
+  console.log('\nAll assertions passed.');
   process.exit(0);
 }
 

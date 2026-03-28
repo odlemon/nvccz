@@ -14,6 +14,15 @@ const router = Router();
  *     tags: [Accounting - Balance Sheet]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: hideZeroBalances
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: ["true", "false", "1", "0"]
+ *         description: Filter — omit idle zero-balance accounts from lists (true or 1). Totals unchanged.
+ *         example: "true"
  *     requestBody:
  *       required: true
  *       content:
@@ -119,6 +128,11 @@ router.post("/generate", authenticate, authorize(["admin", "accountant"]), Balan
  *           type: string
  *         description: Currency ID (optional)
  *         example: "USD"
+ *       - in: query
+ *         name: hideZeroBalances
+ *         schema:
+ *           type: boolean
+ *         description: Omit idle zero-balance accounts from lists (totals unchanged). Use true or 1.
  *     responses:
  *       200:
  *         description: Balance sheet retrieved successfully

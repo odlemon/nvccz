@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { Request, Response } from "express";
-import JournalEntryService from "../services/JournalEntryService";
+import JournalEntryService, { JournalEntryImmutableError } from "../services/JournalEntryService";
 import { getLastAuditTrailEntries, verifySequentialIntegrity } from "../services/AuditTrailSequenceService";
 import { ResponseHelper } from "../utils/responseHelper";
 
@@ -28,14 +28,6 @@ export class JournalEntryController {
         return ResponseHelper.badRequest(res, "Journal entry must have at least 2 lines");
       }
 
-      // Validate that debits equal credits
-      const totalDebits = journalEntryLines.reduce((sum, line) => sum + (parseFloat(line.debitAmount) || 0), 0);
-      const totalCredits = journalEntryLines.reduce((sum, line) => sum + (parseFloat(line.creditAmount) || 0), 0);
-
-      if (Math.abs(totalDebits - totalCredits) > 0.01) {
-        return ResponseHelper.badRequest(res, "Total debits must equal total credits");
-      }
-
       const ipAddress = (req as any).ip || (req as any).headers?.["x-forwarded-for"] || (req as any).socket?.remoteAddress || null;
       const userAgent = ((req as any).headers?.["user-agent"] as string) || null;
       const journalEntry = await JournalEntryService.createManualJournalEntry({
@@ -43,11 +35,24 @@ export class JournalEntryController {
         referenceNumber,
         description,
         currencyId,
-        journalEntryLines,
+        journalEntryLines: journalEntryLines.map((line: any) => ({
+          chartOfAccountId: line.chartOfAccountId,
+          debitAmount: parseFloat(line.debitAmount) || 0,
+          creditAmount: parseFloat(line.creditAmount) || 0,
+          description: line.description,
+          ...(line.currencyId ? { currencyId: line.currencyId } : {}),
+        })),
         createdById: userId,
         ipAddress: typeof ipAddress === "string" ? ipAddress : (Array.isArray(ipAddress) ? ipAddress[0] : String(ipAddress ?? "")),
         userAgent,
       });
+
+      if (journalEntry && journalEntry.success === false) {
+        return ResponseHelper.badRequest(
+          res,
+          journalEntry.error || "Failed to create manual journal entry"
+        );
+      }
 
       return ResponseHelper.success(res, "Manual journal entry created successfully", journalEntry);
     } catch (error) {
@@ -98,6 +103,80 @@ export class JournalEntryController {
     } catch (error) {
       console.error("Error getting journal entry:", error);
       return ResponseHelper.error(res, "Failed to retrieve journal entry", undefined, 500);
+    }
+  }
+
+  /**
+   * Update a journal entry (PENDING only). Posted/voided entries return 409 — use a reversing journal.
+   */
+  static async updateJournalEntry(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const {
+        transactionDate,
+        referenceNumber,
+        description,
+        currencyId,
+        journalEntryLines,
+      } = req.body;
+
+      if (!transactionDate || !referenceNumber || !description || !currencyId || !journalEntryLines) {
+        return ResponseHelper.badRequest(
+          res,
+          "Missing required fields: transactionDate, referenceNumber, description, currencyId, journalEntryLines"
+        );
+      }
+
+      if (!Array.isArray(journalEntryLines) || journalEntryLines.length < 2) {
+        return ResponseHelper.badRequest(res, "Journal entry must have at least 2 lines");
+      }
+
+      const userId = (req as any).user?.id;
+      const ipAddress =
+        (req as any).ip ||
+        (req as any).headers?.["x-forwarded-for"] ||
+        (req as any).socket?.remoteAddress ||
+        null;
+      const userAgent = ((req as any).headers?.["user-agent"] as string) || null;
+
+      const updated = await JournalEntryService.updatePendingJournalEntry(
+        id,
+        {
+          transactionDate: new Date(transactionDate),
+          referenceNumber,
+          description,
+          currencyId,
+          journalEntryLines: journalEntryLines.map((line: any) => ({
+            chartOfAccountId: line.chartOfAccountId,
+            debitAmount: parseFloat(line.debitAmount) || 0,
+            creditAmount: parseFloat(line.creditAmount) || 0,
+            description: line.description,
+            ...(line.currencyId ? { currencyId: line.currencyId } : {}),
+          })),
+          createdById: userId,
+        },
+        userId,
+        typeof ipAddress === "string"
+          ? ipAddress
+          : Array.isArray(ipAddress)
+            ? ipAddress[0]
+            : String(ipAddress ?? ""),
+        userAgent
+      );
+
+      return ResponseHelper.success(res, "Journal entry updated successfully", updated);
+    } catch (error) {
+      console.error("Error updating journal entry:", error);
+      if (error instanceof JournalEntryImmutableError) {
+        return ResponseHelper.conflict(res, error.message);
+      }
+      if (error instanceof Error) {
+        if (error.message === "Journal entry not found") {
+          return ResponseHelper.notFound(res, error.message);
+        }
+        return ResponseHelper.badRequest(res, error.message);
+      }
+      return ResponseHelper.error(res, "Failed to update journal entry", undefined, 500);
     }
   }
 

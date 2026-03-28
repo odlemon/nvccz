@@ -17,7 +17,8 @@ export class RevenueController {
         transactionDate,
         description,
         isTaxable,
-        paymentMethod
+        paymentMethod,
+        paymentBankId,
       } = req.body;
 
       // Validate required fields
@@ -37,7 +38,8 @@ export class RevenueController {
         description,
         isTaxable: Boolean(isTaxable),
         paymentMethod,
-        createdById: req.user!.id
+        createdById: req.user!.id,
+        paymentBankId,
       };
 
       const revenue = await RevenueService.createRevenue(revenueParams);

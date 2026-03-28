@@ -8,6 +8,8 @@ const router = Router();
 // ===== EMPLOYEE MANAGEMENT ROUTES =====
 router.post('/employees', authenticate, PayrollController.createEmployee);
 router.get('/employees', authenticate, PayrollController.getEmployees);
+router.get('/employees/:id/reimbursement-vendor', authenticate, PayrollController.getEmployeeReimbursementVendor);
+router.post('/employees/:id/reimbursement-vendor', authenticate, PayrollController.ensureEmployeeReimbursementVendor);
 router.put('/employees/:id', authenticate, PayrollController.updateEmployee);
 router.delete('/employees/:id', authenticate, PayrollController.deleteEmployee);
 router.delete('/employees/:id/permanent', authenticate, PayrollController.permanentlyDeleteEmployee);

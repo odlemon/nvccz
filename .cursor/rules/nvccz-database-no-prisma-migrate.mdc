@@ -1,0 +1,14 @@
+---
+description: NVCCZ — never use Prisma migrate/db push for schema changes; use direct DB scripts
+alwaysApply: true
+---
+
+# Database schema changes (NVCCZ)
+
+- **Do not** run `prisma migrate dev`, `prisma migrate deploy`, or rely on **Prisma migrations** to apply schema changes for this project.
+- **Do not** use `prisma db push` as the normal way to sync production or shared databases (it can apply unrelated drift and is not the team workflow).
+- **Do** keep `prisma/schema.prisma` in sync with the real database so types and `prisma generate` stay correct.
+- **Do** apply DDL by writing and running **TypeScript scripts** in `scripts/` that connect with `PrismaClient` and use `$executeRawUnsafe` / `$queryRawUnsafe` (or `mysql2`) against MySQL — same pattern as `scripts/run-invoice-lifecycle-rate-snapshot-migration.ts` and `scripts/run-invoice-payment-snapshot-migration.ts`. Scripts should be **idempotent** where possible (check `information_schema` before `ALTER TABLE`).
+- **Do** run **`npx prisma generate`** after schema.prisma changes (stop processes that lock the Prisma engine on Windows if needed).
+- **Do** add an **`npm run db:migrate:…`** entry in `package.json` when you add a new migration script so it is easy to run and document.
+- Journal lines use **`db:migrate:journal-line-amount-precision`** (`DECIMAL(15,3)`) where sub-cent **Rounding Variance** postings are required (ZiG-style 0.001 remainders).

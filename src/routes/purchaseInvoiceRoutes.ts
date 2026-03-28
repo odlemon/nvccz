@@ -120,6 +120,49 @@ router.post(
 
 /**
  * @swagger
+ * /accounting/purchase-invoices/batch-pay:
+ *   post:
+ *     summary: Batch pay vendor bills (one bank movement, one payment record per bill)
+ *     tags: [Accounts Payables]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [invoiceIds, paymentMethod, paymentDate]
+ *             properties:
+ *               invoiceIds:
+ *                 type: array
+ *                 items: { type: string }
+ *                 description: Purchase invoice IDs to pay in full (same currency)
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [BANK, CASH]
+ *               bankId:
+ *                 type: string
+ *                 description: Required when paymentMethod is BANK
+ *               paymentDate:
+ *                 type: string
+ *                 format: date-time
+ *               paymentReference:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: One cashbook payment posted; purchase_invoice_payments created per bill
+ */
+router.post(
+  "/batch-pay",
+  authenticate,
+  PurchaseInvoiceController.payBatch
+);
+
+/**
+ * @swagger
  * /accounting/purchase-invoices:
  *   get:
  *     summary: Get all purchase invoices
@@ -357,6 +400,34 @@ router.get(
 
 /**
  * @swagger
+ * /accounting/purchase-invoices/creditors-age-analysis:
+ *   get:
+ *     summary: Creditors age analysis (open AP / vendor bills on credit)
+ *     description: Buckets outstanding credit purchase invoices by days past due (vs due date, or invoice date if no due date). Aligns with liability posted to Accounts Payable (e.g. 2000).
+ *     tags: [Accounts Payables]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: asOfDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Report date (UTC day); defaults to today
+ *     responses:
+ *       200:
+ *         description: Report with lines and totalsByCurrency
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/creditors-age-analysis",
+  authenticate,
+  PurchaseInvoiceController.getCreditorsAgeAnalysis
+);
+
+/**
+ * @swagger
  * /accounting/purchase-invoices/{id}:
  *   get:
  *     summary: Get purchase invoice by ID
@@ -442,7 +513,7 @@ router.get(
  *                       type: number
  *               isTaxable:
  *                 type: boolean
- *                 description: If true, VAT will be calculated (15% default if not specified in items)
+ *                 description: If true, VAT will be calculated (15.5% default if not specified in items)
  *               notes:
  *                 type: string
  *     responses:

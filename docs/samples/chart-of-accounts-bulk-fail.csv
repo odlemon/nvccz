@@ -1,0 +1,9 @@
+accountNo,accountName,accountType,financialStatement,notes
+9999,UAT Bulk Fail — invalid range,Expense,Income Statement,First digit must be 1–5
+52720,UAT Bulk Fail — duplicate A,Expense,Income Statement,Same accountNo repeated next row
+52720,UAT Bulk Fail — duplicate B,Expense,Income Statement,Duplicate of previous row
+4000,UAT Bulk Fail — type vs range,Equity,Balance Sheet,4xxx must be Revenue or Income not Equity
+52721,,Expense,Income Statement,Missing accountName
+52722,UAT Bulk Fail — bad financial statement,Expense,Profit and Loss,Invalid financialStatement value
+6000,UAT Bulk Fail — 6xxx range,Expense,Income Statement,Account number must start with 1–5
+12723,UAT Bulk Fail — wrong type for 1xxx,Expense,Income Statement,1xxx cannot be Expense

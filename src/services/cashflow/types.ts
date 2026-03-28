@@ -62,7 +62,13 @@ export interface CashFlowStatement {
   operatingActivities: CashFlowActivity;
   investingActivities: CashFlowActivity;
   financingActivities: CashFlowActivity;
+  /**
+   * Net increase (decrease) in cash for the period from GL cash accounts: ending − beginning.
+   * Always reconciles: beginningCashBalance + netCashFlow === endingCashBalance.
+   */
   netCashFlow: number;
+  /** Operating + investing + financing section totals (approximate; may differ from netCashFlow). */
+  activityBasedNetCashFlow: number;
   beginningCashBalance: number;
   endingCashBalance: number;
   currency: {

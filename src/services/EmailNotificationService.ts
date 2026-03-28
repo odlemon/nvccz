@@ -3441,8 +3441,8 @@ export class EmailNotificationService {
               <p><strong>Item 1:</strong> Office Rent - $5,000 per month<br>
               <strong>Item 2:</strong> Cleaning Services - $500 per month<br>
               <strong>Subtotal:</strong> $5,500<br>
-              <strong>VAT (14.5%):</strong> $797.50<br>
-              <strong>Total:</strong> $6,297.50<br>
+              <strong>VAT (15.5%):</strong> $852.50<br>
+              <strong>Total:</strong> $6,352.50<br>
               <strong>Delivery:</strong> Immediate<br>
               <strong>Payment Terms:</strong> NET 30<br>
               <strong>Quote Valid Until:</strong> ${deadline}</p>
@@ -4492,5 +4492,63 @@ export class EmailNotificationService {
       </body>
       </html>
     `;
+  }
+
+  /**
+   * Notify accountants when a recurring journal template posts a POSTED JE.
+   * Recipients: ACCOUNTANT_NOTIFICATION_EMAILS (comma-separated) plus users whose role grants manage_accounting.
+   */
+  static async notifyAccountantsRecurringJournalPosted(data: {
+    templateName: string;
+    referenceNumber: string;
+    journalEntryId: string;
+    yearMonth: string;
+  }): Promise<void> {
+    const { prisma } = await import("../utils/database");
+    const fromEnv =
+      process.env.ACCOUNTANT_NOTIFICATION_EMAILS?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) ?? [];
+    const users = await prisma.user.findMany({
+      select: { email: true, role: { select: { permissions: true } } },
+    });
+    const fromRoles: string[] = [];
+    for (const u of users) {
+      const perms = u.role?.permissions;
+      if (!Array.isArray(perms)) continue;
+      const ok = perms.some(
+        (p: { name?: string; value?: boolean }) => p?.name === "manage_accounting" && p?.value === true
+      );
+      if (ok && u.email) fromRoles.push(u.email);
+    }
+    const recipients = [...new Set([...fromEnv, ...fromRoles])];
+    if (!recipients.length) {
+      console.warn(
+        "notifyAccountantsRecurringJournalPosted: no recipients (set ACCOUNTANT_NOTIFICATION_EMAILS or assign manage_accounting)"
+      );
+      return;
+    }
+    const subject = `Recurring journal posted: ${data.templateName} (${data.yearMonth})`;
+    const html = `
+      <!DOCTYPE html>
+      <html><head><meta charset="utf-8"></head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.5; color: #333;">
+        <p>A scheduled recurring journal has been posted.</p>
+        <ul>
+          <li><strong>Template:</strong> ${data.templateName}</li>
+          <li><strong>Period:</strong> ${data.yearMonth}</li>
+          <li><strong>Reference:</strong> ${data.referenceNumber}</li>
+          <li><strong>Journal entry ID:</strong> ${data.journalEntryId}</li>
+        </ul>
+        <p>${process.env.COMPANY_NAME_SHORT || "NVCCZ"} Accounting</p>
+      </body></html>`;
+    const from = getFromAddress("finance");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: recipients.join(", "),
+      subject,
+      html,
+    });
+    console.log(`Recurring journal notification sent to ${recipients.length} recipient(s)`);
   }
 }

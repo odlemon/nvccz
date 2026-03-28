@@ -2,6 +2,12 @@
 import { Request, Response } from "express";
 import { BalanceSheetService } from "../services/BalanceSheetService";
 
+function hideZeroBalancesFromQuery(req: Request): boolean {
+  const q = req.query.hideZeroBalances;
+  const v = Array.isArray(q) ? q[0] : q;
+  return v === "true" || v === "1" || v === true;
+}
+
 export class BalanceSheetController {
   /**
    * Generate balance sheet as of a specific date
@@ -9,6 +15,7 @@ export class BalanceSheetController {
   static async generateBalanceSheet(req: Request, res: Response) {
     try {
       const { asOfDate, currencyId, startDate, endDate } = req.body;
+      const hideZero = hideZeroBalancesFromQuery(req);
 
       // Validate required parameters
       if (!asOfDate && !endDate) {
@@ -46,7 +53,8 @@ export class BalanceSheetController {
         asOfDate: parsedAsOfDate,
         currencyId,
         startDate: parsedStartDate,
-        endDate: parsedEndDate
+        endDate: parsedEndDate,
+        hideZeroBalances: hideZero
       });
 
       res.status(200).json({
@@ -69,6 +77,7 @@ export class BalanceSheetController {
   static async getBalanceSheetByQuery(req: Request, res: Response) {
     try {
       const { asOfDate, currencyId, startDate, endDate } = req.query;
+      const hideZero = hideZeroBalancesFromQuery(req);
 
       // Validate required parameters
       if (!asOfDate && !endDate) {
@@ -106,7 +115,8 @@ export class BalanceSheetController {
         asOfDate: parsedAsOfDate,
         currencyId: currencyId as string,
         startDate: parsedStartDate,
-        endDate: parsedEndDate
+        endDate: parsedEndDate,
+        hideZeroBalances: hideZero
       });
 
       res.status(200).json({

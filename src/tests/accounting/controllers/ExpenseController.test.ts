@@ -5,7 +5,7 @@ import { ExpenseController } from '../../../controllers/ExpenseController';
 import ExpenseService from '../../../services/ExpenseService';
 
 // Mock the ExpenseService
-jest.mock('../../../services/accounting/ExpenseService');
+jest.mock('../../../services/ExpenseService');
 
 describe('ExpenseController', () => {
   let expenseController: ExpenseController;
@@ -288,9 +288,9 @@ describe('ExpenseController', () => {
         success: true,
         data: {
           amount: 1000,
-          vatRate: 14.5,
-          vatAmount: 145,
-          totalAmount: 1145,
+          vatRate: 15.5,
+          vatAmount: 155,
+          totalAmount: 1155,
           isTaxable: true
         }
       });
@@ -312,7 +312,7 @@ describe('ExpenseController', () => {
         success: true,
         data: {
           amount: 1000,
-          vatRate: 14.5,
+          vatRate: 15.5,
           vatAmount: 0,
           totalAmount: 1000,
           isTaxable: false

@@ -49,8 +49,9 @@ export class OpenItemService {
       const invoices = await prisma.invoice.findMany({
         where: {
           customerId,
-          status: 'OPEN', // Only open invoices
-          isActive: true
+          isActive: true,
+          status: { in: ['SENT', 'PARTIALLY_PAID'] },
+          outstandingAmount: { gt: 0 }
         },
         include: {
           currency: true
@@ -220,8 +221,9 @@ export class OpenItemService {
       // Get all open invoices
       const openInvoices = await prisma.invoice.findMany({
         where: {
-          status: 'OPEN',
-          isActive: true
+          isActive: true,
+          status: { in: ['SENT', 'PARTIALLY_PAID'] },
+          outstandingAmount: { gt: 0 }
         },
         include: {
           currency: true
@@ -234,7 +236,8 @@ export class OpenItemService {
       const now = new Date();
       
       for (const invoice of openInvoices) {
-        const daysOverdue = Math.floor((now.getTime() - invoice.dueDate.getTime()) / (1000 * 60 * 60 * 24));
+        const due = invoice.dueDate ? new Date(invoice.dueDate).getTime() : now.getTime();
+        const daysOverdue = Math.floor((now.getTime() - due) / (1000 * 60 * 60 * 24));
         const outstandingAmount = Number(invoice.outstandingAmount || invoice.totalAmount);
         
         if (invoice.customerId) {
@@ -298,10 +301,11 @@ export class OpenItemService {
       const invoices = await prisma.invoice.findMany({
         where: {
           customerId,
-          status: 'OPEN',
-          isActive: true
+          isActive: true,
+          status: { in: ['SENT', 'PARTIALLY_PAID'] },
+          outstandingAmount: { gt: 0 }
         },
-        orderBy: { invoiceDate: 'asc' }
+        orderBy: { transactionDate: 'asc' }
       });
       
       const totalOutstanding = invoices.reduce((sum, invoice) => 

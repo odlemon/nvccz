@@ -106,4 +106,7 @@ router.patch("/:id/post", JournalEntryController.postJournalEntry);
 // Void a journal entry (change status to VOID)
 router.patch("/:id/void", JournalEntryController.voidJournalEntry);
 
+// Update journal entry (PENDING only; posted/voided → 409 — ledger immutability)
+router.patch("/:id", JournalEntryController.updateJournalEntry);
+
 export default router; 

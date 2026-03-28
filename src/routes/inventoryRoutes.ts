@@ -17,6 +17,38 @@ router.use(authenticate);
 
 /**
  * @swagger
+ * /accounting/inventory/settings:
+ *   get:
+ *     summary: Get perpetual inventory policy (e.g. allow negative stock)
+ *     tags: [Inventory Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Settings
+ *   patch:
+ *     summary: Update perpetual inventory policy
+ *     tags: [Inventory Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - allowNegativeStock
+ *             properties:
+ *               allowNegativeStock:
+ *                 type: boolean
+ *                 description: When true, sales/OUT can drive quantity below zero after client confirms (acknowledgeNegativeStock).
+ */
+router.get('/settings', InventoryController.getInventorySettings);
+router.patch('/settings', InventoryController.updateInventorySettings);
+
+/**
+ * @swagger
  * /accounting/inventory/items:
  *   post:
  *     summary: Create a new inventory item
@@ -330,9 +362,16 @@ router.get('/dashboard', InventoryController.getInventoryDashboard);
  *                       type: string
  *                     quantity:
  *                       type: number
+ *               acknowledgeNegativeStock:
+ *                 type: boolean
+ *                 description: Required when policy allows negative stock and demand exceeds on-hand (retry after 409).
  *     responses:
  *       200:
  *         description: Sales invoice processed successfully
+ *       400:
+ *         description: Insufficient stock (negative stock not allowed)
+ *       409:
+ *         description: Confirmation required — negative stock allowed but acknowledgeNegativeStock not sent
  *       401:
  *         description: Unauthorized
  */
