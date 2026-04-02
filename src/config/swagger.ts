@@ -7,6 +7,9 @@ import { financialReportingEndpoints } from './financial-reporting-endpoints';
 import { eventsEndpoints } from './events-endpoints';
 import { dashboardsEndpoints } from './dashboards-endpoints';
 import { userSavedFilterFavoriteEndpoints } from './user-saved-filter-favorite-endpoints';
+import { companyProfileEndpoints } from './company-profile-endpoints';
+import { vatRateEndpoints } from './vat-rate-endpoints';
+import { consolidatedAccountingReportEndpoints } from './consolidated-accounting-report-endpoints';
 
 const options = {
   definition: {
@@ -1622,6 +1625,9 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
+    ...vatRateEndpoints,
+    ...companyProfileEndpoints,
+    ...consolidatedAccountingReportEndpoints,
     ...performanceEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
