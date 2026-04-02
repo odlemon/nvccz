@@ -6,6 +6,7 @@ import { PayrollService } from '../services/PayrollService';
 import { StaffReimbursementVendorService } from '../services/StaffReimbursementVendorService';
 
 import { prisma } from '../utils/database';
+import { parseDate } from '../utils/dateHelper';
 
 export class PayrollController {
   /**
@@ -2156,7 +2157,7 @@ export class PayrollController {
       const result = await PayrollService.processPayrollPayment(
         payrollRunId,
         bankId,
-        new Date(paymentDate),
+        parseDate(paymentDate),
         createdById
       );
 

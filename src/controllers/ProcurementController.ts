@@ -6,6 +6,7 @@ import {
   DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE,
 } from "../services/PurchaseInvoiceService";
 import { prisma } from "../utils/database";
+import { parseDate } from "../utils/dateHelper";
 
 export class ProcurementController {
   /**
@@ -814,8 +815,8 @@ export class ProcurementController {
       const invoice = await ProcurementService.createProcurementInvoice({
         purchaseOrderId,
         vendorId,
-        invoiceDate: new Date(invoiceDate),
-        dueDate: dueDate ? new Date(dueDate) : undefined,
+        invoiceDate: parseDate(invoiceDate),
+        dueDate: dueDate ? parseDate(dueDate) : undefined,
         currencyId,
         documentPath,
         documentType,
@@ -951,7 +952,7 @@ export class ProcurementController {
         purchaseOrderId: id,
         supplierInvoiceNumber: String(supplierInvoiceNumber).trim(),
         createdById,
-        dueDate: dueDate ? new Date(dueDate) : undefined
+        dueDate: dueDate ? parseDate(dueDate) : undefined
       });
 
       res.status(201).json({
@@ -1053,7 +1054,7 @@ export class ProcurementController {
         id,
         {
           paymentAmount: Number(paymentAmount),
-          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          paymentDate: paymentDate ? parseDate(paymentDate) : new Date(),
           paymentMethod,
           bankAccountId,
           paymentReference,

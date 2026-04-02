@@ -2,6 +2,12 @@
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
+import {
+  computeAchievementPercent,
+  computeParentRollupFromChildren,
+  deriveParentStageFromRollup,
+  isTargetMet
+} from "./performanceGoalRollupUtils";
 
 export class PerformanceWorkflowService {
   /**
@@ -162,14 +168,21 @@ export class PerformanceWorkflowService {
       // Update goal progress based on task completion
       const goal = task.goal;
       const newCurrentValue = (goal.currentValue || 0) + (task.currentValue || 0);
-      const progressPercentage = goal.targetValue > 0 ? (newCurrentValue / goal.targetValue) * 100 : 0;
-      const isCompleted = newCurrentValue >= goal.targetValue;
+      const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+      const progressPercentage = computeAchievementPercent({
+        currentValue: newCurrentValue,
+        targetValue: goal.targetValue,
+        targetOperator: goal.targetOperator,
+        isReverseKpi: goal.isReverseKpi,
+        progressPercentage: goal.progressPercentage
+      });
+      const isCompleted = isTargetMet(newCurrentValue, targetNum, goal.targetOperator, goal.isReverseKpi);
 
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id: goal.id },
         data: {
           currentValue: newCurrentValue,
-          progressPercentage: Math.min(progressPercentage, 100),
+          progressPercentage,
           status: isCompleted ? "completed" : "active",
           stage: isCompleted ? "completed" : goal.stage,
           updatedAt: new Date()
@@ -211,28 +224,35 @@ export class PerformanceWorkflowService {
         throw new Error("Parent goal not found");
       }
 
-      // Calculate aggregate progress from sub-goals
-      const totalSubGoalProgress = parentGoal.subGoals.reduce((sum, subGoal) => {
-        return sum + (subGoal.progressPercentage || 0);
-      }, 0);
-
-      const averageProgress = parentGoal.subGoals.length > 0 ? totalSubGoalProgress / parentGoal.subGoals.length : 0;
-      const isCompleted = averageProgress >= 100;
+      const rollup = computeParentRollupFromChildren(
+        parentGoal.subGoals,
+        parentGoal.targetValue
+      );
+      const { stage: newStage, status: newStatus } = deriveParentStageFromRollup({
+        allCompleted: rollup.allCompleted,
+        anyInProgress: rollup.anyInProgress,
+        weightedProgress: rollup.progressPercentage,
+        suggestedCurrentValue: rollup.suggestedCurrentValue,
+        subGoalCount: parentGoal.subGoals.length,
+        previousStage: parentGoal.stage || "planning"
+      });
 
       const updatedParentGoal = await prisma.performanceGoal.update({
         where: { id: parentGoalId },
         data: {
-          progressPercentage: Math.min(averageProgress, 100),
-          status: isCompleted ? "completed" : "active",
-          stage: isCompleted ? "completed" : parentGoal.stage,
+          currentValue: rollup.suggestedCurrentValue,
+          progressPercentage: rollup.progressPercentage,
+          status: newStatus,
+          stage: newStage,
           updatedAt: new Date()
         }
       });
 
-      console.log(`✅ Updated parent goal ${parentGoalId} progress: ${averageProgress.toFixed(1)}%`);
+      console.log(
+        `✅ Updated parent goal ${parentGoalId} progress: ${rollup.progressPercentage.toFixed(1)}% (weighted)`
+      );
 
-      // If parent goal is completed and has KPI integration, trigger accounting
-      if (isCompleted && parentGoal.kpiId) {
+      if (rollup.allCompleted && parentGoal.kpiId) {
         await this.triggerAccountingIntegration(parentGoalId, parentGoal.targetValue);
       }
 

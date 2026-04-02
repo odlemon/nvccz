@@ -442,4 +442,137 @@ router.post("/vertical", authenticate, authorize(["admin", "accountant"]), Incom
  */
 router.get("/", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.getIncomeStatementByQuery);
 
+/**
+ * @swagger
+ * /api/accounting/income-statement/consolidated:
+ *   post:
+ *     summary: Generate consolidated income statement (all currencies converted to one target currency)
+ *     description: |
+ *       Fetches ALL posted journal entries for the period regardless of currency, converts every
+ *       amount to the target consolidation currency using the exchange rate as of the report end date,
+ *       and aggregates them. Each account line includes a `currencyBreakdown` array showing
+ *       sourceAmount, conversionRate and consolidatedAmount per original currency.
+ *
+ *       **Period Filter Examples (via query params):**
+ *       - Month: `?periodType=month&periodValue=2025-01`
+ *       - Quarter: `?periodType=quarter&periodValue=2025-Q1`
+ *       - Year: `?periodType=year&periodValue=2025`
+ *     tags: [Accounting - Income Statement]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: periodType
+ *         schema:
+ *           type: string
+ *           enum: [month, quarter, year]
+ *         description: Period type filter (use with periodValue)
+ *         example: month
+ *       - in: query
+ *         name: periodValue
+ *         schema:
+ *           type: string
+ *         description: Period value (month "2025-01", quarter "2025-Q1", year "2025")
+ *         example: "2025-01"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - consolidationCurrencyId
+ *             properties:
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Start date (legacy — use if period filters not provided)
+ *                 example: "2025-01-01"
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *                 description: End date (legacy — use if period filters not provided)
+ *                 example: "2026-03-31"
+ *               consolidationCurrencyId:
+ *                 type: string
+ *                 description: ID of the target currency to consolidate into
+ *                 example: "clxabc123usd"
+ *     responses:
+ *       200:
+ *         description: Consolidated income statement generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     period:
+ *                       type: object
+ *                       properties:
+ *                         startDate:
+ *                           type: string
+ *                           format: date
+ *                         endDate:
+ *                           type: string
+ *                           format: date
+ *                     consolidationCurrency:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         code:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                     exchangeRates:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           currencyId:
+ *                             type: string
+ *                           currencyCode:
+ *                             type: string
+ *                           rate:
+ *                             type: number
+ *                     sections:
+ *                       type: object
+ *                       properties:
+ *                         revenue:
+ *                           type: object
+ *                         operatingExpenses:
+ *                           type: object
+ *                         incomeTax:
+ *                           type: object
+ *                         belowTheLine:
+ *                           type: object
+ *                     totals:
+ *                       type: object
+ *                       properties:
+ *                         netIncomeBeforeTaxes:
+ *                           type: number
+ *                         incomeTaxExpense:
+ *                           type: number
+ *                         incomeFromContinuingOperations:
+ *                           type: number
+ *                         belowTheLine:
+ *                           type: number
+ *                         netIncome:
+ *                           type: number
+ *       400:
+ *         description: Bad request - missing consolidationCurrencyId or dates
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post("/consolidated", authenticate, authorize(["admin", "accountant"]), IncomeStatementController.generateConsolidatedIncomeStatement);
+
 export default router; 

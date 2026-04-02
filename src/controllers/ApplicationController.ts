@@ -6,6 +6,7 @@ import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 import { FirebaseStorageService } from '../services/FirebaseStorageService';
 import { prisma } from '../utils/database';
+import { parseDate } from "../utils/dateHelper";
 
 export class ApplicationController {
   /**
@@ -191,7 +192,7 @@ export class ApplicationController {
         businessDescription,
         industry,
         businessStage,
-        foundingDate: foundingDate ? new Date(foundingDate) : undefined,
+        foundingDate: foundingDate ? parseDate(foundingDate) : undefined,
         requestedAmount: Number(requestedAmount),
         fundId,
         documents: processedDocuments
@@ -475,7 +476,7 @@ export class ApplicationController {
         businessDescription: updateData.businessDescription,
         industry: updateData.industry,
         businessStage: updateData.businessStage,
-        foundingDate: updateData.foundingDate ? new Date(updateData.foundingDate) : undefined,
+        foundingDate: updateData.foundingDate ? parseDate(updateData.foundingDate) : undefined,
         requestedAmount: updateData.requestedAmount ? Number(updateData.requestedAmount) : undefined,
         fundId: updateData.fundId
       };

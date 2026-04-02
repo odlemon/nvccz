@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import JournalEntryService, { JournalEntryImmutableError } from "../services/JournalEntryService";
 import { getLastAuditTrailEntries, verifySequentialIntegrity } from "../services/AuditTrailSequenceService";
 import { ResponseHelper } from "../utils/responseHelper";
+import { parseDate } from "../utils/dateHelper";
 
 export class JournalEntryController {
   /**
@@ -31,7 +32,7 @@ export class JournalEntryController {
       const ipAddress = (req as any).ip || (req as any).headers?.["x-forwarded-for"] || (req as any).socket?.remoteAddress || null;
       const userAgent = ((req as any).headers?.["user-agent"] as string) || null;
       const journalEntry = await JournalEntryService.createManualJournalEntry({
-        transactionDate: new Date(transactionDate),
+        transactionDate: parseDate(transactionDate),
         referenceNumber,
         description,
         currencyId,
@@ -142,7 +143,7 @@ export class JournalEntryController {
       const updated = await JournalEntryService.updatePendingJournalEntry(
         id,
         {
-          transactionDate: new Date(transactionDate),
+          transactionDate: parseDate(transactionDate),
           referenceNumber,
           description,
           currencyId,
@@ -233,8 +234,8 @@ export class JournalEntryController {
 
       const currencyId = req.query.currencyId as string | undefined;
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
-        new Date(startDate as string),
-        new Date(endDate as string),
+        parseDate(startDate as string),
+        parseDate(endDate as string),
         status,
         currencyId
       );

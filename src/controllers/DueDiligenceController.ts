@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { DueDiligenceService } from '../services/DueDiligenceService';
 import { ActivityService } from '../services/ActivityService';
 import { EmailNotificationService } from '../services/EmailNotificationService';
+import { parseDate } from '../utils/dateHelper';
 import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 import { FirebaseStorageService } from '../services/FirebaseStorageService';
@@ -264,7 +265,7 @@ export class DueDiligenceController {
           title,
           description,
           priority,
-          dueDate: dueDate ? new Date(dueDate) : undefined,
+          dueDate: dueDate ? parseDate(dueDate) : undefined,
           category
         },
         assignedById

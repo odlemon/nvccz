@@ -5,6 +5,7 @@ import { AuthRequest } from "../middleware/authenticate";
 import { EventService } from "../services/EventService";
 import { GoogleCalendarService } from "../services/GoogleCalendarService";
 import { Decimal } from "@prisma/client/runtime/library";
+import { parseDate } from "../utils/dateHelper";
 const googleCalendarService = new GoogleCalendarService();
 
 export const eventController = {
@@ -213,7 +214,7 @@ export const eventController = {
         return;
       }
 
-      if (new Date(startDate) >= new Date(endDate)) {
+      if (parseDate(startDate) >= parseDate(endDate)) {
         res.status(400).json({
           success: false,
           message: "End date must be after start date"
@@ -222,7 +223,7 @@ export const eventController = {
       }
 
       // Validate RSVP deadline if provided
-      if (rsvpDeadline && new Date(rsvpDeadline) > new Date(endDate)) {
+      if (rsvpDeadline && parseDate(rsvpDeadline) > parseDate(endDate)) {
         res.status(400).json({
           success: false,
           message: "RSVP deadline cannot be after event end date"
@@ -234,14 +235,14 @@ export const eventController = {
       const updateData: any = {
         title,
         description,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: parseDate(startDate),
+        endDate: parseDate(endDate),
         location: location !== undefined ? location : null
       };
 
       // Add optional fields if provided
       if (rsvpDeadline !== undefined) {
-        updateData.rsvpDeadline = rsvpDeadline ? new Date(rsvpDeadline) : null;
+        updateData.rsvpDeadline = rsvpDeadline ? parseDate(rsvpDeadline) : null;
       }
       if (eventType !== undefined) updateData.eventType = eventType;
       if (maxAttendees !== undefined) updateData.maxAttendees = maxAttendees;

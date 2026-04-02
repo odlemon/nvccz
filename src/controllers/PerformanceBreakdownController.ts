@@ -51,9 +51,11 @@ export class PerformanceBreakdownController {
       });
     } catch (error) {
       console.error("Error creating department breakdown:", error);
-      res.status(500).json({ 
-        success: false, 
-        message: "Failed to create department breakdown" 
+      const message =
+        error instanceof Error ? error.message : "Failed to create department breakdown";
+      res.status(400).json({
+        success: false,
+        message
       });
     }
   }
@@ -63,26 +65,32 @@ export class PerformanceBreakdownController {
    */
   static async createIndividualBreakdown(req: Request, res: Response) {
     try {
-      const { departmentGoalId, selectedUsers, breakdownData } = req.body;
+      const { departmentGoalId, selectedUsers, individualData, breakdownData } = req.body;
+      const rows = Array.isArray(breakdownData)
+        ? breakdownData
+        : Array.isArray(individualData)
+          ? individualData
+          : null;
 
-      if (!departmentGoalId || !selectedUsers || !breakdownData) {
+      if (!departmentGoalId || !selectedUsers || !rows) {
         return res.status(400).json({
           success: false,
-          message: "Department goal ID, selected users, and breakdown data are required"
+          message:
+            "Department goal ID, selected users, and per-user rows are required (use `individualData` or `breakdownData` — same array shape)"
         });
       }
 
-      if (selectedUsers.length !== breakdownData.length) {
+      if (selectedUsers.length !== rows.length) {
         return res.status(400).json({
           success: false,
-          message: "Number of selected users must match breakdown data length"
+          message: "Number of selected users must match individualData / breakdownData length"
         });
       }
 
       const createdGoals = await PerformanceGoalService.createIndividualGoals(
         departmentGoalId,
         selectedUsers,
-        breakdownData
+        rows
       );
 
       res.status(201).json({
@@ -92,9 +100,11 @@ export class PerformanceBreakdownController {
       });
     } catch (error) {
       console.error("Error creating individual breakdown:", error);
-      res.status(500).json({ 
-        success: false, 
-        message: "Failed to create individual breakdown" 
+      const message =
+        error instanceof Error ? error.message : "Failed to create individual breakdown";
+      res.status(400).json({
+        success: false,
+        message
       });
     }
   }
@@ -147,9 +157,11 @@ export class PerformanceBreakdownController {
       });
     } catch (error) {
       console.error("Error getting available departments:", error);
-      res.status(500).json({ 
-        success: false, 
-        message: "Failed to get available departments" 
+      const message =
+        error instanceof Error ? error.message : "Failed to get available departments";
+      res.status(500).json({
+        success: false,
+        message
       });
     }
   }
@@ -232,9 +244,11 @@ export class PerformanceBreakdownController {
       });
     } catch (error) {
       console.error("Error getting users by department:", error);
-      res.status(500).json({ 
-        success: false, 
-        message: "Failed to get users by department" 
+      const message =
+        error instanceof Error ? error.message : "Failed to get users by department";
+      res.status(500).json({
+        success: false,
+        message
       });
     }
   }

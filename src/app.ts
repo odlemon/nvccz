@@ -1,5 +1,6 @@
 // @ts-nocheck
 import express from "express"
+import { createServer } from "http"
 import cors from "cors"
 import helmet from "helmet"
 import dotenv from "dotenv"
@@ -23,6 +24,7 @@ try {
 import authRoutes from "./routes/authRoutes"
 import roleRoutes from "./routes/roleRoutes"
 import userRoutes from "./routes/userRoutes"
+import auditLogRoutes from "./routes/auditLogRoutes"
 import postRoutes from "./routes/postRoutes"
 import newsletterRoutes from "./routes/newsletterRoutes"
 import newsletterSubscriptionRoutes from "./routes/newsletterSubscriptionRoutes"
@@ -41,6 +43,7 @@ import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import cashFlowRoutes from "./routes/cashFlowRoutes"
 import balanceSheetRoutes from "./routes/balanceSheetRoutes"
 import accountingDashboardRoutes from "./routes/accountingDashboardRoutes"
+import accountingPeIntegrationV1Routes from "./routes/accountingPeIntegrationV1Routes"
 import statementOfEquityRoutes from "./routes/statementOfEquityRoutes"
 import revenueRoutes from "./routes/revenueRoutes"
 import revenueSourceRoutes from "./routes/revenueSourceRoutes"
@@ -101,16 +104,21 @@ import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigR
 import approvalRoutes from "./routes/approvalRoutes"
 import inventoryRoutes from "./routes/inventoryRoutes"
 import assetRoutes from "./routes/assetRoutes"
+import cronRoutes from "./routes/cronRoutes"
 import creditNoteRoutes from "./routes/creditNoteRoutes"
 import statementRoutes from "./routes/statementRoutes"
 import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
+import vatRateRoutes from "./routes/vatRateRoutes"
 import hardcodedRoleRoutes from "./routes/hardcodedRoleRoutes"
 import activityRoutes from "./routes/activityRoutes"
 import rollupCalculationRoutes from "./routes/rollupCalculationRoutes"
 import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
+import performanceConfigRoutes from "./routes/performanceConfigRoutes"
+import performanceIntegrationRoutes from "./routes/performanceIntegrationRoutes"
 import vatReportRoutes from "./routes/vatReportRoutes"
 import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
+import { initSocketServer } from "./services/RealtimeSocketService"
 
 
 dotenv.config()
@@ -118,6 +126,7 @@ dotenv.config()
 
 
 const app = express()
+const httpServer = createServer(app)
 const port = envConfig.get("PORT")
 
 // Disable automatic ETag generation so successful JSON responses aren't converted to 304s
@@ -172,7 +181,14 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'X-Depreciation-Cron-Secret',
+  ],
   optionsSuccessStatus: 200
 }))
 app.use(express.json())
@@ -247,7 +263,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // FASTEST FIX - Pure HTML with CDN resources (no swagger-ui-express)
-app.get('/api-docs', (req, res) => {
+const docsHandler = (req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(`
     <!DOCTYPE html>
@@ -310,7 +326,10 @@ app.get('/api-docs', (req, res) => {
     </body>
     </html>
   `);
-});
+};
+
+app.get('/api-docs', docsHandler);
+app.get('/docs', docsHandler);
 
 // Test endpoint to verify API is working
 app.get('/test-api', (req, res) => {
@@ -355,6 +374,9 @@ app.get("/test-db", async (req, res) => {
   }
 })
 
+// Cron / automation (no JWT — use route-specific secrets)
+app.use("/api/cron", cronRoutes)
+
 // Auth routes
 app.use("/api/auth", authRoutes)
 
@@ -366,6 +388,9 @@ app.use("/api/hardcoded-roles", hardcodedRoleRoutes)
 
 // User management routes
 app.use("/api/users", userRoutes)
+
+// Audit logs (admin only)
+app.use("/api/audit-logs", auditLogRoutes)
 
 // Homepage features routes
 app.use("/api/posts", postRoutes)
@@ -388,6 +413,7 @@ app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/cash-flow", cashFlowRoutes)
 app.use("/api/accounting/balance-sheet", balanceSheetRoutes)
 app.use("/api/accounting/dashboard", accountingDashboardRoutes)
+app.use("/api/accounting/v1", accountingPeIntegrationV1Routes)
 app.use("/api/accounting/statement-of-equity", statementOfEquityRoutes)
 app.use("/api/accounting/revenues", revenueRoutes)
 app.use("/api/accounting/revenue-sources", revenueSourceRoutes)
@@ -471,6 +497,8 @@ app.use("/api/activity-logs", activityLogRoutes)
 app.use("/api/performance/rollup", rollupCalculationRoutes)
 app.use("/api/performance/scorecards", performanceScorecardRoutes)
 app.use("/api/performance/analytics", performanceAnalyticsRoutes)
+app.use("/api/performance/config", performanceConfigRoutes)
+app.use("/api/performance/integration", performanceIntegrationRoutes)
 
 // CEO Dashboard routes
 app.use("/api/ceo-dashboard", ceoDashboardRoutes)
@@ -542,6 +570,7 @@ app.use("/api/accounting/statements", statementRoutes)
 
 // Multi-Currency routes
 app.use("/api/accounting/multi-currency", multiCurrencyRoutes)
+app.use("/api/accounting/vat-rates", vatRateRoutes)
 
 
 
@@ -576,7 +605,9 @@ const startServer = async (): Promise<void> => {
       throw new Error("Failed to connect to database after 3 attempts");
     }
 
-    app.listen(port, '0.0.0.0', () => {
+    initSocketServer(httpServer)
+
+    httpServer.listen(port, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${port}`, {
         environment: envConfig.get("NODE_ENV"),
         port: port,

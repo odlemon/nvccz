@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import CashFlowService from "../services/CashFlowService";
 import { CashFlowParams } from "../services/cashflow/types";
 import { extractPeriodFilter, periodFilterToDateRange } from "../utils/periodFilterHelper";
+import { parseDate } from "../utils/dateHelper";
 
 export class CashFlowController {
   /**
@@ -36,8 +37,8 @@ export class CashFlowController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -90,8 +91,8 @@ export class CashFlowController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -144,8 +145,8 @@ export class CashFlowController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -192,8 +193,8 @@ export class CashFlowController {
       }
 
       const periodParams: CashFlowParams[] = periods.map(period => ({
-        startDate: new Date(period.startDate),
-        endDate: new Date(period.endDate),
+        startDate: parseDate(period.startDate),
+        endDate: parseDate(period.endDate),
         currencyId: period.currencyId
       }));
 
@@ -245,8 +246,8 @@ export class CashFlowController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -299,8 +300,8 @@ export class CashFlowController {
         }
 
         params = {
-          startDate: new Date(startDate as string),
-          endDate: new Date(endDate as string),
+          startDate: parseDate(startDate as string),
+          endDate: parseDate(endDate as string),
           currencyId: currencyId as string
         };
       }

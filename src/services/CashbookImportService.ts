@@ -277,6 +277,8 @@ export class CashbookImportService {
     userId: string
   ): Promise<any[]> {
     const processedTransactions = [];
+
+    await VATService.refreshActiveVatRate().catch(() => undefined);
     
     for (const transaction of transactions) {
       try {

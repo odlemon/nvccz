@@ -3,6 +3,10 @@ import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
+import {
+  buildTaxComplianceData,
+  maybeSendImmediateTaxAlertForNewVendor,
+} from "../services/VendorTaxComplianceService";
 
 export class VendorController {
   /**
@@ -10,13 +14,35 @@ export class VendorController {
    */
   static async createVendor(req: AuthRequest, res: Response) {
     try {
-      const { name, taxNumber, contactPerson, email, phone, address, paymentTerms } = req.body;
+      const {
+        name,
+        taxNumber,
+        contactPerson,
+        email,
+        phone,
+        address,
+        paymentTerms,
+        itf263CertificateText,
+        taxClearanceExpiryDate,
+      } = req.body;
 
       // Validation
       if (!name) {
         return res.status(400).json({
           success: false,
           message: "Vendor name is required"
+        });
+      }
+
+      const compliance = buildTaxComplianceData({
+        itf263CertificateText,
+        taxClearanceExpiryDate,
+      });
+
+      if ("error" in compliance) {
+        return res.status(400).json({
+          success: false,
+          message: compliance.error,
         });
       }
 
@@ -35,6 +61,17 @@ export class VendorController {
         });
       }
 
+      const taxData =
+        "skip" in compliance
+          ? {}
+          : {
+              taxComplianceStatus: compliance.taxComplianceStatus,
+              taxClearanceExpiryDate: compliance.taxClearanceExpiryDate,
+              taxRevalidationAlertDueAt: compliance.taxRevalidationAlertDueAt,
+              taxRevalidationAlertNotifiedAt: compliance.taxRevalidationAlertNotifiedAt,
+              isActive: compliance.isActive,
+            };
+
       const vendor = await prisma.vendor.create({
         data: {
           name,
@@ -43,14 +80,35 @@ export class VendorController {
           email,
           phone,
           address,
-          paymentTerms
+          paymentTerms,
+          ...taxData,
         }
       });
 
+      if (!("skip" in compliance)) {
+        await maybeSendImmediateTaxAlertForNewVendor({
+          id: vendor.id,
+          name: vendor.name,
+          taxClearanceExpiryDate: vendor.taxClearanceExpiryDate,
+          taxRevalidationAlertDueAt: vendor.taxRevalidationAlertDueAt,
+        });
+      }
+
       res.status(201).json({
         success: true,
-        message: "Vendor created successfully",
-        data: vendor
+        message: "skip" in compliance
+          ? "Vendor created successfully"
+          : "Vendor created successfully with ACTIVE tax compliance (ZIMRA ITF263). Re-validation alert is scheduled 30 days before expiry.",
+        data: vendor,
+        taxCompliance:
+          "skip" in compliance
+            ? { status: "PENDING", note: "No ITF263 data supplied; tax compliance remains PENDING." }
+            : {
+                status: vendor.taxComplianceStatus,
+                taxClearanceExpiryDate: vendor.taxClearanceExpiryDate,
+                taxRevalidationAlertDueAt: vendor.taxRevalidationAlertDueAt,
+                expirySource: compliance.meta.source,
+              },
       });
     } catch (error: any) {
       res.status(500).json({
@@ -145,7 +203,18 @@ export class VendorController {
   static async updateVendor(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { name, taxNumber, contactPerson, email, phone, address, paymentTerms, isActive } = req.body;
+      const {
+        name,
+        taxNumber,
+        contactPerson,
+        email,
+        phone,
+        address,
+        paymentTerms,
+        isActive,
+        itf263CertificateText,
+        taxClearanceExpiryDate,
+      } = req.body;
 
       // Check if vendor exists
       const existingVendor = await prisma.vendor.findUnique({
@@ -157,6 +226,25 @@ export class VendorController {
           success: false,
           message: "Vendor not found"
         });
+      }
+
+      const hasItfInput =
+        (itf263CertificateText !== undefined &&
+          String(itf263CertificateText).trim() !== "") ||
+        taxClearanceExpiryDate !== undefined;
+
+      let itfCompliance: ReturnType<typeof buildTaxComplianceData> | null = null;
+      if (hasItfInput) {
+        itfCompliance = buildTaxComplianceData({
+          itf263CertificateText,
+          taxClearanceExpiryDate,
+        });
+        if ("error" in itfCompliance) {
+          return res.status(400).json({
+            success: false,
+            message: itfCompliance.error,
+          });
+        }
       }
 
       // If updating name, check if new name already exists
@@ -187,10 +275,27 @@ export class VendorController {
       if (paymentTerms !== undefined) updateData.paymentTerms = paymentTerms;
       if (isActive !== undefined) updateData.isActive = isActive;
 
+      if (itfCompliance && !("skip" in itfCompliance)) {
+        updateData.taxComplianceStatus = itfCompliance.taxComplianceStatus;
+        updateData.taxClearanceExpiryDate = itfCompliance.taxClearanceExpiryDate;
+        updateData.taxRevalidationAlertDueAt = itfCompliance.taxRevalidationAlertDueAt;
+        updateData.taxRevalidationAlertNotifiedAt = null;
+        updateData.isActive = itfCompliance.isActive;
+      }
+
       const vendor = await prisma.vendor.update({
         where: { id },
         data: updateData
       });
+
+      if (hasItfInput && vendor.taxComplianceStatus === "ACTIVE") {
+        await maybeSendImmediateTaxAlertForNewVendor({
+          id: vendor.id,
+          name: vendor.name,
+          taxClearanceExpiryDate: vendor.taxClearanceExpiryDate,
+          taxRevalidationAlertDueAt: vendor.taxRevalidationAlertDueAt,
+        });
+      }
 
       res.status(200).json({
         success: true,

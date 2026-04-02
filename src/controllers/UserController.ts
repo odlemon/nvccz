@@ -191,15 +191,23 @@ export class UserController {
         });
       }
 
-      const user = await UserService.updateUser(id, {
-        firstName,
-        lastName,
-        email,
-        department,
-        roleCode,
-        departmentRole,
-        roleId
-      });
+      const user = await UserService.updateUser(
+        id,
+        {
+          firstName,
+          lastName,
+          email,
+          department,
+          roleCode,
+          departmentRole,
+          roleId
+        },
+        {
+          actorUserId: req.user.id,
+          ipAddress: req.ip || (req.socket?.remoteAddress as string) || null,
+          userAgent: (req.headers["user-agent"] as string) || null
+        }
+      );
 
       res.status(200).json({
         success: true,

@@ -1,6 +1,21 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
+import { EmailNotificationService } from "./EmailNotificationService";
 import { TaskService, computeTaskPercentage } from "./TaskService";
+
+function formatGoalDate(d: Date | string | null | undefined): string {
+  if (d == null) return "—";
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toISOString().slice(0, 10);
+}
+
+function formatTargetValueDisplay(value: unknown): string {
+  if (value == null || value === "") return "—";
+  const n = typeof value === "number" ? value : parseFloat(String(value));
+  if (Number.isNaN(n)) return String(value);
+  return n.toLocaleString("en-US", { maximumFractionDigits: 6 });
+}
 
 export class IndividualGoalToTaskService {
   /**
@@ -45,13 +60,45 @@ export class IndividualGoalToTaskService {
         goalId: individualGoal.id, // Link to individual goal
         performanceCategory: individualGoal.category,
         isPerformanceTask: true,
-        monetaryValue: individualGoal.targetValue ? parseFloat(individualGoal.targetValue.toString()) : null,
+        targetValue: individualGoal.targetValue
+          ? parseFloat(individualGoal.targetValue.toString())
+          : undefined,
         kpi: individualGoal.kpiId ? { id: individualGoal.kpiId } : null
       };
 
       const task = await TaskService.createTask(taskData, individualGoal.createdById);
 
       console.log(`✅ Created task ${task.id} for user ${individualGoal.assignedToId} from goal ${individualGoalId}`);
+
+      try {
+        const assignee = await prisma.user.findUnique({
+          where: { id: individualGoal.assignedToId },
+          select: { email: true, firstName: true, lastName: true }
+        });
+        const email = assignee?.email?.trim();
+        if (email) {
+          const assigneeName = [assignee?.firstName, assignee?.lastName].filter(Boolean).join(" ").trim() || "Colleague";
+          await EmailNotificationService.sendPerformanceGoalTaskAssignedEmail({
+            assigneeName,
+            assigneeEmail: email,
+            taskTitle: individualGoal.title,
+            taskId: task.id,
+            targetValueDisplay: formatTargetValueDisplay(individualGoal.targetValue),
+            targetUnit: individualGoal.targetUnit || "—",
+            priority: individualGoal.priority || "medium",
+            startDateDisplay: formatGoalDate(individualGoal.startDate),
+            endDateDisplay: formatGoalDate(individualGoal.endDate),
+            departmentName: individualGoal.departmentName,
+            description: individualGoal.description
+          });
+        } else {
+          console.warn(
+            `⚠️ No email for user ${individualGoal.assignedToId}; skipped performance task notification`
+          );
+        }
+      } catch (emailErr) {
+        console.error("❌ Failed to send performance goal task email (task was created):", emailErr);
+      }
 
       // Update the individual goal to mark it as having tasks
       await prisma.performanceGoal.update({

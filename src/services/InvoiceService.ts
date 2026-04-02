@@ -595,17 +595,38 @@ export class InvoiceService {
         newTotalAmount = newAmount + newVatAmount;
       }
 
-      // Update the invoice
+      // Build Prisma-safe update payload — strip fields that aren't direct scalar columns
+      const {
+        customerId: newCustomerId,
+        currencyId: newCurrencyId,
+        items: _items,
+        invoiceDate: _invoiceDate,
+        createdById: _createdById,
+        invoiceNumber: _invoiceNumber,
+        exchangeRateAtCreation: _rateAtCreation,
+        usdZwgRateSnapshot: _rateSnapshot,
+        ...safeUpdateFields
+      } = updateData as Record<string, any>;
+
+      const prismaData: Record<string, any> = {
+        ...safeUpdateFields,
+        amount: new Decimal(newAmount),
+        vatAmount: new Decimal(newVatAmount),
+        totalAmount: new Decimal(newTotalAmount),
+        isTaxable: newIsTaxable,
+      };
+
+      if (newCustomerId && newCustomerId !== currentInvoice.customerId) {
+        prismaData.customer = { connect: { id: newCustomerId } };
+      }
+      if (newCurrencyId && newCurrencyId !== currentInvoice.currencyId) {
+        prismaData.currency = { connect: { id: newCurrencyId } };
+      }
+
       const before = currentInvoice;
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
-        data: {
-          ...updateData,
-          amount: new Decimal(newAmount),
-          vatAmount: new Decimal(newVatAmount),
-          totalAmount: new Decimal(newTotalAmount),
-          isTaxable: newIsTaxable
-        },
+        data: prismaData,
         include: this.invoiceApiInclude()
       });
 

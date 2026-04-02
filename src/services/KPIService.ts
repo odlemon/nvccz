@@ -28,6 +28,51 @@ export interface UpdateKPIRequest {
 }
 
 export class KPIService {
+  /**
+   * Sum goal targets/achieved the same way as task-linked goal updates:
+   * prefer monetary* fields, else fall back to targetValue / currentValue so KPI % moves when tasks update goals.
+   */
+  static aggregateGoalsForKpiProgress(goals: any[]) {
+    let totalMonetaryTarget = 0;
+    let totalMonetaryAchieved = 0;
+    let totalPercentTarget = 0;
+    let totalPercentAchieved = 0;
+
+    for (const goal of goals) {
+      const useMonetaryPair =
+        goal.monetaryValue != null && String(goal.monetaryValue) !== "";
+
+      const monetaryTarget = useMonetaryPair
+        ? parseFloat(String(goal.monetaryValue))
+        : goal.targetValue != null && String(goal.targetValue) !== ""
+          ? parseFloat(String(goal.targetValue))
+          : 0;
+
+      const monetaryAchieved = useMonetaryPair
+        ? parseFloat(String(goal.monetaryValueAchieved ?? 0))
+        : goal.currentValue != null && String(goal.currentValue) !== ""
+          ? parseFloat(String(goal.currentValue))
+          : 0;
+
+      totalMonetaryTarget += monetaryTarget;
+      totalMonetaryAchieved += monetaryAchieved;
+
+      if (goal.percentValue != null && String(goal.percentValue) !== "") {
+        totalPercentTarget += parseFloat(String(goal.percentValue));
+      }
+      if (goal.percentValueAchieved != null && String(goal.percentValueAchieved) !== "") {
+        totalPercentAchieved += parseFloat(String(goal.percentValueAchieved));
+      }
+    }
+
+    return {
+      totalMonetaryTarget,
+      totalMonetaryAchieved,
+      totalPercentTarget,
+      totalPercentAchieved
+    };
+  }
+
   // Create a new KPI
   static async createKPI(request: CreateKPIRequest) {
     try {
@@ -391,21 +436,12 @@ export class KPIService {
         const activeGoals = kpi.performanceGoals.filter(goal => goal.status === 'active').length;
         const completedGoals = kpi.performanceGoals.filter(goal => goal.status === 'completed').length;
         
-        // Calculate total target values
-        const totalMonetaryTarget = kpi.performanceGoals.reduce((sum, goal) => 
-          sum + (goal.monetaryValue || 0), 0
-        );
-        const totalPercentTarget = kpi.performanceGoals.reduce((sum, goal) => 
-          sum + (goal.percentValue || 0), 0
-        );
-        
-        // Calculate total achieved values
-        const totalMonetaryAchieved = kpi.performanceGoals.reduce((sum, goal) => 
-          sum + (goal.monetaryValueAchieved || 0), 0
-        );
-        const totalPercentAchieved = kpi.performanceGoals.reduce((sum, goal) => 
-          sum + (goal.percentValueAchieved || 0), 0
-        );
+        const {
+          totalMonetaryTarget,
+          totalMonetaryAchieved,
+          totalPercentTarget,
+          totalPercentAchieved
+        } = KPIService.aggregateGoalsForKpiProgress(kpi.performanceGoals);
         
         // Calculate progress percentages
         const monetaryProgress = totalMonetaryTarget > 0 
@@ -529,26 +565,18 @@ export class KPIService {
       // Calculate progress for each KPI
       const kpisWithProgress = kpis.map(kpi => {
         const totalGoals = kpi.performanceGoals.length;
-        const completedGoals = kpi.performanceGoals.filter(goal => goal.status === 'COMPLETED').length;
+        const completedGoals = kpi.performanceGoals.filter(goal => goal.status === 'completed').length;
         
-        // Calculate monetary progress
-        const totalMonetaryTarget = kpi.performanceGoals.reduce((sum, goal) => 
-          sum + (goal.monetaryValue || 0), 0
-        );
-        const totalMonetaryAchieved = kpi.performanceGoals.reduce((sum, goal) => 
-          sum + (goal.monetaryValueAchieved || 0), 0
-        );
+        const {
+          totalMonetaryTarget,
+          totalMonetaryAchieved,
+          totalPercentTarget,
+          totalPercentAchieved
+        } = KPIService.aggregateGoalsForKpiProgress(kpi.performanceGoals);
+
         const monetaryProgress = totalMonetaryTarget > 0 
           ? (totalMonetaryAchieved / totalMonetaryTarget) * 100 
           : 0;
-        
-        // Calculate percentage progress
-        const totalPercentTarget = kpi.performanceGoals.reduce((sum, goal) => 
-          sum + (goal.percentValue || 0), 0
-        );
-        const totalPercentAchieved = kpi.performanceGoals.reduce((sum, goal) => 
-          sum + (goal.percentValueAchieved || 0), 0
-        );
         const percentProgress = totalPercentTarget > 0 
           ? (totalPercentAchieved / totalPercentTarget) * 100 
           : 0;

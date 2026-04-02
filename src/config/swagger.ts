@@ -36,6 +36,14 @@ const options = {
       ],
     tags: [
       {
+        name: 'Company Profile',
+        description: 'Company letterhead profile, addresses (one active at a time), and logo upload'
+      },
+      {
+        name: 'VAT Rates',
+        description: 'Manage VAT rates — only one can be active at a time. The active rate is used by all accounting services for VAT calculations.'
+      },
+      {
         name: 'Financial Reporting',
         description: 'Endpoints for uploading and reviewing portfolio financial reports'
       },
@@ -1335,10 +1343,50 @@ const options = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'clx1234567890abcdef' },
+            legalName: { type: 'string', example: 'NVCCZ (Pvt) Ltd' },
+            registrationNumber: { type: 'string', example: 'REG123456' },
+            taxNumber: { type: 'string', example: 'TAX987654' },
+            email: { type: 'string', example: 'info@nvccz.co.zw' },
+            phone: { type: 'string', example: '+263 242 123456' },
+            website: { type: 'string', example: 'https://nvccz.co.zw' },
+            logoUrl: { type: 'string', example: 'http://31.220.82.129/uploads/application-documents/logo.png' },
             twitter: { type: 'string', example: 'https://twitter.com/nvccz' },
             facebook: { type: 'string', example: 'https://facebook.com/nvccz' },
             linkedin: { type: 'string', example: 'https://linkedin.com/company/nvccz' },
             instagram: { type: 'string', example: 'https://instagram.com/nvccz' },
+            addresses: {
+              type: 'array',
+              items: { '$ref': '#/components/schemas/CompanyProfileAddress' }
+            },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        CompanyProfileAddress: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            companyProfileId: { type: 'string', example: 'clx1234567890abcdef' },
+            label: { type: 'string', example: 'Head Office' },
+            line1: { type: 'string', example: '123 Main Street' },
+            line2: { type: 'string', example: 'Floor 4, Block B' },
+            city: { type: 'string', example: 'Harare' },
+            state: { type: 'string', example: 'Harare Province' },
+            postalCode: { type: 'string', example: 'HRE 100' },
+            country: { type: 'string', example: 'Zimbabwe' },
+            logoUrl: { type: 'string', example: 'http://31.220.82.129/uploads/application-documents/logo.png' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        VatRate: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'clx1234567890abcdef' },
+            name: { type: 'string', example: 'Standard VAT 15%' },
+            rateDecimal: { type: 'number', example: 0.15, description: 'Decimal multiplier (e.g. 0.15 = 15%, 0.155 = 15.5%)' },
+            isActive: { type: 'boolean', example: true, description: 'Only one rate can be active at a time' },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' }
           }

@@ -1,9 +1,16 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import { TaskController } from "../controllers/TaskController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024
+  }
+});
 
 /**
  * @swagger
@@ -239,6 +246,19 @@ router.post("/", authenticate, TaskController.createTask);
  *         description: Unauthorized
  */
 router.get("/", authenticate, TaskController.getAllTasks);
+/**
+ * @swagger
+ * /api/tasks/status-options:
+ *   get:
+ *     summary: Get supported task statuses for Kanban and scorecard workflows
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Task status options returned successfully
+ */
+router.get("/status-options", authenticate, TaskController.getTaskStageOptions);
 
 /**
  * @swagger
@@ -358,6 +378,142 @@ router.get("/", authenticate, TaskController.getAllTasks);
  *         description: Bad request
  */
 router.get("/my", authenticate, TaskController.getMyTasks);
+/**
+ * @swagger
+ * /api/tasks/{id}/comments:
+ *   get:
+ *     summary: Get task collaboration comments and system messages
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Task comments returned successfully
+ *   post:
+ *     summary: Post a task comment with optional mentions and attachments
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *             properties:
+ *               content:
+ *                 type: string
+ *               mentionUserIds:
+ *                 type: string
+ *                 description: JSON array of user IDs
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       201:
+ *         description: Task comment created successfully
+ */
+router.get("/:id/comments", authenticate, TaskController.getTaskComments);
+router.get("/:id/messages", authenticate, TaskController.getTaskMessages);
+router.post("/:id/messages", authenticate, TaskController.createTaskMessage);
+router.delete("/:id/messages/:msgId", authenticate, TaskController.deleteTaskMessage);
+router.get("/:id/chats/:msgId", authenticate, TaskController.getTaskChatMessage);
+/**
+ * @swagger
+ * /api/tasks/{id}/mention-suggestions:
+ *   get:
+ *     summary: Search valid task mention candidates
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Mention candidates returned successfully
+ */
+router.get("/:id/mention-suggestions", authenticate, TaskController.getMentionSuggestions);
+router.post("/:id/comments", authenticate, upload.array("attachments", 10), TaskController.createTaskComment);
+/**
+ * @swagger
+ * /api/tasks/{id}/comments/{commentId}:
+ *   delete:
+ *     summary: Delete your own task comment
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: commentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Task comment deleted successfully
+ */
+router.delete("/:id/comments/:commentId", authenticate, TaskController.deleteTaskComment);
+/**
+ * @swagger
+ * /api/tasks/{id}/attachments:
+ *   post:
+ *     summary: Upload one or more task attachments
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Task attachments uploaded successfully
+ */
+router.post("/:id/attachments", authenticate, upload.array("attachments", 10), TaskController.uploadTaskAttachments);
+router.post("/:id/attachments/base64", authenticate, TaskController.uploadTaskAttachmentBase64);
 
 /**
  * @swagger
@@ -492,6 +648,9 @@ router.get("/:id", authenticate, TaskController.getTaskById);
  *       401:
  *         description: Unauthorized
  */
+router.put("/bulk/stage", authenticate, TaskController.bulkUpdateTaskStage);
+router.put("/bulk/status-update", authenticate, TaskController.bulkStatusUpdate);
+router.delete("/bulk", authenticate, TaskController.bulkTrashTasks);
 router.put("/:id", authenticate, TaskController.updateTask);
 
 /**
@@ -599,6 +758,7 @@ router.put("/:id/stage", authenticate, TaskController.updateTaskStage);
  *         description: Unauthorized
  */
 router.post("/:id/activity", authenticate, TaskController.postTaskActivity);
+router.post("/:id/historical-entry", authenticate, TaskController.recordHistoricalEntry);
 
 export default router;
 

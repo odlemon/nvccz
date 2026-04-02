@@ -1,9 +1,16 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import { PerformanceGoalController } from "../controllers/PerformanceGoalController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024
+  }
+});
 
 /**
  * @swagger
@@ -237,6 +244,54 @@ router.get("/statistics", authenticate, PerformanceGoalController.getPerformance
 
 /**
  * @swagger
+ * /api/performance/goals/{id}/progress:
+ *   put:
+ *     summary: Add progress toward a goal (increment)
+ *     description: |
+ *       Send **`value`** (preferred) or **`currentValue`** (alias): this number is **added** to the goal’s achieved amount
+ *       in the goal’s natural unit (USD, percentage points, counts, etc.). Server reads `targetUnit` and syncs legacy
+ *       `monetaryValueAchieved` / `percentValueAchieved` and recomputes `progressPercentage`. Parent roll-up may complete shortly after the response.
+ *     tags: [Performance Goals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Performance goal ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               value:
+ *                 type: number
+ *                 description: Amount to add to achieved progress (same unit as target)
+ *                 example: 50000
+ *               currentValue:
+ *                 type: number
+ *                 description: Alias for value (increment)
+ *                 example: 50000
+ *     responses:
+ *       200:
+ *         description: Goal progress updated successfully
+ *       400:
+ *         description: Bad request
+ *       404:
+ *         description: Goal not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.put("/:id/progress", authenticate, PerformanceGoalController.updateGoalProgress);
+router.post("/:id/attachments/base64", authenticate, PerformanceGoalController.uploadGoalAttachmentBase64);
+router.post("/:id/attachments", authenticate, upload.array("attachments", 10), PerformanceGoalController.uploadGoalAttachments);
+
+/**
+ * @swagger
  * /api/performance/goals/{id}:
  *   get:
  *     summary: Get performance goal by ID
@@ -372,57 +427,6 @@ router.put("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal
  *         description: Unauthorized
  */
 router.delete("/:id", authenticate, PerformanceGoalController.deletePerformanceGoal);
-
-/**
- * @swagger
- * /api/performance/goals/{id}/progress:
- *   put:
- *     summary: Update goal progress with absolute values
- *     tags: [Performance Goals]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: Performance goal ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - currentValue
- *             properties:
- *               currentValue:
- *                 type: number
- *                 description: Current progress value
- *                 example: 1500000
- *     responses:
- *       200:
- *         description: Goal progress updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 goal:
- *                   $ref: '#/components/schemas/PerformanceGoal'
- *       400:
- *         description: Bad request
- *       404:
- *         description: Goal not found
- *       401:
- *         description: Unauthorized
- */
-router.put("/:id/progress", authenticate, PerformanceGoalController.updateGoalProgress);
 
 export default router;
 

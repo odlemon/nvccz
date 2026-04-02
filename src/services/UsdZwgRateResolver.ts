@@ -97,9 +97,23 @@ export async function resolveUsdZwgWithSource(client: PrismaClient): Promise<Usd
   return null;
 }
 
-/** For Prisma middleware: numeric avg or null. */
+// Short-lived cache so bulk operations (e.g. backfill) don't hammer Zimrate on every DB write
+let _cachedAvg: { value: number; expiresAt: number } | null = null;
+const RATE_CACHE_TTL_MS = 60_000;
+
+/** For Prisma middleware: numeric avg or null. Cached for 60 s to avoid repeated external calls. */
 export async function resolveUsdZwgAvgForSnapshot(client: PrismaClient): Promise<number | null> {
+  if (_cachedAvg && Date.now() < _cachedAvg.expiresAt) {
+    return _cachedAvg.value;
+  }
   const r = await resolveUsdZwgWithSource(client);
   if (!r) return null;
-  return r.source === 'zimrate' ? r.row.avg : r.rate;
+  const value = r.source === 'zimrate' ? r.row.avg : r.rate;
+  _cachedAvg = { value, expiresAt: Date.now() + RATE_CACHE_TTL_MS };
+  return value;
+}
+
+/** Force-invalidate the rate cache (call after manual rate updates). */
+export function invalidateUsdZwgRateCache(): void {
+  _cachedAvg = null;
 }

@@ -3,6 +3,13 @@ import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 
 export interface CreateCompanyProfileRequest {
+  legalName?: string;
+  registrationNumber?: string;
+  taxNumber?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  logoUrl?: string;
   twitter?: string;
   facebook?: string;
   linkedin?: string;
@@ -10,6 +17,13 @@ export interface CreateCompanyProfileRequest {
 }
 
 export interface UpdateCompanyProfileRequest {
+  legalName?: string;
+  registrationNumber?: string;
+  taxNumber?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  logoUrl?: string;
   twitter?: string;
   facebook?: string;
   linkedin?: string;
@@ -29,6 +43,13 @@ export class CompanyProfileService {
 
       const companyProfile = await prisma.companyProfile.create({
         data: {
+          legalName: request.legalName,
+          registrationNumber: request.registrationNumber,
+          taxNumber: request.taxNumber,
+          email: request.email,
+          phone: request.phone,
+          website: request.website,
+          logoUrl: request.logoUrl,
           twitter: request.twitter,
           facebook: request.facebook,
           linkedin: request.linkedin,
@@ -70,6 +91,14 @@ export class CompanyProfileService {
       const updatedProfile = await prisma.companyProfile.update({
         where: { id: existingProfile.id },
         data: {
+          legalName: request.legalName !== undefined ? request.legalName : undefined,
+          registrationNumber:
+            request.registrationNumber !== undefined ? request.registrationNumber : undefined,
+          taxNumber: request.taxNumber !== undefined ? request.taxNumber : undefined,
+          email: request.email !== undefined ? request.email : undefined,
+          phone: request.phone !== undefined ? request.phone : undefined,
+          website: request.website !== undefined ? request.website : undefined,
+          logoUrl: request.logoUrl !== undefined ? request.logoUrl : undefined,
           twitter: request.twitter !== undefined ? request.twitter : undefined,
           facebook: request.facebook !== undefined ? request.facebook : undefined,
           linkedin: request.linkedin !== undefined ? request.linkedin : undefined,

@@ -10,6 +10,7 @@ import AuditService from "../services/AuditService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { prisma } from '../utils/database';
 import { prismaPurchaseInvoiceSnapshotSelect } from '../config/accountingSnapshotResponseSelect';
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -168,8 +169,8 @@ export class CashbookControllerEnhanced {
 
       const summary = await CashbookServiceEnhanced.getCashbookSummary(
         bankId,
-        new Date(startDate as string),
-        new Date(endDate as string)
+        parseDate(startDate as string),
+        parseDate(endDate as string)
       );
 
       return ResponseHelper.success(res, 'Cashbook summary retrieved successfully', summary);

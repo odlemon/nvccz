@@ -105,7 +105,7 @@ export class PerformanceETLService {
               firstName: true,
               lastName: true,
               email: true,
-              department: true
+              userDepartment: true
             }
           },
           reviewer: {
@@ -322,7 +322,7 @@ export class PerformanceETLService {
             id: review.reviewee.id,
             name: `${review.reviewee.firstName} ${review.reviewee.lastName}`,
             email: review.reviewee.email,
-            department: review.reviewee.department?.name
+            department: review.reviewee.userDepartment ?? undefined
           },
           reviewer: {
             id: review.reviewer.id,

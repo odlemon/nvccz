@@ -1645,19 +1645,20 @@ export class ProcurementService {
       
       // Import VATService
       const VATService = (await import('./VATService')).default;
+      await VATService.refreshActiveVatRate().catch(() => undefined);
       
       // If approval data provided, recalculate based on taxable status
       if (approvalData && approvalData.isTaxable !== undefined) {
         const isTaxable = approvalData.isTaxable;
         
         if (isTaxable) {
-          // Calculate VAT automatically using VATService (standard 15.5%)
+          // Calculate VAT automatically using active VAT rate from DB
           finalTaxAmount = VATService.isVATEligible(finalSubtotal, true)
             ? VATService.calculateVAT(finalSubtotal)
             : 0;
           finalTotalAmount = finalSubtotal + finalTaxAmount;
           console.log(`   ✅ Invoice is TAXABLE`);
-          console.log(`   • Using VAT rate: ${VATService.getVATRate()}% (from VATService)`);
+          console.log(`   • Using VAT rate: ${VATService.getVATRate()}% (active VAT)`);
           console.log(`   • Subtotal: $${finalSubtotal.toFixed(2)}`);
           console.log(`   • Tax (VAT): $${finalTaxAmount.toFixed(2)}`);
           console.log(`   • Total: $${finalTotalAmount.toFixed(2)}`);

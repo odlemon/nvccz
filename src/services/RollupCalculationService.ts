@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
+import { computeParentRollupFromChildren, deriveParentStageFromRollup } from "./performanceGoalRollupUtils";
 
 export class RollupCalculationService {
   /**
@@ -241,46 +242,36 @@ export class RollupCalculationService {
       return;
     }
 
-    let totalTargetValue = 0;
-    let totalCurrentValue = 0;
-    let allCompleted = true;
-    let anyInProgress = false;
+    const subInputs = goal.subGoals.map((s: any) => ({
+      id: s.id,
+      activities: s.activities,
+      scorecardWeight: s.scorecardWeight,
+      currentValue: s.currentValue,
+      targetValue: s.targetValue,
+      targetOperator: s.targetOperator,
+      isReverseKpi: s.isReverseKpi,
+      progressPercentage: s.progressPercentage,
+      stage: s.stage,
+      status: s.status
+    }));
 
-    for (const subGoal of goal.subGoals) {
-      totalTargetValue += parseFloat(subGoal.targetValue?.toString() || '0');
-      totalCurrentValue += parseFloat(subGoal.currentValue?.toString() || '0');
-      
-      if (subGoal.stage !== 'completed') {
-        allCompleted = false;
-      }
-      
-      if (subGoal.stage === 'in_progress') {
-        anyInProgress = true;
-      }
-    }
+    const rollup = computeParentRollupFromChildren(subInputs, goal.targetValue);
+    const { stage: newStage, status: newStatus } = deriveParentStageFromRollup({
+      allCompleted: rollup.allCompleted,
+      anyInProgress: rollup.anyInProgress,
+      weightedProgress: rollup.progressPercentage,
+      suggestedCurrentValue: rollup.suggestedCurrentValue,
+      subGoalCount: goal.subGoals.length,
+      previousStage: goal.stage || "planning"
+    });
 
-    // Determine new stage
-    let newStage = goal.stage;
-    if (allCompleted && goal.subGoals.length > 0) {
-      newStage = 'completed';
-    } else if (anyInProgress || totalCurrentValue > 0) {
-      newStage = 'in_progress';
-    }
-
-    // Calculate progress percentage
-    const goalTarget = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-    const progressPercentage = goalTarget > 0 
-      ? Math.min((totalCurrentValue / goalTarget) * 100, 100) 
-      : 0;
-
-    // Update the goal
     await prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {
-        currentValue: totalCurrentValue,
-        progressPercentage: progressPercentage,
+        currentValue: rollup.suggestedCurrentValue,
+        progressPercentage: rollup.progressPercentage,
         stage: newStage,
-        status: allCompleted ? 'completed' : 'active',
+        status: newStatus,
         updatedAt: new Date()
       }
     });

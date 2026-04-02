@@ -3,6 +3,187 @@ import { PrismaClient } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import { createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
+import { KPIService } from "./KPIService";
+import {
+  computeAchievementPercent,
+  computeParentRollupFromChildren,
+  deriveParentStageFromRollup,
+  isTargetMet,
+  mergeContributionWeightIntoActivities
+} from "./performanceGoalRollupUtils";
+import { resolveGoalEscalationStatus } from "./performanceScorecardSupport";
+import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
+import { FirebaseStorageService } from "./FirebaseStorageService";
+
+/** Prisma DateTime requires full ISO; breakdown JSON often sends "YYYY-MM-DD" only. */
+function isDateOnlyString(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+function coerceGoalDateTime(
+  value: unknown,
+  fallback: Date | null | undefined,
+  endOfDay: boolean
+): Date {
+  const tryParse = (v: unknown): Date | null => {
+    if (v == null || v === "") return null;
+    if (v instanceof Date) {
+      return Number.isNaN(v.getTime()) ? null : v;
+    }
+    const s = String(v).trim();
+    if (!s) return null;
+    if (isDateOnlyString(s)) {
+      return new Date(endOfDay ? `${s}T23:59:59.999Z` : `${s}T00:00:00.000Z`);
+    }
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  const parsed = tryParse(value) ?? tryParse(fallback);
+  if (parsed) return parsed;
+  throw new Error(
+    endOfDay
+      ? "Goal endDate is missing or invalid. Use ISO-8601 (e.g. 2026-12-31 or 2026-12-31T23:59:59.000Z)."
+      : "Goal startDate is missing or invalid. Use ISO-8601 (e.g. 2026-01-01 or 2026-01-01T00:00:00.000Z)."
+  );
+}
+
+function decodeGoalAttachmentBase64(contentBase64: string, maxBytes = 5 * 1024 * 1024): Buffer {
+  if (!contentBase64 || typeof contentBase64 !== "string") {
+    throw new Error("contentBase64 is required");
+  }
+  const normalized = contentBase64.includes(",")
+    ? contentBase64.slice(contentBase64.indexOf(",") + 1)
+    : contentBase64;
+  const buffer = Buffer.from(normalized, "base64");
+  if (!buffer || buffer.length === 0) {
+    throw new Error("Attachment payload is empty");
+  }
+  if (buffer.length > maxBytes) {
+    throw new Error("Attachment exceeds 5MB limit");
+  }
+  return buffer;
+}
+
+function extractGoalAttachmentsFromActivities(activities: any): any[] {
+  if (!activities || typeof activities !== "object" || Array.isArray(activities)) {
+    return [];
+  }
+  const atts = (activities as any).attachments;
+  return Array.isArray(atts) ? atts : [];
+}
+
+function withGoalAttachmentFields(goal: any) {
+  if (!goal) return goal;
+  const attachments = extractGoalAttachmentsFromActivities(goal.activities);
+  return {
+    ...goal,
+    attachments,
+    attachmentUrls: attachments
+      .map((a: any) => a?.fileUrl)
+      .filter((u: any) => typeof u === "string" && u.length > 0)
+  };
+}
+
+/** targetUnit drives whether legacy percent* vs monetary* columns stay in sync with progress. */
+function isPercentageStyleGoal(goal: { targetUnit?: string | null }): boolean {
+  const u = String(goal.targetUnit || "")
+    .toLowerCase()
+    .trim();
+  return u === "percentage" || u === "%" || u === "percent" || u.endsWith(" percent");
+}
+
+/** Best-effort baseline before applying an increment (currentValue, else legacy achieved). */
+export function parseProgressBaseline(goal: {
+  currentValue?: unknown;
+  targetUnit?: string | null;
+  monetaryValueAchieved?: unknown;
+  percentValueAchieved?: unknown;
+}): number {
+  if (goal.currentValue != null && goal.currentValue !== "") {
+    const v = parseFloat(String(goal.currentValue));
+    if (!Number.isNaN(v)) return v;
+  }
+  if (isPercentageStyleGoal(goal)) {
+    const p = goal.percentValueAchieved;
+    if (p != null && p !== "") {
+      const v = parseFloat(String(p));
+      if (!Number.isNaN(v)) return v;
+    }
+  } else {
+    const m = goal.monetaryValueAchieved;
+    if (m != null && m !== "") {
+      const v = parseFloat(String(m));
+      if (!Number.isNaN(v)) return v;
+    }
+  }
+  return 0;
+}
+
+/** Legacy dashboards read monetary* / percent*; keep them aligned with currentValue / targetValue. */
+export function legacyProgressFieldsForGoal(
+  goal: {
+    targetUnit?: string | null;
+    monetaryValue?: unknown;
+    percentValue?: unknown;
+    targetValue?: unknown;
+  },
+  currentValue: number
+): Record<string, unknown> {
+  const targetNum =
+    goal.targetValue != null && goal.targetValue !== ""
+      ? parseFloat(String(goal.targetValue))
+      : 0;
+  const legacyData: Record<string, unknown> = {};
+  if (isPercentageStyleGoal(goal)) {
+    legacyData.percentValueAchieved = currentValue;
+    const cap =
+      goal.percentValue != null && goal.percentValue !== ""
+        ? parseFloat(String(goal.percentValue))
+        : targetNum > 0 && targetNum <= 100
+          ? targetNum
+          : 100;
+    legacyData.percentValue = cap;
+  } else {
+    legacyData.monetaryValueAchieved = currentValue;
+    const monetaryTarget =
+      goal.monetaryValue != null && goal.monetaryValue !== ""
+        ? parseFloat(String(goal.monetaryValue))
+        : targetNum;
+    if (monetaryTarget > 0) {
+      legacyData.monetaryValue = monetaryTarget;
+    } else if (targetNum > 0) {
+      legacyData.monetaryValue = targetNum;
+    }
+  }
+  return legacyData;
+}
+
+const REVERSE_KPI_NAME_HINTS = [
+  "cost",
+  "expense",
+  "liabil",
+  "outstanding",
+  "arrears",
+  "overdue",
+  "variance",
+  "utilisation",
+  "utilization",
+  "loss",
+  "spend"
+];
+
+function inferReverseKpiFromNameOrAccountType(kpiName?: string | null): boolean {
+  const n = String(kpiName || "").toLowerCase().trim();
+  if (!n) return false;
+  const hardcoded = HARDCODED_KPIS.find(
+    (k) => String(k.name || "").toLowerCase().trim() === n
+  );
+  if (hardcoded?.accountType === "Expense" || hardcoded?.accountType === "Liability") {
+    return true;
+  }
+  return REVERSE_KPI_NAME_HINTS.some((hint) => n.includes(hint));
+}
 
 export interface CreatePerformanceGoalRequest {
   title: string;
@@ -26,6 +207,10 @@ export interface CreatePerformanceGoalRequest {
   dataSourceModule?: string; // "Accounting", "Procurement", "PortfolioManagement", "TaskManagement", "Events", "Manual"
   dataSourceField?: string; // Specific field path in source module
   trackingFrequency?: string; // "Daily", "Weekly", "Monthly"
+  /** Stored in activities JSON: share of parent roll-up (0–100), e.g. 80 for 80%. */
+  contributionWeightPercent?: number;
+  /** When set, overrides auto-derivation from targetOperator. */
+  isReverseKpi?: boolean;
 }
 
 export interface UpdatePerformanceGoalRequest {
@@ -49,6 +234,10 @@ export interface UpdatePerformanceGoalRequest {
   dataSourceModule?: string; // "Accounting", "Procurement", "PortfolioManagement", "TaskManagement", "Events", "Manual"
   dataSourceField?: string; // Specific field path in source module
   trackingFrequency?: string; // "Daily", "Weekly", "Monthly"
+  contributionWeightPercent?: number;
+  /** Stored in `activities.stretchTargetValue` for BSC stretch line (target remains `targetValue`). */
+  stretchTargetValue?: number;
+  isReverseKpi?: boolean;
 }
 
 export class PerformanceGoalService {
@@ -75,19 +264,87 @@ export class PerformanceGoalService {
     }
   }
 
-  // Update goal progress with absolute values
-  static async updateGoalProgress(goalId: string, currentValue: number, updatedById: string) {
+  /**
+   * Add `increment` to the goal's achieved amount (same unit as target: USD, % points, clients, etc.).
+   * Progress % is derived from achieved vs `targetValue`. Legacy monetary* / percent* mirror `currentValue`.
+   * Parent roll-up runs asynchronously so the HTTP response returns after the child row update.
+   */
+  static async updateGoalProgress(goalId: string, increment: number, updatedById: string) {
     try {
       const goal = await prisma.performanceGoal.findUnique({
-        where: { id: goalId }
+        where: { id: goalId },
+        select: {
+          id: true,
+          title: true,
+          targetValue: true,
+          targetUnit: true,
+          targetOperator: true,
+          isReverseKpi: true,
+          progressPercentage: true,
+          stage: true,
+          status: true,
+          currentValue: true,
+          monetaryValue: true,
+          monetaryValueAchieved: true,
+          percentValue: true,
+          percentValueAchieved: true,
+          parentGoalId: true,
+          kpiId: true,
+          endDate: true,
+          preciseTargetValue: true,
+          allowableVariance: true,
+          kpi: { select: { name: true } }
+        }
       });
 
       if (!goal) {
         throw new Error("Goal not found");
       }
 
-      const progressPercentage = this.calculateProgressPercentage(currentValue, goal.targetValue);
-      const isCompleted = currentValue >= goal.targetValue;
+      const delta = Number(increment);
+      if (Number.isNaN(delta)) {
+        throw new Error("value must be a number");
+      }
+
+      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(goal.kpi?.name);
+      const effectiveIsReverseKpi =
+        Boolean(goal.isReverseKpi) ||
+        String(goal.targetOperator || "").trim() === "<=" ||
+        inferredReverseFromKpi;
+      const effectiveTargetOperator =
+        goal.targetOperator !== undefined && goal.targetOperator !== null
+          ? goal.targetOperator
+          : effectiveIsReverseKpi
+            ? "<="
+            : ">=";
+
+      const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+      const prev = parseProgressBaseline(goal);
+      const currentValue = Math.max(0, prev + delta);
+
+      const progressPercentage = computeAchievementPercent({
+        currentValue,
+        targetValue: goal.targetValue,
+        targetOperator: effectiveTargetOperator,
+        isReverseKpi: effectiveIsReverseKpi,
+        progressPercentage: goal.progressPercentage
+      });
+      const isCompleted = isTargetMet(currentValue, targetNum, effectiveTargetOperator, effectiveIsReverseKpi);
+      const partialProgress =
+        !isCompleted && targetNum > 0 && Number(currentValue) > 0;
+      const nextStage = isCompleted ? "completed" : partialProgress ? "in_progress" : goal.stage;
+
+      const legacyData = legacyProgressFieldsForGoal(goal, currentValue);
+
+      const performanceRiskZone = resolveGoalEscalationStatus({
+        preciseCurrentValue: String(currentValue),
+        currentValue,
+        preciseTargetValue: goal.preciseTargetValue,
+        targetValue: goal.targetValue,
+        allowableVariance: goal.allowableVariance,
+        isReverseKpi: effectiveIsReverseKpi,
+        endDate: goal.endDate
+      });
 
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id: goalId },
@@ -95,14 +352,33 @@ export class PerformanceGoalService {
           currentValue: currentValue,
           progressPercentage: progressPercentage,
           status: isCompleted ? "completed" : "active",
-          stage: isCompleted ? "completed" : goal.stage,
+          stage: nextStage,
+          isReverseKpi: effectiveIsReverseKpi,
+          targetOperator: effectiveTargetOperator,
+          preciseCurrentValue: String(currentValue),
+          performanceRiskZone,
+          performanceRiskZoneAt: new Date(),
+          ...legacyData,
           updatedAt: new Date()
         }
       });
 
-      // If goal is completed and has KPI integration, trigger accounting
       if (isCompleted && goal.kpiId) {
-        await this.triggerAccountingIntegration(goalId, currentValue, updatedById);
+        await this.triggerAccountingIntegration(goalId, currentValue, updatedById, {
+          title: goal.title,
+          targetUnit: goal.targetUnit,
+          kpi: goal.kpi
+        });
+      }
+
+      if (goal.parentGoalId) {
+        const parentId = goal.parentGoalId;
+        void this.updateParentGoalProgress(parentId).catch((parentErr: Error) => {
+          console.error(
+            `Failed to update parent goal progress after manual progress on ${goalId}:`,
+            parentErr
+          );
+        });
       }
 
       return updatedGoal;
@@ -111,21 +387,75 @@ export class PerformanceGoalService {
     }
   }
 
-  // Trigger accounting integration when KPI goals are completed
-  static async triggerAccountingIntegration(goalId: string, achievedValue: number, updatedById: string) {
-    try {
-      const goal = await prisma.performanceGoal.findUnique({
-        where: { id: goalId },
-        include: { kpi: true }
-      });
+  /** Recompute C.05 / scorecard risk zone from persisted goal fields (requires DB columns). */
+  static async refreshPerformanceRiskZoneOnGoal(goalId: string) {
+    const g = await prisma.performanceGoal.findUnique({ where: { id: goalId } });
+    if (!g) return;
+    const performanceRiskZone = resolveGoalEscalationStatus({
+      preciseCurrentValue: g.preciseCurrentValue,
+      currentValue: g.currentValue,
+      preciseTargetValue: g.preciseTargetValue,
+      targetValue: g.targetValue,
+      allowableVariance: g.allowableVariance,
+      isReverseKpi: g.isReverseKpi,
+      endDate: g.endDate
+    });
+    await prisma.performanceGoal.update({
+      where: { id: goalId },
+      data: {
+        performanceRiskZone,
+        performanceRiskZoneAt: new Date()
+      }
+    });
+  }
 
-      if (!goal || !goal.kpi) {
+  // Trigger accounting integration when KPI goals are completed
+  static async triggerAccountingIntegration(
+    goalId: string,
+    achievedValue: number,
+    updatedById: string,
+    snapshot?: { title: string; targetUnit: string | null; kpi: { name: string } | null }
+  ) {
+    try {
+      let goal: {
+        id: string;
+        title: string;
+        targetUnit: string | null;
+        kpi: { name: string };
+      } | null = null;
+
+      if (snapshot?.kpi) {
+        goal = {
+          id: goalId,
+          title: snapshot.title,
+          targetUnit: snapshot.targetUnit,
+          kpi: snapshot.kpi
+        };
+      } else {
+        const loaded = await prisma.performanceGoal.findUnique({
+          where: { id: goalId },
+          include: { kpi: true }
+        });
+        if (!loaded?.kpi) {
+          return;
+        }
+        goal = {
+          id: loaded.id,
+          title: loaded.title,
+          targetUnit: loaded.targetUnit,
+          kpi: { name: loaded.kpi.name }
+        };
+      }
+
+      if (!goal) {
         return;
       }
 
       // Import the hardcoded KPIs to get accounting details
       const { HARDCODED_KPIS } = await import("../config/hardcodedKPIs");
-      const kpiConfig = HARDCODED_KPIS.find(k => k.code === goal.kpi.code);
+      const kpiConfig = HARDCODED_KPIS.find(
+        k => String(k.name || "").toLowerCase().trim() === String(goal.kpi.name || "").toLowerCase().trim()
+      );
 
       if (kpiConfig && kpiConfig.isFinancial) {
         // Create journal entry based on KPI completion
@@ -166,6 +496,7 @@ export class PerformanceGoalService {
   static async createPerformanceGoal(request: CreatePerformanceGoalRequest, createdById: string) {
     try {
       let kpiId = null;
+      let kpiName: string | null = null;
       
       // Validate KPI if provided by name
       if (request.kpiName) {
@@ -178,6 +509,7 @@ export class PerformanceGoalService {
         }
         
         kpiId = kpi.id;
+        kpiName = kpi.name;
       }
 
       // Validate department if provided
@@ -199,6 +531,20 @@ export class PerformanceGoalService {
           throw new Error("Parent goal not found");
         }
       }
+
+      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(kpiName);
+      const resolvedIsReverseKpi =
+        typeof request.isReverseKpi === "boolean"
+          ? request.isReverseKpi
+          : request.targetOperator !== undefined
+            ? String(request.targetOperator).trim() === "<="
+            : inferredReverseFromKpi;
+      const resolvedTargetOperator =
+        request.targetOperator !== undefined
+          ? request.targetOperator
+          : resolvedIsReverseKpi
+            ? "<="
+            : ">=";
 
       // Create the performance goal with absolute value targets
       const goal = await prisma.performanceGoal.create({
@@ -222,11 +568,16 @@ export class PerformanceGoalService {
           status: "active", // Goals are active by default
           stage: "planning",
           // NEW: Enhanced Goal Definition Form Fields
-          targetOperator: request.targetOperator,
+          targetOperator: resolvedTargetOperator,
+          isReverseKpi: resolvedIsReverseKpi,
           dataSourceModule: request.dataSourceModule,
           dataSourceField: request.dataSourceField,
           trackingFrequency: request.trackingFrequency,
-          nextCheckDate: request.trackingFrequency ? this.calculateNextCheckDate(request.trackingFrequency) : null
+          nextCheckDate: request.trackingFrequency ? this.calculateNextCheckDate(request.trackingFrequency) : null,
+          ...(() => {
+            const act = mergeContributionWeightIntoActivities(null, request.contributionWeightPercent);
+            return act ? { activities: act as object } : {};
+          })()
         },
         include: {
           kpi: {
@@ -308,6 +659,20 @@ export class PerformanceGoalService {
         const departmentName = selectedDepartments[i];
         const departmentData = breakdownData[i];
 
+        const hasDeptOperator =
+          departmentData.targetOperator !== undefined &&
+          departmentData.targetOperator !== null &&
+          String(departmentData.targetOperator).trim() !== "";
+        const targetOperatorDept = hasDeptOperator
+          ? departmentData.targetOperator
+          : parentGoal.targetOperator;
+        const isReverseKpiDept =
+          typeof departmentData.isReverseKpi === "boolean"
+            ? departmentData.isReverseKpi
+            : hasDeptOperator
+              ? String(departmentData.targetOperator).trim() === "<="
+              : Boolean(parentGoal.isReverseKpi);
+
         // Create department goal with specified target and fields
         const departmentGoal = await prisma.performanceGoal.create({
           data: {
@@ -322,16 +687,25 @@ export class PerformanceGoalService {
             currentValue: 0,
             kpiId: parentGoal.kpiId, // Copy KPI from parent goal
             priority: departmentData.priority || parentGoal.priority,
-            startDate: departmentData.startDate || parentGoal.startDate,
-            endDate: departmentData.endDate || parentGoal.endDate,
+            startDate: coerceGoalDateTime(
+              departmentData.startDate,
+              parentGoal.startDate,
+              false
+            ),
+            endDate: coerceGoalDateTime(departmentData.endDate, parentGoal.endDate, true),
             createdById: parentGoal.createdById,
             status: "active",
             stage: "planning",
-            // Enhanced Goal Definition Form Fields
-            targetOperator: departmentData.targetOperator,
+            // Enhanced Goal Definition Form Fields (operator / reverse align with parent unless overridden in breakdown row)
+            targetOperator: targetOperatorDept,
+            isReverseKpi: isReverseKpiDept,
             dataSourceModule: departmentData.dataSourceModule,
             dataSourceField: departmentData.dataSourceField,
-            trackingFrequency: departmentData.trackingFrequency
+            trackingFrequency: departmentData.trackingFrequency,
+            ...(() => {
+              const act = mergeContributionWeightIntoActivities(null, departmentData.contributionWeightPercent);
+              return act ? { activities: act as object } : {};
+            })()
           },
           select: {
             id: true,
@@ -352,6 +726,7 @@ export class PerformanceGoalService {
             lastCheckDate: true,
             nextCheckDate: true,
             kpiId: true,
+            isReverseKpi: true,
             status: true,
             priority: true,
             stage: true,
@@ -398,6 +773,20 @@ export class PerformanceGoalService {
         const userId = selectedUsers[i];
         const userData = individualData[i];
 
+        const hasUserOperator =
+          userData.targetOperator !== undefined &&
+          userData.targetOperator !== null &&
+          String(userData.targetOperator).trim() !== "";
+        const targetOperatorUser = hasUserOperator
+          ? userData.targetOperator
+          : departmentGoal.targetOperator;
+        const isReverseKpiUser =
+          typeof userData.isReverseKpi === "boolean"
+            ? userData.isReverseKpi
+            : hasUserOperator
+              ? String(userData.targetOperator).trim() === "<="
+              : Boolean(departmentGoal.isReverseKpi);
+
         // Create individual goal with specified target and fields
         const individualGoal = await prisma.performanceGoal.create({
           data: {
@@ -412,17 +801,22 @@ export class PerformanceGoalService {
             currentValue: 0,
             kpiId: departmentGoal.kpiId, // Copy KPI from department goal
             priority: userData.priority || departmentGoal.priority,
-            startDate: userData.startDate || departmentGoal.startDate,
-            endDate: userData.endDate || departmentGoal.endDate,
+            startDate: coerceGoalDateTime(userData.startDate, departmentGoal.startDate, false),
+            endDate: coerceGoalDateTime(userData.endDate, departmentGoal.endDate, true),
             assignedToId: userId,
             createdById: departmentGoal.createdById,
             status: "active",
             stage: "planning",
-            // Enhanced Goal Definition Form Fields
-            targetOperator: userData.targetOperator,
+            // Enhanced Goal Definition Form Fields (operator / reverse align with department parent unless overridden)
+            targetOperator: targetOperatorUser,
+            isReverseKpi: isReverseKpiUser,
             dataSourceModule: userData.dataSourceModule,
             dataSourceField: userData.dataSourceField,
-            trackingFrequency: userData.trackingFrequency
+            trackingFrequency: userData.trackingFrequency,
+            ...(() => {
+              const act = mergeContributionWeightIntoActivities(null, userData.contributionWeightPercent);
+              return act ? { activities: act as object } : {};
+            })()
           }
         });
 
@@ -540,7 +934,7 @@ export class PerformanceGoalService {
         }
       });
 
-      return goals;
+      return goals.map((goal) => withGoalAttachmentFields(goal));
     } catch (error) {
       throw error;
     }
@@ -615,7 +1009,7 @@ export class PerformanceGoalService {
         throw new Error("Performance goal not found");
       }
 
-      return goal;
+      return withGoalAttachmentFields(goal);
     } catch (error) {
       throw error;
     }
@@ -643,6 +1037,58 @@ export class PerformanceGoalService {
         }
       }
 
+      const activitiesPatch = mergeContributionWeightIntoActivities(
+        existingGoal.activities,
+        request.contributionWeightPercent
+      );
+
+      let activitiesForUpdate: Record<string, unknown> | null = activitiesPatch;
+      if (request.stretchTargetValue != null) {
+        const st = Number(request.stretchTargetValue);
+        if (Number.isFinite(st) && st > 0) {
+          const base =
+            activitiesPatch ||
+            (existingGoal.activities != null &&
+            typeof existingGoal.activities === "object" &&
+            !Array.isArray(existingGoal.activities)
+              ? { ...(existingGoal.activities as Record<string, unknown>) }
+              : Array.isArray(existingGoal.activities)
+                ? { entries: existingGoal.activities as unknown[] }
+                : {});
+          activitiesForUpdate = { ...base, stretchTargetValue: st };
+        }
+      }
+
+      let kpiNameForInference: string | null = null;
+      if (request.kpiId) {
+        const k = await prisma.kPI.findUnique({
+          where: { id: request.kpiId },
+          select: { name: true }
+        });
+        kpiNameForInference = k?.name || null;
+      } else if (existingGoal.kpiId) {
+        const k = await prisma.kPI.findUnique({
+          where: { id: existingGoal.kpiId },
+          select: { name: true }
+        });
+        kpiNameForInference = k?.name || null;
+      }
+
+      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(kpiNameForInference);
+      const resolvedIsReverseKpi =
+        request.isReverseKpi !== undefined
+          ? request.isReverseKpi
+          : request.targetOperator !== undefined
+            ? String(request.targetOperator).trim() === "<="
+            : inferredReverseFromKpi;
+      const reversePatch = { isReverseKpi: resolvedIsReverseKpi };
+      const targetOperatorPatch =
+        request.targetOperator !== undefined
+          ? { targetOperator: request.targetOperator }
+          : resolvedIsReverseKpi
+            ? { targetOperator: "<=" }
+            : { targetOperator: ">=" };
+
       // Update the goal
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id },
@@ -661,7 +1107,19 @@ export class PerformanceGoalService {
           ...(request.stage && { stage: request.stage }),
           ...(request.startDate && { startDate: request.startDate }),
           ...(request.endDate && { endDate: request.endDate }),
-          ...(request.assignedToId && { assignedToId: request.assignedToId })
+          ...(request.assignedToId && { assignedToId: request.assignedToId }),
+          ...targetOperatorPatch,
+          ...(request.targetValue !== undefined && { targetValue: request.targetValue }),
+          ...(request.targetUnit !== undefined && { targetUnit: request.targetUnit }),
+          ...(request.currentValue !== undefined && {
+            currentValue: request.currentValue,
+            preciseCurrentValue: String(request.currentValue)
+          }),
+          ...(request.dataSourceModule !== undefined && { dataSourceModule: request.dataSourceModule }),
+          ...(request.dataSourceField !== undefined && { dataSourceField: request.dataSourceField }),
+          ...(request.trackingFrequency !== undefined && { trackingFrequency: request.trackingFrequency }),
+          ...reversePatch,
+          ...(activitiesForUpdate && { activities: activitiesForUpdate as object })
         },
         include: {
           kpi: {
@@ -714,7 +1172,65 @@ export class PerformanceGoalService {
         }
       });
 
-      return updatedGoal;
+      await this.refreshPerformanceRiskZoneOnGoal(id);
+      if (updatedGoal.parentGoalId) {
+        await this.updateParentGoalProgress(updatedGoal.parentGoalId);
+      }
+
+      return (
+        (await prisma.performanceGoal.findUnique({
+          where: { id },
+          include: {
+            kpi: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+                unitSymbol: true,
+                unitPosition: true
+              }
+            },
+            assignedTo: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            createdBy: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            parentGoal: {
+              select: {
+                id: true,
+                title: true,
+                type: true
+              }
+            },
+            subGoals: {
+              select: {
+                id: true,
+                title: true,
+                type: true,
+                status: true,
+                stage: true
+              }
+            },
+            _count: {
+              select: {
+                subGoals: true,
+                tasks: true
+              }
+            }
+          }
+        })) || updatedGoal
+      );
     } catch (error) {
       throw error;
     }
@@ -752,10 +1268,152 @@ export class PerformanceGoalService {
         where: { id }
       });
 
+      if (existingGoal.parentGoalId) {
+        await this.updateParentGoalProgress(existingGoal.parentGoalId);
+      }
+
       return { message: "Performance goal deleted successfully" };
     } catch (error) {
       throw error;
     }
+  }
+
+  static async uploadGoalAttachmentBase64(
+    goalId: string,
+    payload: { fileName: string; contentBase64: string; mimeType?: string },
+    actorId: string
+  ) {
+    const goal = await prisma.performanceGoal.findUnique({
+      where: { id: goalId },
+      select: {
+        id: true,
+        activities: true
+      }
+    });
+
+    if (!goal) {
+      throw new Error("Performance goal not found");
+    }
+
+    const safeFileName = String(payload.fileName || "").trim();
+    if (!safeFileName) {
+      throw new Error("fileName is required");
+    }
+
+    const fileBuffer = decodeGoalAttachmentBase64(payload.contentBase64);
+    const uploaded = await FirebaseStorageService.uploadApplicationDocument(
+      fileBuffer,
+      safeFileName,
+      goal.id,
+      "PERFORMANCE_GOAL_ATTACHMENT"
+    );
+
+    const attachment = {
+      fileName: safeFileName,
+      fileUrl: uploaded.downloadURL,
+      filePath: uploaded.filePath,
+      fileSize: fileBuffer.length,
+      mimeType: payload.mimeType || null,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: actorId
+    };
+
+    const baseActivities =
+      goal.activities != null && typeof goal.activities === "object" && !Array.isArray(goal.activities)
+        ? { ...(goal.activities as Record<string, unknown>) }
+        : Array.isArray(goal.activities)
+          ? { entries: goal.activities as unknown[] }
+          : {};
+    const currentAttachments = Array.isArray((baseActivities as any).attachments)
+      ? ((baseActivities as any).attachments as unknown[])
+      : [];
+    const mergedAttachments = [...currentAttachments, attachment];
+    const nextActivities = {
+      ...baseActivities,
+      attachments: mergedAttachments
+    };
+
+    await prisma.performanceGoal.update({
+      where: { id: goal.id },
+      data: {
+        activities: nextActivities as object,
+        updatedAt: new Date()
+      }
+    });
+
+    return {
+      goalId: goal.id,
+      attachment,
+      attachments: mergedAttachments
+    };
+  }
+
+  static async uploadGoalAttachments(
+    goalId: string,
+    files: any[],
+    actorId: string
+  ) {
+    const goal = await prisma.performanceGoal.findUnique({
+      where: { id: goalId },
+      select: { id: true, activities: true }
+    });
+    if (!goal) {
+      throw new Error("Performance goal not found");
+    }
+    if (!Array.isArray(files) || files.length === 0) {
+      throw new Error("At least one attachment is required");
+    }
+
+    const uploads = await Promise.all(
+      files.map(async (file: any) => {
+        if ((file?.size || 0) > 5 * 1024 * 1024) {
+          throw new Error("Attachment exceeds 5MB limit");
+        }
+        const uploaded = await FirebaseStorageService.uploadApplicationDocument(
+          file.buffer,
+          file.originalname,
+          goal.id,
+          "PERFORMANCE_GOAL_ATTACHMENT"
+        );
+        return {
+          fileName: file.originalname,
+          fileUrl: uploaded.downloadURL,
+          filePath: uploaded.filePath,
+          fileSize: file.size || null,
+          mimeType: file.mimetype || null,
+          uploadedAt: new Date().toISOString(),
+          uploadedBy: actorId
+        };
+      })
+    );
+
+    const baseActivities =
+      goal.activities != null && typeof goal.activities === "object" && !Array.isArray(goal.activities)
+        ? { ...(goal.activities as Record<string, unknown>) }
+        : Array.isArray(goal.activities)
+          ? { entries: goal.activities as unknown[] }
+          : {};
+    const currentAttachments = Array.isArray((baseActivities as any).attachments)
+      ? ((baseActivities as any).attachments as unknown[])
+      : [];
+    const mergedAttachments = [...currentAttachments, ...uploads];
+    const nextActivities = { ...baseActivities, attachments: mergedAttachments };
+
+    await prisma.performanceGoal.update({
+      where: { id: goal.id },
+      data: {
+        activities: nextActivities as object,
+        updatedAt: new Date()
+      }
+    });
+
+    return {
+      goalId: goal.id,
+      attachments: mergedAttachments,
+      attachmentUrls: mergedAttachments
+        .map((a: any) => a?.fileUrl)
+        .filter((u: any) => typeof u === "string" && u.length > 0)
+    };
   }
 
   // Get performance goal statistics
@@ -985,8 +1643,13 @@ export class PerformanceGoalService {
           subGoals: {
             select: {
               id: true,
+              activities: true,
               currentValue: true,
               targetValue: true,
+              targetOperator: true,
+              isReverseKpi: true,
+              scorecardWeight: true,
+              progressPercentage: true,
               stage: true,
               status: true
             }
@@ -994,52 +1657,74 @@ export class PerformanceGoalService {
         }
       });
 
-      if (!parentGoal || !parentGoal.subGoals || parentGoal.subGoals.length === 0) {
+      if (!parentGoal) {
         return;
       }
 
-      // Calculate totals from sub-goals
-      let totalTargetValue = 0;
-      let totalCurrentValue = 0;
-      let allCompleted = true;
-      let anyInProgress = false;
+      if (!parentGoal.subGoals || parentGoal.subGoals.length === 0) {
+        const parentRiskZone = resolveGoalEscalationStatus({
+          currentValue: 0,
+          preciseCurrentValue: "0",
+          targetValue: parentGoal.targetValue,
+          preciseTargetValue: parentGoal.preciseTargetValue,
+          allowableVariance: parentGoal.allowableVariance,
+          isReverseKpi: parentGoal.isReverseKpi,
+          endDate: parentGoal.endDate
+        });
 
-      for (const subGoal of parentGoal.subGoals) {
-        const subTarget = subGoal.targetValue ? parseFloat(subGoal.targetValue.toString()) : 0;
-        const subCurrent = subGoal.currentValue ? parseFloat(subGoal.currentValue.toString()) : 0;
-        
-        totalTargetValue += subTarget;
-        totalCurrentValue += subCurrent;
+        await prisma.performanceGoal.update({
+          where: { id: parentGoalId },
+          data: {
+            currentValue: 0,
+            preciseCurrentValue: "0",
+            progressPercentage: 0,
+            stage: "planning",
+            status: "active",
+            performanceRiskZone: parentRiskZone,
+            performanceRiskZoneAt: new Date(),
+            updatedAt: new Date()
+          }
+        });
 
-        if (subGoal.stage !== 'completed') {
-          allCompleted = false;
+        if (parentGoal.parentGoalId) {
+          await this.updateParentGoalProgress(parentGoal.parentGoalId);
         }
-        if (subGoal.stage === 'in_progress' || subGoal.status === 'active') {
-          anyInProgress = true;
-        }
+        return;
       }
 
-      // Calculate progress percentage
-      const progressPercentage = totalTargetValue > 0 
-        ? Math.min((totalCurrentValue / totalTargetValue) * 100, 100) 
-        : 0;
+      const rollup = computeParentRollupFromChildren(
+        parentGoal.subGoals as Parameters<typeof computeParentRollupFromChildren>[0],
+        parentGoal.targetValue
+      );
+      const { stage: newStage, status: newStatus } = deriveParentStageFromRollup({
+        allCompleted: rollup.allCompleted,
+        anyInProgress: rollup.anyInProgress,
+        weightedProgress: rollup.progressPercentage,
+        suggestedCurrentValue: rollup.suggestedCurrentValue,
+        subGoalCount: parentGoal.subGoals.length,
+        previousStage: parentGoal.stage || "planning"
+      });
 
-      // Determine new stage
-      let newStage = parentGoal.stage;
-      if (allCompleted && parentGoal.subGoals.length > 0) {
-        newStage = 'completed';
-      } else if (anyInProgress || totalCurrentValue > 0) {
-        newStage = 'in_progress';
-      }
+      const parentRiskZone = resolveGoalEscalationStatus({
+        currentValue: rollup.suggestedCurrentValue,
+        preciseCurrentValue: String(rollup.suggestedCurrentValue),
+        targetValue: parentGoal.targetValue,
+        preciseTargetValue: parentGoal.preciseTargetValue,
+        allowableVariance: parentGoal.allowableVariance,
+        isReverseKpi: parentGoal.isReverseKpi,
+        endDate: parentGoal.endDate
+      });
 
-      // Update parent goal
       await prisma.performanceGoal.update({
         where: { id: parentGoalId },
         data: {
-          currentValue: totalCurrentValue,
-          progressPercentage: progressPercentage,
+          currentValue: rollup.suggestedCurrentValue,
+          preciseCurrentValue: String(rollup.suggestedCurrentValue),
+          progressPercentage: rollup.progressPercentage,
           stage: newStage,
-          status: allCompleted ? 'completed' : 'active',
+          status: newStatus,
+          performanceRiskZone: parentRiskZone,
+          performanceRiskZoneAt: new Date(),
           updatedAt: new Date()
         }
       });
@@ -1081,36 +1766,26 @@ export class PerformanceGoalService {
         return;
       }
 
-      // Calculate total monetary progress
-      let totalMonetaryTarget = 0;
-      let totalMonetaryAchieved = 0;
-      let totalPercentTarget = 0;
-      let totalPercentAchieved = 0;
+      const {
+        totalMonetaryTarget,
+        totalMonetaryAchieved,
+        totalPercentTarget,
+        totalPercentAchieved
+      } = KPIService.aggregateGoalsForKpiProgress(kpi.performanceGoals);
 
-      for (const goal of kpi.performanceGoals) {
-        // Use monetaryValue if set, otherwise use targetValue
-        const monetaryTarget = goal.monetaryValue 
-          ? parseFloat(goal.monetaryValue.toString()) 
-          : (goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0);
-        
-        const monetaryAchieved = goal.monetaryValueAchieved 
-          ? parseFloat(goal.monetaryValueAchieved.toString()) 
-          : (goal.currentValue ? parseFloat(goal.currentValue.toString()) : 0);
+      const monetaryPct =
+        totalMonetaryTarget > 0
+          ? Math.min((totalMonetaryAchieved / totalMonetaryTarget) * 100, 100)
+          : 0;
+      const percentPct =
+        totalPercentTarget > 0
+          ? Math.min((totalPercentAchieved / totalPercentTarget) * 100, 100)
+          : 0;
 
-        totalMonetaryTarget += monetaryTarget;
-        totalMonetaryAchieved += monetaryAchieved;
-
-        if (goal.percentValue) {
-          totalPercentTarget += parseFloat(goal.percentValue.toString());
-        }
-        if (goal.percentValueAchieved) {
-          totalPercentAchieved += parseFloat(goal.percentValueAchieved.toString());
-        }
-      }
-
-      // Note: KPI progress is calculated on-the-fly in KPIService.getKPIAnalyticsSummary
-      // We don't store it in the KPI table, but we ensure goal values are correct
-      console.log(`   ✅ KPI ${kpiId} progress recalculated: Monetary ${totalMonetaryAchieved}/${totalMonetaryTarget}`);
+      // KPI row has no stored progress %; KPIService reads the same aggregates on demand.
+      console.log(
+        `   ✅ KPI ${kpiId} aggregates (aligned with task/goal updates): value ${totalMonetaryAchieved}/${totalMonetaryTarget} (${monetaryPct.toFixed(1)}%), percent ${totalPercentAchieved}/${totalPercentTarget} (${percentPct.toFixed(1)}%)`
+      );
     } catch (error) {
       console.error(`❌ Error recalculating KPI progress for ${kpiId}:`, error);
       throw error;

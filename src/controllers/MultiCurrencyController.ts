@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { prisma } from '../utils/database';
 import { prismaInvoiceSnapshotSelect } from '../config/accountingSnapshotResponseSelect';
 import { UnrealizedFxReportService } from '../services/UnrealizedFxReportService';
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -44,7 +45,7 @@ export class MultiCurrencyController {
       }
 
       const exchangeRate = await MultiCurrencyService.createExchangeRate({
-        date: new Date(effectiveDate),
+        date: parseDate(effectiveDate),
         fromCurrencyId,
         toCurrencyId,
         rate: parseFloat(rate),
@@ -89,7 +90,7 @@ export class MultiCurrencyController {
         amount: parseFloat(amount),
         fromCurrencyId,
         toCurrencyId,
-        date: date ? new Date(date) : undefined
+        date: date ? parseDate(date) : undefined
       });
 
       res.json({
@@ -515,10 +516,10 @@ export class MultiCurrencyController {
       const result = await MultiCurrencyService.revalueForeignCurrencyBank(
         bankId,
         parseFloat(newExchangeRate),
-        revaluationDate ? new Date(revaluationDate) : new Date(),
+        revaluationDate ? parseDate(revaluationDate) : new Date(),
         baseCurrencyId,
         userId,
-        oldExchangeRateDate ? new Date(oldExchangeRateDate) : undefined
+        oldExchangeRateDate ? parseDate(oldExchangeRateDate) : undefined
       );
 
       res.json({

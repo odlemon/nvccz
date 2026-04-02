@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { AuthRequest } from "../middleware/authenticate";
 import ExpenseService, { CreateExpenseParams } from "../services/ExpenseService";
+import { parseDate } from "../utils/dateHelper";
 
 export class ExpenseController {
   /**
@@ -50,7 +51,7 @@ export class ExpenseController {
         category,
         amount: parseFloat(amount),
         currencyId,
-        transactionDate: new Date(transactionDate),
+        transactionDate: parseDate(transactionDate),
         description,
         receiptNumber,
         isTaxable: Boolean(isTaxable),
@@ -125,8 +126,8 @@ export class ExpenseController {
         vendorId: vendorId as string,
         categoryId: categoryId as string,
         currencyId: currencyId as string,
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
+        startDate: startDate ? parseDate(startDate as string) : undefined,
+        endDate: endDate ? parseDate(endDate as string) : undefined,
         status: status as string
       };
 
@@ -182,7 +183,7 @@ export class ExpenseController {
 
       // Convert transactionDate to Date if provided
       if (updateData.transactionDate) {
-        updateData.transactionDate = new Date(updateData.transactionDate);
+        updateData.transactionDate = parseDate(updateData.transactionDate);
       }
 
       // Convert isTaxable to boolean if provided
@@ -236,8 +237,8 @@ export class ExpenseController {
       const { startDate, endDate, currencyId } = req.query;
 
       const params = {
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
+        startDate: startDate ? parseDate(startDate as string) : undefined,
+        endDate: endDate ? parseDate(endDate as string) : undefined,
         currencyId: currencyId as string
       };
 
@@ -275,6 +276,7 @@ export class ExpenseController {
 
       // Import VATService here to avoid circular dependency
       const { VATService } = await import("../services/VATService");
+      await VATService.refreshActiveVatRate().catch(() => undefined);
 
       const vatAmount = VATService.isVATEligible(numericAmount, taxable) 
         ? VATService.calculateVAT(numericAmount) 

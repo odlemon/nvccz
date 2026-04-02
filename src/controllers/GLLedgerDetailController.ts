@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import GLLedgerDetailService from "../services/GLLedgerDetailService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { prisma } from "../utils/database";
+import { parseDate } from "../utils/dateHelper";
 
 export class GLLedgerDetailController {
   /**
@@ -24,8 +25,8 @@ export class GLLedgerDetailController {
         );
       }
 
-      const start = new Date(startDate as string);
-      const end = new Date(endDate as string);
+      const start = parseDate(startDate as string);
+      const end = parseDate(endDate as string);
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
         return ResponseHelper.badRequest(res, "Invalid date format. Use YYYY-MM-DD");
@@ -91,8 +92,8 @@ export class GLLedgerDetailController {
       const startOfYear = new Date(today.getFullYear(), 0, 1);
       const endOfYear = new Date(today.getFullYear(), 11, 31, 23, 59, 59, 999);
 
-      const start = startDate ? new Date(startDate as string) : startOfYear;
-      const end = endDate ? new Date(endDate as string) : endOfYear;
+      const start = startDate ? parseDate(startDate as string) : startOfYear;
+      const end = endDate ? parseDate(endDate as string) : endOfYear;
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
         return ResponseHelper.badRequest(res, "Invalid date format. Use YYYY-MM-DD");

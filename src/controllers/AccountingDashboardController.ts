@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { AccountingDashboardService, DashboardParams } from "../services/AccountingDashboardService";
+import { parseDate } from "../utils/dateHelper";
 
 export class AccountingDashboardController {
   /**
@@ -29,11 +30,11 @@ export class AccountingDashboardController {
       };
 
       if (startDate) {
-        params.startDate = new Date(startDate as string);
+        params.startDate = parseDate(startDate as string);
       }
 
       if (endDate) {
-        params.endDate = new Date(endDate as string);
+        params.endDate = parseDate(endDate as string);
       }
 
       const dashboardData = await AccountingDashboardService.getDashboardData(params);

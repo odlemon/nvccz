@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import { TransactionReversalService } from '../services/TransactionReversalService';
 import { ResponseHelper } from '../utils/responseHelper';
+import { parseDate } from "../utils/dateHelper";
 
 export class TransactionReversalController {
   
@@ -33,7 +34,7 @@ export class TransactionReversalController {
         transactionId,
         reason,
         description,
-        reverseDate: reverseDate ? new Date(reverseDate) : undefined
+        reverseDate: reverseDate ? parseDate(reverseDate) : undefined
       };
       
       const result = await TransactionReversalService.reverseTransaction(

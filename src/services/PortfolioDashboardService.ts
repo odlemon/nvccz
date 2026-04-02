@@ -2,6 +2,7 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 import { DataIntegrationService } from "./DataIntegrationService";
+import { asNumber, roundTo } from "./performanceBackendSupport";
 
 export interface PortfolioDashboardParams {
   fundId?: string; // Optional fund filter - if not provided, aggregates all funds
@@ -97,6 +98,43 @@ export interface PortfolioDashboardData {
 }
 
 export class PortfolioDashboardService {
+  /**
+   * Weighted aggregate fund gross IRR (same engine as dashboard `metrics.fundGrossIRR`),
+   * rounded to 6 decimal places for PE ↔ performance manual sync (`fieldPath` e.g. `data.metrics.irr`).
+   */
+  static async getWeightedFundGrossIrrSixDecimals(
+    params: Pick<PortfolioDashboardParams, "fundId"> = {}
+  ): Promise<{ irr: number; precisionDigits: number; fundCount: number }> {
+    let funds: Array<{ id: string; totalAmount: unknown }>;
+    if (params.fundId) {
+      const fund = await prisma.fund.findUnique({
+        where: { id: params.fundId },
+        select: { id: true, totalAmount: true }
+      });
+      funds = fund ? [fund] : [];
+    } else {
+      funds = await prisma.fund.findMany({
+        select: { id: true, totalAmount: true }
+      });
+    }
+
+    let totalWeightedIRR = 0;
+    let totalWeight = 0;
+    for (const fund of funds) {
+      try {
+        const fundPerformance = await DataIntegrationService.calculateFundPerformance(fund.id);
+        const fundPaidIn = parseFloat((fund.totalAmount || new Decimal(0)).toString());
+        totalWeightedIRR += fundPerformance.irr * fundPaidIn;
+        totalWeight += fundPaidIn;
+      } catch (error) {
+        console.error(`Error calculating IRR for fund ${fund.id}:`, error);
+      }
+    }
+    const raw = totalWeight > 0 ? totalWeightedIRR / totalWeight : 0;
+    const irr = roundTo(asNumber(raw, 0), 6);
+    return { irr, precisionDigits: 6, fundCount: funds.length };
+  }
+
   /**
    * Get comprehensive portfolio dashboard data
    */
