@@ -2,7 +2,6 @@
 import express from "express";
 import { PerformanceReviewController } from "../controllers/PerformanceReviewController";
 import { authenticate } from "../middleware/authenticate";
-import { authorize } from "../middleware/permissionAuth";
 
 const router = express.Router();
 
@@ -230,7 +229,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/", authenticate, authorize(["ADMIN", "MANAGER"]), PerformanceReviewController.createPerformanceReview);
+router.post("/", authenticate, PerformanceReviewController.createPerformanceReview);
 
 /**
  * @swagger
@@ -329,7 +328,7 @@ router.post("/", authenticate, authorize(["ADMIN", "MANAGER"]), PerformanceRevie
  *       500:
  *         description: Internal server error
  */
-router.get("/", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), PerformanceReviewController.getAllPerformanceReviews);
+router.get("/", authenticate, PerformanceReviewController.getAllPerformanceReviews);
 
 /**
  * @swagger
@@ -413,7 +412,7 @@ router.get("/", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), Performan
  *       500:
  *         description: Internal server error
  */
-router.get("/analytics", authenticate, authorize(["ADMIN", "MANAGER"]), PerformanceReviewController.getPerformanceReviewAnalytics);
+router.get("/analytics", authenticate, PerformanceReviewController.getPerformanceReviewAnalytics);
 
 /**
  * @swagger
@@ -462,7 +461,58 @@ router.get("/analytics", authenticate, authorize(["ADMIN", "MANAGER"]), Performa
  *       500:
  *         description: Internal server error
  */
-router.get("/completion-rates", authenticate, authorize(["ADMIN", "MANAGER"]), PerformanceReviewController.getPerformanceReviewCompletionRates);
+router.get("/completion-rates", authenticate, PerformanceReviewController.getPerformanceReviewCompletionRates);
+
+/**
+ * @swagger
+ * /api/performance-reviews/reports/rating-distribution:
+ *   get:
+ *     summary: Get department rating distribution
+ *     tags: [Performance Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: departmentName
+ *         required: true
+ *         description: Match reviewee linked department name OR reviewee userDepartment (e.g. Finance)
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: reviewPeriod
+ *         required: false
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Department rating distribution retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Department rating distribution retrieved successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     reviewPeriod:
+ *                       type: string
+ *                     departmentName:
+ *                       type: string
+ *                     distribution:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ */
+router.get("/reports/rating-distribution", authenticate, PerformanceReviewController.getDepartmentRatingDistribution);
 
 /**
  * @swagger
@@ -503,7 +553,7 @@ router.get("/completion-rates", authenticate, authorize(["ADMIN", "MANAGER"]), P
  *       500:
  *         description: Internal server error
  */
-router.get("/:id", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), PerformanceReviewController.getPerformanceReviewById);
+router.get("/:id", authenticate, PerformanceReviewController.getPerformanceReviewById);
 
 /**
  * @swagger
@@ -622,7 +672,7 @@ router.get("/:id", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), Perfor
  *       500:
  *         description: Internal server error
  */
-router.put("/:id", authenticate, authorize(["ADMIN", "MANAGER"]), PerformanceReviewController.updatePerformanceReview);
+router.put("/:id", authenticate, PerformanceReviewController.updatePerformanceReview);
 
 /**
  * @swagger
@@ -667,7 +717,7 @@ router.put("/:id", authenticate, authorize(["ADMIN", "MANAGER"]), PerformanceRev
  *       500:
  *         description: Internal server error
  */
-router.delete("/:id", authenticate, authorize(["ADMIN"]), PerformanceReviewController.deletePerformanceReview);
+router.delete("/:id", authenticate, PerformanceReviewController.deletePerformanceReview);
 
 // ===== PERFORMANCE REVIEW FEEDBACK ROUTES =====
 
@@ -736,7 +786,7 @@ router.delete("/:id", authenticate, authorize(["ADMIN"]), PerformanceReviewContr
  *       500:
  *         description: Internal server error
  */
-router.post("/feedback", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), PerformanceReviewController.createPerformanceReviewFeedback);
+router.post("/feedback", authenticate, PerformanceReviewController.createPerformanceReviewFeedback);
 
 /**
  * @swagger
@@ -802,7 +852,7 @@ router.post("/feedback", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), 
  *       500:
  *         description: Internal server error
  */
-router.put("/feedback/:id", authenticate, authorize(["ADMIN", "MANAGER", "USER"]), PerformanceReviewController.updatePerformanceReviewFeedback);
+router.put("/feedback/:id", authenticate, PerformanceReviewController.updatePerformanceReviewFeedback);
 
 /**
  * @swagger
@@ -847,7 +897,206 @@ router.put("/feedback/:id", authenticate, authorize(["ADMIN", "MANAGER", "USER"]
  *       500:
  *         description: Internal server error
  */
-router.delete("/feedback/:id", authenticate, authorize(["ADMIN", "MANAGER"]), PerformanceReviewController.deletePerformanceReviewFeedback);
+router.delete("/feedback/:id", authenticate, PerformanceReviewController.deletePerformanceReviewFeedback);
+
+/**
+ * @swagger
+ * /api/performance-reviews/cycles/{cycleId}/initiate:
+ *   post:
+ *     summary: Run company review cycle reminders (email only)
+ *     description: >
+ *       Does not bulk-create reviews or tasks. Emails active employees who already
+ *       have a manager-assigned review overlapping this cycle, still at self-assessment
+ *       stage, not locked, and who have not started self-assessment (no self feedback / ratings yet).
+ *       Reviews with no cycleId are linked to this cycle after a successful email.
+ *     tags: [Performance Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: cycleId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Reminder run completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     cycleId:
+ *                       type: string
+ *                     emailsSent:
+ *                       type: integer
+ *                     emailsFailed:
+ *                       type: integer
+ *                     skippedIneligible:
+ *                       type: integer
+ *                     candidatesConsidered:
+ *                       type: integer
+ *                     activeEmployeesWithLogin:
+ *                       type: integer
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ */
+router.post("/cycles/:cycleId/initiate", authenticate, PerformanceReviewController.initiateCycleForAllEmployees);
+
+/**
+ * @swagger
+ * /api/performance-reviews/{id}/autopopulate:
+ *   post:
+ *     summary: Auto-populate the quantitative review snapshot
+ *     tags: [Performance Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Review quantitative snapshot generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Review quantitative snapshot generated successfully
+ *                 data:
+ *                   type: object
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ */
+router.post("/:id/autopopulate", authenticate, PerformanceReviewController.autopopulateQuantitativeSnapshot);
+
+/**
+ * @swagger
+ * /api/performance-reviews/{id}/finalize:
+ *   post:
+ *     summary: Finalize and lock a performance review
+ *     tags: [Performance Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Performance review finalised successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Performance review finalised successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                     isLocked:
+ *                       type: boolean
+ *                     documentPayload:
+ *                       type: object
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ */
+/**
+ * @swagger
+ * /api/performance-reviews/{id}/complete-stage:
+ *   post:
+ *     summary: Complete the current workflow stage and advance to the next (no body)
+ *     description: >
+ *       Uses the stored stage only — e.g. SELF_REVIEW → MANAGER_REVIEW → FINAL_REVIEW.
+ *       After FINAL_REVIEW, call POST /{id}/finalize to lock and generate the document.
+ *     tags: [Performance Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Stage advanced successfully
+ */
+router.post(
+  "/:id/complete-stage",
+  authenticate,
+  PerformanceReviewController.completePerformanceReviewStage
+);
+
+router.post("/:id/finalize", authenticate, PerformanceReviewController.finalizePerformanceReview);
+
+/**
+ * @swagger
+ * /api/performance-reviews/{id}/document:
+ *   get:
+ *     summary: Get the saved performance review document payload
+ *     tags: [Performance Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Performance review document retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Performance review document retrieved successfully
+ *                 data:
+ *                   type: object
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       403:
+ *         description: Forbidden
+ */
+router.get("/:id/document", authenticate, PerformanceReviewController.getPerformanceReviewDocument);
 
 export default router;
 

@@ -206,6 +206,7 @@ export class PurchaseInvoiceService {
    */
   static async createPurchaseInvoice(params: CreatePurchaseInvoiceParams): Promise<PurchaseInvoiceWithRelations> {
     try {
+      await VATService.refreshActiveVatRate().catch(() => undefined);
       const {
         vendorId,
         invoiceDate,
@@ -600,6 +601,7 @@ export class PurchaseInvoiceService {
     updatedById: string
   ): Promise<PurchaseInvoiceWithRelations> {
     try {
+      await VATService.refreshActiveVatRate().catch(() => undefined);
       const existingInvoice = await prisma.purchaseInvoice.findUnique({
         where: { id: invoiceId },
         include: { items: true }

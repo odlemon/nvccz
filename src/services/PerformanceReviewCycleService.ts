@@ -301,7 +301,8 @@ export class PerformanceReviewCycleService {
           notifications.push({
             type: 'SELF_ASSESSMENT_OVERDUE',
             count: overdueSelfAssessments.length,
-            deadline: activeCycle.selfAssessmentDeadline
+            deadline: activeCycle.selfAssessmentDeadline,
+            items: overdueSelfAssessments
           });
         }
       }
@@ -313,7 +314,8 @@ export class PerformanceReviewCycleService {
           notifications.push({
             type: 'PEER_REVIEW_OVERDUE',
             count: overduePeerReviews.length,
-            deadline: activeCycle.peerReviewDeadline
+            deadline: activeCycle.peerReviewDeadline,
+            items: overduePeerReviews
           });
         }
       }
@@ -325,7 +327,8 @@ export class PerformanceReviewCycleService {
           notifications.push({
             type: 'MANAGER_REVIEW_OVERDUE',
             count: overdueManagerReviews.length,
-            deadline: activeCycle.managerReviewDeadline
+            deadline: activeCycle.managerReviewDeadline,
+            items: overdueManagerReviews
           });
         }
       }
@@ -482,9 +485,34 @@ export class PerformanceReviewCycleService {
 
       for (const notification of notifications) {
         console.log(`📧 ${notification.type}: ${notification.count} overdue items (deadline: ${notification.deadline})`);
-        
-        // TODO: Implement actual notification sending
-        // This would typically send emails, push notifications, etc.
+
+        const rows = Array.isArray(notification.items) ? notification.items : [];
+        const entries = rows.flatMap((review: any) => {
+          const recipients = new Set<string>();
+          if (review.revieweeId) recipients.add(review.revieweeId);
+          if (review.reviewerId) recipients.add(review.reviewerId);
+
+          return Array.from(recipients).map((userId) => ({
+            title: "Performance Review Deadline Alert",
+            message: `Review "${review.title}" is overdue for ${notification.type.replace(/_/g, " ").toLowerCase()}.`,
+            type: notification.type,
+            userId,
+            data: {
+              reviewId: review.id,
+              cycleId: review.cycleId,
+              deadline: notification.deadline,
+              path: `/performance-reviews/${review.id}`
+            },
+            relatedEntity: "PerformanceReview",
+            relatedEntityId: review.id
+          }));
+        });
+
+        if (entries.length > 0) {
+          await prisma.notification.createMany({
+            data: entries
+          });
+        }
       }
 
       console.log('✅ Deadline notifications sent');

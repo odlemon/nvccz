@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { AuthRequest } from "../middleware/authenticate";
+import { parseDate } from "../utils/dateHelper";
 import {
   PurchaseInvoiceService,
   CreatePurchaseInvoiceParams,
@@ -57,8 +58,8 @@ export class PurchaseInvoiceController {
 
       const invoiceParams: CreatePurchaseInvoiceParams = {
         vendorId,
-        invoiceDate: new Date(invoiceDate),
-        dueDate: dueDate ? new Date(dueDate) : undefined,
+        invoiceDate: parseDate(invoiceDate),
+        dueDate: dueDate ? parseDate(dueDate) : undefined,
         currencyId,
         description,
         items,
@@ -121,7 +122,7 @@ export class PurchaseInvoiceController {
         purchaseOrderId,
         supplierInvoiceNumber: String(supplierInvoiceNumber).trim(),
         createdById,
-        dueDate: dueDate ? new Date(dueDate) : undefined,
+        dueDate: dueDate ? parseDate(dueDate) : undefined,
       });
 
       logger.info("PO converted to vendor bill", {
@@ -232,8 +233,8 @@ export class PurchaseInvoiceController {
 
       const updateParams: Partial<CreatePurchaseInvoiceParams> = {};
       if (vendorId) updateParams.vendorId = vendorId;
-      if (invoiceDate) updateParams.invoiceDate = new Date(invoiceDate);
-      if (dueDate !== undefined) updateParams.dueDate = dueDate ? new Date(dueDate) : undefined;
+      if (invoiceDate) updateParams.invoiceDate = parseDate(invoiceDate);
+      if (dueDate !== undefined) updateParams.dueDate = dueDate ? parseDate(dueDate) : undefined;
       // currencyId cannot be changed after invoice creation - explicitly excluded
       if (description !== undefined) updateParams.description = description;
       if (items) updateParams.items = items;
@@ -432,7 +433,7 @@ export class PurchaseInvoiceController {
         {
           paymentMethod,
           bankId,
-          paymentDate: new Date(paymentDate),
+          paymentDate: parseDate(paymentDate),
           paymentReference,
           notes
         },
@@ -503,7 +504,7 @@ export class PurchaseInvoiceController {
         {
           paymentMethod,
           bankId,
-          paymentDate: new Date(paymentDate),
+          paymentDate: parseDate(paymentDate),
           paymentReference,
           notes,
         },

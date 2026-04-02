@@ -7,7 +7,9 @@ import AuditService from './AuditService';
 import {
   assignNextAuditIdAndCreateJournal,
   createJournalEntryWithAuditSequence,
+  reserveAuditSequences,
 } from './AuditTrailSequenceService';
+import { resolveUsdZwgAvgForSnapshot } from './UsdZwgRateResolver';
 
 export interface CreateAssetParams {
   assetName: string;
@@ -102,6 +104,67 @@ export class AssetService {
     if (maxDep <= 0) return 0;
     const capped = Math.min(rawDepreciation, maxDep);
     return Math.round(capped * 100) / 100;
+  }
+
+  /** Local midnight for calendar-day comparisons (server local TZ). */
+  private static startOfLocalDay(d: Date): Date {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  /**
+   * Anniversary date in a calendar month (same day-of-month as purchase, clamped to month length).
+   */
+  static getDepreciationAnniversaryInMonth(
+    purchaseDate: Date,
+    periodYear: number,
+    periodMonth: number
+  ): Date {
+    const pd = purchaseDate.getDate();
+    const lastDay = new Date(periodYear, periodMonth, 0).getDate();
+    const day = Math.min(pd, lastDay);
+    return new Date(periodYear, periodMonth - 1, day);
+  }
+
+  /**
+   * Whether a monthly depreciation charge applies to `periodYear-periodMonth` when the run is no earlier than `asOfDate`
+   * (e.g. month-end job on 31 March for March). Skips the purchase month when bought after the 1st — first charge is the same
+   * calendar day in the following month (e.g. purchased 11 Jan → first run Feb 11+).
+   */
+  static isDepreciationPeriodDue(
+    purchaseDate: Date,
+    periodYear: number,
+    periodMonth: number,
+    asOfDate: Date
+  ): boolean {
+    const p = purchaseDate;
+    const py = p.getFullYear();
+    const pm = p.getMonth() + 1;
+    const pd = p.getDate();
+
+    const due = this.getDepreciationAnniversaryInMonth(p, periodYear, periodMonth);
+    const dueTs = this.startOfLocalDay(due).getTime();
+    const asOfTs = this.startOfLocalDay(asOfDate).getTime();
+    if (dueTs > asOfTs) return false;
+
+    const purchaseDayTs = this.startOfLocalDay(p).getTime();
+    if (dueTs < purchaseDayTs) return false;
+
+    if (periodYear === py && periodMonth === pm && pd > 1) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /** Journal transaction date for a posted period (anniversary in that month). */
+  static getDepreciationJournalDateForPeriod(purchaseDate: Date, period: string): Date {
+    const parts = period.split('-').map((s) => parseInt(s, 10));
+    const y = parts[0];
+    const m = parts[1];
+    if (!y || !m || m < 1 || m > 12) {
+      throw new Error(`Invalid depreciation period ${period} (expected YYYY-MM)`);
+    }
+    return this.getDepreciationAnniversaryInMonth(purchaseDate, y, m);
   }
 
   /**
@@ -599,10 +662,10 @@ export class AssetService {
       // Unique reference (JournalEntry.referenceNumber is unique; multiple assets can share same period)
       const referenceNumber = `DEP-${depreciation.period}-${depreciationId.slice(-8)}`;
 
-      // Use last day of period month so the entry falls in the correct reporting period
-      const [year, month] = depreciation.period.split('-').map(Number);
-      const lastDay = new Date(year, month, 0);
-      const transactionDate = lastDay;
+      const transactionDate = this.getDepreciationJournalDateForPeriod(
+        depreciation.asset.purchaseDate,
+        depreciation.period
+      );
 
       // Create journal entry
       const journalEntry = await createJournalEntryWithAuditSequence({
@@ -1313,63 +1376,355 @@ export class AssetService {
   }
 
   /**
-   * Post monthly depreciation for all assets
+   * Post monthly depreciation for all in-use assets for one calendar period (YYYY-MM).
+   * Only assets whose monthly anniversary has passed on or before `asOfDate` are included (see `isDepreciationPeriodDue`).
    */
-  static async postMonthlyDepreciation(createdById: string): Promise<{
+  static async postMonthlyDepreciation(params: {
+    createdById: string;
+    asOfDate?: Date;
+    period?: string;
+  }): Promise<{
+    period: string;
+    asOfDate: string;
     processedAssets: number;
+    skippedNotDue: number;
+    skippedErrors: number;
     totalDepreciation: number;
     depreciationRecords: Array<{
       assetId: string;
       assetName: string;
       depreciationAmount: number;
     }>;
+    errorSamples: Array<{ assetId: string; message: string }>;
   }> {
     try {
-      const currentDate = new Date();
-      const period = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-      
+      const asOf = params.asOfDate ? new Date(params.asOfDate) : new Date();
+      const period =
+        params.period ??
+        `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, '0')}`;
+
+      const [py, pm] = period.split('-').map(Number);
+      if (!py || !pm || pm < 1 || pm > 12) {
+        throw new Error(`Invalid period ${period} (expected YYYY-MM)`);
+      }
+
       const assets = await prisma.asset.findMany({
-        where: { 
+        where: {
           isActive: true,
-          status: 'IN_USE'
-        }
+          status: 'IN_USE',
+        },
       });
 
-      const depreciationRecords = [];
+      const depreciationRecords: Array<{
+        assetId: string;
+        assetName: string;
+        depreciationAmount: number;
+      }> = [];
       let totalDepreciation = 0;
+      let skippedNotDue = 0;
+      let skippedErrors = 0;
+      const errorSamples: Array<{ assetId: string; message: string }> = [];
 
       for (const asset of assets) {
+        if (!this.isDepreciationPeriodDue(asset.purchaseDate, py, pm, asOf)) {
+          skippedNotDue++;
+          continue;
+        }
         try {
           const depreciationRecord = await this.calculateDepreciation({
             assetId: asset.id,
             period,
-            createdById
+            createdById: params.createdById,
           });
 
-          await this.postDepreciation(depreciationRecord.id, createdById);
-          
+          await this.postDepreciation(depreciationRecord.id, params.createdById);
+
           depreciationRecords.push({
             assetId: asset.id,
             assetName: asset.assetName,
-            depreciationAmount: Number(depreciationRecord.depreciationAmount)
+            depreciationAmount: Number(depreciationRecord.depreciationAmount),
           });
 
           totalDepreciation += Number(depreciationRecord.depreciationAmount);
-        } catch (error) {
+        } catch (error: any) {
+          skippedErrors++;
+          const message = error?.message || String(error);
+          if (errorSamples.length < 25) {
+            errorSamples.push({ assetId: asset.id, message });
+          }
           console.error(`Error processing depreciation for asset ${asset.id}:`, error);
-          // Continue with other assets
         }
       }
 
       return {
+        period,
+        asOfDate: (() => {
+          const d = this.startOfLocalDay(asOf);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })(),
         processedAssets: depreciationRecords.length,
+        skippedNotDue,
+        skippedErrors,
         totalDepreciation,
-        depreciationRecords
+        depreciationRecords,
+        errorSamples,
       };
     } catch (error) {
       console.error('Error posting monthly depreciation:', error);
       throw error;
     }
+  }
+
+  /**
+   * Backfill monthly depreciation for one asset from purchase through `throughDate` (inclusive month),
+   * creating (and optionally posting) each due period in chronological order. Idempotent: existing periods are skipped.
+   */
+  static async backfillDepreciationToDate(params: {
+    assetId: string;
+    fromDate?: Date;
+    throughDate: Date;
+    createdById: string;
+    autoPost: boolean;
+  }): Promise<{
+    periodsAttempted: string[];
+    created: string[];
+    posted: string[];
+    skipped: string[];
+    errors: Array<{ period: string; message: string }>;
+  }> {
+    // ── 1. Load everything we need once (including rate — resolved once, reused for all writes) ──
+    const [asset, existingRecords, currency, rateSnapshot] = await Promise.all([
+      prisma.asset.findUnique({
+        where: { id: params.assetId },
+        include: {
+          depreciationExpenseAccount: true,
+          accumulatedDepreciationAccount: true,
+        },
+      }),
+      prisma.depreciationRecord.findMany({
+        where: { assetId: params.assetId },
+        orderBy: { period: 'asc' },
+      }),
+      params.autoPost
+        ? prisma.currency.findFirst({ where: { isActive: true }, orderBy: [{ isDefault: 'desc' }] })
+        : Promise.resolve(null),
+      // Resolve USD/ZWG rate once — injected into every write so middleware skips re-fetching
+      resolveUsdZwgAvgForSnapshot(prisma as any).catch(() => null),
+    ]);
+
+    // Decimal snapshot to stamp on every write (middleware skips resolution when this is present)
+    const rateSnapshotDecimal = rateSnapshot != null ? new Decimal(rateSnapshot) : undefined;
+
+    if (!asset) throw new Error('Asset not found');
+    if (asset.status !== 'IN_USE') throw new Error('Cannot backfill depreciation for disposed assets');
+    if (params.autoPost && !currency) throw new Error('No active currency found. Create a currency before posting depreciation.');
+
+    const purchase = asset.purchaseDate;
+    const through = params.throughDate;
+
+    const requestedFrom = params.fromDate ?? purchase;
+    const from =
+      this.startOfLocalDay(requestedFrom).getTime() < this.startOfLocalDay(purchase).getTime()
+        ? purchase
+        : requestedFrom;
+
+    if (this.startOfLocalDay(through).getTime() < this.startOfLocalDay(from).getTime()) {
+      throw new Error('endDate must be on or after startDate');
+    }
+
+    // ── 2. Build lookup: period -> existing record ────────────────────────────
+    const existingByPeriod = new Map(existingRecords.map((r) => [r.period, r]));
+
+    // Running totals — seed from last record before our range
+    let runningAccumulated = 0;
+    let runningBookValue = Number(asset.cost);
+    const fromPeriod = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}`;
+    for (const r of existingRecords) {
+      if (r.period < fromPeriod) {
+        runningAccumulated = Number(r.accumulatedDepreciation);
+        runningBookValue = Number(r.bookValue);
+      }
+    }
+
+    // ── 3. Enumerate periods ──────────────────────────────────────────────────
+    const periodsAttempted: string[] = [];
+    const skipped: string[] = [];
+    const errors: Array<{ period: string; message: string }> = [];
+
+    type PeriodPlan = {
+      period: string;
+      depreciationAmount: number;
+      accumulatedDepreciation: number;
+      bookValue: number;
+      existingRecordId?: string; // set when dep record already exists but is unposted
+    };
+    const toCreate: PeriodPlan[] = [];   // need new dep record + JE
+    const toPost: PeriodPlan[] = [];     // dep record exists but JE missing — just post
+
+    let y = from.getFullYear();
+    let m = from.getMonth() + 1;
+    const tY = through.getFullYear();
+    const tM = through.getMonth() + 1;
+
+    while (y < tY || (y === tY && m <= tM)) {
+      const period = `${y}-${String(m).padStart(2, '0')}`;
+      periodsAttempted.push(period);
+
+      const lastDayOfMonth = new Date(y, m, 0);
+      const asOf = lastDayOfMonth.getTime() <= through.getTime() ? lastDayOfMonth : through;
+      const existing = existingByPeriod.get(period);
+
+      if (existing) {
+        runningAccumulated = Number(existing.accumulatedDepreciation);
+        runningBookValue = Number(existing.bookValue);
+        if (existing.isPosted) {
+          // Fully done — skip
+          skipped.push(period);
+        } else {
+          // Dep record exists but JE was never created (e.g. interrupted run) — queue for posting only
+          toPost.push({
+            period,
+            depreciationAmount: Number(existing.depreciationAmount),
+            accumulatedDepreciation: Number(existing.accumulatedDepreciation),
+            bookValue: Number(existing.bookValue),
+            existingRecordId: existing.id,
+          });
+        }
+      } else if (!this.isDepreciationPeriodDue(purchase, y, m, asOf)) {
+        skipped.push(period);
+      } else {
+        const assetSnapshot = { ...asset, currentBookValue: new Decimal(runningBookValue) } as typeof asset;
+        const rawAmount = this.computeRawPeriodDepreciation(assetSnapshot, period);
+        const depreciationAmount = this.capDepreciationBySalvage(assetSnapshot, rawAmount);
+
+        if (depreciationAmount <= 0) {
+          const salvage = Number(asset.salvageValue ?? 0);
+          if (runningBookValue <= salvage + AssetService.DEPRECIATION_SALVAGE_EPSILON) {
+            skipped.push(period);
+          } else {
+            errors.push({ period, message: 'No depreciation to calculate for this period' });
+          }
+        } else {
+          runningAccumulated += depreciationAmount;
+          runningBookValue = Number(asset.cost) - runningAccumulated;
+          toCreate.push({ period, depreciationAmount, accumulatedDepreciation: runningAccumulated, bookValue: runningBookValue });
+        }
+      }
+
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+
+    const allToPost = [...toCreate.map(p => ({ ...p, existingRecordId: undefined })), ...toPost];
+    if (toCreate.length === 0 && toPost.length === 0) {
+      return { periodsAttempted, created: [], posted: [], skipped, errors };
+    }
+
+    // ── 4. Create new DepreciationRecord rows in parallel ─────────────────────
+    const created: string[] = [];
+    const posted: string[] = [];
+
+    let newDepRecords: any[] = [];
+    if (toCreate.length > 0) {
+      newDepRecords = await Promise.all(
+        toCreate.map((p) =>
+          prisma.depreciationRecord.create({
+            data: {
+              assetId: params.assetId,
+              period: p.period,
+              depreciationAmount: new Decimal(p.depreciationAmount),
+              accumulatedDepreciation: new Decimal(p.accumulatedDepreciation),
+              bookValue: new Decimal(p.bookValue),
+              createdById: params.createdById,
+              ...(rateSnapshotDecimal !== undefined ? { usdZwgRateSnapshot: rateSnapshotDecimal } : {}),
+            },
+          })
+        )
+      );
+      newDepRecords.forEach((_, i) => created.push(toCreate[i].period));
+    }
+
+    // Merge: map each plan to its dep record id
+    const postQueue: Array<{ plan: PeriodPlan; depRecordId: string }> = [];
+    for (let i = 0; i < toCreate.length; i++) {
+      postQueue.push({ plan: toCreate[i], depRecordId: newDepRecords[i].id });
+    }
+    for (const p of toPost) {
+      postQueue.push({ plan: p, depRecordId: p.existingRecordId! });
+    }
+
+    // ── 5. Post JEs in parallel (reserve all sequence numbers in ONE transaction) ─
+    if (params.autoPost && currency && postQueue.length > 0) {
+      const firstSeq = await reserveAuditSequences(postQueue.length);
+      const now = new Date();
+
+      await Promise.all(
+        postQueue.map(async ({ plan, depRecordId }, i) => {
+          try {
+            const auditTrailSequenceNumber = firstSeq + i;
+            const referenceNumber = `DEP-${plan.period}-${depRecordId.slice(-8)}`;
+            const transactionDate = this.getDepreciationJournalDateForPeriod(asset.purchaseDate, plan.period);
+
+            // Create JE directly (sequence already reserved — no transaction needed)
+            const journalEntry = await prisma.journalEntry.create({
+              data: {
+                transactionDate,
+                referenceNumber,
+                description: `Depreciation for ${asset.assetName} - ${plan.period}`,
+                totalAmount: new Decimal(plan.depreciationAmount),
+                currencyId: currency.id,
+                status: 'POSTED',
+                createdById: params.createdById,
+                auditTrailSequenceNumber,
+                ...(rateSnapshotDecimal !== undefined ? { usdZwgRateSnapshot: rateSnapshotDecimal } : {}),
+              },
+            });
+
+            await prisma.journalEntryLine.createMany({
+              data: [
+                {
+                  journalEntryId: journalEntry.id,
+                  chartOfAccountId: asset.depreciationExpenseAccountId,
+                  debitAmount: new Decimal(plan.depreciationAmount),
+                  creditAmount: new Decimal(0),
+                  description: `Depreciation expense: ${asset.assetName}`,
+                  vatAmount: new Decimal(0),
+                },
+                {
+                  journalEntryId: journalEntry.id,
+                  chartOfAccountId: asset.accumulatedDepreciationAccountId,
+                  debitAmount: new Decimal(0),
+                  creditAmount: new Decimal(plan.depreciationAmount),
+                  description: `Accumulated depreciation: ${asset.assetName}`,
+                  vatAmount: new Decimal(0),
+                },
+              ],
+            });
+
+            await prisma.depreciationRecord.update({
+              where: { id: depRecordId },
+              data: { isPosted: true, postedAt: now },
+            });
+
+            posted.push(plan.period);
+          } catch (e: any) {
+            errors.push({ period: plan.period, message: e?.message || String(e) });
+          }
+        })
+      );
+    }
+
+    // ── 6. Single asset book value update ─────────────────────────────────────
+    const allPeriodPlans = [...toCreate, ...toPost];
+    if (allPeriodPlans.length > 0) {
+      const lastPlan = allPeriodPlans.reduce((a, b) => (a.period > b.period ? a : b));
+      await prisma.asset.update({
+        where: { id: params.assetId },
+        data: { currentBookValue: new Decimal(lastPlan.bookValue) },
+      });
+    }
+
+    return { periodsAttempted, created, posted, skipped, errors };
   }
 
   /**

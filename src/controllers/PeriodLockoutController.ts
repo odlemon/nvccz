@@ -5,6 +5,7 @@
 import { Request, Response } from "express";
 import { ResponseHelper } from "../utils/responseHelper";
 import PeriodLockoutService from "../services/PeriodLockoutService";
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -133,7 +134,7 @@ export default class PeriodLockoutController {
         return ResponseHelper.unauthorized(res, 'User authentication required');
       }
 
-      const date = new Date(transactionDate);
+      const date = parseDate(transactionDate);
       if (isNaN(date.getTime())) {
         return ResponseHelper.badRequest(res, 'Invalid date format');
       }

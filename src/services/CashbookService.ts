@@ -65,6 +65,8 @@ export class CashbookService {
   static async createCashReceipt(params: CreateCashReceiptParams): Promise<CashbookResult> {
     try {
       console.log(`💰 Creating Cash Receipt: ${params.description} - $${params.amount}`);
+
+      await VATService.refreshActiveVatRate().catch(() => undefined);
       
       // 1. Validate bank account
       const bank = await prisma.bank.findUnique({
@@ -165,6 +167,8 @@ export class CashbookService {
   static async createCashPayment(params: CreateCashPaymentParams): Promise<CashbookResult> {
     try {
       console.log(`💸 Creating Cash Payment: ${params.description} - $${params.amount}`);
+
+      await VATService.refreshActiveVatRate().catch(() => undefined);
       
       // 1. Validate bank account
       const bank = await prisma.bank.findUnique({

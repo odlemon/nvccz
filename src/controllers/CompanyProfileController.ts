@@ -1,14 +1,35 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { CompanyProfileService, CreateCompanyProfileRequest, UpdateCompanyProfileRequest } from "../services/CompanyProfileService";
+import { RemoteUploadService } from "../services/RemoteUploadService";
+import { prisma } from "../utils/database";
 
 export class CompanyProfileController {
   // Create company profile
   static async createCompanyProfile(req: Request, res: Response, next: NextFunction) {
     try {
-      const { twitter, facebook, linkedin, instagram } = req.body;
+      const {
+        legalName,
+        registrationNumber,
+        taxNumber,
+        email,
+        phone,
+        website,
+        logoUrl,
+        twitter,
+        facebook,
+        linkedin,
+        instagram
+      } = req.body;
 
       const request: CreateCompanyProfileRequest = {
+        legalName,
+        registrationNumber,
+        taxNumber,
+        email,
+        phone,
+        website,
+        logoUrl,
         twitter,
         facebook,
         linkedin,
@@ -59,9 +80,28 @@ export class CompanyProfileController {
   // Update company profile
   static async updateCompanyProfile(req: Request, res: Response, next: NextFunction) {
     try {
-      const { twitter, facebook, linkedin, instagram } = req.body;
+      const {
+        legalName,
+        registrationNumber,
+        taxNumber,
+        email,
+        phone,
+        website,
+        logoUrl,
+        twitter,
+        facebook,
+        linkedin,
+        instagram
+      } = req.body;
 
       const request: UpdateCompanyProfileRequest = {
+        legalName,
+        registrationNumber,
+        taxNumber,
+        email,
+        phone,
+        website,
+        logoUrl,
         twitter,
         facebook,
         linkedin,
@@ -111,9 +151,28 @@ export class CompanyProfileController {
   // Create or update company profile (upsert)
   static async createOrUpdateCompanyProfile(req: Request, res: Response, next: NextFunction) {
     try {
-      const { twitter, facebook, linkedin, instagram } = req.body;
+      const {
+        legalName,
+        registrationNumber,
+        taxNumber,
+        email,
+        phone,
+        website,
+        logoUrl,
+        twitter,
+        facebook,
+        linkedin,
+        instagram
+      } = req.body;
 
       const request: CreateCompanyProfileRequest = {
+        legalName,
+        registrationNumber,
+        taxNumber,
+        email,
+        phone,
+        website,
+        logoUrl,
         twitter,
         facebook,
         linkedin,
@@ -132,6 +191,33 @@ export class CompanyProfileController {
       });
     } catch (error) {
       next(error);
+    }
+  }
+
+  static async uploadCompanyLogo(req: any, res: Response) {
+    try {
+      if (!req.file?.buffer?.length) {
+        return res.status(400).json({ success: false, message: "logo file is required (multipart field: logo)" });
+      }
+
+      const upload = await new RemoteUploadService().uploadFiles(req.file, "company-profile-logos");
+      if (!upload?.success || !upload.files?.length) {
+        return res.status(400).json({ success: false, message: upload?.error || "Logo upload failed" });
+      }
+      const logoUrl = upload.files[0].url;
+
+      const existing = await prisma.companyProfile.findFirst({ select: { id: true } });
+      const profile = existing
+        ? await prisma.companyProfile.update({ where: { id: existing.id }, data: { logoUrl } })
+        : await prisma.companyProfile.create({ data: { logoUrl } });
+
+      return res.status(200).json({
+        success: true,
+        message: "Logo uploaded successfully",
+        data: { logoUrl: profile.logoUrl }
+      });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, message: "Failed to upload logo", error: error.message });
     }
   }
 } 

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { PerformanceGoalService } from "../services/PerformanceGoalService";
+import { parseDate } from "../utils/dateHelper";
 
 export class PerformanceGoalController {
   // Create a new performance goal
@@ -49,8 +50,8 @@ export class PerformanceGoalController {
         currentValue,
         kpiName,
         priority,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: parseDate(startDate),
+        endDate: parseDate(endDate),
         assignedToId,
         cascadeMode,
         // NEW: Enhanced Goal Definition Form Fields
@@ -148,7 +149,17 @@ export class PerformanceGoalController {
         stage,
         startDate,
         endDate,
-        assignedToId
+        assignedToId,
+        targetValue,
+        targetUnit,
+        currentValue,
+        targetOperator,
+        dataSourceModule,
+        dataSourceField,
+        trackingFrequency,
+        contributionWeightPercent,
+        stretchTargetValue,
+        isReverseKpi
       } = req.body;
 
       const goal = await PerformanceGoalService.updatePerformanceGoal(id, {
@@ -164,9 +175,19 @@ export class PerformanceGoalController {
         priority,
         status,
         stage,
-        startDate: startDate ? new Date(startDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
-        assignedToId
+        startDate: startDate ? parseDate(startDate) : undefined,
+        endDate: endDate ? parseDate(endDate) : undefined,
+        assignedToId,
+        targetValue,
+        targetUnit,
+        currentValue,
+        targetOperator,
+        dataSourceModule,
+        dataSourceField,
+        trackingFrequency,
+        contributionWeightPercent,
+        stretchTargetValue,
+        isReverseKpi
       });
 
       res.status(200).json({
@@ -201,6 +222,48 @@ export class PerformanceGoalController {
     }
   }
 
+  static async uploadGoalAttachmentBase64(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { fileName, contentBase64, mimeType } = req.body;
+
+      const result = await PerformanceGoalService.uploadGoalAttachmentBase64(
+        id,
+        { fileName, contentBase64, mimeType },
+        req.user.id
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Goal attachment uploaded successfully",
+        result
+      });
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  static async uploadGoalAttachments(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const files = Array.isArray(req.files) ? req.files : [];
+      const result = await PerformanceGoalService.uploadGoalAttachments(id, files, req.user.id);
+      return res.status(200).json({
+        success: true,
+        message: "Goal attachments uploaded successfully",
+        result
+      });
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
   // Get performance goal statistics
   static async getPerformanceGoalStatistics(req: Request, res: Response) {
     try {
@@ -218,21 +281,29 @@ export class PerformanceGoalController {
     }
   }
 
-  // Update goal progress with absolute values
+  // Update goal progress: body `value` (or `currentValue`) is added to achieved amount; server uses goal targetUnit / legacy fields for baseline.
   static async updateGoalProgress(req: Request, res: Response) {
     try {
-      const { goalId } = req.params;
-      const { currentValue } = req.body;
+      const { id: goalId } = req.params;
+      const raw = req.body.value ?? req.body.currentValue;
       const userId = req.user.id;
 
-      if (!currentValue && currentValue !== 0) {
+      if (raw === undefined || raw === null || raw === "") {
         return res.status(400).json({
           success: false,
-          message: "Current value is required"
+          message: "value is required (alias: currentValue)"
         });
       }
 
-      const updatedGoal = await PerformanceGoalService.updateGoalProgress(goalId, currentValue, userId);
+      const num = typeof raw === "number" ? raw : parseFloat(String(raw));
+      if (Number.isNaN(num)) {
+        return res.status(400).json({
+          success: false,
+          message: "value must be a number"
+        });
+      }
+
+      const updatedGoal = await PerformanceGoalService.updateGoalProgress(goalId, num, userId);
 
       res.json({
         success: true,

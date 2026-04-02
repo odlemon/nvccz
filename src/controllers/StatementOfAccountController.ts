@@ -4,6 +4,7 @@ import { StatementOfAccountService } from '../services/StatementOfAccountService
 import { PrismaClient } from '@prisma/client';
 
 import { prisma } from '../utils/database';
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -35,7 +36,7 @@ export class StatementOfAccountController {
       }
 
       const statements = await StatementOfAccountService.generateAllCustomerStatements({
-        statementDate: new Date(statementDate),
+        statementDate: parseDate(statementDate),
         generatedById: userId
       });
 
@@ -77,7 +78,7 @@ export class StatementOfAccountController {
 
       const statement = await StatementOfAccountService.generateCustomerStatement({
         customerId,
-        statementDate: new Date(statementDate),
+        statementDate: parseDate(statementDate),
         currencyId,
         generatedById: userId
       });
@@ -117,7 +118,7 @@ export class StatementOfAccountController {
       }
 
       const statements = await StatementOfAccountService.generateAllVendorStatements({
-        statementDate: new Date(statementDate),
+        statementDate: parseDate(statementDate),
         generatedById: userId
       });
 
@@ -159,7 +160,7 @@ export class StatementOfAccountController {
 
       const statement = await StatementOfAccountService.generateVendorStatement({
         vendorId,
-        statementDate: new Date(statementDate),
+        statementDate: parseDate(statementDate),
         currencyId,
         generatedById: userId
       });

@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import InvoiceService from '../services/InvoiceService';
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
+import { parseDate } from "../utils/dateHelper";
 
 export class CashbookInvoiceController {
   
@@ -27,8 +28,8 @@ export class CashbookInvoiceController {
         limit: Number(limit),
         customerId: customerId as string,
         currencyId: currencyId as string,
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
+        startDate: startDate ? parseDate(startDate as string) : undefined,
+        endDate: endDate ? parseDate(endDate as string) : undefined,
         status: status as string
       };
 

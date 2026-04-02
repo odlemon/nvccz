@@ -90,3 +90,16 @@ export class ResponseHelper {
     return this.error(res, message, error, 422)
   }
 }
+
+/**
+ * Adapter used by several controllers: `success(res, data, message)` argument order.
+ * `ResponseHelper.success` expects `(res, message, data)`.
+ */
+export const responseHelper = {
+  success<T>(res: Response, data: T | undefined, message: string, statusCode = 200): Response {
+    return ResponseHelper.success(res, message, data, statusCode)
+  },
+  error(res: Response, message: string, details?: string, statusCode = 500): Response {
+    return ResponseHelper.error(res, message, details, statusCode)
+  },
+}

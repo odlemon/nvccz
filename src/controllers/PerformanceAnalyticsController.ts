@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { PerformanceAnalyticsService } from "../services/PerformanceAnalyticsService";
 import { ResponseHelper } from "../utils/responseHelper";
+import { parseDate } from "../utils/dateHelper";
 
 export class PerformanceAnalyticsController {
   /**
@@ -12,8 +13,8 @@ export class PerformanceAnalyticsController {
       const { kpiId, department, startDate, endDate, currencyId } = req.query;
 
       const dateRange = startDate && endDate ? {
-        start: new Date(startDate as string),
-        end: new Date(endDate as string)
+        start: parseDate(startDate as string),
+        end: parseDate(endDate as string)
       } : undefined;
 
       // Ensure currencyId is properly extracted as a string
@@ -72,8 +73,8 @@ export class PerformanceAnalyticsController {
       
       if (startDate && endDate) {
         filters.dateRange = {
-          start: new Date(startDate as string),
-          end: new Date(endDate as string)
+          start: parseDate(startDate as string),
+          end: parseDate(endDate as string)
         };
       }
 

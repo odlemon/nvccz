@@ -74,6 +74,26 @@ export async function createJournalEntryWithAuditSequence(
   );
 }
 
+/**
+ * Reserve `count` consecutive audit sequence numbers in a single transaction.
+ * Returns the first number in the reserved range — caller uses first, first+1, …, first+count-1.
+ * Use this before parallel JE creation so the sequence counter is only touched once.
+ */
+export async function reserveAuditSequences(count: number): Promise<number> {
+  if (count <= 0) throw new Error('count must be > 0');
+  return prisma.$transaction(async (tx) => {
+    await ensureAuditTrailSequenceExists(tx as PrismaLike);
+    const seq = await (tx as PrismaLike).auditTrailSequence.findUnique({ where: { name: SEQUENCE_NAME } });
+    const current = seq?.value ?? INITIAL_VALUE;
+    const firstReserved = current + 1;
+    await (tx as PrismaLike).auditTrailSequence.update({
+      where: { name: SEQUENCE_NAME },
+      data: { value: current + count },
+    });
+    return firstReserved;
+  }, { maxWait: 30000, timeout: 60000 });
+}
+
 export interface AuditTrailEntry {
   id: string;
   auditTrailSequenceNumber: number;

@@ -2,7 +2,6 @@
 import { Router } from "express";
 import { PerformanceDashboardController } from "../controllers/PerformanceDashboardController";
 import { authenticate } from "../middleware/authenticate";
-import { authorize } from "../middleware/permissionAuth";
 
 const router = Router();
 
@@ -266,7 +265,6 @@ const router = Router();
 router.get(
   "/",
   authenticate,
-  authorize(["admin", "hr_manager", "performance_manager", "ceo", "fund_manager"]),
   PerformanceDashboardController.getDashboard
 );
 

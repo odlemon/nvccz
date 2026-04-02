@@ -657,30 +657,105 @@ export const accountingEndpoints = {
   },
   '/accounting/assets/depreciation/monthly': {
     post: {
-      summary: 'Post monthly depreciation',
+      summary: 'Run monthly depreciation for all in-use assets (anniversary-based eligibility)',
       tags: ['Asset Management'],
       security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                asOfDate: {
+                  type: 'string',
+                  format: 'date',
+                  example: '2026-03-31',
+                  description: 'Run as of this date (default: today). Period is derived from this date unless period is set.',
+                },
+                period: {
+                  type: 'string',
+                  example: '2026-03',
+                  description: 'Optional YYYY-MM override for which calendar month to accrue',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Monthly depreciation posted successfully' },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' },
+      },
+    },
+  },
+  '/cron/depreciation/monthly': {
+    post: {
+      summary:
+        'Cron: monthly depreciation (X-Depreciation-Cron-Secret; no JWT). Same as POST /accounting/assets/depreciation/cron/monthly.',
+      tags: ['Asset Management'],
+      parameters: [
+        {
+          in: 'header',
+          name: 'X-Depreciation-Cron-Secret',
+          required: true,
+          schema: { type: 'string' },
+        },
+      ],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                asOfDate: { type: 'string', format: 'date' },
+                period: { type: 'string', example: '2026-03' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Cron run completed' },
+        401: { description: 'Unauthorized' },
+        503: { description: 'Cron not configured' },
+      },
+    },
+  },
+  '/accounting/assets/{assetId}/depreciation/backfill': {
+    post: {
+      summary: 'Backfill depreciation through a date (calculate + post each due month)',
+      tags: ['Asset Management'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'assetId', required: true, schema: { type: 'string' } },
+      ],
       requestBody: {
         required: true,
         content: {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['month', 'year'],
+              required: ['throughDate'],
               properties: {
-                month: { type: 'number', example: 12 },
-                year: { type: 'number', example: 2024 }
-              }
-            }
-          }
-        }
+                throughDate: { type: 'string', format: 'date', example: '2026-03-31' },
+                autoPost: {
+                  type: 'boolean',
+                  default: true,
+                  description: 'If false, only creates depreciation records; does not post JEs',
+                },
+              },
+            },
+          },
+        },
       },
       responses: {
-        200: { description: 'Monthly depreciation posted successfully' },
-        400: { description: 'Bad request' },
-        401: { description: 'Unauthorized' }
-      }
-    }
+        200: { description: 'Backfill result' },
+        401: { description: 'Unauthorized' },
+      },
+    },
   },
   '/accounting/assets/depreciation/annual': {
     post: {

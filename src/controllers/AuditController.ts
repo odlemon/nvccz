@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { ResponseHelper } from "../utils/responseHelper";
+import { parseDate } from "../utils/dateHelper";
 
 export class AuditController {
   /**
@@ -34,8 +35,8 @@ export class AuditController {
 
       if (startDate || endDate) {
         where.createdAt = {};
-        if (startDate) where.createdAt.gte = new Date(startDate);
-        if (endDate) where.createdAt.lte = new Date(endDate);
+        if (startDate) where.createdAt.gte = parseDate(startDate);
+        if (endDate) where.createdAt.lte = parseDate(endDate);
       }
 
       const [logsRaw, total] = await Promise.all([

@@ -111,6 +111,73 @@ export class EmailNotificationService {
   }
 
   /**
+   * Notify assignee when an individual performance goal is converted to a task (goal breakdown).
+   */
+  static async sendPerformanceGoalTaskAssignedEmail(data: {
+    assigneeName: string;
+    assigneeEmail: string;
+    taskTitle: string;
+    taskId: string;
+    targetValueDisplay: string;
+    targetUnit: string;
+    priority: string;
+    startDateDisplay: string;
+    endDateDisplay: string;
+    departmentName?: string | null;
+    description?: string | null;
+  }): Promise<void> {
+    try {
+      const subject = `New performance task — ${data.taskTitle} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
+      const htmlContent = this.getPerformanceGoalTaskAssignedTemplate(data);
+
+      const from = getFromAddress("platform");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.assigneeName}" <${data.assigneeEmail}>`,
+        subject: subject,
+        html: htmlContent
+      });
+
+      console.log(`Performance goal task email sent to ${data.assigneeEmail}`);
+    } catch (error) {
+      console.error("Error sending performance goal task email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * HR / cycle trigger: remind reviewees that a manager-created review exists
+   * and they have not yet completed the self-assessment portion.
+   */
+  static async sendPerformanceReviewSelfAssessmentReminderEmail(data: {
+    revieweeName: string;
+    revieweeEmail: string;
+    reviewTitle: string;
+    reviewPeriod: string;
+    cycleTitle: string;
+    selfAssessmentDeadlineDisplay: string;
+    reviewId: string;
+  }): Promise<void> {
+    try {
+      const subject = `Action required: complete your self-assessment — ${data.cycleTitle} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
+      const htmlContent = this.getPerformanceReviewSelfAssessmentReminderTemplate(data);
+
+      const from = getFromAddress("platform");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.revieweeName}" <${data.revieweeEmail}>`,
+        subject,
+        html: htmlContent
+      });
+
+      console.log(`Performance review self-assessment reminder sent to ${data.revieweeEmail} (review ${data.reviewId})`);
+    } catch (error) {
+      console.error("Error sending performance review self-assessment reminder:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Send due diligence activity update email (to CIO)
    */
   static async sendDueDiligenceActivityUpdateEmail(data: {
@@ -820,6 +887,138 @@ export class EmailNotificationService {
           </div>
           <div class="footer">
             <p>This is an automated notification from ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Investment Management System.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private static getPerformanceGoalTaskAssignedTemplate(data: {
+    assigneeName: string;
+    assigneeEmail: string;
+    taskTitle: string;
+    taskId: string;
+    targetValueDisplay: string;
+    targetUnit: string;
+    priority: string;
+    startDateDisplay: string;
+    endDateDisplay: string;
+    departmentName?: string | null;
+    description?: string | null;
+  }): string {
+    const esc = (v: string | null | undefined) =>
+      String(v ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const deptRow =
+      data.departmentName != null && String(data.departmentName).trim() !== ""
+        ? `<p style="margin: 10px 0 0 0;"><strong>Department:</strong> ${esc(data.departmentName)}</p>`
+        : "";
+    const descBlock =
+      data.description != null && String(data.description).trim() !== ""
+        ? `<p style="margin: 16px 0 0 0;"><strong>Description:</strong><br/>${esc(data.description)}</p>`
+        : "";
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>New performance task — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #1d4ed8; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #eff6ff; border-left: 4px solid #1d4ed8; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">New performance task</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${esc(data.assigneeName)},</p>
+            <p>A new task has been created from your individual performance goal. Please sign in to the platform to view it in your task list and update progress.</p>
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Title:</strong> ${esc(data.taskTitle)}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Target value:</strong> ${esc(data.targetValueDisplay)} <strong>${esc(data.targetUnit)}</strong></p>
+              <p style="margin: 10px 0 0 0;"><strong>Priority:</strong> ${esc(data.priority)}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Goal period:</strong> ${esc(data.startDateDisplay)} → ${esc(data.endDateDisplay)}</p>
+              ${deptRow}
+              <p style="margin: 10px 0 0 0; font-size: 12px; color: #6b7280;"><strong>Task ID:</strong> ${esc(data.taskId)}</p>
+            </div>
+            ${descBlock}
+            <p style="margin-top: 24px;">Best regards,<br/>
+            <strong>${process.env.EMAIL_FROM_NAME_PLATFORM || "NVCCZ Investment Platform"}</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+            <p>© ${new Date().getFullYear()} ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private static getPerformanceReviewSelfAssessmentReminderTemplate(data: {
+    revieweeName: string;
+    revieweeEmail: string;
+    reviewTitle: string;
+    reviewPeriod: string;
+    cycleTitle: string;
+    selfAssessmentDeadlineDisplay: string;
+    reviewId: string;
+  }): string {
+    const esc = (v: string | null | undefined) =>
+      String(v ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Performance self-assessment — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #0f766e; color: white; padding: 20px; text-align: center; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .info-box { background: #f0fdfa; border-left: 4px solid #0d9488; padding: 15px; margin: 20px 0; border-radius: 4px; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">Performance review — self-assessment</h1>
+          </div>
+          <div class="content">
+            <p>Dear ${esc(data.revieweeName)},</p>
+            <p>Your manager has opened a performance review for you as part of <strong>${esc(data.cycleTitle)}</strong>. Please sign in to the platform and complete your <strong>self-assessment</strong> so the process can continue.</p>
+            <div class="info-box">
+              <p style="margin: 0;"><strong>Review:</strong> ${esc(data.reviewTitle)}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Period:</strong> ${esc(data.reviewPeriod)}</p>
+              <p style="margin: 10px 0 0 0;"><strong>Self-assessment target date:</strong> ${esc(data.selfAssessmentDeadlineDisplay)}</p>
+              <p style="margin: 10px 0 0 0; font-size: 12px; color: #6b7280;"><strong>Review ID:</strong> ${esc(data.reviewId)}</p>
+            </div>
+            <p style="margin-top: 24px;">If you have questions, contact HR or your line manager.</p>
+            <p>Best regards,<br/>
+            <strong>${process.env.EMAIL_FROM_NAME_PLATFORM || "NVCCZ Investment Platform"}</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+            <p>© ${new Date().getFullYear()} ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}.</p>
           </div>
         </div>
       </body>
@@ -3441,7 +3640,7 @@ export class EmailNotificationService {
               <p><strong>Item 1:</strong> Office Rent - $5,000 per month<br>
               <strong>Item 2:</strong> Cleaning Services - $500 per month<br>
               <strong>Subtotal:</strong> $5,500<br>
-              <strong>VAT (15.5%):</strong> $852.50<br>
+              <strong>VAT:</strong> $852.50<br>
               <strong>Total:</strong> $6,352.50<br>
               <strong>Delivery:</strong> Immediate<br>
               <strong>Payment Terms:</strong> NET 30<br>

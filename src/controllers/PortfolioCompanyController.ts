@@ -5,6 +5,7 @@ import { EmailNotificationService } from "../services/EmailNotificationService";
 import { FinancialReportService } from "../services/FinancialReportService";
 import { FirebaseStorageService } from "../services/FirebaseStorageService";
 import { PortfolioCompanyAccountingService } from "../services/PortfolioCompanyAccountingService";
+import { parseDate } from "../utils/dateHelper";
 
 export class PortfolioCompanyController {
   // Create portfolio company with user
@@ -18,7 +19,7 @@ export class PortfolioCompanyController {
         name: req.body.name,
         registrationNumber: req.body.registrationNumber,
         industry: req.body.industry,
-        foundingDate: new Date(req.body.foundingDate),
+        foundingDate: parseDate(req.body.foundingDate),
         address: req.body.address,
         website: req.body.website,
         description: req.body.description,
@@ -34,8 +35,8 @@ export class PortfolioCompanyController {
         socialMedia: req.body.socialMedia,
         // Enhanced fields
         fundId: req.body.fund_id,
-        startDate: req.body.start_date ? new Date(req.body.start_date) : undefined,
-        endDate: req.body.end_date ? new Date(req.body.end_date) : undefined,
+        startDate: req.body.start_date ? parseDate(req.body.start_date) : undefined,
+        endDate: req.body.end_date ? parseDate(req.body.end_date) : undefined,
         capTable: req.body.cap_table,
         financialKpis: req.body.financial_kpis,
         financialHistoryExcel: req.body.financial_history_excel,
@@ -90,7 +91,7 @@ export class PortfolioCompanyController {
         name: req.body.name,
         registrationNumber: req.body.registrationNumber,
         industry: req.body.industry,
-        foundingDate: req.body.foundingDate ? new Date(req.body.foundingDate) : undefined,
+        foundingDate: req.body.foundingDate ? parseDate(req.body.foundingDate) : undefined,
         address: req.body.address,
         website: req.body.website,
         description: req.body.description,
@@ -107,8 +108,8 @@ export class PortfolioCompanyController {
         
         // Enhanced fields
         fundId: req.body.fund_id && req.body.fund_id.trim() !== "" ? req.body.fund_id : undefined,
-        startDate: req.body.start_date ? new Date(req.body.start_date) : undefined,
-        endDate: req.body.end_date ? new Date(req.body.end_date) : undefined,
+        startDate: req.body.start_date ? parseDate(req.body.start_date) : undefined,
+        endDate: req.body.end_date ? parseDate(req.body.end_date) : undefined,
         capTable: req.body.cap_table,
         financialKpis: req.body.financial_kpis,
         financialHistoryExcel: req.body.financial_history_excel,
@@ -179,7 +180,7 @@ export class PortfolioCompanyController {
       const request: UpdatePortfolioCompanyRequest = {
         name: req.body.name,
         industry: req.body.industry,
-        foundingDate: req.body.foundingDate ? new Date(req.body.foundingDate) : undefined,
+        foundingDate: req.body.foundingDate ? parseDate(req.body.foundingDate) : undefined,
         address: req.body.address,
         website: req.body.website,
         description: req.body.description,
@@ -195,8 +196,8 @@ export class PortfolioCompanyController {
         socialMedia: req.body.socialMedia,
         // Enhanced fields
         fundId: req.body.fund_id,
-        startDate: req.body.start_date ? new Date(req.body.start_date) : undefined,
-        endDate: req.body.end_date ? new Date(req.body.end_date) : undefined,
+        startDate: req.body.start_date ? parseDate(req.body.start_date) : undefined,
+        endDate: req.body.end_date ? parseDate(req.body.end_date) : undefined,
         capTable: req.body.cap_table,
         financialKpis: req.body.financial_kpis,
         financialHistoryExcel: req.body.financial_history_excel,
@@ -222,7 +223,7 @@ export class PortfolioCompanyController {
       const request: UpdatePortfolioCompanyRequest = {
         name: req.body.name,
         industry: req.body.industry,
-        foundingDate: req.body.foundingDate ? new Date(req.body.foundingDate) : undefined,
+        foundingDate: req.body.foundingDate ? parseDate(req.body.foundingDate) : undefined,
         address: req.body.address,
         website: req.body.website,
         description: req.body.description,
@@ -238,8 +239,8 @@ export class PortfolioCompanyController {
         socialMedia: req.body.socialMedia,
         // Enhanced fields
         fundId: req.body.fund_id,
-        startDate: req.body.start_date ? new Date(req.body.start_date) : undefined,
-        endDate: req.body.end_date ? new Date(req.body.end_date) : undefined,
+        startDate: req.body.start_date ? parseDate(req.body.start_date) : undefined,
+        endDate: req.body.end_date ? parseDate(req.body.end_date) : undefined,
         capTable: req.body.cap_table,
         financialKpis: req.body.financial_kpis,
         financialHistoryExcel: req.body.financial_history_excel,

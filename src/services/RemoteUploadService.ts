@@ -35,6 +35,10 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   // Activity documents (stored under application-documents)
   "activity-documents": "application-documents",
   "activity-document": "application-documents",
+
+  // Company profile / letterhead
+  "company-profile": "application-documents",
+  "company-profile-logos": "application-documents",
   
   // Default/temp
   "temp": "temp",

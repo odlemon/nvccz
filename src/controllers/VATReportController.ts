@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import VATReportService from "../services/VATReportService";
 import AuditService from "../services/AuditService";
 import { ResponseHelper } from "../utils/responseHelper";
+import { parseDate } from "../utils/dateHelper";
 
 export class VATReportController {
   /**
@@ -20,9 +21,9 @@ export class VATReportController {
         );
       }
 
-      const start = new Date(startDate as string);
+      const start = parseDate(startDate as string);
       start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate as string);
+      const end = parseDate(endDate as string);
       end.setHours(23, 59, 59, 999);
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
@@ -75,9 +76,9 @@ export class VATReportController {
         );
       }
 
-      const start = new Date(startDate as string);
+      const start = parseDate(startDate as string);
       start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate as string);
+      const end = parseDate(endDate as string);
       end.setHours(23, 59, 59, 999);
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {

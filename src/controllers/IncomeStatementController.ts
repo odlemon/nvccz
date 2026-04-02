@@ -2,6 +2,8 @@
 import { Request, Response } from "express";
 import IncomeStatementService, { IncomeStatementParams } from "../services/IncomeStatementService";
 import { extractPeriodFilter, periodFilterToDateRange, PeriodFilter } from "../utils/periodFilterHelper";
+import { ConsolidatedReportService } from "../services/ConsolidatedReportService";
+import { parseDate } from "../utils/dateHelper";
 
 export class IncomeStatementController {
   /**
@@ -38,8 +40,8 @@ export class IncomeStatementController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -82,7 +84,7 @@ export class IncomeStatementController {
             message: "Either period filter (periodType + periodValue) or date range (startDate + endDate) is required"
           });
         }
-        params = { startDate: new Date(startDate), endDate: new Date(endDate), currencyId };
+        params = { startDate: parseDate(startDate), endDate: parseDate(endDate), currencyId };
       }
       const incomeStatement = await IncomeStatementService.generateIncomeStatementWithBudgetVariance(params);
       return res.status(200).json({
@@ -134,8 +136,8 @@ export class IncomeStatementController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -191,8 +193,8 @@ export class IncomeStatementController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -239,8 +241,8 @@ export class IncomeStatementController {
       }
 
       const periodParams: IncomeStatementParams[] = periods.map(period => ({
-        startDate: new Date(period.startDate),
-        endDate: new Date(period.endDate),
+        startDate: parseDate(period.startDate),
+        endDate: parseDate(period.endDate),
         currencyId: period.currencyId
       }));
 
@@ -270,7 +272,7 @@ export class IncomeStatementController {
   static async getComparativeThisMonthVsLastMonth(req: Request, res: Response) {
     try {
       const asOf = (req.query.asOfDate as string) || new Date().toISOString().split("T")[0];
-      const ref = new Date(asOf);
+      const ref = parseDate(asOf);
       if (isNaN(ref.getTime())) {
         return res.status(400).json({
           success: false,
@@ -342,8 +344,8 @@ export class IncomeStatementController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -397,8 +399,8 @@ export class IncomeStatementController {
         }
 
         params = {
-          startDate: new Date(startDate as string),
-          endDate: new Date(endDate as string),
+          startDate: parseDate(startDate as string),
+          endDate: parseDate(endDate as string),
           currencyId: currencyId as string
         };
       }
@@ -466,8 +468,8 @@ export class IncomeStatementController {
         }
 
         params = {
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
+          startDate: parseDate(startDate),
+          endDate: parseDate(endDate),
           currencyId
         };
       }
@@ -485,6 +487,57 @@ export class IncomeStatementController {
         success: false,
         message: "Failed to get vertical income statement",
         error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+  /**
+   * Generate consolidated income statement — all currencies converted to a single target currency.
+   * Supports period filters (?periodType=month&periodValue=2025-01) or legacy date range (body/query).
+   */
+  static async generateConsolidatedIncomeStatement(req: Request, res: Response) {
+    try {
+      const periodFilter = extractPeriodFilter(req);
+      let startDate: any;
+      let endDate: any;
+
+      if (periodFilter) {
+        const dateRange = periodFilterToDateRange(periodFilter);
+        startDate = dateRange.startDate;
+        endDate = dateRange.endDate;
+      } else {
+        startDate = req.body?.startDate || req.query?.startDate;
+        endDate = req.body?.endDate || req.query?.endDate;
+      }
+
+      const consolidationCurrencyId = req.body?.consolidationCurrencyId || req.query?.consolidationCurrencyId;
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Either period filter (periodType + periodValue in URL) or date range (startDate + endDate) is required",
+        });
+      }
+      if (!consolidationCurrencyId) {
+        return res.status(400).json({ success: false, message: "consolidationCurrencyId is required" });
+      }
+
+      const data = await ConsolidatedReportService.generateConsolidatedIncomeStatement({
+        startDate: parseDate(startDate),
+        endDate: parseDate(endDate),
+        consolidationCurrencyId,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Consolidated income statement generated successfully",
+        data,
+      });
+    } catch (error) {
+      console.error("Error in generateConsolidatedIncomeStatement:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate consolidated income statement",
+        error: error instanceof Error ? error.message : "Unknown error",
       });
     }
   }

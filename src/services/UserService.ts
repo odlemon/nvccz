@@ -2,6 +2,7 @@
 import { prisma } from "../utils/database";
 import bcrypt from "bcrypt";
 import { emailTransport, getFromAddress } from "../config/email.config";
+import AuditService from "./AuditService";
 
 const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER"];
 
@@ -467,19 +468,28 @@ This is an automated message. Please do not reply to this email.
   /**
    * Update user
    */
-  static async updateUser(id: string, userData: {
-    firstName?: string;
-    lastName?: string;
-    email?: string;
-    department?: string;
-    roleCode?: string;
-    departmentRole?: string;
-    roleId?: string;
-  }) {
+  static async updateUser(
+    id: string,
+    userData: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      department?: string;
+      roleCode?: string;
+      departmentRole?: string;
+      roleId?: string;
+    },
+    auditContext?: {
+      actorUserId: string;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    }
+  ) {
     try {
       // Check if user exists
       const existingUser = await prisma.user.findUnique({
-        where: { id }
+        where: { id },
+        include: { role: true }
       });
 
       if (!existingUser) {
@@ -576,6 +586,33 @@ This is an automated message. Please do not reply to this email.
           }
         }
       });
+
+      const roleIdChanged =
+        userData.roleId != null && String(userData.roleId) !== String(existingUser.roleId);
+      const roleCodeChanged =
+        userData.roleCode != null && String(userData.roleCode) !== String(existingUser.roleCode ?? "");
+      if (auditContext?.actorUserId && (roleIdChanged || roleCodeChanged)) {
+        await AuditService.log({
+          userId: auditContext.actorUserId,
+          action: "USER_ROLE_UPDATE",
+          entityType: "User",
+          entityId: id,
+          oldValues: {
+            targetUserId: id,
+            oldRoleId: existingUser.roleId,
+            oldRoleName: existingUser.role?.name ?? null,
+            oldRoleCode: existingUser.roleCode ?? null
+          },
+          newValues: {
+            targetUserId: id,
+            newRoleId: user.roleId,
+            newRoleName: user.role?.name ?? null,
+            newRoleCode: user.roleCode ?? null
+          },
+          ipAddress: auditContext.ipAddress ?? null,
+          userAgent: auditContext.userAgent ?? null
+        });
+      }
 
       // Return only the fields we want, with role as optional
       return {

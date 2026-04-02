@@ -5,6 +5,12 @@ import { FirebaseStorageService } from './FirebaseStorageService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { logger } from '../utils/logger';
 import { computeTaskPercentage } from './TaskService';
+import { computeAchievementPercent, isTargetMet } from './performanceGoalRollupUtils';
+import {
+  legacyProgressFieldsForGoal,
+  parseProgressBaseline,
+  PerformanceGoalService
+} from "./PerformanceGoalService";
 
 export class ActivityService {
   /**
@@ -188,7 +194,16 @@ export class ActivityService {
           targetValue: true,
           currentValue: true,
           stage: true,
-          type: true
+          type: true,
+          parentGoalId: true,
+          targetOperator: true,
+          isReverseKpi: true,
+          progressPercentage: true,
+          targetUnit: true,
+          monetaryValue: true,
+          monetaryValueAchieved: true,
+          percentValue: true,
+          percentValueAchieved: true
         }
       });
 
@@ -196,12 +211,20 @@ export class ActivityService {
         throw new Error("Goal not found");
       }
 
-      // Update current value and progress
-      const currentValue = goal.currentValue ? parseFloat(goal.currentValue.toString()) : 0;
-      const newCurrentValue = currentValue + valueCollected;
+      const prev = parseProgressBaseline(goal);
+      const newCurrentValue = Math.max(0, prev + valueCollected);
       const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      const progressPercentage = targetValue > 0 ? Math.min((newCurrentValue / targetValue) * 100, 100) : 0;
-      const stage = newCurrentValue >= targetValue ? 'completed' : 'in_progress';
+      const progressPercentage = computeAchievementPercent({
+        currentValue: newCurrentValue,
+        targetValue: goal.targetValue,
+        targetOperator: goal.targetOperator,
+        isReverseKpi: goal.isReverseKpi,
+        progressPercentage: goal.progressPercentage
+      });
+      const met = isTargetMet(newCurrentValue, targetValue, goal.targetOperator, goal.isReverseKpi);
+      const stage = met ? 'completed' : 'in_progress';
+
+      const legacyData = legacyProgressFieldsForGoal(goal, newCurrentValue);
 
       await prisma.performanceGoal.update({
         where: { id: goalId },
@@ -210,17 +233,21 @@ export class ActivityService {
           progressPercentage,
           stage,
           status: stage === 'completed' ? 'completed' : 'active',
+          preciseCurrentValue: String(newCurrentValue),
+          ...legacyData,
           updatedAt: new Date()
         }
       });
 
+      await PerformanceGoalService.refreshPerformanceRiskZoneOnGoal(goalId).catch(() => undefined);
+
       console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue} (${progressPercentage.toFixed(1)}%)`);
 
       if (goal.parentGoalId) {
-        await PerformanceWorkflowService.updateParentGoalProgress(goal.parentGoalId);
-      }
-      if (goal.departmentGoalId) {
-        await PerformanceWorkflowService.updateDepartmentGoalProgress(goal.departmentGoalId);
+        const pid = goal.parentGoalId;
+        void PerformanceGoalService.updateParentGoalProgress(pid).catch((err: Error) =>
+          console.error(`Failed parent roll-up after activity on goal ${goalId}:`, err)
+        );
       }
     } catch (error) {
       console.error('Error updating goal progress:', error);

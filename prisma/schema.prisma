@@ -146,6 +146,14 @@ model User {
   savedFilterFavorites              SavedFilterFavorite[]
   cashbookReconSessionsCreated      CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished     CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
+  lineManagedEmployees              Employee[]                   @relation("EmployeeLineManager")
+  performanceContractsAsSubject     PerformanceContract[]        @relation("PerformanceContractSubjectUser")
+  performanceContractsCreated       PerformanceContract[]        @relation("PerformanceContractCreator")
+  performanceContractsReviewed      PerformanceContract[]        @relation("PerformanceContractReviewer")
+  performanceContractsApproved      PerformanceContract[]        @relation("PerformanceContractApprover")
+  generatedPerformanceScorecards    PerformanceScorecard[]       @relation("PerformanceScorecardGeneratedBy")
+  finalisedPerformanceScorecards    PerformanceScorecard[]       @relation("PerformanceScorecardFinalisedBy")
+  subjectPerformanceScorecards      PerformanceScorecard[]       @relation("PerformanceScorecardSubjectUser")
 
   @@map("users")
 }
@@ -529,6 +537,14 @@ model Vendor {
   address               String?
   paymentTerms          String?
   isActive              Boolean                   @default(true)
+  /// PENDING = no ITF263 processed; ACTIVE = valid clearance; EXPIRED / INVALID = failed compliance
+  taxComplianceStatus   String                    @default("PENDING") @map("tax_compliance_status")
+  /// Parsed or supplied ZIMRA ITF263 / tax clearance expiry (end of validity).
+  taxClearanceExpiryDate DateTime?                @map("tax_clearance_expiry_date")
+  /// Calendar date when re-validation alert should fire (30 days before taxClearanceExpiryDate).
+  taxRevalidationAlertDueAt DateTime?             @map("tax_revalidation_alert_due_at")
+  /// Set when in-app notifications were sent for the current alert cycle.
+  taxRevalidationAlertNotifiedAt DateTime?        @map("tax_revalidation_alert_notified_at")
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
   expenses              Expense[]
@@ -913,6 +929,15 @@ model MiniKyc {
 
 model CompanyProfile {
   id        String   @id @default(cuid())
+  /** Letterhead / identity fields (used on invoices, statements, PDFs). */
+  legalName String?  @map("legal_name")
+  registrationNumber String? @map("registration_number")
+  taxNumber String?  @map("tax_number")
+  email     String?
+  phone     String?
+  website   String?
+  logoUrl   String?  @map("logo_url")
+
   twitter   String?
   facebook  String?
   linkedin  String?
@@ -920,7 +945,44 @@ model CompanyProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  addresses CompanyProfileAddress[]
+
   @@map("company_profile")
+}
+
+model CompanyProfileAddress {
+  id              String   @id @default(cuid())
+  companyProfileId String  @map("company_profile_id")
+  label           String?  @db.VarChar(255)
+  logoUrl         String?  @map("logo_url")
+  line1           String   @db.VarChar(255)
+  line2           String?  @db.VarChar(255)
+  city            String?  @db.VarChar(255)
+  state           String?  @db.VarChar(255)
+  postalCode      String?  @map("postal_code") @db.VarChar(64)
+  country         String?  @db.VarChar(255)
+  isActive        Boolean  @default(false) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  companyProfile  CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+
+  @@index([companyProfileId], map: "company_profile_address_company_idx")
+  @@index([companyProfileId, isActive], map: "company_profile_address_active_idx")
+  @@map("company_profile_addresses")
+}
+
+model VatRate {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(255)
+  /** Decimal multiplier (e.g. 0.155 = 15.5%). */
+  rateDecimal Decimal  @map("rate_decimal") @db.Decimal(10, 6)
+  isActive    Boolean  @default(false) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive], map: "vat_rates_active_idx")
+  @@map("vat_rates")
 }
 
 model PortfolioCompany {
@@ -1449,6 +1511,9 @@ model PerformanceGoal {
   type                  String
   category              String
   parentGoalId          String?
+  performanceContractId String?
+  strategyId            String?
+  strategicThemeId      String?
   monetaryValue         Decimal?          @db.Decimal(15, 2)
   percentValue          Decimal?          @db.Decimal(5, 2)
   monetaryValueAchieved Decimal?          @default(0.00) @db.Decimal(15, 2)
@@ -1476,15 +1541,169 @@ model PerformanceGoal {
   targetUnit            String?
   targetValue           Decimal?          @db.Decimal(15, 2)
   trackingFrequency     String?
+  scorecardWeight       Decimal?          @db.Decimal(7, 4)
+  allowableVariance     Decimal?          @default(0.1000) @db.Decimal(7, 4)
+  isReverseKpi          Boolean           @default(false)
+  isPendingApproval     Boolean           @default(false)
+  requiresManagerApproval Boolean         @default(false)
+  formulaType           String?
+  measureName           String?
+  scorecardSection      String?
+  scorecardPillar       String?
+  preciseTargetValue    Decimal?          @db.Decimal(18, 6)
+  preciseCurrentValue   Decimal?          @db.Decimal(18, 6)
+  pendingActualValue    Decimal?          @db.Decimal(18, 6)
+  lastApprovedValue     Decimal?          @db.Decimal(18, 6)
+  lastSyncedValue       Decimal?          @db.Decimal(18, 6)
+  lastSyncedAt          DateTime?
+  lastSyncJobId         String?
+  syncEndpointPath      String?           @db.Text
+  syncConfig            Json?
+  manualOverrideComment String?           @db.Text
+  manualOverrideById    String?
+  manualOverrideAt      DateTime?
+  targetChangeReason    String?           @db.Text
+  weightChangeReason    String?           @db.Text
+  displayOrder          Int               @default(0)
+  /** GREEN / AMBER / RED / AMBER ZONE / RED ZONE — see `resolveGoalEscalationStatus`. */
+  performanceRiskZone   String?
+  performanceRiskZoneAt DateTime?
   kpi                   KPI?              @relation(fields: [kpiId], references: [id])
   assignedTo            User?             @relation("GoalAssignee", fields: [assignedToId], references: [id])
   createdBy             User              @relation("GoalCreator", fields: [createdById], references: [id])
   parentGoal            PerformanceGoal?  @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  performanceContract   PerformanceContract? @relation(fields: [performanceContractId], references: [id])
   subGoals              PerformanceGoal[] @relation("GoalHierarchy")
   tasks                 Task[]
   activityLogs          ActivityLog[]
 
   @@map("performance_goals")
+}
+
+model PerformanceContract {
+  id                    String                 @id @default(cuid())
+  contractType          String
+  title                 String
+  status                String                 @default("ACTIVE")
+  periodLabel           String?
+  periodStart           DateTime
+  periodEnd             DateTime
+  subjectUserId         String?
+  departmentName        String?
+  reviewerUserId        String?
+  approverUserId        String?
+  createdById           String
+  allocatedBudget       Decimal?               @db.Decimal(15, 2)
+  actualSpend           Decimal?               @db.Decimal(15, 2)
+  stretchScoringEnabled Boolean                @default(false)
+  strategyDocumentUrl   String?                @db.Text
+  visionStatement       String?                @db.Text
+  sectionWeights        Json?
+  qualitativeTemplate   Json?
+  metadata              Json?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  subjectUser           User?                  @relation("PerformanceContractSubjectUser", fields: [subjectUserId], references: [id])
+  reviewer              User?                  @relation("PerformanceContractReviewer", fields: [reviewerUserId], references: [id])
+  approver              User?                  @relation("PerformanceContractApprover", fields: [approverUserId], references: [id])
+  createdBy             User                   @relation("PerformanceContractCreator", fields: [createdById], references: [id])
+  goals                 PerformanceGoal[]
+  scorecards            PerformanceScorecard[]
+
+  @@map("performance_contracts")
+}
+
+model PerformanceScorecard {
+  id                  String               @id @default(cuid())
+  contractId          String?
+  scorecardType       String
+  status              String               @default("DRAFT")
+  subjectUserId       String?
+  departmentName      String?
+  generatedById       String
+  finalisedById       String?
+  periodLabel         String?
+  periodStart         DateTime
+  periodEnd           DateTime
+  resultsDeliveryScore Decimal?            @db.Decimal(6, 2)
+  budgetScore         Decimal?             @db.Decimal(6, 2)
+  finalScore          Decimal?             @db.Decimal(6, 2)
+  warnings            Json?
+  sections            Json?
+  matrixRows          Json?
+  rollupSummary       Json?
+  qualitativeSections Json?
+  signatureState      Json?
+  documentPayload     Json?
+  isLocked            Boolean              @default(false)
+  documentLockedAt    DateTime?
+  archivedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  contract            PerformanceContract? @relation(fields: [contractId], references: [id])
+  subjectUser         User?                @relation("PerformanceScorecardSubjectUser", fields: [subjectUserId], references: [id])
+  generatedBy         User                 @relation("PerformanceScorecardGeneratedBy", fields: [generatedById], references: [id])
+  finalisedBy         User?                @relation("PerformanceScorecardFinalisedBy", fields: [finalisedById], references: [id])
+
+  @@map("performance_scorecards")
+}
+
+model PerformanceStrategy {
+  id                  String   @id @default(cuid())
+  title               String
+  status              String   @default("ACTIVE")
+  periodStart         DateTime
+  periodEnd           DateTime
+  strategicGoalId     String?
+  strategyDocumentUrl String?  @db.Text
+  visionStatement     String?  @db.Text
+  pillarWeights       Json?
+  metadata            Json?
+  archivedAt          DateTime?
+  createdById         String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("performance_strategies")
+}
+
+model PerformanceTheme {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?  @db.Text
+  color       String?
+  status      String   @default("ACTIVE")
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("performance_themes")
+}
+
+model PerformanceSyncJob {
+  id             String   @id @default(cuid())
+  goalId         String?
+  kpiId          String?
+  jobType        String
+  status         String   @default("PENDING")
+  targetEndpoint String
+  errorCode      String?
+  errorMessage   String?  @db.Text
+  payloadSummary Json?
+  requestPayload Json?
+  responsePayload Json?
+  attempts       Int      @default(0)
+  nextRetryAt    DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  approvalStatus String   @default("NOT_REQUIRED")
+  approvedById   String?
+  overrideComment String? @db.Text
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("performance_sync_jobs")
 }
 
 model ActivityLog {
@@ -2250,6 +2469,15 @@ model PerformanceReview {
   stakeholderFeedback String?                     @db.Text
   actionItems         Json
   nextReviewDate      DateTime?
+  ratingValue         Int?
+  quantitativeSnapshot Json?
+  documentPath        String?                     @db.Text
+  documentStatus      String                      @default("DRAFT")
+  documentPayload     Json?
+  isLocked            Boolean                     @default(false)
+  lockedAt            DateTime?
+  finalizedAt         DateTime?
+  finalizedById       String?
   createdAt           DateTime                    @default(now())
   updatedAt           DateTime                    @updatedAt
   cycleId             String?
@@ -2746,6 +2974,7 @@ model Employee {
   id                      String              @id @default(cuid())
   userId                  String              @unique
   employeeNumber          String              @unique
+  lineManagerUserId       String?             @map("line_manager_user_id")
   bankName                String?
   branchCode              String?
   accountNumber           String?
@@ -2762,6 +2991,7 @@ model Employee {
   /** Vendor used for staff reimbursement / creditor tracking (cashbook SUPPLIER payments). */
   reimbursementVendorId   String?             @unique @map("reimbursement_vendor_id")
   user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lineManager             User?               @relation("EmployeeLineManager", fields: [lineManagerUserId], references: [id])
   currency                Currency?           @relation(fields: [currencyId], references: [id])
   reimbursementVendor     Vendor?             @relation("EmployeeReimbursementVendor", fields: [reimbursementVendorId], references: [id], onDelete: SetNull)
   salaryStructures        SalaryStructure[]

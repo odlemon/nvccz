@@ -1,6 +1,51 @@
 // @ts-nocheck
 import { PrismaClient, Json } from "@prisma/client";
 import { prisma } from "../utils/database";
+import {
+  computeAchievementPercent,
+  computeParentRollupFromChildren,
+  deriveParentStageFromRollup,
+  isTargetMet
+} from "./performanceGoalRollupUtils";
+import { uniqueGoalIdsForTaskBatch, buildTaskAttachmentsList } from "./performanceBackendSupport";
+import {
+  TaskCollaborationService,
+  buildTaskDeepLink,
+  isRedZoneTask,
+  normaliseTaskStage,
+  resolveTaskPerformanceZone,
+  taskStageChatLabel
+} from "./TaskCollaborationService";
+
+/** Recompute overdue / red-zone flags from due date and stage (C.06: past due updates immediately). */
+function computeOverdueFieldsForTaskUpdate(
+  existingTask: { stage: string; isOverdue: boolean },
+  effectiveDueDate: Date,
+  effectiveStageNorm: string
+) {
+  const terminal = effectiveStageNorm === "completed";
+  const isOverdue = !terminal && effectiveDueDate.getTime() < Date.now();
+
+  if (isOverdue) {
+    if (!existingTask.isOverdue) {
+      return {
+        isOverdue: true,
+        originalStage: existingTask.stage,
+        overdueStatus: `overdue_${effectiveStageNorm}`
+      };
+    }
+    return {
+      isOverdue: true,
+      overdueStatus: `overdue_${effectiveStageNorm}`
+    };
+  }
+
+  return {
+    isOverdue: false,
+    overdueStatus: null,
+    originalStage: null
+  };
+}
 
 const TASK_APPLICATION_FULL_INCLUDE = {
   fund: {
@@ -73,6 +118,41 @@ const TASK_APPLICATION_FULL_INCLUDE = {
     }
   }
 };
+
+async function notifyTaskAssignments(taskId: string, taskTitle: string, assigneeIds: string[] = []) {
+  const uniqueAssignees = Array.from(new Set((assigneeIds || []).filter(Boolean)));
+
+  await Promise.all(
+    uniqueAssignees.map((userId) =>
+      prisma.notification.create({
+        data: {
+          title: "Task Assigned",
+          message: `Task "${taskTitle}" has been assigned to you.`,
+          type: "TASK_ASSIGNED",
+          userId,
+          data: buildTaskDeepLink(taskId),
+          relatedEntity: "Task",
+          relatedEntityId: taskId
+        }
+      })
+    )
+  );
+}
+
+function stageSystemMessage(stage: string) {
+  const normalized = normaliseTaskStage(stage);
+  const labels: Record<string, string> = {
+    todo: "To Do",
+    delayed: "Delayed",
+    in_progress: "In Progress",
+    completed: "Complete",
+    amber: "Amber",
+    red: "Red",
+    overdue: "Overdue"
+  };
+
+  return labels[normalized] || normalized;
+}
 
 const TASK_APPLICATION_MINIMAL_SELECT = {
   id: true,
@@ -159,7 +239,9 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
     return tasks.map(task => ({
       ...task,
       application: task.application ?? null,
-      taskPercentage: computeTaskPercentage(task)
+      taskPercentage: computeTaskPercentage(task),
+      performanceZone: resolveTaskPerformanceZone(task),
+      attachments: buildTaskAttachmentsList(task)
     }));
   }
 
@@ -184,7 +266,9 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
     return {
       ...task,
       application: application || null,
-      taskPercentage: computeTaskPercentage(task)
+      taskPercentage: computeTaskPercentage(task),
+      performanceZone: resolveTaskPerformanceZone(task),
+      attachments: buildTaskAttachmentsList(task)
     };
   });
 }
@@ -259,6 +343,15 @@ export interface UpdateTaskRequest {
   };
 }
 
+export interface HistoricalTaskEntryRequest {
+  historicalDate: Date;
+  stage?: string;
+  monetaryValueAchieved?: number;
+  percentValueAchieved?: number;
+  note?: string;
+  source?: string;
+}
+
 export class TaskService {
   // Create a new task
   static async createTask(request: CreateTaskRequest, createdBy: string) {
@@ -305,10 +398,17 @@ export class TaskService {
           throw new Error("You can only assign tasks to users within your department");
         }
       }
+      const normalizedGoalId =
+        request.goalId !== undefined && request.goalId !== null && String(request.goalId).trim() !== ""
+          ? String(request.goalId)
+          : null;
+      const hasLinkedGoal = Boolean(normalizedGoalId);
+      const normalizedIsPerformanceTask = hasLinkedGoal ? Boolean(request.isPerformanceTask) : false;
+
       // Validate goal if provided
-      if (request.goalId) {
+      if (normalizedGoalId) {
         const goal = await prisma.performanceGoal.findUnique({
-          where: { id: request.goalId }
+          where: { id: normalizedGoalId }
         });
 
         if (!goal) {
@@ -343,6 +443,12 @@ export class TaskService {
         date: new Date(),
         by: createdBy
       };
+      const stageNorm = normaliseTaskStage(request.stage || "todo");
+      const overdueFields = computeOverdueFieldsForTaskUpdate(
+        { stage: stageNorm, isOverdue: false },
+        new Date(request.date),
+        stageNorm
+      );
 
       // Create the task
       const task = await prisma.task.create({
@@ -350,7 +456,7 @@ export class TaskService {
           title: request.title,
           description: request.description,
           team: request.team,
-          stage: request.stage || "todo",
+          stage: stageNorm,
           date: request.date,
           priority: (request.priority || "medium").toLowerCase(),
           assets: request.assets,
@@ -362,9 +468,9 @@ export class TaskService {
           category: request.category,
           
           // Performance-related fields
-          goalId: request.goalId,
-          performanceCategory: request.performanceCategory,
-          isPerformanceTask: request.isPerformanceTask || false,
+          goalId: normalizedGoalId,
+          performanceCategory: hasLinkedGoal ? request.performanceCategory : null,
+          isPerformanceTask: normalizedIsPerformanceTask,
           
           // Target Values (Absolute Value System)
           monetaryValue: request.targetValue ? parseFloat(request.targetValue.toString()) : null,
@@ -377,9 +483,7 @@ export class TaskService {
           
           // Metadata
           createdBy: createdBy,
-          isOverdue: false,
-          overdueStatus: null,
-          originalStage: null
+          ...overdueFields
         },
         include: {
           creator: {
@@ -401,6 +505,14 @@ export class TaskService {
         }
       });
 
+      await notifyTaskAssignments(task.id, task.title, Array.isArray(request.team) ? request.team : []);
+      await TaskCollaborationService.createSystemMessage({
+        taskId: task.id,
+        actorId: createdBy,
+        content: "created this task.",
+        eventType: "TASK_CREATED"
+      });
+
       const [taskWithApplication] = await attachApplicationDataToTasks([task]);
       return taskWithApplication;
     } catch (error) {
@@ -418,6 +530,8 @@ export class TaskService {
       if (!existingTask) {
         throw new Error("Task not found");
       }
+
+      const beforeRedZone = isRedZoneTask(existingTask);
 
       // Validate goal if provided
       if (request.goalId) {
@@ -492,6 +606,25 @@ export class TaskService {
         }
       }
 
+      const effectiveDueDate = request.date ? new Date(request.date) : new Date(existingTask.date);
+      const effectiveStageNorm = request.stage
+        ? normaliseTaskStage(request.stage)
+        : normaliseTaskStage(existingTask.stage);
+
+      const overdueFields = computeOverdueFieldsForTaskUpdate(existingTask, effectiveDueDate, effectiveStageNorm);
+      const nextGoalId =
+        request.goalId === undefined
+          ? existingTask.goalId
+          : request.goalId === null || String(request.goalId).trim() === ""
+            ? null
+            : String(request.goalId);
+      const hasLinkedGoal = Boolean(nextGoalId);
+      const nextIsPerformanceTask =
+        request.isPerformanceTask !== undefined
+          ? request.isPerformanceTask
+          : existingTask.isPerformanceTask;
+      const normalizedIsPerformanceTask = hasLinkedGoal ? Boolean(nextIsPerformanceTask) : false;
+
       // Update the task
       const updatedTask = await prisma.task.update({
         where: { id },
@@ -499,7 +632,7 @@ export class TaskService {
           ...(request.title && { title: request.title }),
           ...(request.description !== undefined && { description: request.description }),
           ...(request.team && { team: request.team }),
-          ...(request.stage && { stage: request.stage }),
+          ...(request.stage && { stage: effectiveStageNorm, status: effectiveStageNorm }),
           ...(request.date && { date: request.date }),
           ...(request.priority && { priority: request.priority.toLowerCase() }),
           ...(request.assets !== undefined && { assets: request.assets }),
@@ -511,9 +644,13 @@ export class TaskService {
           ...(request.fromDueDiligence !== undefined && { fromDueDiligence: request.fromDueDiligence }),
           
           // Performance-related fields
-          ...(request.goalId && { goalId: request.goalId }),
-          ...(request.performanceCategory !== undefined && { performanceCategory: request.performanceCategory }),
-          ...(request.isPerformanceTask !== undefined && { isPerformanceTask: request.isPerformanceTask }),
+          ...(request.goalId !== undefined && { goalId: nextGoalId }),
+          ...(request.performanceCategory !== undefined
+            ? { performanceCategory: hasLinkedGoal ? request.performanceCategory : null }
+            : !hasLinkedGoal
+              ? { performanceCategory: null }
+              : {}),
+          isPerformanceTask: normalizedIsPerformanceTask,
           
           // Target Values (Absolute Value System)
           ...(request.targetValue !== undefined && { targetValue: request.targetValue }),
@@ -521,7 +658,9 @@ export class TaskService {
           ...(request.currentValue !== undefined && { currentValue: request.currentValue }),
           
           // KPI Integration
-          kpi: kpiData
+          kpi: kpiData,
+
+          ...overdueFields
         },
         include: {
           creator: {
@@ -548,6 +687,32 @@ export class TaskService {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
+      const existingTeam = Array.isArray(existingTask.team) ? existingTask.team : [];
+      const updatedTeam = Array.isArray(request.team) ? request.team : existingTeam;
+      const newAssignees = updatedTeam.filter((userId: string) => !existingTeam.includes(userId));
+      if (newAssignees.length > 0) {
+        await notifyTaskAssignments(updatedTask.id, updatedTask.title, newAssignees);
+      }
+
+      if (
+        request.stage &&
+        updatedByUserId &&
+        normaliseTaskStage(request.stage) !== normaliseTaskStage(existingTask.stage)
+      ) {
+        await TaskCollaborationService.createTaskStatusChangedSystemMessage({
+          taskId: updatedTask.id,
+          actorId: updatedByUserId,
+          newStage: request.stage
+        });
+      }
+
+      if (isRedZoneTask(updatedTask) && !beforeRedZone) {
+        await TaskCollaborationService.notifyTaskRedZone({
+          task: updatedTask,
+          reason: "The due date has passed and the task now requires immediate attention."
+        });
+      }
+
       const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask], { minimal: true });
       return taskWithApplication;
     } catch (error) {
@@ -556,21 +721,35 @@ export class TaskService {
   }
 
   // Update task stage with enhanced overdue logic
-  static async updateTaskStage(id: string, stage: string, achievements: any = {}) {
+  static async updateTaskStage(id: string, stage: string, achievements: any = {}, updatedByUserId?: string) {
     try {
       const task = await prisma.task.findUnique({
-        where: { id }
+        where: { id },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
       });
 
       if (!task) {
         throw new Error("Task not found");
       }
 
+      const beforeRedZone = isRedZoneTask(task);
+
       // Check if task is overdue
       const isOverdue = new Date(task.date) < new Date();
       
+      const normalizedStage = normaliseTaskStage(stage);
       let updateData: any = {
-        stage: stage
+        stage: normalizedStage,
+        status: normalizedStage
       };
 
       // Handle overdue logic
@@ -578,10 +757,10 @@ export class TaskService {
         // Task just became overdue
         updateData.isOverdue = true;
         updateData.originalStage = task.stage; // Store original stage
-        updateData.overdueStatus = `overdue_${stage}`; // overdue_todo, overdue_in_progress, etc.
+        updateData.overdueStatus = `overdue_${normalizedStage}`; // overdue_todo, overdue_in_progress, etc.
       } else if (isOverdue && task.isOverdue) {
         // Task is still overdue, update overdue status
-        updateData.overdueStatus = `overdue_${stage}`;
+        updateData.overdueStatus = `overdue_${normalizedStage}`;
       } else if (!isOverdue && task.isOverdue) {
         // Task is no longer overdue
         updateData.isOverdue = false;
@@ -627,11 +806,144 @@ export class TaskService {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
+      const actorId = updatedByUserId || task.createdBy;
+      if (normaliseTaskStage(task.stage) !== normalizedStage) {
+        await TaskCollaborationService.createTaskStatusChangedSystemMessage({
+          taskId: updatedTask.id,
+          actorId,
+          newStage: normalizedStage
+        });
+      }
+
+      if (isRedZoneTask(updatedTask) && !beforeRedZone) {
+        await TaskCollaborationService.notifyTaskRedZone({
+          task: updatedTask,
+          reason: updatedTask.isOverdue
+            ? "The due date has passed and the task now requires immediate attention."
+            : `The task stage was updated to ${taskStageChatLabel(normalizedStage)}.`
+        });
+      }
+
       const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask]);
       return taskWithApplication;
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Record historical task data entry for back-filled records.
+   * Keeps historical date, collected values, and overdue/red-zone in sync.
+   */
+  static async recordHistoricalTaskEntry(
+    id: string,
+    request: HistoricalTaskEntryRequest,
+    actorId: string
+  ) {
+    const task = await prisma.task.findUnique({
+      where: { id },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    if (!task) {
+      throw new Error("Task not found");
+    }
+
+    if (!(request.historicalDate instanceof Date) || Number.isNaN(request.historicalDate.getTime())) {
+      throw new Error("historicalDate must be a valid date");
+    }
+
+    const beforeRedZone = isRedZoneTask(task);
+
+    const normalizedStage = normaliseTaskStage(request.stage || task.stage || "todo");
+    const overdueFields = computeOverdueFieldsForTaskUpdate(
+      { stage: task.stage, isOverdue: Boolean(task.isOverdue) },
+      request.historicalDate,
+      normalizedStage
+    );
+
+    const currentMonetary = Number(task.monetaryValueAchieved || 0);
+    const currentPercent = Number(task.percentValueAchieved || 0);
+    const deltaMonetary = request.monetaryValueAchieved !== undefined ? Number(request.monetaryValueAchieved) : 0;
+    const deltaPercent = request.percentValueAchieved !== undefined ? Number(request.percentValueAchieved) : 0;
+    if (Number.isNaN(deltaMonetary) || Number.isNaN(deltaPercent)) {
+      throw new Error("Collected values must be numbers");
+    }
+
+    const activityData = {
+      type: "historical_entry",
+      activity: "Historical task data entry recorded",
+      note: request.note || null,
+      source: request.source || "manual_back_entry",
+      historicalDate: request.historicalDate.toISOString(),
+      collectedMonetary: deltaMonetary,
+      collectedPercent: deltaPercent,
+      date: new Date().toISOString(),
+      by: actorId
+    };
+    const existingActivities = Array.isArray(task.activities) ? task.activities : [];
+
+    const updatedTask = await prisma.task.update({
+      where: { id },
+      data: {
+        date: request.historicalDate,
+        stage: normalizedStage,
+        status: normalizedStage,
+        monetaryValueAchieved: currentMonetary + deltaMonetary,
+        percentValueAchieved: currentPercent + deltaPercent,
+        activities: [...existingActivities, activityData],
+        ...overdueFields,
+        updatedAt: new Date()
+      },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        goal: {
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            category: true
+          }
+        }
+      }
+    });
+
+    if (updatedTask.isPerformanceTask && updatedTask.goalId) {
+      await this.updateLinkedGoalProgress(updatedTask.id);
+    }
+
+    await TaskCollaborationService.createSystemMessage({
+      taskId: updatedTask.id,
+      actorId,
+      content: `recorded historical entry (${request.historicalDate.toISOString().slice(0, 10)}).`,
+      eventType: "TASK_UPDATED"
+    });
+
+    if (isRedZoneTask(updatedTask) && !beforeRedZone) {
+      await TaskCollaborationService.notifyTaskRedZone({
+        task: updatedTask,
+        reason: "Historical entry has a past due date and is flagged as red zone."
+      });
+    }
+
+    const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask], { minimal: true });
+    return taskWithApplication;
   }
 
   // Post task activity
@@ -1141,29 +1453,36 @@ export class TaskService {
 
       const task = await prisma.task.findUnique({
         where: { id: taskId },
-        include: {
-          goal: true
+        select: {
+          goalId: true
         }
       });
 
-      if (!task || !task.goal) {
+      if (!task?.goalId) {
         console.log(`⚠️ Task ${taskId} is not linked to a goal`);
         return;
       }
 
-      const goal = task.goal;
+      const goal = await this.recalculateGoalProgressFromTasks(task.goalId);
       
       // Calculate new goal progress based on task progress
-      const newCurrentValue = task.currentValue || 0;
-      const progressPercentage = goal.targetValue > 0 ? (newCurrentValue / goal.targetValue) * 100 : 0;
-      const isCompleted = newCurrentValue >= goal.targetValue;
+      const newCurrentValue = Number(goal.currentValue || 0);
+      const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+      const progressPercentage = computeAchievementPercent({
+        currentValue: newCurrentValue,
+        targetValue: goal.targetValue,
+        targetOperator: goal.targetOperator,
+        isReverseKpi: goal.isReverseKpi,
+        progressPercentage: goal.progressPercentage
+      });
+      const isCompleted = isTargetMet(newCurrentValue, targetNum, goal.targetOperator, goal.isReverseKpi);
 
       // Update the goal
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id: goal.id },
         data: {
           currentValue: newCurrentValue,
-          progressPercentage: Math.min(progressPercentage, 100),
+          progressPercentage: progressPercentage,
           status: isCompleted ? "completed" : "active",
           stage: isCompleted ? "completed" : goal.stage,
           updatedAt: new Date()
@@ -1175,6 +1494,16 @@ export class TaskService {
       // If goal is completed and has KPI integration, trigger accounting
       if (isCompleted && goal.kpiId) {
         await this.triggerAccountingIntegration(goal.id, newCurrentValue);
+      }
+
+      // Keep KPI roll-ups in sync with KPIService (uses targetValue/currentValue when monetary* unset)
+      if (goal.kpiId) {
+        try {
+          const { PerformanceGoalService } = await import('./PerformanceGoalService');
+          await PerformanceGoalService.recalculateKPIProgress(goal.kpiId);
+        } catch (kpiErr) {
+          console.error(`⚠️ KPI recalc after task goal update failed for kpi ${goal.kpiId}:`, kpiErr);
+        }
       }
 
       // If this is a sub-goal, update parent goal progress
@@ -1197,6 +1526,177 @@ export class TaskService {
     }
   }
 
+  static async recalculateGoalProgressFromTasks(goalId: string) {
+    const goal = await prisma.performanceGoal.findUnique({
+      where: { id: goalId }
+    });
+
+    if (!goal) {
+      throw new Error("Linked performance goal not found");
+    }
+
+    const linkedTasks = await prisma.task.findMany({
+      where: {
+        goalId,
+        isTrashed: false
+      }
+    });
+
+    const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+    const averageProgress = linkedTasks.length > 0
+      ? linkedTasks.reduce((sum, task) => sum + computeTaskPercentage(task), 0) / linkedTasks.length
+      : 0;
+    const newCurrentValue = targetNum > 0 ? (targetNum * averageProgress) / 100 : averageProgress;
+    const progressPercentage = computeAchievementPercent({
+      currentValue: newCurrentValue,
+      targetValue: goal.targetValue,
+      targetOperator: goal.targetOperator,
+      isReverseKpi: goal.isReverseKpi,
+      progressPercentage: goal.progressPercentage
+    });
+    const isCompleted =
+      isTargetMet(newCurrentValue, targetNum, goal.targetOperator, goal.isReverseKpi) || averageProgress >= 100;
+
+    return prisma.performanceGoal.update({
+      where: { id: goal.id },
+      data: {
+        currentValue: newCurrentValue,
+        progressPercentage,
+        status: isCompleted ? "completed" : "active",
+        stage: isCompleted ? "completed" : linkedTasks.some((task) => task.stage === "in_progress") ? "in_progress" : "planning",
+        updatedAt: new Date()
+      }
+    });
+  }
+
+  static async bulkUpdateTaskStage(taskIds: string[], stage: string, achievements: any = {}, updatedByUserId?: string) {
+    const normalizedStage = normaliseTaskStage(stage);
+    const tasks = await prisma.task.findMany({
+      where: {
+        id: {
+          in: taskIds
+        }
+      },
+      select: {
+        id: true,
+        goalId: true,
+        title: true,
+        team: true,
+        date: true,
+        stage: true,
+        isOverdue: true,
+        createdBy: true
+      }
+    });
+    const wasRedByTaskId = new Map(tasks.map((t) => [t.id, isRedZoneTask(t)]));
+    const stageBeforeById = new Map(tasks.map((t) => [t.id, normaliseTaskStage(t.stage)]));
+
+    await prisma.$transaction(
+      taskIds.map((taskId) =>
+        prisma.task.update({
+          where: { id: taskId },
+          data: {
+            stage: normalizedStage,
+            status: normalizedStage,
+            ...(achievements?.monetaryValueAchieved !== undefined
+              ? { monetaryValueAchieved: achievements.monetaryValueAchieved }
+              : {}),
+            ...(achievements?.percentValueAchieved !== undefined
+              ? { percentValueAchieved: achievements.percentValueAchieved }
+              : {}),
+            updatedAt: new Date()
+          }
+        })
+      )
+    );
+
+    const goalIds = uniqueGoalIdsForTaskBatch(tasks);
+    for (const goalId of goalIds) {
+      await this.recalculateGoalProgressFromTasks(goalId);
+      try {
+        const { RollupCalculationService } = await import("./RollupCalculationService");
+        await RollupCalculationService.recalculateAllRollups(goalId);
+      } catch (error) {
+        console.error(`Failed to recalculate rollups for bulk-updated goal ${goalId}:`, error);
+      }
+    }
+
+    const updatedTasks = await prisma.task.findMany({
+      where: {
+        id: {
+          in: taskIds
+        }
+      }
+    });
+
+    if (updatedByUserId) {
+      for (const task of updatedTasks) {
+        if (stageBeforeById.get(task.id) !== normaliseTaskStage(task.stage)) {
+          await TaskCollaborationService.createTaskStatusChangedSystemMessage({
+            taskId: task.id,
+            actorId: updatedByUserId,
+            newStage: normalizedStage,
+            variant: "bulk"
+          });
+        }
+
+        if (isRedZoneTask(task) && !wasRedByTaskId.get(task.id)) {
+          await TaskCollaborationService.notifyTaskRedZone({
+            task,
+            reason: task.isOverdue
+              ? "The task remains overdue after the bulk update."
+              : `The task was moved to ${stageSystemMessage(normalizedStage)} during a bulk update.`
+          });
+        }
+      }
+    }
+
+    return updatedTasks;
+  }
+
+  static async bulkTrashTasks(taskIds: string[], updatedByUserId?: string) {
+    const tasks = await prisma.task.findMany({
+      where: {
+        id: {
+          in: taskIds
+        }
+      },
+      select: {
+        id: true,
+        goalId: true
+      }
+    });
+
+    await prisma.task.updateMany({
+      where: {
+        id: {
+          in: taskIds
+        }
+      },
+      data: {
+        isTrashed: true,
+        updatedAt: new Date()
+      }
+    });
+
+    const goalIds = uniqueGoalIdsForTaskBatch(tasks);
+    for (const goalId of goalIds) {
+      await this.recalculateGoalProgressFromTasks(goalId);
+      try {
+        const { RollupCalculationService } = await import("./RollupCalculationService");
+        await RollupCalculationService.recalculateAllRollups(goalId);
+      } catch (error) {
+        console.error(`Failed to recalculate rollups for trashed-task goal ${goalId}:`, error);
+      }
+    }
+
+    return {
+      trashedTaskIds: taskIds,
+      affectedGoalIds: goalIds,
+      updatedByUserId: updatedByUserId || null
+    };
+  }
+
   /**
    * Update parent goal progress when sub-goals are completed
    */
@@ -1216,32 +1716,35 @@ export class TaskService {
         return;
       }
 
-      // Calculate parent goal progress from sub-goals
-      const totalSubGoalProgress = parentGoal.subGoals.reduce((sum, subGoal) => {
-        return sum + (subGoal.progressPercentage || 0);
-      }, 0);
+      const rollup = computeParentRollupFromChildren(
+        parentGoal.subGoals,
+        parentGoal.targetValue
+      );
+      const { stage: newStage, status: newStatus } = deriveParentStageFromRollup({
+        allCompleted: rollup.allCompleted,
+        anyInProgress: rollup.anyInProgress,
+        weightedProgress: rollup.progressPercentage,
+        suggestedCurrentValue: rollup.suggestedCurrentValue,
+        subGoalCount: parentGoal.subGoals.length,
+        previousStage: parentGoal.stage || "planning"
+      });
 
-      const averageProgress = parentGoal.subGoals.length > 0 
-        ? totalSubGoalProgress / parentGoal.subGoals.length 
-        : 0;
-
-      const isCompleted = averageProgress >= 100;
-
-      // Update parent goal
       await prisma.performanceGoal.update({
         where: { id: parentGoalId },
         data: {
-          progressPercentage: Math.min(averageProgress, 100),
-          status: isCompleted ? "completed" : "active",
-          stage: isCompleted ? "completed" : parentGoal.stage,
+          currentValue: rollup.suggestedCurrentValue,
+          progressPercentage: rollup.progressPercentage,
+          status: newStatus,
+          stage: newStage,
           updatedAt: new Date()
         }
       });
 
-      console.log(`✅ Updated parent goal ${parentGoalId} progress: ${averageProgress.toFixed(1)}%`);
+      console.log(
+        `✅ Updated parent goal ${parentGoalId} progress: ${rollup.progressPercentage.toFixed(1)}% (weighted)`
+      );
 
-      // If parent goal is completed and has KPI integration, trigger accounting
-      if (isCompleted && parentGoal.kpiId) {
+      if (rollup.allCompleted && parentGoal.kpiId) {
         await this.triggerAccountingIntegration(parentGoalId, parentGoal.targetValue || 0);
       }
 

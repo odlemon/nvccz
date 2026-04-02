@@ -8,6 +8,7 @@ import CashbookService from "../services/CashbookService";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
 import { createJournalEntryWithAuditSequence } from "../services/AuditTrailSequenceService";
+import { parseDate } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -98,7 +99,7 @@ export default class CashbookController {
 
       const result = await CashbookService.createCashReceipt({
         bankId: resolvedBankId,
-        transactionDate: new Date(transactionDate),
+        transactionDate: parseDate(transactionDate),
         description,
         amount: parseFloat(amount),
         reference,
@@ -174,7 +175,7 @@ export default class CashbookController {
 
       const result = await CashbookService.createCashPayment({
         bankId: resolvedBankId,
-        transactionDate: new Date(transactionDate),
+        transactionDate: parseDate(transactionDate),
         description,
         amount: parseFloat(amount),
         reference,
@@ -338,8 +339,8 @@ export default class CashbookController {
       if (currencyId) filters.currencyId = currencyId as string;
       if (transactionType) filters.transactionType = transactionType as string;
       if (status) filters.status = status as string;
-      if (dateFrom) filters.dateFrom = new Date(dateFrom as string);
-      if (dateTo) filters.dateTo = new Date(dateTo as string);
+      if (dateFrom) filters.dateFrom = parseDate(dateFrom as string);
+      if (dateTo) filters.dateTo = parseDate(dateTo as string);
       if (limit) filters.limit = parseInt(limit as string);
       if (offset) filters.offset = parseInt(offset as string);
       

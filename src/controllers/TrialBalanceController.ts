@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/authenticate';
 import { TrialBalanceService } from '../services/TrialBalanceService';
 import { ResponseHelper } from '../utils/responseHelper';
 import { extractPeriodFilter, periodFilterToDateRange } from '../utils/periodFilterHelper';
+import { parseDate } from "../utils/dateHelper";
 
 export class TrialBalanceController {
   /**
@@ -31,8 +32,8 @@ export class TrialBalanceController {
         
         if (startDate && endDate) {
           // Use date range
-          start = new Date(startDate as string);
-          end = new Date(endDate as string);
+          start = parseDate(startDate as string);
+          end = parseDate(endDate as string);
           trialBalanceDate = end; // Use endDate as the display date
           
           if (isNaN(start.getTime()) || isNaN(end.getTime())) {
@@ -90,7 +91,7 @@ export class TrialBalanceController {
       } else {
         // Fallback to legacy date format
         const { date } = req.query;
-        trialBalanceDate = date ? new Date(date as string) : new Date();
+        trialBalanceDate = date ? parseDate(date as string) : new Date();
         
         if (isNaN(trialBalanceDate.getTime())) {
           return ResponseHelper.badRequest(res, 'Invalid date format');
@@ -128,7 +129,7 @@ export class TrialBalanceController {
       } else {
         // Fallback to legacy date format
         const { date } = req.query;
-        trialBalanceDate = date ? new Date(date as string) : new Date();
+        trialBalanceDate = date ? parseDate(date as string) : new Date();
         
         if (isNaN(trialBalanceDate.getTime())) {
           return ResponseHelper.badRequest(res, 'Invalid date format');

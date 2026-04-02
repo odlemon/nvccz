@@ -5,6 +5,7 @@ import { InvoiceService, CreateInvoiceParams } from "../services/InvoiceService"
 import { DebtorsAgeAnalysisService } from "../services/DebtorsAgeAnalysisService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
+import { parseDate } from "../utils/dateHelper";
 
 export class InvoiceController {
   /**
@@ -61,7 +62,7 @@ export class InvoiceController {
 
       // Create description from items if not provided
       const finalDescription = description || `Invoice with ${items.length} item(s)`;
-      const transactionDate = new Date(invoiceDate);
+      const transactionDate = parseDate(invoiceDate);
 
       // Get user ID from request (set by auth middleware)
       const createdById = (req as any).user?.id;
@@ -190,7 +191,7 @@ export class InvoiceController {
         updateData.isTaxable = Boolean(updateData.isTaxable);
       }
       if (updateData.transactionDate !== undefined) {
-        updateData.transactionDate = new Date(updateData.transactionDate);
+        updateData.transactionDate = parseDate(updateData.transactionDate);
       }
 
       const updatedInvoice = await InvoiceService.updateInvoice(id, updateData);

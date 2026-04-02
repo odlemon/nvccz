@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { EmailNotificationService } from '../services/EmailNotificationService';
 import { InvestmentImplementationService } from '../services/InvestmentImplementationService';
 import { PrismaClient } from '@prisma/client';
+import { parseDate } from '../utils/dateHelper';
 
 import { prisma } from '../utils/database';
 
@@ -168,7 +169,7 @@ export class InvestmentImplementationController {
           title,
           description,
           amount,
-          dueDate: new Date(dueDate),
+          dueDate: parseDate(dueDate),
           deliverables
         }
       );
