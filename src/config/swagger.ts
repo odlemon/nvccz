@@ -27,13 +27,15 @@ const options = {
         url: 'https://opensource.org/licenses/ISC'
       }
     },
+      // NOTE: Paths in this spec already include the `/api/...` prefix.
+      // If the server URL also includes `/api`, Swagger will show `/api/api/...` (duplicated).
       servers: [
         {
-          url: 'https://nvccz-pi.vercel.app/api',
+          url: 'https://nvccz-pi.vercel.app',
           description: 'Production server'
         },
         {
-          url: 'http://localhost:3000/api',
+          url: 'http://localhost:3000',
           description: 'Development server'
         }
       ],
