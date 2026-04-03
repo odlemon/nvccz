@@ -604,6 +604,11 @@ router.delete(
  *                 type: string
  *                 description: Bank ID (REQUIRED when paymentMethod is BANK, ignored for CASH/CREDIT)
  *                 example: bank-id-here
+ *               paymentDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Optional. For BANK/CASH, value date for cashbook + GL header (YYYY-MM-DD). Defaults to invoice invoiceDate.
+ *                 example: "2026-04-02"
  *           examples:
  *             bankPayment:
  *               summary: Bank Payment Example

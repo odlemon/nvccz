@@ -10,7 +10,7 @@ import AuditService from "../services/AuditService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { prisma } from '../utils/database';
 import { prismaPurchaseInvoiceSnapshotSelect } from '../config/accountingSnapshotResponseSelect';
-import { parseDate } from "../utils/dateHelper";
+import { parseDate, parseDateOnlyUtcEnd, parseDateOnlyUtcStart } from "../utils/dateHelper";
 
 interface AuthRequest extends Request {
   user?: {
@@ -21,10 +21,13 @@ interface AuthRequest extends Request {
   };
 }
 
-/** YYYY-MM-DD or ISO string; null if empty/invalid (avoids Prisma Invalid Date). */
+/** YYYY-MM-DD (UTC day bounds) or ISO string with time; null if empty/invalid. */
 function parseCashbookRangeStart(raw: string | undefined): Date | null {
   const s = raw != null ? String(raw).trim() : '';
   if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return parseDateOnlyUtcStart(s);
+  }
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
   d.setHours(0, 0, 0, 0);
@@ -34,6 +37,9 @@ function parseCashbookRangeStart(raw: string | undefined): Date | null {
 function parseCashbookRangeEnd(raw: string | undefined): Date | null {
   const s = raw != null ? String(raw).trim() : '';
   if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return parseDateOnlyUtcEnd(s);
+  }
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
   d.setHours(23, 59, 59, 999);

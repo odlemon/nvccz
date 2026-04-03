@@ -25,6 +25,23 @@ router.use(authenticate);
  *           enum: [POSTED, PENDING, VOID, ALL, POSTED_AND_PENDING]
  *           default: POSTED_AND_PENDING
  *         description: Filter by journal entry status. Defaults to POSTED_AND_PENDING if not specified.
+ *       - in: query
+ *         name: currencyId
+ *         schema:
+ *           type: string
+ *         description: If set, only journal entries whose header currency matches this ID (not converted from other currencies).
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Optional YYYY-MM-DD; if set, endDate is required. UTC calendar-day range (aligned with date-only storage).
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Optional YYYY-MM-DD; if set, startDate is required.
  *     responses:
  *       200:
  *         description: Journal entries retrieved successfully
