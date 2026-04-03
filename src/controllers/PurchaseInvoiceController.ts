@@ -308,8 +308,13 @@ export class PurchaseInvoiceController {
   static async submitInvoice(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const { paymentMethod, expenseAccountId, bankId, acknowledgePoVarianceOverride } =
-        req.body;
+      const {
+        paymentMethod,
+        expenseAccountId,
+        bankId,
+        acknowledgePoVarianceOverride,
+        paymentDate,
+      } = req.body;
 
       if (!id) {
         ResponseHelper.badRequest(res, "Invoice ID is required");
@@ -350,6 +355,9 @@ export class PurchaseInvoiceController {
           expenseAccountId,
           bankId,
           acknowledgePoVarianceOverride: Boolean(acknowledgePoVarianceOverride),
+          ...(paymentDate != null && String(paymentDate).trim()
+            ? { paymentDate: String(paymentDate).trim() }
+            : {}),
         },
         processedById
       );

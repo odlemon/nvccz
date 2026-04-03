@@ -3,7 +3,18 @@ import { Request, Response } from "express";
 import JournalEntryService, { JournalEntryImmutableError } from "../services/JournalEntryService";
 import { getLastAuditTrailEntries, verifySequentialIntegrity } from "../services/AuditTrailSequenceService";
 import { ResponseHelper } from "../utils/responseHelper";
-import { parseDate } from "../utils/dateHelper";
+import { parseDate, parseDateOnlyUtcEnd, parseDateOnlyUtcStart } from "../utils/dateHelper";
+
+function queryCurrencyId(req: Request): string | undefined {
+  const raw = req.query.currencyId;
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.trim();
+  }
+  if (Array.isArray(raw) && typeof raw[0] === "string" && raw[0].trim()) {
+    return raw[0].trim();
+  }
+  return undefined;
+}
 
 export class JournalEntryController {
   /**
@@ -72,11 +83,37 @@ export class JournalEntryController {
   static async getJournalEntries(req: Request, res: Response) {
     try {
       const status = req.query.status as 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | undefined;
-      const currencyId = req.query.currencyId as string | undefined;
+      const currencyId = queryCurrencyId(req);
       const filterStatus = status || 'POSTED_AND_PENDING';
+
+      const qStart = req.query.startDate != null ? String(req.query.startDate).trim() : "";
+      const qEnd = req.query.endDate != null ? String(req.query.endDate).trim() : "";
+
+      let rangeStart = new Date("2020-01-01");
+      let rangeEnd = new Date();
+
+      if (qStart || qEnd) {
+        if (!qStart || !qEnd) {
+          return ResponseHelper.badRequest(
+            res,
+            "Provide both startDate and endDate as YYYY-MM-DD, or omit both for all-time up to now"
+          );
+        }
+        const gte = parseDateOnlyUtcStart(qStart);
+        const lte = parseDateOnlyUtcEnd(qEnd);
+        if (!gte || !lte || gte > lte) {
+          return ResponseHelper.badRequest(
+            res,
+            "Invalid startDate/endDate — use YYYY-MM-DD; start must be on or before end"
+          );
+        }
+        rangeStart = gte;
+        rangeEnd = lte;
+      }
+
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
-        new Date('2020-01-01'),
-        new Date(),
+        rangeStart,
+        rangeEnd,
         filterStatus,
         currencyId
       );
@@ -232,10 +269,29 @@ export class JournalEntryController {
         return ResponseHelper.badRequest(res, "Start date and end date are required");
       }
 
-      const currencyId = req.query.currencyId as string | undefined;
+      const currencyId = queryCurrencyId(req);
+      const sd = String(startDate).trim();
+      const ed = String(endDate).trim();
+      const gte =
+        /^\d{4}-\d{2}-\d{2}$/.test(sd) ? parseDateOnlyUtcStart(sd) : parseDate(sd);
+      const lte =
+        /^\d{4}-\d{2}-\d{2}$/.test(ed) ? parseDateOnlyUtcEnd(ed) : parseDate(ed);
+      if (
+        !gte ||
+        !lte ||
+        Number.isNaN(gte.getTime()) ||
+        Number.isNaN(lte.getTime()) ||
+        gte > lte
+      ) {
+        return ResponseHelper.badRequest(
+          res,
+          "Invalid startDate/endDate — use YYYY-MM-DD or ISO datetime; start must be on or before end"
+        );
+      }
+
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
-        parseDate(startDate as string),
-        parseDate(endDate as string),
+        gte,
+        lte,
         status,
         currencyId
       );

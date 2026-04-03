@@ -8,6 +8,7 @@ import JournalEntryService from "./JournalEntryService";
 import { CashbookService } from "./CashbookService";
 import AuditService from "./AuditService";
 import { assignNextAuditIdAndCreateJournal, createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
+import { parseDate } from "../utils/dateHelper";
 
 /** User-facing duplicate vendor bill reference (vendor invoice number) message. */
 export const DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE =
@@ -875,6 +876,11 @@ export class PurchaseInvoiceService {
       bankId?: string; // Required for BANK payment method
       /** Required when bill total exceeds linked PO by >20% (three-way match). */
       acknowledgePoVarianceOverride?: boolean;
+      /**
+       * Bank/cash payment value date (YYYY-MM-DD or ISO). When set for BANK/CASH, cashbook + linked journal use this;
+       * otherwise they use `invoice.invoiceDate` (legacy behaviour).
+       */
+      paymentDate?: string;
     },
     processedById: string
   ): Promise<PurchaseInvoiceWithRelations> {
@@ -1003,6 +1009,11 @@ export class PurchaseInvoiceService {
         });
       } else {
         // BANK or CASH: Use cashbook to record payment, then create journal entry
+        const bankCashPaymentDate =
+          submitData.paymentDate != null && String(submitData.paymentDate).trim() !== ""
+            ? parseDate(submitData.paymentDate.trim())
+            : invoice.invoiceDate;
+
         let bankId: string;
         let bankName: string;
 
@@ -1056,7 +1067,7 @@ export class PurchaseInvoiceService {
         const vatCode = invoice.vatAmount.gt(0) ? '15%' : '0%';
         const cashbookResult = await CashbookService.createCashPayment({
           bankId: bankId,
-          transactionDate: invoice.invoiceDate,
+          transactionDate: bankCashPaymentDate,
           description: `Purchase Invoice Payment - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
           amount: Number(invoice.totalAmount),
           reference: `PINV-${submitData.paymentMethod}-${invoice.invoiceNumber}`,
@@ -1170,7 +1181,8 @@ export class PurchaseInvoiceService {
           paymentStatus: submitData.paymentMethod === "CREDIT" ? "PENDING" : "PAID",
           paidAmount: submitData.paymentMethod === "CREDIT" ? new Decimal(0) : invoice.totalAmount,
           outstandingAmount: submitData.paymentMethod === "CREDIT" ? invoice.totalAmount : new Decimal(0),
-          paymentDate: submitData.paymentMethod === "CREDIT" ? null : invoice.invoiceDate,
+          paymentDate:
+            submitData.paymentMethod === "CREDIT" ? null : bankCashPaymentDate,
           journalEntryId: journalEntry.id,
           cashbookEntryId: cashbookEntry?.id || null
         },
@@ -1350,6 +1362,8 @@ export class PurchaseInvoiceService {
         throw new Error(cashbookResult.message || "Failed to create cashbook payment");
       }
 
+      const paymentJeId = cashbookResult.transaction.journalEntryId ?? null;
+
       // Update invoice payment status
       const paymentAmount = invoice.outstandingAmount;
       const updatedInvoice = await prisma.purchaseInvoice.update({
@@ -1361,6 +1375,7 @@ export class PurchaseInvoiceService {
           paymentDate: paymentData.paymentDate,
           paymentReference: paymentData.paymentReference || null,
           cashbookEntryId: cashbookResult.transaction.id,
+          ...(paymentJeId ? { paymentJournalEntryId: paymentJeId } : {}),
           notes: paymentData.notes || invoice.notes
         },
         include: {
@@ -1634,6 +1649,7 @@ export class PurchaseInvoiceService {
               outstandingAmount: paidFully ? new Decimal(0) : newOutstanding,
               paymentDate: paymentData.paymentDate,
               paymentReference: batchRef,
+              paymentJournalEntryId: je.id,
               notes: paymentData.notes || inv.notes,
             },
             include: {

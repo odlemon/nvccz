@@ -5,6 +5,7 @@ import {
   prismaCashbookEntrySnapshotSelect,
   prismaExpenseSnapshotSelect,
   prismaInvoiceSnapshotSelect,
+  prismaPurchaseInvoiceSnapshotSelect,
   prismaRevenueSnapshotSelect
 } from "../config/accountingSnapshotResponseSelect";
 import VATService from "./VATService";
@@ -1383,15 +1384,33 @@ export class JournalEntryService {
     status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | 'POSTED_AND_PENDING',
     currencyId?: string
   ): Promise<any[]> {
+    const andConditions: any[] = [
+      {
+        referenceNumber: {
+          not: {
+            startsWith: 'VR-'
+          }
+        }
+      },
+      {
+        referenceNumber: {
+          not: {
+            startsWith: 'REV-'
+          }
+        }
+      }
+    ];
+    if (currencyId) {
+      andConditions.unshift({ currencyId });
+    }
+
     const whereClause: any = {
       transactionDate: {
         gte: startDate,
         lte: endDate
-      }
+      },
+      AND: andConditions
     };
-    if (currencyId) {
-      whereClause.currencyId = currencyId;
-    }
 
     // Handle different status filters
     if (!status || status === 'POSTED') {
@@ -1414,25 +1433,6 @@ export class JournalEntryService {
         ]
       }
     };
-    
-    // Exclude reversal journal entries (those with VR- or REV- prefix)
-    // Use AND condition to exclude both prefixes
-    whereClause.AND = [
-      {
-        referenceNumber: {
-          not: {
-            startsWith: 'VR-'
-          }
-        }
-      },
-      {
-        referenceNumber: {
-          not: {
-            startsWith: 'REV-'
-          }
-        }
-      }
-    ];
 
     const entries = await prisma.journalEntry.findMany({
       where: whereClause,
@@ -1534,6 +1534,25 @@ export class JournalEntryService {
             }
           }
         },
+        // Vendor bills (accounts payable): surfaced separately from sales `invoices`
+        purchaseInvoices: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            status: true,
+            paymentStatus: true,
+            paymentMethod: true,
+            paymentDate: true,
+            ...prismaPurchaseInvoiceSnapshotSelect,
+            vendor: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        },
         // Include cashbook entries with full transaction details
         cashbookEntries: {
           select: {
@@ -1577,6 +1596,9 @@ export class JournalEntryService {
     
     // Additional client-side filter to ensure no voided/reversed entries slip through
     const filteredEntries = entries.filter(entry => {
+      if (currencyId && (entry as any).currencyId !== currencyId) {
+        return false;
+      }
       // If journal entry is linked to cashbook entries, check their status
       if (entry.cashbookEntries && entry.cashbookEntries.length > 0) {
         const hasVoidedOrReversed = entry.cashbookEntries.some(
@@ -1595,10 +1617,20 @@ export class JournalEntryService {
 
     // Attach paymentMethod to each line for each entry
     return filteredEntries.map((entry: any) => {
+      const cashbookPaymentMethod = (() => {
+        const cb = entry.cashbookEntries?.[0];
+        if (!cb) return null;
+        const bankName = String(cb.bank?.name ?? '').toLowerCase();
+        // Heuristic: most deployments model petty cash as a "bank" row with name containing Cash/Petty.
+        if (bankName.includes('petty') || bankName.includes('cash')) return 'CASH';
+        return 'BANK';
+      })();
+
       const paymentMethod =
         (entry.expenses?.[0]?.paymentMethod) ||
         (entry.revenues?.[0]?.paymentMethod) ||
         (entry.invoices?.[0]?.paymentMethod) ||
+        cashbookPaymentMethod ||
         null;
 
       return {
