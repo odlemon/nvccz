@@ -403,7 +403,11 @@ router.get(
  * /accounting/purchase-invoices/creditors-age-analysis:
  *   get:
  *     summary: Creditors age analysis (open AP / vendor bills on credit)
- *     description: Buckets outstanding credit purchase invoices by days past due (vs due date, or invoice date if no due date). Aligns with liability posted to Accounts Payable (e.g. 2000).
+ *     description: |
+ *       Returns vendor-grouped aging summary with nested bill detail.
+ *       Top-level `vendors[]` array — each entry has bucket totals (current / 30 / 60 / 90 / over90),
+ *       VAT total, outstanding total, and a `bills[]` array for drill-down.
+ *       `grandTotal` gives the report-wide sums across all vendors.
  *     tags: [Accounts Payables]
  *     security:
  *       - bearerAuth: []
@@ -416,7 +420,7 @@ router.get(
  *         description: Report date (UTC day); defaults to today
  *     responses:
  *       200:
- *         description: Report with lines and totalsByCurrency
+ *         description: Vendor-grouped report with grandTotal and totalsByCurrency
  *       401:
  *         description: Unauthorized
  */
