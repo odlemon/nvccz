@@ -3,41 +3,65 @@ import { prisma } from "../utils/database";
 import AuditService from "./AuditService";
 import { RollupCalculationService } from "./RollupCalculationService";
 import {
+  BOARD_SECTION_LABELS,
   BOARD_SECTION_WEIGHTS,
+  CEO_SECTION_LABELS,
   CEO_SECTION_WEIGHTS,
   DEFAULT_ORG_PILLAR_WEIGHTS,
-  buildPersonalAttributes,
+  ORG_BSC_PILLAR_META,
+  assertIndividualGoalWeightsSum100,
+  buildPersonalAttributesRatingGrid,
   buildTrainingSection,
+  computeBudgetUtilisationRating,
   computeGoalProgress,
   computeRawRating,
+  computeStatus,
+  departmentProgressTrafficStatus,
+  departmentMatrixVarianceStatus,
   parseStretchTargetValueFromActivities,
   deriveActualFromProgress,
   getContributionWeight,
-  isBoardChair,
+  resolveDepartmentRollupChildWeights,
   isCEO,
   isComplianceLeader,
   isDepartmentManager,
   isExecutive,
   isFinalOrArchived,
+  isAdminViewer,
   isHRLeader,
   isMonitoringAndEvaluationLeader,
   isSysAdmin,
+  normalisePillarWeightsTo100,
+  performanceLabelFromScore,
   redistributeWeights,
+  departmentGoalRowStatus,
+  hasAnySignal,
+  isEmployeeGoalStoredActualMissing,
+  ceoPerformanceLabelForSection,
+  ceoPerformanceLabelOverall,
+  performanceLabelFromDepartmentScore,
   resolveGoalEscalationStatus,
   resolvePeriodLabel,
   resolveSectionWeights,
   resolveWeight,
+  resolveStoredGoalActual,
   round,
+  summariseEmployeeResultsDelivery,
   toNumber
 } from "./performanceScorecardSupport";
-import { shouldRaiseDataQualityAlert } from "./performanceBackendSupport";
+import {
+  boardDirectorsWithOrganisationShort,
+  chiefExecutiveOrganisationLine,
+  resolveOrganisationDisplayName
+} from "../config/companyDisplay";
+import { CompanyProfileAddressService } from "./CompanyProfileAddressService";
+import { normaliseTaskStage, TASK_STAGE_OPTIONS } from "./TaskCollaborationService";
+import { isPrecisionSensitiveFormula, shouldRaiseDataQualityAlert } from "./performanceBackendSupport";
 
 type AccessContext = {
-  action: string;
   entityId: string;
   viewer: any;
-  ipAddress?: string | null;
-  userAgent?: string | null;
+  meta?: any;
 };
 
 function currentPeriodBounds() {
@@ -45,6 +69,20 @@ function currentPeriodBounds() {
   return {
     periodStart: new Date(now.getFullYear(), now.getMonth(), 1),
     periodEnd: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+  };
+}
+
+/** When the client sends only `periodLabel` like "2026", use full UTC calendar year (matches department contracts). */
+function periodBoundsFromYearLabel(periodLabel: unknown): { periodStart: Date; periodEnd: Date; periodLabel: string } | null {
+  const raw = String(periodLabel ?? "").trim();
+  const m = raw.match(/^(\d{4})$/);
+  if (!m) return null;
+  const year = parseInt(m[1], 10);
+  if (year < 1970 || year > 2100) return null;
+  return {
+    periodStart: new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0)),
+    periodEnd: new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999)),
+    periodLabel: raw
   };
 }
 
@@ -63,43 +101,230 @@ function getRequestMetadata(meta?: any) {
   };
 }
 
+/** Branding rarely changes; longer TTL cuts repeated Prisma round-trips on scorecard endpoints. */
+const BRANDING_CACHE_TTL = 300_000;
+let _brandingCache: { profile: any; letterhead: any; ts: number } | null = null;
+
+/** Formal title on CEO scorecard documents (never from user.departmentRole). */
+const CEO_SCORECARD_FORMAL_TITLE = "Chief Executive Officer";
+
+export const CEO_CONTRACT_NOT_FOUND_MESSAGE =
+  "No CEO performance contract found for this period. Create a contract of type CEO with organisational goals linked before generating this scorecard.";
+
+const CEO_SAVE_NO_INDICATORS_MESSAGE =
+  "Cannot save CEO scorecard: no indicators are linked to this CEO contract.";
+
+export const BOARD_CONTRACT_NOT_FOUND_MESSAGE =
+  "No Board performance contract found for this period. Create a contract of type BOARD with governance indicators before generating this scorecard.";
+
+const BOARD_SAVE_NO_INDICATORS_MESSAGE =
+  "Cannot save Board scorecard: no indicators are linked to this Board contract.";
+
+const BOARD_SCORECARD_CHAIR_TITLE = "Board Chairperson";
+
+async function getCachedBranding() {
+  if (_brandingCache && Date.now() - _brandingCache.ts < BRANDING_CACHE_TTL) {
+    return _brandingCache;
+  }
+  const [profile, letterhead] = await Promise.all([
+    prisma.companyProfile.findFirst({ orderBy: { updatedAt: "desc" }, select: { logoUrl: true, legalName: true } }),
+    CompanyProfileAddressService.getActive()
+  ]);
+  _brandingCache = { profile, letterhead, ts: Date.now() };
+  return _brandingCache;
+}
+
 export class PerformanceScorecardService {
-  private static async logAccessDenied(context: AccessContext, message: string) {
-    const metadata = getRequestMetadata(context);
+  private static async logAccessDenied(context: AccessContext, auditDetail: string) {
+    const metadata = getRequestMetadata(context.meta);
     await AuditService.log({
-      userId: context.viewer?.id,
-      action: context.action,
+      userId: context.viewer?.id || null,
+      action: "PERFORMANCE_SCORECARD_ACCESS_DENIED",
       entityType: "PerformanceScorecardAccess",
       entityId: context.entityId,
       newValues: {
         allowed: false,
-        message
+        reason: auditDetail
       },
       ipAddress: metadata.ipAddress,
       userAgent: metadata.userAgent
     });
 
-    throw new Error(message);
+    throw new Error("Access denied");
   }
 
   private static async assertEmployeeAccess(viewer: any, employeeUser: any, employeeRecord: any, mode: "view" | "generate", meta?: any) {
-    return;
+    const targetUserId = employeeUser?.id;
+    if (!viewer?.id) {
+      await this.logAccessDenied(
+        { viewer: viewer || {}, entityId: targetUserId || "unknown", meta },
+        "Unauthenticated"
+      );
+    }
+
+    const isSelf = viewer.id === targetUserId;
+    const lineManagerId = employeeRecord?.lineManagerUserId || null;
+    const isLineManager = Boolean(lineManagerId && viewer.id === lineManagerId);
+    const hr = isHRLeader(viewer);
+    const ceo = isCEO(viewer);
+    const admin = isAdminViewer(viewer);
+
+    if (mode === "generate") {
+      if (admin) {
+        return;
+      }
+      if (!(isLineManager || hr || ceo)) {
+        await this.logAccessDenied(
+          { viewer, entityId: targetUserId, meta },
+          isSelf
+            ? "Employees cannot generate their own scorecard"
+            : "Only direct manager, HR, CEO, or administrator may generate employee scorecards"
+        );
+      }
+      return;
+    }
+
+    if (isSelf || isLineManager || hr || ceo || admin) {
+      return;
+    }
+
+    await this.logAccessDenied(
+      { viewer, entityId: targetUserId, meta },
+      "View allowed only for self, direct manager, HR, CEO, or administrator"
+    );
   }
 
-  private static async assertDepartmentAccess(viewer: any, departmentName: string, mode: "view" | "generate", meta?: any) {
-    return;
+  private static async evaluateDepartmentScorecardAccess(viewer: any, departmentName: string) {
+    const deptNorm = String(departmentName || "").trim();
+    if (!viewer?.id) {
+      return { canView: false, canGenerate: false };
+    }
+
+    const admin = isAdminViewer(viewer);
+    const ceo = isCEO(viewer);
+    const hr = isHRLeader(viewer);
+    const me = isMonitoringAndEvaluationLeader(viewer);
+    const compliance = isComplianceLeader(viewer);
+
+    let resolvedDeptName: string | null = null;
+    if (viewer.departmentId) {
+      const d = await prisma.department.findUnique({
+        where: { id: viewer.departmentId },
+        select: { name: true }
+      });
+      resolvedDeptName = d?.name || null;
+    }
+
+    const manages = hasAnySignal(viewer, ["_mgr", " manager"]);
+    const managerOfTarget =
+      manages &&
+      (String(viewer.userDepartment || "").trim().toLowerCase() === deptNorm.toLowerCase() ||
+        (resolvedDeptName && resolvedDeptName.toLowerCase() === deptNorm.toLowerCase()));
+
+    const unrestricted = admin || ceo || hr;
+    const canGenerate = unrestricted || (managerOfTarget && !me && !compliance);
+    const canView = unrestricted || managerOfTarget || me || compliance;
+
+    return { canView, canGenerate };
   }
 
-  private static async assertCEOAccess(viewer: any, mode: "view" | "generate", meta?: any) {
-    return;
+  private static async assertDepartmentAccess(
+    viewer: any,
+    departmentName: string,
+    mode: "view" | "generate",
+    meta?: any
+  ): Promise<{ canView: boolean; canGenerate: boolean }> {
+    const deptNorm = String(departmentName || "").trim();
+    if (!viewer?.id) {
+      await this.logAccessDenied(
+        { viewer: viewer || {}, entityId: deptNorm || "unknown", meta },
+        "Unauthenticated"
+      );
+    }
+
+    const { canView, canGenerate } = await this.evaluateDepartmentScorecardAccess(viewer, deptNorm);
+
+    if (mode === "generate" && !canGenerate) {
+      await this.logAccessDenied(
+        { viewer, entityId: deptNorm, meta },
+        "Only department manager, HR, CEO, or administrator may generate department scorecards (M&E / Compliance may view only)"
+      );
+    }
+
+    if (mode === "view" && !canView) {
+      await this.logAccessDenied(
+        { viewer, entityId: deptNorm, meta },
+        "View denied for this department scorecard"
+      );
+    }
+
+    return { canView, canGenerate };
   }
 
-  private static async assertBoardAccess(viewer: any, meta?: any) {
-    return;
+  /**
+   * CEO scorecard: role checks are enforced on the frontend; any authenticated user may call the API.
+   */
+  private static evaluateCEOScorecardAccess(viewer: any): { canView: boolean; canGenerate: boolean } {
+    if (!viewer?.id) {
+      return { canView: false, canGenerate: false };
+    }
+    return { canView: true, canGenerate: true };
   }
 
-  private static async assertOrgDashboardAccess(viewer: any, meta?: any) {
-    return;
+  private static async assertCEOAccess(
+    viewer: any,
+    mode: "view" | "generate",
+    meta?: any
+  ): Promise<{ canView: boolean; canGenerate: boolean }> {
+    if (!viewer?.id) {
+      await this.logAccessDenied(
+        { viewer: viewer || {}, entityId: "ceo_scorecard", meta },
+        "Unauthenticated"
+      );
+    }
+    return this.evaluateCEOScorecardAccess(viewer);
+  }
+
+  /** Role gating is left to the frontend; any authenticated user may call the Board scorecard API. */
+  private static evaluateBoardScorecardAccess(viewer: any): { canView: boolean; canGenerate: boolean } {
+    if (!viewer?.id) {
+      return { canView: false, canGenerate: false };
+    }
+    return { canView: true, canGenerate: true };
+  }
+
+  private static async assertBoardAccess(
+    viewer: any,
+    meta?: any
+  ): Promise<{ canView: boolean; canGenerate: boolean }> {
+    if (!viewer?.id) {
+      await this.logAccessDenied(
+        { viewer: viewer || {}, entityId: "board_scorecard", meta },
+        "Unauthenticated"
+      );
+    }
+    return this.evaluateBoardScorecardAccess(viewer);
+  }
+
+  /** Org BSC is a computed dashboard; any authenticated user may fetch it (drill-down flags reflect full detail). */
+  private static evaluateOrgBscAccess(viewer: any): { canView: boolean } {
+    if (!viewer?.id) {
+      return { canView: false };
+    }
+    return { canView: true };
+  }
+
+  private static async assertOrgDashboardAccess(
+    viewer: any,
+    meta?: any
+  ): Promise<{ canView: boolean }> {
+    if (!viewer?.id) {
+      await this.logAccessDenied(
+        { viewer: viewer || {}, entityId: "org_bsc_dashboard", meta },
+        "Unauthenticated"
+      );
+    }
+    return this.evaluateOrgBscAccess(viewer);
   }
 
   private static buildPeriod(input?: any) {
@@ -109,6 +334,11 @@ export class PerformanceScorecardService {
         periodEnd: new Date(input.periodEnd),
         periodLabel: input.periodLabel
       };
+    }
+
+    const fromYearLabel = periodBoundsFromYearLabel(input?.periodLabel);
+    if (fromYearLabel) {
+      return fromYearLabel;
     }
 
     return currentPeriodBounds();
@@ -173,6 +403,160 @@ export class PerformanceScorecardService {
     });
   }
 
+  private static performanceContractScorecardInclude() {
+    return {
+      subjectUser: {
+        include: {
+          role: true,
+          employee: true
+        }
+      },
+      reviewer: {
+        include: { role: true }
+      },
+      approver: {
+        include: { role: true }
+      }
+    };
+  }
+
+  /** Minimal relations for CEO scorecard path (names + scoring fields only). */
+  private static performanceContractCEOInclude() {
+    return {
+      subjectUser: {
+        select: { id: true, firstName: true, lastName: true }
+      },
+      reviewer: {
+        select: { id: true, firstName: true, lastName: true }
+      },
+      approver: {
+        select: { id: true, firstName: true, lastName: true }
+      }
+    };
+  }
+
+  /**
+   * Resolve CEO scorecard contract: only `contractType` CEO (overlap or periodLabel match). No EMPLOYEE fallback.
+   * One DB round-trip when a period label is present; prefers period overlap over label-only match.
+   */
+  private static async resolveCEOPerformanceContract(period: {
+    periodStart: Date;
+    periodEnd: Date;
+    periodLabel?: string;
+  }): Promise<{ contract: any | null; resolutionNotes: string[] }> {
+    const notes: string[] = [];
+    const activeStatus = { notIn: ["ARCHIVED", "CANCELLED"] as string[] };
+    const overlap = this.buildContractPeriodWhere(period);
+    const include = this.performanceContractCEOInclude();
+    const labelTrim =
+      period.periodLabel != null && String(period.periodLabel).trim() !== ""
+        ? String(period.periodLabel).trim()
+        : null;
+
+    const orClause: Record<string, unknown>[] = [overlap];
+    if (labelTrim) {
+      orClause.push({ periodLabel: labelTrim });
+    }
+
+    const candidates = await prisma.performanceContract.findMany({
+      where: {
+        contractType: { in: ["CEO", "ceo"] },
+        status: activeStatus,
+        OR: orClause
+      },
+      include,
+      orderBy: { updatedAt: "desc" },
+      take: 40
+    });
+
+    if (!candidates.length) {
+      return { contract: null, resolutionNotes: notes };
+    }
+
+    const overlapsWindow = (c: { periodStart: Date; periodEnd: Date }) =>
+      c.periodStart <= period.periodEnd && c.periodEnd >= period.periodStart;
+
+    const overlapMatch = candidates.find((c) => overlapsWindow(c));
+    if (overlapMatch) {
+      return { contract: overlapMatch, resolutionNotes: notes };
+    }
+
+    if (labelTrim) {
+      const byLabel = candidates.find((c) => c.periodLabel === labelTrim);
+      if (byLabel) {
+        notes.push(
+          "CEO contract matched by period label; contract dates may not overlap the requested window — verify period alignment."
+        );
+        return { contract: byLabel, resolutionNotes: notes };
+      }
+    }
+
+    return { contract: null, resolutionNotes: notes };
+  }
+
+  private static performanceContractBoardInclude() {
+    return {
+      reviewer: { select: { id: true, firstName: true, lastName: true } },
+      approver: { select: { id: true, firstName: true, lastName: true } },
+      subjectUser: { select: { id: true, firstName: true, lastName: true } }
+    };
+  }
+
+  /** BOARD contract only — no fallback to other types. */
+  private static async resolveBoardPerformanceContract(period: {
+    periodStart: Date;
+    periodEnd: Date;
+    periodLabel?: string;
+  }): Promise<{ contract: any | null; resolutionNotes: string[] }> {
+    const notes: string[] = [];
+    const activeStatus = { notIn: ["ARCHIVED", "CANCELLED"] as string[] };
+    const overlap = this.buildContractPeriodWhere(period);
+    const include = this.performanceContractBoardInclude();
+    const labelTrim =
+      period.periodLabel != null && String(period.periodLabel).trim() !== ""
+        ? String(period.periodLabel).trim()
+        : null;
+    const orClause: Record<string, unknown>[] = [overlap];
+    if (labelTrim) {
+      orClause.push({ periodLabel: labelTrim });
+    }
+
+    const candidates = await prisma.performanceContract.findMany({
+      where: {
+        contractType: "BOARD",
+        status: activeStatus,
+        OR: orClause
+      },
+      include,
+      orderBy: { updatedAt: "desc" },
+      take: 40
+    });
+
+    if (!candidates.length) {
+      return { contract: null, resolutionNotes: notes };
+    }
+
+    const overlapsWindow = (c: { periodStart: Date; periodEnd: Date }) =>
+      c.periodStart <= period.periodEnd && c.periodEnd >= period.periodStart;
+
+    const overlapMatch = candidates.find((c) => overlapsWindow(c));
+    if (overlapMatch) {
+      return { contract: overlapMatch, resolutionNotes: notes };
+    }
+
+    if (labelTrim) {
+      const byLabel = candidates.find((c) => c.periodLabel === labelTrim);
+      if (byLabel) {
+        notes.push(
+          "Board contract matched by period label; contract dates may not overlap the requested window — verify period alignment."
+        );
+        return { contract: byLabel, resolutionNotes: notes };
+      }
+    }
+
+    return { contract: null, resolutionNotes: notes };
+  }
+
   private static async resolveEmployeeContext(employeeUserId: string, periodInput?: any) {
     const employeeUser = await prisma.user.findUnique({
       where: { id: employeeUserId },
@@ -193,7 +577,7 @@ export class PerformanceScorecardService {
     });
 
     if (!contract) {
-      throw new Error("No performance contract found for this employee and period.");
+      throw new Error("No active performance contract found for this employee in the selected period.");
     }
 
     const period = {
@@ -238,27 +622,133 @@ export class PerformanceScorecardService {
     };
   }
 
-  private static buildGoalRows(goals: any[], options: { stretchScoringEnabled?: boolean }) {
+  private static taskStageDisplayLabel(stage: string) {
+    const code = normaliseTaskStage(stage);
+    const row = TASK_STAGE_OPTIONS.find((o) => o.code === code);
+    return row?.label || code;
+  }
+
+  private static isTaskBasedIndividualGoal(goal: any) {
+    const ft = String(goal.formulaType || "").toUpperCase();
+    if (ft === "TASK_COMPLETION") return true;
+    const act = goal.activities;
+    return Boolean(act && typeof act === "object" && !Array.isArray(act) && act.taskBasedProgress === true);
+  }
+
+  private static async fetchTasksByGoalIds(goalIds: string[]) {
+    if (!goalIds.length) {
+      return new Map<string, any[]>();
+    }
+    const tasks = await prisma.task.findMany({
+      where: {
+        goalId: { in: goalIds },
+        isTrashed: false
+      },
+      select: {
+        id: true,
+        title: true,
+        stage: true,
+        status: true,
+        date: true,
+        updatedAt: true,
+        goalId: true
+      }
+    });
+    const map = new Map<string, any[]>();
+    for (const t of tasks) {
+      if (!t.goalId) continue;
+      const list = map.get(t.goalId) || [];
+      list.push(t);
+      map.set(t.goalId, list);
+    }
+    return map;
+  }
+
+  private static buildEmployeeIndividualGoalRows(
+    goals: any[],
+    options: {
+      stretchScoringEnabled?: boolean;
+      tasksByGoalId: Map<string, any[]>;
+      warnings: string[];
+    }
+  ) {
     const fallbackWeight = goals.length > 0 ? 100 / goals.length : 0;
     const baseRows = goals.map((goal) => {
-      const targetValue = toNumber(goal.preciseTargetValue ?? goal.targetValue, 0);
-      const actualValue = toNumber(goal.preciseCurrentValue ?? goal.currentValue, 0);
       const stretchTargetValue = parseStretchTargetValueFromActivities(goal.activities);
       const weight = resolveWeight(goal.scorecardWeight, fallbackWeight);
-      const progress = computeGoalProgress({
-        actualValue,
-        targetValue,
-        isReverseKpi: goal.isReverseKpi,
-        stretchScoringEnabled: options.stretchScoringEnabled
-      });
-      const rawRating = goal.isPendingApproval
-        ? null
-        : computeRawRating({
-            actualValue,
-            targetValue,
-            allowableVariance: goal.allowableVariance,
-            isReverseKpi: goal.isReverseKpi
-          });
+      const taskBased = this.isTaskBasedIndividualGoal(goal);
+      const tasks = options.tasksByGoalId.get(goal.id) || [];
+      const storedActualResolved = taskBased
+        ? { value: 0, hasExplicitStored: false }
+        : resolveStoredGoalActual(goal);
+      const hasNullStoredActual = !taskBased && !storedActualResolved.hasExplicitStored;
+
+      let targetValue: number;
+      let actualValue: number;
+      let excludedFromScoring = false;
+      let hasRecordedPerformance = false;
+
+      if (taskBased) {
+        targetValue = tasks.length;
+        actualValue = tasks.filter((t) => normaliseTaskStage(t.stage) === "completed").length;
+        if (targetValue === 0) {
+          excludedFromScoring = true;
+          options.warnings.push(
+            `Goal "${goal.title}" uses task-based progress but has no linked tasks. It will be excluded from scoring.`
+          );
+        } else {
+          hasRecordedPerformance = true;
+        }
+      } else {
+        targetValue = toNumber(goal.preciseTargetValue ?? goal.targetValue, 0);
+        actualValue = storedActualResolved.value;
+        if (hasNullStoredActual) {
+          options.warnings.push(
+            `Goal "${goal.title}" has no actual value recorded. It will be scored as 0.`
+          );
+        } else if (isEmployeeGoalStoredActualMissing(goal)) {
+          options.warnings.push(
+            `Goal "${goal.title}" has no non-zero actual in stored fields (sync may not have run). It will be scored as 0.`
+          );
+        }
+        hasRecordedPerformance = !isEmployeeGoalStoredActualMissing(goal);
+        if (targetValue <= 0) {
+          excludedFromScoring = true;
+          options.warnings.push(
+            `Goal "${goal.title}" has no valid target (configuration). It will be excluded from scoring.`
+          );
+        }
+      }
+
+      const isPendingApproval = Boolean(goal.isPendingApproval);
+      const progress =
+        isPendingApproval || excludedFromScoring
+          ? { progressPct: null, isMissing: false }
+          : computeGoalProgress({
+              actualValue,
+              targetValue,
+              isReverseKpi: goal.isReverseKpi,
+              stretchScoringEnabled: options.stretchScoringEnabled
+            });
+
+      let rawRating: number | null = null;
+      if (!isPendingApproval && !excludedFromScoring) {
+        rawRating = computeRawRating({
+          actualValue,
+          targetValue,
+          allowableVariance: goal.allowableVariance,
+          isReverseKpi: goal.isReverseKpi
+        });
+      }
+
+      const activities =
+        goal.activities && typeof goal.activities === "object" && !Array.isArray(goal.activities)
+          ? goal.activities
+          : {};
+      const rollupWeight = toNumber(
+        activities.contributionWeightPercent ?? activities.rollupWeightPercent,
+        0
+      );
 
       return {
         id: goal.id,
@@ -269,21 +759,30 @@ export class PerformanceScorecardService {
         actualValue,
         allowableVariance: toNumber(goal.allowableVariance, 0.1),
         isReverseKpi: Boolean(goal.isReverseKpi),
-        isPendingApproval: Boolean(goal.isPendingApproval),
+        isPendingApproval,
+        excludedFromScoring,
+        hasRecordedPerformance,
+        taskBased,
         originalWeight: round(weight, 4),
         weight,
-        progressPct: goal.isPendingApproval ? null : progress.progressPct,
+        progressPct: isPendingApproval || excludedFromScoring ? null : progress.progressPct,
         rawRating,
-        missingValue: progress.isMissing,
+        missingValue:
+          isPendingApproval || excludedFromScoring || taskBased
+            ? false
+            : isEmployeeGoalStoredActualMissing(goal),
         parentGoalId: goal.parentGoalId,
         parentGoal: goal.parentGoal,
-        sourceGoal: goal
+        rollupWeight: rollupWeight > 0 ? rollupWeight : null,
+        sourceGoal: goal,
+        linkedTasks: tasks
       };
     });
 
     return redistributeWeights(baseRows).map((row) => ({
       ...row,
-      weightedScore: row.rawRating === null ? null : round((row.effectiveWeight * row.rawRating) / 100, 4)
+      weightedScore:
+        row.rawRating === null ? null : round((row.effectiveWeight * row.rawRating) / 100, 4)
     }));
   }
 
@@ -312,12 +811,7 @@ export class PerformanceScorecardService {
     }
 
     const budgetUtilisationPct = round((actualSpend / allocatedBudget) * 100, 2);
-    const rating = computeRawRating({
-      actualValue: budgetUtilisationPct,
-      targetValue: 100,
-      allowableVariance: 0.1,
-      isReverseKpi: false
-    });
+    const rating = computeBudgetUtilisationRating(budgetUtilisationPct);
 
     return {
       included: true,
@@ -328,15 +822,37 @@ export class PerformanceScorecardService {
     };
   }
 
-  private static summariseEmployeeRows(rows: any[]) {
-    const activeRows = rows.filter((row) => !row.isPendingApproval);
-    const weightTotal = activeRows.reduce((sum, row) => sum + toNumber(row.effectiveWeight, 0), 0);
-    const weightedTotal = activeRows.reduce((sum, row) => sum + toNumber(row.weightedScore, 0), 0);
+  private static employeeMatrixRowSeverity(row: any): string {
+    if (row.isPendingApproval) return "pending";
+    if (row.excludedFromScoring) return "excluded";
+    if (row.rawRating === 1) return "red";
+    if (row.rawRating === 3) return "amber";
+    if (row.rawRating === 4) return "green";
+    return "neutral";
+  }
 
-    return {
-      resultsDeliveryScore: weightTotal > 0 ? round((weightedTotal / weightTotal) * 100, 2) / 25 : 0,
-      pendingApprovalCount: rows.filter((row) => row.isPendingApproval).length
-    };
+  /** User with `departmentRole` HEAD whose `userDepartment` matches the employee's (case-insensitive). */
+  private static async fetchDepartmentHeadUser(employeeUser: {
+    id?: string;
+    userDepartment?: string | null;
+  }) {
+    const want = String(employeeUser?.userDepartment || "").trim().toLowerCase();
+    if (!want) return null;
+    const candidates = await prisma.user.findMany({
+      where: {
+        departmentRole: "HEAD",
+        userDepartment: { not: null }
+      },
+      include: { role: true },
+      take: 500
+    });
+    return (
+      candidates.find(
+        (u) =>
+          u.id !== employeeUser.id &&
+          String(u.userDepartment || "").trim().toLowerCase() === want
+      ) || null
+    );
   }
 
   private static buildEmployeeDocument(params: {
@@ -347,45 +863,115 @@ export class PerformanceScorecardService {
     resultsDeliveryScore: number;
     budgetComponent: any;
     finalScore: number;
+    performanceLabel: string;
+    generatedAt: Date;
+    /** Department HEAD for `employeeUser.userDepartment` when contract has no reviewer. */
+    departmentHeadUser?: any;
+    directManagerUser?: any;
     scorecardStatus?: string;
+    organisationName?: string;
+    organisationLogoUrl?: string | null;
   }) {
+    const appraiserFromContract = params.contract.reviewer
+      ? {
+          name: `${params.contract.reviewer.firstName} ${params.contract.reviewer.lastName}`,
+          title: params.contract.reviewer?.departmentRole || params.contract.reviewer?.role?.name || null
+        }
+      : null;
+    const appraiserFromDepartmentHead =
+      params.departmentHeadUser && !appraiserFromContract
+        ? {
+            name: `${params.departmentHeadUser.firstName} ${params.departmentHeadUser.lastName}`,
+            title:
+              params.departmentHeadUser?.departmentRole ||
+              params.departmentHeadUser?.role?.name ||
+              null
+          }
+        : null;
+    const appraiserFromLineManager =
+      params.directManagerUser && !appraiserFromContract && !appraiserFromDepartmentHead
+        ? {
+            name: `${params.directManagerUser.firstName} ${params.directManagerUser.lastName}`,
+            title: params.directManagerUser?.departmentRole || params.directManagerUser?.role?.name || null
+          }
+        : null;
+    const appraiser =
+      appraiserFromContract || appraiserFromDepartmentHead || appraiserFromLineManager;
+
     return {
       header: {
-        organisationName: "NVCCZ",
+        organisationName: resolveOrganisationDisplayName(params.organisationName ?? null),
+        organisationLogoUrl: params.organisationLogoUrl ?? null,
         documentTitle: "Individual Performance Scorecard",
         employeeName: `${params.employeeUser.firstName} ${params.employeeUser.lastName}`,
         jobTitle: params.employeeUser.departmentRole || params.employeeUser.role?.name || null,
         department: params.employeeUser.userDepartment,
-        appraiserName: params.contract.reviewer
-          ? `${params.contract.reviewer.firstName} ${params.contract.reviewer.lastName}`
-          : null,
-        appraiserTitle: params.contract.reviewer?.departmentRole || params.contract.reviewer?.role?.name || null,
+        appraiserName: appraiser?.name || null,
+        appraiserTitle: appraiser?.title || null,
         reviewPeriod: resolvePeriodLabel({
           periodLabel: params.period.periodLabel,
           periodStart: params.period.periodStart,
           periodEnd: params.period.periodEnd
-        })
+        }),
+        dateGenerated: params.generatedAt.toISOString()
       },
-      performanceMatrix: params.rows.map((row, index) => ({
-        index: index + 1,
-        goal: row.goalName,
-        kpiOrMeasure: row.kpiOrMeasure,
-        target: row.targetValue,
-        actual: row.isPendingApproval ? "Pending" : row.actualValue,
-        variance: row.targetValue > 0 ? round(row.actualValue - row.targetValue, 2) : null,
-        progressPct: row.isPendingApproval ? "Pending" : row.progressPct,
-        rawRating: row.isPendingApproval ? "Pending" : row.rawRating,
-        weight: row.originalWeight,
-        effectiveWeight: row.effectiveWeight,
-        weightedScore: row.isPendingApproval ? "Pending" : row.weightedScore
+      performanceMatrix: params.rows.map((row, index) => {
+        const pendingOrExcluded = row.isPendingApproval || row.excludedFromScoring;
+        const varianceStatus =
+          pendingOrExcluded || row.targetValue <= 0
+            ? null
+            : computeStatus({
+                actualValue: row.actualValue,
+                targetValue: row.targetValue,
+                allowableVariance: row.allowableVariance,
+                isReverseKpi: row.isReverseKpi
+              });
+        return {
+          index: index + 1,
+          goal: row.goalName,
+          kpiOrMeasure: row.kpiOrMeasure,
+          target: row.targetValue,
+          actual: row.isPendingApproval
+            ? "Pending Approval"
+            : row.excludedFromScoring
+              ? "Excluded"
+              : row.actualValue,
+          variance: row.targetValue > 0 ? round(row.actualValue - row.targetValue, 2) : null,
+          varianceStatus,
+          progressPct: row.isPendingApproval ? "Pending Approval" : row.excludedFromScoring ? "N/A" : row.progressPct,
+          rawRating: row.isPendingApproval ? "Pending Approval" : row.excludedFromScoring ? "N/A" : row.rawRating,
+          weight: row.originalWeight,
+          effectiveWeight: row.effectiveWeight,
+          weightedScore: row.isPendingApproval
+            ? "Pending Approval"
+            : row.excludedFromScoring
+              ? "N/A"
+              : row.weightedScore,
+          rowSeverity: this.employeeMatrixRowSeverity(row)
+        };
+      }),
+      taskSummary: params.rows.map((row) => ({
+        goalId: row.id,
+        goalName: row.goalName,
+        tasks: (row.linkedTasks || []).map((t: any) => ({
+          taskId: t.id,
+          taskName: t.title,
+          status: this.taskStageDisplayLabel(t.stage),
+          dueDate: t.date ? new Date(t.date).toISOString() : null,
+          completedDate:
+            normaliseTaskStage(t.stage) === "completed" && t.updatedAt
+              ? new Date(t.updatedAt).toISOString()
+              : null
+        }))
       })),
       subtotals: {
         resultsDeliveryScore: round(params.resultsDeliveryScore, 2),
         budgetPerformanceScore: params.budgetComponent.included ? params.budgetComponent.score : null,
-        finalScore: round(params.finalScore, 2)
+        finalScore: round(params.finalScore, 2),
+        performanceLabel: params.performanceLabel
       },
       qualitativeSections: {
-        personalAttributes: buildPersonalAttributes(params.contract.qualitativeTemplate),
+        personalAttributes: buildPersonalAttributesRatingGrid(params.contract.qualitativeTemplate),
         trainingAndDevelopment: buildTrainingSection(params.contract.qualitativeTemplate)
       },
       signatureBlock: {
@@ -395,9 +981,7 @@ export class PerformanceScorecardService {
           date: null
         },
         appraiser: {
-          name: params.contract.reviewer
-            ? `${params.contract.reviewer.firstName} ${params.contract.reviewer.lastName}`
-            : null,
+          name: appraiser?.name || null,
           signature: null,
           date: null
         }
@@ -406,20 +990,40 @@ export class PerformanceScorecardService {
     };
   }
 
+  private static departmentMatrixRowSeverity(row: any): string {
+    if (row.isPendingApproval) return "pending";
+    if (row.rawRating === 1) return "red";
+    if (row.rawRating === 3) return "amber";
+    if (row.rawRating === 4) return "green";
+    return "neutral";
+  }
+
   private static buildDepartmentDocument(params: {
+    departmentId?: string | null;
     departmentName: string;
     period: any;
     manager: any;
     rows: any[];
     rollupSummary: any[];
     departmentScore: number;
+    performanceLabel: string;
     status?: string;
+    organisationName?: string;
+    organisationLogoUrl?: string | null;
+    generatedAt?: Date;
   }) {
+    const generatedAt = params.generatedAt || new Date();
     return {
       header: {
-        organisationName: "NVCCZ",
+        organisationName: resolveOrganisationDisplayName(params.organisationName ?? null),
+        organisationLogoUrl: params.organisationLogoUrl ?? null,
         documentTitle: "Departmental Performance Scorecard",
+        departmentId: params.departmentId ?? null,
         departmentName: params.departmentName,
+        managerName: params.manager
+          ? `${params.manager.firstName} ${params.manager.lastName}`
+          : null,
+        managerTitle: params.manager?.departmentRole || params.manager?.role?.name || null,
         departmentManagerName: params.manager
           ? `${params.manager.firstName} ${params.manager.lastName}`
           : null,
@@ -428,27 +1032,73 @@ export class PerformanceScorecardService {
           periodLabel: params.period.periodLabel,
           periodStart: params.period.periodStart,
           periodEnd: params.period.periodEnd
-        })
+        }),
+        dateGenerated: generatedAt.toISOString()
       },
-      performanceMatrix: params.rows.map((row, index) => ({
-        index: index + 1,
-        goal: row.goalName,
-        kpi: row.kpiOrMeasure,
-        target: row.targetValue,
-        actualDirect: row.directActualValue,
-        rollupProgress: row.rollupProgressPct,
-        selectedProgress: row.selectedProgressPct,
-        variance: row.targetValue > 0 ? round(row.selectedActualValue - row.targetValue, 2) : null,
-        rawRating: row.rawRating,
-        weight: row.originalWeight,
-        effectiveWeight: row.effectiveWeight,
-        weightedScore: row.weightedScore
+      performanceMatrix: params.rows.map((row, index) => {
+        const pending = row.isPendingApproval;
+        const varianceNum =
+          pending || row.targetValue <= 0 ? null : round(row.selectedActualValue - row.targetValue, 2);
+        const varianceStatus =
+          pending || row.targetValue <= 0
+            ? null
+            : departmentMatrixVarianceStatus({
+                variance: row.selectedActualValue - row.targetValue,
+                targetValue: row.targetValue,
+                allowableVariance: row.allowableVariance,
+                isReverseKpi: row.isReverseKpi,
+                missingValue: Boolean(row.missingValue)
+              });
+        const varianceStatusNote =
+          !pending && row.targetValue > 0 && row.missingValue
+            ? "Status reflects missing performance data, not variance direction."
+            : null;
+        return {
+          index: index + 1,
+          goal: row.goalName,
+          kpiOrMeasure: row.kpiOrMeasure,
+          kpi: row.kpiOrMeasure,
+          target: row.targetValue,
+          actualDirect: pending ? "Pending Approval" : row.directActualValue,
+          rollupProgress: pending ? "Pending Approval" : row.rollupProgressPct,
+          selectedProgress: pending ? "Pending Approval" : row.selectedProgressPct,
+          selectedSource: pending ? "Pending Approval" : row.selectedSource,
+          variance: varianceNum,
+          varianceStatus,
+          varianceStatusNote,
+          rawRating: pending ? "Pending Approval" : row.rawRating,
+          weight: row.originalWeight,
+          effectiveWeight: row.effectiveWeight,
+          weightedScore: pending ? "Pending Approval" : row.weightedScore,
+          rowSeverity: this.departmentMatrixRowSeverity(row),
+          status: row.status
+        };
+      }),
+      rollupTable: params.rollupSummary.map((r) => ({
+        employeeName: r.employeeName,
+        finalScore: r.finalScore,
+        rollupWeight: r.rollupWeight,
+        weightedContribution: r.weightedContribution
       })),
       employeeRollupSummary: params.rollupSummary,
+      subtotals: {
+        departmentScore: round(params.departmentScore, 2),
+        performanceLabel: params.performanceLabel
+      },
       finalScore: round(params.departmentScore, 2),
+      qualitativeSections: {
+        personalAttributes: buildPersonalAttributesRatingGrid(params.period?.qualitativeTemplate),
+        trainingAndDevelopment: buildTrainingSection(params.period?.qualitativeTemplate)
+      },
       signatureBlock: {
         departmentManager: {
           name: params.manager ? `${params.manager.firstName} ${params.manager.lastName}` : null,
+          signature: null,
+          date: null
+        },
+        appraiser: {
+          name: null,
+          title: "CEO / HR Manager",
           signature: null,
           date: null
         },
@@ -466,7 +1116,7 @@ export class PerformanceScorecardService {
     const inputs = goal.activities && typeof goal.activities === "object"
       ? goal.activities
       : {};
-    const storedActual = toNumber(goal.preciseCurrentValue ?? goal.currentValue, 0);
+    const storedActual = resolveStoredGoalActual(goal).value;
 
     const formulaType = String(goal.formulaType || "").toUpperCase();
 
@@ -546,6 +1196,622 @@ export class PerformanceScorecardService {
       default:
         return storedActual;
     }
+  }
+
+  /**
+   * CEO scorecard: compute indicator actual from `activities` / stored fields.
+   * Division by zero or missing required inputs => `{ value: 0, missingValue: true }` (spec Step 4/5).
+   */
+  private static extractCEOFormulaActual(goal: any): { value: number; missingValue: boolean } {
+    const inputs = goal.activities && typeof goal.activities === "object" ? goal.activities : {};
+    const storedResolved = resolveStoredGoalActual(goal);
+    const storedActual = storedResolved.value;
+    const raw = String(goal.formulaType || "direct").trim().replace(/-/g, "_").toUpperCase();
+
+    const miss = () => ({ value: 0, missingValue: true });
+    const ok = (v: number) => ({ value: round(toNumber(v, 0), 4), missingValue: false });
+
+    const type =
+      raw === "SURVIVAL_RATE"
+        ? "BUSINESS_SURVIVAL_RATE"
+        : raw === "GOVERNANCE_INDEX"
+          ? "CORPORATE_GOVERNANCE_INDEX"
+          : raw === "DISBURSEMENT_RATE"
+            ? "CAPITAL_DISBURSED"
+            : raw === "MOBILISATION_RATE" || raw === "MOBILIZATION_RATE"
+              ? "RESOURCES_MOBILISED"
+              : raw === "COMPOSITE"
+                ? "CHARTER_SCORE"
+                : raw === "ALLOCATION_COMPLIANCE"
+                  ? "STRATEGIC_ALLOCATION_COMPLIANCE"
+                  : raw === "COMPLIANCE_RATE"
+                    ? "CODE_OF_ETHICS_COMPLIANCE"
+                    : raw === "RETENTION_RATE"
+                      ? "STAFF_RETENTION"
+                      : raw === "DEBT_EQUITY_RATIO"
+                        ? "RATIO"
+                        : raw;
+
+    switch (type) {
+      case "DIRECT":
+      case "": {
+        const fromActs = toNumber(
+          inputs.efficiency_rating_pct ?? inputs.financial_sustainability_pct ?? inputs.total_income,
+          NaN
+        );
+        if (!storedResolved.hasExplicitStored && Number.isFinite(fromActs)) {
+          return ok(fromActs);
+        }
+        return ok(storedActual);
+      }
+      case "ROI":
+        if (!(toNumber(inputs.initialCost, 0) > 0)) return miss();
+        return ok(
+          ((toNumber(inputs.finalValue, 0) - toNumber(inputs.initialCost, 0)) / toNumber(inputs.initialCost, 1)) *
+            100
+        );
+      case "REVENUE_GROWTH": {
+        const prev = toNumber(inputs.previousRevenue ?? inputs.previous_revenue, 0);
+        if (prev <= 0) return miss();
+        return ok(
+          ((toNumber(inputs.currentRevenue ?? inputs.current_revenue, 0) - prev) / prev) * 100
+        );
+      }
+      case "RATIO": {
+        const eq = toNumber(inputs.totalShareholdersEquity ?? inputs.total_shareholders_equity, 0);
+        if (eq <= 0) return miss();
+        return ok(toNumber(inputs.totalLiabilities ?? inputs.total_liabilities, 0) / eq);
+      }
+      case "BUSINESS_SURVIVAL_RATE":
+        if (!(toNumber(inputs.totalFundedCompanies, 0) > 0)) return miss();
+        return ok(
+          (toNumber(inputs.activePortfolioCompanies, 0) / toNumber(inputs.totalFundedCompanies, 1)) * 100
+        );
+      case "CORPORATE_GOVERNANCE_INDEX": {
+        const totReq = toNumber(inputs.totalGovernanceRequirements ?? inputs.total_governance_requirements, 0);
+        const met = toNumber(inputs.complianceItemsMet ?? inputs.compliance_items_met, 0);
+        if (!(totReq > 0)) return miss();
+        return ok((met / totReq) * 100);
+      }
+      case "SURVEY_AVERAGE":
+      case "STAKEHOLDER_SATISFACTION_INDEX":
+      case "EMPLOYEE_SATISFACTION_INDEX":
+      case "CUSTOMER_SATISFACTION_INDEX": {
+        let avg: number;
+        if (Array.isArray(inputs.surveyScores) && inputs.surveyScores.length > 0) {
+          avg =
+            inputs.surveyScores.reduce((s: number, x: any) => s + toNumber(x, 0), 0) /
+            inputs.surveyScores.length;
+        } else {
+          avg = toNumber(inputs.averageSurveyScore, NaN);
+        }
+        if (!Number.isFinite(avg)) return miss();
+        return ok(avg * 100);
+      }
+      case "FUNDING_RATE":
+        if (!(toNumber(inputs.projectsApproved, 0) > 0)) return miss();
+        return ok(
+          (toNumber(inputs.projectsFunded, 0) / toNumber(inputs.projectsApproved, 1)) * 100
+        );
+      case "PROJECTS_FUNDED":
+        if (!(toNumber(inputs.targetProjects, 0) > 0)) return miss();
+        return ok(
+          (toNumber(inputs.projectsFunded, 0) / toNumber(inputs.targetProjects, 1)) * 100
+        );
+      case "CAPITAL_DISBURSED":
+        if (!(toNumber(inputs.budgetedCapital, 0) > 0)) return miss();
+        return ok(
+          (toNumber(inputs.capitalDisbursed, 0) / toNumber(inputs.budgetedCapital, 1)) * 100
+        );
+      case "RESOURCES_MOBILISED":
+      case "ALTERNATIVE_RESOURCES_MOBILISED":
+        if (!(toNumber(inputs.targetAmount, 0) > 0)) return miss();
+        return ok(
+          (toNumber(inputs.amountRaised, 0) / toNumber(inputs.targetAmount, 1)) * 100
+        );
+      case "CHARTER_SCORE":
+        return ok(
+          (
+            [
+              ["charterReviewed", 20],
+              ["charterDisplayed", 30],
+              ["charterAvailableOnline", 35],
+              ["charterLocalLanguages", 5],
+              ["customerAwareness", 10]
+            ] as const
+          ).reduce((sum, [key, w]) => sum + (toNumber(inputs[key], 0) * w) / 100, 0)
+        );
+      case "EASE_OF_DOING_BUSINESS":
+        if (!(toNumber(inputs.targetInnovations, 0) > 0)) return miss();
+        return ok(
+          (toNumber(inputs.innovationsCompleted, 0) / toNumber(inputs.targetInnovations, 1)) * 100
+        );
+      case "STRATEGIC_ALLOCATION_COMPLIANCE":
+        if (!(toNumber(inputs.totalBudget, 0) > 0)) return miss();
+        return ok(
+          (toNumber(inputs.budgetAlignedToPolicy ?? inputs.budget_aligned_to_plan, 0) /
+            toNumber(inputs.totalBudget, 1)) *
+            100
+        );
+      case "COUNT_VS_TARGET": {
+        const meta =
+          inputs.metadata && typeof inputs.metadata === "object" && !Array.isArray(inputs.metadata)
+            ? inputs.metadata
+            : {};
+        const num = toNumber(
+          inputs.completedCount ??
+            inputs.evaluated_levels ??
+            inputs.contracts_signed ??
+            inputs.reviews_completed ??
+            inputs.reportsSubmitted ??
+            inputs.reports_submitted ??
+            inputs.reportsProduced ??
+            inputs.reports_produced ??
+            inputs.policiesApproved ??
+            inputs.policies_approved ??
+            inputs.policiesSubmitted ??
+            inputs.policies_submitted ??
+            inputs.achieved_KPIs ??
+            inputs.achieved_kpis ??
+            inputs.projectsFunded ??
+            inputs.projects_commissioned ??
+            inputs.assetsDisposed ??
+            inputs.assets_disposed ??
+            inputs.itInitiativesCompleted ??
+            inputs.it_initiatives_completed ??
+            inputs.innovationsCompleted ??
+            inputs.measuresImplemented,
+          NaN
+        );
+        const den = toNumber(
+          inputs.targetCount ??
+            inputs.total_levels ??
+            inputs.contracts_planned ??
+            inputs.contracts_target ??
+            inputs.reviews_planned ??
+            inputs.reportsPlanned ??
+            inputs.reports_planned ??
+            inputs.reportsTarget ??
+            inputs.reports_target ??
+            inputs.policies_target ??
+            inputs.planned_KPIs ??
+            inputs.planned_kpis ??
+            inputs.targetProjects ??
+            inputs.target_projects ??
+            meta.targetProjects ??
+            inputs.assets_planned_for_disposal ??
+            inputs.it_initiatives_planned ??
+            inputs.targetInnovations ??
+            inputs.targetMeasures ??
+            inputs.targetInitiatives,
+          NaN
+        );
+        if (!Number.isFinite(den) || den <= 0 || !Number.isFinite(num)) return miss();
+        return ok((num / den) * 100);
+      }
+      case "INTERNAL_PROCESS_EFFICIENCY":
+      case "E_GOVERNMENT_FLAGSHIPS":
+      case "PROJECTS_COMMISSIONED":
+      case "STATUTORY_REPORTS":
+      case "POLICIES_FORMULATED":
+      case "MONITORING_REPORTS":
+      case "PERFORMANCE_LEVELS_EVALUATED":
+      case "PERFORMANCE_CONTRACTS_SIGNED":
+      case "STRATEGIC_PLANNING_REVIEWS":
+      case "POLICIES_SUBMITTED_TO_MINISTER":
+      case "DISPOSAL_OF_IDLE_ASSETS":
+      case "NDS2_PROGRAMME_ACHIEVEMENT": {
+        const tc = toNumber(
+          inputs.targetCount ??
+            inputs.total_levels ??
+            inputs.contracts_planned ??
+            inputs.contracts_target ??
+            inputs.reviews_planned ??
+            inputs.reports_planned ??
+            inputs.reports_target ??
+            inputs.policies_target ??
+            inputs.planned_KPIs ??
+            inputs.planned_kpis ??
+            inputs.target_projects ??
+            inputs.assets_planned_for_disposal ??
+            inputs.it_initiatives_planned,
+          0
+        );
+        const cc = toNumber(
+          inputs.completedCount ??
+            inputs.evaluated_levels ??
+            inputs.contracts_signed ??
+            inputs.reviews_completed ??
+            inputs.reports_submitted ??
+            inputs.reports_produced ??
+            inputs.policies_approved ??
+            inputs.policies_submitted ??
+            inputs.achieved_KPIs ??
+            inputs.achieved_kpis ??
+            inputs.projects_commissioned ??
+            inputs.assets_disposed ??
+            inputs.it_initiatives_completed,
+          0
+        );
+        if (!(tc > 0)) return miss();
+        return ok((cc / tc) * 100);
+      }
+      case "STAFF_RETENTION": {
+        const ts = toNumber(inputs.totalStaff ?? inputs.total_staff, 0);
+        const rs = toNumber(inputs.retainedStaff ?? inputs.retained_staff, 0);
+        if (!(ts > 0)) return miss();
+        return ok((rs / ts) * 100);
+      }
+      case "CODE_OF_ETHICS_COMPLIANCE": {
+        const denom = toNumber(
+          inputs.totalEmployees ?? inputs.total_employees ?? inputs.SOPs_planned ?? inputs.sops_planned,
+          0
+        );
+        const numer = toNumber(
+          inputs.compliantEmployees ??
+            inputs.compliant_employees ??
+            inputs.SOPs_implemented ??
+            inputs.sops_implemented,
+          0
+        );
+        if (!(denom > 0)) return miss();
+        return ok((numer / denom) * 100);
+      }
+      default:
+        return ok(storedActual);
+    }
+  }
+
+  private static ceoIndicatorRowSeverity(row: any): string {
+    if (row.isPendingApproval) return "pending";
+    if (row.excludedFromScoring) return "excluded";
+    const r = row.rawRating;
+    if (r === 1) return "red";
+    if (r === 2 || r === 3) return "amber";
+    if (r === 4) return "green";
+    return "amber";
+  }
+
+  private static buildCEOSectionRows(goals: any[], contract: any, warningsOut: string[]) {
+    const sectionOrder = ["A1", "A2", "B", "C", "D"];
+    const countBySection: Record<string, number> = {};
+    for (const g of goals) {
+      const k = g.scorecardSection || "UNASSIGNED";
+      countBySection[k] = (countBySection[k] || 0) + 1;
+    }
+
+    const base = goals.map((goal) => {
+      const section = goal.scorecardSection || "UNASSIGNED";
+      const n = countBySection[section] || 1;
+      const fallbackWeight = 100 / n;
+      const { value: computedActual, missingValue: formulaMissing } = this.extractCEOFormulaActual(goal);
+      const isPending = Boolean(goal.isPendingApproval);
+      const excludedFromScoring = isPending || formulaMissing;
+      const targetValue = toNumber(goal.preciseTargetValue ?? goal.targetValue, 0);
+      const stretchTargetValue = parseStretchTargetValueFromActivities(goal.activities);
+      const weight = resolveWeight(goal.scorecardWeight, fallbackWeight);
+      const unit = goal.targetUnit || goal.measureName || null;
+
+      let rawRating: number | null = null;
+      if (!excludedFromScoring) {
+        rawRating = computeRawRating({
+          actualValue: computedActual,
+          targetValue,
+          allowableVariance: goal.allowableVariance,
+          isReverseKpi: goal.isReverseKpi
+        });
+      }
+
+      const progress = excludedFromScoring
+        ? { progressPct: null as number | null }
+        : computeGoalProgress({
+            actualValue: computedActual,
+            targetValue,
+            isReverseKpi: goal.isReverseKpi,
+            stretchScoringEnabled: contract?.stretchScoringEnabled,
+            stretchTargetValue
+          });
+
+      return {
+        id: goal.id,
+        section,
+        indicatorName: goal.title,
+        formulaType: goal.formulaType || "direct",
+        unit,
+        targetValue,
+        stretchTargetValue,
+        computedActual: round(computedActual, 4),
+        allowableVariance: toNumber(goal.allowableVariance, 0.1),
+        isReverseKpi: Boolean(goal.isReverseKpi),
+        isPendingApproval: isPending,
+        excludedFromScoring,
+        missingValue: formulaMissing && !isPending,
+        originalWeight: round(weight, 4),
+        weight,
+        rawRating,
+        progressPct: progress.progressPct,
+        effectiveWeight: 0,
+        weightedScore: 0,
+        goal
+      };
+    });
+
+    for (const key of sectionOrder) {
+      const rowsInSec = base.filter((r) => r.section === key);
+      if (!rowsInSec.length) continue;
+      const sumW = rowsInSec.reduce((s, r) => s + toNumber(r.weight, 0), 0);
+      if (Math.abs(sumW - 100) > 0.01) {
+        warningsOut.push(
+          `Section ${key} (${CEO_SECTION_LABELS[key] || key}) indicator weights sum to ${round(sumW, 2)}, not 100.`
+        );
+      }
+      const active = rowsInSec.filter((r) => !r.excludedFromScoring);
+      if (active.length === 0 && rowsInSec.length > 0) {
+        warningsOut.push(
+          `All indicators in section ${key} (${CEO_SECTION_LABELS[key] || key}) are excluded or missing; section score is 0.`
+        );
+      }
+      const totalActiveW = active.reduce((s, r) => s + toNumber(r.weight, 0), 0);
+      for (const r of base) {
+        if (r.section !== key) continue;
+        if (r.excludedFromScoring) {
+          r.effectiveWeight = 0;
+          r.weightedScore = 0;
+        } else {
+          const eff = totalActiveW > 0 ? (toNumber(r.weight, 0) / totalActiveW) * 100 : 0;
+          r.effectiveWeight = round(eff, 4);
+          r.weightedScore =
+            r.rawRating != null ? round((r.effectiveWeight * r.rawRating) / 100, 4) : 0;
+        }
+      }
+    }
+
+    for (const r of base) {
+      if (!sectionOrder.includes(r.section)) {
+        warningsOut.push(
+          `Indicator "${r.indicatorName}" is in unknown section "${r.section}" and is omitted from fixed section totals.`
+        );
+      }
+    }
+
+    return base;
+  }
+
+  private static summariseCEOSectionScores(
+    flatRows: any[],
+    sectionWeights: Record<string, number>,
+    opts?: {
+      sectionBlendMode?: "penalise" | "redistribute";
+      warningsOut?: string[];
+      sectionLabels?: Record<string, string>;
+    }
+  ) {
+    const blendMode = opts?.sectionBlendMode ?? "redistribute";
+    const warningsOut = opts?.warningsOut;
+    const sectionLabels = opts?.sectionLabels ?? CEO_SECTION_LABELS;
+
+    const keys = Object.keys(sectionWeights);
+    const sections = keys.map((sectionKey) => {
+      const sectionRows = flatRows.filter((row) => row.section === sectionKey);
+      const activeW = sectionRows.reduce((sum, row) => sum + toNumber(row.effectiveWeight, 0), 0);
+      const totalWeightedScore = sectionRows.reduce(
+        (sum, row) => sum + toNumber(row.weightedScore, 0),
+        0
+      );
+      const sectionScore =
+        activeW > 0 ? round((totalWeightedScore * 100) / activeW, 4) : 0;
+      const scoreableCount = sectionRows.filter((r) => !r.excludedFromScoring).length;
+      return {
+        key: sectionKey,
+        label: sectionLabels[sectionKey] || sectionKey,
+        weight: sectionWeights[sectionKey] / 100,
+        weightPercent: sectionWeights[sectionKey],
+        sectionScore,
+        performanceLabel: ceoPerformanceLabelForSection(
+          sectionScore,
+          sectionRows.length,
+          scoreableCount
+        ),
+        indicators: sectionRows
+      };
+    });
+
+    let finalScore: number;
+    if (blendMode === "penalise") {
+      finalScore = round(
+        sections.reduce((sum, sec) => sum + (sectionWeights[sec.key] * sec.sectionScore) / 100, 0),
+        2
+      );
+    } else {
+      let totalBlendW = 0;
+      let weightedSum = 0;
+      for (const sec of sections) {
+        const scoreableCount = sec.indicators.filter((r: any) => !r.excludedFromScoring).length;
+        const w = toNumber(sectionWeights[sec.key], 0);
+        if (scoreableCount > 0) {
+          totalBlendW += w;
+          weightedSum += w * sec.sectionScore;
+        } else if (sec.indicators.length > 0 && warningsOut) {
+          warningsOut.push(
+            `Section ${sec.key} (${sectionLabels[sec.key] || sec.key}) has no scoreable indicators and has been excluded from the final score calculation; its weight (${round(w, 2)}%) was redistributed across remaining sections.`
+          );
+        }
+      }
+      finalScore = totalBlendW > 0 ? round(weightedSum / totalBlendW, 2) : 0;
+    }
+
+    return { sections, finalScore };
+  }
+
+  private static buildBoardSectionRows(goals: any[], contract: any, warningsOut: string[]) {
+    const sectionOrder = ["A1", "A2", "B", "C", "D"];
+    const countBySection: Record<string, number> = {};
+    for (const g of goals) {
+      const k = g.scorecardSection || "UNASSIGNED";
+      countBySection[k] = (countBySection[k] || 0) + 1;
+    }
+
+    const base = goals.map((goal) => {
+      const section = goal.scorecardSection || "UNASSIGNED";
+      const n = countBySection[section] || 1;
+      const fallbackWeight = 100 / n;
+      const { value: computedActual, missingValue: formulaMissing } = this.extractCEOFormulaActual(goal);
+      const isPending = Boolean(goal.isPendingApproval);
+      const excludedFromScoring = isPending || formulaMissing;
+      const targetValue = toNumber(goal.preciseTargetValue ?? goal.targetValue, 0);
+      const stretchTargetValue = parseStretchTargetValueFromActivities(goal.activities);
+      const weight = resolveWeight(goal.scorecardWeight, fallbackWeight);
+      const unit = goal.targetUnit || goal.measureName || null;
+
+      let rawRating: number | null = null;
+      if (!excludedFromScoring) {
+        rawRating = computeRawRating({
+          actualValue: computedActual,
+          targetValue,
+          allowableVariance: goal.allowableVariance,
+          isReverseKpi: goal.isReverseKpi
+        });
+      }
+
+      const progress = excludedFromScoring
+        ? { progressPct: null as number | null }
+        : computeGoalProgress({
+            actualValue: computedActual,
+            targetValue,
+            isReverseKpi: goal.isReverseKpi,
+            stretchScoringEnabled: contract?.stretchScoringEnabled,
+            stretchTargetValue
+          });
+
+      return {
+        id: goal.id,
+        section,
+        indicatorName: goal.title,
+        formulaType: goal.formulaType || "direct",
+        unit,
+        targetValue,
+        stretchTargetValue,
+        computedActual: round(computedActual, 4),
+        allowableVariance: toNumber(goal.allowableVariance, 0.1),
+        isReverseKpi: Boolean(goal.isReverseKpi),
+        isPendingApproval: isPending,
+        excludedFromScoring,
+        missingValue: formulaMissing && !isPending,
+        originalWeight: round(weight, 4),
+        weight,
+        rawRating,
+        progressPct: progress.progressPct,
+        effectiveWeight: 0,
+        weightedScore: 0,
+        goal
+      };
+    });
+
+    for (const key of sectionOrder) {
+      const rowsInSec = base.filter((r) => r.section === key);
+      if (!rowsInSec.length) continue;
+      const sumW = rowsInSec.reduce((s, r) => s + toNumber(r.weight, 0), 0);
+      if (Math.abs(sumW - 100) > 0.01) {
+        warningsOut.push(
+          `Section ${key} (${BOARD_SECTION_LABELS[key] || key}) indicator weights sum to ${round(sumW, 2)}, not 100.`
+        );
+      }
+      const active = rowsInSec.filter((r) => !r.excludedFromScoring);
+      if (active.length === 0 && rowsInSec.length > 0) {
+        warningsOut.push(
+          `All indicators in section ${key} (${BOARD_SECTION_LABELS[key] || key}) are excluded or missing; section score is 0.`
+        );
+      }
+      const totalActiveW = active.reduce((s, r) => s + toNumber(r.weight, 0), 0);
+      for (const r of base) {
+        if (r.section !== key) continue;
+        if (r.excludedFromScoring) {
+          r.effectiveWeight = 0;
+          r.weightedScore = 0;
+        } else {
+          const eff = totalActiveW > 0 ? (toNumber(r.weight, 0) / totalActiveW) * 100 : 0;
+          r.effectiveWeight = round(eff, 4);
+          r.weightedScore =
+            r.rawRating != null ? round((r.effectiveWeight * r.rawRating) / 100, 4) : 0;
+        }
+      }
+    }
+
+    for (const r of base) {
+      if (!sectionOrder.includes(r.section)) {
+        warningsOut.push(
+          `Indicator "${r.indicatorName}" is in unknown section "${r.section}" and is omitted from fixed section totals.`
+        );
+      }
+    }
+
+    return base;
+  }
+
+  private static summariseBoardSectionScores(
+    flatRows: any[],
+    sectionWeights: Record<string, number>,
+    opts?: {
+      sectionBlendMode?: "penalise" | "redistribute";
+      warningsOut?: string[];
+      sectionLabels?: Record<string, string>;
+    }
+  ) {
+    const blendMode = opts?.sectionBlendMode ?? "redistribute";
+    const warningsOut = opts?.warningsOut;
+    const sectionLabels = opts?.sectionLabels ?? BOARD_SECTION_LABELS;
+
+    const keys = Object.keys(sectionWeights);
+    const sections = keys.map((sectionKey) => {
+      const sectionRows = flatRows.filter((row) => row.section === sectionKey);
+      const activeW = sectionRows.reduce((sum, row) => sum + toNumber(row.effectiveWeight, 0), 0);
+      const totalWeightedScore = sectionRows.reduce(
+        (sum, row) => sum + toNumber(row.weightedScore, 0),
+        0
+      );
+      const sectionScore =
+        activeW > 0 ? round((totalWeightedScore * 100) / activeW, 4) : 0;
+      const scoreableCount = sectionRows.filter((r) => !r.excludedFromScoring).length;
+      return {
+        key: sectionKey,
+        label: sectionLabels[sectionKey] || sectionKey,
+        weight: sectionWeights[sectionKey] / 100,
+        weightPercent: sectionWeights[sectionKey],
+        sectionScore,
+        performanceLabel: ceoPerformanceLabelForSection(
+          sectionScore,
+          sectionRows.length,
+          scoreableCount
+        ),
+        indicators: sectionRows
+      };
+    });
+
+    let finalScore: number;
+    if (blendMode === "penalise") {
+      finalScore = round(
+        sections.reduce((sum, sec) => sum + (sectionWeights[sec.key] * sec.sectionScore) / 100, 0),
+        2
+      );
+    } else {
+      let totalBlendW = 0;
+      let weightedSum = 0;
+      for (const sec of sections) {
+        const scoreableCount = sec.indicators.filter((r: any) => !r.excludedFromScoring).length;
+        const w = toNumber(sectionWeights[sec.key], 0);
+        if (scoreableCount > 0) {
+          totalBlendW += w;
+          weightedSum += w * sec.sectionScore;
+        } else if (sec.indicators.length > 0 && warningsOut) {
+          warningsOut.push(
+            `Section ${sec.key} (${sectionLabels[sec.key] || sec.key}) has no scoreable indicators and has been excluded from the final score calculation; its weight (${round(w, 2)}%) was redistributed across remaining sections.`
+          );
+        }
+      }
+      finalScore = totalBlendW > 0 ? round(weightedSum / totalBlendW, 2) : 0;
+    }
+
+    return { sections, finalScore };
   }
 
   private static buildSectionRows(goals: any[], contract: any) {
@@ -643,20 +1909,55 @@ export class PerformanceScorecardService {
     });
   }
 
-  private static async triggerUpwardRecalculation(goals: any[]) {
+  /** Walk `parentGoalId` chain to the top-level performance goal (no parent). */
+  private static async findPerformanceGoalRootId(startId: string): Promise<string | null> {
+    let current = await prisma.performanceGoal.findUnique({
+      where: { id: startId },
+      select: { id: true, parentGoalId: true }
+    });
+    if (!current) {
+      return null;
+    }
+    while (current.parentGoalId) {
+      const next = await prisma.performanceGoal.findUnique({
+        where: { id: current.parentGoalId },
+        select: { id: true, parentGoalId: true }
+      });
+      if (!next) {
+        break;
+      }
+      current = next;
+    }
+    return current.id;
+  }
+
+  /**
+   * Batches unique **company roots** then runs one bottom-up rollup per root (not once per
+   * department parent). Skips the heavy `calculateGoalRollup` read — same persisted goal updates
+   * as before, much faster when many department goals share one strategy tree.
+   */
+  private static async triggerUpwardRecalculation(goals: { parentGoalId?: string | null }[]) {
     const parentGoalIds = Array.from(
       new Set(
         goals
           .map((goal) => goal.parentGoalId)
           .filter(Boolean)
       )
-    );
+    ) as string[];
 
+    const rootIds = new Set<string>();
     for (const parentGoalId of parentGoalIds) {
+      const rootId = await this.findPerformanceGoalRootId(parentGoalId);
+      if (rootId) {
+        rootIds.add(rootId);
+      }
+    }
+
+    for (const rootId of rootIds) {
       try {
-        await RollupCalculationService.recalculateAllRollups(parentGoalId);
+        await RollupCalculationService.syncEntireGoalHierarchyFromRoot(rootId);
       } catch (error) {
-        console.error(`Failed to recalculate rollups for ${parentGoalId}:`, error);
+        console.error(`Failed to recalculate rollups for root ${rootId}:`, error);
       }
     }
   }
@@ -670,27 +1971,196 @@ export class PerformanceScorecardService {
     persist?: boolean;
     meta?: any;
   }) {
-    const { employeeUser, employeeRecord, contract, period, goals } = await this.resolveEmployeeContext(
-      params.employeeUserId,
-      params
-    );
+    const periodInput = this.buildPeriod(params);
+    const contractPeriodWhere = this.buildContractPeriodWhere(periodInput);
+    const goalPeriodWhere = this.buildPeriodWhere(periodInput);
+
+    const [employeeUser, contract, goals, branding] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: params.employeeUserId },
+        include: { role: true, employee: true }
+      }),
+      prisma.performanceContract.findFirst({
+        where: {
+          contractType: "EMPLOYEE",
+          subjectUserId: params.employeeUserId,
+          ...contractPeriodWhere,
+          status: { notIn: ["ARCHIVED", "CANCELLED"] }
+        },
+        select: {
+          id: true,
+          title: true,
+          periodLabel: true,
+          periodStart: true,
+          periodEnd: true,
+          stretchScoringEnabled: true,
+          allocatedBudget: true,
+          actualSpend: true,
+          qualitativeTemplate: true,
+          reviewer: {
+            select: { id: true, firstName: true, lastName: true, departmentRole: true, role: { select: { name: true } } }
+          }
+        },
+        orderBy: { updatedAt: "desc" }
+      }),
+      prisma.performanceGoal.findMany({
+        where: {
+          assignedToId: params.employeeUserId,
+          type: "individual",
+          ...goalPeriodWhere
+        },
+        include: {
+          kpi: true,
+          parentGoal: {
+            select: { id: true, title: true, departmentName: true, scorecardPillar: true, parentGoalId: true }
+          }
+        },
+        orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }]
+      }),
+      getCachedBranding()
+    ]);
+
+    const companyProfile = branding.profile;
+    const activeLetterhead = branding.letterhead;
+
+    if (!employeeUser) {
+      throw new Error("Employee not found");
+    }
+    if (!contract) {
+      throw new Error("No active performance contract found for this employee in the selected period.");
+    }
+
+    const employeeRecord = employeeUser.employee;
+    const period = {
+      periodStart: contract.periodStart,
+      periodEnd: contract.periodEnd,
+      periodLabel: contract.periodLabel
+    };
 
     await this.assertEmployeeAccess(params.viewer, employeeUser, employeeRecord, params.persist ? "generate" : "view", params.meta);
 
-    const rows = this.buildGoalRows(goals, {
-      stretchScoringEnabled: contract.stretchScoringEnabled
+    const dept = String(employeeUser.userDepartment || "").trim();
+    const goalIds = goals.map((g) => g.id);
+    const needsFallbackAppraiser = !contract.reviewer;
+
+    const phase2Queries: Promise<any>[] = [
+      goalIds.length > 0
+        ? prisma.task.findMany({
+            where: { goalId: { in: goalIds }, isTrashed: false },
+            select: { id: true, title: true, stage: true, status: true, date: true, updatedAt: true, goalId: true }
+          })
+        : Promise.resolve([]),
+      needsFallbackAppraiser && dept
+        ? prisma.user.findFirst({
+            where: {
+              departmentRole: "HEAD",
+              userDepartment: dept,
+              id: { not: employeeUser.id }
+            },
+            select: { id: true, firstName: true, lastName: true, departmentRole: true, role: { select: { name: true } } }
+          })
+        : Promise.resolve(null),
+      needsFallbackAppraiser && employeeRecord?.lineManagerUserId
+        ? prisma.user.findUnique({
+            where: { id: employeeRecord.lineManagerUserId },
+            select: { id: true, firstName: true, lastName: true, departmentRole: true, role: { select: { name: true } } }
+          })
+        : Promise.resolve(null)
+    ];
+    if (params.persist) {
+      phase2Queries.push(
+        prisma.performanceScorecard.findFirst({
+          where: {
+            scorecardType: "EMPLOYEE",
+            subjectUserId: employeeUser.id,
+            periodStart: period.periodStart,
+            periodEnd: period.periodEnd,
+            isLocked: false,
+            status: "DRAFT"
+          },
+          select: { id: true },
+          orderBy: { updatedAt: "desc" }
+        })
+      );
+    }
+
+    const [tasksByGoalIdRaw, departmentHeadUser, directManagerUser, existingScorecardResult] = await Promise.all(phase2Queries);
+
+    const tasksByGoalId = new Map<string, any[]>();
+    for (const t of tasksByGoalIdRaw) {
+      if (!t.goalId) continue;
+      const list = tasksByGoalId.get(t.goalId) || [];
+      list.push(t);
+      tasksByGoalId.set(t.goalId, list);
+    }
+
+    assertIndividualGoalWeightsSum100(goals);
+
+    if (goals.length > 0 && goals.every((g) => Boolean(g.isPendingApproval))) {
+      throw new Error("No scoreable goals available.");
+    }
+
+    const warnings: string[] = [];
+
+    const rows = this.buildEmployeeIndividualGoalRows(goals, {
+      stretchScoringEnabled: contract.stretchScoringEnabled,
+      tasksByGoalId,
+      warnings
     });
-    const resultsSummary = this.summariseEmployeeRows(rows);
+
+    const activeScoringRows = rows.filter((r) => !r.isPendingApproval && !r.excludedFromScoring);
+    if (activeScoringRows.length === 0) {
+      throw new Error("No scoreable goals available.");
+    }
+
+    if (!activeScoringRows.some((r) => r.hasRecordedPerformance)) {
+      throw new Error("No performance data recorded for this employee in this period.");
+    }
+
+    const resultsSummary = summariseEmployeeResultsDelivery(rows);
+    if (resultsSummary.pendingApprovalCount > 0) {
+      warnings.push(
+        `${resultsSummary.pendingApprovalCount} goal(s) are pending approval and were excluded from scoring.`
+      );
+    }
+
+    const periodEndDate = new Date(period.periodEnd);
+    if (periodEndDate.getTime() > Date.now()) {
+      warnings.push("This period has not ended. Scorecard reflects performance to date only.");
+    }
+
+    if (!contract.reviewer) {
+      if (!departmentHeadUser && !directManagerUser) {
+        warnings.push(
+          "No contract reviewer is assigned, and no department HEAD (for this employee's department) or line manager was found. The scorecard cannot be finalised until an appraiser is assigned."
+        );
+      } else {
+        warnings.push(
+          "No contract reviewer is assigned on this performance contract. The document shows the department HEAD or line manager as appraiser for this draft only; assign a reviewer on the contract before finalisation."
+        );
+      }
+    }
+
+    const addressLogo =
+      activeLetterhead?.logoUrl && String(activeLetterhead.logoUrl).trim()
+        ? String(activeLetterhead.logoUrl).trim()
+        : null;
+    const organisationLogoUrl = addressLogo ?? companyProfile?.logoUrl ?? null;
+    const organisationName = resolveOrganisationDisplayName(companyProfile?.legalName);
+
+    if (!organisationLogoUrl) {
+      warnings.push(
+        "No letterhead logo is set on the active company address (Company Profile → Addresses) or on the company profile. The document is generated without letterhead logo."
+      );
+    }
+
     const budgetComponent = this.buildBudgetComponent(contract);
     const resultsDeliveryScore = resultsSummary.resultsDeliveryScore;
     const finalScore = budgetComponent.included
       ? round(resultsDeliveryScore * 0.9 + toNumber(budgetComponent.score, 0) * 0.1, 2)
       : round(resultsDeliveryScore, 2);
 
-    const warnings = [];
-    if (resultsSummary.pendingApprovalCount > 0) {
-      warnings.push(`${resultsSummary.pendingApprovalCount} goal(s) are pending approval and were excluded from scoring.`);
-    }
+    const performanceLabel = performanceLabelFromScore(finalScore);
 
     const documentPayload = this.buildEmployeeDocument({
       employeeUser,
@@ -700,59 +2170,79 @@ export class PerformanceScorecardService {
       resultsDeliveryScore,
       budgetComponent,
       finalScore,
-      scorecardStatus: "DRAFT"
+      performanceLabel,
+      generatedAt: new Date(),
+      departmentHeadUser,
+      directManagerUser,
+      scorecardStatus: "DRAFT",
+      organisationName,
+      organisationLogoUrl
     });
 
     let scorecardRecord = null;
     if (params.persist) {
-      scorecardRecord = await this.upsertDraftScorecard({
+      const pLabel = resolvePeriodLabel({
+        periodLabel: period.periodLabel,
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd
+      });
+      const coreData: any = {
         contractId: contract.id,
         scorecardType: "EMPLOYEE",
         status: "DRAFT",
         subjectUserId: employeeUser.id,
         generatedById: params.viewer.id,
-        periodLabel: resolvePeriodLabel({
-          periodLabel: period.periodLabel,
-          periodStart: period.periodStart,
-          periodEnd: period.periodEnd
-        }),
+        periodLabel: pLabel,
         periodStart: period.periodStart,
         periodEnd: period.periodEnd,
         resultsDeliveryScore: decimalForStorage(resultsDeliveryScore),
         budgetScore: decimalForStorage(budgetComponent.score),
         finalScore: decimalForStorage(finalScore),
         warnings,
-        sections: {
-          resultsDeliveryScore,
-          budgetComponent
-        },
-        matrixRows: rows,
+        sections: { resultsDeliveryScore, budgetComponent },
+        matrixRows: rows.map(({ linkedTasks: _lt, sourceGoal: _sg, ...row }) => row),
         qualitativeSections: documentPayload.qualitativeSections,
         signatureState: documentPayload.signatureBlock,
         documentPayload
-      });
+      };
 
-      await AuditService.log({
-        userId: params.viewer.id,
-        action: "GENERATE",
-        entityType: "PerformanceScorecard",
-        entityId: scorecardRecord.id,
-        newValues: {
-          type: "EMPLOYEE",
-          subjectUserId: employeeUser.id,
-          finalScore
-        },
-        ...getRequestMetadata(params.meta)
-      });
+      scorecardRecord = existingScorecardResult
+        ? await prisma.performanceScorecard.update({ where: { id: existingScorecardResult.id }, data: coreData })
+        : await prisma.performanceScorecard.create({ data: coreData });
 
-      await this.triggerUpwardRecalculation(goals);
+      const rollupGoals = goals.map((g) => ({ parentGoalId: g.parentGoalId }));
+
+      setImmediate(() => {
+        void Promise.all([
+          AuditService.log({
+            userId: params.viewer.id,
+            action: "GENERATE" as const,
+            entityType: "PerformanceScorecard",
+            entityId: scorecardRecord!.id,
+            newValues: { type: "EMPLOYEE", subjectUserId: employeeUser.id, finalScore },
+            ...getRequestMetadata(params.meta)
+          }).catch((err) =>
+            console.error("Audit log (employee scorecard generate) failed:", err)
+          ),
+          PerformanceScorecardService.triggerUpwardRecalculation(rollupGoals).catch((err) =>
+            console.error("Background employee goal rollup failed:", err)
+          )
+        ]);
+      });
     }
+
+    const lineManagerId = employeeRecord?.lineManagerUserId || null;
+    const isLineManager = Boolean(lineManagerId && params.viewer.id === lineManagerId);
+    const hr = isHRLeader(params.viewer);
+    const ceo = isCEO(params.viewer);
+    const admin = isAdminViewer(params.viewer);
+    const isSelf = params.viewer.id === employeeUser.id;
 
     return {
       scorecardType: "EMPLOYEE",
       access: {
-        canView: true,
-        canGenerate: params.viewer.id === employeeRecord?.lineManagerUserId || isCEO(params.viewer) || isHRLeader(params.viewer)
+        canView: Boolean(isSelf || isLineManager || hr || ceo || admin),
+        canGenerate: Boolean(isLineManager || hr || ceo || admin)
       },
       employee: {
         id: employeeUser.id,
@@ -778,95 +2268,149 @@ export class PerformanceScorecardService {
           : null
       },
       warnings,
-      goals: rows,
+      goals: rows.map(({ linkedTasks, sourceGoal, ...rest }) => rest),
       scores: {
         resultsDeliveryScore: round(resultsDeliveryScore, 2),
         budgetScore: budgetComponent.score,
-        finalScore
+        finalScore,
+        performanceLabel
       },
       document: documentPayload,
       savedRecord: scorecardRecord
     };
   }
 
+  static async resolveDepartmentForScorecard(input: { departmentId?: string; departmentName?: string }) {
+    if (input.departmentId) {
+      const d = await prisma.department.findUnique({
+        where: { id: input.departmentId },
+        select: { id: true, name: true, isActive: true }
+      });
+      if (!d || !d.isActive) {
+        throw new Error("Department not found.");
+      }
+      return { id: d.id, name: d.name };
+    }
+    const name = String(input.departmentName || "").trim();
+    if (!name) {
+      throw new Error("departmentId or department name is required.");
+    }
+    const d = await prisma.department.findFirst({
+      where: { name, isActive: true },
+      select: { id: true, name: true }
+    });
+    if (d) return { id: d.id, name: d.name };
+    return { id: null, name };
+  }
+
+  private static async assertNoFinalDepartmentScorecard(
+    departmentName: string,
+    periodStart: Date,
+    periodEnd: Date
+  ) {
+    const existing = await prisma.performanceScorecard.findFirst({
+      where: {
+        scorecardType: "DEPARTMENT",
+        departmentName,
+        periodStart,
+        periodEnd,
+        OR: [{ status: "FINAL" }, { isLocked: true }]
+      }
+    });
+    if (existing) {
+      throw new Error("A finalised scorecard already exists for this department and period.");
+    }
+  }
+
   static async getDepartmentScorecard(params: {
     viewer: any;
-    departmentName: string;
+    departmentName?: string;
+    departmentId?: string;
     periodStart?: string;
     periodEnd?: string;
     periodLabel?: string;
     persist?: boolean;
     meta?: any;
   }) {
-    await this.assertDepartmentAccess(params.viewer, params.departmentName, params.persist ? "generate" : "view", params.meta);
+    const resolvedDept = await this.resolveDepartmentForScorecard({
+      departmentId: params.departmentId,
+      departmentName: params.departmentName
+    });
+    const departmentName = resolvedDept.name;
+
+    const accessFlags = await this.assertDepartmentAccess(
+      params.viewer,
+      departmentName,
+      params.persist ? "generate" : "view",
+      params.meta
+    );
 
     const period = this.buildPeriod(params);
-    const departmentContract = await this.resolveContract({
-      contractType: "DEPARTMENT",
-      departmentName: params.departmentName,
-      period
-    });
+    const periodWhere = this.buildPeriodWhere(period);
+    const contractPeriodWhere = this.buildContractPeriodWhere(period);
 
-    const departmentUsers = await prisma.user.findMany({
-      where: {
-        userDepartment: params.departmentName
-      },
-      include: {
-        role: true,
-        employee: true
-      }
-    });
-
-    const departmentManager = departmentUsers.find((user) => isDepartmentManager(user, params.departmentName)) || null;
-
-    const departmentGoals = await prisma.performanceGoal.findMany({
-      where: {
-        type: "department",
-        departmentName: params.departmentName,
-        OR: [
-          departmentContract ? { performanceContractId: departmentContract.id } : undefined,
-          this.buildPeriodWhere(period)
-        ].filter(Boolean)
-      },
-      include: {
-        kpi: true,
-        subGoals: {
-          include: {
-            assignedTo: {
-              include: {
-                role: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: [
-        { displayOrder: "asc" },
-        { createdAt: "asc" }
-      ]
-    });
-
-    const subjectUserIds = departmentUsers.map((user) => user.id);
-    const employeeScorecards = await prisma.performanceScorecard.findMany({
-      where: {
-        scorecardType: "EMPLOYEE",
-        subjectUserId: {
-          in: subjectUserIds
+    const [departmentContract, departmentUsers, employeeScorecards, departmentGoalsBase, branding] = await Promise.all([
+      prisma.performanceContract.findFirst({
+        where: {
+          contractType: "DEPARTMENT",
+          departmentName,
+          ...contractPeriodWhere,
+          status: { notIn: ["ARCHIVED", "CANCELLED"] }
         },
-        periodStart: period.periodStart,
-        periodEnd: period.periodEnd
-      },
-      include: {
-        subjectUser: {
-          include: {
-            role: true
+        select: {
+          id: true,
+          title: true,
+          periodLabel: true,
+          periodStart: true,
+          periodEnd: true,
+          stretchScoringEnabled: true,
+          qualitativeTemplate: true,
+          reviewer: {
+            select: { id: true, firstName: true, lastName: true }
           }
-        }
-      },
-      orderBy: {
-        updatedAt: "desc"
-      }
-    });
+        },
+        orderBy: { updatedAt: "desc" }
+      }),
+      prisma.user.findMany({
+        where: { userDepartment: departmentName },
+        include: { role: true, employee: true }
+      }),
+      prisma.performanceScorecard.findMany({
+        where: {
+          scorecardType: "EMPLOYEE",
+          periodStart: period.periodStart,
+          periodEnd: period.periodEnd,
+          subjectUser: { userDepartment: departmentName }
+        },
+        select: {
+          subjectUserId: true,
+          status: true,
+          finalScore: true,
+          updatedAt: true
+        },
+        orderBy: { updatedAt: "desc" }
+      }),
+      prisma.performanceGoal.findMany({
+        where: {
+          type: "department",
+          departmentName,
+          ...periodWhere
+        },
+        include: { kpi: true },
+        orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }]
+      }),
+      getCachedBranding()
+    ]);
+
+    const companyProfile = branding.profile;
+    const activeLetterhead = branding.letterhead;
+
+    if (!departmentContract) {
+      throw new Error("No active performance contract found for this department and period.");
+    }
+
+    const departmentManager =
+      departmentUsers.find((user) => isDepartmentManager(user, departmentName)) || null;
 
     const latestByEmployee = new Map<string, any>();
     for (const scorecard of employeeScorecards) {
@@ -874,32 +2418,115 @@ export class PerformanceScorecardService {
       latestByEmployee.set(scorecard.subjectUserId, scorecard);
     }
 
-    const draftEmployees = Array.from(latestByEmployee.values()).filter((scorecard) => scorecard.status === "DRAFT");
+    const finalScorecardByEmployee = new Map<string, any>();
+    for (const scorecard of employeeScorecards) {
+      if (scorecard.status !== "FINAL" || !scorecard.subjectUserId) continue;
+      const prev = finalScorecardByEmployee.get(scorecard.subjectUserId);
+      if (!prev || new Date(scorecard.updatedAt).getTime() > new Date(prev.updatedAt).getTime()) {
+        finalScorecardByEmployee.set(scorecard.subjectUserId, scorecard);
+      }
+    }
+
+    let departmentGoals: any[] = departmentGoalsBase;
+    if (finalScorecardByEmployee.size > 0) {
+      const goalIds = departmentGoalsBase.map((g: any) => g.id);
+      const subGoalsRaw = await prisma.performanceGoal.findMany({
+        where: { parentGoalId: { in: goalIds } },
+        include: { assignedTo: { select: { id: true, firstName: true, lastName: true } } }
+      });
+      const subGoalsByParent = new Map<string, any[]>();
+      for (const sg of subGoalsRaw) {
+        const arr = subGoalsByParent.get(sg.parentGoalId!) || [];
+        arr.push(sg);
+        subGoalsByParent.set(sg.parentGoalId!, arr);
+      }
+      departmentGoals = departmentGoalsBase.map((g: any) => ({
+        ...g,
+        subGoals: subGoalsByParent.get(g.id) || []
+      }));
+    }
+
+    if (departmentGoals.length > 0 && departmentGoals.every((g: any) => Boolean(g.isPendingApproval))) {
+      throw new Error("No scoreable goals available.");
+    }
+
+    const draftEmployees = Array.from(latestByEmployee.values()).filter((sc: any) => sc.status === "DRAFT");
+    const finalCount = finalScorecardByEmployee.size;
+    const subjectUserIds = departmentUsers.map((user) => user.id);
+
+    const warnings: string[] = [];
     const fallbackWeight = departmentGoals.length > 0 ? 100 / departmentGoals.length : 0;
+    const weightSum = departmentGoals.reduce(
+      (s, g) => s + resolveWeight(g.scorecardWeight, fallbackWeight),
+      0
+    );
+    if (departmentGoals.length > 0 && Math.abs(weightSum - 100) > 0.01) {
+      warnings.push(
+        `Department goal weights sum to ${round(weightSum, 2)}, not 100. Scores may be inaccurate.`
+      );
+    }
+
+    if (!departmentContract.reviewer) {
+      warnings.push(
+        "No appraiser (contract reviewer) is assigned on this department performance contract. The scorecard cannot be finalised until an appraiser is assigned."
+      );
+    }
+
+    if (draftEmployees.length > 0) {
+      warnings.push(
+        `${draftEmployees.length} employee scorecard(s) are not yet finalised and have been excluded from the roll-up. Department score may be incomplete.`
+      );
+    }
+
+    if (finalCount === 0 && subjectUserIds.length > 0) {
+      warnings.push(
+        "No finalised employee scorecards for this period; roll-up progress is 0 and only direct KPI values apply."
+      );
+    }
+
+    const periodEndDate = new Date(period.periodEnd);
+
     const goalRows = redistributeWeights(
       departmentGoals.map((goal) => {
-        const directActualValue = toNumber(goal.preciseCurrentValue ?? goal.currentValue, 0);
+        const stretchTargetValue = parseStretchTargetValueFromActivities(goal.activities);
+        const directStored = resolveStoredGoalActual(goal);
+        const directActualValue = directStored.value;
+        const missingValue = isEmployeeGoalStoredActualMissing(goal);
         const targetValue = toNumber(goal.preciseTargetValue ?? goal.targetValue, 0);
         const directProgress = computeGoalProgress({
           actualValue: directActualValue,
           targetValue,
           isReverseKpi: goal.isReverseKpi,
-          stretchScoringEnabled: departmentContract?.stretchScoringEnabled
+          stretchScoringEnabled: departmentContract.stretchScoringEnabled,
+          stretchTargetValue
         });
 
         const childGoals = goal.subGoals || [];
-        const childFallbackWeight = childGoals.length > 0 ? 100 / childGoals.length : 0;
-        const childContributions = childGoals.map((childGoal) => {
+        const eligibleChildren = childGoals.filter((cg) => {
+          if (!cg.assignedToId) return false;
+          const fin = finalScorecardByEmployee.get(cg.assignedToId);
+          return Boolean(fin);
+        });
+        const { weights: childRollupWeights, warnings: rollupWeightWarnings } =
+          resolveDepartmentRollupChildWeights(eligibleChildren, goal.title);
+        for (const rw of rollupWeightWarnings) {
+          warnings.push(rw);
+        }
+        const childContributions = eligibleChildren.map((childGoal, idx) => {
+          const childStretch = parseStretchTargetValueFromActivities(childGoal.activities);
           const childProgress = computeGoalProgress({
-            actualValue: toNumber(childGoal.currentValue, 0),
-            targetValue: toNumber(childGoal.targetValue, 0),
+            actualValue: resolveStoredGoalActual(childGoal).value,
+            targetValue: toNumber(childGoal.preciseTargetValue ?? childGoal.targetValue, 0),
             isReverseKpi: childGoal.isReverseKpi,
-            stretchScoringEnabled: departmentContract?.stretchScoringEnabled
+            stretchScoringEnabled: departmentContract.stretchScoringEnabled,
+            stretchTargetValue: childStretch
           });
-          const contributionWeight = getContributionWeight(childGoal, childFallbackWeight);
+          const contributionWeight = childRollupWeights[idx] ?? 0;
           return {
             employeeId: childGoal.assignedToId,
-            employeeName: childGoal.assignedTo ? `${childGoal.assignedTo.firstName} ${childGoal.assignedTo.lastName}` : "Unknown",
+            employeeName: childGoal.assignedTo
+              ? `${childGoal.assignedTo.firstName} ${childGoal.assignedTo.lastName}`
+              : "Unknown",
             progressPct: childProgress.progressPct,
             contributionWeight
           };
@@ -910,140 +2537,252 @@ export class PerformanceScorecardService {
           (sum, item) => sum + item.progressPct * item.contributionWeight,
           0
         );
-        const rollupProgressPct = totalContributionWeight > 0
-          ? round(weightedContributionTotal / totalContributionWeight, 2)
-          : 0;
+        const rollupProgressPct =
+          totalContributionWeight > 0
+            ? round(weightedContributionTotal / totalContributionWeight, 2)
+            : 0;
 
         const selectedProgressPct = Math.max(directProgress.progressPct, rollupProgressPct);
-        const selectedActualValue = directProgress.progressPct >= rollupProgressPct
-          ? directActualValue
-          : deriveActualFromProgress(targetValue, selectedProgressPct, goal.isReverseKpi);
-        const rawRating = computeRawRating({
-          actualValue: selectedActualValue,
-          targetValue,
-          allowableVariance: goal.allowableVariance,
-          isReverseKpi: goal.isReverseKpi
-        });
+        const selectedSource =
+          directProgress.progressPct >= rollupProgressPct ? "direct" : "rollup";
+        const selectedActualValue =
+          directProgress.progressPct >= rollupProgressPct
+            ? directActualValue
+            : deriveActualFromProgress(targetValue, selectedProgressPct, goal.isReverseKpi);
+        const isPending = Boolean(goal.isPendingApproval);
+        const rawRating = isPending
+          ? null
+          : computeRawRating({
+              actualValue: selectedActualValue,
+              targetValue,
+              allowableVariance: goal.allowableVariance,
+              isReverseKpi: goal.isReverseKpi
+            });
+
+        const status = isPending
+          ? "PENDING"
+          : departmentGoalRowStatus(selectedProgressPct, goal.allowableVariance, periodEndDate);
 
         return {
           id: goal.id,
           goalName: goal.title,
           kpiOrMeasure: goal.measureName || goal.kpi?.name || goal.title,
           targetValue,
-          stretchTargetValue: parseStretchTargetValueFromActivities(goal.activities),
+          stretchTargetValue,
           directActualValue,
           directProgressPct: directProgress.progressPct,
           rollupProgressPct,
           selectedProgressPct,
+          selectedSource,
           selectedActualValue,
           originalWeight: resolveWeight(goal.scorecardWeight, fallbackWeight),
           weight: resolveWeight(goal.scorecardWeight, fallbackWeight),
+          allowableVariance: toNumber(goal.allowableVariance, 0.1),
+          isReverseKpi: Boolean(goal.isReverseKpi),
           rawRating,
-          isPendingApproval: Boolean(goal.isPendingApproval),
+          isPendingApproval: isPending,
+          excludedFromScoring: isPending,
+          missingValue: isPending ? false : missingValue || directProgress.isMissing,
+          parentGoalId: goal.parentGoalId || null,
+          rollupWeight: (() => {
+            const act = goal.activities && typeof goal.activities === "object" ? goal.activities : {};
+            const w = toNumber(
+              act.contributionWeightPercent ?? act.rollupWeightPercent,
+              0
+            );
+            return w > 0 ? round(w, 4) : null;
+          })(),
+          status,
           childContributions
         };
       })
     ).map((row) => ({
       ...row,
-      weightedScore: round((row.effectiveWeight * row.rawRating) / 100, 4)
+      weightedScore: row.isPendingApproval
+        ? 0
+        : round((row.effectiveWeight * toNumber(row.rawRating, 0)) / 100, 4)
     }));
 
-    const activeGoalWeight = goalRows.filter((row) => !row.isPendingApproval).reduce((sum, row) => sum + row.effectiveWeight, 0);
-    const totalWeightedScore = goalRows.filter((row) => !row.isPendingApproval).reduce((sum, row) => sum + row.weightedScore, 0);
-    const departmentScore = activeGoalWeight > 0
-      ? round((totalWeightedScore / activeGoalWeight) * 100, 2) / 25
-      : 0;
+    const activeRows = goalRows.filter((row) => !row.isPendingApproval);
+    const activeGoalWeight = activeRows.reduce((sum, row) => sum + row.effectiveWeight, 0);
+    const totalWeightedScore = activeRows.reduce((sum, row) => sum + row.weightedScore, 0);
+    const departmentScore =
+      activeGoalWeight > 0 ? round((totalWeightedScore * 100) / activeGoalWeight, 2) : 0;
 
-    const limitedEmployeeVisibility = (isMonitoringAndEvaluationLeader(params.viewer) || isComplianceLeader(params.viewer))
-      && !isDepartmentManager(params.viewer, params.departmentName)
-      && !isHRLeader(params.viewer)
-      && !isCEO(params.viewer);
+    const performanceLabel = performanceLabelFromDepartmentScore(departmentScore);
+
+    const limitedEmployeeVisibility =
+      (isMonitoringAndEvaluationLeader(params.viewer) || isComplianceLeader(params.viewer)) &&
+      !isDepartmentManager(params.viewer, departmentName) &&
+      !isHRLeader(params.viewer) &&
+      !isCEO(params.viewer);
 
     const rollupSummary = departmentUsers.map((user, index) => {
       const childGoalWeights = goalRows.reduce((sum, row) => {
         const contribution = row.childContributions.find((item) => item.employeeId === user.id);
         return sum + (contribution?.contributionWeight || 0);
       }, 0);
-      const finalScorecard = latestByEmployee.get(user.id);
-      const finalScore = finalScorecard?.finalScore ? toNumber(finalScorecard.finalScore, 0) : null;
-      const weightedContribution = finalScore !== null
-        ? round((finalScore * childGoalWeights) / 100, 4)
-        : null;
+      const finalSc = finalScorecardByEmployee.get(user.id);
+      const finalScore =
+        finalSc?.finalScore != null ? toNumber(finalSc.finalScore, 0) : null;
+      const weightedContribution =
+        finalScore !== null ? round((finalScore * childGoalWeights) / 100, 4) : null;
 
-      return {
+        return {
         employeeId: user.id,
-        employeeName: limitedEmployeeVisibility ? `Employee ${index + 1}` : `${user.firstName} ${user.lastName}`,
+        employeeName: limitedEmployeeVisibility
+          ? `Employee ${index + 1}`
+          : `${user.firstName} ${user.lastName}`,
         finalScore,
-        contributionWeight: round(childGoalWeights, 4),
+        rollupWeight: round(childGoalWeights, 4),
         weightedContribution
       };
     });
 
-    const warnings = [];
-    if (draftEmployees.length > 0) {
-      warnings.push(`${draftEmployees.length} employee scorecard(s) are not yet finalised. Department score may be incomplete.`);
+    const addressLogo =
+      activeLetterhead?.logoUrl && String(activeLetterhead.logoUrl).trim()
+        ? String(activeLetterhead.logoUrl).trim()
+        : null;
+    const organisationLogoUrl = addressLogo ?? companyProfile?.logoUrl ?? null;
+    const organisationName = resolveOrganisationDisplayName(companyProfile?.legalName);
+
+    if (!organisationLogoUrl) {
+      warnings.push(
+        "No letterhead logo is set on the active company address (Company Profile → Addresses) or on the company profile. The document is generated without letterhead logo."
+      );
     }
 
+    const qualitativeSections = {
+      personalAttributes: buildPersonalAttributesRatingGrid(departmentContract.qualitativeTemplate),
+      trainingAndDevelopment: buildTrainingSection(departmentContract.qualitativeTemplate)
+    };
+
     const documentPayload = this.buildDepartmentDocument({
-      departmentName: params.departmentName,
-      period: departmentContract || period,
+      departmentId: resolvedDept.id,
+      departmentName,
+      period: departmentContract,
       manager: departmentManager,
       rows: goalRows,
       rollupSummary,
       departmentScore,
-      status: "DRAFT"
+      performanceLabel,
+      status: "DRAFT",
+      organisationName,
+      organisationLogoUrl,
+      generatedAt: new Date()
     });
+
+    const documentPayloadForStorage = { ...documentPayload };
+    delete documentPayloadForStorage.employeeRollupSummary;
 
     let scorecardRecord = null;
     if (params.persist) {
-      scorecardRecord = await this.upsertDraftScorecard({
-        contractId: departmentContract?.id || null,
-        scorecardType: "DEPARTMENT",
-        status: "DRAFT",
-        departmentName: params.departmentName,
+      const existingScorecard = await prisma.performanceScorecard.findFirst({
+        where: {
+          scorecardType: "DEPARTMENT",
+          departmentName,
+          periodStart: period.periodStart,
+          periodEnd: period.periodEnd
+        },
+        select: { id: true, status: true, isLocked: true },
+        orderBy: { updatedAt: "desc" }
+      });
+
+      if (existingScorecard?.status === "FINAL" || existingScorecard?.isLocked) {
+        throw new Error("A finalised scorecard already exists for this department and period.");
+      }
+
+      const upsertData = {
+        contractId: departmentContract.id,
+        scorecardType: "DEPARTMENT" as const,
+        status: "DRAFT" as const,
+        departmentName,
         generatedById: params.viewer.id,
         periodLabel: resolvePeriodLabel({
-          periodLabel: departmentContract?.periodLabel || params.periodLabel,
+          periodLabel: departmentContract.periodLabel || params.periodLabel,
           periodStart: period.periodStart,
           periodEnd: period.periodEnd
         }),
         periodStart: period.periodStart,
         periodEnd: period.periodEnd,
         finalScore: decimalForStorage(departmentScore),
+        resultsDeliveryScore: decimalForStorage(departmentScore),
         warnings,
         sections: {
-          departmentScore
+          departmentScore,
+          performanceLabel
         },
-        matrixRows: goalRows,
+        matrixRows: goalRows.map(({ childContributions: _cc, ...row }) => row),
         rollupSummary,
+        qualitativeSections,
         signatureState: documentPayload.signatureBlock,
-        documentPayload
-      });
+        documentPayload: documentPayloadForStorage
+      };
 
-      await AuditService.log({
+      scorecardRecord = existingScorecard
+        ? await prisma.performanceScorecard.update({ where: { id: existingScorecard.id }, data: upsertData })
+        : await prisma.performanceScorecard.create({ data: upsertData });
+
+      const rollupRefs = departmentGoals.map((g: any) => ({ parentGoalId: g.parentGoalId }));
+      const auditPayload = {
         userId: params.viewer.id,
-        action: "GENERATE",
+        action: "GENERATE" as const,
         entityType: "PerformanceScorecard",
         entityId: scorecardRecord.id,
         newValues: {
           type: "DEPARTMENT",
-          departmentName: params.departmentName,
+          departmentName,
           finalScore: departmentScore
         },
         ...getRequestMetadata(params.meta)
-      });
+      };
 
-      await this.triggerUpwardRecalculation(departmentGoals);
+      setImmediate(() => {
+        void Promise.all([
+          AuditService.log(auditPayload).catch((err) =>
+            console.error("Audit log (department scorecard generate) failed:", err)
+          ),
+          PerformanceScorecardService.triggerUpwardRecalculation(rollupRefs).catch((err) =>
+            console.error("Background department goal rollup failed:", err)
+          )
+        ]);
+      });
     }
 
     return {
       scorecardType: "DEPARTMENT",
-      department: params.departmentName,
+      access: accessFlags,
+      department: {
+        id: resolvedDept.id,
+        name: departmentName,
+        managerId: departmentManager?.id || null,
+        managerName: departmentManager
+          ? `${departmentManager.firstName} ${departmentManager.lastName}`
+          : null
+      },
+      contract: {
+        id: departmentContract.id,
+        title: departmentContract.title,
+        periodLabel: resolvePeriodLabel({
+          periodLabel: departmentContract.periodLabel,
+          periodStart: period.periodStart,
+          periodEnd: period.periodEnd
+        }),
+        stretchScoringEnabled: departmentContract.stretchScoringEnabled,
+        reviewer: departmentContract.reviewer
+          ? {
+              id: departmentContract.reviewer.id,
+              name: `${departmentContract.reviewer.firstName} ${departmentContract.reviewer.lastName}`
+            }
+          : null
+      },
       warnings,
       goals: goalRows,
+      rollupSummary,
       employeeRollupSummary: rollupSummary,
       scores: {
-        departmentScore
+        departmentScore,
+        performanceLabel
       },
       document: documentPayload,
       savedRecord: scorecardRecord
@@ -1057,16 +2796,23 @@ export class PerformanceScorecardService {
     periodLabel?: string;
     persist?: boolean;
     meta?: any;
+    /** Default `redistribute`: omit non-scoreable sections from the final blend and re-normalise weights. */
+    sectionBlendMode?: "penalise" | "redistribute";
   }) {
-    await this.assertCEOAccess(params.viewer, params.persist ? "generate" : "view", params.meta);
+    const access = await this.assertCEOAccess(
+      params.viewer,
+      params.persist ? "generate" : "view",
+      params.meta
+    );
 
-    const contract = await this.resolveContract({
-      contractType: "CEO",
-      period: this.buildPeriod(params)
-    });
+    const period = this.buildPeriod(params);
+    const [{ contract, resolutionNotes }, branding] = await Promise.all([
+      this.resolveCEOPerformanceContract(period),
+      getCachedBranding()
+    ]);
 
     if (!contract) {
-      throw new Error("No active CEO performance contract found for the selected period.");
+      throw new Error(CEO_CONTRACT_NOT_FOUND_MESSAGE);
     }
 
     const goals = await prisma.performanceGoal.findMany({
@@ -1080,58 +2826,223 @@ export class PerformanceScorecardService {
       ]
     });
 
-    const rows = this.buildSectionRows(goals, contract);
+    const warnings: string[] = [...resolutionNotes];
+    if (!contract.reviewer) {
+      warnings.push(
+        "No Board Chairperson assigned as reviewer on this contract. The scorecard cannot be finalised until a reviewer is assigned."
+      );
+    }
+    if (new Date(contract.periodEnd).getTime() > Date.now()) {
+      warnings.push("This period has not ended. Scorecard reflects performance to date only.");
+    }
+
+    if (params.persist && goals.length === 0) {
+      throw new Error(CEO_SAVE_NO_INDICATORS_MESSAGE);
+    }
+
+    const flatRows = this.buildCEOSectionRows(goals, contract, warnings);
     const sectionWeights = resolveSectionWeights(contract.sectionWeights, CEO_SECTION_WEIGHTS);
-    const sectionSummary = this.summariseSectionScores(rows, sectionWeights);
+    const sectionSummary = this.summariseCEOSectionScores(flatRows, sectionWeights, {
+      sectionBlendMode: params.sectionBlendMode,
+      warningsOut: warnings,
+      sectionLabels: CEO_SECTION_LABELS
+    });
     const budgetComponent = this.buildBudgetComponent(contract);
+    const sectionBlendScore = sectionSummary.finalScore;
     const finalScore = budgetComponent.included
-      ? round(sectionSummary.finalScore * 0.9 + toNumber(budgetComponent.score, 0) * 0.1, 2)
-      : sectionSummary.finalScore;
+      ? round(sectionBlendScore * 0.9 + toNumber(budgetComponent.score, 0) * 0.1, 2)
+      : sectionBlendScore;
+    const scoreableIndicatorCount = flatRows.filter((r) => !r.excludedFromScoring).length;
+    const performanceLabel = ceoPerformanceLabelOverall(
+      finalScore,
+      goals.length,
+      scoreableIndicatorCount
+    );
+
+    const stripGoal = (row: any) => {
+      const { goal: _g, ...rest } = row;
+      return rest;
+    };
+
+    const sectionsNested: Record<string, any> = {};
+    for (const s of sectionSummary.sections) {
+      sectionsNested[s.key] = {
+        label: s.label,
+        weight: s.weight,
+        sectionScore: s.sectionScore,
+        performanceLabel: s.performanceLabel,
+        indicators: s.indicators.map((ind: any) => stripGoal(ind))
+      };
+    }
+
+    const sectionScoresMap: Record<string, number> = {};
+    for (const s of sectionSummary.sections) {
+      sectionScoresMap[s.key] = s.sectionScore;
+    }
+
+    const agreedRatingsSummary = sectionSummary.sections.map((s) => ({
+      section: s.key,
+      heading: s.label,
+      sectionScore: s.sectionScore,
+      label: s.performanceLabel
+    }));
+    agreedRatingsSummary.push({
+      section: "TOTAL",
+      heading: "Final Score",
+      sectionScore: finalScore,
+      label: performanceLabel
+    });
+
+    const sectionOrder = ["A1", "A2", "B", "C", "D"];
+    const sectionTables: Record<string, any> = {};
+    for (const key of sectionOrder) {
+      const meta = sectionSummary.sections.find((x) => x.key === key);
+      const secRows = flatRows.filter((r) => r.section === key);
+      sectionTables[key] = {
+        sectionLabel: `${key} — ${CEO_SECTION_LABELS[key]} (${CEO_SECTION_WEIGHTS[key]}%)`,
+        rows: secRows.map((r, idx) => ({
+          index: idx + 1,
+          indicatorName: r.indicatorName,
+          formulaMeasure: r.formulaType,
+          unit: r.unit,
+          target: r.targetValue,
+          computedActual: r.computedActual,
+          allowableVariance: r.allowableVariance,
+          rawRating: r.rawRating,
+          weight: r.originalWeight,
+          effectiveWeight: r.effectiveWeight,
+          weightedScore: r.weightedScore,
+          rowSeverity: this.ceoIndicatorRowSeverity(r),
+          isPendingApproval: r.isPendingApproval,
+          excludedFromScoring: r.excludedFromScoring,
+          missingValue: r.missingValue
+        })),
+        sectionScore: meta?.sectionScore ?? 0,
+        performanceLabel:
+          meta?.performanceLabel ??
+          ceoPerformanceLabelForSection(
+            0,
+            secRows.length,
+            secRows.filter((r) => !r.excludedFromScoring).length
+          )
+      };
+    }
+
+    const addressLogo =
+      branding.letterhead?.logoUrl && String(branding.letterhead.logoUrl).trim()
+        ? String(branding.letterhead.logoUrl).trim()
+        : null;
+    const organisationLogoUrl = addressLogo ?? branding.profile?.logoUrl ?? null;
+    const organisationName = resolveOrganisationDisplayName(branding.profile?.legalName);
+
+    const reviewerUser = contract.reviewer || contract.approver;
+    const reviewerName = reviewerUser
+      ? `${reviewerUser.firstName} ${reviewerUser.lastName}`.trim()
+      : null;
+
+    const qualitativeSections = {
+      personalAttributes: buildPersonalAttributesRatingGrid(contract.qualitativeTemplate),
+      trainingAndDevelopment: buildTrainingSection(contract.qualitativeTemplate)
+    };
+
+    const ceoName = contract.subjectUser
+      ? `${contract.subjectUser.firstName} ${contract.subjectUser.lastName}`.trim()
+      : null;
+    const ceoTitle = CEO_SCORECARD_FORMAL_TITLE;
+    const contractParty2 = ceoName
+      ? `The Chief Executive Officer — ${ceoName}`
+      : `The Chief Executive Officer — ${chiefExecutiveOrganisationLine()}`;
 
     const documentPayload = {
       header: {
-        organisationName: "NVCCZ",
-        documentTitle: `CEO Performance Contract Review — ${contract.periodStart.getFullYear()}`,
-        contractParties: [
-          "Board of Directors",
-          contract.subjectUser ? `${contract.subjectUser.firstName} ${contract.subjectUser.lastName}` : "CEO"
-        ],
+        organisationName,
+        organisationLogoUrl,
+        governmentCrestUrl: null,
+        documentTitle: "CEO Performance Contract Review",
+        contractParty1: boardDirectorsWithOrganisationShort(),
+        contractParty2,
+        ceoName,
+        ceoTitle,
+        reviewerName,
+        reviewerTitle: "Board Chairperson",
         reviewPeriod: resolvePeriodLabel({
           periodLabel: contract.periodLabel,
           periodStart: contract.periodStart,
           periodEnd: contract.periodEnd
-        })
+        }),
+        dateGenerated: new Date().toISOString()
       },
-      sections: sectionSummary.sections,
-      agreedRatingsSummary: sectionSummary.sections.map((section) => ({
-        section: section.key,
-        rating: section.score
-      })),
-      qualitativeSections: {
-        personalAttributes: buildPersonalAttributes(contract.qualitativeTemplate),
-        trainingAndDevelopment: buildTrainingSection(contract.qualitativeTemplate)
-      },
+      sectionTables,
+      agreedRatingsSummary,
+      qualitativeSections,
       signatureBlock: {
         ceo: {
-          name: contract.subjectUser ? `${contract.subjectUser.firstName} ${contract.subjectUser.lastName}` : "CEO",
+          name: ceoName,
+          title: CEO_SCORECARD_FORMAL_TITLE,
           signature: null,
           date: null
         },
         boardChairperson: {
-          name: contract.approver ? `${contract.approver.firstName} ${contract.approver.lastName}` : "Board Chairperson",
+          name: reviewerName,
+          title: "Board Chairperson",
           signature: null,
           date: null
         }
       },
+      subtotals: {
+        finalScore,
+        performanceLabel
+      },
       status: "DRAFT"
     };
 
+    const matrixRowsForDb = flatRows.map((r) => stripGoal(r));
+    const sectionsForDb = sectionSummary.sections.map((s) => ({
+      key: s.key,
+      label: s.label,
+      weightPercent: s.weightPercent,
+      sectionScore: s.sectionScore,
+      performanceLabel: s.performanceLabel
+    }));
+
     let scorecardRecord = null;
     if (params.persist) {
-      scorecardRecord = await this.upsertDraftScorecard({
+      if (!contract.subjectUserId) {
+        throw new Error("CEO performance contract has no subject user; cannot persist scorecard.");
+      }
+
+      const [finalExists, existingDraft] = await Promise.all([
+        prisma.performanceScorecard.findFirst({
+          where: {
+            scorecardType: "CEO",
+            subjectUserId: contract.subjectUserId,
+            periodStart: contract.periodStart,
+            periodEnd: contract.periodEnd,
+            OR: [{ status: "FINAL" }, { isLocked: true }]
+          },
+          select: { id: true }
+        }),
+        prisma.performanceScorecard.findFirst({
+          where: {
+            scorecardType: "CEO",
+            subjectUserId: contract.subjectUserId,
+            periodStart: contract.periodStart,
+            periodEnd: contract.periodEnd,
+            status: "DRAFT",
+            isLocked: false
+          },
+          select: { id: true },
+          orderBy: { updatedAt: "desc" }
+        })
+      ]);
+      if (finalExists) {
+        throw new Error("A finalised CEO scorecard already exists for this period.");
+      }
+
+      const upsertData = {
         contractId: contract.id,
-        scorecardType: "CEO",
-        status: "DRAFT",
+        scorecardType: "CEO" as const,
+        status: "DRAFT" as const,
         subjectUserId: contract.subjectUserId,
         generatedById: params.viewer.id,
         periodLabel: resolvePeriodLabel({
@@ -1141,28 +3052,64 @@ export class PerformanceScorecardService {
         }),
         periodStart: contract.periodStart,
         periodEnd: contract.periodEnd,
-        resultsDeliveryScore: decimalForStorage(sectionSummary.finalScore),
+        resultsDeliveryScore: decimalForStorage(finalScore),
         budgetScore: decimalForStorage(budgetComponent.score),
         finalScore: decimalForStorage(finalScore),
-        sections: sectionSummary.sections,
-        matrixRows: rows,
-        qualitativeSections: documentPayload.qualitativeSections,
+        warnings,
+        sections: {
+          ...sectionsForDb.reduce((acc: any, s: any) => {
+            acc[s.key] = {
+              label: s.label,
+              weightPercent: s.weightPercent,
+              sectionScore: s.sectionScore,
+              performanceLabel: s.performanceLabel
+            };
+            return acc;
+          }, {}),
+          sectionBlendScore,
+          budgetComponent,
+          performanceLabel
+        },
+        matrixRows: matrixRowsForDb,
+        qualitativeSections,
         signatureState: documentPayload.signatureBlock,
         documentPayload
-      });
+      };
+
+      scorecardRecord = existingDraft
+        ? await prisma.performanceScorecard.update({ where: { id: existingDraft.id }, data: upsertData })
+        : await prisma.performanceScorecard.create({ data: upsertData });
     }
 
     return {
       scorecardType: "CEO",
+      access,
+      ceo: {
+        id: contract.subjectUserId,
+        name: ceoName,
+        title: ceoTitle
+      },
       contract: {
         id: contract.id,
-        title: contract.title
+        title: contract.title,
+        periodLabel: resolvePeriodLabel({
+          periodLabel: contract.periodLabel,
+          periodStart: contract.periodStart,
+          periodEnd: contract.periodEnd
+        }),
+        stretchScoringEnabled: Boolean(contract.stretchScoringEnabled),
+        reviewerId: contract.reviewer?.id ?? null,
+        reviewerName
       },
-      sections: sectionSummary.sections,
+      warnings,
+      sections: sectionsNested,
+      agreedRatingsSummary,
       scores: {
-        sectionScore: sectionSummary.finalScore,
+        sectionScores: sectionScoresMap,
+        sectionBlendScore,
         budgetScore: budgetComponent.score,
-        finalScore
+        finalScore,
+        performanceLabel
       },
       document: documentPayload,
       savedRecord: scorecardRecord
@@ -1176,21 +3123,42 @@ export class PerformanceScorecardService {
     periodLabel?: string;
     persist?: boolean;
     meta?: any;
+    sectionBlendMode?: "penalise" | "redistribute";
   }) {
-    await this.assertBoardAccess(params.viewer, params.meta);
+    const access = await this.assertBoardAccess(params.viewer, params.meta);
 
-    const contract = await this.resolveContract({
-      contractType: "BOARD",
-      period: this.buildPeriod(params)
-    });
+    const period = this.buildPeriod(params);
+    const [{ contract, resolutionNotes }, branding] = await Promise.all([
+      this.resolveBoardPerformanceContract(period),
+      getCachedBranding()
+    ]);
 
     if (!contract) {
-      throw new Error("No active Board performance contract found for the selected period.");
+      throw new Error(BOARD_CONTRACT_NOT_FOUND_MESSAGE);
     }
 
     const goals = await prisma.performanceGoal.findMany({
       where: {
         performanceContractId: contract.id
+      },
+      select: {
+        id: true,
+        title: true,
+        scorecardSection: true,
+        formulaType: true,
+        activities: true,
+        preciseTargetValue: true,
+        targetValue: true,
+        scorecardWeight: true,
+        allowableVariance: true,
+        isReverseKpi: true,
+        isPendingApproval: true,
+        targetUnit: true,
+        measureName: true,
+        preciseCurrentValue: true,
+        currentValue: true,
+        displayOrder: true,
+        createdAt: true
       },
       orderBy: [
         { scorecardSection: "asc" },
@@ -1199,30 +3167,165 @@ export class PerformanceScorecardService {
       ]
     });
 
-    const rows = this.buildSectionRows(goals, contract);
+    const warnings: string[] = [...resolutionNotes];
+    if (!contract.reviewer) {
+      warnings.push(
+        "No Ministry/Shareholder representative assigned as reviewer. The scorecard cannot be finalised until a reviewer is assigned."
+      );
+    }
+    if (new Date(contract.periodEnd).getTime() > Date.now()) {
+      warnings.push("This period has not ended. Scorecard reflects performance to date only.");
+    }
+
+    if (params.persist && goals.length === 0) {
+      throw new Error(BOARD_SAVE_NO_INDICATORS_MESSAGE);
+    }
+
     const sectionWeights = resolveSectionWeights(contract.sectionWeights, BOARD_SECTION_WEIGHTS);
-    const sectionSummary = this.summariseSectionScores(rows, sectionWeights);
+    const swSum = Object.values(sectionWeights).reduce((s, w) => s + toNumber(w, 0), 0);
+    if (Math.abs(swSum - 100) > 0.02) {
+      warnings.push(
+        `Board section weights from the contract sum to ${round(swSum, 2)}%, not 100. Scores use these weights as stored.`
+      );
+    }
+
+    const flatRows = this.buildBoardSectionRows(goals, contract, warnings);
+    const sectionSummary = this.summariseBoardSectionScores(flatRows, sectionWeights, {
+      sectionBlendMode: params.sectionBlendMode,
+      warningsOut: warnings,
+      sectionLabels: BOARD_SECTION_LABELS
+    });
+    const finalScore = sectionSummary.finalScore;
+    const scoreableIndicatorCount = flatRows.filter((r) => !r.excludedFromScoring).length;
+    const performanceLabel = ceoPerformanceLabelOverall(
+      finalScore,
+      goals.length,
+      scoreableIndicatorCount
+    );
+
+    const stripGoal = (row: any) => {
+      const { goal: _g, ...rest } = row;
+      return rest;
+    };
+
+    const sectionsNested: Record<string, any> = {};
+    for (const s of sectionSummary.sections) {
+      sectionsNested[s.key] = {
+        label: s.label,
+        weight: s.weight,
+        sectionScore: s.sectionScore,
+        performanceLabel: s.performanceLabel,
+        indicators: s.indicators.map((ind: any) => stripGoal(ind))
+      };
+    }
+
+    const sectionScoresMap: Record<string, number> = {};
+    for (const s of sectionSummary.sections) {
+      sectionScoresMap[s.key] = s.sectionScore;
+    }
+
+    const agreedRatingsSummary = sectionSummary.sections.map((s) => ({
+      section: s.key,
+      heading: s.label,
+      sectionScore: s.sectionScore,
+      label: s.performanceLabel
+    }));
+    agreedRatingsSummary.push({
+      section: "TOTAL",
+      heading: "Final Score",
+      sectionScore: finalScore,
+      label: performanceLabel
+    });
+
+    const sectionOrder = ["A1", "A2", "B", "C", "D"];
+    const sectionTables: Record<string, any> = {};
+    for (const key of sectionOrder) {
+      const meta = sectionSummary.sections.find((x) => x.key === key);
+      const secRows = flatRows.filter((r) => r.section === key);
+      sectionTables[key] = {
+        sectionLabel: `${key} — ${BOARD_SECTION_LABELS[key]} (${BOARD_SECTION_WEIGHTS[key]}%)`,
+        rows: secRows.map((r, idx) => ({
+          index: idx + 1,
+          indicatorName: r.indicatorName,
+          formulaMeasure: r.formulaType,
+          unit: r.unit,
+          target: r.targetValue,
+          computedActual: r.computedActual,
+          allowableVariance: r.allowableVariance,
+          rawRating: r.rawRating,
+          weight: r.originalWeight,
+          effectiveWeight: r.effectiveWeight,
+          weightedScore: r.weightedScore,
+          rowSeverity: this.ceoIndicatorRowSeverity(r),
+          isPendingApproval: r.isPendingApproval,
+          excludedFromScoring: r.excludedFromScoring,
+          missingValue: r.missingValue
+        })),
+        sectionScore: meta?.sectionScore ?? 0,
+        performanceLabel:
+          meta?.performanceLabel ??
+          ceoPerformanceLabelForSection(
+            0,
+            secRows.length,
+            secRows.filter((r) => !r.excludedFromScoring).length
+          )
+      };
+    }
+
+    const addressLogo =
+      branding.letterhead?.logoUrl && String(branding.letterhead.logoUrl).trim()
+        ? String(branding.letterhead.logoUrl).trim()
+        : null;
+    const organisationLogoUrl = addressLogo ?? branding.profile?.logoUrl ?? null;
+    const organisationName = resolveOrganisationDisplayName(branding.profile?.legalName);
+
+    const chairpersonName = `${params.viewer.firstName || ""} ${params.viewer.lastName || ""}`.trim() || null;
+    const reviewerUser = contract.reviewer;
+    const reviewerName = reviewerUser
+      ? `${reviewerUser.firstName} ${reviewerUser.lastName}`.trim()
+      : null;
+
+    const qualitativeSections = {
+      personalAttributes: buildPersonalAttributesRatingGrid(contract.qualitativeTemplate),
+      trainingAndDevelopment: buildTrainingSection(contract.qualitativeTemplate)
+    };
+
     const documentPayload = {
       header: {
-        organisationName: "NVCCZ",
-        documentTitle: `Board of Directors Performance Contract Review — ${contract.periodStart.getFullYear()}`,
-        contractParties: ["Line Ministry / Shareholder", "Board Chairperson"],
+        organisationName,
+        organisationLogoUrl,
+        governmentCrestUrl: null,
+        documentTitle: "Board of Directors Performance Contract Review",
+        contractParty1: "Ministry / Shareholder Representative",
+        contractParty2: boardDirectorsWithOrganisationShort(),
+        chairpersonName,
+        chairpersonTitle: BOARD_SCORECARD_CHAIR_TITLE,
+        reviewerName,
+        reviewerTitle: "Ministry Representative",
         reviewPeriod: resolvePeriodLabel({
           periodLabel: contract.periodLabel,
           periodStart: contract.periodStart,
           periodEnd: contract.periodEnd
-        })
+        }),
+        dateGenerated: new Date().toISOString()
       },
-      sections: sectionSummary.sections,
-      governanceAssessmentNarrative: null,
+      sectionTables,
+      agreedRatingsSummary,
+      governanceNarrative: {
+        label: "Governance Assessment Narrative",
+        content: null
+      },
+      qualitativeSections,
       signatureBlock: {
         boardChairperson: {
-          name: contract.approver ? `${contract.approver.firstName} ${contract.approver.lastName}` : "Board Chairperson",
+          name: chairpersonName,
+          title: BOARD_SCORECARD_CHAIR_TITLE,
           signature: null,
           date: null
         },
-        lineMinistryRepresentative: {
-          name: null,
+        ministryRepresentative: {
+          name: reviewerName,
+          title: "Ministry / Shareholder Representative",
           signature: null,
           date: null
         }
@@ -1230,12 +3333,52 @@ export class PerformanceScorecardService {
       status: "DRAFT"
     };
 
+    const matrixRowsForDb = flatRows.map((r) => stripGoal(r));
+    const sectionsForDb = sectionSummary.sections.map((s) => ({
+      key: s.key,
+      label: s.label,
+      weightPercent: s.weightPercent,
+      sectionScore: s.sectionScore,
+      performanceLabel: s.performanceLabel
+    }));
+
     let scorecardRecord = null;
     if (params.persist) {
-      scorecardRecord = await this.upsertDraftScorecard({
+      const subjectUserId = params.viewer.id;
+
+      const [finalExists, existingDraft] = await Promise.all([
+        prisma.performanceScorecard.findFirst({
+          where: {
+            scorecardType: "BOARD",
+            subjectUserId,
+            periodStart: contract.periodStart,
+            periodEnd: contract.periodEnd,
+            OR: [{ status: "FINAL" }, { isLocked: true }]
+          },
+          select: { id: true }
+        }),
+        prisma.performanceScorecard.findFirst({
+          where: {
+            scorecardType: "BOARD",
+            subjectUserId,
+            periodStart: contract.periodStart,
+            periodEnd: contract.periodEnd,
+            status: "DRAFT",
+            isLocked: false
+          },
+          select: { id: true },
+          orderBy: { updatedAt: "desc" }
+        })
+      ]);
+      if (finalExists) {
+        throw new Error("A finalised Board scorecard already exists for this period.");
+      }
+
+      const upsertData = {
         contractId: contract.id,
-        scorecardType: "BOARD",
-        status: "DRAFT",
+        scorecardType: "BOARD" as const,
+        status: "DRAFT" as const,
+        subjectUserId,
         generatedById: params.viewer.id,
         periodLabel: resolvePeriodLabel({
           periodLabel: contract.periodLabel,
@@ -1244,23 +3387,59 @@ export class PerformanceScorecardService {
         }),
         periodStart: contract.periodStart,
         periodEnd: contract.periodEnd,
-        finalScore: decimalForStorage(sectionSummary.finalScore),
-        sections: sectionSummary.sections,
-        matrixRows: rows,
+        resultsDeliveryScore: decimalForStorage(finalScore),
+        finalScore: decimalForStorage(finalScore),
+        warnings,
+        sections: {
+          ...sectionsForDb.reduce((acc: any, s: any) => {
+            acc[s.key] = {
+              label: s.label,
+              weightPercent: s.weightPercent,
+              sectionScore: s.sectionScore,
+              performanceLabel: s.performanceLabel
+            };
+            return acc;
+          }, {}),
+          performanceLabel
+        },
+        matrixRows: matrixRowsForDb,
+        qualitativeSections,
         signatureState: documentPayload.signatureBlock,
         documentPayload
-      });
+      };
+
+      scorecardRecord = existingDraft
+        ? await prisma.performanceScorecard.update({ where: { id: existingDraft.id }, data: upsertData })
+        : await prisma.performanceScorecard.create({ data: upsertData });
     }
 
     return {
       scorecardType: "BOARD",
+      access,
+      board: {
+        chairpersonId: params.viewer.id,
+        chairpersonName,
+        chairpersonTitle: BOARD_SCORECARD_CHAIR_TITLE
+      },
       contract: {
         id: contract.id,
-        title: contract.title
+        title: contract.title,
+        periodLabel: resolvePeriodLabel({
+          periodLabel: contract.periodLabel,
+          periodStart: contract.periodStart,
+          periodEnd: contract.periodEnd
+        }),
+        stretchScoringEnabled: Boolean(contract.stretchScoringEnabled),
+        reviewerId: contract.reviewer?.id ?? null,
+        reviewerName
       },
-      sections: sectionSummary.sections,
+      warnings,
+      sections: sectionsNested,
+      agreedRatingsSummary,
       scores: {
-        finalScore: sectionSummary.finalScore
+        sectionScores: sectionScoresMap,
+        finalScore,
+        performanceLabel
       },
       document: documentPayload,
       savedRecord: scorecardRecord
@@ -1274,24 +3453,47 @@ export class PerformanceScorecardService {
     periodLabel?: string;
     meta?: any;
   }) {
-    await this.assertOrgDashboardAccess(params.viewer, params.meta);
+    const orgAccess = await this.assertOrgDashboardAccess(params.viewer, params.meta);
 
     const period = this.buildPeriod(params);
-    const contract = await this.resolveContract({
-      contractType: "ORG_BSC",
-      period
-    });
-    const activeStrategy = await prisma.performanceStrategy.findFirst({
-      where: {
-        status: "ACTIVE",
-        archivedAt: null
-      },
-      orderBy: {
-        periodStart: "desc"
-      }
-    });
+    const [contract, activeStrategy, branding] = await Promise.all([
+      this.resolveContract({
+        contractType: "ORG_BSC",
+        period
+      }),
+      prisma.performanceStrategy.findFirst({
+        where: {
+          status: "ACTIVE",
+          archivedAt: null
+        },
+        orderBy: {
+          periodStart: "desc"
+        }
+      }),
+      getCachedBranding()
+    ]);
 
-    const pillars = resolveSectionWeights(contract?.sectionWeights || activeStrategy?.pillarWeights, DEFAULT_ORG_PILLAR_WEIGHTS);
+    let pillarWeightsResolved = resolveSectionWeights(
+      contract?.sectionWeights || activeStrategy?.pillarWeights,
+      DEFAULT_ORG_PILLAR_WEIGHTS
+    );
+    const { normalised: pillarWeightsNormalised, didNormalise } =
+      normalisePillarWeightsTo100(pillarWeightsResolved);
+    pillarWeightsResolved = pillarWeightsNormalised;
+    const dashboardWarnings: string[] = [];
+    if (didNormalise) {
+      dashboardWarnings.push(
+        "Organisational BSC pillar weights did not sum to 100%; weights were normalised proportionally."
+      );
+    }
+
+    const canDrillToDepartment = orgAccess.canView;
+    const canDrillToIndividual = orgAccess.canView;
+
+    const looksLikeDepartmentId = (s: string) => {
+      const t = s.trim();
+      return t.length >= 20 && t.length <= 36 && /^c[a-z0-9]+$/i.test(t);
+    };
 
     const companyGoals = await prisma.performanceGoal.findMany({
       where: {
@@ -1301,7 +3503,27 @@ export class PerformanceScorecardService {
           this.buildPeriodWhere(period)
         ].filter(Boolean)
       },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        preciseTargetValue: true,
+        targetValue: true,
+        currentValue: true,
+        preciseCurrentValue: true,
+        activities: true,
+        isReverseKpi: true,
+        isPendingApproval: true,
+        lastApprovedValue: true,
+        formulaType: true,
+        dataSourceModule: true,
+        syncEndpointPath: true,
+        lastSyncedAt: true,
+        endDate: true,
+        allowableVariance: true,
+        scorecardWeight: true,
+        scorecardPillar: true,
+        displayOrder: true,
+        createdAt: true,
         subGoals: {
           select: {
             id: true,
@@ -1314,7 +3536,16 @@ export class PerformanceScorecardService {
             progressPercentage: true,
             activities: true,
             scorecardWeight: true,
-            isReverseKpi: true
+            isReverseKpi: true,
+            allowableVariance: true,
+            endDate: true,
+            assignedToId: true,
+            assignedTo: { select: { id: true, firstName: true, lastName: true } },
+            isPendingApproval: true,
+            lastApprovedValue: true,
+            formulaType: true,
+            dataSourceModule: true,
+            lastSyncedAt: true
           }
         }
       },
@@ -1325,13 +3556,66 @@ export class PerformanceScorecardService {
       ]
     });
 
-    const groupedByPillar = Object.keys(pillars).map((pillarName) => {
+    const deptIdCandidates = new Set<string>();
+    const deptNameCandidates = new Set<string>();
+    for (const g of companyGoals) {
+      for (const cg of g.subGoals || []) {
+        const raw = cg.departmentName != null ? String(cg.departmentName).trim() : "";
+        if (!raw) continue;
+        if (looksLikeDepartmentId(raw)) deptIdCandidates.add(raw);
+        else deptNameCandidates.add(raw);
+      }
+    }
+    const deptOr: { id?: { in: string[] }; name?: { in: string[] } }[] = [];
+    if (deptIdCandidates.size) deptOr.push({ id: { in: [...deptIdCandidates] } });
+    if (deptNameCandidates.size) deptOr.push({ name: { in: [...deptNameCandidates] } });
+    const resolvedDepartments =
+      deptOr.length > 0
+        ? await prisma.department.findMany({
+            where: { OR: deptOr },
+            select: { id: true, name: true }
+          })
+        : [];
+    const deptById = new Map(resolvedDepartments.map((d) => [d.id, d]));
+    const deptByName = new Map(resolvedDepartments.map((d) => [d.name, d]));
+    const unresolvedDeptLabels = new Set<string>();
+
+    const resolveDeptForBreakdown = (cg: { id: string; departmentName: string | null }) => {
+      const raw = cg.departmentName != null ? String(cg.departmentName).trim() : "";
+      if (!raw) {
+        unresolvedDeptLabels.add(`sub-goal ${cg.id} (blank departmentName)`);
+        return { departmentId: null as string | null, departmentName: "[Department Removed]" };
+      }
+      if (looksLikeDepartmentId(raw)) {
+        const d = deptById.get(raw);
+        if (d) return { departmentId: d.id, departmentName: d.name };
+        unresolvedDeptLabels.add(`id "${raw}"`);
+        return { departmentId: null, departmentName: "[Department Removed]" };
+      }
+      const d = deptByName.get(raw);
+      if (d) return { departmentId: d.id, departmentName: d.name };
+      unresolvedDeptLabels.add(`"${raw}"`);
+      return { departmentId: null, departmentName: "[Department Removed]" };
+    };
+
+    const organisationName = resolveOrganisationDisplayName(branding.profile?.legalName);
+    const visionStatement = contract?.visionStatement || activeStrategy?.visionStatement || null;
+    const strategyDocumentUrl =
+      contract?.strategyDocumentUrl || activeStrategy?.strategyDocumentUrl || null;
+
+    const alertsAccumulator: any[] = [];
+
+    const groupedByPillar = Object.keys(pillarWeightsResolved).map((pillarName) => {
+      const pillarMeta = ORG_BSC_PILLAR_META[pillarName] || {
+        pillarCode: pillarName.toUpperCase().replace(/\s+/g, "_"),
+        pillarLabel: pillarName
+      };
       const pillarGoals = companyGoals.filter((goal) => (goal.scorecardPillar || "Financial") === pillarName);
       const fallbackWeight = pillarGoals.length > 0 ? 100 / pillarGoals.length : 0;
       const rows = redistributeWeights(
         pillarGoals.map((goal) => {
           const targetValue = toNumber(goal.preciseTargetValue ?? goal.targetValue, 0);
-          const actualValue = toNumber(goal.preciseCurrentValue ?? goal.currentValue, 0);
+          const actualValue = resolveStoredGoalActual(goal).value;
           const directProgress = computeGoalProgress({
             actualValue,
             targetValue,
@@ -1339,10 +3623,18 @@ export class PerformanceScorecardService {
             stretchScoringEnabled: contract?.stretchScoringEnabled
           });
 
+          const dataQualityAlert = shouldRaiseDataQualityAlert({
+            currentValue: resolveStoredGoalActual(goal).value,
+            lastApprovedValue: goal.lastApprovedValue,
+            formulaType: goal.formulaType
+          });
+          const lastApr = toNumber(goal.lastApprovedValue, 0);
+          const excludedFromScoring = Boolean(goal.isPendingApproval) || (dataQualityAlert && lastApr !== 0);
+
           const childGoals = Array.isArray(goal.subGoals) ? goal.subGoals : [];
           const childFallbackWeight = childGoals.length > 0 ? 100 / childGoals.length : 0;
           const childContributions = childGoals.map((childGoal) => {
-            const childActual = toNumber(childGoal.preciseCurrentValue ?? childGoal.currentValue, 0);
+            const childActual = resolveStoredGoalActual(childGoal).value;
             const childTarget = toNumber(childGoal.preciseTargetValue ?? childGoal.targetValue, 0);
             const childProgress = computeGoalProgress({
               actualValue: childActual,
@@ -1367,10 +3659,12 @@ export class PerformanceScorecardService {
             ? round(weightedContributionTotal / totalContributionWeight, 2)
             : 0;
 
-          const selectedProgressPct = Math.max(directProgress.progressPct, rollupProgressPct);
-          const selectedActualValue = directProgress.progressPct >= rollupProgressPct
-            ? actualValue
-            : deriveActualFromProgress(targetValue, selectedProgressPct, goal.isReverseKpi);
+          const directPct = toNumber(directProgress.progressPct, 0);
+          const selectedProgressPct = Math.max(directPct, rollupProgressPct);
+          const selectedActualValue =
+            directPct >= rollupProgressPct
+              ? actualValue
+              : deriveActualFromProgress(targetValue, selectedProgressPct, goal.isReverseKpi);
 
           const status = resolveGoalEscalationStatus({
             preciseCurrentValue: String(selectedActualValue),
@@ -1383,84 +3677,193 @@ export class PerformanceScorecardService {
             stretchScoringEnabled: contract?.stretchScoringEnabled
           });
 
+          const missingValue = Boolean(directProgress.isMissing);
+
+          const departmentBreakdown = childGoals.map((cg) => {
+            const childActual = resolveStoredGoalActual(cg).value;
+            const childTarget = toNumber(cg.preciseTargetValue ?? cg.targetValue, 0);
+            const childProgress = computeGoalProgress({
+              actualValue: childActual,
+              targetValue: childTarget,
+              isReverseKpi: cg.isReverseKpi,
+              stretchScoringEnabled: contract?.stretchScoringEnabled
+            });
+            const pct = toNumber(cg.progressPercentage, childProgress.progressPct ?? 0);
+            const resolvedDept = resolveDeptForBreakdown(cg);
+            const row: any = {
+              departmentId: resolvedDept.departmentId,
+              departmentName: resolvedDept.departmentName,
+              departmentProgress: round(toNumber(pct, 0), 2),
+              departmentStatus: departmentProgressTrafficStatus(
+                toNumber(pct, 0),
+                cg.allowableVariance ?? goal.allowableVariance
+              )
+            };
+            if (canDrillToIndividual && cg.assignedTo) {
+              row.individualContributors = [
+                {
+                  userId: cg.assignedTo.id,
+                  name: `${cg.assignedTo.firstName || ""} ${cg.assignedTo.lastName || ""}`.trim(),
+                  progressPct: round(toNumber(pct, 0), 2)
+                }
+              ];
+            }
+            return row;
+          });
+
+          if (dataQualityAlert && lastApr !== 0) {
+            alertsAccumulator.push({
+              type: "DATA_QUALITY",
+              goalId: goal.id,
+              goalName: goal.title,
+              pillar: pillarMeta.pillarCode,
+              message:
+                "IRR / AUM value has a material discrepancy from last approved value. Pending manager approval before scoring.",
+              triggeredAt: new Date().toISOString()
+            });
+          }
+          if (String(status).includes("AMBER_ZONE")) {
+            alertsAccumulator.push({
+              type: "AMBER_ZONE",
+              goalId: goal.id,
+              goalName: goal.title,
+              pillar: pillarMeta.pillarCode,
+              message: "Goal entered amber escalation window (approaching period end).",
+              triggeredAt: new Date().toISOString()
+            });
+          }
+          if (String(status).includes("RED_ZONE")) {
+            alertsAccumulator.push({
+              type: "RED_ZONE",
+              goalId: goal.id,
+              goalName: goal.title,
+              pillar: pillarMeta.pillarCode,
+              message: "Goal is in the red zone after period end.",
+              triggeredAt: new Date().toISOString()
+            });
+          }
+
+          const displayActual = isPrecisionSensitiveFormula(goal.formulaType)
+            ? round(toNumber(selectedActualValue, 0), 4)
+            : round(toNumber(selectedActualValue, 0), 2);
+
+          const daysRemaining = Math.ceil(
+            (new Date(goal.endDate).getTime() - Date.now()) / 86400000
+          );
+
           return {
             id: goal.id,
             goalName: goal.title,
             progressPct: selectedProgressPct,
             status,
             weight: resolveWeight(goal.scorecardWeight, fallbackWeight),
-            actualValue: selectedActualValue,
+            actualValue: displayActual,
             targetValue,
             stretchTargetValue: parseStretchTargetValueFromActivities(goal.activities),
+            isReverseKpi: Boolean(goal.isReverseKpi),
             isPendingApproval: Boolean(goal.isPendingApproval),
-            departments: goal.subGoals,
-            dataQualityAlert: shouldRaiseDataQualityAlert({
-              currentValue: goal.preciseCurrentValue ?? goal.currentValue,
-              lastApprovedValue: goal.lastApprovedValue,
-              formulaType: goal.formulaType
-            }) && goal.isPendingApproval
+            excludedFromScoring,
+            missingValue,
+            dataQualityAlert,
+            dataSource: goal.dataSourceModule || goal.syncEndpointPath || null,
+            lastSyncedAt: goal.lastSyncedAt,
+            periodEnd: goal.endDate,
+            daysRemaining,
+            departmentBreakdown
           };
         })
       );
 
-      const activeRows = rows.filter((row) => !row.isPendingApproval);
+      const activeRows = rows.filter((row) => !row.excludedFromScoring);
       const pillarScore = activeRows.reduce(
         (sum, row) => sum + (row.effectiveWeight * row.progressPct) / 100,
         0
       );
-      const averageStatus = activeRows.some((row) => String(row.status).includes("RED"))
-        ? "RED"
-        : activeRows.some((row) => String(row.status).includes("AMBER"))
-          ? "AMBER"
-          : "GREEN";
+      const pillarScoreRounded = round(pillarScore, 2);
+      const pillarStatus = departmentProgressTrafficStatus(pillarScoreRounded, 0.1);
 
       return {
         pillarName,
-        weight: pillars[pillarName],
-        pillarScore: round(pillarScore, 2),
-        status: averageStatus,
+        pillarCode: pillarMeta.pillarCode,
+        pillarLabel: pillarMeta.pillarLabel,
+        pillarWeight: pillarWeightsResolved[pillarName],
+        pillarScore: pillarScoreRounded,
+        pillarStatus,
         goals: rows,
-        trendVsPreviousPeriod: null,
-        dataQualityAlerts: rows.filter((row) => row.dataQualityAlert).map((row) => ({
-          goalId: row.id,
-          goalName: row.goalName
-        }))
+        trendVsPreviousPeriod: null as number | null,
+        dataQualityAlert: rows.some((r) => r.dataQualityAlert)
       };
     });
 
     const orgBscScore = groupedByPillar.reduce(
-      (sum, pillar) => sum + (pillar.weight * pillar.pillarScore) / 100,
+      (sum, pillar) => sum + (pillar.pillarWeight * pillar.pillarScore) / 100,
       0
     );
+    const orgBscScoreRounded = round(orgBscScore, 2);
+    const orgBscStatus = departmentProgressTrafficStatus(orgBscScoreRounded, 0.1);
 
-    const canDrillToDepartment = isCEO(params.viewer) || isSysAdmin(params.viewer) || isMonitoringAndEvaluationLeader(params.viewer);
-    const canDrillToIndividual = isCEO(params.viewer) || isHRLeader(params.viewer) || isSysAdmin(params.viewer);
+    if (unresolvedDeptLabels.size > 0) {
+      dashboardWarnings.push(
+        `Department breakdown could not resolve: ${[...unresolvedDeptLabels].join("; ")}.`
+      );
+    }
+
+    const reviewPeriod = resolvePeriodLabel({
+      periodLabel: contract?.periodLabel || params.periodLabel,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd
+    });
 
     return {
-      reviewPeriod: resolvePeriodLabel({
-        periodLabel: contract?.periodLabel || params.periodLabel,
-        periodStart: period.periodStart,
-        periodEnd: period.periodEnd
-      }),
-      visionStatement: contract?.visionStatement || activeStrategy?.visionStatement || null,
-      annualStrategyDocumentUrl: contract?.strategyDocumentUrl || activeStrategy?.strategyDocumentUrl || null,
-      overallScore: round(orgBscScore, 2),
+      viewType: "ORG_BSC",
+      organisationName,
+      reviewPeriod,
+      periodStart: period.periodStart.toISOString(),
+      periodEnd: period.periodEnd.toISOString(),
+      lastUpdated: new Date().toISOString(),
+      ceoVision: {
+        statement: visionStatement,
+        strategyDocumentUrl
+      },
+      orgBscScore: orgBscScoreRounded,
+      orgBscStatus,
+      warnings: dashboardWarnings,
+      alerts: alertsAccumulator,
       pillars: groupedByPillar.map((pillar) => ({
-        ...pillar,
-        goals: pillar.goals.map((goal) => ({
-          id: goal.id,
+        pillarCode: pillar.pillarCode,
+        pillarLabel: pillar.pillarLabel,
+        pillarWeight: pillar.pillarWeight,
+        pillarScore: pillar.pillarScore,
+        pillarStatus: pillar.pillarStatus,
+        trendVsPreviousPeriod: pillar.trendVsPreviousPeriod,
+        dataQualityAlert: pillar.dataQualityAlert,
+        goals: pillar.goals.map((goal: any) => ({
+          goalId: goal.id,
           goalName: goal.goalName,
+          goalWeight: goal.weight,
+          effectiveWeight: goal.effectiveWeight,
           targetValue: goal.targetValue,
-          stretchTargetValue: goal.stretchTargetValue ?? null,
-          progressPct: goal.isPendingApproval ? "Pending" : goal.progressPct,
-          status: goal.status,
-          departments: canDrillToDepartment ? goal.departments : undefined
+          actualValue: goal.actualValue,
+          progressPct: goal.excludedFromScoring ? 0 : goal.progressPct,
+          status: goal.excludedFromScoring ? "PENDING" : goal.status,
+          isReverseKpi: Boolean(goal.isReverseKpi),
+          isPendingApproval: goal.isPendingApproval,
+          missingValue: goal.missingValue,
+          excludedFromScoring: goal.excludedFromScoring,
+          dataQualityAlert: goal.dataQualityAlert,
+          dataSource: goal.dataSource,
+          lastSyncedAt: goal.lastSyncedAt ? goal.lastSyncedAt.toISOString() : null,
+          periodEnd: goal.periodEnd ? goal.periodEnd.toISOString() : null,
+          daysRemaining: goal.daysRemaining,
+          departmentBreakdown: canDrillToDepartment ? goal.departmentBreakdown : []
         }))
       })),
       access: {
+        canView: orgAccess.canView,
         drillDownToDepartment: canDrillToDepartment,
         drillDownToIndividual: canDrillToIndividual
-      }
+      },
+      overallScore: orgBscScoreRounded
     };
   }
 

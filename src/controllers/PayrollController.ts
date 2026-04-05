@@ -5,8 +5,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { PayrollService } from '../services/PayrollService';
 import { StaffReimbursementVendorService } from '../services/StaffReimbursementVendorService';
 
+import { companyNameFullFromEnv } from '../config/companyDisplay';
 import { prisma } from '../utils/database';
 import { parseDate } from '../utils/dateHelper';
+import { createDefaultEmployeePerformanceContract } from '../services/EmployeePerformanceContractService';
 
 export class PayrollController {
   /**
@@ -64,27 +66,47 @@ export class PayrollController {
         nextEmployeeNumber = `EMP${nextNumber.toString().padStart(3, '0')}`;
       }
 
-      const employee = await prisma.employee.create({
-        data: {
-          userId,
-          employeeNumber: nextEmployeeNumber,
-          bankName,
-          branchCode,
-          accountNumber,
-          basicSalary: parseFloat(basicSalary),
-          currencyId,
-          idNumber,
-          nextOfKin,
-          nextOfKinContact,
-          address,
-          pictureUrl
-        },
-        include: {
-          user: {
-            select: { firstName: true, lastName: true, email: true }
+      const actorId = (req as any).user?.id;
+      if (!actorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized'
+        });
+      }
+
+      const employee = await prisma.$transaction(async (tx) => {
+        const emp = await tx.employee.create({
+          data: {
+            userId,
+            employeeNumber: nextEmployeeNumber,
+            bankName,
+            branchCode,
+            accountNumber,
+            basicSalary: parseFloat(basicSalary),
+            currencyId,
+            idNumber,
+            nextOfKin,
+            nextOfKinContact,
+            address,
+            pictureUrl
           },
-          currency: true
-        }
+          include: {
+            user: {
+              select: { firstName: true, lastName: true, email: true }
+            },
+            currency: true
+          }
+        });
+
+        await createDefaultEmployeePerformanceContract(tx, {
+          subjectUserId: userId,
+          departmentName: user.userDepartment || null,
+          createdById: actorId,
+          employeeFirstName: user.firstName || '',
+          employeeLastName: user.lastName || ''
+        });
+
+        return emp;
       });
 
       res.status(201).json({
@@ -1131,7 +1153,7 @@ export class PayrollController {
         payrollRun: payslip.payrollRun,
         currency: payslip.currency,
         // Company information
-        companyName: "National Venture Capital Company of Zimbabwe"
+        companyName: companyNameFullFromEnv()
       }));
 
       const total = await prisma.payslip.count({

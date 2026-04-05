@@ -651,7 +651,6 @@ router.get("/:id", authenticate, TaskController.getTaskById);
 router.put("/bulk/stage", authenticate, TaskController.bulkUpdateTaskStage);
 router.put("/bulk/status-update", authenticate, TaskController.bulkStatusUpdate);
 router.delete("/bulk", authenticate, TaskController.bulkTrashTasks);
-router.put("/:id", authenticate, TaskController.updateTask);
 
 /**
  * @swagger
@@ -698,6 +697,8 @@ router.put("/:id", authenticate, TaskController.updateTask);
  *         description: Unauthorized
  */
 router.put("/:id/stage", authenticate, TaskController.updateTaskStage);
+
+router.put("/:id", authenticate, TaskController.updateTask);
 
 /**
  * @swagger

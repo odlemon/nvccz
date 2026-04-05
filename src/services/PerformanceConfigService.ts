@@ -1,13 +1,13 @@
 // @ts-nocheck
 
-import fs from "fs";
-import path from "path";
 import { prisma } from "../utils/database";
 import AuditService from "./AuditService";
+import { remoteUploadService } from "./RemoteUploadService";
 import {
+  BSC_PILLAR_UAT_LABEL,
   HARD_CODED_BSC_PILLARS,
   asNumber,
-  ensureDirectoryForFile,
+  pillarSlugForScorecardPillar,
   toSafeFileName,
   validateFixedPillarSet,
   validateWeightTotal
@@ -46,9 +46,13 @@ export class PerformanceConfigService {
 
     return {
       strategyId: activeStrategy?.id || null,
+      strategyTitle: activeStrategy?.title || null,
+      periodStart: activeStrategy?.periodStart || null,
+      periodEnd: activeStrategy?.periodEnd || null,
       visionStatement: activeStrategy?.visionStatement || null,
       pillars: HARD_CODED_BSC_PILLARS.map((pillar) => ({
         name: pillar,
+        uatDisplayName: BSC_PILLAR_UAT_LABEL[pillar] || pillar,
         weight: weights[pillar],
         nonDeletable: true
       })),
@@ -72,33 +76,30 @@ export class PerformanceConfigService {
     });
   }
 
+  /** Single strategy (includes `strategyDocumentUrl` for client download links). */
+  static async getStrategyById(strategyId: string) {
+    const strategy = await prisma.performanceStrategy.findUnique({
+      where: { id: strategyId }
+    });
+    if (!strategy) {
+      throw new Error("Strategy not found.");
+    }
+    return strategy;
+  }
+
   static async upsertStrategy(params: {
     strategyId?: string;
-    title: string;
-    periodStart: Date | string;
-    periodEnd: Date | string;
+    title?: string;
+    periodStart?: Date | string;
+    periodEnd?: Date | string;
     strategicGoalId?: string;
     strategyDocumentUrl?: string;
-    visionStatement?: string;
-    pillarWeights: Record<string, number>;
+    visionStatement?: string | null;
+    pillarWeights?: Record<string, number>;
     metadata?: any;
     actor: any;
     meta?: AuditMeta;
   }) {
-    const periodStart = new Date(params.periodStart);
-    const periodEnd = new Date(params.periodEnd);
-
-    if (periodStart >= periodEnd) {
-      throw new Error("Strategy period start must be before period end.");
-    }
-
-    const pillarValidation = validateFixedPillarSet(params.pillarWeights || {});
-    if (!pillarValidation.valid) {
-      throw new Error(
-        `Pillar weights must match the fixed BSC pillars and total exactly 100%. Missing: ${pillarValidation.missing.join(", ") || "none"}, unexpected: ${pillarValidation.unexpected.join(", ") || "none"}, total: ${pillarValidation.total}.`
-      );
-    }
-
     const existing = params.strategyId
       ? await prisma.performanceStrategy.findUnique({ where: { id: params.strategyId } })
       : null;
@@ -107,15 +108,101 @@ export class PerformanceConfigService {
       throw new Error("Archived strategies are read-only.");
     }
 
+    const isUpdate = !!existing;
+
+    let title: string;
+    let periodStart: Date;
+    let periodEnd: Date;
+    let pillarWeights: Record<string, number>;
+
+    if (isUpdate) {
+      title =
+        params.title !== undefined && params.title !== null && String(params.title).trim() !== ""
+          ? String(params.title).trim()
+          : existing.title;
+      periodStart =
+        params.periodStart !== undefined && params.periodStart !== null && String(params.periodStart) !== ""
+          ? new Date(params.periodStart as string | Date)
+          : new Date(existing.periodStart);
+      periodEnd =
+        params.periodEnd !== undefined && params.periodEnd !== null && String(params.periodEnd) !== ""
+          ? new Date(params.periodEnd as string | Date)
+          : new Date(existing.periodEnd);
+      pillarWeights =
+        params.pillarWeights !== undefined && params.pillarWeights !== null
+          ? (params.pillarWeights as Record<string, number>)
+          : ((existing.pillarWeights as Record<string, number> | null) || {});
+    } else {
+      if (!params.title || String(params.title).trim() === "") {
+        throw new Error("title is required.");
+      }
+      if (params.periodStart === undefined || params.periodStart === null || String(params.periodStart) === "") {
+        throw new Error("periodStart is required.");
+      }
+      if (params.periodEnd === undefined || params.periodEnd === null || String(params.periodEnd) === "") {
+        throw new Error("periodEnd is required.");
+      }
+      if (params.pillarWeights === undefined || params.pillarWeights === null) {
+        throw new Error("pillarWeights is required.");
+      }
+      title = String(params.title).trim();
+      periodStart = new Date(params.periodStart as string | Date);
+      periodEnd = new Date(params.periodEnd as string | Date);
+      pillarWeights = params.pillarWeights as Record<string, number>;
+    }
+
+    if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime())) {
+      throw new Error("Invalid periodStart or periodEnd.");
+    }
+
+    if (periodStart >= periodEnd) {
+      throw new Error("Strategy period start must be before period end.");
+    }
+
+    const pillarValidation = validateFixedPillarSet(pillarWeights);
+    if (!pillarValidation.valid) {
+      throw new Error(
+        `Pillar weights must match the fixed BSC pillars and total exactly 100%. Missing: ${pillarValidation.missing.join(", ") || "none"}, unexpected: ${pillarValidation.unexpected.join(", ") || "none"}, total: ${pillarValidation.total}.`
+      );
+    }
+
+    const strategicGoalId = isUpdate
+      ? params.strategicGoalId !== undefined
+        ? params.strategicGoalId || null
+        : existing.strategicGoalId
+      : params.strategicGoalId || null;
+
+    const strategyDocumentUrl = isUpdate
+      ? params.strategyDocumentUrl !== undefined
+        ? params.strategyDocumentUrl || null
+        : existing.strategyDocumentUrl
+      : params.strategyDocumentUrl || null;
+
+    const visionStatement = isUpdate
+      ? params.visionStatement !== undefined
+        ? params.visionStatement === null || params.visionStatement === ""
+          ? null
+          : String(params.visionStatement)
+        : existing.visionStatement
+      : params.visionStatement === undefined || params.visionStatement === null || params.visionStatement === ""
+        ? null
+        : String(params.visionStatement);
+
+    const metadata = isUpdate
+      ? params.metadata !== undefined
+        ? params.metadata ?? null
+        : existing.metadata
+      : params.metadata || null;
+
     const payload = {
-      title: params.title,
+      title,
       periodStart,
       periodEnd,
-      strategicGoalId: params.strategicGoalId || null,
-      strategyDocumentUrl: params.strategyDocumentUrl || null,
-      visionStatement: params.visionStatement || null,
-      pillarWeights: params.pillarWeights,
-      metadata: params.metadata || null,
+      strategicGoalId,
+      strategyDocumentUrl,
+      visionStatement,
+      pillarWeights,
+      metadata,
       status: "ACTIVE",
       archivedAt: null,
       createdById: existing?.createdById || params.actor.id
@@ -181,6 +268,8 @@ export class PerformanceConfigService {
     strategyId: string;
     fileBuffer: Buffer;
     originalName: string;
+    /** Optional: link uploaded PDF metadata to a strategic / parent performance goal (UAT A.02). */
+    strategicGoalId?: string | null;
     actor: any;
     meta?: AuditMeta;
   }) {
@@ -196,21 +285,36 @@ export class PerformanceConfigService {
       throw new Error("Archived strategies are read-only.");
     }
 
-    const outputPath = path.resolve(
-      process.cwd(),
-      "storage",
-      "performance",
-      "strategies",
-      `${toSafeFileName(strategy.title)}-${strategy.id}.pdf`
+    // Same remote pipeline as portfolio application uploads (`FirebaseStorageService.uploadApplicationDocument` → `RemoteUploadService`).
+    const safeBase = toSafeFileName(strategy.title);
+    const remoteFileName = `${Date.now()}-${safeBase}-${strategy.id}.pdf`;
+    const { downloadURL } = await remoteUploadService.uploadSingleFile(
+      {
+        buffer: params.fileBuffer,
+        originalname: remoteFileName,
+        mimetype: "application/pdf",
+        size: params.fileBuffer.length
+      },
+      "application-documents"
     );
 
-    ensureDirectoryForFile(outputPath);
-    fs.writeFileSync(outputPath, params.fileBuffer);
+    const strategicGoalId =
+      params.strategicGoalId !== undefined && params.strategicGoalId !== null && String(params.strategicGoalId).trim() !== ""
+        ? String(params.strategicGoalId).trim()
+        : undefined;
+
+    if (strategicGoalId) {
+      const g = await prisma.performanceGoal.findUnique({ where: { id: strategicGoalId } });
+      if (!g) {
+        throw new Error("strategicGoalId must reference an existing performance goal.");
+      }
+    }
 
     const updated = await prisma.performanceStrategy.update({
       where: { id: strategy.id },
       data: {
-        strategyDocumentUrl: outputPath
+        strategyDocumentUrl: downloadURL,
+        ...(strategicGoalId !== undefined ? { strategicGoalId } : {})
       }
     });
 
@@ -220,10 +324,12 @@ export class PerformanceConfigService {
       entityType: "PerformanceStrategyDocument",
       entityId: strategy.id,
       oldValues: {
-        strategyDocumentUrl: strategy.strategyDocumentUrl
+        strategyDocumentUrl: strategy.strategyDocumentUrl,
+        strategicGoalId: strategy.strategicGoalId
       },
       newValues: {
         strategyDocumentUrl: updated.strategyDocumentUrl,
+        strategicGoalId: updated.strategicGoalId,
         originalName: params.originalName
       },
       ...metaToAudit(params.meta)
@@ -381,6 +487,17 @@ export class PerformanceConfigService {
       throw new Error("Goal pillar must be one of the fixed BSC pillars.");
     }
 
+    const effectiveStrategyId =
+      params.strategyId !== undefined ? params.strategyId : goal.strategyId;
+    if (effectiveStrategyId) {
+      const st = await prisma.performanceStrategy.findUnique({
+        where: { id: effectiveStrategyId }
+      });
+      if (st && (st.archivedAt != null || st.status === "ARCHIVED")) {
+        throw new Error("Cannot update scorecard mapping for a goal tied to an archived strategy.");
+      }
+    }
+
     if (
       params.targetValue !== undefined &&
       asNumber(params.targetValue, 0) !== asNumber(goal.targetValue, 0) &&
@@ -398,14 +515,24 @@ export class PerformanceConfigService {
     }
 
     if (params.scorecardWeight !== undefined && nextPillar) {
+      const siblingStrategyId = params.strategyId ?? goal.strategyId ?? null;
+      const siblingWhere: any = {
+        scorecardPillar: nextPillar,
+        id: { not: goal.id }
+      };
+      if (siblingStrategyId) {
+        siblingWhere.strategyId = siblingStrategyId;
+      } else {
+        siblingWhere.strategyId = null;
+      }
+      if (goal.departmentName != null && String(goal.departmentName).trim() !== "") {
+        siblingWhere.departmentName = goal.departmentName;
+      } else {
+        siblingWhere.departmentName = null;
+      }
+
       const siblingGoals = await prisma.performanceGoal.findMany({
-        where: {
-          scorecardPillar: nextPillar,
-          strategyId: params.strategyId ?? goal.strategyId ?? null,
-          id: {
-            not: goal.id
-          }
-        },
+        where: siblingWhere,
         select: {
           scorecardWeight: true
         }
@@ -421,6 +548,9 @@ export class PerformanceConfigService {
       }
     }
 
+    const pillarAfterUpdate =
+      params.scorecardPillar !== undefined ? params.scorecardPillar : goal.scorecardPillar;
+
     const updated = await prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {
@@ -431,7 +561,8 @@ export class PerformanceConfigService {
         ...(params.targetValue !== undefined ? { targetValue: params.targetValue } : {}),
         ...(params.preciseTargetValue !== undefined ? { preciseTargetValue: params.preciseTargetValue } : {}),
         ...(params.targetChangeReason !== undefined ? { targetChangeReason: params.targetChangeReason } : {}),
-        ...(params.weightChangeReason !== undefined ? { weightChangeReason: params.weightChangeReason } : {})
+        ...(params.weightChangeReason !== undefined ? { weightChangeReason: params.weightChangeReason } : {}),
+        pillarId: pillarSlugForScorecardPillar(pillarAfterUpdate)
       }
     });
 
@@ -475,6 +606,7 @@ export class PerformanceConfigService {
         entityId: updated.id,
         oldValues: {
           scorecardPillar: goal.scorecardPillar,
+          pillarId: goal.pillarId,
           scorecardWeight: asNumber(goal.scorecardWeight, 0),
           strategyId: goal.strategyId,
           strategicThemeId: goal.strategicThemeId,
@@ -482,6 +614,7 @@ export class PerformanceConfigService {
         },
         newValues: {
           scorecardPillar: updated.scorecardPillar,
+          pillarId: updated.pillarId,
           scorecardWeight: asNumber(updated.scorecardWeight, 0),
           strategyId: updated.strategyId,
           strategicThemeId: updated.strategicThemeId,

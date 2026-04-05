@@ -21,6 +21,15 @@ async function ensureCompanyProfileId(tx: any): Promise<string> {
 }
 
 export class CompanyProfileAddressService {
+  /** Single active letterhead address for the company profile (if any). */
+  static async getActive() {
+    const profile = await prisma.companyProfile.findFirst({ select: { id: true } });
+    if (!profile) return null;
+    return prisma.companyProfileAddress.findFirst({
+      where: { companyProfileId: profile.id, isActive: true }
+    });
+  }
+
   static async list() {
     const profile = await prisma.companyProfile.findFirst({ select: { id: true } });
     if (!profile) return [];

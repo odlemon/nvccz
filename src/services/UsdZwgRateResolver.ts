@@ -101,10 +101,19 @@ export async function resolveUsdZwgWithSource(client: PrismaClient): Promise<Usd
 let _cachedAvg: { value: number; expiresAt: number } | null = null;
 const RATE_CACHE_TTL_MS = 60_000;
 
-/** For Prisma middleware: numeric avg or null. Cached for 60 s to avoid repeated external calls. */
+/**
+ * For Prisma middleware: numeric avg or null. Cached for 60 s.
+ * Prefer last stored DB snapshot first so journal/cashbook creates stay fast (Zimrate can take 30s+ or hang on slow networks).
+ * Fall back to live Zimrate + stored only when nothing exists in DB yet.
+ */
 export async function resolveUsdZwgAvgForSnapshot(client: PrismaClient): Promise<number | null> {
   if (_cachedAvg && Date.now() < _cachedAvg.expiresAt) {
     return _cachedAvg.value;
+  }
+  const fromDb = await getLastStoredUsdZwgFromDb(client);
+  if (fromDb && Number.isFinite(fromDb.rate) && fromDb.rate > 0) {
+    _cachedAvg = { value: fromDb.rate, expiresAt: Date.now() + RATE_CACHE_TTL_MS };
+    return fromDb.rate;
   }
   const r = await resolveUsdZwgWithSource(client);
   if (!r) return null;

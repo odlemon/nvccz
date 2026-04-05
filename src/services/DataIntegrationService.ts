@@ -260,6 +260,36 @@ export class DataIntegrationService {
   }
 
   /**
+   * Payroll / HR headcount turnover: `Employee.isActive === false` = inactive (terminated / off active roster).
+   * Turnover % = inactive / (active + inactive) × 100 (0 if no employees).
+   */
+  static async calculatePayrollEmployeeTurnoverMetrics(): Promise<{
+    activeHeadcount: number;
+    inactiveHeadcount: number;
+    totalHeadcount: number;
+    /** Same as inactiveHeadcount — separations reflected as inactive flags on Employee. */
+    terminatedCount: number;
+    turnoverRatePct: number;
+  }> {
+    const [activeHeadcount, inactiveHeadcount] = await Promise.all([
+      prisma.employee.count({ where: { isActive: true } }),
+      prisma.employee.count({ where: { isActive: false } })
+    ]);
+    const totalHeadcount = activeHeadcount + inactiveHeadcount;
+    const turnoverRatePct =
+      totalHeadcount > 0
+        ? Math.round((inactiveHeadcount / totalHeadcount) * 10000) / 100
+        : 0;
+    return {
+      activeHeadcount,
+      inactiveHeadcount,
+      totalHeadcount,
+      terminatedCount: inactiveHeadcount,
+      turnoverRatePct
+    };
+  }
+
+  /**
    * Calculate investment pipeline metrics
    */
   static async calculatePipelineMetrics(): Promise<PipelineMetrics> {

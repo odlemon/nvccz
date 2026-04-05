@@ -4,6 +4,7 @@ import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { emitToUser } from "../services/RealtimeSocketService";
 import { mergeTaskNotificationData } from "../utils/taskNotificationDeepLink";
+import { PerformanceConfigService } from "../services/PerformanceConfigService";
 
 // Helper function to get relative time
 function getTimeAgo(date: Date): string {
@@ -85,7 +86,8 @@ export const homepageController = {
         newsletters,
         upcomingEvents,
         allEvents,
-        onlineUsers
+        onlineUsers,
+        strategicAlignment
       ] = await Promise.all([
         // Get active posts (not expired) with pagination
         prisma.post.findMany({
@@ -192,7 +194,17 @@ export const homepageController = {
             lastSeen: true
           },
           orderBy: { lastSeen: 'desc' }
-        })
+        }),
+
+        PerformanceConfigService.getPillarConfig().catch(() => ({
+          strategyId: null,
+          strategyTitle: null,
+          periodStart: null,
+          periodEnd: null,
+          visionStatement: null,
+          pillars: [],
+          strategyDocumentUrl: null
+        }))
       ]);
 
       // Calculate summary statistics
@@ -221,6 +233,15 @@ export const homepageController = {
             all: allEvents
           },
           onlineUsers,
+          strategicAlignment: {
+            visionStatement: strategicAlignment.visionStatement,
+            strategyId: strategicAlignment.strategyId,
+            strategyTitle: strategicAlignment.strategyTitle,
+            periodStart: strategicAlignment.periodStart,
+            periodEnd: strategicAlignment.periodEnd,
+            pillars: strategicAlignment.pillars,
+            strategyDocumentUrl: strategicAlignment.strategyDocumentUrl
+          },
           summary,
           pagination: {
             hasMore: nextCursor !== null,

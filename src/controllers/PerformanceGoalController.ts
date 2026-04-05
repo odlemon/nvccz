@@ -27,7 +27,8 @@ export class PerformanceGoalController {
         targetOperator,
         dataSourceModule,
         dataSourceField,
-        trackingFrequency
+        trackingFrequency,
+        scorecardPillar
       } = req.body;
       const userId = req.user.id;
 
@@ -58,7 +59,8 @@ export class PerformanceGoalController {
         targetOperator,
         dataSourceModule,
         dataSourceField,
-        trackingFrequency
+        trackingFrequency,
+        scorecardPillar
       }, userId);
 
       res.status(201).json({
@@ -84,6 +86,9 @@ export class PerformanceGoalController {
         department,
         assignedToId,
         parentGoalId,
+        strategicThemeId,
+        scorecardPillar,
+        pillarId,
         search
       } = req.query;
 
@@ -94,6 +99,9 @@ export class PerformanceGoalController {
       if (department) filters.departmentName = department as string;
       if (assignedToId) filters.assignedToId = assignedToId as string;
       if (parentGoalId) filters.parentGoalId = parentGoalId as string;
+      if (strategicThemeId) filters.strategicThemeId = strategicThemeId as string;
+      if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
+      if (pillarId) filters.pillarId = pillarId as string;
       if (search) filters.search = search as string;
 
       const goals = await PerformanceGoalService.getAllPerformanceGoals(filters);
@@ -159,7 +167,8 @@ export class PerformanceGoalController {
         trackingFrequency,
         contributionWeightPercent,
         stretchTargetValue,
-        isReverseKpi
+        isReverseKpi,
+        scorecardPillar
       } = req.body;
 
       const goal = await PerformanceGoalService.updatePerformanceGoal(id, {
@@ -187,7 +196,8 @@ export class PerformanceGoalController {
         trackingFrequency,
         contributionWeightPercent,
         stretchTargetValue,
-        isReverseKpi
+        isReverseKpi,
+        scorecardPillar
       });
 
       res.status(200).json({

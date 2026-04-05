@@ -10,6 +10,30 @@ export const HARD_CODED_BSC_PILLARS = [
   "Learning, Growth & HR"
 ];
 
+/** Stable `performance_goals.pillar_id` values (UAT / integrations). */
+export const BSC_PILLAR_SLUG_BY_NAME: Record<string, string> = {
+  Financial: "bsc_financial",
+  "Customer & Market": "bsc_customer_market",
+  "Internal Operations": "bsc_internal_operations",
+  "Learning, Growth & HR": "bsc_learning_growth_hr"
+};
+
+/** UAT document wording vs internal canonical pillar names. */
+export const BSC_PILLAR_UAT_LABEL: Record<string, string> = {
+  Financial: "Financial",
+  "Customer & Market": "Customer",
+  "Internal Operations": "Internal Ops",
+  "Learning, Growth & HR": "Learning & Growth"
+};
+
+export function pillarSlugForScorecardPillar(
+  scorecardPillar: string | null | undefined
+): string | null {
+  if (!scorecardPillar || typeof scorecardPillar !== "string") return null;
+  const slug = BSC_PILLAR_SLUG_BY_NAME[scorecardPillar.trim()];
+  return slug || null;
+}
+
 export function roundTo(value: number, digits = 6) {
   const factor = 10 ** digits;
   return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
@@ -84,6 +108,67 @@ export function isPortfolioIrrCompatibleGoal(goal: {
   const kn = String(goal.kpi?.name || "").toLowerCase();
   if (/\birr\b|internal rate|portfolio irr|gross irr|net irr|fund irr|pe irr/.test(kn)) return true;
 
+  return false;
+}
+
+/**
+ * Goals eligible for `POST .../sync-pe-portfolio-aum`. Inverse of IRR eligibility — AUM KPI / formula only.
+ */
+export function isPortfolioAumCompatibleGoal(goal: {
+  formulaType?: string | null;
+  kpi?: { name?: string | null } | null;
+}): boolean {
+  const ft = String(goal.formulaType || "").toUpperCase().trim();
+  if (ft === "PORTFOLIO_IRR_PCT" || ft === "IRR") return false;
+  if (ft === "AUM_TOTAL" || ft === "AUM") return true;
+
+  const kn = String(goal.kpi?.name || "").toLowerCase();
+  if (/\birr\b|internal rate|portfolio irr|gross irr|net irr|fund irr|pe irr/.test(kn)) return false;
+  if (/\baum\b|assets under management|aum total|total aum/.test(kn)) return true;
+
+  return false;
+}
+
+/**
+ * Goals eligible for `POST .../sync-payroll-turnover-rate` (Payroll `Employee` roster: active vs inactive headcount).
+ */
+export function isPayrollTurnoverCompatibleGoal(goal: {
+  formulaType?: string | null;
+  kpi?: { name?: string | null } | null;
+}): boolean {
+  if (isPortfolioIrrCompatibleGoal(goal) || isPortfolioAumCompatibleGoal(goal)) {
+    return false;
+  }
+  const ft = String(goal.formulaType || "").toUpperCase().trim();
+  if (ft === "TURNOVER_RATE" || ft === "EMPLOYEE_TURNOVER") return true;
+
+  const kn = String(goal.kpi?.name || "").toLowerCase();
+  if (/\bturnover rate\b|employee turnover|staff turnover|attrition rate|headcount turnover/.test(kn)) {
+    return true;
+  }
+  return false;
+}
+
+/** Goals eligible for portfolio total revenue sync (sum of portfolio company `financialKpis.latestKpiValues.TOTAL_REVENUE`). */
+export function isPortfolioTotalRevenueCompatibleGoal(goal: {
+  formulaType?: string | null;
+  kpi?: { name?: string | null } | null;
+}): boolean {
+  if (
+    isPortfolioIrrCompatibleGoal(goal) ||
+    isPortfolioAumCompatibleGoal(goal) ||
+    isPayrollTurnoverCompatibleGoal(goal)
+  ) {
+    return false;
+  }
+  const ft = String(goal.formulaType || "").toUpperCase().trim();
+  if (ft === "TOTAL_REVENUE" || ft === "REVENUE_TARGET" || ft === "SALES_REVENUE") return true;
+  const kn = String(goal.kpi?.name || "").toLowerCase();
+  if (
+    /\btotal revenue\b|\brevenue contribution\b|\bindividual revenue\b|\bgross revenue\b|\bnet revenue\b/.test(kn)
+  ) {
+    return true;
+  }
   return false;
 }
 

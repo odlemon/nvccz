@@ -136,6 +136,36 @@ export class PortfolioDashboardService {
   }
 
   /**
+   * Sum of latest `TOTAL_REVENUE` from each portfolio company's `financialKpis` (PE ↔ performance sync).
+   */
+  static async getAggregatedPortfolioTotalRevenue(params: { fundId?: string } = {}): Promise<{
+    totalRevenue: number;
+    companyCount: number;
+    companiesWithRevenue: number;
+  }> {
+    const where = params.fundId ? { fundId: params.fundId } : {};
+    const companies = await prisma.portfolioCompany.findMany({
+      where,
+      select: { financialKpis: true }
+    });
+    let sum = 0;
+    let companiesWithRevenue = 0;
+    for (const c of companies) {
+      const latest = (c.financialKpis as any)?.latestKpiValues?.TOTAL_REVENUE;
+      if (latest == null || latest === "") continue;
+      const n = parseFloat(String(latest));
+      if (!Number.isFinite(n)) continue;
+      sum += n;
+      companiesWithRevenue += 1;
+    }
+    return {
+      totalRevenue: roundTo(sum, 2),
+      companyCount: companies.length,
+      companiesWithRevenue
+    };
+  }
+
+  /**
    * Get comprehensive portfolio dashboard data
    */
   static async getDashboardData(params: PortfolioDashboardParams = {}): Promise<PortfolioDashboardData> {
