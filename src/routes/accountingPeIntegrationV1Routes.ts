@@ -63,4 +63,23 @@ router.get(
   AccountingPeIntegrationController.getPortfolioIrr
 );
 
+/**
+ * @swagger
+ * /accounting/v1/pe/portfolio-total-revenue:
+ *   get:
+ *     summary: Aggregated portfolio company total revenue (PE feed for performance sync)
+ *     description: |
+ *       Sums `latestKpiValues.TOTAL_REVENUE` from each `PortfolioCompany.financialKpis`.
+ *       Use with performance sync `fieldPath` `data.metrics.totalRevenue` and optional `fundId` query.
+ *     tags: [Accounting]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  "/pe/portfolio-total-revenue",
+  authenticate,
+  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager"]),
+  AccountingPeIntegrationController.getPortfolioTotalRevenue
+);
+
 export default router;

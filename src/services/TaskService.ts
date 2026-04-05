@@ -403,7 +403,8 @@ export class TaskService {
           ? String(request.goalId)
           : null;
       const hasLinkedGoal = Boolean(normalizedGoalId);
-      const normalizedIsPerformanceTask = hasLinkedGoal ? Boolean(request.isPerformanceTask) : false;
+      // Linked project tasks should roll up to the goal by default (B.17 / Project Velocity); opt out with isPerformanceTask: false.
+      const normalizedIsPerformanceTask = hasLinkedGoal ? request.isPerformanceTask !== false : false;
 
       // Validate goal if provided
       if (normalizedGoalId) {
@@ -622,7 +623,9 @@ export class TaskService {
       const nextIsPerformanceTask =
         request.isPerformanceTask !== undefined
           ? request.isPerformanceTask
-          : existingTask.isPerformanceTask;
+          : existingTask.goalId
+            ? existingTask.isPerformanceTask
+            : true;
       const normalizedIsPerformanceTask = hasLinkedGoal ? Boolean(nextIsPerformanceTask) : false;
 
       // Update the task
@@ -682,8 +685,8 @@ export class TaskService {
         }
       });
 
-      // If this is a performance task, update the linked goal
-      if (updatedTask.isPerformanceTask && updatedTask.goalId) {
+      // Any task linked to a performance goal rolls up on change (project milestones → department KPIs).
+      if (updatedTask.goalId) {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
@@ -752,8 +755,12 @@ export class TaskService {
         status: normalizedStage
       };
 
-      // Handle overdue logic
-      if (isOverdue && !task.isOverdue) {
+      // Completed work should not stay flagged overdue / red-zone in API responses
+      if (normalizedStage === "completed") {
+        updateData.isOverdue = false;
+        updateData.overdueStatus = null;
+        updateData.originalStage = null;
+      } else if (isOverdue && !task.isOverdue) {
         // Task just became overdue
         updateData.isOverdue = true;
         updateData.originalStage = task.stage; // Store original stage
@@ -801,8 +808,7 @@ export class TaskService {
         }
       });
 
-      // If this is a performance task, update the linked goal
-      if (updatedTask.isPerformanceTask && updatedTask.goalId) {
+      if (updatedTask.goalId) {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
@@ -924,7 +930,7 @@ export class TaskService {
       }
     });
 
-    if (updatedTask.isPerformanceTask && updatedTask.goalId) {
+    if (updatedTask.goalId) {
       await this.updateLinkedGoalProgress(updatedTask.id);
     }
 
@@ -1042,8 +1048,7 @@ export class TaskService {
         }
       });
 
-      // If this is a performance task, update the linked goal
-      if (updatedTask.isPerformanceTask && updatedTask.goalId) {
+      if (updatedTask.goalId) {
         await this.updateLinkedGoalProgress(updatedTask.id);
       }
 
@@ -1612,12 +1617,32 @@ export class TaskService {
 
     const goalIds = uniqueGoalIdsForTaskBatch(tasks);
     for (const goalId of goalIds) {
-      await this.recalculateGoalProgressFromTasks(goalId);
-      try {
-        const { RollupCalculationService } = await import("./RollupCalculationService");
-        await RollupCalculationService.recalculateAllRollups(goalId);
-      } catch (error) {
-        console.error(`Failed to recalculate rollups for bulk-updated goal ${goalId}:`, error);
+      const anchor = await prisma.task.findFirst({
+        where: { goalId, isTrashed: false },
+        select: { id: true }
+      });
+      if (anchor) {
+        await this.updateLinkedGoalProgress(anchor.id);
+      } else {
+        await this.recalculateGoalProgressFromTasks(goalId);
+        const goalAfter = await prisma.performanceGoal.findUnique({ where: { id: goalId } });
+        if (goalAfter?.kpiId) {
+          try {
+            const { PerformanceGoalService } = await import("./PerformanceGoalService");
+            await PerformanceGoalService.recalculateKPIProgress(goalAfter.kpiId);
+          } catch (kpiErr) {
+            console.error(`⚠️ KPI recalc after bulk goal update failed for kpi ${goalAfter.kpiId}:`, kpiErr);
+          }
+        }
+        if (goalAfter?.parentGoalId) {
+          await this.updateParentGoalProgress(goalAfter.parentGoalId);
+        }
+        try {
+          const { RollupCalculationService } = await import("./RollupCalculationService");
+          await RollupCalculationService.recalculateAllRollups(goalId);
+        } catch (error) {
+          console.error(`Failed to recalculate rollups for bulk-updated goal ${goalId}:`, error);
+        }
       }
     }
 
@@ -1769,7 +1794,8 @@ export class TaskService {
   }
 
   /**
-   * Trigger accounting integration when goal is completed
+   * Trigger accounting integration when goal is completed (task-linked goals / B.17).
+   * Uses hardcoded KPI config + chart of accounts rows (accountNo), same pattern as PerformanceGoalService.
    */
   static async triggerAccountingIntegration(goalId: string, achievedValue: number): Promise<void> {
     try {
@@ -1777,41 +1803,98 @@ export class TaskService {
 
       const goal = await prisma.performanceGoal.findUnique({
         where: { id: goalId },
-        include: {
-          kpi: true
-        }
+        include: { kpi: true },
       });
 
-      if (!goal || !goal.kpi) {
+      if (!goal?.kpi) {
         console.log(`⚠️ Goal ${goalId} has no KPI integration`);
         return;
       }
 
-      // Create journal entry based on KPI
-      const journalEntry = await prisma.journalEntry.create({
-        data: {
-          entryNumber: `KPI-${goal.kpi.code}-${Date.now()}`,
-          description: `KPI Achievement: ${goal.kpi.name} - ${goal.title}`,
-          entryDate: new Date(),
-          status: 'POSTED',
-          createdById: goal.createdById,
-          entries: {
-            create: [
-              {
-                glAccountId: goal.kpi.accountNumber, // Use KPI account number
-                debitAmount: goal.kpi.journalEntryType === 'Debit' ? achievedValue : 0,
-                creditAmount: goal.kpi.journalEntryType === 'Credit' ? achievedValue : 0,
-                description: `KPI Achievement: ${goal.kpi.name}`
-              }
-            ]
-          }
-        }
+      const { HARDCODED_KPIS } = await import("../config/hardcodedKPIs");
+      const kpiConfig = HARDCODED_KPIS.find(
+        (k) =>
+          String(k.name || "").toLowerCase().trim() ===
+          String(goal.kpi.name || "").toLowerCase().trim()
+      );
+
+      if (!kpiConfig?.isFinancial || !kpiConfig.accountNumber) {
+        console.log(`⚠️ KPI "${goal.kpi.name}" is not financial or has no GL mapping; skipping journal entry`);
+        return;
+      }
+
+      if (!Number.isFinite(achievedValue) || achievedValue <= 0) {
+        console.log(`⚠️ KPI journal skipped: non-positive achievedValue (${achievedValue})`);
+        return;
+      }
+
+      const offsetAccountNo = "1000";
+      const [primaryAcc, offsetAcc] = await Promise.all([
+        prisma.chartOfAccounts.findFirst({
+          where: { accountNo: kpiConfig.accountNumber, isActive: true },
+          select: { id: true },
+        }),
+        prisma.chartOfAccounts.findFirst({
+          where: { accountNo: offsetAccountNo, isActive: true },
+          select: { id: true },
+        }),
+      ]);
+
+      if (!primaryAcc?.id || !offsetAcc?.id) {
+        console.error(
+          `❌ KPI journal skipped: chart account missing (KPI accountNo=${kpiConfig.accountNumber}, offset=${offsetAccountNo})`
+        );
+        return;
+      }
+
+      const currency =
+        (await prisma.currency.findFirst({ where: { isDefault: true, isActive: true } })) ||
+        (await prisma.currency.findFirst({ where: { code: "USD", isActive: true } })) ||
+        (await prisma.currency.findFirst({ where: { isActive: true } }));
+
+      if (!currency) {
+        console.error("❌ KPI journal skipped: no active currency");
+        return;
+      }
+
+      const { createJournalEntryWithAuditSequence } = await import("./AuditTrailSequenceService");
+
+      const primaryId = primaryAcc.id;
+      const offsetId = offsetAcc.id;
+      const line1AccountId =
+        kpiConfig.journalEntryType === "Debit" ? primaryId : offsetId;
+      const line2AccountId =
+        kpiConfig.journalEntryType === "Credit" ? primaryId : offsetId;
+
+      await createJournalEntryWithAuditSequence({
+        transactionDate: new Date(),
+        referenceNumber: `KPI-${goal.id}-${Date.now()}`,
+        description: `KPI Achievement: ${goal.kpi.name} - ${goal.title}`,
+        totalAmount: achievedValue,
+        currencyId: currency.id,
+        status: "POSTED",
+        createdById: goal.createdById,
+        journalEntryLines: {
+          create: [
+            {
+              chartOfAccountId: line1AccountId,
+              debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
+              creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
+              description: `KPI: ${goal.kpi.name}`,
+            },
+            {
+              chartOfAccountId: line2AccountId,
+              debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
+              creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
+              description: `KPI: ${goal.kpi.name}`,
+            },
+          ],
+        },
       });
 
-      console.log(`✅ Created journal entry ${journalEntry.id} for KPI ${goal.kpi.code}`);
-
+      console.log(`✅ KPI journal posted for goal ${goalId} (${goal.kpi.name})`);
     } catch (error) {
-      console.error('❌ Error triggering accounting integration:', error);
+      console.error("❌ Error triggering accounting integration:", error);
       throw error;
     }
   }

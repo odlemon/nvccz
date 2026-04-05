@@ -1550,6 +1550,8 @@ model PerformanceGoal {
   measureName           String?
   scorecardSection      String?
   scorecardPillar       String?
+  /// Stable BSC pillar key (slug) aligned with `scorecardPillar` — satisfies UAT pillar_id traceability.
+  pillarId              String?           @map("pillar_id")
   preciseTargetValue    Decimal?          @db.Decimal(18, 6)
   preciseCurrentValue   Decimal?          @db.Decimal(18, 6)
   pendingActualValue    Decimal?          @db.Decimal(18, 6)
@@ -1569,6 +1571,7 @@ model PerformanceGoal {
   performanceRiskZone   String?
   performanceRiskZoneAt DateTime?
   kpi                   KPI?              @relation(fields: [kpiId], references: [id])
+  strategicTheme        PerformanceTheme? @relation(fields: [strategicThemeId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   assignedTo            User?             @relation("GoalAssignee", fields: [assignedToId], references: [id])
   createdBy             User              @relation("GoalCreator", fields: [createdById], references: [id])
   parentGoal            PerformanceGoal?  @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1668,14 +1671,15 @@ model PerformanceStrategy {
 }
 
 model PerformanceTheme {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?  @db.Text
-  color       String?
-  status      String   @default("ACTIVE")
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String             @id @default(cuid())
+  name             String             @unique
+  description      String?            @db.Text
+  color            String?
+  status           String             @default("ACTIVE")
+  createdById      String
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  performanceGoals PerformanceGoal[]
 
   @@map("performance_themes")
 }

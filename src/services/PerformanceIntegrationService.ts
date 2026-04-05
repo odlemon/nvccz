@@ -9,18 +9,28 @@ import {
   buildExponentialBackoffSchedule,
   extractValueFromPayload,
   isHighPrecisionPerformanceSync,
+  isPayrollTurnoverCompatibleGoal,
+  isPortfolioAumCompatibleGoal,
   isPortfolioIrrCompatibleGoal,
+  isPortfolioTotalRevenueCompatibleGoal,
   normaliseSyncedDecimal,
+  pillarSlugForScorecardPillar,
   shouldRaiseDataQualityAlert
 } from "./performanceBackendSupport";
 import {
   isCEO,
   isDepartmentManager,
-  isHRLeader
+  isHRLeader,
+  resolveGoalEscalationStatus,
+  resolveStoredGoalActual
 } from "./performanceScorecardSupport";
-import { PerformanceGoalService } from "./PerformanceGoalService";
+import { DataIntegrationService } from "./DataIntegrationService";
 import { PortfolioDashboardService } from "./PortfolioDashboardService";
-import { PortfolioDashboardService } from "./PortfolioDashboardService";
+import {
+  legacyProgressFieldsForGoal,
+  PerformanceGoalService
+} from "./PerformanceGoalService";
+import { computeAchievementPercent, isTargetMet } from "./performanceGoalRollupUtils";
 
 type AuditMeta = {
   ipAddress?: string | null;
@@ -135,6 +145,31 @@ export class PerformanceIntegrationService {
       const approvalRequired = Boolean(goal.requiresManagerApproval) || goalHighPrecision;
       if (approvalRequired) {
         anyApprovalRequired = true;
+      }
+
+      const priorCanonical = resolveStoredGoalActual(goal).value;
+      const allowZeroOverwrite =
+        isHighPrecisionPerformanceSync(goal, effectiveFieldPath) || isPortfolioIrrCompatibleGoal(goal);
+      if (numericValue === 0 && priorCanonical !== 0 && !allowZeroOverwrite) {
+        updatedGoals.push(goal);
+        await AuditService.log({
+          userId: actor.id,
+          action: "SYNC",
+          entityType: "PerformanceGoalSync",
+          entityId: goal.id,
+          oldValues: {
+            currentValue: goal.currentValue,
+            preciseCurrentValue: goal.preciseCurrentValue
+          },
+          newValues: {
+            skippedZeroOverwrite: true,
+            priorCanonical,
+            syncJobId: syncJob.id,
+            effectiveFieldPath
+          },
+          ...metaToAudit(meta)
+        });
+        continue;
       }
 
       const goalUpdateData: any = {
@@ -336,6 +371,301 @@ export class PerformanceIntegrationService {
     }
   }
 
+  /**
+   * In-process AUM: sums `Fund.totalAmount` for OPEN/CLOSED funds (same as CEO dashboard / accounting portfolio)
+   * and updates performance goals — no internal HTTP hop.
+   */
+  static async runPePortfolioAumSync(params: {
+    goalId?: string;
+    kpiId?: string;
+    /** When set, sync value is that fund's `totalAmount` only (fund-scoped AUM KPI). */
+    fundId?: string;
+    actor: any;
+    meta?: AuditMeta;
+  }) {
+    const goals = await this.loadGoalsForSync(params.goalId, params.kpiId);
+    const primaryGoal = goals[0];
+
+    for (const g of goals) {
+      if (!isPortfolioAumCompatibleGoal(g)) {
+        const kpiName = g.kpi?.name || "(no KPI)";
+        throw new Error(
+          `Portfolio AUM sync is only allowed when the goal's KPI or formulaType indicates AUM. ` +
+            `Goal "${g.title}" (${g.id}) is linked to KPI "${kpiName}".`
+        );
+      }
+    }
+
+    const syncJob = await prisma.performanceSyncJob.create({
+      data: {
+        goalId: primaryGoal.id,
+        kpiId: primaryGoal.kpiId || params.kpiId || null,
+        jobType: "MANUAL_SYNC",
+        status: "RUNNING",
+        targetEndpoint: "in-process://pe-portfolio-aum",
+        payloadSummary: {
+          goalId: primaryGoal.id,
+          goalIds: goals.map((g) => g.id),
+          multiGoalCount: goals.length,
+          kpiId: primaryGoal.kpiId || params.kpiId || null,
+          fieldPath: "data.metrics.totalAum",
+          syncMode: "PE_PORTFOLIO_AUM",
+          fundId: params.fundId ?? null
+        },
+        createdById: params.actor.id,
+        startedAt: new Date()
+      }
+    });
+
+    try {
+      let totalAumNumber: number;
+      let fundCount: number;
+      let mode: "aggregate" | "single_fund";
+
+      if (params.fundId) {
+        const fund = await prisma.fund.findUnique({
+          where: { id: params.fundId }
+        });
+        if (!fund) {
+          throw new Error(`Fund not found: ${params.fundId}`);
+        }
+        totalAumNumber = asNumber(fund.totalAmount, 0);
+        fundCount = 1;
+        mode = "single_fund";
+      } else {
+        const aum = await DataIntegrationService.calculateAUM();
+        totalAumNumber = aum.totalAUM.toNumber();
+        fundCount = aum.totalFunds;
+        mode = "aggregate";
+      }
+
+      const rawPayload = {
+        success: true,
+        source: "in_process_pe_portfolio_aum",
+        data: {
+          metrics: {
+            totalAum: totalAumNumber,
+            fundCount,
+            mode
+          }
+        },
+        generatedAt: new Date().toISOString()
+      };
+
+      const effectiveFieldPath = "data.metrics.totalAum";
+      const extracted = extractValueFromPayload(rawPayload, effectiveFieldPath);
+
+      return await this.finalizeManualSyncFromExtracted({
+        goals,
+        primaryGoal,
+        syncJob,
+        extracted,
+        effectiveFieldPath,
+        requestFieldPath: effectiveFieldPath,
+        rawPayload,
+        attempt: 1,
+        actor: params.actor,
+        meta: params.meta,
+        kpiId: params.kpiId ?? null
+      });
+    } catch (error: any) {
+      await prisma.performanceSyncJob.update({
+        where: { id: syncJob.id },
+        data: {
+          status: "FAILED",
+          errorCode: "PE_AUM_SYNC",
+          errorMessage: error?.message || "Portfolio AUM sync failed",
+          attempts: 1,
+          finishedAt: new Date()
+        }
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * In-process sum of portfolio companies' `financialKpis.latestKpiValues.TOTAL_REVENUE` (PE reporting feed).
+   */
+  static async runPePortfolioTotalRevenueSync(params: {
+    goalId?: string;
+    kpiId?: string;
+    fundId?: string;
+    actor: any;
+    meta?: AuditMeta;
+  }) {
+    const goals = await this.loadGoalsForSync(params.goalId, params.kpiId);
+    const primaryGoal = goals[0];
+
+    for (const g of goals) {
+      if (!isPortfolioTotalRevenueCompatibleGoal(g)) {
+        const kpiName = g.kpi?.name || "(no KPI)";
+        throw new Error(
+          `Portfolio total revenue sync is only allowed when the goal's KPI or formulaType indicates revenue (not IRR/AUM/turnover). ` +
+            `Goal "${g.title}" (${g.id}) is linked to KPI "${kpiName}".`
+        );
+      }
+    }
+
+    const syncJob = await prisma.performanceSyncJob.create({
+      data: {
+        goalId: primaryGoal.id,
+        kpiId: primaryGoal.kpiId || params.kpiId || null,
+        jobType: "MANUAL_SYNC",
+        status: "RUNNING",
+        targetEndpoint: "in-process://pe-portfolio-total-revenue",
+        payloadSummary: {
+          goalId: primaryGoal.id,
+          goalIds: goals.map((g) => g.id),
+          multiGoalCount: goals.length,
+          kpiId: primaryGoal.kpiId || params.kpiId || null,
+          fieldPath: "data.metrics.totalRevenue",
+          syncMode: "PE_PORTFOLIO_TOTAL_REVENUE",
+          fundId: params.fundId ?? null
+        },
+        createdById: params.actor.id,
+        startedAt: new Date()
+      }
+    });
+
+    try {
+      const agg = await PortfolioDashboardService.getAggregatedPortfolioTotalRevenue({
+        fundId: params.fundId
+      });
+      const rawPayload = {
+        success: true,
+        source: "in_process_pe_portfolio_total_revenue",
+        data: {
+          metrics: {
+            totalRevenue: agg.totalRevenue,
+            companyCount: agg.companyCount,
+            companiesWithRevenue: agg.companiesWithRevenue
+          }
+        },
+        generatedAt: new Date().toISOString()
+      };
+
+      const effectiveFieldPath = "data.metrics.totalRevenue";
+      const extracted = extractValueFromPayload(rawPayload, effectiveFieldPath);
+
+      return await this.finalizeManualSyncFromExtracted({
+        goals,
+        primaryGoal,
+        syncJob,
+        extracted,
+        effectiveFieldPath,
+        requestFieldPath: effectiveFieldPath,
+        rawPayload,
+        attempt: 1,
+        actor: params.actor,
+        meta: params.meta,
+        kpiId: params.kpiId ?? null
+      });
+    } catch (error: any) {
+      await prisma.performanceSyncJob.update({
+        where: { id: syncJob.id },
+        data: {
+          status: "FAILED",
+          errorCode: "PE_TOTAL_REVENUE_SYNC",
+          errorMessage: error?.message || "Portfolio total revenue sync failed",
+          attempts: 1,
+          finishedAt: new Date()
+        }
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * In-process employee turnover rate from Payroll `Employee` table (`isActive` vs not).
+   * Synced value is `turnoverRatePct` (0–100). Inactive rows count as terminations for this metric.
+   */
+  static async runPayrollTurnoverRateSync(params: {
+    goalId?: string;
+    kpiId?: string;
+    actor: any;
+    meta?: AuditMeta;
+  }) {
+    const goals = await this.loadGoalsForSync(params.goalId, params.kpiId);
+    const primaryGoal = goals[0];
+
+    for (const g of goals) {
+      if (!isPayrollTurnoverCompatibleGoal(g)) {
+        const kpiName = g.kpi?.name || "(no KPI)";
+        throw new Error(
+          `Payroll turnover sync is only allowed when the goal's KPI or formulaType indicates employee turnover. ` +
+            `Goal "${g.title}" (${g.id}) is linked to KPI "${kpiName}".`
+        );
+      }
+    }
+
+    const syncJob = await prisma.performanceSyncJob.create({
+      data: {
+        goalId: primaryGoal.id,
+        kpiId: primaryGoal.kpiId || params.kpiId || null,
+        jobType: "MANUAL_SYNC",
+        status: "RUNNING",
+        targetEndpoint: "in-process://payroll-turnover-rate",
+        payloadSummary: {
+          goalId: primaryGoal.id,
+          goalIds: goals.map((g) => g.id),
+          multiGoalCount: goals.length,
+          kpiId: primaryGoal.kpiId || params.kpiId || null,
+          fieldPath: "data.metrics.turnoverRatePct",
+          syncMode: "PAYROLL_TURNOVER_RATE"
+        },
+        createdById: params.actor.id,
+        startedAt: new Date()
+      }
+    });
+
+    try {
+      const m = await DataIntegrationService.calculatePayrollEmployeeTurnoverMetrics();
+      const rawPayload = {
+        success: true,
+        source: "in_process_payroll_employee_headcount",
+        data: {
+          metrics: {
+            turnoverRatePct: m.turnoverRatePct,
+            activeHeadcount: m.activeHeadcount,
+            inactiveHeadcount: m.inactiveHeadcount,
+            terminatedCount: m.terminatedCount,
+            totalHeadcount: m.totalHeadcount
+          }
+        },
+        generatedAt: new Date().toISOString()
+      };
+
+      const effectiveFieldPath = "data.metrics.turnoverRatePct";
+      const extracted = extractValueFromPayload(rawPayload, effectiveFieldPath);
+
+      return await this.finalizeManualSyncFromExtracted({
+        goals,
+        primaryGoal,
+        syncJob,
+        extracted,
+        effectiveFieldPath,
+        requestFieldPath: effectiveFieldPath,
+        rawPayload,
+        attempt: 1,
+        actor: params.actor,
+        meta: params.meta,
+        kpiId: params.kpiId ?? null
+      });
+    } catch (error: any) {
+      await prisma.performanceSyncJob.update({
+        where: { id: syncJob.id },
+        data: {
+          status: "FAILED",
+          errorCode: "PAYROLL_TURNOVER_SYNC",
+          errorMessage: error?.message || "Payroll turnover rate sync failed",
+          attempts: 1,
+          finishedAt: new Date()
+        }
+      });
+      throw error;
+    }
+  }
+
   static async runManualSync(params: {
     goalId?: string;
     kpiId?: string;
@@ -526,31 +856,75 @@ export class PerformanceIntegrationService {
     meta?: AuditMeta;
   }) {
     const goal = await prisma.performanceGoal.findUnique({
-      where: { id: params.goalId }
+      where: { id: params.goalId },
+      include: { kpi: { select: { name: true } } }
     });
 
     if (!goal) {
       throw new Error("Performance goal not found.");
     }
 
-    const approvedValue = params.approvedValue ?? goal.pendingActualValue ?? goal.lastSyncedValue;
-    if (approvedValue === null || approvedValue === undefined) {
+    const approvedRaw = params.approvedValue ?? goal.pendingActualValue ?? goal.lastSyncedValue;
+    if (approvedRaw === null || approvedRaw === undefined || approvedRaw === "") {
       throw new Error("There is no pending value to approve.");
     }
+
+    const approvedNum = asNumber(approvedRaw, NaN);
+    if (!Number.isFinite(approvedNum)) {
+      throw new Error("There is no valid pending value to approve.");
+    }
+
+    const targetNum = goal.targetValue ? parseFloat(String(goal.targetValue)) : 0;
+    const progressPercentage = computeAchievementPercent({
+      currentValue: approvedNum,
+      targetValue: goal.targetValue,
+      targetOperator: goal.targetOperator,
+      isReverseKpi: goal.isReverseKpi,
+      progressPercentage: goal.progressPercentage
+    });
+    const completed = isTargetMet(approvedNum, targetNum, goal.targetOperator, goal.isReverseKpi);
+    const partialProgress = !completed && targetNum > 0 && approvedNum > 0;
+    const nextStage = completed ? "completed" : partialProgress ? "in_progress" : goal.stage;
+
+    const legacyData = legacyProgressFieldsForGoal(goal, approvedNum);
+    const performanceRiskZone = resolveGoalEscalationStatus({
+      preciseCurrentValue: String(approvedNum),
+      currentValue: approvedNum,
+      preciseTargetValue: goal.preciseTargetValue,
+      targetValue: goal.targetValue,
+      allowableVariance: goal.allowableVariance,
+      isReverseKpi: goal.isReverseKpi,
+      endDate: goal.endDate
+    });
 
     const updatedGoal = await prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {
         isPendingApproval: false,
         pendingActualValue: null,
-        preciseCurrentValue: approvedValue,
-        currentValue: Number(approvedValue),
-        lastApprovedValue: approvedValue,
-        lastSyncedAt: new Date()
+        preciseCurrentValue: String(approvedNum),
+        currentValue: approvedNum,
+        lastApprovedValue: approvedNum,
+        lastSyncedAt: new Date(),
+        progressPercentage,
+        status: completed ? "completed" : "active",
+        stage: nextStage,
+        performanceRiskZone,
+        performanceRiskZoneAt: new Date(),
+        ...legacyData
       }
     });
 
-    await PerformanceGoalService.refreshPerformanceRiskZoneOnGoal(goal.id).catch(() => undefined);
+    if (goal.kpiId) {
+      await PerformanceGoalService.recalculateKPIProgress(goal.kpiId).catch((e) =>
+        console.error(`[PerformanceSync] KPI recalc after approve failed for ${goal.kpiId}:`, e)
+      );
+    }
+    if (goal.parentGoalId) {
+      await PerformanceGoalService.updateParentGoalProgress(goal.parentGoalId).catch((e) =>
+        console.error(`[PerformanceSync] Parent roll-up after approve failed for ${goal.parentGoalId}:`, e)
+      );
+    }
 
     if (goal.lastSyncJobId) {
       await prisma.performanceSyncJob.update({
@@ -575,7 +949,7 @@ export class PerformanceIntegrationService {
         pendingActualValue: goal.pendingActualValue
       },
       newValues: {
-        approvedValue,
+        approvedValue: approvedNum,
         comment: params.comment
       },
       ...metaToAudit(params.meta)
@@ -727,7 +1101,9 @@ export class PerformanceIntegrationService {
           ...(preciseTargetValue !== null && preciseTargetValue !== undefined
             ? { preciseTargetValue: normaliseSyncedDecimal(preciseTargetValue, 6) }
             : {}),
-          ...(pillar ? { scorecardPillar: pillar } : {}),
+          ...(pillar
+            ? { scorecardPillar: pillar, pillarId: pillarSlugForScorecardPillar(pillar) }
+            : {}),
           targetChangeReason: reason
         }
       });

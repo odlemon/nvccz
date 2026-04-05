@@ -186,6 +186,7 @@ router.get("/pillars", authenticate, PerformanceConfigController.getPillars);
  * /api/performance/config/strategies:
  *   get:
  *     summary: List performance strategies
+ *     description: Each item includes strategyDocumentUrl when a strategy PDF was uploaded (same remote URL as portfolio documents; use GET on that URL in a browser or client to download).
  *     tags: [Performance Config]
  *     security:
  *       - bearerAuth: []
@@ -292,6 +293,40 @@ router.get("/pillars", authenticate, PerformanceConfigController.getPillars);
  */
 router.get("/strategies", authenticate, PerformanceConfigController.listStrategies);
 router.post("/strategies", authenticate, PerformanceConfigController.upsertStrategy);
+
+/**
+ * @swagger
+ * /api/performance/config/strategies/{id}:
+ *   get:
+ *     summary: Get one performance strategy by id
+ *     description: Returns full strategy including strategyDocumentUrl (remote URL for PDF download when set).
+ *     tags: [Performance Config]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Strategy retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/StandardSuccessEnvelope'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       $ref: '#/components/schemas/PerformanceStrategy'
+ *       404:
+ *         description: Strategy not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/strategies/:id", authenticate, PerformanceConfigController.getStrategyById);
 
 /**
  * @swagger
