@@ -58,6 +58,7 @@ import transactionReversalRoutes from "./routes/transactionReversalRoutes"
 import cashbookTransferRoutes from "./routes/cashbookTransferRoutes"
 import entryTypeRoutes from "./routes/entryTypeRoutes"
 import trialBalanceRoutes from "./routes/trialBalanceRoutes"
+import fiscalCalendarRoutes from "./routes/fiscalCalendarRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
 import portfolioCompanyRoutes from "./routes/portfolioCompanyRoutes"
@@ -446,6 +447,7 @@ app.use("/api/cashbook/contra", contraEntryRoutes)
 app.use("/api/cashbook/entry-types", entryTypeRoutes)
 app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
+app.use("/api/accounting/fiscal-calendar", fiscalCalendarRoutes)
 
 // Mini-KYC routes
 app.use("/api/mini-kyc", miniKycRoutes)

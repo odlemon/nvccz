@@ -11,6 +11,7 @@ import {
   assertGlAccountIsCashAndCashEquivalents,
   resolveCashAndCashEquivalentsCoa,
 } from '../config/cashAndCashEquivalents';
+import PeriodLockService from './PeriodLockService';
 
 export interface CreateCashReceiptParams {
   bankId: string;
@@ -70,20 +71,35 @@ export class CashbookService {
     try {
       console.log(`💰 Creating Cash Receipt: ${params.description} - $${params.amount}`);
 
-      await VATService.refreshActiveVatRate().catch(() => undefined);
-      
-      // 1. Validate bank account
-      const bank = await prisma.bank.findUnique({
-        where: { id: params.bankId },
-        include: { glAccount: true, currency: true }
-      });
-      
+      const [, bank] = await Promise.all([
+        VATService.refreshActiveVatRate().catch(() => undefined),
+        prisma.bank.findUnique({
+          where: { id: params.bankId },
+          include: { glAccount: true, currency: true },
+        }),
+      ]);
+
       if (!bank) {
         throw new Error(`Bank account not found: ${params.bankId}`);
       }
-      
-      // 2. Validate counterparty
+
       const counterparty = await this.validateCounterparty(params);
+
+      const lockCtx = {
+        accountingDate: params.transactionDate,
+        userId: params.createdById,
+        source: 'API' as const,
+      };
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'BANK',
+        ...lockCtx,
+        actionType: 'CREATE_CASH_RECEIPT',
+      });
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'GL',
+        ...lockCtx,
+        actionType: 'CREATE_CASH_RECEIPT',
+      });
       
       // 3. Calculate VAT (standard code 15% / 15.5% → 15.5%)
       const vatRate = VATService.standardRateFromVatCode(params.vatCode);
@@ -112,11 +128,16 @@ export class CashbookService {
       
       // 5. Create journal entry for double-entry accounting
       // Pass VAT information to createJournalEntry
-      const journalEntry = await this.createJournalEntry(transaction, params.createdById, {
-        vatCode: params.vatCode,
-        vatAmount: vatAmount,
-        netAmount: netAmount
-      });
+      const journalEntry = await this.createJournalEntry(
+        transaction,
+        params.createdById,
+        {
+          vatCode: params.vatCode,
+          vatAmount: vatAmount,
+          netAmount: netAmount,
+        },
+        bank
+      );
       
       // 6. Update transaction with journal entry reference
       const updatedTransaction = await prisma.cashbookEntry.update({
@@ -172,20 +193,35 @@ export class CashbookService {
     try {
       console.log(`💸 Creating Cash Payment: ${params.description} - $${params.amount}`);
 
-      await VATService.refreshActiveVatRate().catch(() => undefined);
-      
-      // 1. Validate bank account
-      const bank = await prisma.bank.findUnique({
-        where: { id: params.bankId },
-        include: { glAccount: true, currency: true }
-      });
-      
+      const [, bank] = await Promise.all([
+        VATService.refreshActiveVatRate().catch(() => undefined),
+        prisma.bank.findUnique({
+          where: { id: params.bankId },
+          include: { glAccount: true, currency: true },
+        }),
+      ]);
+
       if (!bank) {
         throw new Error(`Bank account not found: ${params.bankId}`);
       }
-      
-      // 2. Validate counterparty
+
       const counterparty = await this.validateCounterparty(params);
+
+      const lockCtx = {
+        accountingDate: params.transactionDate,
+        userId: params.createdById,
+        source: 'API' as const,
+      };
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'BANK',
+        ...lockCtx,
+        actionType: 'CREATE_CASH_PAYMENT',
+      });
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'GL',
+        ...lockCtx,
+        actionType: 'CREATE_CASH_PAYMENT',
+      });
       
       // 3. Calculate VAT (standard code 15% / 15.5% → 15.5%)
       const vatRate = VATService.standardRateFromVatCode(params.vatCode);
@@ -225,11 +261,16 @@ export class CashbookService {
         const vatRate = VATService.standardRateFromVatCode(params.vatCode);
         const vatAmount = params.amount * vatRate;
         const netAmount = params.amount - vatAmount;
-        const journalEntry = await this.createJournalEntry(transaction, params.createdById, {
-          vatCode: params.vatCode,
-          vatAmount: vatAmount,
-          netAmount: netAmount
-        });
+        const journalEntry = await this.createJournalEntry(
+          transaction,
+          params.createdById,
+          {
+            vatCode: params.vatCode,
+            vatAmount: vatAmount,
+            netAmount: netAmount,
+          },
+          bank
+        );
         updatedTransaction = await prisma.cashbookEntry.update({
           where: { id: transaction.id },
           data: { 
@@ -291,12 +332,12 @@ export class CashbookService {
         where: { id: transactionId },
         include: {
           bank: {
-            include: { glAccount: true }
+            include: { glAccount: true, currency: true },
           },
           glAccount: true,
           customer: true,
-          vendor: true
-        }
+          vendor: true,
+        },
       });
       
       // Fetch allocations separately (they're linked via PaymentAllocation model)
@@ -315,6 +356,22 @@ export class CashbookService {
       if (transaction.status === 'POSTED') {
         throw new Error('Transaction already posted');
       }
+
+      const postLockCtx = {
+        accountingDate: transaction.transactionDate,
+        userId,
+        source: 'API' as const,
+      };
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'BANK',
+        ...postLockCtx,
+        actionType: 'POST_CASHBOOK',
+      });
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: 'GL',
+        ...postLockCtx,
+        actionType: 'POST_CASHBOOK',
+      });
       
       // 2. Validate multi-line allocation for PAYMENT transactions
       // For SUPPLIER and CUSTOMER payments, ensure all allocations sum to the payment amount
@@ -337,7 +394,12 @@ export class CashbookService {
       }
       
       // 3. Create journal entry
-      const journalEntry = await this.createJournalEntry(transaction, userId);
+      const journalEntry = await this.createJournalEntry(
+        transaction,
+        userId,
+        undefined,
+        transaction.bank ?? undefined
+      );
       
       // 4. Update transaction status
       await prisma.cashbookEntry.update({
@@ -774,16 +836,23 @@ export class CashbookService {
   
   
   
-  private static async createJournalEntry(transaction: any, userId: string, vatInfo?: { vatCode?: string; vatAmount: number; netAmount: number }): Promise<any> {
+  private static async createJournalEntry(
+    transaction: any,
+    userId: string,
+    vatInfo?: { vatCode?: string; vatAmount: number; netAmount: number },
+    preloadedBank?: { currency?: { id: string } | null; glAccountId?: string | null } | null
+  ): Promise<any> {
     const referenceNumber = `CB-${transaction.id.substring(transaction.id.length - 8).toUpperCase()}`;
-    
-    // Fetch bank details with currency
-    const bank = await prisma.bank.findUnique({
-      where: { id: transaction.bankId },
-      include: { currency: true }
-    });
-    
-    if (!bank) {
+
+    let bank = preloadedBank;
+    if (!bank?.currency?.id) {
+      bank = await prisma.bank.findUnique({
+        where: { id: transaction.bankId },
+        include: { currency: true },
+      });
+    }
+
+    if (!bank?.currency?.id) {
       throw new Error('Bank account not found');
     }
     

@@ -9,6 +9,7 @@ import { CashbookService } from "./CashbookService";
 import AuditService from "./AuditService";
 import { assignNextAuditIdAndCreateJournal, createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
 import { parseDate } from "../utils/dateHelper";
+import PeriodLockService from "./PeriodLockService";
 
 /** User-facing duplicate vendor bill reference (vendor invoice number) message. */
 export const DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE =
@@ -955,6 +956,23 @@ export class PurchaseInvoiceService {
           : submitData.paymentDate != null && String(submitData.paymentDate).trim() !== ""
             ? parseDate(String(submitData.paymentDate).trim())
             : invoice.invoiceDate;
+
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: "AP",
+        accountingDate: invoice.invoiceDate,
+        userId: processedById,
+        source: "API",
+        actionType: "SUBMIT_PURCHASE_INVOICE",
+      });
+      if (bankCashPaymentDate) {
+        await PeriodLockService.assertModuleDateOpen({
+          moduleCode: "BANK",
+          accountingDate: bankCashPaymentDate,
+          userId: processedById,
+          source: "API",
+          actionType: "SUBMIT_PURCHASE_INVOICE_BANK",
+        });
+      }
 
       if (submitData.paymentMethod === "CREDIT") {
         // CREDIT: Create journal entry directly (no cashbook needed)

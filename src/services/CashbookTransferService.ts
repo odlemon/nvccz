@@ -3,6 +3,7 @@ import { PrismaClient, Decimal } from '@prisma/client';
 import { prisma } from '../utils/database';
 import AuditService from './AuditService';
 import { assignNextAuditIdAndCreateJournal } from './AuditTrailSequenceService';
+import PeriodLockService from './PeriodLockService';
 
 export interface TransferRequest {
   fromBankId: string;
@@ -402,23 +403,10 @@ export class CashbookTransferService {
    */
   private static async isPeriodLocked(transferDate: Date): Promise<boolean> {
     try {
-      
-      const year = transferDate.getFullYear();
-      const month = transferDate.getMonth() + 1;
-      
-      const lockout = await prisma.periodLockout.findFirst({
-        where: {
-          year: year,
-          month: month,
-          isLocked: true
-        }
-      });
-      
-      return !!lockout;
-      
+      return await PeriodLockService.isLegacyCashbookMonthLocked(transferDate);
     } catch (error: any) {
-      console.error('❌ Error checking period lockout:', error.message);
-      return false; // Allow transfer if we can't check lockout
+      console.error("❌ Error checking period lockout:", error.message);
+      return false;
     }
   }
   

@@ -18,8 +18,8 @@ router.use(authenticate);
 /**
  * @swagger
  * tags:
- *   name: Period Lockout
- *   description: Data integrity protection
+ *   name: Accounting - Period lock
+ *   description: Legacy cashbook month lock and related checks (see also /accounting/fiscal-calendar in Swagger)
  */
 
 /**
@@ -28,7 +28,7 @@ router.use(authenticate);
  *   post:
  *     summary: Lock/unlock accounting period
  *     description: Lock or unlock an accounting period to prevent transactions
-     *     tags: [Period Lockout]
+ *     tags: [Accounting - Period lock]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -81,7 +81,7 @@ router.post('/lock', PeriodLockoutController.lockPeriod);
  *   get:
  *     summary: Get period lockout status
  *     description: Check if a specific accounting period is locked
-     *     tags: [Period Lockout]
+ *     tags: [Accounting - Period lock]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -134,7 +134,7 @@ router.get('/:period/status', PeriodLockoutController.getPeriodStatus);
  *   get:
  *     summary: Get all periods with lockout status
  *     description: Retrieve all accounting periods with their lockout status
-     *     tags: [Period Lockout]
+ *     tags: [Accounting - Period lock]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -180,7 +180,7 @@ router.get('/', PeriodLockoutController.getAllPeriods);
  *   post:
  *     summary: Validate transaction date against period lockout
  *     description: Check if a transaction can be created on a specific date
-     *     tags: [Period Lockout]
+ *     tags: [Accounting - Period lock]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -236,7 +236,7 @@ router.post('/validate-date', PeriodLockoutController.validateTransactionDate);
  *   get:
  *     summary: Get lockout history for a period
  *     description: Retrieve the lockout/unlock history for a specific period
-     *     tags: [Period Lockout]
+ *     tags: [Accounting - Period lock]
  *     security:
  *       - bearerAuth: []
  *     parameters:

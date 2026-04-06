@@ -12,6 +12,7 @@ import {
   buildInvoiceEquivalentAtCreation,
   type InvoiceEquivalentAtCreation
 } from "../utils/invoiceEquivalentAtCreation";
+import PeriodLockService from "./PeriodLockService";
 
 export type { InvoiceEquivalentAtCreation };
 
@@ -324,6 +325,14 @@ export class InvoiceService {
         params.usdZwgRateSnapshot != null && Number.isFinite(Number(params.usdZwgRateSnapshot))
           ? new Decimal(params.usdZwgRateSnapshot)
           : undefined;
+
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: "AR",
+        accountingDate: transactionDate,
+        userId: createdById,
+        source: "API",
+        actionType: "CREATE_INVOICE",
+      });
 
       const { updatedInvoice, journalEntryResult } = await prisma.$transaction(
         async (tx) => {

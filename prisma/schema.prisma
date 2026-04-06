@@ -157,6 +157,9 @@ model User {
   shortTermInvestmentInstrumentsCreated ShortTermInvestmentInstrument[] @relation("StiInstrumentCreatedBy")
   shortTermInvestmentInstrumentsVoided  ShortTermInvestmentInstrument[] @relation("StiInstrumentVoidedBy")
   shortTermInvestmentApyRatesCreated   ShortTermInvestmentApyRate[]    @relation("StiApyCreatedBy")
+  modulePeriodLocksUpdated             ModulePeriodLock[]              @relation("ModulePeriodLockUpdatedBy")
+  periodLockDraftsUpdated              PeriodLockDraft[]               @relation("PeriodLockDraftUpdatedBy")
+  periodLockAuditLogsPerformed         PeriodLockAuditLog[]            @relation("PeriodLockAuditPerformedBy")
 
   @@map("users")
 }
@@ -3752,6 +3755,123 @@ model AccountingPeriod {
   lockedByUser User?     @relation("PeriodLockedBy", fields: [lockedBy], references: [id])
 
   @@map("accounting_periods")
+}
+
+/// Fiscal year master (calendar or fiscal-year boundaries).
+model FiscalYear {
+  id        String         @id @default(cuid())
+  name      String         @db.VarChar(128)
+  startDate DateTime       @map("start_date") @db.Date
+  endDate   DateTime       @map("end_date") @db.Date
+  status    String         @default("OPEN") @db.VarChar(32)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+  periods   FiscalPeriod[]
+
+  @@index([startDate, endDate], map: "fiscal_years_start_end_idx")
+  @@map("fiscal_years")
+}
+
+/// One row per fiscal period (e.g. month); optional shell lock in `status`.
+model FiscalPeriod {
+  id           String         @id @default(cuid())
+  fiscalYearId String         @map("fiscal_year_id")
+  periodNumber Int            @map("period_number")
+  name         String         @db.VarChar(128)
+  startDate    DateTime       @map("start_date") @db.Date
+  endDate      DateTime       @map("end_date") @db.Date
+  status       String         @default("OPEN") @db.VarChar(32)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  fiscalYear         FiscalYear          @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+  moduleLocks        ModulePeriodLock[]
+  periodLockAuditLog PeriodLockAuditLog[]
+
+  @@unique([fiscalYearId, periodNumber], map: "fiscal_periods_year_num_key")
+  @@index([startDate, endDate], map: "fiscal_periods_start_end_idx")
+  @@map("fiscal_periods")
+}
+
+/// Per-module lock state for a fiscal period (GL, AR, AP, BANK, etc.).
+model ModulePeriodLock {
+  id             String       @id @default(cuid())
+  moduleCode     String       @map("module_code") @db.VarChar(16)
+  fiscalPeriodId String       @map("fiscal_period_id")
+  lockStatus     String       @default("OPEN") @map("lock_status") @db.VarChar(32)
+  reason         String?      @db.VarChar(512)
+  updatedById    String?      @map("updated_by_id")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  fiscalPeriod FiscalPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
+  updatedBy    User?        @relation("ModulePeriodLockUpdatedBy", fields: [updatedById], references: [id])
+
+  @@unique([moduleCode, fiscalPeriodId], map: "module_period_locks_mod_fp_key")
+  @@index([fiscalPeriodId], map: "module_period_locks_fp_idx")
+  @@map("module_period_locks")
+}
+
+/// Singleton (`id` = default): ERROR vs WARN, override flags, config version for cache busting.
+model CompanyAccountingPolicy {
+  id                   String   @id @default("default")
+  lockedPeriodPolicy   String   @default("ERROR") @map("locked_period_policy") @db.VarChar(16)
+  allowOverridePosting Boolean  @default(false) @map("allow_override_posting")
+  glErrorBatchEnabled  Boolean  @default(true) @map("gl_error_batch_enabled")
+  lockConfigVersion    Int      @default(0) @map("lock_config_version")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("company_accounting_policies")
+}
+
+/// Staging only — not used for validation until committed via fiscal-calendar API.
+model PeriodLockDraft {
+  id          String   @id @default("default")
+  draftJson   Json     @map("draft_json")
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("PeriodLockDraftUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("period_lock_drafts")
+}
+
+/// Parked feeder/subledger work when target module/date is locked.
+model PostingException {
+  id                 String   @id @default(cuid())
+  sourceModule       String   @map("source_module") @db.VarChar(16)
+  targetModule       String   @map("target_module") @db.VarChar(16)
+  sourceDocumentType String   @map("source_document_type") @db.VarChar(64)
+  sourceDocumentId   String   @map("source_document_id") @db.VarChar(191)
+  accountingDate     DateTime @map("accounting_date") @db.Date
+  reasonCode         String   @map("reason_code") @db.VarChar(64)
+  status             String   @default("OPEN") @db.VarChar(32)
+  payloadSnapshot    Json?    @map("payload_snapshot")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([status, createdAt], map: "posting_exceptions_status_created_idx")
+  @@index([targetModule, accountingDate], map: "posting_exceptions_tgt_date_idx")
+  @@map("posting_exceptions")
+}
+
+model PeriodLockAuditLog {
+  id             String   @id @default(cuid())
+  actionType     String   @map("action_type") @db.VarChar(64)
+  moduleCode     String?  @map("module_code") @db.VarChar(16)
+  fiscalPeriodId String?  @map("fiscal_period_id")
+  oldValue       Json?    @map("old_value")
+  newValue       Json?    @map("new_value")
+  reason         String?  @db.Text
+  performedById  String   @map("performed_by_id")
+  source         String   @default("API") @db.VarChar(32)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  fiscalPeriod FiscalPeriod? @relation(fields: [fiscalPeriodId], references: [id], onDelete: SetNull)
+  performedBy  User          @relation("PeriodLockAuditPerformedBy", fields: [performedById], references: [id])
+
+  @@index([createdAt], map: "period_lock_audit_logs_created_idx")
+  @@index([actionType], map: "period_lock_audit_logs_action_idx")
+  @@map("period_lock_audit_logs")
 }
 
 /// Singleton-style settings row (`id` = `default`). Posting mode and optional fiscal timezone for STI accrual cron.

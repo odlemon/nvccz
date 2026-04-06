@@ -136,6 +136,14 @@ function getDefaultPermissionsForLevel(level: number, department: string): any[]
       { name: "manage_financial_reports", value: level >= 5 },
       { name: "bank_reconciliation", value: level >= 4 }
     );
+    if (level >= 5) {
+      basePermissions.push(
+        { name: "accounting.period_lock.view", value: true },
+        { name: "accounting.period_lock.manage", value: true },
+        { name: "accounting.period_lock.override", value: true },
+        { name: "accounting.period_lock.audit_view", value: true }
+      );
+    }
   }
 
   if (department === 'Sales') {

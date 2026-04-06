@@ -5,6 +5,8 @@
 
 import type { JournalEntry, Prisma } from "@prisma/client";
 import { prisma } from "../utils/database";
+import type { PeriodLockSource } from "./fiscalPeriodLockTypes";
+import PeriodLockService from "./PeriodLockService";
 
 /** Journal create payload without audit id (assigned automatically). */
 export type JournalEntryCreateWithoutAudit = Omit<
@@ -16,6 +18,12 @@ const SEQUENCE_NAME = "journal_entry";
 const INITIAL_VALUE = 1000;
 
 type PrismaLike = typeof prisma;
+
+/** Optional: pass from HTTP layer for WARN/override; jobs omit. */
+export type JournalEntryPeriodLockOptions = {
+  userPermissions?: Array<{ name: string; value: boolean }>;
+  source?: PeriodLockSource;
+};
 
 /**
  * Get the next audit trail sequence number and increment the counter.
@@ -53,8 +61,21 @@ export async function ensureAuditTrailSequenceExists(tx?: PrismaLike): Promise<v
  */
 export async function assignNextAuditIdAndCreateJournal(
   tx: Prisma.TransactionClient,
-  data: JournalEntryCreateWithoutAudit
+  data: JournalEntryCreateWithoutAudit,
+  periodLockOpts?: JournalEntryPeriodLockOptions
 ): Promise<JournalEntry> {
+  const accountingDate =
+    data.transactionDate instanceof Date
+      ? data.transactionDate
+      : new Date(data.transactionDate as string | number);
+  await PeriodLockService.assertModuleDateOpen({
+    moduleCode: "GL",
+    accountingDate,
+    userId: data.createdById,
+    source: periodLockOpts?.source ?? "SYSTEM",
+    actionType: "CREATE_JOURNAL",
+    userPermissions: periodLockOpts?.userPermissions,
+  });
   await ensureAuditTrailSequenceExists(tx as PrismaLike);
   const auditTrailSequenceNumber = await getNextAuditTrailSequenceNumber(tx as PrismaLike);
   return tx.journalEntry.create({
@@ -66,11 +87,12 @@ export async function assignNextAuditIdAndCreateJournal(
  * Standalone: atomically reserve audit id + create journal (use when not already in a transaction).
  */
 export async function createJournalEntryWithAuditSequence(
-  data: JournalEntryCreateWithoutAudit
+  data: JournalEntryCreateWithoutAudit,
+  periodLockOpts?: JournalEntryPeriodLockOptions
 ): Promise<JournalEntry> {
   return prisma.$transaction(
-    (tx) => assignNextAuditIdAndCreateJournal(tx, data),
-    { maxWait: 60000, timeout: 120000 }
+    (tx) => assignNextAuditIdAndCreateJournal(tx, data, periodLockOpts),
+    { maxWait: 10_000, timeout: 25_000 }
   );
 }
 
