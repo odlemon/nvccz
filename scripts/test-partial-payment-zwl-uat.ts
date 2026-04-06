@@ -16,11 +16,11 @@ async function main() {
     prisma.user.findFirst({ orderBy: { createdAt: 'asc' } }),
     prisma.customer.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'asc' } }),
     prisma.currency.findFirst({
-      where: { code: { in: ['ZWL', 'ZWG'] }, isActive: true },
+      where: { code: { in: ['ZWL', 'ZWG', 'ZIG'] }, isActive: true },
       orderBy: { code: 'asc' }
     })
   ]);
-  assert(!!user && !!customer && !!zig, 'Need user, customer, ZWL/ZWG currency');
+  assert(!!user && !!customer && !!zig, 'Need user, customer, ZWL/ZWG/ZIG currency');
 
   const inv = await InvoiceService.createInvoice({
     customerId: customer.id,

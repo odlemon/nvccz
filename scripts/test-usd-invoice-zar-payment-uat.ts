@@ -4,11 +4,8 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
-import {
-  extractZwgPerZar,
-  fetchZimrateRates,
-  pickUsdZwg
-} from '../src/services/ZimrateRateService';
+import { extractZwgPerZar, pickUsdZwg } from '../src/services/ZimrateRateService';
+import { fetchZimrateRatesOrUatFallback } from '../src/services/UsdZwgRateResolver';
 import { InvoiceService } from '../src/services/InvoiceService';
 
 const prisma = new PrismaClient();
@@ -30,7 +27,7 @@ async function main() {
       where: { isActive: true, currency: { code: 'ZAR' } },
       include: { currency: true, glAccount: true }
     }),
-    fetchZimrateRates()
+    fetchZimrateRatesOrUatFallback(prisma)
   ]);
 
   assert(!!user && !!customer && !!usd && !!zarCur && !!zarBank, 'Need user, customer, USD, ZAR currency, and a ZAR bank');

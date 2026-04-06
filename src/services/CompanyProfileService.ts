@@ -3,6 +3,8 @@ import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 
 export interface CreateCompanyProfileRequest {
+  /** IANA timezone for fiscal calendar (e.g. Africa/Harare). Optional; STI cron also reads `ShortTermInvestmentSettings.fiscalTimezone`. */
+  fiscalTimezone?: string | null;
   legalName?: string;
   registrationNumber?: string;
   taxNumber?: string;
@@ -17,6 +19,7 @@ export interface CreateCompanyProfileRequest {
 }
 
 export interface UpdateCompanyProfileRequest {
+  fiscalTimezone?: string | null;
   legalName?: string;
   registrationNumber?: string;
   taxNumber?: string;
@@ -43,6 +46,7 @@ export class CompanyProfileService {
 
       const companyProfile = await prisma.companyProfile.create({
         data: {
+          fiscalTimezone: request.fiscalTimezone ?? undefined,
           legalName: request.legalName,
           registrationNumber: request.registrationNumber,
           taxNumber: request.taxNumber,
@@ -91,6 +95,8 @@ export class CompanyProfileService {
       const updatedProfile = await prisma.companyProfile.update({
         where: { id: existingProfile.id },
         data: {
+          fiscalTimezone:
+            request.fiscalTimezone !== undefined ? request.fiscalTimezone : undefined,
           legalName: request.legalName !== undefined ? request.legalName : undefined,
           registrationNumber:
             request.registrationNumber !== undefined ? request.registrationNumber : undefined,

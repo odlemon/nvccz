@@ -737,8 +737,8 @@ export default class CashbookController {
       } = req.body;
       
       // Validate required fields
-      if (!name || !accountNumber || !currencyId || !glAccountId) {
-        return ResponseHelper.badRequest(res, 'Missing required fields: name, accountNumber, currencyId, glAccountId');
+      if (!name || !accountNumber || !currencyId) {
+        return ResponseHelper.badRequest(res, 'Missing required fields: name, accountNumber, currencyId');
       }
       
       const bank = await CashbookService.createBank({
@@ -757,9 +757,7 @@ export default class CashbookController {
       
       // Handle specific Prisma constraint errors
       if (error.message.includes('Unique constraint failed')) {
-        if (error.message.includes('glAccountId_key')) {
-          return ResponseHelper.badRequest(res, 'This GL account is already associated with another bank account. Each GL account can only be linked to one bank account.');
-        } else if (error.message.includes('accountNumber')) {
+        if (error.message.includes('accountNumber')) {
           return ResponseHelper.badRequest(res, 'A bank account with this account number already exists.');
         }
       }
@@ -846,16 +844,7 @@ export default class CashbookController {
       // If requesting accounts available for bank creation, exclude those already used
       if (availableForBank === 'true') {
         where.accountType = { in: ['Current Asset', 'Fixed Asset'] };
-        
-        // Get GL accounts already used by banks
-        const usedGLAccounts = await prisma.bank.findMany({
-          select: { glAccountId: true }
-        });
-        
-        const usedGLAccountIds = usedGLAccounts.map(bank => bank.glAccountId);
-        if (usedGLAccountIds.length > 0) {
-          where.id = { notIn: usedGLAccountIds };
-        }
+        // All banks share one Cash and Cash Equivalents line; do not exclude "already used" GL ids.
       }
       
       const accounts = await prisma.chartOfAccounts.findMany({

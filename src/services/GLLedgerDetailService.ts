@@ -10,6 +10,8 @@ export interface GLLedgerDetailParams {
   endDate: Date;
   currencyId?: string;
   includeMultiCurrency?: boolean; // Include multi-currency columns
+  /** When set, only journal entries that touch this cashbook bank (including transfer partner leg) are included. */
+  restrictToBankId?: string;
 }
 
 export interface GLLedgerDetailTransaction {
@@ -62,13 +64,46 @@ export interface GLLedgerDetailResult {
 
 export class GLLedgerDetailService {
   /**
+   * Journal entry ids linked to this bank: direct `journalEntryId` on cashbook rows, plus transfer IN rows
+   * that share a `transferId` with an OUT row that holds the single journal link.
+   */
+  private static async journalEntryIdsTouchingBank(bankId: string): Promise<string[]> {
+    const ids = new Set<string>();
+
+    const direct = await prisma.cashbookEntry.findMany({
+      where: { bankId, journalEntryId: { not: null } },
+      select: { journalEntryId: true },
+    });
+    for (const d of direct) {
+      if (d.journalEntryId) ids.add(d.journalEntryId);
+    }
+
+    const transferLegs = await prisma.cashbookEntry.findMany({
+      where: { bankId, transferId: { not: null }, journalEntryId: null },
+      select: { transferId: true },
+    });
+    const transferIds = [...new Set(transferLegs.map((t) => t.transferId).filter(Boolean))] as string[];
+    if (transferIds.length > 0) {
+      const partners = await prisma.cashbookEntry.findMany({
+        where: { transferId: { in: transferIds }, journalEntryId: { not: null } },
+        select: { journalEntryId: true },
+      });
+      for (const p of partners) {
+        if (p.journalEntryId) ids.add(p.journalEntryId);
+      }
+    }
+
+    return [...ids];
+  }
+
+  /**
    * Generate General Ledger Detail report with running balance
    * Shows all transactions for a specific GL account with running balance after each transaction
    * Optionally includes multi-currency columns with base currency equivalents
    */
   static async generateGLLedgerDetail(params: GLLedgerDetailParams): Promise<GLLedgerDetailResult> {
     try {
-      const { accountNo, startDate, endDate, currencyId, includeMultiCurrency = true } = params;
+      const { accountNo, startDate, endDate, currencyId, includeMultiCurrency = true, restrictToBankId } = params;
 
       console.log(`\n📊 Generating GL Detail Report for Account ${accountNo}`);
       console.log(`   Period: ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
@@ -86,6 +121,14 @@ export class GLLedgerDetailService {
       }
 
       console.log(`   Account: ${account.accountName} (${account.accountType})`);
+
+      let bankScopedJeIds: string[] | undefined;
+      if (restrictToBankId) {
+        bankScopedJeIds = await this.journalEntryIdsTouchingBank(restrictToBankId);
+        console.log(
+          `   Bank-scoped report: ${bankScopedJeIds.length} journal entries touch bank ${restrictToBankId}`
+        );
+      }
 
       // 2. Get base currency (USD) if multi-currency is enabled
       let baseCurrency = null;
@@ -117,18 +160,25 @@ export class GLLedgerDetailService {
       }
 
       // 3. Calculate opening balance (balance before startDate)
-      const openingBalance = await this.calculateOpeningBalance(account.id, startDate, currencyId);
+      const openingBalance =
+        restrictToBankId && bankScopedJeIds?.length === 0
+          ? 0
+          : await this.calculateOpeningBalance(account.id, startDate, currencyId, bankScopedJeIds);
       console.log(`   Opening Balance: $${openingBalance.toFixed(2)}`);
 
       // Calculate opening balance in base currency if multi-currency is enabled
       let openingBalanceBaseCurrency = 0;
       if (includeMultiCurrency && baseCurrencyId) {
-        openingBalanceBaseCurrency = await this.calculateOpeningBalanceBaseCurrency(
-          account.id,
-          startDate,
-          currencyId,
-          baseCurrencyId
-        );
+        openingBalanceBaseCurrency =
+          restrictToBankId && bankScopedJeIds?.length === 0
+            ? 0
+            : await this.calculateOpeningBalanceBaseCurrency(
+                account.id,
+                startDate,
+                currencyId,
+                baseCurrencyId,
+                bankScopedJeIds
+              );
         console.log(`   Opening Balance (Base): ${baseCurrency?.code || 'N/A'} ${openingBalanceBaseCurrency.toFixed(2)}`);
       }
 
@@ -184,12 +234,19 @@ export class GLLedgerDetailService {
         // We'll filter those out after fetching
       }
 
+      if (restrictToBankId && bankScopedJeIds !== undefined && bankScopedJeIds.length > 0) {
+        journalEntryWhere.id = { in: bankScopedJeIds };
+      }
+
       // OPTIMIZED: Get journal entry lines with efficient query
       // Use select instead of include to reduce data transfer
       // Note: We'll filter out null currencyId entries after fetching (can't use not: null on string fields)
 
       // First, get journal entry lines with minimal data
-      const journalEntryLinesRaw = await prisma.journalEntryLine.findMany({
+      const journalEntryLinesRaw =
+        restrictToBankId && bankScopedJeIds?.length === 0
+          ? []
+          : await prisma.journalEntryLine.findMany({
         where: {
           chartOfAccountId: account.id,
           journalEntry: journalEntryWhere
@@ -510,8 +567,17 @@ export class GLLedgerDetailService {
   /**
    * Calculate opening balance (balance before startDate)
    */
-  private static async calculateOpeningBalance(accountId: string, startDate: Date, currencyId?: string): Promise<number> {
+  private static async calculateOpeningBalance(
+    accountId: string,
+    startDate: Date,
+    currencyId?: string,
+    allowedJournalEntryIds?: string[]
+  ): Promise<number> {
     try {
+      if (allowedJournalEntryIds !== undefined && allowedJournalEntryIds.length === 0) {
+        return 0;
+      }
+
       // Get all journal entry lines before startDate
       const openingJournalEntryWhere: any = {
         transactionDate: {
@@ -525,6 +591,10 @@ export class GLLedgerDetailService {
       // Add currency filter if provided
       if (currencyId) {
         openingJournalEntryWhere.currencyId = currencyId;
+      }
+
+      if (allowedJournalEntryIds && allowedJournalEntryIds.length > 0) {
+        openingJournalEntryWhere.id = { in: allowedJournalEntryIds };
       }
       // Note: If currencyId not provided, include all entries (currencyId is required in schema, so all should have it)
 
@@ -576,9 +646,14 @@ export class GLLedgerDetailService {
     accountId: string,
     startDate: Date,
     currencyId: string | undefined,
-    baseCurrencyId: string
+    baseCurrencyId: string,
+    allowedJournalEntryIds?: string[]
   ): Promise<number> {
     try {
+      if (allowedJournalEntryIds !== undefined && allowedJournalEntryIds.length === 0) {
+        return 0;
+      }
+
       // Get all journal entry lines before startDate
       const openingJournalEntryWhere: any = {
         transactionDate: {
@@ -592,6 +667,10 @@ export class GLLedgerDetailService {
       // Add currency filter if provided
       if (currencyId) {
         openingJournalEntryWhere.currencyId = currencyId;
+      }
+
+      if (allowedJournalEntryIds && allowedJournalEntryIds.length > 0) {
+        openingJournalEntryWhere.id = { in: allowedJournalEntryIds };
       }
 
       const openingLines = await prisma.journalEntryLine.findMany({

@@ -154,6 +154,9 @@ model User {
   generatedPerformanceScorecards    PerformanceScorecard[]       @relation("PerformanceScorecardGeneratedBy")
   finalisedPerformanceScorecards    PerformanceScorecard[]       @relation("PerformanceScorecardFinalisedBy")
   subjectPerformanceScorecards      PerformanceScorecard[]       @relation("PerformanceScorecardSubjectUser")
+  shortTermInvestmentInstrumentsCreated ShortTermInvestmentInstrument[] @relation("StiInstrumentCreatedBy")
+  shortTermInvestmentInstrumentsVoided  ShortTermInvestmentInstrument[] @relation("StiInstrumentVoidedBy")
+  shortTermInvestmentApyRatesCreated   ShortTermInvestmentApyRate[]    @relation("StiApyCreatedBy")
 
   @@map("users")
 }
@@ -492,6 +495,9 @@ model Currency {
   inventoryItemsRecorded   InventoryItem[]       @relation("InventoryItemRecordedCurrency")
   journalEntryLinesRecorded JournalEntryLine[]   @relation("JournalLineRecordedCurrency")
   recurringJournalTemplates RecurringJournalTemplate[]
+  shortTermInvestmentInstruments          ShortTermInvestmentInstrument[] @relation("StiInstrumentCurrency")
+  shortTermInvestmentInstrumentsFunctional ShortTermInvestmentInstrument[] @relation("StiFunctionalCurrency")
+  shortTermInvestmentAccrualsFunctional   ShortTermInvestmentAccrual[]    @relation("StiAccrualFunctionalCurrency")
 
   @@map("currencies")
 }
@@ -523,6 +529,12 @@ model ChartOfAccounts {
   contraEntryDebits             ContraEntry[]             @relation("ContraEntryDebitAccount")
   contraEntryCredits            ContraEntry[]             @relation("ContraEntryCreditAccount")
   entryTypeDefaults             CashbookEntryTypeConfig[] @relation("EntryTypeGLAccount")
+  stiPrincipalGlAccounts       ShortTermInvestmentInstrument[] @relation("StiPrincipalGl")
+  stiAccruedGlAccounts         ShortTermInvestmentInstrument[] @relation("StiAccruedGl")
+  stiIncomeGlAccounts          ShortTermInvestmentInstrument[] @relation("StiIncomeGl")
+  stiNegYieldGlAccounts        ShortTermInvestmentInstrument[] @relation("StiNegYieldGl")
+  stiUnrealizedFxGlAccounts    ShortTermInvestmentInstrument[] @relation("StiUnrealizedFxGl")
+  stiRealizedFxGlAccounts      ShortTermInvestmentInstrument[] @relation("StiRealizedFxGl")
 
   @@map("chart_of_accounts")
 }
@@ -615,6 +627,10 @@ model JournalEntry {
   forexGainLoss         ForexGainLoss[]        @relation("ForexGainLossJournal")
   cashbookEntries       CashbookEntry[]
   recurringJournalRun   RecurringJournalRun?
+  stiAccrualsAsJournal     ShortTermInvestmentAccrual[] @relation("StiAccrualJournalEntry")
+  stiAccrualsAsReversal    ShortTermInvestmentAccrual[] @relation("StiAccrualReversalJournalEntry")
+  stiLiquidationInstruments ShortTermInvestmentInstrument[] @relation("StiLiquidationJe")
+  stiFxRevaluationEntries   ShortTermInvestmentFxRevaluation[] @relation("StiFxRevaluationJe")
 
   @@map("journal_entries")
 }
@@ -929,6 +945,8 @@ model MiniKyc {
 
 model CompanyProfile {
   id        String   @id @default(cuid())
+  /// IANA timezone for fiscal/accrual calendar day (e.g. Africa/Harare). Optional; short-term investment cron may also read `ShortTermInvestmentSettings.fiscalTimezone` or `FISCAL_TIMEZONE` env.
+  fiscalTimezone String? @map("fiscal_timezone") @db.VarChar(64)
   /** Letterhead / identity fields (used on invoices, statements, PDFs). */
   legalName String?  @map("legal_name")
   registrationNumber String? @map("registration_number")
@@ -3322,7 +3340,8 @@ model Bank {
   name                String
   accountNumber       String                @unique
   currencyId          String
-  glAccountId         String?               @unique
+  /// Shared across all banks (Cash and Cash Equivalents); not unique — many `Bank` rows reference one CoA.
+  glAccountId         String?
   isActive            Boolean               @default(true)
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -3334,6 +3353,7 @@ model Bank {
   transfersFrom       CashbookTransfer[]     @relation("TransferFromBank")
   transfersTo         CashbookTransfer[]    @relation("TransferToBank")
   cashbookReconciliationSessions CashbookReconciliationSession[]
+  shortTermInvestmentsSettlement  ShortTermInvestmentInstrument[] @relation("StiSettlementBank")
 
   @@map("banks")
 }
@@ -3732,6 +3752,137 @@ model AccountingPeriod {
   lockedByUser User?     @relation("PeriodLockedBy", fields: [lockedBy], references: [id])
 
   @@map("accounting_periods")
+}
+
+/// Singleton-style settings row (`id` = `default`). Posting mode and optional fiscal timezone for STI accrual cron.
+model ShortTermInvestmentSettings {
+  id                   String    @id @default("default")
+  /// DRAFT: accrual journals created as PENDING. APPROVED: created as POSTED.
+  postingMode          String    @default("DRAFT") @map("posting_mode") @db.VarChar(32)
+  /// UTC time when `runDailyAccrualJob` last finished successfully; used for 24h login-trigger cooldown.
+  lastAccrualWatermark DateTime? @map("last_accrual_watermark")
+  fiscalTimezone       String?   @map("fiscal_timezone") @db.VarChar(64)
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("short_term_investment_settings")
+}
+
+/// Liquid short-term investments (money market, T-bills, CDs, CP, etc.).
+model ShortTermInvestmentInstrument {
+  id                              String    @id @default(cuid())
+  name                            String    @db.VarChar(255)
+  category                        String?   @db.VarChar(128)
+  broker                          String?   @db.VarChar(255)
+  /// ACTIVE | SETTLED | VOIDED
+  status                          String    @default("ACTIVE") @db.VarChar(32)
+  principal                       Decimal   @db.Decimal(18, 2)
+  currencyId                      String    @map("currency_id")
+  functionalCurrencyId            String?   @map("functional_currency_id")
+  /// SIMPLE | COMPOUND_DAILY | COMPOUND_MONTHLY
+  compoundingMethod               String    @map("compounding_method") @db.VarChar(32)
+  /// ACTUAL_365: denominator 365, or 366 in leap years (see calculator).
+  dayCountConvention              String    @default("ACTUAL_365") @map("day_count_convention") @db.VarChar(32)
+  dayCountLocked                  Boolean   @default(false) @map("day_count_locked")
+  settlementBankId                String    @map("settlement_bank_id")
+  principalGlAccountId            String    @map("principal_gl_account_id")
+  accruedInterestGlAccountId      String    @map("accrued_interest_gl_account_id")
+  interestIncomeGlAccountId       String    @map("interest_income_gl_account_id")
+  negativeYieldExpenseGlAccountId String    @map("negative_yield_expense_gl_account_id")
+  unrealizedFxGlAccountId         String?   @map("unrealized_fx_gl_account_id")
+  realizedFxGlAccountId           String?   @map("realized_fx_gl_account_id")
+  startDate                       DateTime  @map("start_date") @db.Date
+  maturityDate                    DateTime? @map("maturity_date") @db.Date
+  capitalErosion                  Boolean   @default(false) @map("capital_erosion")
+  liquidationJournalEntryId       String?   @unique(map: "sti_inst_liquidation_je_id_key") @map("liquidation_journal_entry_id")
+  liquidationDate                 DateTime? @map("liquidation_date") @db.Date
+  liquidationCashReceived         Decimal?  @map("liquidation_cash_received") @db.Decimal(18, 2)
+  carryingFunctionalAtSettlement  Decimal?  @map("carrying_functional_at_settlement") @db.Decimal(18, 6)
+  voidedAt                        DateTime? @map("voided_at")
+  voidedById                      String?   @map("voided_by_id")
+  createdById                     String    @map("created_by_id")
+  createdAt                       DateTime  @default(now()) @map("created_at")
+  updatedAt                       DateTime  @updatedAt @map("updated_at")
+
+  currency               Currency @relation("StiInstrumentCurrency", fields: [currencyId], references: [id])
+  functionalCurrency     Currency? @relation("StiFunctionalCurrency", fields: [functionalCurrencyId], references: [id])
+  settlementBank         Bank @relation("StiSettlementBank", fields: [settlementBankId], references: [id])
+  principalGl            ChartOfAccounts @relation("StiPrincipalGl", fields: [principalGlAccountId], references: [id])
+  accruedInterestGl      ChartOfAccounts @relation("StiAccruedGl", fields: [accruedInterestGlAccountId], references: [id])
+  interestIncomeGl       ChartOfAccounts @relation("StiIncomeGl", fields: [interestIncomeGlAccountId], references: [id])
+  negativeYieldExpenseGl ChartOfAccounts @relation("StiNegYieldGl", fields: [negativeYieldExpenseGlAccountId], references: [id])
+  unrealizedFxGl         ChartOfAccounts? @relation("StiUnrealizedFxGl", fields: [unrealizedFxGlAccountId], references: [id])
+  realizedFxGl           ChartOfAccounts? @relation("StiRealizedFxGl", fields: [realizedFxGlAccountId], references: [id])
+  liquidationJournalEntry JournalEntry? @relation("StiLiquidationJe", fields: [liquidationJournalEntryId], references: [id])
+  voidedBy               User? @relation("StiInstrumentVoidedBy", fields: [voidedById], references: [id])
+  createdBy              User @relation("StiInstrumentCreatedBy", fields: [createdById], references: [id])
+  apyRates               ShortTermInvestmentApyRate[]
+  accruals               ShortTermInvestmentAccrual[]
+  fxRevaluations         ShortTermInvestmentFxRevaluation[]
+
+  @@index([status])
+  @@index([maturityDate])
+  @@map("short_term_investment_instruments")
+}
+
+model ShortTermInvestmentApyRate {
+  id            String    @id @default(cuid())
+  instrumentId  String    @map("instrument_id")
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  /// Annual rate as decimal, e.g. 0.05 for 5% APY.
+  apy           Decimal   @db.Decimal(20, 12)
+  createdById   String    @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  instrument ShortTermInvestmentInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  createdBy  User @relation("StiApyCreatedBy", fields: [createdById], references: [id])
+  accruals   ShortTermInvestmentAccrual[]
+
+  @@index([instrumentId, effectiveFrom])
+  @@map("short_term_investment_apy_rates")
+}
+
+model ShortTermInvestmentAccrual {
+  id                      String    @id @default(cuid())
+  instrumentId            String    @map("instrument_id")
+  accrualDate             DateTime  @map("accrual_date") @db.Date
+  amountInstrumentCcy     Decimal   @map("amount_instrument_ccy") @db.Decimal(18, 6)
+  runningAccruedBalance   Decimal   @map("running_accrued_balance") @db.Decimal(18, 6)
+  apyRateId               String    @map("apy_rate_id")
+  journalEntryId          String?   @unique(map: "short_term_investment_accruals_journal_entry_id_key") @map("journal_entry_id")
+  reversalJournalEntryId  String?   @unique(map: "short_term_investment_accruals_reversal_journal_entry_id_key") @map("reversal_journal_entry_id")
+  /// PENDING_POST | POSTED | REVERSED
+  status                  String    @default("PENDING_POST") @map("status") @db.VarChar(32)
+  reportingAmountFunctional Decimal? @map("reporting_amount_functional") @db.Decimal(18, 6)
+  functionalCurrencyId    String?   @map("functional_currency_id")
+  fxRateUsed              Decimal?  @map("fx_rate_used") @db.Decimal(24, 12)
+
+  instrument            ShortTermInvestmentInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  apyRate               ShortTermInvestmentApyRate @relation(fields: [apyRateId], references: [id], onDelete: Restrict)
+  journalEntry          JournalEntry? @relation("StiAccrualJournalEntry", fields: [journalEntryId], references: [id])
+  reversalJournalEntry  JournalEntry? @relation("StiAccrualReversalJournalEntry", fields: [reversalJournalEntryId], references: [id])
+  functionalCurrency    Currency? @relation("StiAccrualFunctionalCurrency", fields: [functionalCurrencyId], references: [id])
+
+  @@unique([instrumentId, accrualDate], map: "short_term_investment_accruals_instrument_id_accrual_date_key")
+  @@index([instrumentId, accrualDate])
+  @@map("short_term_investment_accruals")
+}
+
+model ShortTermInvestmentFxRevaluation {
+  id                        String   @id @default(cuid())
+  instrumentId              String   @map("instrument_id")
+  yearMonth                 String   @map("year_month") @db.VarChar(7)
+  journalEntryId            String   @unique(map: "sti_fx_journal_entry_id_key") @map("journal_entry_id")
+  priorCarryingFunctional   Decimal  @map("prior_carrying_functional") @db.Decimal(18, 6)
+  revisedCarryingFunctional Decimal  @map("revised_carrying_functional") @db.Decimal(18, 6)
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  instrument   ShortTermInvestmentInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  journalEntry JournalEntry @relation("StiFxRevaluationJe", fields: [journalEntryId], references: [id])
+
+  @@unique([instrumentId, yearMonth], map: "sti_fx_inst_year_month_key")
+  @@map("short_term_investment_fx_revaluations")
 }
 
 enum EventStatus {

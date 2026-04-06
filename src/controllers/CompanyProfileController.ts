@@ -16,6 +16,7 @@ export class CompanyProfileController {
         phone,
         website,
         logoUrl,
+        fiscalTimezone,
         twitter,
         facebook,
         linkedin,
@@ -23,6 +24,7 @@ export class CompanyProfileController {
       } = req.body;
 
       const request: CreateCompanyProfileRequest = {
+        fiscalTimezone,
         legalName,
         registrationNumber,
         taxNumber,
@@ -88,6 +90,7 @@ export class CompanyProfileController {
         phone,
         website,
         logoUrl,
+        fiscalTimezone,
         twitter,
         facebook,
         linkedin,
@@ -95,6 +98,7 @@ export class CompanyProfileController {
       } = req.body;
 
       const request: UpdateCompanyProfileRequest = {
+        fiscalTimezone,
         legalName,
         registrationNumber,
         taxNumber,
@@ -159,6 +163,7 @@ export class CompanyProfileController {
         phone,
         website,
         logoUrl,
+        fiscalTimezone,
         twitter,
         facebook,
         linkedin,
@@ -166,6 +171,7 @@ export class CompanyProfileController {
       } = req.body;
 
       const request: CreateCompanyProfileRequest = {
+        fiscalTimezone,
         legalName,
         registrationNumber,
         taxNumber,

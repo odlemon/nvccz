@@ -26,9 +26,19 @@ export interface ZimrateRatesPayload {
  */
 export async function fetchZimrateRates(): Promise<ZimrateRatesPayload> {
   const url = process.env.ZIMRATE_RATES_URL?.trim() || DEFAULT_ZIMRATE_URL;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const authHeader = process.env.ZIMRATE_AUTHORIZATION?.trim();
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  } else {
+    const apiKey = process.env.ZIMRATE_API_KEY?.trim();
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+  }
   const { data, status } = await axios.get<ZimrateRatesPayload>(url, {
     timeout: 15_000,
-    headers: { Accept: 'application/json' },
+    headers,
     validateStatus: () => true
   });
   if (status < 200 || status >= 300) {

@@ -18,23 +18,38 @@ global.console = {
   // error: jest.fn(),
 };
 
-// Mock Prisma client for all tests
-jest.mock('../utils/database', () => ({
-  dbConnection: {
-    getPrismaClient: jest.fn(() => ({
-      $connect: jest.fn(),
-      $disconnect: jest.fn(),
-      user: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
-      currency: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
-      vendor: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
-      expenseCategory: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
-      expense: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
-      journalEntry: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
-      journalEntryLine: { findMany: jest.fn(), create: jest.fn() },
-      chartOfAccounts: { findMany: jest.fn(), findFirst: jest.fn() }
-    }))
-  }
-}));
+// Mock Prisma client for all tests (must export `prisma` — many services import it directly).
+jest.mock('../utils/database', () => {
+  const prisma = {
+    $connect: jest.fn(),
+    $disconnect: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    $transaction: jest.fn((fn) => fn(prisma)),
+    user: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+    currency: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+    vendor: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+    expenseCategory: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+    expense: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+    journalEntry: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+    journalEntryLine: { findMany: jest.fn(), create: jest.fn() },
+    chartOfAccounts: { findMany: jest.fn(), findFirst: jest.fn() },
+    vatRate: {
+      findFirst: jest.fn().mockResolvedValue({
+        rateDecimal: 0.155,
+        isActive: true,
+        createdAt: new Date()
+      })
+    }
+  };
+  return {
+    prisma,
+    default: prisma,
+    checkDatabaseConnection: jest.fn().mockResolvedValue(true),
+    dbConnection: {
+      getPrismaClient: jest.fn(() => prisma)
+    }
+  };
+});
 
 // Mock logger to prevent console output during tests
 jest.mock('../utils/logger', () => ({

@@ -7,6 +7,10 @@ import { prisma } from '../utils/database';
 import ControlAccountIntegrationService from './ControlAccountIntegrationService';
 import VATService from './VATService';
 import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
+import {
+  assertGlAccountIsCashAndCashEquivalents,
+  resolveCashAndCashEquivalentsCoa,
+} from '../config/cashAndCashEquivalents';
 
 export interface CreateCashReceiptParams {
   bankId: string;
@@ -613,7 +617,7 @@ export class CashbookService {
 
   /**
    * Ensure ZiG (or ZWG) currency exists and there is an active cashbook bank in that currency.
-   * Links the bank to GL **1100** when that account is not already used by another bank; otherwise uses the first free 1109/1111/1112 slot for a dedicated ZiG bank GL.
+   * New banks use the shared Cash and Cash Equivalents CoA (same as all other bank accounts).
    */
   static async ensureZigCashbookBank(): Promise<{
     bank: any;
@@ -658,55 +662,7 @@ export class CashbookService {
       };
     }
 
-    let glToUse = await prisma.chartOfAccounts.findFirst({
-      where: { accountNo: '1100', isActive: true },
-    });
-    if (!glToUse) {
-      glToUse = await prisma.chartOfAccounts.create({
-        data: {
-          accountNo: '1100',
-          accountName: 'Bank',
-          accountType: 'Current Asset',
-          financialStatement: 'Balance Sheet',
-          isActive: true,
-        },
-      });
-    }
-
-    const bankOn1100 = await prisma.bank.findFirst({
-      where: { glAccountId: glToUse.id, isActive: true },
-    });
-    if (bankOn1100 && bankOn1100.currencyId !== zig.id) {
-      const fallbacks = ['1109', '1111', '1112', '1119'];
-      let glFallback: typeof glToUse | null = null;
-      for (const no of fallbacks) {
-        let coa = await prisma.chartOfAccounts.findFirst({
-          where: { accountNo: no, isActive: true },
-        });
-        if (!coa) {
-          coa = await prisma.chartOfAccounts.create({
-            data: {
-              accountNo: no,
-              accountName: `Bank - ZiG Operating (${no})`,
-              accountType: 'Current Asset',
-              financialStatement: 'Balance Sheet',
-              isActive: true,
-            },
-          });
-        }
-        const taken = await prisma.bank.findFirst({ where: { glAccountId: coa.id, isActive: true } });
-        if (!taken) {
-          glFallback = coa;
-          break;
-        }
-      }
-      if (!glFallback) {
-        throw new Error(
-          'GL 1100 is used by another bank and no spare 110x bank GL is free. Free a slot or link a ZiG bank manually.'
-        );
-      }
-      glToUse = glFallback;
-    }
+    const glToUse = await resolveCashAndCashEquivalentsCoa(prisma);
 
     const accountNumber = `ZIG-CB-${Date.now()}`;
     bank = await prisma.bank.create({
@@ -1220,7 +1176,8 @@ export class CashbookService {
     name: string;
     accountNumber: string;
     currencyId: string;
-    glAccountId: string;
+    /** When omitted, uses configured Cash and Cash Equivalents CoA. */
+    glAccountId?: string;
     bankCode?: string;
     branchCode?: string;
     isActive?: boolean;
@@ -1229,13 +1186,18 @@ export class CashbookService {
       name,
       accountNumber,
       currencyId,
-      glAccountId,
       bankCode,
       branchCode,
       isActive = true
     } = params;
+    let { glAccountId } = params;
 
-    // Validate that the GL account exists and is a bank account type
+    if (!glAccountId) {
+      glAccountId = (await resolveCashAndCashEquivalentsCoa(prisma)).id;
+    }
+
+    await assertGlAccountIsCashAndCashEquivalents(prisma, glAccountId);
+
     const glAccount = await prisma.chartOfAccounts.findUnique({
       where: { id: glAccountId }
     });
@@ -1248,7 +1210,6 @@ export class CashbookService {
       throw new Error('GL account must be an asset type for bank accounts');
     }
 
-    // Validate currency exists
     const currency = await prisma.currency.findUnique({
       where: { id: currencyId }
     });
@@ -1257,7 +1218,6 @@ export class CashbookService {
       throw new Error('Currency not found');
     }
 
-    // Check for duplicate account number
     const existingBank = await prisma.bank.findFirst({
       where: { accountNumber }
     });
@@ -1266,16 +1226,6 @@ export class CashbookService {
       throw new Error('Bank account with this account number already exists');
     }
 
-    // Check if GL account is already used by another bank
-    const existingBankWithGL = await prisma.bank.findFirst({
-      where: { glAccountId }
-    });
-
-    if (existingBankWithGL) {
-      throw new Error(`GL account is already associated with bank account "${existingBankWithGL.name}". Each GL account can only be linked to one bank account.`);
-    }
-
-    // Create the bank account
     const bank = await prisma.bank.create({
       data: {
         name,
@@ -1327,6 +1277,7 @@ export class CashbookService {
     }
 
     if (glAccountId !== undefined) {
+      await assertGlAccountIsCashAndCashEquivalents(prisma, glAccountId);
       const glAccount = await prisma.chartOfAccounts.findUnique({
         where: { id: glAccountId }
       });
@@ -1335,12 +1286,6 @@ export class CashbookService {
       }
       if (!['Current Asset', 'Fixed Asset'].includes(glAccount.accountType)) {
         throw new Error('GL account must be an asset type for bank accounts');
-      }
-      const otherBank = await prisma.bank.findFirst({
-        where: { glAccountId, id: { not: bankId } }
-      });
-      if (otherBank) {
-        throw new Error(`GL account is already associated with bank "${otherBank.name}". Each GL account can only be linked to one bank.`);
       }
     }
 
@@ -1373,8 +1318,7 @@ export class CashbookService {
 
   /**
    * Soft delete bank account (sets isActive: false).
-   * Clears glAccountId so the chart account can be linked to another bank (unique constraint).
-   * Bank remains in DB; reactivating should set glAccountId again via updateBank.
+   * Keeps `glAccountId` (Cash and Cash Equivalents) so historical references and validation remain valid.
    */
   static async softDeleteBank(bankId: string) {
     const existing = await prisma.bank.findUnique({
@@ -1385,7 +1329,7 @@ export class CashbookService {
     }
     const bank = await prisma.bank.update({
       where: { id: bankId },
-      data: { isActive: false, glAccountId: null },
+      data: { isActive: false },
       include: {
         currency: true,
         glAccount: true
