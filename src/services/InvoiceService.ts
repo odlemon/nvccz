@@ -123,13 +123,14 @@ export class InvoiceService {
     local: { id: string; code: string; name: string; symbol: string } | null;
   }> {
     const rows = await prisma.currency.findMany({
-      where: { isActive: true, code: { in: ["USD", "ZWL", "ZWG"] } },
+      where: { isActive: true, code: { in: ["USD", "ZWL", "ZWG", "ZIG"] } },
       select: { id: true, code: true, name: true, symbol: true }
     });
     const usd = rows.find((r) => r.code.toUpperCase() === "USD") ?? null;
     const local =
       rows.find((r) => r.code.toUpperCase() === "ZWG") ??
       rows.find((r) => r.code.toUpperCase() === "ZWL") ??
+      rows.find((r) => r.code.toUpperCase() === "ZIG") ??
       null;
     return { usd, local };
   }
@@ -1079,12 +1080,12 @@ export class InvoiceService {
         return (await this.attachEquivalent(updatedInvoice)) as InvoiceWithRelations;
       }
 
-      // --- USD invoice paid in ZWL/ZWG: existing forex + journal path ---
+      // --- USD invoice paid in ZWL/ZWG/ZIG (local): existing forex + journal path ---
       if (
         paymentCurrencyId &&
         paymentCurrencyId !== invoice.currencyId &&
         invCur === "USD" &&
-        (paymentCurCode === "ZWL" || paymentCurCode === "ZWG")
+        (paymentCurCode === "ZWL" || paymentCurCode === "ZWG" || paymentCurCode === "ZIG")
       ) {
         if (!invoice.exchangeRateAtCreation) {
           throw new Error("Exchange rate at creation is required for currency conversion");

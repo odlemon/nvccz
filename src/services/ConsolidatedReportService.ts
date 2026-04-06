@@ -3,6 +3,8 @@ import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
 import { resolveUsdZwgAvgForSnapshot } from "./UsdZwgRateResolver";
+import { BalanceSheetService } from "./BalanceSheetService";
+import { resolveCashAndCashEquivalentsCoa } from "../config/cashAndCashEquivalents";
 
 export interface CurrencyBreakdownItem {
   sourceCurrency: string;
@@ -289,15 +291,26 @@ export class ConsolidatedReportService {
         .map((b) => b.glAccountId)
         .filter(Boolean) as string[]
     );
+    try {
+      const cace = await resolveCashAndCashEquivalentsCoa(prisma);
+      bankGLAccountIds.add(cace.id);
+    } catch {
+      /* optional env / CoA */
+    }
 
     const allAccounts = [...accountMap.values()];
     const eps = 0.01;
 
-    const isCash = (a: ConsolidatedAccount) => {
-      const lc = a.accountName.toLowerCase();
-      const inRange = a.accountNo >= "1100" && a.accountNo <= "1199";
-      return lc.includes("cash") || lc.includes("bank") || (a.accountType === "Current Asset" && inRange) || bankGLAccountIds.has(a.accountId);
-    };
+    const isCash = (a: ConsolidatedAccount) =>
+      BalanceSheetService.isCashOrBankEquivalentForReporting(
+        {
+          id: a.accountId,
+          accountNo: a.accountNo,
+          accountName: a.accountName,
+          accountType: a.accountType,
+        },
+        bankGLAccountIds
+      );
 
     const cashAccounts = allAccounts.filter((a) => a.accountType.includes("Asset") && isCash(a));
     const currentAssets = allAccounts.filter((a) => a.accountType === "Current Asset" && !isCash(a));

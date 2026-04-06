@@ -7,6 +7,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
+import { ShortTermInvestmentService } from "../services/ShortTermInvestmentService";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import { companyNameShortFromEnv } from "../config/companyDisplay";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
@@ -107,7 +108,7 @@ export class AuthController {
         userAgent,
       });
 
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         message: "Logged in successfully",
         token,
@@ -125,6 +126,14 @@ export class AuthController {
           passwordChanged: passwordChanged // Flag to indicate if user has changed password from initial email
         }
       });
+
+      if (!isApplicant) {
+        setImmediate(() => {
+          void ShortTermInvestmentService.maybeRunDailyAccrualAfterLogin(user.id);
+        });
+      }
+
+      return;
     } catch (error) {
       next(error);
     }

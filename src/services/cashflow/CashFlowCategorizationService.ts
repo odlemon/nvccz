@@ -11,10 +11,17 @@ export class CashFlowCategorizationService {
       const accountName = account.accountName.toLowerCase();
       const accountNo = account.accountNo;
 
-      // Check if this is a cash/bank account - these should NOT appear in any activity section
-      const isCashAccount = accountName.includes("cash") || 
-                            accountName.includes("bank") ||
-                            (account.accountType === "Current Asset" && accountNo >= "1000" && accountNo < "1100");
+      // Cash / cash-equivalent GLs (not legacy per-bank titles containing "bank").
+      const in1100 = account.accountType === "Current Asset" && accountNo >= "1100" && accountNo <= "1199";
+      const isCashAccount =
+        accountName.includes("cash") ||
+        accountName.includes("petty") ||
+        accountName.includes("money market") ||
+        accountName.includes("call deposit") ||
+        (in1100 &&
+          (accountName.includes("cash") ||
+            accountName.includes("petty") ||
+            accountName.includes("money market")));
 
       if (isCashAccount) {
         // Mark cash accounts with a special category so they can be excluded from activities
@@ -93,10 +100,16 @@ export class CashFlowCategorizationService {
       "drawing", "withdrawal", "contribution"
     ];
 
-    // Explicitly exclude cash and bank accounts (they should not be in any activity section)
-    const isCashAccount = accountName.includes("cash") || 
-                          accountName.includes("bank") ||
-                          (accountType === "Current Asset" && accountNo >= "1000" && accountNo < "1100");
+    const in1100 = accountType === "Current Asset" && accountNo >= "1100" && accountNo <= "1199";
+    const isCashAccount =
+      accountName.includes("cash") ||
+      accountName.includes("petty") ||
+      accountName.includes("money market") ||
+      accountName.includes("call deposit") ||
+      (in1100 &&
+        (accountName.includes("cash") ||
+          accountName.includes("petty") ||
+          accountName.includes("money market")));
 
     if (isCashAccount) {
       return false; // Cash accounts should not be in financing activities

@@ -10,6 +10,41 @@ function assert(c: boolean, m: string) {
   if (!c) throw new Error(m);
 }
 
+/** Remote MySQL may drop long-lived connections mid-suite; reconnect once and retry. */
+async function calculateAndPostDepreciationMonth(
+  assetId: string,
+  period: string,
+  userId: string
+) {
+  let rec;
+  try {
+    rec = await AssetService.calculateDepreciation({
+      assetId,
+      period,
+      createdById: userId,
+    });
+  } catch (e: any) {
+    if (e?.code === 'P1017' || e?.code === 'P2024') {
+      await prisma.$disconnect().catch(() => {});
+      await prisma.$connect();
+      rec = await AssetService.calculateDepreciation({
+        assetId,
+        period,
+        createdById: userId,
+      });
+    } else throw e;
+  }
+  try {
+    await AssetService.postDepreciation(rec.id, userId);
+  } catch (e: any) {
+    if (e?.code === 'P1017' || e?.code === 'P2024') {
+      await prisma.$disconnect().catch(() => {});
+      await prisma.$connect();
+      await AssetService.postDepreciation(rec.id, userId);
+    } else throw e;
+  }
+}
+
 async function main() {
   const user = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
   assert(!!user, 'Need a user');
@@ -63,12 +98,7 @@ async function main() {
 
   for (let m = 1; m <= 12; m++) {
     const period = `2033-${String(m).padStart(2, '0')}`;
-    const rec = await AssetService.calculateDepreciation({
-      assetId: assetRow.id,
-      period,
-      createdById: user.id,
-    });
-    await AssetService.postDepreciation(rec.id, user.id);
+    await calculateAndPostDepreciationMonth(assetRow.id, period, user.id);
   }
 
   const beforeDisp = await prisma.asset.findUniqueOrThrow({ where: { id: assetRow.id } });

@@ -5,6 +5,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
 import { CashbookService } from './CashbookService';
 import { EmailNotificationService } from './EmailNotificationService';
+import { resolveCashAndCashEquivalentsCoa } from '../config/cashAndCashEquivalents';
 
 export interface CreateInvestmentImplementationRequest {
   portfolioCompanyId: string;
@@ -638,7 +639,7 @@ export class InvestmentImplementationService {
    * Approve fund disbursement
    * Creates a cashbook payment entry which automatically creates a journal entry:
    * - Debit: 1501 - Portfolio Investments
-   * - Credit: 1010 - Main Bank Account (Main Bank Account)
+   * - Credit: Cash and Cash Equivalents (shared bank GL)
    */
   static async approveFundDisbursement(
     disbursementId: string,
@@ -705,34 +706,24 @@ export class InvestmentImplementationService {
         throw new Error("Portfolio Investments account (1501) not found in chart of accounts. Please create this account first.");
       }
 
-      // Get Main Bank Account (1010) - need to find the Bank record, not just the GL account
-      const bankGLAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: "1010" },
-            { accountName: { contains: "Main Bank Account" } }
-          ],
-          isActive: true
-        }
-      });
-
-      if (!bankGLAccount) {
-        throw new Error("Main Bank Account (1010) not found in chart of accounts. Please create this account first.");
-      }
-
-      // Find the bank record linked to this GL account
-      const bank = await prisma.bank.findFirst({
-        where: {
-          glAccountId: bankGLAccount.id,
-          isActive: true
-        },
-        include: {
-          currency: true
-        }
-      });
+      const cace = await resolveCashAndCashEquivalentsCoa(prisma);
+      const preferredBankId = process.env.FUND_DISBURSEMENT_BANK_ID?.trim();
+      const bank = preferredBankId
+        ? await prisma.bank.findFirst({
+            where: { id: preferredBankId, isActive: true, glAccountId: cace.id },
+            include: { currency: true },
+          })
+        : await prisma.bank.findFirst({
+            where: { isActive: true, glAccountId: cace.id },
+            orderBy: { createdAt: "asc" },
+            include: { currency: true },
+          });
 
       if (!bank) {
-        throw new Error("Bank account linked to Main Bank Account (1010) not found. Please create a bank account linked to GL account 1010.");
+        throw new Error(
+          "No active bank linked to Cash and Cash Equivalents. Run bank migration / set CASH_AND_CASH_EQUIVALENTS_* " +
+            "and ensure at least one active bank, or set FUND_DISBURSEMENT_BANK_ID."
+        );
       }
 
       const disbursementAmount = Number(disbursement.amount);

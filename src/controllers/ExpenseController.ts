@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { AuthRequest } from "../middleware/authenticate";
 import ExpenseService, { CreateExpenseParams } from "../services/ExpenseService";
 import { parseDate } from "../utils/dateHelper";
+import { prisma } from "../utils/database";
 
 export class ExpenseController {
   /**
@@ -13,6 +14,7 @@ export class ExpenseController {
       const {
         vendorId,
         category,
+        categoryId,
         amount,
         currencyId,
         transactionDate,
@@ -22,33 +24,58 @@ export class ExpenseController {
         paymentMethod
       } = req.body;
 
-      // Validate required fields
-      if (!vendorId || !category || !amount || !currencyId || !transactionDate || !description) {
+      let resolvedCategoryName: string | null = null;
+      if (categoryId != null && String(categoryId).trim() !== "") {
+        const ec = await prisma.expenseCategory.findUnique({
+          where: { id: String(categoryId).trim() },
+        });
+        if (!ec) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid categoryId: expense category not found",
+          });
+        }
+        resolvedCategoryName = ec.name;
+      } else if (category != null && String(category).trim() !== "") {
+        resolvedCategoryName = String(category).trim();
+      }
+
+      if (
+        !vendorId ||
+        !resolvedCategoryName ||
+        amount == null ||
+        amount === "" ||
+        !currencyId ||
+        !transactionDate ||
+        !description
+      ) {
         return res.status(400).json({
           success: false,
-          message: "Missing required fields: vendorId, category, amount, currencyId, transactionDate, description"
+          message:
+            "Missing required fields: vendorId, category or categoryId, amount, currencyId, transactionDate, description",
         });
       }
 
-      // Validate category name
       const validCategories = [
         "Salaries and Wages",
-        "Travel and Accommodation", 
+        "Travel and Accommodation",
         "Operations",
         "Branding and Marketing",
-        "Office Equipment"
+        "Office Equipment",
       ];
-
-      if (!validCategories.includes(category)) {
+      if (
+        !categoryId &&
+        !validCategories.includes(resolvedCategoryName)
+      ) {
         return res.status(400).json({
           success: false,
-          message: `Invalid category. Must be one of: ${validCategories.join(", ")}`
+          message: `Invalid category. Must be one of: ${validCategories.join(", ")}`,
         });
       }
 
       const expenseParams: CreateExpenseParams = {
         vendorId,
-        category,
+        category: resolvedCategoryName,
         amount: parseFloat(amount),
         currencyId,
         transactionDate: parseDate(transactionDate),

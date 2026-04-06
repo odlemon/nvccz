@@ -56,7 +56,7 @@ export function buildInvoiceEquivalentAtCreation(
     };
   }
 
-  if (base === 'ZWL' || base === 'ZWG') {
+  if (base === 'ZWL' || base === 'ZWG' || base === 'ZIG') {
     if (!currencies.usd) return null;
     const equiv = total.div(rate);
     return {

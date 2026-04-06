@@ -6,6 +6,57 @@ import {
   type ZimrateUsdZwgRow
 } from './ZimrateRateService';
 
+/**
+ * Live Zimrate first. When `UAT_ZIMRATE_FALLBACK=1`, on failure builds a minimal payload from the last
+ * USD/ZWG snapshot in the DB plus `UAT_STUB_ZWG_PER_ZAR` (ZWG per 1 ZAR) so USD→ZAR invoice UATs can run offline.
+ */
+export async function fetchZimrateRatesOrUatFallback(client: PrismaClient): Promise<ZimrateRatesPayload> {
+  try {
+    return await fetchZimrateRates();
+  } catch (e) {
+    if (process.env.UAT_ZIMRATE_FALLBACK !== "1") {
+      throw e;
+    }
+    const stored = await getLastStoredUsdZwgFromDb(client);
+    if (!stored) {
+      throw e;
+    }
+    const usd = stored.rate;
+    const zwgPerZar = Number(process.env.UAT_STUB_ZWG_PER_ZAR ?? "1.65");
+    if (!Number.isFinite(zwgPerZar) || zwgPerZar <= 0) {
+      throw new Error("UAT_STUB_ZWG_PER_ZAR must be a positive number (ZWG per 1 ZAR)");
+    }
+    console.warn(
+      "[fetchZimrateRatesOrUatFallback] live Zimrate failed; using DB USD/ZWG snapshot + synthetic ZAR/ZWG (UAT only)"
+    );
+    return {
+      data: {
+        rates: [
+          {
+            currency_pair: "USD/ZWG",
+            bid: usd,
+            ask: usd,
+            avg: usd,
+            date_label: "uat-fallback"
+          },
+          {
+            currency_pair: "ZAR/ZWG",
+            bid: zwgPerZar,
+            ask: zwgPerZar,
+            avg: zwgPerZar,
+            date_label: "uat-fallback"
+          }
+        ]
+      },
+      meta: {
+        last_updated: "",
+        count: 2,
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+}
+
 export type UsdZwgResolved =
   | { source: 'zimrate'; row: ZimrateUsdZwgRow; meta: ZimrateRatesPayload['meta'] }
   | { source: 'stored'; rate: number; usedAt: Date };

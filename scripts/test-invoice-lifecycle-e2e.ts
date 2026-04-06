@@ -95,7 +95,11 @@ async function runOneCurrency(opts: {
   const total = new Decimal(viewed!.totalAmount.toString());
 
   if (currencyCode === 'USD') {
-    assert(eq!.currency.code.toUpperCase() === 'ZWL' || eq!.currency.code.toUpperCase() === 'ZWG', `${tag} USD invoice equiv should be ZWL/ZWG`);
+    const loc = eq!.currency.code.toUpperCase();
+    assert(
+      loc === 'ZWL' || loc === 'ZWG' || loc === 'ZIG',
+      `${tag} USD invoice equiv should be ZWL/ZWG/ZIG`
+    );
     const expected = total.mul(rate).toDecimalPlaces(2);
     assert(
       new Decimal(eq!.amount).equals(expected),
@@ -129,12 +133,13 @@ async function main() {
   const usd = await prisma.currency.findFirst({ where: { code: 'USD', isActive: true } });
   const zwl =
     (await prisma.currency.findFirst({ where: { code: 'ZWL', isActive: true } })) ??
-    (await prisma.currency.findFirst({ where: { code: 'ZWG', isActive: true } }));
+    (await prisma.currency.findFirst({ where: { code: 'ZWG', isActive: true } })) ??
+    (await prisma.currency.findFirst({ where: { code: 'ZIG', isActive: true } }));
 
   assert(!!user, 'Need at least one user');
   assert(!!customer, 'Need at least one active customer');
   assert(!!usd, 'Need USD currency');
-  assert(!!zwl, 'Need ZWL or ZWG currency');
+  assert(!!zwl, 'Need ZWL, ZWG, or ZIG currency (local Zim dollar)');
 
   const ids: string[] = [];
   try {

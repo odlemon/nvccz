@@ -10,6 +10,7 @@ import { userSavedFilterFavoriteEndpoints } from './user-saved-filter-favorite-e
 import { companyProfileEndpoints } from './company-profile-endpoints';
 import { vatRateEndpoints } from './vat-rate-endpoints';
 import { consolidatedAccountingReportEndpoints } from './consolidated-accounting-report-endpoints';
+import { shortTermInvestmentsEndpoints } from './short-term-investments-endpoints';
 
 const options = {
   definition: {
@@ -31,12 +32,12 @@ const options = {
       // If the server URL also includes `/api`, Swagger will show `/api/api/...` (duplicated).
       servers: [
         {
-          url: 'https://nvccz-pi.vercel.app',
-          description: 'Production server'
+          url: 'https://nvccz-pi.vercel.app/api',
+          description: 'Production API base (paths are /accounting/..., /auth/..., etc.)'
         },
         {
-          url: 'http://localhost:3000',
-          description: 'Development server'
+          url: 'http://localhost:3000/api',
+          description: 'Development API base'
         }
       ],
     tags: [
@@ -123,6 +124,11 @@ const options = {
       {
         name: 'Saved filter favorites',
         description: 'User-scoped named filter presets (routeKey + JSON filters) for lists and reports — not tied to a single report definition'
+      },
+      {
+        name: 'Accounting - Short-term investments',
+        description:
+          'Liquid short-term investments (money market, T-bills, CDs): instruments, APY history, accruals, catch-up, settlement, accrual approval, CFO dashboard, month-end unrealized FX. All routes require JWT only (no permission middleware). Try It Out: use server URL that includes the /api prefix (e.g. http://localhost:3009/api) so paths resolve to /api/accounting/short-term-investments/...'
       }
     ],
     components: {
@@ -1627,6 +1633,7 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
+    ...shortTermInvestmentsEndpoints,
     ...vatRateEndpoints,
     ...companyProfileEndpoints,
     ...consolidatedAccountingReportEndpoints,
@@ -2361,7 +2368,7 @@ const fallbackSpec = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['name', 'accountNumber', 'currencyId', 'glAccountId'],
+                required: ['name', 'accountNumber', 'currencyId'],
                 properties: {
                   name: {
                     type: 'string',
@@ -2380,7 +2387,8 @@ const fallbackSpec = {
                   },
                   glAccountId: {
                     type: 'string',
-                    description: 'GL account ID',
+                    description:
+                      'Optional. Must be the configured Cash and Cash Equivalents CoA if provided; when omitted, the server uses that account.',
                     example: 'cmh3c1fdt0001unxkqzzihy55'
                   },
                   bankCode: {
@@ -8366,7 +8374,7 @@ try {
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
     // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints with generated spec
-    specs.paths = { ...specs.paths, ...userSavedFilterFavoriteEndpoints, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
+    specs.paths = { ...specs.paths, ...userSavedFilterFavoriteEndpoints, ...accountingEndpoints, ...shortTermInvestmentsEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
     console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error: any) {

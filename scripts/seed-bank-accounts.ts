@@ -5,125 +5,98 @@ const prisma = new PrismaClient();
 async function seedBankAccounts() {
   try {
     console.log('🏦 Seeding Bank Accounts for Cashbook Module...\n');
-    
-    // Check if banks already exist
+
     const existingBanks = await prisma.bank.findMany({
-      take: 1
+      take: 1,
     });
-    
+
     if (existingBanks.length > 0) {
       console.log('✅ Bank accounts already exist, skipping...');
       return;
     }
-    
-    // Get USD currency
+
     const usdCurrency = await prisma.currency.findFirst({
-      where: { code: 'USD' }
+      where: { code: 'USD' },
     });
-    
+
     if (!usdCurrency) {
       console.error('❌ USD currency not found. Please run currency seeder first.');
       return;
     }
-    
-    // Get GL accounts for bank linking (1100 = Bank for revenue receipting tests)
-    const glAccounts = await prisma.chartOfAccounts.findMany({
+
+    // Single Cash and Cash Equivalents line for all banks (client standard).
+    let cace = await prisma.chartOfAccounts.findFirst({
       where: {
-        accountNo: { in: ['1000', '1010', '1020', '1030', '1100'] }
-      }
+        OR: [
+          { accountNo: '1000' },
+          { accountName: { contains: 'Cash and Cash Equivalent' } },
+        ],
+        isActive: true,
+      },
+      orderBy: { accountNo: 'asc' },
     });
-    
-    const glAccountMap = glAccounts.reduce((acc, account) => {
-      acc[account.accountNo] = account.id;
-      return acc;
-    }, {} as Record<string, string>);
-    const gl1100 = glAccounts.find((a) => a.accountNo === '1100');
-    const hasBank1100 = gl1100 && (gl1100.accountName === 'Bank' || (gl1100 as any).accountType === 'Current Asset');
-    
-    console.log('📊 Creating Bank Accounts:');
-    
-    const banks: Array<{ name: string; accountNumber: string; currencyId: string; glAccountId: string; description: string }> = [];
-    if (hasBank1100 && glAccountMap['1100']) {
-      banks.push({
-        name: "Bank (1100)",
-        accountNumber: "BANK-1100",
-        currencyId: usdCurrency.id,
-        glAccountId: glAccountMap['1100'],
-        description: "Main bank account - GL 1100 for revenue receipting"
+
+    if (!cace) {
+      cace = await prisma.chartOfAccounts.create({
+        data: {
+          accountNo: '1000',
+          accountName: 'Cash and Cash Equivalents',
+          accountType: 'Current Asset',
+          financialStatement: 'Balance Sheet',
+          isActive: true,
+        },
       });
+      console.log('📊 Created GL 1000 — Cash and Cash Equivalents');
     }
-    banks.push(
+
+    console.log('📊 Creating Bank Accounts (all share GL ' + cace.accountNo + '):');
+
+    const bankDefs = [
       {
-        name: "Cash and Cash Equivalents",
-        accountNumber: "CASH-001",
-        currencyId: usdCurrency.id,
-        glAccountId: glAccountMap['1000'],
-        description: "General cash and cash equivalents account"
+        name: 'Main Bank Account - USD',
+        accountNumber: 'USD-001-123456',
+        description: 'Primary operating bank',
       },
       {
-        name: "Main Bank Account - USD",
-        accountNumber: "USD-001-123456",
-        currencyId: usdCurrency.id,
-        glAccountId: glAccountMap['1010'],
-        description: "Primary operating bank account in USD"
+        name: 'Savings Account - USD',
+        accountNumber: 'USD-002-789012',
+        description: 'Savings',
       },
       {
-        name: "Savings Account - USD", 
-        accountNumber: "USD-002-789012",
-        currencyId: usdCurrency.id,
-        glAccountId: glAccountMap['1020'],
-        description: "Interest-bearing savings account in USD"
+        name: 'Petty Cash',
+        accountNumber: 'CASH-002',
+        description: 'Petty cash',
       },
       {
-        name: "Petty Cash",
-        accountNumber: "CASH-002",
-        currencyId: usdCurrency.id,
-        glAccountId: glAccountMap['1030'],
-        description: "Petty cash for small transactions"
-      }
-    );
-    
+        name: 'Bank (legacy label)',
+        accountNumber: 'BANK-MAIN',
+        description: 'Additional operating account',
+      },
+    ];
+
     const createdBanks = [];
-    
-    for (const bankData of banks) {
+
+    for (const bankData of bankDefs) {
       try {
         const bank = await prisma.bank.create({
           data: {
             name: bankData.name,
             accountNumber: bankData.accountNumber,
-            currencyId: bankData.currencyId,
-            glAccountId: bankData.glAccountId,
-            isActive: true
-          }
+            currencyId: usdCurrency.id,
+            glAccountId: cace.id,
+            isActive: true,
+          },
         });
-        
+
         createdBanks.push(bank);
         console.log(`   ✅ Created: ${bank.name} (${bank.accountNumber})`);
-        console.log(`      GL Account: ${bank.glAccountId ? 'Linked' : 'Not linked'}`);
-        console.log(`      Currency: ${usdCurrency.code}`);
-        
       } catch (error: any) {
         console.error(`   ❌ Error creating ${bankData.name}:`, error.message);
       }
     }
-    
+
     console.log('\n🎉 Bank Account Seeding Complete!');
-    console.log(`📊 Created ${createdBanks.length} bank accounts`);
-    
-    console.log('\n🏦 Bank Account Summary:');
-    createdBanks.forEach(bank => {
-      console.log(`   ${bank.name}:`);
-      console.log(`     Account Number: ${bank.accountNumber}`);
-      console.log(`     GL Account ID: ${bank.glAccountId}`);
-      console.log(`     Currency: USD`);
-      console.log(`     Status: ${bank.isActive ? 'Active' : 'Inactive'}`);
-    });
-    
-    console.log('\n💡 Next Steps:');
-    console.log('   1. Run VAT accounts seeder if not done');
-    console.log('   2. Test cashbook functionality');
-    console.log('   3. Create sample cashbook transactions');
-    
+    console.log(`📊 Created ${createdBanks.length} bank accounts on CoA ${cace.accountNo}`);
   } catch (error: any) {
     console.error('❌ Error seeding bank accounts:', error.message);
   } finally {
@@ -132,5 +105,3 @@ async function seedBankAccounts() {
 }
 
 seedBankAccounts();
-
-

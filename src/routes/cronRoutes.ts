@@ -5,6 +5,7 @@ import { VendorTaxComplianceCronController } from '../controllers/VendorTaxCompl
 
 /**
  * Machine-to-machine cron jobs: no JWT. Protected per-route (e.g. shared secret header).
+ * Short-term investment daily accrual runs on user login (at most once per 24h) instead of cron.
  */
 const router = express.Router();
 

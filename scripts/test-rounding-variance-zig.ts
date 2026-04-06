@@ -98,9 +98,10 @@ async function main() {
       }
     });
 
+  /** Raw deletes avoid Prisma loading STI relations when those tables are absent on older DBs. */
   const cleanup = async (jeId: string) => {
-    await prisma.journalEntryLine.deleteMany({ where: { journalEntryId: jeId } });
-    await prisma.journalEntry.delete({ where: { id: jeId } });
+    await prisma.$executeRaw`DELETE FROM journal_entry_lines WHERE journalEntryId = ${jeId}`;
+    await prisma.$executeRaw`DELETE FROM journal_entries WHERE id = ${jeId}`;
   };
 
   console.log('\n=== Rounding variance UAT (multiple values) ===\n');

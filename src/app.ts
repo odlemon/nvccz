@@ -43,6 +43,7 @@ import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import cashFlowRoutes from "./routes/cashFlowRoutes"
 import balanceSheetRoutes from "./routes/balanceSheetRoutes"
 import accountingDashboardRoutes from "./routes/accountingDashboardRoutes"
+import shortTermInvestmentRoutes from "./routes/shortTermInvestmentRoutes"
 import accountingPeIntegrationV1Routes from "./routes/accountingPeIntegrationV1Routes"
 import statementOfEquityRoutes from "./routes/statementOfEquityRoutes"
 import revenueRoutes from "./routes/revenueRoutes"
@@ -413,6 +414,7 @@ app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/cash-flow", cashFlowRoutes)
 app.use("/api/accounting/balance-sheet", balanceSheetRoutes)
 app.use("/api/accounting/dashboard", accountingDashboardRoutes)
+app.use("/api/accounting/short-term-investments", shortTermInvestmentRoutes)
 app.use("/api/accounting/v1", accountingPeIntegrationV1Routes)
 app.use("/api/accounting/statement-of-equity", statementOfEquityRoutes)
 app.use("/api/accounting/revenues", revenueRoutes)

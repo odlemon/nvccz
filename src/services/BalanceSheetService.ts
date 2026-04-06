@@ -2,6 +2,7 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
+import { resolveCashAndCashEquivalentsCoa } from "../config/cashAndCashEquivalents";
 
 export interface BalanceSheetParams {
   asOfDate: Date;
@@ -91,29 +92,36 @@ export class BalanceSheetService {
     return accountNo >= CASH_EQUIV_ACCOUNT_NO_MIN && accountNo <= CASH_EQUIV_ACCOUNT_NO_MAX;
   }
 
-  /** Same rules as the balance-sheet cash bucket (used by cash flow ending/beginning cash). */
+  /**
+   * Cash & cash equivalents bucket for balance sheet / dashboard / cash-flow cash.
+   * After consolidating all banks onto one CoA, legacy per-bank GL rows (e.g. "CBZ … BANK …") may
+   * still exist with zero balance — we must NOT treat every name containing "bank" as cash, or those
+   * orphans clutter the UI. Include:
+   * - Any Current Asset GL currently linked to a `Bank` row (shared Cash and Cash Equivalents id), and
+   * - Current Asset accounts in the usual cash number ranges that are explicitly named cash/petty/etc.
+   */
   static isCashOrBankEquivalentForReporting(
     account: { id: string; accountNo: string; accountName: string; accountType: string },
     bankGLAccountIds: Set<string>
   ): boolean {
+    if (account.accountType !== "Current Asset") {
+      return false;
+    }
+    if (bankGLAccountIds.has(account.id)) {
+      return true;
+    }
     const accountNameLower = account.accountName.toLowerCase();
     const inLegacyCashRange1000 = account.accountNo >= "1000" && account.accountNo < "1100";
     const inCashEquiv1100_1199 = BalanceSheetService.isCashEquivalentGlRange(account.accountNo);
-    const accountType = account.accountType;
-    const isCashAccount =
+    if (!inLegacyCashRange1000 && !inCashEquiv1100_1199) {
+      return false;
+    }
+    return (
       accountNameLower.includes("cash") ||
-      accountNameLower.includes("bank") ||
-      (accountType === "Current Asset" && inCashEquiv1100_1199) ||
-      (accountType === "Current Asset" &&
-        inLegacyCashRange1000 &&
-        (accountNameLower.includes("cash") ||
-          accountNameLower.includes("bank") ||
-          accountNameLower.includes("petty")));
-    const isBankAccount =
-      bankGLAccountIds.has(account.id) &&
-      accountType === "Current Asset" &&
-      (inCashEquiv1100_1199 || inLegacyCashRange1000);
-    return isCashAccount || isBankAccount;
+      accountNameLower.includes("petty") ||
+      accountNameLower.includes("money market") ||
+      accountNameLower.includes("call deposit")
+    );
   }
 
   /** Keep row if it has a non-zero balance or any transactions through as-of (offsetting activity still shown). */
@@ -605,6 +613,12 @@ export class BalanceSheetService {
           bankGLAccountIds.add(bank.glAccount.id);
         }
       }
+      try {
+        const cace = await resolveCashAndCashEquivalentsCoa(prisma);
+        bankGLAccountIds.add(cace.id);
+      } catch (e) {
+        console.warn("[BalanceSheet] resolveCashAndCashEquivalentsCoa skipped:", (e as Error).message);
+      }
 
       // Categorize accounts
       const currentAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
@@ -687,8 +701,14 @@ export class BalanceSheetService {
         // 1. Cash and bank accounts (must be included in "Cash and Cash Equivalents" even if zero)
         // 2. Specific liability accounts that need to be shown even when cleared (for UAT verification: PAYE Payable 2150, Net Wages Payable 2250)
         const isImportantLiabilityAccount = account.accountNo === '2150' || account.accountNo === '2250';
-        if (Math.abs(balance) < 0.01 && !isImportantLiabilityAccount && !isCashOrBankAccount) {
-          continue;
+        if (Math.abs(balance) < 0.01 && !isImportantLiabilityAccount) {
+          if (!isCashOrBankAccount) {
+            continue;
+          }
+          // Show zero-balance rows only for the primary CACE line (linked to banks / resolver), not legacy orphan "bank" CoA.
+          if (!bankGLAccountIds.has(account.id)) {
+            continue;
+          }
         }
 
         // Handle Accumulated Depreciation separately - collect all but don't add to array yet
