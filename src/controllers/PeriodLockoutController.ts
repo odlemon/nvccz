@@ -20,6 +20,7 @@ export default class PeriodLockoutController {
   /**
    * Lock/unlock accounting period
    * POST /api/cashbook/periods/lock
+   * `lockedBy` is always the authenticated user (`req.user.id`); any `lockedBy` in the body is ignored.
    */
   static async lockPeriod(req: AuthRequest, res: Response) {
     try {
@@ -53,7 +54,7 @@ export default class PeriodLockoutController {
       if (result.success) {
         return ResponseHelper.success(res, result.message, result.data);
       } else {
-        return ResponseHelper.badRequest(res, result.message);
+        return ResponseHelper.badRequest(res, result.message, result.error);
       }
     } catch (error) {
       console.error('Error in lockPeriod:', error);

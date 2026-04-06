@@ -21,6 +21,7 @@ import {
   zigTotalsBalanced,
   type ZigLineBreakdown,
 } from "../utils/manualJournalZigEquivalence";
+import PeriodLockService from "./PeriodLockService";
 
 export interface CreateExpenseJournalEntryParams {
   vendorId: string;
@@ -1647,7 +1648,11 @@ export class JournalEntryService {
   /**
    * Post a journal entry (change status from PENDING to POSTED)
    */
-  static async postJournalEntry(journalEntryId: string, performedById?: string): Promise<JournalEntry> {
+  static async postJournalEntry(
+    journalEntryId: string,
+    performedById?: string,
+    options?: { userPermissions?: Array<{ name: string; value: boolean }> }
+  ): Promise<JournalEntry> {
     try {
       // Get the journal entry with its lines
       const journalEntry = await prisma.journalEntry.findUnique({
@@ -1673,6 +1678,15 @@ export class JournalEntryService {
       if (!this.validateJournalEntryBalance(journalEntry.journalEntryLines)) {
         throw new Error("Journal entry is not balanced. Debits must equal credits.");
       }
+
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: "GL",
+        accountingDate: journalEntry.transactionDate,
+        userId: performedById ?? journalEntry.createdById,
+        source: "API",
+        actionType: "POST_JOURNAL",
+        userPermissions: options?.userPermissions
+      });
 
       // Update the status to POSTED
       const updatedJournalEntry = await prisma.journalEntry.update({

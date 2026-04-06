@@ -225,7 +225,10 @@ export class JournalEntryController {
     try {
       const { id } = req.params;
       const userId = (req as any).user?.id;
-      const journalEntry = await JournalEntryService.postJournalEntry(id, userId);
+      const perms = (req as any).user?.role?.permissions;
+      const journalEntry = await JournalEntryService.postJournalEntry(id, userId, {
+        userPermissions: perms,
+      });
 
       return ResponseHelper.success(res, "Journal entry posted successfully", journalEntry);
     } catch (error) {

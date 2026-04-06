@@ -11,6 +11,7 @@ import { companyProfileEndpoints } from './company-profile-endpoints';
 import { vatRateEndpoints } from './vat-rate-endpoints';
 import { consolidatedAccountingReportEndpoints } from './consolidated-accounting-report-endpoints';
 import { shortTermInvestmentsEndpoints } from './short-term-investments-endpoints';
+import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
 
 const options = {
   definition: {
@@ -48,6 +49,11 @@ const options = {
       {
         name: 'VAT Rates',
         description: 'Manage VAT rates — only one can be active at a time. The active rate is used by all accounting services for VAT calculations.'
+      },
+      {
+        name: 'Accounting - Period lock',
+        description:
+          'End-to-end period locking: **legacy cashbook** (`/cashbook/periods/...`) and **fiscal calendar** (`/accounting/fiscal-calendar/...`) — month status, lock/unlock, validate date, module draft/commit, policy, audit, posting exceptions. Production Swagger groups all these operations under this tag.'
       },
       {
         name: 'Financial Reporting',
@@ -1634,6 +1640,7 @@ const fallbackSpec = {
   paths: {
     ...accountingEndpoints,
     ...shortTermInvestmentsEndpoints,
+    ...fiscalCalendarEndpoints,
     ...vatRateEndpoints,
     ...companyProfileEndpoints,
     ...consolidatedAccountingReportEndpoints,
@@ -6355,8 +6362,9 @@ const fallbackSpec = {
       '/cashbook/periods/lock': {
         post: {
           summary: 'Lock/unlock accounting period',
-          description: 'Lock or unlock an accounting period to prevent transactions',
-          tags: ['Period Lockout'],
+          description:
+            'Lock or unlock a calendar month (`YYYY-MM`). Syncs module locks (when a fiscal period exists), `accounting_periods`, and `period_lockouts`. The authenticated user is recorded as the locker — do not send `lockedBy` in the body. On failure, `message` contains the server error detail.',
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -6400,7 +6408,7 @@ const fallbackSpec = {
         get: {
           summary: 'Get period lockout status',
           description: 'Check if a specific accounting period is locked',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -6447,7 +6455,7 @@ const fallbackSpec = {
         get: {
           summary: 'Get all periods with lockout status',
           description: 'Retrieve all accounting periods with their lockout status',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -6490,7 +6498,7 @@ const fallbackSpec = {
         post: {
           summary: 'Validate transaction date against period lockout',
           description: 'Check if a transaction can be created on a specific date',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -6545,7 +6553,7 @@ const fallbackSpec = {
         get: {
           summary: 'Get lockout history for a period',
           description: 'Retrieve the lockout/unlock history for a specific period',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -8374,7 +8382,7 @@ try {
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
     // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints with generated spec
-    specs.paths = { ...specs.paths, ...userSavedFilterFavoriteEndpoints, ...accountingEndpoints, ...shortTermInvestmentsEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
+    specs.paths = { ...specs.paths, ...userSavedFilterFavoriteEndpoints, ...accountingEndpoints, ...shortTermInvestmentsEndpoints, ...fiscalCalendarEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
     console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error: any) {

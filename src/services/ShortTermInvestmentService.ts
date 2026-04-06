@@ -16,6 +16,7 @@ import {
   type StiDayCountConvention,
 } from "./ShortTermInvestmentAccrualCalculator";
 import { logger } from "../utils/logger";
+import PeriodLockService from "./PeriodLockService";
 
 const SETTINGS_ID = "default";
 
@@ -245,6 +246,14 @@ export class ShortTermInvestmentService {
       status,
       createdById: args.actorId,
     };
+
+    await PeriodLockService.assertModuleDateOpen({
+      moduleCode: "GL",
+      accountingDate: jePayload.transactionDate,
+      userId: args.actorId,
+      source: "JOB",
+      actionType: "STI_ACCRUAL_JE",
+    });
 
     const je =
       args.auditTrailSequenceNumber != null
@@ -597,6 +606,14 @@ export class ShortTermInvestmentService {
 
     const firstDayDate = accrualDateFromIso(firstDay);
     const endDate = accrualDateFromIso(end);
+
+    await PeriodLockService.assertGlDateRangeOpenForAccruals(
+      firstDayDate,
+      endDate,
+      params.actorId,
+      "STI_CATCH_UP"
+    );
+
     const existingRows = await prisma.shortTermInvestmentAccrual.findMany({
       where: {
         instrumentId: params.instrumentId,
