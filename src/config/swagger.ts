@@ -4,6 +4,7 @@ import { performanceEndpoints } from './performance-endpoints';
 import { taskAssignmentEndpoints } from './task-assignment-endpoints';
 import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
+import { investeeReportingEndpoints } from './investee-reporting-endpoints';
 import { eventsEndpoints } from './events-endpoints';
 import { dashboardsEndpoints } from './dashboards-endpoints';
 import { userSavedFilterFavoriteEndpoints } from './user-saved-filter-favorite-endpoints';
@@ -8387,7 +8388,20 @@ try {
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
     // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints with generated spec
-    specs.paths = { ...specs.paths, ...userSavedFilterFavoriteEndpoints, ...accountingEndpoints, ...shortTermInvestmentsEndpoints, ...fiscalCalendarEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
+    specs.paths = {
+      ...specs.paths,
+      ...userSavedFilterFavoriteEndpoints,
+      ...accountingEndpoints,
+      ...shortTermInvestmentsEndpoints,
+      ...fiscalCalendarEndpoints,
+      ...performanceEndpoints,
+      ...taskAssignmentEndpoints,
+      ...financialReportingEndpoints,
+      ...investeeReportingEndpoints,
+      ...procurementEndpoints,
+      ...eventsEndpoints,
+      ...dashboardsEndpoints,
+    };
     console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error: any) {
