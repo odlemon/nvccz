@@ -7,10 +7,6 @@ import { prisma } from '../utils/database';
 import ControlAccountIntegrationService from './ControlAccountIntegrationService';
 import VATService from './VATService';
 import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
-import {
-  assertGlAccountIsCashAndCashEquivalents,
-  resolveCashAndCashEquivalentsCoa,
-} from '../config/cashAndCashEquivalents';
 import PeriodLockService from './PeriodLockService';
 
 export interface CreateCashReceiptParams {
@@ -679,7 +675,7 @@ export class CashbookService {
 
   /**
    * Ensure ZiG (or ZWG) currency exists and there is an active cashbook bank in that currency.
-   * New banks use the shared Cash and Cash Equivalents CoA (same as all other bank accounts).
+   * Ensures the bank has its own dedicated GL account (1000 is reporting-only).
    */
   static async ensureZigCashbookBank(): Promise<{
     bank: any;
@@ -724,7 +720,19 @@ export class CashbookService {
       };
     }
 
-    const glToUse = await resolveCashAndCashEquivalentsCoa(prisma);
+    // Create a dedicated bank GL (reporting bucket 1000 is not a posting account).
+    const bankGlNo = `11${String(Date.now()).slice(-4)}`;
+    const createdGl = await prisma.chartOfAccounts.create({
+      data: {
+        accountNo: bankGlNo,
+        accountName: `Bank - Operating Account - ${zig.code}`,
+        accountType: 'Current Asset',
+        naturalBalance: 'DEBIT',
+        financialStatement: 'Balance Sheet',
+        isActive: true,
+        notes: `Auto-created bank GL account for ZiG/ZWG cashbook bank`,
+      },
+    });
 
     const accountNumber = `ZIG-CB-${Date.now()}`;
     bank = await prisma.bank.create({
@@ -732,7 +740,7 @@ export class CashbookService {
         name: 'Operating Account - ZiG',
         accountNumber,
         currencyId: zig.id,
-        glAccountId: glToUse.id,
+        glAccountId: createdGl.id,
         isActive: true,
       },
       include: { glAccount: true, currency: true },
@@ -741,7 +749,7 @@ export class CashbookService {
     return {
       bank,
       created: true,
-      glAccountNo: glToUse.accountNo,
+      glAccountNo: createdGl.accountNo,
       currencyCode: zig.code,
     };
   }
@@ -803,6 +811,11 @@ export class CashbookService {
         });
         if (!counterparty) {
           throw new Error(`GL account not found: ${params.glAccountId}`);
+        }
+        if (counterparty.accountNo === '1000') {
+          throw new Error(
+            'Cash and Cash Equivalents (1000) is a reporting bucket and cannot be used as a posting account. Select a specific bank/cash GL (or a revenue/expense account) instead.'
+          );
         }
         break;
         
@@ -1262,10 +1275,29 @@ export class CashbookService {
     let { glAccountId } = params;
 
     if (!glAccountId) {
-      glAccountId = (await resolveCashAndCashEquivalentsCoa(prisma)).id;
+      // Default: create a dedicated bank GL account (Cash & Cash Equivalents is a reporting bucket).
+      const bankGlNo = `11${String(Date.now()).slice(-4)}`;
+      const created = await prisma.chartOfAccounts.create({
+        data: {
+          accountNo: bankGlNo,
+          accountName: `Bank - ${name}`,
+          accountType: 'Current Asset',
+          naturalBalance: 'DEBIT',
+          financialStatement: 'Balance Sheet',
+          isActive: true,
+          notes: `Auto-created bank GL account for bank ${accountNumber}`,
+        },
+      });
+      glAccountId = created.id;
     }
-
-    await assertGlAccountIsCashAndCashEquivalents(prisma, glAccountId);
+    // Enforce uniqueness: a bank GL account should not be shared by multiple banks.
+    const existingLink = await prisma.bank.findFirst({
+      where: { glAccountId, isActive: true },
+      select: { id: true, name: true },
+    });
+    if (existingLink) {
+      throw new Error(`GL account is already linked to another bank (${existingLink.name}). Each bank must have its own GL account.`);
+    }
 
     const glAccount = await prisma.chartOfAccounts.findUnique({
       where: { id: glAccountId }
@@ -1346,7 +1378,13 @@ export class CashbookService {
     }
 
     if (glAccountId !== undefined) {
-      await assertGlAccountIsCashAndCashEquivalents(prisma, glAccountId);
+      const existingLink = await prisma.bank.findFirst({
+        where: { glAccountId, id: { not: bankId }, isActive: true },
+        select: { id: true, name: true },
+      });
+      if (existingLink) {
+        throw new Error(`GL account is already linked to another bank (${existingLink.name}). Each bank must have its own GL account.`);
+      }
       const glAccount = await prisma.chartOfAccounts.findUnique({
         where: { id: glAccountId }
       });

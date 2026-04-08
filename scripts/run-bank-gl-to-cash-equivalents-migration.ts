@@ -45,6 +45,17 @@ async function dropBankGlUniqueIndexes(): Promise<void> {
 }
 
 async function main() {
+  // This script reflects a legacy design where ALL banks shared one "Cash and Cash Equivalents" posting account.
+  // The current system requires EACH bank to have its own unique GL posting account, and treats 1000 as reporting-only.
+  // Keep the file for historical reference, but make it opt-in to prevent accidental execution.
+  if (process.env.ALLOW_LEGACY_BANK_GL_TO_CACE_MIGRATION !== '1') {
+    throw new Error(
+      'Refusing to run legacy migration: bank GL → Cash and Cash Equivalents. ' +
+        'This project now requires unique bank GL accounts and treats 1000 as reporting-only. ' +
+        'If you truly need this legacy migration, set ALLOW_LEGACY_BANK_GL_TO_CACE_MIGRATION=1 (strongly discouraged).'
+    );
+  }
+
   if (
     !process.env.CASH_AND_CASH_EQUIVALENTS_GL_ACCOUNT_ID?.trim() &&
     !process.env.CASH_AND_CASH_EQUIVALENTS_ACCOUNT_NO?.trim()

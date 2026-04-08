@@ -353,6 +353,34 @@ export class EmailNotificationService {
     });
   }
 
+  static async sendReportingPeriodReminderEmail(data: {
+    recipientEmail: string;
+    companyName: string;
+    reportingPeriod: string; // YYYY-MM-DD
+    dueDate: string; // YYYY-MM-DD
+    isOverdue: boolean;
+  }): Promise<void> {
+    const subject = data.isOverdue
+      ? `Urgent: Overdue Report - ${data.companyName} (${data.reportingPeriod})`
+      : `Reminder: Reporting Due - ${data.companyName} (${data.reportingPeriod})`;
+
+    const html = `
+      <p>Hello ${data.companyName},</p>
+      <p>This is a ${data.isOverdue ? "<strong>past-due</strong>" : "friendly"} reminder to submit your reporting package for <strong>${data.reportingPeriod}</strong>.</p>
+      <p><strong>Due date:</strong> ${data.dueDate}</p>
+      <p>Please log into the Arcus portal and upload the required documents (IS, BS, CF, bank statements, tax/compliance, management accounts, business plan/proposals) and submit.</p>
+      <p>Thank you.</p>
+    `;
+
+    const from = getFromAddress("investment");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${data.companyName}" <${data.recipientEmail}>`,
+      subject,
+      html,
+    });
+  }
+
   /**
    * Notify procurement requester when a vendor submits a quotation
    */

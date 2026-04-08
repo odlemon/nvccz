@@ -2,6 +2,7 @@
 import express from 'express';
 import { AssetController } from '../controllers/AssetController';
 import { VendorTaxComplianceCronController } from '../controllers/VendorTaxComplianceCronController';
+import { ReportingRemindersCronController } from '../controllers/ReportingRemindersCronController';
 
 /**
  * Machine-to-machine cron jobs: no JWT. Protected per-route (e.g. shared secret header).
@@ -14,5 +15,6 @@ router.post(
   '/vendors/tax-clearance-revalidation-alerts',
   VendorTaxComplianceCronController.postTaxClearanceRevalidationCron
 );
+router.post('/reporting/reminders', ReportingRemindersCronController.postReportingRemindersCron);
 
 export default router;

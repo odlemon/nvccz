@@ -25,13 +25,14 @@ type StdRow = {
  */
 const STANDARD_CHART_OF_ACCOUNTS: StdRow[] = [
   // —— Assets ——
-  { accountNo: '1000', accountName: 'Cash on Hand', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
+  { accountNo: '1000', accountName: 'Cash and Cash Equivalents', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT', notes: 'Reporting bucket only (do not post directly). Sum of bank-linked GL accounts + qualifying cash equivalents.' },
   { accountNo: '1010', accountName: 'Petty Cash', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1030', accountName: 'Petty Cash / Cash Clearing', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1100', accountName: 'Bank - Operating Account', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1101', accountName: 'VAT Input Recoverable', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1200', accountName: 'Accounts Receivable', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1300', accountName: 'Prepayments', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
+  { accountNo: '1510', accountName: 'Office Equipment', accountType: 'Fixed Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT', notes: 'Furniture, computers, equipment' },
 
   // —— Liabilities ——
   { accountNo: '2000', accountName: 'Accounts Payable', accountType: 'Current Liability', financialStatement: 'Balance Sheet', naturalBalance: 'CREDIT' },

@@ -413,7 +413,7 @@ router.get(
  *             properties:
  *               action:
  *                 type: string
- *                 enum: [ACCEPT, REJECT]
+ *                 enum: [ACCEPT, REJECT, NEEDS_REVISION]
  *                 example: ACCEPT
  *               comment:
  *                 type: string
@@ -423,7 +423,19 @@ router.get(
  *                 description: Mapping snapshot for accounting/performance.
  *     responses:
  *       200:
- *         description: Review recorded successfully
+ *         description: Review recorded successfully; body includes updated report (with reportUrl/fileUrl when stored).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   description: Financial report row after review, with normalized file URL fields.
  *       400:
  *         description: Invalid request
  *       401:
@@ -436,6 +448,20 @@ router.post(
   authenticate,
   authorize(["admin"]),
   PortfolioCompanyController.reviewFinancialReport
+);
+
+router.post(
+  "/:id/reporting/nudge",
+  authenticate,
+  authorize(["admin"]),
+  PortfolioCompanyController.nudgeReporting
+);
+
+router.post(
+  "/reporting/requests",
+  authenticate,
+  authorize(["admin"]),
+  PortfolioCompanyController.openReportingRequest
 );
 
 /**

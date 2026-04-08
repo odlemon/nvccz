@@ -15,7 +15,8 @@ jest.mock('../../utils/database', () => {
   const prisma = {
     journalEntry: { create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
     journalEntryLine: { create: jest.fn(), findMany: jest.fn() },
-    chartOfAccounts: { findFirst: jest.fn() },
+    bank: { findFirst: jest.fn() },
+    chartOfAccounts: { findFirst: jest.fn(), findUnique: jest.fn() },
   };
   return { prisma };
 });
@@ -45,8 +46,8 @@ describe('JournalEntryService', () => {
 
     const mockBankGlAccount = {
       id: 'bank-gl-id',
-      accountNo: '1000',
-      accountName: 'Cash and Cash Equivalents',
+      accountNo: '1100',
+      accountName: 'Bank - Operating Account',
       accountType: 'Current Asset',
     };
 
@@ -86,7 +87,7 @@ describe('JournalEntryService', () => {
         chartOfAccountId: 'bank-gl-id',
         debitAmount: 0,
         creditAmount: 1145,
-        description: 'Cash and Cash Equivalents: Legal Fees',
+        description: 'Bank - Operating Account: Legal Fees',
         vatAmount: 0,
       }
     ];
@@ -94,8 +95,10 @@ describe('JournalEntryService', () => {
     beforeEach(() => {
       mockPrisma.chartOfAccounts.findFirst
         .mockResolvedValueOnce(mockExpenseAccount)
-        .mockResolvedValueOnce(mockVATInputAccount)
-        .mockResolvedValueOnce(mockBankGlAccount);
+        .mockResolvedValueOnce(mockVATInputAccount);
+
+      mockPrisma.bank.findFirst.mockResolvedValueOnce({ glAccountId: 'bank-gl-id' });
+      mockPrisma.chartOfAccounts.findUnique.mockResolvedValueOnce(mockBankGlAccount);
 
       createJournalEntryWithAuditSequence.mockResolvedValue(mockJournalEntry);
 
@@ -239,7 +242,10 @@ describe('JournalEntryService', () => {
         .mockReset()
         .mockResolvedValueOnce(mockExpenseAccount)
         .mockResolvedValueOnce(mockVATInputAccount)
-        .mockResolvedValueOnce(null);
+        .mockResolvedValueOnce(null); // fallback OR(1100/Bank/Cash) also missing
+
+      mockPrisma.bank.findFirst.mockReset().mockResolvedValueOnce(null);
+      mockPrisma.chartOfAccounts.findUnique.mockReset();
 
       const params = {
         vendorId: 'vendor-id',
@@ -256,7 +262,7 @@ describe('JournalEntryService', () => {
       };
 
       await expect(JournalEntryService.createExpenseJournalEntry(params)).rejects.toThrow(
-        'No Cash and Cash Equivalents account found in chart of accounts'
+        'No bank/cash account found in chart of accounts (and no active bank.glAccountId set).'
       );
     });
   });

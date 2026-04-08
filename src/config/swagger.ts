@@ -60,6 +60,11 @@ const options = {
         description: 'Endpoints for uploading and reviewing portfolio financial reports'
       },
       {
+        name: 'Investee Reporting',
+        description:
+          'Investee (applicant portal) reporting flow: list open requests, upload statement XLSX/PDFs, attach files, submit a reporting period for review, download templates, and save period KPIs.'
+      },
+      {
         name: 'Accounts Payables',
         description: 'Purchase invoice management for non-procurement expenses - Create, submit, and pay invoices with BANK, CASH, or CREDIT payment methods'
       },
@@ -2395,7 +2400,7 @@ const fallbackSpec = {
                   glAccountId: {
                     type: 'string',
                     description:
-                      'Optional. Must be the configured Cash and Cash Equivalents CoA if provided; when omitted, the server uses that account.',
+                      'Optional. When omitted, the server auto-creates a dedicated bank GL account and links the bank to it. Do not use 1000 (Cash and Cash Equivalents) — it is reporting-only.',
                     example: 'cmh3c1fdt0001unxkqzzihy55'
                   },
                   bankCode: {

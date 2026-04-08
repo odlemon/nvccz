@@ -214,6 +214,25 @@ export class JournalEntryService {
     return { totalAmountForHeader, zigEquivalence };
   }
 
+  private static async assertNoPostingToReportingBuckets(
+    chartOfAccountIds: string[],
+    context: string
+  ): Promise<void> {
+    const ids = [...new Set(chartOfAccountIds.filter(Boolean))];
+    if (ids.length === 0) return;
+    const accounts = await prisma.chartOfAccounts.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, accountNo: true, accountName: true },
+    });
+    const bad = accounts.filter((a) => a.accountNo === "1000");
+    if (bad.length > 0) {
+      const a = bad[0];
+      throw new Error(
+        `${context}: ${a.accountNo} ${a.accountName} is a reporting bucket and cannot be used as a posting account. Select a specific bank/cash GL instead.`
+      );
+    }
+  }
+
   /**
    * Replace header and lines of a **PENDING** manual journal only.
    * Posted/voided journals throw {@link JournalEntryImmutableError} (ledger immutability).
@@ -253,6 +272,11 @@ export class JournalEntryService {
       journalEntryLines,
       createdById,
     } = params;
+
+    await this.assertNoPostingToReportingBuckets(
+      journalEntryLines.map((l) => l.chartOfAccountId),
+      "Manual journal update rejected"
+    );
 
     if (referenceNumber !== existing.referenceNumber) {
       const clash = await prisma.journalEntry.findUnique({ where: { referenceNumber } });
@@ -355,6 +379,11 @@ export class JournalEntryService {
         ipAddress,
         userAgent,
       } = params;
+
+      await this.assertNoPostingToReportingBuckets(
+        journalEntryLines.map((l) => l.chartOfAccountId),
+        "Manual journal rejected"
+      );
 
       const { totalAmountForHeader, zigEquivalence } = await this.validateManualJournalEconomics(
         currencyId,
@@ -1024,14 +1053,20 @@ export class JournalEntryService {
    * Get the Cash Account
    */
   private static async getCashAccount(): Promise<ChartOfAccounts> {
-    const cashAccount = await prisma.chartOfAccounts.findFirst({
-      where: {
-        accountName: {
-          contains: "Cash"
+    // Prefer explicit petty cash / cash-on-hand accounts and NEVER auto-select 1000 (reporting bucket).
+    const cashAccount =
+      (await prisma.chartOfAccounts.findFirst({
+        where: { accountNo: { in: ["1010", "1030", "CASH-001"] }, isActive: true },
+        orderBy: { accountNo: "asc" },
+      })) ??
+      (await prisma.chartOfAccounts.findFirst({
+        where: {
+          isActive: true,
+          accountNo: { not: "1000" },
+          OR: [{ accountName: { contains: "Petty" } }, { accountName: { contains: "Cash" } }],
         },
-        isActive: true
-      }
-    });
+        orderBy: { accountNo: "asc" },
+      }));
 
     if (!cashAccount) {
       throw new Error("No Cash Account found in chart of accounts");
@@ -1061,23 +1096,35 @@ export class JournalEntryService {
   }
 
   /**
-   * Get the Bank Account (use Cash and Cash Equivalents since it includes bank balances)
+   * Get a Bank posting account (bank-linked GL if available; never use 1000 reporting bucket).
    */
   private static async getBankAccount(): Promise<ChartOfAccounts> {
-    const bankAccount = await prisma.chartOfAccounts.findFirst({
-      where: {
-        accountName: {
-          contains: "Cash and Cash Equivalents"
-        },
-        isActive: true
-      }
+    const bank = await prisma.bank.findFirst({
+      where: { isActive: true, glAccountId: { not: null } },
+      orderBy: { createdAt: "asc" },
+      select: { glAccountId: true },
     });
-
-    if (!bankAccount) {
-      throw new Error("No Cash and Cash Equivalents account found in chart of accounts");
+    if (bank?.glAccountId) {
+      const coa = await prisma.chartOfAccounts.findUnique({ where: { id: bank.glAccountId } });
+      if (coa) return coa;
     }
 
-    return bankAccount;
+    const fallback = await prisma.chartOfAccounts.findFirst({
+      where: {
+        accountNo: { not: "1000" },
+        OR: [
+          { accountNo: "1100" },
+          { accountName: { contains: "Bank" } },
+          { accountName: { contains: "Cash" } }
+        ],
+        isActive: true,
+      },
+      orderBy: { accountNo: "asc" },
+    });
+    if (!fallback) {
+      throw new Error("No bank/cash account found in chart of accounts (and no active bank.glAccountId set).");
+    }
+    return fallback;
   }
 
   /**

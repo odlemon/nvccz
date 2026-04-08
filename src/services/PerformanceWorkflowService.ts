@@ -318,6 +318,16 @@ export class PerformanceWorkflowService {
 
       if (kpiConfig && kpiConfig.isFinancial) {
         // Create journal entry based on KPI completion
+        // Use a bank-linked GL account as the cash offset (Cash & Cash Equivalents is a reporting bucket).
+        const bank = await prisma.bank.findFirst({
+          where: { isActive: true, glAccountId: { not: null } },
+          orderBy: { createdAt: "asc" },
+          select: { glAccountId: true },
+        });
+        if (!bank?.glAccountId) {
+          throw new Error("No active bank with a GL account linked (banks.glAccountId).");
+        }
+
         const journalEntry = await createJournalEntryWithAuditSequence({
           transactionDate: new Date(),
           referenceNumber: `KPI-${goal.id}-${Date.now()}`,
@@ -329,13 +339,13 @@ export class PerformanceWorkflowService {
           journalEntryLines: {
             create: [
               {
-                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : "1000",
+                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : bank.glAccountId,
                 debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
                 creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
                 description: `KPI: ${goal.kpi.name}`,
               },
               {
-                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : "1000",
+                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : bank.glAccountId,
                 debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
                 creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
                 description: `KPI: ${goal.kpi.name}`,
