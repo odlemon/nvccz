@@ -1828,21 +1828,31 @@ export class TaskService {
         return;
       }
 
-      const offsetAccountNo = "1000";
+      // KPI journals should not hardcode a single "cash" account. Prefer the first active bank GL.
+      const bank = await prisma.bank.findFirst({
+        where: { isActive: true, glAccountId: { not: null } },
+        orderBy: { createdAt: "asc" },
+        select: { glAccountId: true },
+      });
+      const offsetAccountNo = bank?.glAccountId
+        ? null
+        : "1100";
       const [primaryAcc, offsetAcc] = await Promise.all([
         prisma.chartOfAccounts.findFirst({
           where: { accountNo: kpiConfig.accountNumber, isActive: true },
           select: { id: true },
         }),
-        prisma.chartOfAccounts.findFirst({
-          where: { accountNo: offsetAccountNo, isActive: true },
-          select: { id: true },
-        }),
+        bank?.glAccountId
+          ? prisma.chartOfAccounts.findUnique({ where: { id: bank.glAccountId }, select: { id: true } })
+          : prisma.chartOfAccounts.findFirst({
+              where: { accountNo: offsetAccountNo!, isActive: true },
+              select: { id: true },
+            }),
       ]);
 
       if (!primaryAcc?.id || !offsetAcc?.id) {
         console.error(
-          `❌ KPI journal skipped: chart account missing (KPI accountNo=${kpiConfig.accountNumber}, offset=${offsetAccountNo})`
+          `❌ KPI journal skipped: chart account missing (KPI accountNo=${kpiConfig.accountNumber}, offset=bank.glAccountId|${offsetAccountNo})`
         );
         return;
       }

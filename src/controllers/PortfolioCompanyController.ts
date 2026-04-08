@@ -5,6 +5,7 @@ import { EmailNotificationService } from "../services/EmailNotificationService";
 import { FinancialReportService } from "../services/FinancialReportService";
 import { FirebaseStorageService } from "../services/FirebaseStorageService";
 import { PortfolioCompanyAccountingService } from "../services/PortfolioCompanyAccountingService";
+import { ReportingReminderService } from "../services/ReportingReminderService";
 import { parseDate } from "../utils/dateHelper";
 
 export class PortfolioCompanyController {
@@ -294,7 +295,9 @@ export class PortfolioCompanyController {
         return res.status(400).json({ success: false, message: "Portfolio company ID is required" });
       }
 
-      const reports = await FinancialReportService.listReportsForCompany(id);
+      const page = req.query.page ? Number(req.query.page) : 1;
+      const limit = req.query.limit ? Number(req.query.limit) : 20;
+      const reports = await FinancialReportService.listReportsForCompany(id, { page, limit });
       return res.status(200).json({ success: true, data: reports });
     } catch (error: any) {
       next(error);
@@ -340,23 +343,34 @@ export class PortfolioCompanyController {
         return res.status(400).json({ success: false, message: "Report ID is required" });
       }
 
-      const { action, comment, mapping, totalRevenue, netProfit, cashFlowNet } = req.body;
-      if (!action || !['ACCEPT', 'REJECT'].includes(action)) {
+      const { action, comment, totalRevenue, netProfit, cashFlowNet, valuationAdjustment, valuation, dividend, dividends } = req.body;
+      if (!action || !['ACCEPT', 'REJECT', 'NEEDS_REVISION'].includes(action)) {
         return res.status(400).json({ success: false, message: "Invalid action" });
       }
+      const authHeader = String(req.headers.authorization || "");
+      const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
 
       await FinancialReportService.reviewReport({
         reportId,
         reviewerId: user.id || user.userId,
         action,
         comment,
-        mappingSnapshot: mapping || null,
+        valuationAdjustment: valuationAdjustment || null,
+        valuation: valuation || null,
+        dividend: dividend || null,
+        dividends: Array.isArray(dividends) ? dividends : null,
+        authToken: jwt || undefined,
         totalRevenue: totalRevenue !== undefined ? totalRevenue : null,
         netProfit: netProfit !== undefined ? netProfit : null,
         cashFlowNet: cashFlowNet !== undefined ? cashFlowNet : null
       });
 
-      return res.status(200).json({ success: true, message: "Financial report review recorded" });
+      const updated = await FinancialReportService.getReportById(reportId);
+      return res.status(200).json({
+        success: true,
+        message: "Financial report review recorded",
+        data: FinancialReportService.mergeReportFileUrlsForApi(updated),
+      });
     } catch (error: any) {
       next(error);
     }
@@ -366,6 +380,8 @@ export class PortfolioCompanyController {
     try {
       const { id } = req.params;
       const userId = (req as any).user.id;
+      const authHeader = String(req.headers.authorization || "");
+      const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
 
       const previousAmount = Number(req.body.previousAmount);
       const newAmount = Number(req.body.newAmount);
@@ -380,7 +396,8 @@ export class PortfolioCompanyController {
         newAmount,
         valuationDate: req.body.valuationDate,
         approvedById: userId,
-        notes: req.body.notes
+        notes: req.body.notes,
+        authToken: jwt
       });
 
       res.status(201).json({
@@ -397,6 +414,8 @@ export class PortfolioCompanyController {
     try {
       const { id } = req.params;
       const userId = (req as any).user.id;
+      const authHeader = String(req.headers.authorization || "");
+      const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
 
       const amount = Number(req.body.amount);
       if (!Number.isFinite(amount)) {
@@ -408,13 +427,74 @@ export class PortfolioCompanyController {
         amount,
         dividendDate: req.body.dividendDate,
         approvedById: userId,
-        notes: req.body.notes
+        notes: req.body.notes,
+        bankId: req.body.bankId,
+        authToken: jwt
       });
 
       res.status(201).json({
         success: true,
         message: "Dividend recorded successfully",
         data: result
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  static async nudgeReporting(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const { id } = req.params;
+      const { reportingPeriod, dueDate } = req.body || {};
+      if (!id || !reportingPeriod || !dueDate) {
+        return res
+          .status(400)
+          .json({ success: false, message: "portfolioCompanyId, reportingPeriod, dueDate are required" });
+      }
+
+      // Manual nudge: send for this reporting period (logged)
+      const result = await ReportingReminderService.run({
+        reportingPeriod,
+        dueDate,
+        asOfDate: new Date().toISOString().split("T")[0],
+        phase: "REQUEST",
+        portfolioCompanyId: id,
+      });
+
+      return res.status(200).json({ success: true, message: "Nudge sent", data: result });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  static async openReportingRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const { reportingPeriod, dueDate, phase } = req.body || {};
+      if (!reportingPeriod || !dueDate) {
+        return res.status(400).json({ success: false, message: "reportingPeriod and dueDate are required" });
+      }
+
+      const result = await ReportingReminderService.run({
+        reportingPeriod,
+        dueDate,
+        asOfDate: new Date().toISOString().split("T")[0],
+        phase: phase || "REQUEST",
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Reporting request opened (emails sent to pending companies)",
+        data: result,
       });
     } catch (error: any) {
       next(error);

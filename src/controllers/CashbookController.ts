@@ -844,7 +844,12 @@ export default class CashbookController {
       // If requesting accounts available for bank creation, exclude those already used
       if (availableForBank === 'true') {
         where.accountType = { in: ['Current Asset', 'Fixed Asset'] };
-        // All banks share one Cash and Cash Equivalents line; do not exclude "already used" GL ids.
+        // Each bank must have its own GL account — exclude GL accounts already linked to an active bank.
+        const used = await prisma.bank.findMany({
+          where: { isActive: true, glAccountId: { not: null } },
+          select: { glAccountId: true }
+        });
+        where.id = { notIn: used.map((u) => u.glAccountId).filter(Boolean) };
       }
       
       const accounts = await prisma.chartOfAccounts.findMany({

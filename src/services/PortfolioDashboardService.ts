@@ -74,6 +74,9 @@ export interface PortfolioDashboardData {
     totalRevenue: number | null;
     netProfit: number | null;
     cashFlowNet: number | null;
+    /** Derived from ACCEPTED report snapshots (see InvestmentMonitoringKpiService). */
+    monitoringKpis: Record<string, number | null> | null;
+    monitoringKpisMeta: { asOfPeriod?: string; computedAt?: string; source?: string } | null;
   }>;
   
   // Totals Row
@@ -747,6 +750,8 @@ export class PortfolioDashboardService {
     totalRevenue: number | null;
     netProfit: number | null;
     cashFlowNet: number | null;
+    monitoringKpis: Record<string, number | null> | null;
+    monitoringKpisMeta: { asOfPeriod?: string; computedAt?: string; source?: string } | null;
   }>> {
     const summary = portfolioCompanies.map(company => {
       const disbursements = company.investmentImplementation?.fundDisbursements || [];
@@ -818,6 +823,23 @@ export class PortfolioDashboardService {
         ? parseFloat(latestKpiValues.CASH_FLOW_NET.toString())
         : null;
 
+      const rawMonitoring = financialKpis?.monitoringKpis;
+      const monitoringKpis =
+        rawMonitoring && typeof rawMonitoring === "object"
+          ? Object.fromEntries(
+              Object.entries(rawMonitoring).filter(([, v]) => v === null || typeof v === "number")
+            )
+          : null;
+      const meta = financialKpis?.monitoringKpisMeta;
+      const monitoringKpisMeta =
+        meta && typeof meta === "object"
+          ? {
+              asOfPeriod: meta.asOfPeriod != null ? String(meta.asOfPeriod) : undefined,
+              computedAt: meta.computedAt != null ? String(meta.computedAt) : undefined,
+              source: meta.source != null ? String(meta.source) : undefined,
+            }
+          : null;
+
       return {
         companyId: company.id,
         name: company.name,
@@ -834,7 +856,9 @@ export class PortfolioDashboardService {
         grossIRR: Math.round(grossIRR * 100) / 100,
         totalRevenue: totalRevenue !== null ? Math.round(totalRevenue * 100) / 100 : null,
         netProfit: netProfit !== null ? Math.round(netProfit * 100) / 100 : null,
-        cashFlowNet: cashFlowNet !== null ? Math.round(cashFlowNet * 100) / 100 : null
+        cashFlowNet: cashFlowNet !== null ? Math.round(cashFlowNet * 100) / 100 : null,
+        monitoringKpis,
+        monitoringKpisMeta,
       };
     });
     

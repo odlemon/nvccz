@@ -395,7 +395,17 @@ const upload = multer({
  *         reportUrl:
  *           type: string
  *           format: uri
- *           example: https://storage.googleapis.com/.../report.csv
+ *           nullable: true
+ *           description: Public download URL after upload; null on new draft until file is attached.
+ *         fileUrl:
+ *           type: string
+ *           format: uri
+ *           nullable: true
+ *           description: Same as reportUrl (stable alias for clients).
+ *         storagePath:
+ *           type: string
+ *           nullable: true
+ *           description: Backend storage key/path.
  */
 
 /**
@@ -811,7 +821,7 @@ router.get("/reports", authenticate, applicantPortalController.getPerformanceRep
  *   post:
  *     summary: Submit a financial report
  *     description: Allows an applicant to upload a financial report document for review.
- *     tags: ['Financial Reporting']
+ *     tags: ['Investee Reporting']
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -820,10 +830,26 @@ router.get("/reports", authenticate, applicantPortalController.getPerformanceRep
  *         multipart/form-data:
  *           schema:
  *             type: object
+ *             required:
+ *               - reportingPeriod
+ *               - periodType
+ *               - periodStart
+ *               - periodEnd
  *             properties:
  *               file:
  *                 type: string
  *                 format: binary
+ *                 description: Single-file upload (same as before). Use `files` for multiple files in one request.
+ *               files:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *                 description: Multiple files in one request (field name repeated or array in clients that support it).
+ *               reportingPeriod:
+ *                 type: string
+ *                 format: date
+ *                 description: Reporting period date (e.g. quarter-end 2026-03-31). Same for all files in this request.
  *               reportType:
  *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/reportType'
  *               periodType:
@@ -833,11 +859,26 @@ router.get("/reports", authenticate, applicantPortalController.getPerformanceRep
  *               periodEnd:
  *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/periodEnd'
  *               title:
- *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/title'
+ *                 type: string
+ *                 description: >
+ *                   Required for income statement / balance sheet / cash flow. Optional for file-only types
+ *                   (e.g. BUSINESS_PLAN, BANK_STATEMENTS); omitted title defaults to the uploaded filename.
  *               description:
  *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/description'
  *               templateVersion:
  *                 $ref: '#/components/schemas/FinancialReportSubmissionRequest/properties/templateVersion'
+ *               data:
+ *                 type: string
+ *                 description: >
+ *                   Optional JSON string of manual line items — **only** for INCOME_STATEMENTS, balance sheet /
+ *                   STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, or NON_FINANCIAL_KPIS. Ignored for
+ *                   BUSINESS_PLAN and other file-only uploads.
+ *               items:
+ *                 type: string
+ *                 description: >
+ *                   JSON array, one object per uploaded file (same order as `files`). Each object must include
+ *                   reportType and title; optional description, templateVersion, data (JSON object or string).
+ *                   When set, top-level reportType/title are not required. Use this to upload IS + BS + bank PDF in one call.
  *     responses:
  *       201:
  *         description: Financial report submitted successfully
@@ -865,7 +906,7 @@ router.get("/reports", authenticate, applicantPortalController.getPerformanceRep
  *   get:
  *     summary: List submitted financial reports
  *     description: Returns all financial reports submitted by the authenticated applicant.
- *     tags: ['Financial Reporting']
+ *     tags: ['Investee Reporting']
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -897,8 +938,55 @@ router.post(
   "/financial-reports",
   authenticate,
   requireApplicantRole(),
-  upload.single("file"),
+  upload.fields([
+    { name: "file", maxCount: 1 },
+    { name: "files", maxCount: 25 },
+  ]),
   applicantPortalController.uploadFinancialReport
+);
+
+router.post(
+  "/financial-reports/income-statement/draft",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.createIncomeStatementDraft
+);
+router.post(
+  "/financial-reports/balance-sheet/draft",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.createBalanceSheetDraft
+);
+router.post(
+  "/financial-reports/cash-flow/draft",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.createCashFlowStatementDraft
+);
+
+/** @deprecated Prefer `/financial-reports/income-statement/draft`, `/balance-sheet/draft`, `/cash-flow/draft`. */
+router.post(
+  "/financial-reports/draft",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.createFinancialReportDraft
+);
+
+/** Attach file to draft: use either this or `POST /financial-reports/:reportId/file`. */
+router.post(
+  "/financial-reports/file",
+  authenticate,
+  requireApplicantRole(),
+  upload.single("file"),
+  applicantPortalController.uploadFinancialReportFile
+);
+
+router.post(
+  "/financial-reports/:reportId/file",
+  authenticate,
+  requireApplicantRole(),
+  upload.single("file"),
+  applicantPortalController.uploadFinancialReportFile
 );
 router.get(
   "/financial-reports",
@@ -912,8 +1000,74 @@ router.get(
   requireApplicantRole(),
   applicantPortalController.downloadFinancialReportTemplate
 );
+
+/**
+ * @swagger
+ * /api/applicant/financial-reports/submit:
+ *   post:
+ *     summary: Submit a reporting period bundle (by reportId)
+ *     description: >
+ *       Submits all DRAFT/NEEDS_REVISION reports for the same company + reportingPeriod as the provided reportId.
+ *       Accepts reportId in body, query, or path variants.
+ *     tags: ['Investee Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: reportId
+ *         required: false
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reportId:
+ *                 type: string
+ *               reportIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Submitted for review
+ *       400:
+ *         description: Missing reportId/reportIds
+ *       401:
+ *         description: Unauthorized
+ */
 router.post(
   "/financial-reports/submit",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.submitFinancialReport
+);
+
+/**
+ * @swagger
+ * /api/applicant/financial-reports/submit/{reportId}:
+ *   post:
+ *     summary: Submit a reporting period bundle (path alias)
+ *     description: Convenience alias for clients that prefer `/submit/{reportId}`.
+ *     tags: ['Investee Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: reportId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Submitted for review
+ */
+// Alias for clients that prefer /submit/:reportId
+router.post(
+  "/financial-reports/submit/:reportId",
   authenticate,
   requireApplicantRole(),
   applicantPortalController.submitFinancialReport
@@ -925,11 +1079,59 @@ router.post(
   applicantPortalController.savePeriodKPIs
 );
 router.post(
+  "/financial-reports/period-kpis/income-statement",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.savePeriodKPIsIncomeStatement
+);
+router.post(
+  "/financial-reports/period-kpis/balance-sheet",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.savePeriodKPIsBalanceSheet
+);
+router.post(
+  "/financial-reports/period-kpis/cash-flow",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.savePeriodKPIsCashFlow
+);
+router.post(
   "/financial-reports/:reportId/submit",
   authenticate,
   requireApplicantRole(),
   applicantPortalController.submitFinancialReport
 );
+
+router.post(
+  "/procurement-requests",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.createProcurementRequest
+);
+
+router.get(
+  "/reporting/requests",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.getOpenReportingRequests
+);
+
+/**
+ * @swagger
+ * /api/applicant/reporting/requests:
+ *   get:
+ *     summary: List open reporting requests for the authenticated investee
+ *     description: Returns reporting periods that are open (requested) for this investee to submit documents/KPIs against.
+ *     tags: ['Investee Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Open requests list
+ *       401:
+ *         description: Unauthorized
+ */
 
 /**
  * @swagger
@@ -937,7 +1139,7 @@ router.post(
  *   get:
  *     summary: Download financial report template
  *     description: Provides the standard CSV template for the specified financial report type.
- *     tags: ['Financial Reporting']
+ *     tags: ['Investee Reporting']
  *     security:
  *       - bearerAuth: []
  *     parameters:

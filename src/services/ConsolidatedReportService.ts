@@ -4,7 +4,6 @@ import { Decimal } from "decimal.js";
 import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
 import { resolveUsdZwgAvgForSnapshot } from "./UsdZwgRateResolver";
 import { BalanceSheetService } from "./BalanceSheetService";
-import { resolveCashAndCashEquivalentsCoa } from "../config/cashAndCashEquivalents";
 
 export interface CurrencyBreakdownItem {
   sourceCurrency: string;
@@ -291,12 +290,8 @@ export class ConsolidatedReportService {
         .map((b) => b.glAccountId)
         .filter(Boolean) as string[]
     );
-    try {
-      const cace = await resolveCashAndCashEquivalentsCoa(prisma);
-      bankGLAccountIds.add(cace.id);
-    } catch {
-      /* optional env / CoA */
-    }
+    // Note: Cash & Cash Equivalents is a reporting bucket, not a single posting account.
+    // We treat any bank-linked GL accounts (banks.glAccountId) as cash/bank for reporting.
 
     const allAccounts = [...accountMap.values()];
     const eps = 0.01;

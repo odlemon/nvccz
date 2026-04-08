@@ -118,6 +118,7 @@ import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
 import performanceConfigRoutes from "./routes/performanceConfigRoutes"
 import performanceIntegrationRoutes from "./routes/performanceIntegrationRoutes"
+import accountingApiRoutes from "./routes/accountingApiRoutes"
 import vatReportRoutes from "./routes/vatReportRoutes"
 import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
 import { initSocketServer } from "./services/RealtimeSocketService"
@@ -448,6 +449,7 @@ app.use("/api/cashbook/entry-types", entryTypeRoutes)
 app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
 app.use("/api/accounting/fiscal-calendar", fiscalCalendarRoutes)
+app.use("/accounting/api", accountingApiRoutes)
 
 // Mini-KYC routes
 app.use("/api/mini-kyc", miniKycRoutes)

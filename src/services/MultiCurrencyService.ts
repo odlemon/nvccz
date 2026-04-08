@@ -872,19 +872,28 @@ export class MultiCurrencyService {
         throw new Error('Accounts Receivable account (1200) not found');
       }
 
-      // Get Bank/Cash account (use default bank account for ZWL)
-      const bankAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '1100' },
-            { accountNo: '1000' },
-            { accountName: { contains: 'Bank' } },
-            { accountName: { contains: 'Cash' } }
-          ],
-          isActive: true
-        },
-        orderBy: { accountNo: 'asc' }
+      // Get Bank/Cash account:
+      // Prefer an active bank-linked GL account; fall back to accountNo 1100 or a cash-named account if needed.
+      const firstBank = await prisma.bank.findFirst({
+        where: { isActive: true, glAccountId: { not: null } },
+        orderBy: { createdAt: 'asc' },
+        select: { glAccountId: true },
       });
+      const bankAccount =
+        (firstBank?.glAccountId
+          ? await prisma.chartOfAccounts.findUnique({ where: { id: firstBank.glAccountId } })
+          : null) ||
+        (await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: '1100' },
+              { accountName: { contains: 'Bank' } },
+              { accountName: { contains: 'Cash' } }
+            ],
+            isActive: true
+          },
+          orderBy: { accountNo: 'asc' }
+        }));
 
       if (!bankAccount) {
         throw new Error('Bank/Cash account not found');

@@ -5,7 +5,6 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
 import { CashbookService } from './CashbookService';
 import { EmailNotificationService } from './EmailNotificationService';
-import { resolveCashAndCashEquivalentsCoa } from '../config/cashAndCashEquivalents';
 
 export interface CreateInvestmentImplementationRequest {
   portfolioCompanyId: string;
@@ -639,7 +638,7 @@ export class InvestmentImplementationService {
    * Approve fund disbursement
    * Creates a cashbook payment entry which automatically creates a journal entry:
    * - Debit: 1501 - Portfolio Investments
-   * - Credit: Cash and Cash Equivalents (shared bank GL)
+   * - Credit: Bank GL account for the selected bank
    */
   static async approveFundDisbursement(
     disbursementId: string,
@@ -706,23 +705,21 @@ export class InvestmentImplementationService {
         throw new Error("Portfolio Investments account (1501) not found in chart of accounts. Please create this account first.");
       }
 
-      const cace = await resolveCashAndCashEquivalentsCoa(prisma);
       const preferredBankId = process.env.FUND_DISBURSEMENT_BANK_ID?.trim();
       const bank = preferredBankId
         ? await prisma.bank.findFirst({
-            where: { id: preferredBankId, isActive: true, glAccountId: cace.id },
+            where: { id: preferredBankId, isActive: true },
             include: { currency: true },
           })
         : await prisma.bank.findFirst({
-            where: { isActive: true, glAccountId: cace.id },
+            where: { isActive: true },
             orderBy: { createdAt: "asc" },
             include: { currency: true },
           });
 
       if (!bank) {
         throw new Error(
-          "No active bank linked to Cash and Cash Equivalents. Run bank migration / set CASH_AND_CASH_EQUIVALENTS_* " +
-            "and ensure at least one active bank, or set FUND_DISBURSEMENT_BANK_ID."
+          "No active bank found for fund disbursement. Create at least one active bank, or set FUND_DISBURSEMENT_BANK_ID."
         );
       }
 

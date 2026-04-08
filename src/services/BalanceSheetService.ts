@@ -2,7 +2,6 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
-import { resolveCashAndCashEquivalentsCoa } from "../config/cashAndCashEquivalents";
 
 export interface BalanceSheetParams {
   asOfDate: Date;
@@ -613,12 +612,8 @@ export class BalanceSheetService {
           bankGLAccountIds.add(bank.glAccount.id);
         }
       }
-      try {
-        const cace = await resolveCashAndCashEquivalentsCoa(prisma);
-        bankGLAccountIds.add(cace.id);
-      } catch (e) {
-        console.warn("[BalanceSheet] resolveCashAndCashEquivalentsCoa skipped:", (e as Error).message);
-      }
+      // Note: Cash & Cash Equivalents is a reporting bucket, not a single posting account.
+      // We treat bank-linked GL accounts (banks.glAccountId) + explicit cash-like accounts in the cash ranges as the cash pool.
 
       // Categorize accounts
       const currentAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
