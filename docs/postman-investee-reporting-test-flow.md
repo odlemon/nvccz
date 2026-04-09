@@ -207,19 +207,33 @@ Expected:
 Headers:
 - `Authorization: Bearer {{ADMIN_JWT}}`
 
-- [ ] **E2 Review**
+- [ ] **E2a Accept operational / document reports (no accounting automation)**
+
+Same URL as statements — **`POST`** `.../financial-reports/{{REPORT_ID}}/review` with **`action`**: **`ACCEPT`**. No valuation/dividend body required for **`OPERATIONAL_KPIS`**, document types, etc.; optional payload is ignored for those types.
+
+```json
+{
+  "action": "ACCEPT",
+  "comment": "Operational KPIs reviewed"
+}
+```
+
+- [ ] **E2b Review — financial statements (ACCEPT needs valuation/dividend payload)**
 
 **POST** `{{BASE_URL}}/api/portfolio-companies/cml7udyen0016kt1bmo61s5c5/financial-reports/{{REPORT_ID}}/review`
 
 Headers:
 - `Authorization: Bearer {{ADMIN_JWT}}`
 
-Example ACCEPT:
+Example ACCEPT (statements — include real `valuation` / `dividend` objects per your env):
 ```json
 {
   "action": "ACCEPT",
   "comment": "Reviewed and accepted",
-  "mapping": {}
+  "valuation": {
+    "newAmount": 150000,
+    "valuationDate": "2026-03-31"
+  }
 }
 ```
 

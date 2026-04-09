@@ -737,7 +737,9 @@ export const financialReportingEndpoints = {
   },
   '/portfolio-companies/{id}/financial-reports/{reportId}/review': {
     post: {
-      summary: 'Review a financial report',
+      summary: 'Review a financial report (ACCEPT branches by reportType)',
+      description:
+        'ACCEPT for operational/document types completes without valuation/dividend automation; statement types require automation payload.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -762,7 +764,9 @@ export const financialReportingEndpoints = {
       },
       responses: {
         200: { description: 'Review recorded successfully' },
-        400: { description: 'Invalid request' },
+        400: {
+          description: 'Invalid request (e.g. ACCEPT on statements without accounting automation payload)',
+        },
         401: { description: 'Unauthorized' },
         default: { description: 'Unexpected error' }
       }

@@ -29,6 +29,8 @@
 
 - **Review & Approval**
   - NVCCZ staff reviews KPI values and files; may request resubmission.
+  - **Core financial statements:** **`POST .../financial-reports/{reportId}/review`** with **`ACCEPT`** and valuation/dividend automation (unchanged — may post journals).
+  - **Operational KPIs and document-only categories** (e.g. business plan, bank PDFs): same **`POST .../financial-reports/{reportId}/review`** with **`ACCEPT`** — the server skips GL automation for those `reportType` values; any valuation/dividend body is ignored. See **`docs/investee-reporting-frontend-flow.md`** Step 11.
   - Approved KPI values sync to dashboards; manual verification remains in scope (no auto parsing yet).
 
 - **PMRAS-3 Valuation Adjustment → Accounting JE**

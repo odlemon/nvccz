@@ -311,11 +311,23 @@ Returns one company’s files in the **Financial / Operational / Investment** tr
 
 ---
 
-## Step 11 — Admin: accept / reject / needs revision
+## Step 11 — Admin: accept / reject / needs revision (single review endpoint)
 
-- **POST** `/api/portfolio-companies/:portfolioCompanyId/financial-reports/:reportId/review`
+**POST** `/api/portfolio-companies/:portfolioCompanyId/financial-reports/:reportId/review` for all report types. The server uses **`reportType`** to decide whether accounting automation runs on **`ACCEPT`**.
 
-**ACCEPT** requires the accounting / automation payload per Swagger (valuation, dividend fields, etc.). **NEEDS_REVISION** / **REJECT** use `comment` (investee sees this via list/detail and email templates).
+### Operational KPIs and document-only reports (no GL automation on accept)
+
+When **`reportType`** is **`OPERATIONAL_KPIS`**, **`NON_FINANCIAL_KPIS`**, **`BUSINESS_PLAN`**, **`BANK_STATEMENTS`**, **`TAX_COMPLIANCE`**, or **`MANAGEMENT_ACCOUNTS`**:
+
+- Body: **`action`**: **`ACCEPT`** (optional **`comment`**, optional KPI fields). **No** valuation/dividend payload required; if one is sent, it is **ignored** (no GL journals from this action).
+- **Effect:** status → **ACCEPTED**; email/audit; for **`OPERATIONAL_KPIS`** re-syncs period operational KPIs + derived `financialKpis`; best-effort **`InvestmentMonitoringKpiService`** recompute for the period.
+
+### Core financial statements (accounting path)
+
+For **income statement**, **balance sheet / SOFP**, **cash flow** (and legacy **`BALANCE_SHEET`** / **`INCOME_STATEMENT`** / **`CASHFLOW_STATEMENT`**):
+
+- **`ACCEPT`** requires the **valuation / dividend automation payload** per Swagger (posts to books when applicable).
+- **`NEEDS_REVISION`** / **`REJECT`**: use `comment`; investee sees this via list/detail and email templates.
 
 ---
 

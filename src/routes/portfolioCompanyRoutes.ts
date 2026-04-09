@@ -473,7 +473,12 @@ router.get(
  * /api/portfolio-companies/{id}/financial-reports/{reportId}/review:
  *   post:
  *     summary: Review a financial report
- *     description: Approve or reject a submitted financial report.
+ *     description: |
+ *       Approve or reject a submitted financial report. **ACCEPT** for operational/document types
+ *       (**OPERATIONAL_KPIS**, **NON_FINANCIAL_KPIS**, **BUSINESS_PLAN**, **BANK_STATEMENTS**,
+ *       **TAX_COMPLIANCE**, **MANAGEMENT_ACCOUNTS**) completes acceptance **without** valuation/dividend
+ *       journal automation; any accounting payload in the body is ignored for those types.
+ *       **ACCEPT** for core financial statements still requires valuation/dividend automation in the body.
  *     tags: ['Financial Reporting']
  *     security:
  *       - bearerAuth: []
@@ -523,7 +528,7 @@ router.get(
  *                   type: object
  *                   description: Financial report row after review, with normalized file URL fields.
  *       400:
- *         description: Invalid request
+ *         description: Invalid request (e.g. missing automation payload for statement ACCEPT)
  *       401:
  *         description: Unauthorized
  *       default:

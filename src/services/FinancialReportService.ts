@@ -17,6 +17,7 @@ import { normalizeOperationalKpiPayload } from "../config/operationalKpiFieldSch
 import { InvestmentMonitoringKpiService } from "./InvestmentMonitoringKpiService";
 import AuditService from "./AuditService";
 import { ReportingPeriodKpiService } from "./ReportingPeriodKpiService";
+import { isReportTypeAcceptWithoutAccounting } from "../config/financialReportAcceptPolicy";
 
 export type FinancialReportType = 
   'INCOME_STATEMENTS' | 
@@ -1243,6 +1244,8 @@ export class FinancialReportService {
 
     if (params.action === 'ACCEPT') {
       try {
+        const skipAccountingAutomation = isReportTypeAcceptWithoutAccounting(report.reportType);
+
         const automationPayload: any = {
           valuationAdjustment: params.valuationAdjustment,
           valuation: params.valuation,
@@ -1255,13 +1258,15 @@ export class FinancialReportService {
           automationPayload.valuation ||
           automationPayload.dividend ||
           (Array.isArray(automationPayload.dividends) && automationPayload.dividends.length > 0);
-        if (!hasAutomation) {
-          throw new Error(
-            "ACCEPT must include accounting automation payload (valuationAdjustment/valuation and/or dividend/dividends)."
-          );
+
+        if (!skipAccountingAutomation) {
+          if (!hasAutomation) {
+            throw new Error(
+              "ACCEPT must include accounting automation payload (valuationAdjustment/valuation and/or dividend/dividends)."
+            );
+          }
         }
 
-        // Sync approved KPI values to portfolio company
         if (totalRevenue !== null || netProfit !== null || cashFlowNet !== null) {
           await this.syncApprovedKPIsToPortfolioCompany(
             report.portfolioCompanyId,
@@ -1273,14 +1278,30 @@ export class FinancialReportService {
         }
 
         const rpDate = report.reportingPeriod || report.periodEnd;
-        const rpIso =
-          rpDate instanceof Date
+        const rpIso = rpDate
+          ? rpDate instanceof Date
             ? rpDate.toISOString().split("T")[0]
-            : new Date(rpDate).toISOString().split("T")[0];
-        await InvestmentMonitoringKpiService.recomputeAndPersistForPeriod(report.portfolioCompanyId, rpIso);
+            : new Date(rpDate).toISOString().split("T")[0]
+          : null;
+        if (rpIso) {
+          await InvestmentMonitoringKpiService.recomputeAndPersistForPeriod(report.portfolioCompanyId, rpIso);
+        }
 
-        // Run valuation/dividend automations on ACCEPT (explicit payload)
-        await this.runPostApprovalAutomations(report, params.reviewerId, automationPayload);
+        if (!skipAccountingAutomation) {
+          await this.runPostApprovalAutomations(report, params.reviewerId, automationPayload);
+        } else if (hasAutomation) {
+          console.info(
+            `[reviewReport] Ignoring valuation/dividend payload for non-accounting report type ${report.reportType}`
+          );
+        }
+
+        if (skipAccountingAutomation) {
+          const fresh = await this.getReportById(params.reportId);
+          if (fresh && String(fresh.reportType || "").toUpperCase() === "OPERATIONAL_KPIS") {
+            await ReportingPeriodKpiService.syncFromSubmittedOperationalReport(fresh, params.reviewerId);
+          }
+        }
+
         await this.notifyOutcome(report, 'ACCEPTED', params.comment);
         await this.auditFinancialReportEvent({
           userId: params.reviewerId,
@@ -1292,15 +1313,16 @@ export class FinancialReportService {
             status: report.status,
             reviewerComment: report.reviewerComment ?? null,
           },
-        newValues: {
-          status: "ACCEPTED",
-          reviewerComment: params.comment ?? null,
-          reviewerId: params.reviewerId,
-          reportingPeriod: report.reportingPeriod
-            ? this.toEmailDate(report.reportingPeriod).toISOString().split("T")[0]
-            : null,
-        },
-      });
+          newValues: {
+            status: "ACCEPTED",
+            reviewerComment: params.comment ?? null,
+            reviewerId: params.reviewerId,
+            reportingPeriod: report.reportingPeriod
+              ? this.toEmailDate(report.reportingPeriod).toISOString().split("T")[0]
+              : null,
+            accountingAutomationRan: !skipAccountingAutomation,
+          },
+        });
       } catch (error: any) {
         console.error('❌ Failed to sync accepted financial report:', error);
         await prisma.$executeRawUnsafe(

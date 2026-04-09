@@ -15,7 +15,6 @@ import {
   resolveMandatoryAttachmentsFromOptionIds,
   type ReportingMandatoryAttachment,
 } from "../utils/reportingEmail";
-
 export class PortfolioCompanyController {
   // Create portfolio company with user
   static async createPortfolioCompany(req: Request, res: Response, next: NextFunction) {
@@ -407,20 +406,6 @@ export class PortfolioCompanyController {
         return res.status(400).json({ success: false, message: "Invalid action" });
       }
 
-      if (action === "ACCEPT") {
-        const hasAutomation =
-          !!valuationAdjustment ||
-          !!valuation ||
-          !!dividend ||
-          (Array.isArray(dividends) && dividends.length > 0);
-        if (!hasAutomation) {
-          return res.status(400).json({
-            success: false,
-            message:
-              "ACCEPT requires accounting payload: valuationAdjustment/valuation and/or dividend/dividends.",
-          });
-        }
-      }
       const authHeader = String(req.headers.authorization || "");
       const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
 

@@ -440,7 +440,8 @@ export const dashboardsEndpoints = {
   '/portfolio/dashboard': {
     get: {
       summary: 'Get portfolio management dashboard data',
-      description: 'Returns comprehensive portfolio dashboard data including metrics, performance overview, J curve, deal allocation, IRR by quarter, and portfolio summary',
+      description:
+        'Portfolio dashboard: metrics, performance overview, J curve, deal allocation, IRR, portfolio summary. Includes comparisonChart (cross-company bar metrics) and netProfitWaterfall (prior→current net profit bridge).',
       tags: ['Dashboards'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -449,6 +450,12 @@ export const dashboardsEndpoints = {
           name: 'fundId',
           schema: { type: 'string' },
           description: 'Optional fund ID to filter by specific fund. If not provided, aggregates data across all funds.'
+        },
+        {
+          in: 'query',
+          name: 'portfolioCompanyId',
+          schema: { type: 'string' },
+          description: 'Optional single investee slice; fundId resolved from company when omitted'
         },
         {
           in: 'query',
@@ -467,6 +474,13 @@ export const dashboardsEndpoints = {
           name: 'asOfDate',
           schema: { type: 'string', format: 'date' },
           description: 'Optional date for snapshot (ISO format: YYYY-MM-DD)'
+        },
+        {
+          in: 'query',
+          name: 'scope',
+          schema: { type: 'string', enum: ['full', 'aum'] },
+          description:
+            'aum = faster/minimal (no analyst rollup, comparison/waterfall charts, shorter irrByQuarter); full = default'
         }
       ],
       responses: {
@@ -489,7 +503,10 @@ export const dashboardsEndpoints = {
                           availableForDrawdown: { type: 'number', example: 47500000 },
                           fundGrossIRR: { type: 'number', example: 16.32 },
                           lpNetIRR: { type: 'number', example: 11.47 },
-                          tvpi: { type: 'number', example: 1.29 }
+                          tvpi: { type: 'number', example: 1.29 },
+                          dpi: { type: 'number', nullable: true },
+                          moicOnCost: { type: 'number', nullable: true },
+                          portfolioRoi: { type: 'number', nullable: true, description: '(total value − deployed) / deployed' }
                         }
                       },
                       performanceOverview: {
@@ -561,6 +578,73 @@ export const dashboardsEndpoints = {
                           }
                         }
                       },
+                      comparisonChart: {
+                        type: 'array',
+                        description:
+                          'Revenue growth, EBITDA margin, net margin per company (same order as portfolioSummary); rates decimal, *Pct 0–100',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            companyId: { type: 'string' },
+                            name: { type: 'string' },
+                            revenueGrowthRatePct: { type: 'number', nullable: true },
+                            ebitdaMarginPct: { type: 'number', nullable: true },
+                            netProfitMarginPct: { type: 'number', nullable: true }
+                          }
+                        }
+                      },
+                      netProfitWaterfall: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            companyId: { type: 'string' },
+                            name: { type: 'string' },
+                            startNetProfit: { type: 'number', nullable: true },
+                            endNetProfit: { type: 'number', nullable: true },
+                            complete: { type: 'boolean' },
+                            steps: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                properties: {
+                                  id: { type: 'string' },
+                                  label: { type: 'string' },
+                                  value: { type: 'number' }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      aumKpis: {
+                        type: 'object',
+                        description:
+                          'Holdings AUM tiles: sectorDistribution, topSectors, diversification, YoY+YTD growth, deployment, IRR/ROI; no pipeline or disbursement lists',
+                      },
+                      portfolioComposition: {
+                        type: 'object',
+                        description:
+                          'Value-weighted AUM breakdown, growth (YoY/CAGR/historySeries), utilization, performance; risk fields reserved',
+                        properties: {
+                          headline: {
+                            type: 'object',
+                            properties: {
+                              totalPortfolioAum: { type: 'number' },
+                              totalRealizedValue: { type: 'number' },
+                              totalUnrealizedValue: { type: 'number' },
+                              numberOfHoldings: { type: 'number' },
+                            },
+                          },
+                          aumBySector: { type: 'array', items: { type: 'object' } },
+                          aumByAssetClass: { type: 'array', items: { type: 'object' } },
+                          diversification: { type: 'object' },
+                          aumGrowth: { type: 'object' },
+                          utilization: { type: 'object' },
+                          performance: { type: 'object' },
+                          riskAdjustedReturns: { type: 'object' },
+                        },
+                      },
                       totals: {
                         type: 'object',
                         properties: {
@@ -578,7 +662,8 @@ export const dashboardsEndpoints = {
                         properties: {
                           asOfDate: { type: 'string', format: 'date-time' },
                           fundName: { type: 'string', nullable: true, example: 'USD Fund I' },
-                          year: { type: 'number', nullable: true, example: 2025 }
+                          year: { type: 'number', nullable: true, example: 2025 },
+                          scope: { type: 'string', enum: ['full', 'aum'] }
                         }
                       },
                       generatedAt: { type: 'string', format: 'date-time' }

@@ -213,6 +213,33 @@ export class DataIntegrationService {
   }
 
   /**
+   * Same simplified fund gross IRR as `calculateFundPerformance` but uses a fund already loaded
+   * with `portfolioCompanies.investmentImplementation.fundDisbursements` (no extra DB round-trip).
+   */
+  static fundGrossIrrFromLoadedFund(fund: {
+    totalAmount: Decimal | unknown;
+    portfolioCompanies?: Array<{
+      investmentImplementation?: {
+        fundDisbursements?: Array<{ status?: string; amount?: Decimal | unknown }>;
+      };
+    }>;
+  }): number {
+    const totalAmount = fund.totalAmount instanceof Decimal ? fund.totalAmount : new Decimal(fund.totalAmount ?? 0);
+    let totalInvestments = new Decimal(0);
+    for (const company of fund.portfolioCompanies || []) {
+      const disb = company.investmentImplementation?.fundDisbursements;
+      if (!disb) continue;
+      for (const d of disb) {
+        if (d.status === "DISBURSED") {
+          const amt = d.amount instanceof Decimal ? d.amount : new Decimal(d.amount ?? 0);
+          totalInvestments = totalInvestments.plus(amt);
+        }
+      }
+    }
+    return this.calculateIRR(totalAmount, totalInvestments, 365);
+  }
+
+  /**
    * Calculate Assets Under Management (AUM)
    */
   static async calculateAUM(): Promise<AssetsUnderManagement> {
