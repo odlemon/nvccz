@@ -819,8 +819,10 @@ router.get("/reports", authenticate, applicantPortalController.getPerformanceRep
  * @swagger
  * /api/applicant/financial-reports:
  *   post:
- *     summary: Submit a financial report
- *     description: Allows an applicant to upload a financial report document for review.
+ *     summary: Submit a financial report (Applicant / investee)
+ *     description: |
+ *       **Audience:** Applicant (investee) — authenticated user linked to a portfolio company.
+ *       Upload financial report document(s) for fund review.
  *     tags: ['Investee Reporting']
  *     security:
  *       - bearerAuth: []
@@ -968,14 +970,6 @@ router.post(
   authenticate,
   requireApplicantRole(),
   applicantPortalController.createOperationalKpisDraft
-);
-
-/** @deprecated Prefer `/financial-reports/income-statement/draft`, `/balance-sheet/draft`, `/cash-flow/draft`. */
-router.post(
-  "/financial-reports/draft",
-  authenticate,
-  requireApplicantRole(),
-  applicantPortalController.createFinancialReportDraft
 );
 
 /** Attach file to draft: use either this or `POST /financial-reports/:reportId/file`. */
@@ -1164,12 +1158,6 @@ router.post(
   authenticate,
   requireApplicantRole(),
   applicantPortalController.savePeriodKPIsCashFlow
-);
-router.post(
-  "/financial-reports/period-operational-kpis",
-  authenticate,
-  requireApplicantRole(),
-  applicantPortalController.savePeriodOperationalKpis
 );
 router.get(
   "/financial-reports/period-kpis/summary",

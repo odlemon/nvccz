@@ -1,10 +1,15 @@
 // Fallback Swagger paths for Investee (Applicant Portal) reporting flow.
 // Used when swagger-jsdoc parsing fails in production.
+import { OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE } from "./financialReportOpenApiExamples";
+
+const AUD_APPLICANT =
+  "**Audience:** **Applicant (investee)** — authenticated user linked to exactly one portfolio company (`APPLICANT` / portal JWT). ";
+
 export const investeeReportingEndpoints = {
   "/applicant/reporting/requests": {
     get: {
       summary: "List open reporting requests (investee)",
-      description: "Returns open reporting periods the investee can submit against.",
+      description: AUD_APPLICANT + "Returns open reporting periods the investee can submit against.",
       tags: ["Investee Reporting"],
       security: [{ bearerAuth: [] }],
       responses: {
@@ -19,7 +24,8 @@ export const investeeReportingEndpoints = {
     post: {
       summary: "Upload report document(s) (investee)",
       description:
-        "Upload one or more reporting documents for a reporting period. Core statements require .xlsx; narrative/compliance categories may allow PDFs.",
+        AUD_APPLICANT +
+        "Upload one or more reporting documents for a reporting period. Core statements require **.xlsx**; narrative/compliance categories may allow **PDF**.",
       tags: ["Investee Reporting"],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -32,15 +38,23 @@ export const investeeReportingEndpoints = {
                 file: { type: "string", format: "binary" },
                 files: { type: "array", items: { type: "string", format: "binary" } },
                 reportType: { type: "string" },
-                reportingPeriod: { type: "string", format: "date" },
-                periodType: { type: "string" },
-                periodStart: { type: "string", format: "date" },
-                periodEnd: { type: "string", format: "date" },
-                title: { type: "string" },
-                description: { type: "string" },
-                templateVersion: { type: "string" },
-                data: { type: "string" },
-                items: { type: "string" },
+                reportingPeriod: { type: "string", format: "date", example: "2025-03-31" },
+                periodType: { type: "string", example: "QUARTERLY" },
+                periodStart: { type: "string", format: "date", example: "2025-01-01" },
+                periodEnd: { type: "string", format: "date", example: "2025-03-31" },
+                title: { type: "string", example: "Q1 2025 — Income statement pack" },
+                description: { type: "string", example: "Signed workbook per fund template" },
+                templateVersion: { type: "string", example: "2025.1" },
+                data: {
+                  type: "string",
+                  description:
+                    'Optional JSON **string** (multipart) of line items for IS/BS/CF/NON_FINANCIAL_KPIS — e.g. `{"grossSales":1250000,"labour":180000}`',
+                  example: JSON.stringify({ grossSales: 1250000, labour: 180000, salariesBenefitsAndWages: 310000 }),
+                },
+                items: {
+                  type: "string",
+                  description: 'Optional JSON **array** string when uploading multiple files (one metadata object per file).',
+                },
               },
               required: ["reportingPeriod", "periodType", "periodStart", "periodEnd"],
             },
@@ -56,7 +70,7 @@ export const investeeReportingEndpoints = {
     },
     get: {
       summary: "List my reports (investee)",
-      description: "List the authenticated investee's uploaded reports (deduped for core statement slots).",
+      description: AUD_APPLICANT + "Paginated list of reports for the authenticated investee (deduped for core statement slots).",
       tags: ["Investee Reporting"],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -106,7 +120,8 @@ export const investeeReportingEndpoints = {
     patch: {
       summary: "Update manual form data on a report (investee)",
       description:
-        "Replaces parsedSnapshot for core statements / NON_FINANCIAL_KPIS. Status stays NEEDS_REVISION until submit. Use POST /file to replace attachment.",
+        AUD_APPLICANT +
+        "Replaces **parsedSnapshot** for core statements / **NON_FINANCIAL_KPIS**. Status stays **NEEDS_REVISION** until submit. Use **POST** `.../file` to replace attachment.",
       tags: ["Investee Reporting"],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: "path", name: "reportId", required: true, schema: { type: "string" } }],
@@ -117,7 +132,15 @@ export const investeeReportingEndpoints = {
             schema: {
               type: "object",
               required: ["data"],
-              properties: { data: { type: "object" } },
+              properties: {
+                data: {
+                  type: "object",
+                  additionalProperties: { type: "number" },
+                  description: "Full or partial income-statement-style map; server merges/normalizes per reportType.",
+                  example: OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE,
+                },
+              },
+              example: { data: OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE },
             },
           },
         },
@@ -134,7 +157,8 @@ export const investeeReportingEndpoints = {
     post: {
       summary: "Submit reporting period bundle (investee)",
       description:
-        "Submits all DRAFT/NEEDS_REVISION/REJECTED reports for the same company + reportingPeriod as the provided reportId.",
+        AUD_APPLICANT +
+        "Submits all **DRAFT** / **NEEDS_REVISION** / **REJECTED** reports for the same company + **reportingPeriod** as the provided reportId.",
       tags: ["Investee Reporting"],
       security: [{ bearerAuth: [] }],
       parameters: [

@@ -3,17 +3,28 @@ import {
   OPERATIONAL_KPI_FULL_EXAMPLE,
   OPERATIONAL_KPI_OPENAPI_PROPERTIES,
 } from './operationalKpiFieldSchema';
+import {
+  OPENAPI_BALANCE_SHEET_DATA_EXAMPLE,
+  OPENAPI_BALANCE_SHEET_DRAFT_BODY_EXAMPLE,
+  OPENAPI_CASHFLOW_DATA_EXAMPLE,
+  OPENAPI_CASHFLOW_DRAFT_BODY_EXAMPLE,
+  OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE,
+  OPENAPI_INCOME_STATEMENT_DRAFT_BODY_EXAMPLE,
+} from './financialReportOpenApiExamples';
 
-const operationalKpiKeysAllZeros = Object.fromEntries(
-  OPERATIONAL_KPI_FIELD_KEYS.map((k) => [k, 0])
-) as Record<string, number>;
+/** Doc-only: who may call the route (JWT + role). */
+const AUD_APPLICANT_INVESTEE =
+  '**Audience:** **Applicant (investee)** — user linked to a portfolio company (`APPLICANT` / portal JWT). ';
+const AUD_INVESTOR_FUND =
+  '**Audience:** **Investor (fund staff)** — e.g. admin, fund_manager, investments_manager, finance_manager. ';
 
 export const financialReportingEndpoints = {
   '/applicant/financial-reports': {
     post: {
-      summary: 'Upload financial report (draft)',
+      summary: 'Upload financial report (draft) — investee',
       description:
-        'Multipart upload with file. **Core statements** (`INCOME_STATEMENTS`, `STATEMENT_OF_FINANCIAL_POSITION`, `CASHFLOW_STATEMENTS`, and legacy `BALANCE_SHEET` / `INCOME_STATEMENT` / `CASHFLOW_STATEMENT`) require **.xlsx** only. Other categories (e.g. bank statements, business plan) may use **.xlsx** or **.pdf** where allowed. Prefer dedicated `.../draft` JSON routes plus `.../file` attach for core statements.',
+        AUD_APPLICANT_INVESTEE +
+        'Multipart upload with file. **Core statements** (`INCOME_STATEMENTS`, `STATEMENT_OF_FINANCIAL_POSITION`, `CASHFLOW_STATEMENTS`, and legacy `BALANCE_SHEET` / `INCOME_STATEMENT` / `CASHFLOW_STATEMENT`) require **.xlsx** only. Other categories (e.g. bank statements, business plan) may use **.xlsx** or **.pdf** where allowed. Prefer typed **`.../income-statement/draft`** (etc.) JSON routes plus **`.../file`** attach for core statements.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -50,25 +61,44 @@ export const financialReportingEndpoints = {
                 },
                 periodStart: {
                   type: 'string',
-                  format: 'date'
+                  format: 'date',
+                  example: '2025-01-01',
                 },
                 periodEnd: {
                   type: 'string',
-                  format: 'date'
+                  format: 'date',
+                  example: '2025-03-31',
                 },
                 title: {
-                  type: 'string'
+                  type: 'string',
+                  example: 'Q1 2025 management pack — income statement',
                 },
                 description: {
-                  type: 'string'
+                  type: 'string',
+                  example: 'Uploaded XLSX; figures reconciled to trial balance.',
                 },
                 templateVersion: {
-                  type: 'string'
-                }
-              }
-            }
-          }
-        }
+                  type: 'string',
+                  example: '2025.1',
+                },
+              },
+            },
+            examples: {
+              coreStatementUpload: {
+                summary: 'Income statement XLSX + period metadata',
+                value: {
+                  reportType: 'INCOME_STATEMENTS',
+                  periodType: 'QUARTERLY',
+                  periodStart: '2025-01-01',
+                  periodEnd: '2025-03-31',
+                  title: 'Income statement — Q1 2025',
+                  description: 'Signed off by CFO on 2025-04-05',
+                  templateVersion: '2025.1',
+                },
+              },
+            },
+          },
+        },
       },
       responses: {
         201: { description: 'Report uploaded as draft' },
@@ -77,7 +107,8 @@ export const financialReportingEndpoints = {
       }
     },
     get: {
-      summary: 'List submitted financial reports',
+      summary: 'List submitted financial reports — investee',
+      description: AUD_APPLICANT_INVESTEE + 'Paginated list of reports for the authenticated investee.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       responses: {
@@ -90,8 +121,10 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/template/{reportType}': {
     get: {
-      summary: 'Download financial report template',
-      description: 'Download a template for a specific financial report type. New report types (INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, NON_FINANCIAL_KPIS) return XLSX format. Legacy types return CSV format.',
+      summary: 'Download financial report template — investee',
+      description:
+        AUD_APPLICANT_INVESTEE +
+        'Download a template for a specific financial report type. New report types (INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, NON_FINANCIAL_KPIS) return XLSX format. Legacy types return CSV format.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -132,8 +165,10 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/submit': {
     post: {
-      summary: 'Submit multiple financial reports',
-      description: 'Submit one or more draft financial reports for venture review.',
+      summary: 'Submit multiple financial reports — investee',
+      description:
+        AUD_APPLICANT_INVESTEE +
+        'Submit one or more draft financial reports for fund review (`PENDING`).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -145,13 +180,15 @@ export const financialReportingEndpoints = {
               properties: {
                 reportIds: {
                   type: 'array',
-                  items: { type: 'string' }
-                }
+                  items: { type: 'string' },
+                  example: ['cmg9k2x8a0001nvcczfreport01'],
+                },
               },
-              required: ['reportIds']
-            }
-          }
-        }
+              required: ['reportIds'],
+              example: { reportIds: ['cmg9k2x8a0001nvcczfreport01', 'cmg9k2x8a0002nvcczfreport02'] },
+            },
+          },
+        },
       },
       responses: {
         200: { description: 'Reports submitted successfully' },
@@ -161,48 +198,12 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  '/applicant/financial-reports/draft': {
-    post: {
-      deprecated: true,
-      summary: '[Deprecated] Create draft with reportType in body',
-      description:
-        'Deprecated: use `POST /applicant/financial-reports/income-statement/draft`, `/balance-sheet/draft`, or `/cash-flow/draft` instead (no `reportType` in body). This route may be removed in a future release.',
-      tags: ['Financial Reporting'],
-      security: [{ bearerAuth: [] }],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['reportType', 'reportingPeriod', 'periodType', 'periodStart', 'periodEnd', 'title'],
-              properties: {
-                reportType: { type: 'string' },
-                reportingPeriod: { type: 'string', format: 'date' },
-                periodType: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'] },
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                title: { type: 'string' },
-                description: { type: 'string' },
-                templateVersion: { type: 'string' },
-                data: { type: 'object' }
-              }
-            }
-          }
-        }
-      },
-      responses: {
-        201: { description: 'Draft created (legacy)' },
-        400: { description: 'Invalid request' },
-        401: { description: 'Unauthorized' }
-      }
-    }
-  },
   '/applicant/financial-reports/income-statement/draft': {
     post: {
-      summary: 'Create income statement draft (data only)',
+      summary: 'Create income statement draft (data only) — investee',
       description:
-        'Creates a DRAFT financial report with reportType INCOME_STATEMENTS. Body is like /financial-reports/draft but without reportType. Response includes id and reportType.',
+        AUD_APPLICANT_INVESTEE +
+        'Creates a **DRAFT** `financial_reports` row with `reportType` **INCOME_STATEMENTS**. Response includes `id`; attach XLSX via **POST** `/applicant/financial-reports/file?reportId=`. `data` must use canonical template keys (see example).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -213,18 +214,25 @@ export const financialReportingEndpoints = {
               type: 'object',
               required: ['reportingPeriod', 'periodType', 'periodStart', 'periodEnd', 'title'],
               properties: {
-                reportingPeriod: { type: 'string', format: 'date' },
-                periodType: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'] },
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                title: { type: 'string' },
-                description: { type: 'string' },
-                templateVersion: { type: 'string' },
-                data: { type: 'object', description: 'Canonical income statement line-item fields (see template).' }
-              }
-            }
-          }
-        }
+                reportingPeriod: { type: 'string', format: 'date', example: '2025-03-31' },
+                periodType: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'], example: 'QUARTERLY' },
+                periodStart: { type: 'string', format: 'date', example: '2025-01-01' },
+                periodEnd: { type: 'string', format: 'date', example: '2025-03-31' },
+                title: { type: 'string', example: 'Income statement — Q1 2025' },
+                description: { type: 'string', example: 'Draft line items before file attach' },
+                templateVersion: { type: 'string', example: '2025.1' },
+                data: {
+                  type: 'object',
+                  description:
+                    'Optional manual line items before XLSX attach. Canonical keys (`grossSales`, `salariesBenefitsAndWages`, …).',
+                  additionalProperties: { type: 'number' },
+                  example: OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE,
+                },
+              },
+              example: OPENAPI_INCOME_STATEMENT_DRAFT_BODY_EXAMPLE,
+            },
+          },
+        },
       },
       responses: {
         201: { description: 'Draft created; attach file via /financial-reports/file?reportId=' },
@@ -235,9 +243,10 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/balance-sheet/draft': {
     post: {
-      summary: 'Create balance sheet draft (data only)',
+      summary: 'Create balance sheet draft (data only) — investee',
       description:
-        'Creates a DRAFT with reportType STATEMENT_OF_FINANCIAL_POSITION. `data` uses currentPeriod / priorPeriod objects with canonical keys (template line items only).',
+        AUD_APPLICANT_INVESTEE +
+        'Creates a **DRAFT** with `reportType` **STATEMENT_OF_FINANCIAL_POSITION**. `data` wraps **`currentPeriod`** and **`priorPeriod`** objects (canonical BS keys only; no Excel total rows).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -248,21 +257,37 @@ export const financialReportingEndpoints = {
               type: 'object',
               required: ['reportingPeriod', 'periodType', 'periodStart', 'periodEnd', 'title'],
               properties: {
-                reportingPeriod: { type: 'string', format: 'date' },
-                periodType: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'] },
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                title: { type: 'string' },
-                description: { type: 'string' },
-                templateVersion: { type: 'string' },
+                reportingPeriod: { type: 'string', format: 'date', example: '2025-03-31' },
+                periodType: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'], example: 'QUARTERLY' },
+                periodStart: { type: 'string', format: 'date', example: '2025-01-01' },
+                periodEnd: { type: 'string', format: 'date', example: '2025-03-31' },
+                title: { type: 'string', example: 'Statement of financial position — Q1 2025' },
+                description: { type: 'string', example: 'Comparative column B = prior period' },
+                templateVersion: { type: 'string', example: '2025.1' },
                 data: {
                   type: 'object',
-                  description: 'currentPeriod and priorPeriod line items (no Excel total rows).'
-                }
-              }
-            }
-          }
-        }
+                  description:
+                    'Optional. `{ currentPeriod: { … }, priorPeriod: { … } }` with canonical BS keys when not using file-only flow.',
+                  required: ['currentPeriod', 'priorPeriod'],
+                  properties: {
+                    currentPeriod: {
+                      type: 'object',
+                      additionalProperties: { type: 'number' },
+                      example: OPENAPI_BALANCE_SHEET_DATA_EXAMPLE.currentPeriod,
+                    },
+                    priorPeriod: {
+                      type: 'object',
+                      additionalProperties: { type: 'number' },
+                      example: OPENAPI_BALANCE_SHEET_DATA_EXAMPLE.priorPeriod,
+                    },
+                  },
+                  example: OPENAPI_BALANCE_SHEET_DATA_EXAMPLE,
+                },
+              },
+              example: OPENAPI_BALANCE_SHEET_DRAFT_BODY_EXAMPLE,
+            },
+          },
+        },
       },
       responses: {
         201: { description: 'Draft created' },
@@ -273,8 +298,10 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/cash-flow/draft': {
     post: {
-      summary: 'Create cash flow statement draft (data only)',
-      description: 'Creates a DRAFT with reportType CASHFLOW_STATEMENTS.',
+      summary: 'Create cash flow statement draft (data only) — investee',
+      description:
+        AUD_APPLICANT_INVESTEE +
+        'Creates a **DRAFT** with `reportType` **CASHFLOW_STATEMENTS**. `data` uses template line-items (operations / investing / financing).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -285,18 +312,24 @@ export const financialReportingEndpoints = {
               type: 'object',
               required: ['reportingPeriod', 'periodType', 'periodStart', 'periodEnd', 'title'],
               properties: {
-                reportingPeriod: { type: 'string', format: 'date' },
-                periodType: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'] },
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                title: { type: 'string' },
-                description: { type: 'string' },
-                templateVersion: { type: 'string' },
-                data: { type: 'object', description: 'Canonical cash flow line-item fields.' }
-              }
-            }
-          }
-        }
+                reportingPeriod: { type: 'string', format: 'date', example: '2025-03-31' },
+                periodType: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'], example: 'QUARTERLY' },
+                periodStart: { type: 'string', format: 'date', example: '2025-01-01' },
+                periodEnd: { type: 'string', format: 'date', example: '2025-03-31' },
+                title: { type: 'string', example: 'Cash flow statement — Q1 2025' },
+                description: { type: 'string', example: 'Direct cash flows for the quarter' },
+                templateVersion: { type: 'string', example: '2025.1' },
+                data: {
+                  type: 'object',
+                  description: 'Optional. Canonical cash-flow keys (`cashReceiptsCustomers`, …).',
+                  additionalProperties: { type: 'number' },
+                  example: OPENAPI_CASHFLOW_DATA_EXAMPLE,
+                },
+              },
+              example: OPENAPI_CASHFLOW_DRAFT_BODY_EXAMPLE,
+            },
+          },
+        },
       },
       responses: {
         201: { description: 'Draft created' },
@@ -307,8 +340,9 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/operational-kpis/draft': {
     post: {
-      summary: 'Create operational KPIs draft (JSON only, no file)',
+      summary: 'Create operational KPIs draft (JSON only, no file) — investee',
       description:
+        AUD_APPLICANT_INVESTEE +
         'Creates **DRAFT** `OPERATIONAL_KPIS` in `financial_reports`. Fast (single insert). **`data.operational`** must include every KPI key (use `0` if N/A). Update with **PATCH** `.../financial-reports/{reportId}/data` if needed. **Submit** with **POST** `/applicant/financial-reports/submit` (body `reportId`): then `reporting_period_operational_kpis` is updated and derived KPIs recomputed. No file attach required.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
@@ -320,13 +354,17 @@ export const financialReportingEndpoints = {
               type: 'object',
               required: ['reportingPeriod', 'periodType', 'periodStart', 'periodEnd', 'title', 'data'],
               properties: {
-                reportingPeriod: { type: 'string', format: 'date' },
-                periodType: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'] },
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                title: { type: 'string' },
-                description: { type: 'string' },
-                templateVersion: { type: 'string' },
+                reportingPeriod: { type: 'string', format: 'date', example: '2025-03-31' },
+                periodType: {
+                  type: 'string',
+                  enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'],
+                  example: 'QUARTERLY',
+                },
+                periodStart: { type: 'string', format: 'date', example: '2025-01-01' },
+                periodEnd: { type: 'string', format: 'date', example: '2025-03-31' },
+                title: { type: 'string', example: 'Operational KPIs — Q1 2025' },
+                description: { type: 'string', example: 'Unit economics for ILPA-style monitoring' },
+                templateVersion: { type: 'string', example: '2025.1' },
                 data: {
                   type: 'object',
                   required: ['operational'],
@@ -345,6 +383,8 @@ export const financialReportingEndpoints = {
                 periodStart: '2025-01-01',
                 periodEnd: '2025-03-31',
                 title: 'Operational KPIs — Q1 2025',
+                description: 'Draft only until submit',
+                templateVersion: '2025.1',
                 data: { operational: { ...OPERATIONAL_KPI_FULL_EXAMPLE } },
               },
             },
@@ -360,9 +400,10 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/file': {
     post: {
-      summary: 'Upload file for a draft report (reportId query)',
+      summary: 'Attach file to draft report — investee (query reportId)',
       description:
-        'Multipart file upload. Pass reportId as a query parameter. Same validation as /financial-reports/{reportId}/file.',
+        AUD_APPLICANT_INVESTEE +
+        'Multipart file upload. Pass **reportId** as a query parameter. Same validation as **POST** `/applicant/financial-reports/{reportId}/file`.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -370,8 +411,8 @@ export const financialReportingEndpoints = {
           name: 'reportId',
           in: 'query',
           required: true,
-          schema: { type: 'string' }
-        }
+          schema: { type: 'string', example: 'cmg9k2x8a0001nvcczfreport01' },
+        },
       ],
       requestBody: {
         required: true,
@@ -396,7 +437,10 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/period-kpis/income-statement': {
     post: {
-      summary: 'Save income statement line items for a period (KPI workbook tab)',
+      summary: 'Save income statement line items for a period — investee',
+      description:
+        AUD_APPLICANT_INVESTEE +
+        'Persists workbook / KPI-tab style income line items for the reporting window (implementation-specific storage).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -407,16 +451,28 @@ export const financialReportingEndpoints = {
               type: 'object',
               required: ['periodStart', 'periodEnd', 'data'],
               properties: {
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                data: { type: 'object' },
-                totalRevenue: { type: 'number', nullable: true },
-                netProfit: { type: 'number', nullable: true },
-                cashFlowNet: { type: 'number', nullable: true }
-              }
-            }
-          }
-        }
+                periodStart: { type: 'string', format: 'date', example: '2025-01-01' },
+                periodEnd: { type: 'string', format: 'date', example: '2025-03-31' },
+                data: {
+                  type: 'object',
+                  additionalProperties: { type: 'number' },
+                  example: OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE,
+                },
+                totalRevenue: { type: 'number', nullable: true, example: 1245800 },
+                netProfit: { type: 'number', nullable: true, example: 189400 },
+                cashFlowNet: { type: 'number', nullable: true, example: 142000 },
+              },
+              example: {
+                periodStart: '2025-01-01',
+                periodEnd: '2025-03-31',
+                data: OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE,
+                totalRevenue: 1245800,
+                netProfit: 189400,
+                cashFlowNet: 142000,
+              },
+            },
+          },
+        },
       },
       responses: {
         200: { description: 'Saved' },
@@ -427,7 +483,8 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/period-kpis/balance-sheet': {
     post: {
-      summary: 'Save balance sheet line items for a period',
+      summary: 'Save balance sheet line items for a period — investee',
+      description: AUD_APPLICANT_INVESTEE + 'Same shape as BS draft `data` (current / prior columns) for KPI sync.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -438,16 +495,24 @@ export const financialReportingEndpoints = {
               type: 'object',
               required: ['periodStart', 'periodEnd', 'data'],
               properties: {
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                data: { type: 'object' },
-                totalRevenue: { type: 'number', nullable: true },
-                netProfit: { type: 'number', nullable: true },
-                cashFlowNet: { type: 'number', nullable: true }
-              }
-            }
-          }
-        }
+                periodStart: { type: 'string', format: 'date', example: '2025-01-01' },
+                periodEnd: { type: 'string', format: 'date', example: '2025-03-31' },
+                data: {
+                  type: 'object',
+                  example: OPENAPI_BALANCE_SHEET_DATA_EXAMPLE,
+                },
+                totalRevenue: { type: 'number', nullable: true, example: 0 },
+                netProfit: { type: 'number', nullable: true, example: 0 },
+                cashFlowNet: { type: 'number', nullable: true, example: 0 },
+              },
+              example: {
+                periodStart: '2025-01-01',
+                periodEnd: '2025-03-31',
+                data: OPENAPI_BALANCE_SHEET_DATA_EXAMPLE,
+              },
+            },
+          },
+        },
       },
       responses: {
         200: { description: 'Saved' },
@@ -458,7 +523,8 @@ export const financialReportingEndpoints = {
   },
   '/applicant/financial-reports/period-kpis/cash-flow': {
     post: {
-      summary: 'Save cash flow line items for a period',
+      summary: 'Save cash flow line items for a period — investee',
+      description: AUD_APPLICANT_INVESTEE + 'Stores cash-flow line items for the period (KPI workbook / bridge).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -469,16 +535,26 @@ export const financialReportingEndpoints = {
               type: 'object',
               required: ['periodStart', 'periodEnd', 'data'],
               properties: {
-                periodStart: { type: 'string', format: 'date' },
-                periodEnd: { type: 'string', format: 'date' },
-                data: { type: 'object' },
-                totalRevenue: { type: 'number', nullable: true },
-                netProfit: { type: 'number', nullable: true },
-                cashFlowNet: { type: 'number', nullable: true }
-              }
-            }
-          }
-        }
+                periodStart: { type: 'string', format: 'date', example: '2025-01-01' },
+                periodEnd: { type: 'string', format: 'date', example: '2025-03-31' },
+                data: {
+                  type: 'object',
+                  additionalProperties: { type: 'number' },
+                  example: OPENAPI_CASHFLOW_DATA_EXAMPLE,
+                },
+                totalRevenue: { type: 'number', nullable: true, example: 0 },
+                netProfit: { type: 'number', nullable: true, example: 0 },
+                cashFlowNet: { type: 'number', nullable: true, example: 142000 },
+              },
+              example: {
+                periodStart: '2025-01-01',
+                periodEnd: '2025-03-31',
+                data: OPENAPI_CASHFLOW_DATA_EXAMPLE,
+                cashFlowNet: 142000,
+              },
+            },
+          },
+        },
       },
       responses: {
         200: { description: 'Saved' },
@@ -487,106 +563,11 @@ export const financialReportingEndpoints = {
       }
     }
   },
-  '/applicant/financial-reports/period-operational-kpis': {
-    post: {
-      summary: 'Create operational KPIs draft (alias — flat body)',
-      description:
-        '**Deprecated alias** for clients that prefer a flat body (`periodStart` / `periodEnd` / `operational`) without `reportingPeriod` / `title`. Creates **only** a **DRAFT** `OPERATIONAL_KPIS` row (fast). Does **not** sync `reporting_period_operational_kpis` or derived KPIs until **POST** `/applicant/financial-reports/submit` with the returned **`id`**. Prefer **`POST .../operational-kpis/draft`** for the canonical shape. Each `operational` key must be sent; use **`0`** when N/A.',
-      tags: ['Financial Reporting'],
-      security: [{ bearerAuth: [] }],
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              required: ['periodStart', 'periodEnd', 'operational'],
-              properties: {
-                periodStart: {
-                  type: 'string',
-                  format: 'date',
-                  description: 'First day of the reporting window (ISO date).',
-                  example: '2025-01-01',
-                },
-                periodEnd: {
-                  type: 'string',
-                  format: 'date',
-                  description: 'Reporting period end; must match an open calendar request (YYYY-MM-DD).',
-                  example: '2025-03-31',
-                },
-                operational: {
-                  type: 'object',
-                  description:
-                    'Full operational KPI set (14 numeric fields). Required in the contract below; use 0 for N/A. Backend normalizes `churnRate` (>1 treated as percent).',
-                  required: [...OPERATIONAL_KPI_FIELD_KEYS],
-                  properties: { ...OPERATIONAL_KPI_OPENAPI_PROPERTIES },
-                },
-              },
-              example: {
-                periodStart: '2025-01-01',
-                periodEnd: '2025-03-31',
-                operational: { ...OPERATIONAL_KPI_FULL_EXAMPLE },
-              },
-            },
-            examples: {
-              completeOperationalKpis: {
-                summary: 'Full example — all KPI keys with sample values',
-                description:
-                  'Use this shape in production; substitute real figures. Every key in `operational` must appear (Swagger schema lists all with descriptions).',
-                value: {
-                  periodStart: '2025-01-01',
-                  periodEnd: '2025-03-31',
-                  operational: { ...OPERATIONAL_KPI_FULL_EXAMPLE },
-                },
-              },
-              allZerosTemplate: {
-                summary: 'All operational keys explicit (zeros)',
-                description:
-                  'Valid request when no operational metrics apply; derived hybrid KPIs (LTV, CAC, etc.) will typically stay empty until non-zero inputs and statements exist.',
-                value: {
-                  periodStart: '2025-01-01',
-                  periodEnd: '2025-03-31',
-                  operational: operationalKpiKeysAllZeros,
-                },
-              },
-            },
-          },
-        },
-      },
-      responses: {
-        201: {
-          description: 'Draft created; submit with POST /applicant/financial-reports/submit',
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: { type: 'boolean', example: true },
-                  message: { type: 'string' },
-                  data: {
-                    type: 'object',
-                    properties: {
-                      id: { type: 'string' },
-                      reportType: { type: 'string', example: 'OPERATIONAL_KPIS' },
-                      reportUrl: { type: 'string', nullable: true },
-                      fileUrl: { type: 'string', nullable: true },
-                      storagePath: { type: 'string', nullable: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        400: { description: 'Invalid request' },
-        401: { description: 'Unauthorized' },
-      },
-    },
-  },
   '/applicant/financial-reports/period-kpis/summary': {
     get: {
-      summary: 'Get operational + derived KPI block for a period',
+      summary: 'Get operational + derived KPI block for a period — investee',
       description:
+        AUD_APPLICANT_INVESTEE +
         'Returns the persisted operational payload from `reporting_period_operational_kpis` and the last computed `derived` object from `financialKpis.kpiValues[periodEnd]` (financial + operationalDerived + missingInputs).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
@@ -644,6 +625,7 @@ export const financialReportingEndpoints = {
     get: {
       summary: 'Financial reporting audit trail (investor)',
       description:
+        AUD_INVESTOR_FUND +
         'Paginated audit events for one company: submissions, file attachments, reviews (accept/reject/needs revision), period KPI saves. Each row includes action, timestamps, actor, and JSON old/new values.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
@@ -663,6 +645,7 @@ export const financialReportingEndpoints = {
     get: {
       summary: 'Document organisation (investor, per company)',
       description:
+        AUD_INVESTOR_FUND +
         'Financial / Operational / Investment folders with fixed subfolders (income statement, balance sheet, HR, business plans, etc.). Subfolders always listed; empty ones have files: [].',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
@@ -693,7 +676,10 @@ export const financialReportingEndpoints = {
   },
   '/portfolio-companies/{id}/financial-reports': {
     get: {
-      summary: 'List financial reports for a portfolio company',
+      summary: 'List financial reports for a portfolio company (investor)',
+      description:
+        AUD_INVESTOR_FUND +
+        'List investee submissions for this portfolio company (paginate/filter in service as implemented).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -709,7 +695,8 @@ export const financialReportingEndpoints = {
   },
   '/portfolio-companies/{id}/financial-reports/{reportId}/download': {
     get: {
-      summary: 'Download a financial report',
+      summary: 'Download a financial report (investor)',
+      description: AUD_INVESTOR_FUND + 'Download the original uploaded file (XLSX/CSV/PDF).',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -737,9 +724,10 @@ export const financialReportingEndpoints = {
   },
   '/portfolio-companies/{id}/financial-reports/{reportId}/review': {
     post: {
-      summary: 'Review a financial report (ACCEPT branches by reportType)',
+      summary: 'Review a financial report — investor',
       description:
-        'ACCEPT for operational/document types completes without valuation/dividend automation; statement types require automation payload.',
+        AUD_INVESTOR_FUND +
+        '**ACCEPT** for operational/document types completes without valuation/dividend automation; **statement** types require accounting automation payload in `mapping` where applicable.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -753,14 +741,29 @@ export const financialReportingEndpoints = {
             schema: {
               type: 'object',
               properties: {
-                action: { type: 'string', enum: ['ACCEPT', 'REJECT'] },
-                comment: { type: 'string' },
-                mapping: { type: 'object' }
+                action: { type: 'string', enum: ['ACCEPT', 'REJECT'], example: 'ACCEPT' },
+                comment: {
+                  type: 'string',
+                  example: 'Figures accepted — tie-out to management accounts confirmed.',
+                },
+                mapping: {
+                  type: 'object',
+                  description: 'Accounting automation / valuation payload when required for statement types.',
+                  example: {
+                    fairValueAdjustmentUsd: 15000,
+                    notes: 'FMV from board-approved valuation memo',
+                  },
+                },
               },
-              required: ['action']
-            }
-          }
-        }
+              required: ['action'],
+              example: {
+                action: 'ACCEPT',
+                comment: 'Accepted for Q1 2025 monitoring.',
+                mapping: { fairValueAdjustmentUsd: 15000 },
+              },
+            },
+          },
+        },
       },
       responses: {
         200: { description: 'Review recorded successfully' },
