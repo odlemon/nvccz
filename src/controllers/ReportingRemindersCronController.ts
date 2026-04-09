@@ -2,46 +2,54 @@
 import { Request, Response } from "express";
 import { ReportingReminderService } from "../services/ReportingReminderService";
 
+export type ReportingCronAuthMode = "shared-secret" | "loopback-local";
+
 export class ReportingRemindersCronController {
   private static isLoopbackSocket(req: Request): boolean {
     const a = req.socket?.remoteAddress ?? "";
     return a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1";
   }
 
+  /** Shared by reporting cron routes (reminders + schedule tick). */
+  static assertReportingCronAuth(req: Request): { ok: true; authMode: ReportingCronAuthMode } | { ok: false; status: number; body: any } {
+    const secret = process.env.REPORTING_REMINDERS_CRON_SECRET?.trim();
+    if (secret) {
+      const headerSecret = String(
+        req.headers["x-reporting-reminders-cron-secret"] || req.headers["X-Reporting-Reminders-Cron-Secret"] || ""
+      );
+      if (headerSecret !== secret) {
+        return { ok: false, status: 401, body: { success: false, error: "Unauthorized" } };
+      }
+      return { ok: true, authMode: "shared-secret" };
+    }
+    if (!ReportingRemindersCronController.isLoopbackSocket(req)) {
+      return {
+        ok: false,
+        status: 403,
+        body: {
+          success: false,
+          error:
+            "Reporting cron is not allowed from this host without REPORTING_REMINDERS_CRON_SECRET.",
+        },
+      };
+    }
+    return { ok: true, authMode: "loopback-local" };
+  }
+
   /**
-   * Cron: send due/overdue reporting reminders for a reportingPeriod.
-   * - If REPORTING_REMINDERS_CRON_SECRET is set: require X-Reporting-Reminders-Cron-Secret.
+   * Cron / public test: reporting reminder emails for a reportingPeriod.
+   * **Routes:** `POST /api/cron/reporting/reminders` and `POST /api/public/reporting/reminders` (same handler).
+   * - If REPORTING_REMINDERS_CRON_SECRET is set: require header `X-Reporting-Reminders-Cron-Secret`.
    * - If unset: only loopback (local dev).
    *
-   * Body: { reportingPeriod: "YYYY-MM-DD", dueDate: "YYYY-MM-DD", asOfDate?: "YYYY-MM-DD" }
+   * Body: { reportingPeriod, dueDate, asOfDate?, phase? } — `phase`: `T_MINUS_3` | `OVERDUE` | `REQUEST` | `AUTO`.
    */
   static async postReportingRemindersCron(req: Request, res: Response): Promise<void> {
     try {
-      const secret = process.env.REPORTING_REMINDERS_CRON_SECRET?.trim();
-
-      let authMode: "shared-secret" | "loopback-local" = "shared-secret";
-
-      if (secret) {
-        const headerSecret = String(
-          req.headers["x-reporting-reminders-cron-secret"] ||
-            req.headers["X-Reporting-Reminders-Cron-Secret"] ||
-            ""
-        );
-        if (headerSecret !== secret) {
-          res.status(401).json({ success: false, error: "Unauthorized" });
-          return;
-        }
-        authMode = "shared-secret";
-      } else {
-        if (!ReportingRemindersCronController.isLoopbackSocket(req)) {
-          res.status(403).json({
-            success: false,
-            error:
-              "Reporting reminders cron is not allowed from this host without REPORTING_REMINDERS_CRON_SECRET.",
-          });
-          return;
-        }
-        authMode = "loopback-local";
+      const auth = ReportingRemindersCronController.assertReportingCronAuth(req);
+      if (!auth.ok) {
+        res.status(auth.status).json(auth.body);
+        return;
       }
 
       const { reportingPeriod, dueDate, asOfDate, phase } = req.body || {};
@@ -51,7 +59,7 @@ export class ReportingRemindersCronController {
         success: true,
         message: "Reporting reminders run completed",
         data: result,
-        meta: { authMode },
+        meta: { authMode: auth.authMode },
       });
     } catch (error: any) {
       console.error("[reporting-reminders-cron]", error);

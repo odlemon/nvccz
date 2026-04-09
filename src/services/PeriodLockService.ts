@@ -20,6 +20,16 @@ export const AUDIT_MODULE_COMPANY_POLICY = "COMPANY";
 export const AUDIT_MODULE_LEGACY_GL_BANK = "GL,BANK";
 export const AUDIT_MODULE_COMMIT_BATCH = "COMMIT_BATCH";
 
+class PeriodLockValidationError extends Error {
+  statusCode = 400 as const;
+  details?: unknown;
+  constructor(message: string, details?: unknown) {
+    super(message);
+    this.name = "PeriodLockValidationError";
+    this.details = details;
+  }
+}
+
 function ymdString(d: Date, tz: string): string {
   const { y, m, day } = getYmdInTimeZone(d, tz);
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -622,6 +632,23 @@ export default class PeriodLockService {
 
     await prisma.$transaction(
       async (tx) => {
+        // Preflight: ensure draft fiscalPeriodIds exist to avoid FK constraint errors.
+        const fiscalPeriodIds = [...new Set(entries.map((e) => e.fiscalPeriodId).filter(Boolean))];
+        if (fiscalPeriodIds.length > 0) {
+          const existing = await tx.fiscalPeriod.findMany({
+            where: { id: { in: fiscalPeriodIds } },
+            select: { id: true, name: true },
+          });
+          const existingSet = new Set(existing.map((r) => r.id));
+          const missing = fiscalPeriodIds.filter((id) => !existingSet.has(id));
+          if (missing.length > 0) {
+            throw new PeriodLockValidationError(
+              "Draft contains invalid fiscalPeriodId(s). Refresh the fiscal calendar and re-save the draft before committing.",
+              { missingFiscalPeriodIds: missing, existingFiscalPeriodsFound: existing.length }
+            );
+          }
+        }
+
         for (const e of entries) {
           const old = await tx.modulePeriodLock.findUnique({
             where: {

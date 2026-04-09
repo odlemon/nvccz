@@ -180,18 +180,16 @@ Headers:
 Expected:
 - returns `{ page, limit, items: [...] }`
 
-- [ ] **D2 Submit (pass ONE reportId; backend submits the whole period bundle)**
+- [ ] **D2 Submit (pass ONE reportId in the path; backend submits the whole period bundle)**
 
-**POST** `{{BASE_URL}}/api/applicant/financial-reports/submit`
+**POST** `{{BASE_URL}}/api/applicant/financial-reports/submit/PASTE_ONE_REPORT_ID_FROM_D1`
+
+Example: `http://localhost:3009/api/applicant/financial-reports/submit/af74f256-b38e-4779-ac17-e71cc3ec7a4a`
 
 Headers:
 - `Authorization: Bearer {{JWT}}`
 
-```json
-{
-  "reportId": "PASTE_ONE_REPORT_ID_FROM_D1"
-}
-```
+No body required (empty body is fine).
 
 Expected:
 - success true

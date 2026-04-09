@@ -13,13 +13,18 @@ import {
   incomeStatementSchema,
   statementOfFinancialPositionLineItemsSchema,
 } from "../config/financialReportFormSchemas";
+import { normalizeOperationalKpiPayload } from "../config/operationalKpiFieldSchema";
 import { InvestmentMonitoringKpiService } from "./InvestmentMonitoringKpiService";
+import AuditService from "./AuditService";
+import { ReportingPeriodKpiService } from "./ReportingPeriodKpiService";
 
 export type FinancialReportType = 
   'INCOME_STATEMENTS' | 
   'STATEMENT_OF_FINANCIAL_POSITION' | 
   'CASHFLOW_STATEMENTS' | 
   'NON_FINANCIAL_KPIS' |
+  /** JSON-only operational / unit-economics KPIs; draft → submit like other reports. */
+  'OPERATIONAL_KPIS' |
   // Doc-required categories (uploads can be PDFs for narrative/compliance)
   'BANK_STATEMENTS' |
   'TAX_COMPLIANCE' |
@@ -81,6 +86,65 @@ interface ReviewReportParams {
 }
 
 export class FinancialReportService {
+  /** Applicant-facing statuses that allow file attach + resubmit. */
+  private static readonly resubmittableStatuses = ["DRAFT", "NEEDS_REVISION", "REJECTED"] as const;
+
+  /** Investee user is linked PC owner and/or original submitter. */
+  private static async assertApplicantOwnsFinancialReport(report: any, applicantUserId: string): Promise<void> {
+    const company = await prisma.portfolioCompany.findUnique({
+      where: { id: report.portfolioCompanyId },
+      select: { userId: true },
+    });
+    const ownsCompany = company?.userId === applicantUserId;
+    const isSubmitter = report.submittedById === applicantUserId;
+    if (!ownsCompany && !isSubmitter) {
+      throw new Error("Report does not belong to you");
+    }
+  }
+
+  private static reportTypeAcceptsManualDataSnapshot(reportType: string): boolean {
+    const u = String(reportType || "").toUpperCase();
+    return (
+      u === "INCOME_STATEMENTS" ||
+      u === "INCOME_STATEMENT" ||
+      u === "BALANCE_SHEET" ||
+      u === "STATEMENT_OF_FINANCIAL_POSITION" ||
+      u === "CASHFLOW_STATEMENTS" ||
+      u === "CASHFLOW_STATEMENT" ||
+      u === "NON_FINANCIAL_KPIS" ||
+      u === "OPERATIONAL_KPIS"
+    );
+  }
+
+  private static toEmailDate(value: any): Date {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+    const d = value != null ? new Date(value) : new Date();
+    return Number.isNaN(d.getTime()) ? new Date() : d;
+  }
+
+  private static async auditFinancialReportEvent(opts: {
+    userId?: string | null;
+    action: string;
+    reportId: string;
+    portfolioCompanyId: string;
+    companyName?: string | null;
+    oldValues?: Record<string, unknown> | null;
+    newValues?: Record<string, unknown> | null;
+  }): Promise<void> {
+    await AuditService.log({
+      userId: opts.userId ?? null,
+      action: opts.action,
+      entityType: "FinancialReport",
+      entityId: opts.reportId,
+      oldValues: opts.oldValues ?? undefined,
+      newValues: {
+        portfolioCompanyId: opts.portfolioCompanyId,
+        ...(opts.companyName ? { companyName: opts.companyName } : {}),
+        ...(opts.newValues || {}),
+      },
+    });
+  }
+
   private static normalizeNumericObjectDeep(value: any): any {
     if (value === null || value === undefined || value === "") return 0;
     if (Array.isArray(value)) return value.map((v) => this.normalizeNumericObjectDeep(v));
@@ -173,6 +237,9 @@ export class FinancialReportService {
     }
     if (data.priorPeriod && typeof data.priorPeriod === "object") {
       extra = Math.max(extra, Object.keys(data.priorPeriod).length);
+    }
+    if (data.operational && typeof data.operational === "object") {
+      extra = Math.max(extra, Object.keys(data.operational).length);
     }
     return keys.length + extra;
   }
@@ -297,9 +364,21 @@ export class FinancialReportService {
       return out;
     }
 
+    if (rt === "OPERATIONAL_KPIS") {
+      const raw =
+        dataSnapshot &&
+        typeof dataSnapshot === "object" &&
+        Object.prototype.hasOwnProperty.call(dataSnapshot, "operational")
+          ? (dataSnapshot as any).operational
+          : dataSnapshot;
+      const operational = normalizeOperationalKpiPayload(raw ?? {});
+      return { operational };
+    }
+
     return this.normalizeNumericObjectDeep(dataSnapshot);
   }
-  private static async assertOpenReportingRequestExists(portfolioCompanyId: string, reportingPeriod: Date | string) {
+  /** Public guard for investee endpoints that write period-scoped reporting data. */
+  static async assertOpenReportingRequestExists(portfolioCompanyId: string, reportingPeriod: Date | string) {
     const iso =
       reportingPeriod instanceof Date
         ? reportingPeriod.toISOString().split("T")[0]
@@ -412,6 +491,21 @@ export class FinancialReportService {
     );
 
     const url = uploadResult.downloadURL;
+
+    await this.auditFinancialReportEvent({
+      userId: params.submittedById,
+      action: "FINANCIAL_REPORT_CREATED_WITH_FILE",
+      reportId: id,
+      portfolioCompanyId: params.portfolioCompanyId,
+      companyName: params.portfolioCompanyName,
+      newValues: {
+        reportType: params.reportType,
+        status: "DRAFT",
+        hasManualData: !!params.dataSnapshot,
+        reportUrl: url,
+      },
+    });
+
     return {
       id,
       reportUrl: url,
@@ -484,11 +578,9 @@ export class FinancialReportService {
   }) {
     const report = await this.getReportById(params.reportId);
     if (!report) throw new Error("Financial report not found");
-    if (report.submittedById !== params.submittedById) {
-      throw new Error("Report does not belong to you");
-    }
-    if (!["DRAFT", "NEEDS_REVISION"].includes(report.status)) {
-      throw new Error("Only DRAFT or NEEDS_REVISION reports can accept file uploads");
+    await this.assertApplicantOwnsFinancialReport(report, params.submittedById);
+    if (!["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(String(report.status))) {
+      throw new Error("Only draft, needs-revision, or rejected reports can accept file uploads");
     }
 
     const reportingPeriod = report.reportingPeriod || report.periodEnd;
@@ -526,12 +618,109 @@ export class FinancialReportService {
     );
 
     const url = uploadResult.downloadURL;
+
+    await this.auditFinancialReportEvent({
+      userId: params.submittedById,
+      action: "FINANCIAL_REPORT_FILE_ATTACHED",
+      reportId: report.id,
+      portfolioCompanyId: report.portfolioCompanyId,
+      companyName: report.companyName,
+      newValues: {
+        fileName: params.originalFileName,
+        reportUrl: url,
+      },
+    });
+
     return {
       id: report.id,
       reportUrl: url,
       fileUrl: url,
       storagePath: uploadResult.filePath,
     };
+  }
+
+  /** Investee: one report for detail/edit screen (includes `data` and reviewer feedback when present). */
+  static async getFinancialReportDetailForApplicant(reportId: string, applicantUserId: string) {
+    const report = await this.getReportById(reportId);
+    if (!report) return null;
+    try {
+      await this.assertApplicantOwnsFinancialReport(report, applicantUserId);
+    } catch {
+      return null;
+    }
+    const merged = this.mergeReportFileUrlsForApi(report);
+    if (!merged) return null;
+    const s = String(merged.status || "");
+    return {
+      ...merged,
+      reviewerId: report.reviewerId ?? null,
+      reviewedAt: report.reviewedAt ?? null,
+      reviewerComment: report.reviewerComment ?? null,
+      canSubmit: ["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(s),
+      canUploadFile: ["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(s),
+    };
+  }
+
+  /**
+   * Investee: replace manual line-item JSON (`parsedSnapshot`) for core statements / NON_FINANCIAL_KPIS.
+   * Allowed when status is DRAFT, NEEDS_REVISION, or REJECTED. Does not change status (use submit after).
+   */
+  static async updateReportParsedSnapshotForApplicant(params: {
+    reportId: string;
+    applicantUserId: string;
+    data: any;
+  }) {
+    const report = await this.getReportById(params.reportId);
+    if (!report) throw new Error("Financial report not found");
+    await this.assertApplicantOwnsFinancialReport(report, params.applicantUserId);
+    if (!["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(String(report.status))) {
+      throw new Error("Only draft, needs-revision, or rejected reports can be updated");
+    }
+    if (!this.reportTypeAcceptsManualDataSnapshot(report.reportType)) {
+      throw new Error(
+        "This report type does not support updating form data here; upload a new file instead."
+      );
+    }
+    if (params.data === undefined || params.data === null || typeof params.data !== "object") {
+      throw new Error("data must be a JSON object");
+    }
+    const normalized = this.normalizeReportDataOrThrow(report.reportType, params.data);
+    const json = JSON.stringify(normalized);
+    await prisma.$executeRawUnsafe(
+      `UPDATE financial_reports SET parsedSnapshot = ?, updatedAt = NOW(3) WHERE id = ?`,
+      json,
+      params.reportId
+    );
+
+    await this.auditFinancialReportEvent({
+      userId: params.applicantUserId,
+      action: "FINANCIAL_REPORT_DATA_UPDATED",
+      reportId: params.reportId,
+      portfolioCompanyId: report.portfolioCompanyId,
+      companyName: report.companyName,
+      oldValues: { hadParsedSnapshot: !!(report.parsedSnapshot || report.parsedsnapshot) },
+      newValues: {
+        reportType: report.reportType,
+        status: report.status,
+        reportingPeriod: report.reportingPeriod
+          ? this.toEmailDate(report.reportingPeriod).toISOString().split("T")[0]
+          : null,
+      },
+    });
+
+    const fresh = await this.getReportById(params.reportId);
+    const merged = fresh ? this.mergeReportFileUrlsForApi(fresh) : null;
+    const s = String(merged?.status || "");
+    return merged
+      ? {
+          ...merged,
+          reviewerId: fresh?.reviewerId ?? null,
+          reviewedAt: fresh?.reviewedAt ?? null,
+          reviewerComment: fresh?.reviewerComment ?? null,
+          canSubmit: ["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(s),
+          canUploadFile: ["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(s),
+        }
+      : null;
   }
 
   static async listReportsForApplicant(userId: string, opts?: { page?: number; limit?: number }) {
@@ -572,6 +761,9 @@ export class FinancialReportService {
               fr.netProfit,
               fr.cashFlowNet,
               fr.parsedSnapshot,
+              fr.reviewerId,
+              fr.reviewedAt,
+              fr.reviewerComment,
               fr.createdAt,
               fr.updatedAt,
               pc.name AS companyName
@@ -606,8 +798,12 @@ export class FinancialReportService {
         cashFlowNet: row.cashFlowNet,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        reviewerId: row.reviewerId ?? null,
+        reviewedAt: row.reviewedAt ?? null,
+        reviewerComment: row.reviewerComment ?? null,
         isDraft: row.status === "DRAFT",
-        canSubmit: ["DRAFT", "NEEDS_REVISION"].includes(row.status),
+        canSubmit: ["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(String(row.status)),
+        canUploadFile: ["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(String(row.status)),
         canDownload: row.status !== "DRAFT",
       };
       if (data !== null) item.data = data;
@@ -642,6 +838,7 @@ export class FinancialReportService {
         filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'cashflow_statement_template.xlsx');
         break;
       case 'NON_FINANCIAL_KPIS':
+      case 'OPERATIONAL_KPIS':
         filePath = join(__dirname, '..', '..', 'templates', 'financial-reports', 'non_financial_kpis_template.xlsx');
         break;
       // Old CSV templates (backward compatibility)
@@ -759,6 +956,223 @@ export class FinancialReportService {
     };
   }
 
+  /**
+   * Per-company document organisation for investors: Financial | Operational | Investment,
+   * each with fixed subfolders (empty arrays when no files). Maps `reportType` into the
+   * closest subfolder; unknown types land in Financial → Other documents.
+   */
+  static async getDocumentOrganisationForCompany(
+    portfolioCompanyId: string,
+    opts?: { statuses?: string[] | null; limit?: number }
+  ) {
+    const company = await prisma.portfolioCompany.findUnique({
+      where: { id: portfolioCompanyId },
+      select: { id: true, name: true },
+    });
+    if (!company) {
+      throw new Error("Portfolio company not found");
+    }
+
+    const limit = Math.min(5000, Math.max(1, Number(opts?.limit ?? 2000)));
+    const params: any[] = [];
+    let whereStatus = `fr.status <> 'DRAFT'`;
+    if (opts?.statuses?.length) {
+      const ph = opts.statuses.map(() => "?").join(",");
+      whereStatus = `fr.status IN (${ph})`;
+      params.push(...opts.statuses);
+    }
+    params.push(portfolioCompanyId);
+    params.push(limit);
+
+    const rows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT fr.id,
+              fr.portfolioCompanyId,
+              fr.reportType,
+              fr.periodType,
+              fr.periodStart,
+              fr.periodEnd,
+              fr.reportingPeriod,
+              fr.title,
+              fr.description,
+              fr.reportUrl,
+              fr.storagePath,
+              fr.status,
+              fr.createdAt,
+              fr.updatedAt
+         FROM financial_reports fr
+        WHERE ${whereStatus}
+          AND fr.portfolioCompanyId = ?
+        ORDER BY fr.reportingPeriod DESC, fr.periodEnd DESC, fr.updatedAt DESC
+        LIMIT ?`,
+      ...params
+    );
+
+    const DOMAIN_ORDER = ["financial", "operational", "investment"] as const;
+    type Domain = (typeof DOMAIN_ORDER)[number];
+
+    const SUBFOLDER_TEMPLATE: Record<Domain, Array<{ key: string; label: string }>> = {
+      financial: [
+        { key: "income_statement", label: "Income statement" },
+        { key: "balance_sheet", label: "Balance sheet" },
+        { key: "cash_flow", label: "Cash flow" },
+        { key: "bank_statements", label: "Bank statements" },
+        { key: "tax_documents", label: "Tax documents" },
+        { key: "audits", label: "Audits" },
+        { key: "management_accounts", label: "Management accounts" },
+        { key: "other", label: "Other documents" },
+      ],
+      operational: [
+        { key: "hr", label: "HR" },
+        { key: "payroll", label: "Payroll" },
+        { key: "sales_reports", label: "Sales reports" },
+        { key: "inventory", label: "Inventory" },
+        { key: "production", label: "Production" },
+        { key: "non_financial_kpis", label: "Non-financial KPIs" },
+      ],
+      investment: [
+        { key: "business_plans", label: "Business plans" },
+        { key: "investor_reports", label: "Investor reports" },
+        { key: "compliance_documents", label: "Compliance documents" },
+      ],
+    };
+
+    const DOMAIN_LABELS: Record<Domain, string> = {
+      financial: "Financial",
+      operational: "Operational",
+      investment: "Investment",
+    };
+
+    const classify = (reportType: string): { domain: Domain; subfolderKey: string } => {
+      const canonical = this.canonicalReportTypeLabelForList(reportType);
+      const u = String(canonical || "").toUpperCase();
+      const r = String(reportType || "").toUpperCase();
+
+      if (u === "INCOME_STATEMENTS" || r === "INCOME_STATEMENT") {
+        return { domain: "financial", subfolderKey: "income_statement" };
+      }
+      if (u === "STATEMENT_OF_FINANCIAL_POSITION" || r === "BALANCE_SHEET") {
+        return { domain: "financial", subfolderKey: "balance_sheet" };
+      }
+      if (u === "CASHFLOW_STATEMENTS" || r === "CASHFLOW_STATEMENT") {
+        return { domain: "financial", subfolderKey: "cash_flow" };
+      }
+      if (u === "BANK_STATEMENTS") return { domain: "financial", subfolderKey: "bank_statements" };
+      if (u === "TAX_COMPLIANCE") return { domain: "financial", subfolderKey: "tax_documents" };
+      if (u === "MANAGEMENT_ACCOUNTS") {
+        return { domain: "financial", subfolderKey: "management_accounts" };
+      }
+      if (r.includes("AUDIT")) return { domain: "financial", subfolderKey: "audits" };
+
+      if (u === "NON_FINANCIAL_KPIS" || u === "OPERATIONAL_KPIS") {
+        return { domain: "operational", subfolderKey: "non_financial_kpis" };
+      }
+      if (r.includes("PAYROLL")) return { domain: "operational", subfolderKey: "payroll" };
+      if (
+        r.includes("HUMAN_RESOURCE") ||
+        r === "HR" ||
+        r.startsWith("HR_") ||
+        r.endsWith("_HR") ||
+        r.includes("_HR_")
+      ) {
+        return { domain: "operational", subfolderKey: "hr" };
+      }
+      if (r.includes("SALES")) return { domain: "operational", subfolderKey: "sales_reports" };
+      if (r.includes("INVENTORY")) return { domain: "operational", subfolderKey: "inventory" };
+      if (r.includes("PRODUCTION")) return { domain: "operational", subfolderKey: "production" };
+
+      if (u === "BUSINESS_PLAN") return { domain: "investment", subfolderKey: "business_plans" };
+      if (r.includes("INVESTOR") && r.includes("REPORT")) {
+        return { domain: "investment", subfolderKey: "investor_reports" };
+      }
+      if (
+        r === "COMPLIANCE_DOCUMENTS" ||
+        r === "INVESTMENT_COMPLIANCE" ||
+        r === "REGULATORY_COMPLIANCE" ||
+        (r.includes("COMPLIANCE") && !r.includes("TAX"))
+      ) {
+        return { domain: "investment", subfolderKey: "compliance_documents" };
+      }
+
+      return { domain: "financial", subfolderKey: "other" };
+    };
+
+    const buckets: Record<Domain, Record<string, any[]>> = {
+      financial: {},
+      operational: {},
+      investment: {},
+    };
+    for (const d of DOMAIN_ORDER) {
+      for (const { key } of SUBFOLDER_TEMPLATE[d]) {
+        buckets[d][key] = [];
+      }
+    }
+
+    const toIso = (d: any) => {
+      if (d == null) return null;
+      const dt = d instanceof Date ? d : new Date(d);
+      if (Number.isNaN(dt.getTime())) return null;
+      return dt.toISOString();
+    };
+
+    const sortFiles = (files: any[]) =>
+      files.sort(
+        (x, y) =>
+          new Date(y.updatedAt || y.createdAt || 0).getTime() -
+          new Date(x.updatedAt || x.createdAt || 0).getTime()
+      );
+
+    for (const row of rows) {
+      const { domain, subfolderKey } = classify(row.reportType);
+      const urls = this.reportPublicUrlsForListRow(row);
+      const canonicalType = this.canonicalReportTypeLabelForList(row.reportType);
+      const hasFile = !!(urls.reportUrl && String(urls.reportUrl).trim());
+      const fileNode = {
+        id: row.id,
+        reportType: row.reportType,
+        reportTypeCanonical: canonicalType,
+        title: row.title ?? null,
+        description: row.description ?? null,
+        status: row.status,
+        periodType: row.periodType ?? null,
+        periodStart: toIso(row.periodStart),
+        periodEnd: toIso(row.periodEnd),
+        reportingPeriod: toIso(row.reportingPeriod),
+        reportUrl: urls.reportUrl,
+        fileUrl: urls.fileUrl,
+        hasFile,
+        createdAt: toIso(row.createdAt),
+        updatedAt: toIso(row.updatedAt),
+      };
+      const list = buckets[domain][subfolderKey];
+      if (list) list.push(fileNode);
+      else buckets.financial.other.push(fileNode);
+    }
+
+    const documentOrganisation = DOMAIN_ORDER.map((domain) => ({
+      folderKey: domain,
+      folderLabel: DOMAIN_LABELS[domain],
+      subfolders: SUBFOLDER_TEMPLATE[domain].map(({ key, label }) => {
+        const files = sortFiles([...(buckets[domain][key] || [])]);
+        return {
+          subfolderKey: key,
+          folderLabel: label,
+          fileCount: files.length,
+          files,
+        };
+      }),
+    }));
+
+    return {
+      portfolioCompanyId: company.id,
+      companyName: company.name,
+      documentOrganisation,
+      meta: {
+        totalReports: rows.length,
+        generatedAt: new Date().toISOString(),
+      },
+    };
+  }
+
   static async getReportById(reportId: string) {
     const [report] = await prisma.$queryRawUnsafe(
       `SELECT fr.*, 
@@ -820,6 +1234,13 @@ export class FinancialReportService {
       params.reportId
     );
 
+    const reviewAuditAction =
+      params.action === "ACCEPT"
+        ? "FINANCIAL_REPORT_REVIEW_ACCEPTED"
+        : params.action === "NEEDS_REVISION"
+          ? "FINANCIAL_REPORT_REVIEW_NEEDS_REVISION"
+          : "FINANCIAL_REPORT_REVIEW_REJECTED";
+
     if (params.action === 'ACCEPT') {
       try {
         const automationPayload: any = {
@@ -861,6 +1282,25 @@ export class FinancialReportService {
         // Run valuation/dividend automations on ACCEPT (explicit payload)
         await this.runPostApprovalAutomations(report, params.reviewerId, automationPayload);
         await this.notifyOutcome(report, 'ACCEPTED', params.comment);
+        await this.auditFinancialReportEvent({
+          userId: params.reviewerId,
+          action: reviewAuditAction,
+          reportId: params.reportId,
+          portfolioCompanyId: report.portfolioCompanyId,
+          companyName: report.companyName,
+          oldValues: {
+            status: report.status,
+            reviewerComment: report.reviewerComment ?? null,
+          },
+        newValues: {
+          status: "ACCEPTED",
+          reviewerComment: params.comment ?? null,
+          reviewerId: params.reviewerId,
+          reportingPeriod: report.reportingPeriod
+            ? this.toEmailDate(report.reportingPeriod).toISOString().split("T")[0]
+            : null,
+        },
+      });
       } catch (error: any) {
         console.error('❌ Failed to sync accepted financial report:', error);
         await prisma.$executeRawUnsafe(
@@ -871,10 +1311,45 @@ export class FinancialReportService {
           error.message || 'Sync error',
           params.reportId
         );
-        await this.notifyOutcome(report, 'REJECTED', `${params.comment ? params.comment + '\n' : ''}Sync error: ${error.message || error}`);
+        await this.notifyOutcome(
+          report,
+          "NEEDS_REVISION",
+          `${params.comment ? params.comment + "\n" : ""}Accept could not complete (accounting sync): ${error.message || error}. Please contact support or resubmit after corrections.`
+        );
+        await this.auditFinancialReportEvent({
+          userId: params.reviewerId,
+          action: "FINANCIAL_REPORT_ACCEPT_SYNC_FAILED",
+          reportId: params.reportId,
+          portfolioCompanyId: report.portfolioCompanyId,
+          companyName: report.companyName,
+          oldValues: { status: report.status },
+          newValues: {
+            status: "NEEDS_REVISION",
+            error: error.message || "Sync error",
+          },
+        });
         throw error;
       }
     } else {
+      await this.auditFinancialReportEvent({
+        userId: params.reviewerId,
+        action: reviewAuditAction,
+        reportId: params.reportId,
+        portfolioCompanyId: report.portfolioCompanyId,
+        companyName: report.companyName,
+        oldValues: {
+          status: report.status,
+          reviewerComment: report.reviewerComment ?? null,
+        },
+        newValues: {
+          status,
+          reviewerComment: params.comment ?? null,
+          reviewerId: params.reviewerId,
+          reportingPeriod: report.reportingPeriod
+            ? this.toEmailDate(report.reportingPeriod).toISOString().split("T")[0]
+            : null,
+        },
+      });
       await this.notifyOutcome(report, status, params.comment);
     }
   }
@@ -894,8 +1369,9 @@ export class FinancialReportService {
     }
 
     const reports = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT fr.*
+      `SELECT fr.*, pc.name AS companyName
        FROM financial_reports fr
+       JOIN portfolio_companies pc ON pc.id = fr.portfolioCompanyId
        WHERE fr.id IN (${reportIds.map(() => '?').join(',')})`,
       ...reportIds
     );
@@ -904,21 +1380,15 @@ export class FinancialReportService {
       throw new Error('One or more reports not found');
     }
 
-    const invalidOwner = reports.find(report => report.submittedById !== userId);
-    if (invalidOwner) {
-      throw new Error('One or more reports do not belong to you');
-    }
-
-    const invalidStatus = reports.find(report => !['DRAFT', 'NEEDS_REVISION'].includes(report.status));
-    if (invalidStatus) {
-      throw new Error('Only draft or needs revision reports can be submitted');
+    for (const r of reports) {
+      await this.assertApplicantOwnsFinancialReport(r, userId);
     }
 
     // Submission is allowed even if not all document categories are present.
     // We only require that an admin opened a reporting request for that company+period.
     const groups = new Map<string, { portfolioCompanyId: string; reportingPeriod: string; present: Set<string> }>();
     for (const r of reports) {
-      const rp = r.reportingPeriod || r.periodEnd; // defensive fallback for older rows
+      const rp = r.reportingPeriod || r.periodEnd;
       if (!rp) {
         throw new Error('Cannot submit: report is missing reportingPeriod');
       }
@@ -929,7 +1399,7 @@ export class FinancialReportService {
         reportingPeriod: rpIso,
         present: new Set<string>(),
       };
-      g.present.add(String(r.reportType || '').toUpperCase());
+      g.present.add(String(r.reportType || "").toUpperCase());
       groups.set(key, g);
     }
 
@@ -937,7 +1407,7 @@ export class FinancialReportService {
       await this.assertOpenReportingRequestExists(g.portfolioCompanyId, g.reportingPeriod);
     }
 
-    // Submit the full bundle for each period group (so the user doesn't need to pass all IDs).
+    const stPh = this.resubmittableStatuses.map(() => "?").join(",");
     const idsToSubmit: string[] = [];
     for (const g of groups.values()) {
       const rows = await prisma.$queryRawUnsafe<any[]>(
@@ -945,30 +1415,75 @@ export class FinancialReportService {
            FROM financial_reports
           WHERE portfolioCompanyId = ?
             AND reportingPeriod = ?
-            AND status IN ('DRAFT','NEEDS_REVISION')`,
+            AND status IN (${stPh})`,
         g.portfolioCompanyId,
-        g.reportingPeriod
+        g.reportingPeriod,
+        ...this.resubmittableStatuses
       );
       for (const r of rows) idsToSubmit.push(r.id);
     }
     const uniqueIds = [...new Set(idsToSubmit)];
     if (uniqueIds.length === 0) {
-      throw new Error("No draft reports found to submit");
+      throw new Error("No draft, needs-revision, or rejected reports found to submit");
+    }
+
+    const bundle = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT fr.*, pc.name AS companyName
+       FROM financial_reports fr
+       JOIN portfolio_companies pc ON pc.id = fr.portfolioCompanyId
+       WHERE fr.id IN (${uniqueIds.map(() => "?").join(",")})`,
+      ...uniqueIds
+    );
+
+    if (bundle.length !== uniqueIds.length) {
+      throw new Error("One or more reports not found for submission bundle");
+    }
+
+    const badStatus = bundle.find((r) => !["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(String(r.status)));
+    if (badStatus) {
+      throw new Error("Only draft, needs-revision, or rejected reports can be submitted");
+    }
+
+    for (const r of bundle) {
+      await this.assertApplicantOwnsFinancialReport(r, userId);
     }
 
     await prisma.$executeRawUnsafe(
       `UPDATE financial_reports
        SET status = 'PENDING',
            updatedAt = NOW()
-       WHERE id IN (${uniqueIds.map(() => '?').join(',')})`,
+       WHERE id IN (${uniqueIds.map(() => "?").join(",")})`,
       ...uniqueIds
     );
 
+    for (const r of bundle) {
+      await this.auditFinancialReportEvent({
+        userId,
+        action: "FINANCIAL_REPORT_SUBMITTED",
+        reportId: r.id,
+        portfolioCompanyId: r.portfolioCompanyId,
+        companyName: r.companyName,
+        oldValues: { status: r.status },
+        newValues: {
+          status: "PENDING",
+          reportType: r.reportType,
+          title: r.title,
+          reportingPeriod: r.reportingPeriod
+            ? this.toEmailDate(r.reportingPeriod).toISOString().split("T")[0]
+            : null,
+        },
+      });
+    }
+
     await Promise.all(
-      reports.map(report =>
+      bundle.map((r) => ReportingPeriodKpiService.syncFromSubmittedOperationalReport(r, userId))
+    );
+
+    void Promise.all(
+      bundle.map((report) =>
         this.notifySubmission(report.portfolioCompanyId, report.reportType, report.title, report.periodStart, report.periodEnd)
       )
-    );
+    ).catch((err) => console.error("[submitDrafts] notifySubmission:", err));
   }
 
   private static async notifySubmission(portfolioCompanyId: string, reportType: string, title: string, periodStart: Date, periodEnd: Date) {
@@ -1011,21 +1526,24 @@ export class FinancialReportService {
       return;
     }
 
-    const payload = {
+    const periodStart = this.toEmailDate(report.periodStart);
+    const periodEnd = this.toEmailDate(report.periodEnd);
+    const base = {
       recipientEmail: contactEmail,
       companyName: report.companyName,
       reportType: report.reportType,
-      title: report.title,
-      periodStart: report.periodStart,
-      periodEnd: report.periodEnd,
-      status,
-      comment: comment || ''
+      title: report.title || "",
+      periodStart,
+      periodEnd,
+      comment: comment || "",
     };
 
-    if (status === 'ACCEPTED') {
-      await EmailNotificationService.sendFinancialReportAcceptedEmail(payload);
+    if (status === "ACCEPTED") {
+      await EmailNotificationService.sendFinancialReportAcceptedEmail({ ...base, status });
+    } else if (status === "NEEDS_REVISION") {
+      await EmailNotificationService.sendFinancialReportNeedsRevisionEmail(base);
     } else {
-      await EmailNotificationService.sendFinancialReportRejectedEmail(payload);
+      await EmailNotificationService.sendFinancialReportRejectedEmail({ ...base, status });
     }
   }
 
@@ -1250,6 +1768,8 @@ export class FinancialReportService {
     totalRevenue?: number | null;
     netProfit?: number | null;
     cashFlowNet?: number | null;
+    /** Investee user (for audit trail). */
+    submittedById?: string | null;
     // New: structured manual entry sections (front-end form line items)
     incomeStatement?: any;
     statementOfFinancialPosition?: any;
@@ -1353,6 +1873,43 @@ export class FinancialReportService {
 
     console.log(`✅ Saved period KPIs for ${params.portfolioCompanyId}, period: ${periodKey}`);
 
+    const sectionsPresent: string[] = [];
+    if (params.incomeStatement && typeof params.incomeStatement === "object") sectionsPresent.push("incomeStatement");
+    if (params.statementOfFinancialPosition && typeof params.statementOfFinancialPosition === "object") {
+      sectionsPresent.push("statementOfFinancialPosition");
+    }
+    if (params.cashflowStatement && typeof params.cashflowStatement === "object") {
+      sectionsPresent.push("cashflowStatement");
+    }
+    if (params.nonFinancialKpis && typeof params.nonFinancialKpis === "object") sectionsPresent.push("nonFinancialKpis");
+
+    await AuditService.log({
+      userId: params.submittedById || null,
+      action: "FINANCIAL_REPORTING_PERIOD_DATA",
+      entityType: "PortfolioCompany",
+      entityId: params.portfolioCompanyId,
+      newValues: {
+        reportingPeriod: periodKey,
+        sectionsPresent,
+        summary: {
+          totalRevenue,
+          netProfit,
+          cashFlowNet,
+        },
+      },
+    });
+
+    try {
+      await ReportingPeriodKpiService.recomputeAndPersist({
+        portfolioCompanyId: params.portfolioCompanyId,
+        periodStart: params.periodStart,
+        periodEnd: params.periodEnd,
+        submittedById: params.submittedById,
+      });
+    } catch (e) {
+      console.error("[savePeriodKPIs] derive KPIs:", e);
+    }
+
     // Return the saved values
     return {
       periodStart: this.formatDate(params.periodStart),
@@ -1360,6 +1917,117 @@ export class FinancialReportService {
       totalRevenue,
       netProfit,
       cashFlowNet
+    };
+  }
+
+  /** Investor: auditable timeline for reporting (submissions, reviews, file uploads, period KPI saves). */
+  static async listReportingAuditForCompany(
+    portfolioCompanyId: string,
+    opts?: { page?: number; limit?: number }
+  ) {
+    const company = await prisma.portfolioCompany.findUnique({
+      where: { id: portfolioCompanyId },
+      select: { id: true, name: true },
+    });
+    if (!company) {
+      throw new Error("Portfolio company not found");
+    }
+
+    const page = Math.max(1, Number(opts?.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(opts?.limit || 50)));
+    const offset = (page - 1) * limit;
+
+    const auditWhere = `(al.entityType = 'FinancialReport' AND fr.portfolioCompanyId = ?)
+           OR (al.entityType = 'PortfolioCompany' AND al.entityId = ? AND al.action = 'FINANCIAL_REPORTING_PERIOD_DATA')`;
+
+    const [events, countRows, notifRows]: [any[], any[], any[]] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `SELECT al.id,
+                al.userId AS actorUserId,
+                al.action,
+                al.entityType,
+                al.entityId,
+                al.oldValues,
+                al.newValues,
+                al.createdAt,
+                u.email AS actorEmail,
+                u.firstName AS actorFirstName,
+                u.lastName AS actorLastName
+           FROM audit_logs al
+           LEFT JOIN financial_reports fr
+             ON fr.id = al.entityId AND al.entityType = 'FinancialReport'
+           LEFT JOIN users u ON u.id = al.userId
+          WHERE ${auditWhere}
+          ORDER BY al.createdAt DESC
+          LIMIT ? OFFSET ?`,
+        portfolioCompanyId,
+        portfolioCompanyId,
+        limit,
+        offset
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT COUNT(*) AS c
+           FROM audit_logs al
+           LEFT JOIN financial_reports fr
+             ON fr.id = al.entityId AND al.entityType = 'FinancialReport'
+          WHERE ${auditWhere}`,
+        portfolioCompanyId,
+        portfolioCompanyId
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT id,
+                reporting_period AS reportingPeriod,
+                event_type AS eventType,
+                channel,
+                recipient_email AS recipientEmail,
+                status,
+                meta,
+                created_at AS createdAt
+           FROM reporting_notification_logs
+          WHERE portfolio_company_id = ?
+          ORDER BY created_at DESC
+          LIMIT 500`,
+        portfolioCompanyId
+      ),
+    ]);
+
+    const total = Number(countRows[0]?.c || 0);
+
+    const notificationLabel: Record<string, string> = {
+      REQUEST: "Original request",
+      REMINDER_T_MINUS_3: "T−3 reminder",
+      OVERDUE_T_PLUS_1: "Overdue alert",
+      MANUAL_NUDGE: "Manual nudge",
+      VIEWED_BY_INVESTEE: "Viewed by investee",
+    };
+
+    const communicationLog = notifRows.map((r) => {
+      const rp = r.reportingPeriod;
+      const reportingPeriodIso =
+        rp instanceof Date ? rp.toISOString().split("T")[0] : String(rp || "").slice(0, 10);
+      const ca = r.createdAt;
+      const createdAtIso = ca instanceof Date ? ca.toISOString() : ca;
+      return {
+        id: r.id,
+        reportingPeriod: reportingPeriodIso,
+        eventType: r.eventType,
+        eventLabel: notificationLabel[r.eventType] || r.eventType,
+        channel: r.channel,
+        recipientEmail: r.recipientEmail,
+        status: r.status,
+        meta: r.meta,
+        createdAt: createdAtIso,
+      };
+    });
+
+    return {
+      portfolioCompanyId: company.id,
+      companyName: company.name,
+      page,
+      limit,
+      total,
+      events,
+      communicationLog,
     };
   }
 }

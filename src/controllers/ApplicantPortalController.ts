@@ -6,6 +6,7 @@ import { ApplicantPortalService } from "../services/ApplicantPortalService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { prisma } from "../utils/database";
 import { FinancialReportService } from "../services/FinancialReportService";
+import { ReportingPeriodKpiService } from "../services/ReportingPeriodKpiService";
 import axios from "axios";
 
 /** Income statement, balance sheet, cash flow (incl. legacy type names) — file uploads must be .xlsx only. */
@@ -26,7 +27,8 @@ function reportTypeAcceptsManualDataJson(rt: string): boolean {
   const u = String(rt || "").toUpperCase();
   return (
     isCoreFinancialStatementReportType(u) ||
-    u === "NON_FINANCIAL_KPIS"
+    u === "NON_FINANCIAL_KPIS" ||
+    u === "OPERATIONAL_KPIS"
   );
 }
 
@@ -170,6 +172,34 @@ export class ApplicantPortalController {
       return false;
     }
   }
+
+  /** Read-receipt: log once per quiet window so dashboards / polling do not flood the audit trail. */
+  private static async logReportingViewedByInvesteeIfQuiet(
+    portfolioCompanyId: string,
+    reportingPeriodIso: string
+  ): Promise<void> {
+    const recent = await prisma.$queryRawUnsafe<Array<{ c: bigint }>>(
+      `SELECT COUNT(*) AS c
+         FROM reporting_notification_logs
+        WHERE portfolio_company_id = ?
+          AND reporting_period = ?
+          AND event_type = 'VIEWED_BY_INVESTEE'
+          AND created_at > DATE_SUB(NOW(3), INTERVAL 15 MINUTE)`,
+      portfolioCompanyId,
+      reportingPeriodIso
+    );
+    if (Number(recent[0]?.c || 0) > 0) return;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO reporting_notification_logs
+         (id, portfolio_company_id, reporting_period, event_type, channel, recipient_email, status, meta, created_at)
+       VALUES
+         (?, ?, ?, 'VIEWED_BY_INVESTEE', 'PORTAL', NULL, 'OK', NULL, NOW(3))`,
+      require("crypto").randomUUID(),
+      portfolioCompanyId,
+      reportingPeriodIso
+    );
+  }
+
   /**
    * Get applicant profile
    */
@@ -533,6 +563,11 @@ export class ApplicantPortalController {
     return createFinancialReportDraftInternal(req, res, next, "CASHFLOW_STATEMENTS");
   }
 
+  /** Data-only operational KPIs report: **DRAFT** only (fast). Submit via **`POST .../financial-reports/submit`** to sync KPI tables + derived metrics. */
+  async createOperationalKpisDraft(req: Request, res: Response, next: NextFunction) {
+    return createFinancialReportDraftInternal(req, res, next, "OPERATIONAL_KPIS");
+  }
+
   async uploadFinancialReportFile(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
@@ -595,7 +630,12 @@ export class ApplicantPortalController {
         fileBuffer: req.file.buffer,
       });
 
-      return ResponseHelper.success(res, "File uploaded and attached to draft report", attach, 201);
+      return ResponseHelper.success(
+        res,
+        "File uploaded and attached (replaces previous file URL for this report)",
+        attach,
+        201
+      );
     } catch (error: any) {
       next(error);
     }
@@ -709,6 +749,7 @@ export class ApplicantPortalController {
         totalRevenue,
         netProfit,
         cashFlowNet,
+        submittedById: userId,
         incomeStatement,
         statementOfFinancialPosition,
         cashflowStatement,
@@ -753,6 +794,7 @@ export class ApplicantPortalController {
         totalRevenue,
         netProfit,
         cashFlowNet,
+        submittedById: userId,
         incomeStatement: data,
       });
       return ResponseHelper.success(
@@ -797,6 +839,7 @@ export class ApplicantPortalController {
         totalRevenue,
         netProfit,
         cashFlowNet,
+        submittedById: userId,
         statementOfFinancialPosition: data,
       });
       return ResponseHelper.success(
@@ -841,6 +884,7 @@ export class ApplicantPortalController {
         totalRevenue,
         netProfit,
         cashFlowNet,
+        submittedById: userId,
         cashflowStatement: data,
       });
       return ResponseHelper.success(
@@ -849,6 +893,101 @@ export class ApplicantPortalController {
         { ...savedKPIs, reportType: "CASHFLOW_STATEMENTS" },
         200
       );
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * @deprecated Prefer **POST** `/financial-reports/operational-kpis/draft` (same behaviour).
+   * Creates a **DRAFT** `OPERATIONAL_KPIS` financial report only (no DB KPI sync until **submit**).
+   */
+  async savePeriodOperationalKpis(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
+      }
+      const portfolioCompany = await prisma.portfolioCompany.findFirst({
+        where: { userId },
+        select: { id: true, name: true },
+      });
+      if (!portfolioCompany) {
+        return ResponseHelper.error(res, "No portfolio company found for this applicant", undefined, 400);
+      }
+      const body = req.body || {};
+      const { periodStart, periodEnd, operational, periodType, title, description, templateVersion, reportingPeriod } =
+        body;
+      if (!periodStart || !periodEnd) {
+        return ResponseHelper.error(res, "periodStart and periodEnd are required", undefined, 400);
+      }
+      if (operational === undefined || operational === null || typeof operational !== "object") {
+        return ResponseHelper.error(res, "operational (object) is required", undefined, 400);
+      }
+      const rp = reportingPeriod ? new Date(reportingPeriod) : new Date(periodEnd);
+      if (Number.isNaN(rp.getTime())) {
+        return ResponseHelper.error(res, "Invalid reportingPeriod or periodEnd", undefined, 400);
+      }
+      const trimmedTitle = title != null ? String(title).trim() : "";
+      const draftTitle =
+        trimmedTitle || `Operational KPIs — ${new Date(periodEnd).toISOString().split("T")[0]}`;
+
+      const result = await FinancialReportService.createDraftReport({
+        portfolioCompanyId: portfolioCompany.id,
+        submittedById: userId,
+        reportType: "OPERATIONAL_KPIS",
+        reportingPeriod: rp,
+        periodType: periodType || "QUARTERLY",
+        periodStart: new Date(periodStart),
+        periodEnd: new Date(periodEnd),
+        title: draftTitle,
+        description: description ?? undefined,
+        templateVersion: templateVersion ?? undefined,
+        dataSnapshot: { operational },
+      });
+
+      return ResponseHelper.success(
+        res,
+        "Draft operational KPIs report created. Submit with POST /api/applicant/financial-reports/submit (reportId) to publish KPIs and run derivation.",
+        { ...result, reportType: "OPERATIONAL_KPIS" },
+        201
+      );
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Combined view: stored operational payload + last derived block for the period. */
+  async getPeriodKpiSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
+      }
+      const portfolioCompany = await prisma.portfolioCompany.findFirst({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!portfolioCompany) {
+        return ResponseHelper.error(res, "No portfolio company found for this applicant", undefined, 400);
+      }
+      const periodEnd = String(req.query.periodEnd || "").trim();
+      if (!periodEnd) {
+        return ResponseHelper.error(res, "periodEnd query param (YYYY-MM-DD) is required", undefined, 400);
+      }
+      const summary = await ReportingPeriodKpiService.getPeriodSummaryForApplicant({
+        portfolioCompanyId: portfolioCompany.id,
+        periodEnd,
+      });
+      return ResponseHelper.success(res, "Period KPI summary", summary, 200);
     } catch (error: any) {
       next(error);
     }
@@ -871,6 +1010,75 @@ export class ApplicantPortalController {
       const reports = await FinancialReportService.listReportsForApplicant(userId, { page, limit });
       return ResponseHelper.success(res, "Financial reports retrieved successfully", reports);
     } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Single report detail: `data` (line items), reviewer feedback, `canSubmit` / `canUploadFile`. */
+  async getFinancialReportById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
+      }
+      const reportId = String(req.params.reportId || "").trim();
+      if (!reportId) {
+        return ResponseHelper.error(res, "reportId is required", undefined, 400);
+      }
+      const detail = await FinancialReportService.getFinancialReportDetailForApplicant(reportId, userId);
+      if (!detail) {
+        return ResponseHelper.error(res, "Report not found", undefined, 404);
+      }
+      return ResponseHelper.success(res, "Financial report retrieved successfully", detail);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Update manual form `data` on a report (NEEDS_REVISION / REJECTED / DRAFT); then call submit separately. */
+  async updateFinancialReportData(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
+      }
+      const reportId = String(req.params.reportId || "").trim();
+      if (!reportId) {
+        return ResponseHelper.error(res, "reportId is required", undefined, 400);
+      }
+      const { data } = req.body || {};
+      if (data === undefined || data === null || typeof data !== "object") {
+        return ResponseHelper.error(res, "body.data (object) is required", undefined, 400);
+      }
+      const updated = await FinancialReportService.updateReportParsedSnapshotForApplicant({
+        reportId,
+        applicantUserId: userId,
+        data,
+      });
+      return ResponseHelper.success(res, "Report data updated successfully", updated, 200);
+    } catch (error: any) {
+      const msg = error?.message || "Failed to update report";
+      if (msg === "Financial report not found") {
+        return ResponseHelper.error(res, msg, undefined, 404);
+      }
+      if (
+        msg.includes("not support") ||
+        msg.includes("not be updated") ||
+        msg.includes("must be a JSON")
+      ) {
+        return ResponseHelper.error(res, msg, undefined, 400);
+      }
+      if (msg.includes("does not belong")) {
+        return ResponseHelper.error(res, msg, undefined, 403);
+      }
       next(error);
     }
   }
@@ -927,19 +1135,38 @@ export class ApplicantPortalController {
         portfolioCompany.id
       );
 
-      const out: any[] = [];
+      const periodIsoList: string[] = [];
       for (const r of rows) {
-        const rpIso = new Date(r.reportingPeriod).toISOString().split("T")[0];
-        const submitted = await prisma.$queryRawUnsafe<any[]>(
-          `SELECT COUNT(*) as c
+        periodIsoList.push(new Date(r.reportingPeriod).toISOString().split("T")[0]);
+      }
+
+      let submittedSet = new Set<string>();
+      if (periodIsoList.length > 0) {
+        const ph = periodIsoList.map(() => "?").join(", ");
+        const subRows = await prisma.$queryRawUnsafe<Array<{ reportingPeriod: Date | string }>>(
+          `SELECT DISTINCT reportingPeriod
              FROM financial_reports
             WHERE portfolioCompanyId = ?
-              AND reportingPeriod = ?
-              AND status IN ('PENDING','ACCEPTED')`,
+              AND status IN ('PENDING','ACCEPTED')
+              AND reportingPeriod IN (${ph})`,
           portfolioCompany.id,
-          rpIso
+          ...periodIsoList
         );
-        const isSubmitted = Number(submitted?.[0]?.c || 0) > 0;
+        submittedSet = new Set(
+          subRows.map((s) =>
+            s.reportingPeriod instanceof Date
+              ? s.reportingPeriod.toISOString().split("T")[0]
+              : String(s.reportingPeriod).slice(0, 10)
+          )
+        );
+      }
+
+      const out: any[] = [];
+      const viewReceipts: Promise<void>[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const rpIso = periodIsoList[i];
+        const isSubmitted = submittedSet.has(rpIso);
         out.push({
           portfolioCompanyId: portfolioCompany.id,
           companyName: portfolioCompany.name,
@@ -947,8 +1174,17 @@ export class ApplicantPortalController {
           dueDate: r.dueDate || null,
           lastRequestedAt: r.lastRequestedAt,
           status: isSubmitted ? "SUBMITTED" : "OPEN",
+          /** Product label: investee portal treats open periods as “Reporting open” after admin Request for data. */
+          portalStatus: isSubmitted ? "SUBMITTED" : "REPORTING_OPEN",
         });
+        if (!isSubmitted) {
+          viewReceipts.push(
+            ApplicantPortalController.logReportingViewedByInvesteeIfQuiet(portfolioCompany.id, rpIso).catch(() => {})
+          );
+        }
       }
+
+      await Promise.all(viewReceipts);
 
       return ResponseHelper.success(res, "Reporting requests retrieved successfully", out);
     } catch (error: any) {
@@ -978,9 +1214,7 @@ export class ApplicantPortalController {
       
       const dashboard = await ApplicantPortalService.getApplicantDashboard(userId);
 
-      // Spec: "Viewed by Investee" – log when portal is opened for a reporting period.
-      // We piggyback on dashboard load using an optional query param to avoid new endpoints.
-      const reportingPeriod = typeof req.query.reportingPeriod === "string" ? req.query.reportingPeriod : null;
+      const reportingPeriod = typeof req.query.reportingPeriod === "string" ? req.query.reportingPeriod.trim() : null;
       if (reportingPeriod) {
         const portfolioCompany = await prisma.portfolioCompany.findFirst({
           where: { userId },
@@ -988,15 +1222,11 @@ export class ApplicantPortalController {
         });
         if (portfolioCompany?.id) {
           try {
-            await prisma.$executeRawUnsafe(
-              `INSERT INTO reporting_notification_logs
-                 (id, portfolio_company_id, reporting_period, event_type, channel, recipient_email, status, meta, created_at)
-               VALUES
-                 (?, ?, ?, 'VIEWED_BY_INVESTEE', 'PORTAL', NULL, 'OK', NULL, NOW(3))`,
-              require("crypto").randomUUID(),
-              portfolioCompany.id,
-              reportingPeriod
-            );
+            const d = new Date(reportingPeriod);
+            if (!Number.isNaN(d.getTime())) {
+              const rpIso = d.toISOString().split("T")[0];
+              await ApplicantPortalController.logReportingViewedByInvesteeIfQuiet(portfolioCompany.id, rpIso);
+            }
           } catch (e) {
             // Don't block dashboard if logging fails (e.g. table not present in some env)
           }

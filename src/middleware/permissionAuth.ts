@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
-import { AuthRequest } from "./authenticate";
+import { AuthRequest, authorize } from "./authenticate";
+
+export { authorize };
 
 export function requirePermission(permissionName: string) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
@@ -109,20 +111,6 @@ export function requireAllPermissions(permissionNames: string[]) {
       res.status(403).json({ 
         success: false,
         message: `Insufficient permissions. Required all: ${permissionNames.join(', ')}` 
-      });
-      return;
-    }
-
-    next();
-  };
-}
-
-export function authorize(_roles: string[]) {
-  return (req: AuthRequest, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({
-        success: false,
-        message: "Unauthorized"
       });
       return;
     }

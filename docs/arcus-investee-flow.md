@@ -66,7 +66,7 @@
 ## API Surface (proposed/confirmed)
 - **PMS (Investee Portal)**
   - `POST /api/applicant/financial-reports` – upload KPIs + files (requires `reportingPeriod`).
-  - `POST /api/applicant/financial-reports/submit` – mark draft reports PENDING.
+  - `POST /api/applicant/financial-reports/submit/{reportId}` – mark draft reports PENDING (period bundle).
   - `POST /api/applicant/financial-reports/period-kpis` – save KPI values for a period.
   - `GET  /api/applicant/financial-reports` – list own submissions.
   - `POST /api/applicant/procurement-requests` → proxy to `/procurement/api/new_external_request`.

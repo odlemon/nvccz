@@ -963,6 +963,12 @@ router.post(
   requireApplicantRole(),
   applicantPortalController.createCashFlowStatementDraft
 );
+router.post(
+  "/financial-reports/operational-kpis/draft",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.createOperationalKpisDraft
+);
 
 /** @deprecated Prefer `/financial-reports/income-statement/draft`, `/balance-sheet/draft`, `/cash-flow/draft`. */
 router.post(
@@ -1003,11 +1009,74 @@ router.get(
 
 /**
  * @swagger
+ * /api/applicant/financial-reports/{reportId}:
+ *   get:
+ *     summary: Get one report for edit (investee)
+ *     description: Returns report with `data` (parsed line items), reviewerComment, canSubmit, canUploadFile.
+ *     tags: ['Investee Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: reportId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Report detail
+ *       404:
+ *         description: Not found
+ */
+router.get(
+  "/financial-reports/:reportId",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.getFinancialReportById
+);
+
+/**
+ * @swagger
+ * /api/applicant/financial-reports/{reportId}/data:
+ *   patch:
+ *     summary: Update manual line-item data on a report (investee)
+ *     description: |
+ *       For INCOME_STATEMENT(S), BALANCE_SHEET / STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_* , NON_FINANCIAL_KPIS.
+ *       Allowed when status is DRAFT, NEEDS_REVISION, or REJECTED. Replaces `parsedSnapshot`. Use `POST .../file` to replace the file.
+ *       Status stays NEEDS_REVISION until you call submit.
+ *     tags: ['Investee Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [data]
+ *             properties:
+ *               data:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Updated report
+ *       400:
+ *         description: Invalid body or report type
+ */
+router.patch(
+  "/financial-reports/:reportId/data",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.updateFinancialReportData
+);
+
+/**
+ * @swagger
  * /api/applicant/financial-reports/submit:
  *   post:
  *     summary: Submit a reporting period bundle (by reportId)
  *     description: >
- *       Submits all DRAFT/NEEDS_REVISION reports for the same company + reportingPeriod as the provided reportId.
+ *       Submits all DRAFT, NEEDS_REVISION, and REJECTED reports for the same company + reportingPeriod as the provided reportId.
  *       Accepts reportId in body, query, or path variants.
  *     tags: ['Investee Reporting']
  *     security:
@@ -1095,6 +1164,18 @@ router.post(
   authenticate,
   requireApplicantRole(),
   applicantPortalController.savePeriodKPIsCashFlow
+);
+router.post(
+  "/financial-reports/period-operational-kpis",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.savePeriodOperationalKpis
+);
+router.get(
+  "/financial-reports/period-kpis/summary",
+  authenticate,
+  requireApplicantRole(),
+  applicantPortalController.getPeriodKpiSummary
 );
 router.post(
   "/financial-reports/:reportId/submit",

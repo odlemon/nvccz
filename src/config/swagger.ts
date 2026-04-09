@@ -5,6 +5,7 @@ import { taskAssignmentEndpoints } from './task-assignment-endpoints';
 import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
 import { investeeReportingEndpoints } from './investee-reporting-endpoints';
+import { reportingScheduleSwaggerEndpoints } from './reporting-schedule-swagger-endpoints';
 import { eventsEndpoints } from './events-endpoints';
 import { dashboardsEndpoints } from './dashboards-endpoints';
 import { userSavedFilterFavoriteEndpoints } from './user-saved-filter-favorite-endpoints';
@@ -58,7 +59,8 @@ const options = {
       },
       {
         name: 'Financial Reporting',
-        description: 'Endpoints for uploading and reviewing portfolio financial reports'
+        description:
+          'Portfolio financial reports, investor calendar (opened periods), mandatory-attachment catalog, **reporting schedule automation** (CRUD on `reporting_schedule_configs`), manual nudge, and cron triggers (`/cron/reporting/*`, `/public/reporting/*`).'
       },
       {
         name: 'Investee Reporting',
@@ -1657,6 +1659,7 @@ const fallbackSpec = {
     ...eventsEndpoints,
     ...dashboardsEndpoints,
     ...userSavedFilterFavoriteEndpoints,
+    ...reportingScheduleSwaggerEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -8385,6 +8388,22 @@ try {
   if (!specs || !specs.paths || Object.keys(specs.paths).length === 0) {
     console.log('Swagger-jsdoc returned empty spec, using fallback');
     specs = fallbackSpec;
+    // Ensure fallback has all merged endpoints too (including Investee Reporting).
+    specs.paths = {
+      ...(specs.paths || {}),
+      ...userSavedFilterFavoriteEndpoints,
+      ...accountingEndpoints,
+      ...shortTermInvestmentsEndpoints,
+      ...fiscalCalendarEndpoints,
+      ...performanceEndpoints,
+      ...taskAssignmentEndpoints,
+      ...financialReportingEndpoints,
+      ...investeeReportingEndpoints,
+      ...reportingScheduleSwaggerEndpoints,
+      ...procurementEndpoints,
+      ...eventsEndpoints,
+      ...dashboardsEndpoints,
+    };
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
     // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints with generated spec
@@ -8398,6 +8417,7 @@ try {
       ...taskAssignmentEndpoints,
       ...financialReportingEndpoints,
       ...investeeReportingEndpoints,
+      ...reportingScheduleSwaggerEndpoints,
       ...procurementEndpoints,
       ...eventsEndpoints,
       ...dashboardsEndpoints,
@@ -8408,6 +8428,22 @@ try {
   // Silently use fallback spec - it already includes all endpoints
   // Suppress error logging to avoid cluttering console with known parsing issues
   specs = fallbackSpec;
+  // Ensure fallback has all merged endpoints too (including Investee Reporting).
+  specs.paths = {
+    ...(specs.paths || {}),
+    ...userSavedFilterFavoriteEndpoints,
+    ...accountingEndpoints,
+    ...shortTermInvestmentsEndpoints,
+    ...fiscalCalendarEndpoints,
+    ...performanceEndpoints,
+    ...taskAssignmentEndpoints,
+    ...financialReportingEndpoints,
+    ...investeeReportingEndpoints,
+    ...reportingScheduleSwaggerEndpoints,
+    ...procurementEndpoints,
+    ...eventsEndpoints,
+    ...dashboardsEndpoints,
+  };
   console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + events + dashboards + cashbook)`);
 }
 
