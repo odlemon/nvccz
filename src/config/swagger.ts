@@ -60,12 +60,12 @@ const options = {
       {
         name: 'Financial Reporting',
         description:
-          'Portfolio financial reports, investor calendar (opened periods), mandatory-attachment catalog, **reporting schedule automation** (CRUD on `reporting_schedule_configs`), manual nudge, and cron triggers (`/cron/reporting/*`, `/public/reporting/*`).'
+          'Portfolio financial reports and automation. Endpoint descriptions state **Audience:** **Applicant (investee)** vs **Investor (fund staff)**. Covers investor calendar (opened periods), mandatory-attachment catalog, **reporting schedule automation** (CRUD on `reporting_schedule_configs`), manual nudge, and cron triggers (`/cron/reporting/*`, `/public/reporting/*`). `/applicant/*` routes are investee; `/portfolio-companies/*` reporting routes are investor.'
       },
       {
         name: 'Investee Reporting',
         description:
-          'Investee (applicant portal) reporting flow: list open requests, upload statement XLSX/PDFs, attach files, submit a reporting period for review, download templates, and save period KPIs.'
+          '**Audience:** Applicant (investee) only. Reporting flow: list open requests, upload statement XLSX/PDFs, attach files, submit a reporting period for review, download templates, update draft line items, and save period KPIs.'
       },
       {
         name: 'Accounts Payables',

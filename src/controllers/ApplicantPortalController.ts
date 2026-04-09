@@ -546,11 +546,6 @@ export class ApplicantPortalController {
     }
   }
 
-  /** Legacy: requires `reportType` in JSON body. Prefer the dedicated `/financial-reports/{...}/draft` routes. */
-  async createFinancialReportDraft(req: Request, res: Response, next: NextFunction) {
-    return createFinancialReportDraftInternal(req, res, next, undefined);
-  }
-
   async createIncomeStatementDraft(req: Request, res: Response, next: NextFunction) {
     return createFinancialReportDraftInternal(req, res, next, "INCOME_STATEMENTS");
   }
@@ -892,69 +887,6 @@ export class ApplicantPortalController {
         "Period KPIs saved successfully",
         { ...savedKPIs, reportType: "CASHFLOW_STATEMENTS" },
         200
-      );
-    } catch (error: any) {
-      next(error);
-    }
-  }
-
-  /**
-   * @deprecated Prefer **POST** `/financial-reports/operational-kpis/draft` (same behaviour).
-   * Creates a **DRAFT** `OPERATIONAL_KPIS` financial report only (no DB KPI sync until **submit**).
-   */
-  async savePeriodOperationalKpis(req: Request, res: Response, next: NextFunction) {
-    try {
-      const user = (req as any).user;
-      if (!user) {
-        return ResponseHelper.error(res, "User not found in request", undefined, 401);
-      }
-      const userId = user.id || user.userId;
-      if (!userId) {
-        return ResponseHelper.error(res, "User ID not provided", undefined, 400);
-      }
-      const portfolioCompany = await prisma.portfolioCompany.findFirst({
-        where: { userId },
-        select: { id: true, name: true },
-      });
-      if (!portfolioCompany) {
-        return ResponseHelper.error(res, "No portfolio company found for this applicant", undefined, 400);
-      }
-      const body = req.body || {};
-      const { periodStart, periodEnd, operational, periodType, title, description, templateVersion, reportingPeriod } =
-        body;
-      if (!periodStart || !periodEnd) {
-        return ResponseHelper.error(res, "periodStart and periodEnd are required", undefined, 400);
-      }
-      if (operational === undefined || operational === null || typeof operational !== "object") {
-        return ResponseHelper.error(res, "operational (object) is required", undefined, 400);
-      }
-      const rp = reportingPeriod ? new Date(reportingPeriod) : new Date(periodEnd);
-      if (Number.isNaN(rp.getTime())) {
-        return ResponseHelper.error(res, "Invalid reportingPeriod or periodEnd", undefined, 400);
-      }
-      const trimmedTitle = title != null ? String(title).trim() : "";
-      const draftTitle =
-        trimmedTitle || `Operational KPIs — ${new Date(periodEnd).toISOString().split("T")[0]}`;
-
-      const result = await FinancialReportService.createDraftReport({
-        portfolioCompanyId: portfolioCompany.id,
-        submittedById: userId,
-        reportType: "OPERATIONAL_KPIS",
-        reportingPeriod: rp,
-        periodType: periodType || "QUARTERLY",
-        periodStart: new Date(periodStart),
-        periodEnd: new Date(periodEnd),
-        title: draftTitle,
-        description: description ?? undefined,
-        templateVersion: templateVersion ?? undefined,
-        dataSnapshot: { operational },
-      });
-
-      return ResponseHelper.success(
-        res,
-        "Draft operational KPIs report created. Submit with POST /api/applicant/financial-reports/submit (reportId) to publish KPIs and run derivation.",
-        { ...result, reportType: "OPERATIONAL_KPIS" },
-        201
       );
     } catch (error: any) {
       next(error);
