@@ -1,5 +1,13 @@
 //@ts-nocheck
 import { emailTransport, getFromAddress } from "../config/email.config";
+import {
+  formatDueDateForEmail,
+  getInvesteeReportsPortalUrl,
+  MANDATORY_REPORTING_ATTACHMENTS,
+  mandatoryAttachmentsHtmlList,
+  reportingPeriodQuarterLabel,
+  type ReportingMandatoryAttachment,
+} from "../utils/reportingEmail";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -353,32 +361,119 @@ export class EmailNotificationService {
     });
   }
 
+  /**
+   * Automated reporting emails (open period, T−3, overdue). Snapshot returned for DB audit (`reporting_notification_logs.meta`).
+   */
   static async sendReportingPeriodReminderEmail(data: {
     recipientEmail: string;
     companyName: string;
     reportingPeriod: string; // YYYY-MM-DD
     dueDate: string; // YYYY-MM-DD
     isOverdue: boolean;
-  }): Promise<void> {
-    const subject = data.isOverdue
-      ? `Urgent: Overdue Report - ${data.companyName} (${data.reportingPeriod})`
-      : `Reminder: Reporting Due - ${data.companyName} (${data.reportingPeriod})`;
+    /** REQUEST = first “Request for data”; REMINDER = T−3; OVERDUE = past due. */
+    kind: "REQUEST" | "REMINDER" | "OVERDUE";
+    /** Mandatory Excel/PDF list (from open-calendar API or defaults). */
+    mandatoryAttachments?: ReadonlyArray<ReportingMandatoryAttachment>;
+    /** Primary financial contact name vs company (default companyName). */
+    recipientMailboxName?: string;
+    recipientGreetingName?: string;
+  }): Promise<{ subject: string; html: string }> {
+    const periodLabel = reportingPeriodQuarterLabel(data.reportingPeriod);
+    const dueDisplay = formatDueDateForEmail(data.dueDate);
+    const portalUrl = getInvesteeReportsPortalUrl();
+    const attachList =
+      data.mandatoryAttachments?.length > 0 ? data.mandatoryAttachments : MANDATORY_REPORTING_ATTACHMENTS;
+    const greet = (data.recipientGreetingName || data.companyName).replace(/"/g, "");
+    const toName = (data.recipientMailboxName || data.companyName).replace(/"/g, "");
+
+    let subject: string;
+    let leadParagraph: string;
+    if (data.kind === "REQUEST") {
+      subject = `Request for data — ${periodLabel} — ${data.companyName}`;
+      leadParagraph = `<p>You have a new <strong>reporting period</strong> open: <strong>${periodLabel}</strong> (period end <strong>${data.reportingPeriod}</strong>). Please submit the required package by the due date below.</p>`;
+    } else if (data.kind === "OVERDUE" || data.isOverdue) {
+      subject = `Urgent: overdue reporting — ${periodLabel} — ${data.companyName}`;
+      leadParagraph = `<p>This is a <strong>past-due</strong> reminder for your reporting package for <strong>${periodLabel}</strong> (period end <strong>${data.reportingPeriod}</strong>).</p>`;
+    } else {
+      subject = `Reminder: reporting due soon — ${periodLabel} — ${data.companyName}`;
+      leadParagraph = `<p>This is a friendly reminder to complete your reporting package for <strong>${periodLabel}</strong> (period end <strong>${data.reportingPeriod}</strong>).</p>`;
+    }
 
     const html = `
-      <p>Hello ${data.companyName},</p>
-      <p>This is a ${data.isOverdue ? "<strong>past-due</strong>" : "friendly"} reminder to submit your reporting package for <strong>${data.reportingPeriod}</strong>.</p>
-      <p><strong>Due date:</strong> ${data.dueDate}</p>
-      <p>Please log into the Arcus portal and upload the required documents (IS, BS, CF, bank statements, tax/compliance, management accounts, business plan/proposals) and submit.</p>
+      <p>Hello ${greet},</p>
+      ${leadParagraph}
+      <p><strong>Reporting period:</strong> ${periodLabel} <span style="color:#64748b">(${data.reportingPeriod})</span></p>
+      <p><strong>Due date:</strong> ${dueDisplay}</p>
+      <p><strong>Submit here:</strong> <a href="${portalUrl}" target="_blank" rel="noopener noreferrer">${portalUrl}</a></p>
+      <p><strong>Mandatory attachments:</strong></p>
+      ${mandatoryAttachmentsHtmlList(attachList)}
       <p>Thank you.</p>
     `;
 
     const from = getFromAddress("investment");
     await emailTransport.sendMail({
       from: `"${from.name}" <${from.address}>`,
-      to: `"${data.companyName}" <${data.recipientEmail}>`,
+      to: `"${toName}" <${data.recipientEmail}>`,
       subject,
       html,
     });
+    return { subject, html };
+  }
+
+  /** Analyst-initiated nudge: same reporting context as automated mail, with custom body text. */
+  static async sendReportingManualNudgeEmail(data: {
+    recipientEmail: string;
+    companyName: string;
+    reportingPeriod: string;
+    dueDate: string;
+    analystMessage: string;
+    isOverdue: boolean;
+    mandatoryAttachments?: ReadonlyArray<ReportingMandatoryAttachment>;
+    recipientMailboxName?: string;
+    recipientGreetingName?: string;
+  }): Promise<{ subject: string; html: string }> {
+    const escape = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br/>");
+
+    const periodLabel = reportingPeriodQuarterLabel(data.reportingPeriod);
+    const dueDisplay = formatDueDateForEmail(data.dueDate);
+    const portalUrl = getInvesteeReportsPortalUrl();
+    const attachList =
+      data.mandatoryAttachments?.length > 0 ? data.mandatoryAttachments : MANDATORY_REPORTING_ATTACHMENTS;
+    const greet = (data.recipientGreetingName || data.companyName).replace(/"/g, "");
+    const toName = (data.recipientMailboxName || data.companyName).replace(/"/g, "");
+
+    const subject = data.isOverdue
+      ? `Important: reporting follow-up (overdue) — ${periodLabel} — ${data.companyName}`
+      : `Reporting follow-up — ${periodLabel} — ${data.companyName}`;
+
+    const html = `
+      <p>Hello ${greet},</p>
+      <p>Our team asked us to follow up on your reporting package for <strong>${periodLabel}</strong> <span style="color:#64748b">(${data.reportingPeriod})</span>.</p>
+      <p><strong>Due date:</strong> ${dueDisplay}</p>
+      ${data.isOverdue ? "<p><strong>This period is now past due.</strong></p>" : ""}
+      <p><strong>Message from the team:</strong></p>
+      <blockquote style="margin:12px 0;padding:12px 16px;border-left:4px solid #2563eb;background:#f8fafc;">
+        ${escape(data.analystMessage)}
+      </blockquote>
+      <p><strong>Submit here:</strong> <a href="${portalUrl}" target="_blank" rel="noopener noreferrer">${portalUrl}</a></p>
+      <p><strong>Mandatory attachments:</strong></p>
+      ${mandatoryAttachmentsHtmlList(attachList)}
+      <p>Thank you.</p>
+    `;
+
+    const from = getFromAddress("investment");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${toName}" <${data.recipientEmail}>`,
+      subject,
+      html,
+    });
+    return { subject, html };
   }
 
   /**
@@ -453,6 +548,35 @@ export class EmailNotificationService {
     });
   }
 
+  /** Investee: staff asked for corrections (resubmit / re-upload allowed). */
+  static async sendFinancialReportNeedsRevisionEmail(data: {
+    recipientEmail: string;
+    companyName: string;
+    reportType: string;
+    title: string;
+    periodStart: Date;
+    periodEnd: Date;
+    comment?: string;
+  }): Promise<void> {
+    const subject = `Action required: revise your financial report — ${data.companyName}`;
+    const period = `${data.periodStart.toISOString().split('T')[0]} to ${data.periodEnd.toISOString().split('T')[0]}`;
+    const html = `
+      <p>Hello,</p>
+      <p>Your <strong>${String(data.reportType).replace(/_/g, " ")}</strong> titled <strong>${data.title}</strong> needs <strong>revisions</strong> before it can be approved.</p>
+      <p>Reporting period: ${period}</p>
+      ${data.comment ? `<p><strong>Reviewer feedback:</strong> ${data.comment}</p>` : "<p>Please correct your entries or re-upload the required documents, then submit again from the portal.</p>"}
+    `;
+
+    const from = getFromAddress("investment");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${data.companyName}" <${data.recipientEmail}>`,
+      subject,
+      html,
+    });
+  }
+
+  /** Investee: submission was rejected (resubmit / fix data as directed). */
   static async sendFinancialReportRejectedEmail(data: {
     recipientEmail: string;
     companyName: string;
@@ -463,21 +587,21 @@ export class EmailNotificationService {
     status: string;
     comment?: string;
   }): Promise<void> {
-    const subject = `Financial Report Update Needed - ${data.companyName}`;
+    const subject = `Financial report rejected — ${data.companyName}`;
     const period = `${data.periodStart.toISOString().split('T')[0]} to ${data.periodEnd.toISOString().split('T')[0]}`;
     const html = `
       <p>Hello,</p>
-      <p>Your <strong>${data.reportType.replace('_', ' ')}</strong> titled <strong>${data.title}</strong> requires updates.</p>
+      <p>Your <strong>${String(data.reportType).replace(/_/g, " ")}</strong> titled <strong>${data.title}</strong> has been <strong>rejected</strong>.</p>
       <p>Reporting period: ${period}</p>
-      ${data.comment ? `<p><strong>Reviewer Comment:</strong> ${data.comment}</p>` : '<p>Please review and resubmit the report.</p>'}
+      ${data.comment ? `<p><strong>Reviewer feedback:</strong> ${data.comment}</p>` : "<p>Please review the feedback, correct your submission or attach a new document, and resubmit from the investee portal.</p>"}
     `;
 
-    const from = getFromAddress('investment');
+    const from = getFromAddress("investment");
     await emailTransport.sendMail({
       from: `"${from.name}" <${from.address}>`,
       to: `"${data.companyName}" <${data.recipientEmail}>`,
       subject,
-      html: html
+      html,
     });
   }
 

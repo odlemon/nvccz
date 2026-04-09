@@ -6,7 +6,15 @@ import { FinancialReportService } from "../services/FinancialReportService";
 import { FirebaseStorageService } from "../services/FirebaseStorageService";
 import { PortfolioCompanyAccountingService } from "../services/PortfolioCompanyAccountingService";
 import { ReportingReminderService } from "../services/ReportingReminderService";
+import { ReportingCalendarService } from "../services/ReportingCalendarService";
 import { parseDate } from "../utils/dateHelper";
+import {
+  MANDATORY_REPORTING_ATTACHMENTS,
+  parseMandatoryAttachmentsInput,
+  REPORTING_MANDATORY_ATTACHMENT_OPTIONS,
+  resolveMandatoryAttachmentsFromOptionIds,
+  type ReportingMandatoryAttachment,
+} from "../utils/reportingEmail";
 
 export class PortfolioCompanyController {
   // Create portfolio company with user
@@ -304,6 +312,57 @@ export class PortfolioCompanyController {
     }
   }
 
+  /**
+   * Per-company document library: Financial / Operational / Investment folders with fixed subfolders.
+   */
+  static async getDocumentOrganisation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ success: false, message: "Portfolio company ID is required" });
+      }
+      const statusQ = req.query.status;
+      const statuses =
+        typeof statusQ === "string" && statusQ.trim()
+          ? statusQ
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : null;
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+
+      const data = await FinancialReportService.getDocumentOrganisationForCompany(id, {
+        statuses,
+        limit,
+      });
+      return res.status(200).json({ success: true, data });
+    } catch (error: any) {
+      if (error?.message === "Portfolio company not found") {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      next(error);
+    }
+  }
+
+  /** Reporting audit trail: submissions, reviews, uploads, period KPI saves (per company). */
+  static async getReportingAudit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ success: false, message: "Portfolio company ID is required" });
+      }
+      const page = req.query.page ? Number(req.query.page) : 1;
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const data = await FinancialReportService.listReportingAuditForCompany(id, { page, limit });
+      return res.status(200).json({ success: true, data });
+    } catch (error: any) {
+      if (error?.message === "Portfolio company not found") {
+        return res.status(404).json({ success: false, message: error.message });
+      }
+      next(error);
+    }
+  }
+
   static async downloadFinancialReport(req: Request, res: Response, next: NextFunction) {
     try {
       const { reportId } = req.params;
@@ -346,6 +405,21 @@ export class PortfolioCompanyController {
       const { action, comment, totalRevenue, netProfit, cashFlowNet, valuationAdjustment, valuation, dividend, dividends } = req.body;
       if (!action || !['ACCEPT', 'REJECT', 'NEEDS_REVISION'].includes(action)) {
         return res.status(400).json({ success: false, message: "Invalid action" });
+      }
+
+      if (action === "ACCEPT") {
+        const hasAutomation =
+          !!valuationAdjustment ||
+          !!valuation ||
+          !!dividend ||
+          (Array.isArray(dividends) && dividends.length > 0);
+        if (!hasAutomation) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "ACCEPT requires accounting payload: valuationAdjustment/valuation and/or dividend/dividends.",
+          });
+        }
       }
       const authHeader = String(req.headers.authorization || "");
       const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
@@ -450,20 +524,47 @@ export class PortfolioCompanyController {
       }
 
       const { id } = req.params;
-      const { reportingPeriod, dueDate } = req.body || {};
+      const { reportingPeriod, dueDate, message, notes } = req.body || {};
+      const analystMessage = String(message ?? notes ?? "").trim();
       if (!id || !reportingPeriod || !dueDate) {
         return res
           .status(400)
           .json({ success: false, message: "portfolioCompanyId, reportingPeriod, dueDate are required" });
       }
+      if (!analystMessage) {
+        return res.status(400).json({
+          success: false,
+          message: "message (or notes) is required — this text is emailed to the investee",
+        });
+      }
 
-      // Manual nudge: send for this reporting period (logged)
+      let nudgeAttachments;
+      const nudgeIds = req.body?.attachmentOptionIds;
+      if (Array.isArray(nudgeIds) && nudgeIds.length > 0) {
+        const resolved = resolveMandatoryAttachmentsFromOptionIds(nudgeIds);
+        if (!resolved) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "attachmentOptionIds must contain only ids from GET /api/portfolio-companies/reporting/mandatory-attachment-options",
+          });
+        }
+        nudgeAttachments = resolved;
+      } else {
+        nudgeAttachments =
+          parseMandatoryAttachmentsInput(req.body?.mandatoryAttachments, { required: false }) ||
+          [...MANDATORY_REPORTING_ATTACHMENTS];
+      }
+
       const result = await ReportingReminderService.run({
         reportingPeriod,
         dueDate,
         asOfDate: new Date().toISOString().split("T")[0],
-        phase: "REQUEST",
+        phase: "MANUAL_NUDGE",
         portfolioCompanyId: id,
+        analystMessage,
+        analystUserId: user.id || user.userId || null,
+        mandatoryAttachments: nudgeAttachments,
       });
 
       return res.status(200).json({ success: true, message: "Nudge sent", data: result });
@@ -484,19 +585,126 @@ export class PortfolioCompanyController {
         return res.status(400).json({ success: false, message: "reportingPeriod and dueDate are required" });
       }
 
+      const effectivePhase = String(phase || "REQUEST").toUpperCase();
+      const periodDate = new Date(reportingPeriod);
+      if (Number.isNaN(periodDate.getTime())) {
+        return res.status(400).json({ success: false, message: "Invalid reportingPeriod; use YYYY-MM-DD" });
+      }
+      const reportingIso = periodDate.toISOString().split("T")[0];
+
+      if (effectivePhase === "REQUEST") {
+        const already = await ReportingCalendarService.isReportingCalendarPeriodAlreadyOpen(reportingIso);
+        if (already) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "This reporting period is already on the calendar. You cannot open more than one reporting calendar for the same period.",
+            data: { reportingPeriod: reportingIso },
+          });
+        }
+      }
+
+      let attachmentList: ReportingMandatoryAttachment[] | null = null;
+      const optionIds = req.body?.attachmentOptionIds;
+
+      if (Array.isArray(optionIds) && optionIds.length > 0) {
+        attachmentList = resolveMandatoryAttachmentsFromOptionIds(optionIds);
+        if (!attachmentList) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "attachmentOptionIds must be non-empty and each value must be a valid id from GET /api/portfolio-companies/reporting/mandatory-attachment-options",
+          });
+        }
+      } else if (effectivePhase === "REQUEST") {
+        attachmentList = parseMandatoryAttachmentsInput(req.body?.mandatoryAttachments, { required: true });
+        if (!attachmentList) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "When opening the calendar (REQUEST), send either attachmentOptionIds (multi-select catalog ids) or mandatoryAttachments (non-empty { name, formats }[]). GET .../reporting/mandatory-attachment-options for ids.",
+          });
+        }
+      } else {
+        attachmentList =
+          parseMandatoryAttachmentsInput(req.body?.mandatoryAttachments, { required: false }) ||
+          [...MANDATORY_REPORTING_ATTACHMENTS];
+      }
+
       const result = await ReportingReminderService.run({
-        reportingPeriod,
+        reportingPeriod: reportingIso,
         dueDate,
         asOfDate: new Date().toISOString().split("T")[0],
-        phase: phase || "REQUEST",
+        phase: effectivePhase as any,
+        mandatoryAttachments: attachmentList!,
       });
 
       return res.status(200).json({
         success: true,
-        message: "Reporting request opened (emails sent to pending companies)",
+        message:
+          "Request for data sent: emails dispatched to eligible portfolio companies; investees see this period as open in the portal.",
         data: result,
       });
     } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Investor: selectable rows for mandatory-attachment multi-select (open calendar, nudge). */
+  static async getMandatoryAttachmentOptions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      return res.status(200).json({
+        success: true,
+        data: { options: [...REPORTING_MANDATORY_ATTACHMENT_OPTIONS] },
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Investor: full reporting calendar list (periods + notification + submission snapshot). */
+  static async getReportingCalendar(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      const limit = req.query.limit != null ? Number(req.query.limit) : undefined;
+      const offset = req.query.offset != null ? Number(req.query.offset) : undefined;
+      const data = await ReportingCalendarService.listCalendarPeriods({
+        limit: Number.isFinite(limit) ? limit : undefined,
+        offset: Number.isFinite(offset) ? offset : undefined,
+      });
+      return res.status(200).json({ success: true, data });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Investor: one period — due date, portal link, mandatory doc list, sample sent email from DB. */
+  static async getReportingCalendarPeriodDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      const rp =
+        typeof req.query.reportingPeriod === "string" && req.query.reportingPeriod.trim()
+          ? req.query.reportingPeriod.trim()
+          : "";
+      if (!rp) {
+        return res.status(400).json({ success: false, message: "reportingPeriod query (YYYY-MM-DD) is required" });
+      }
+      const data = await ReportingCalendarService.getPeriodDetail(rp);
+      return res.status(200).json({ success: true, data });
+    } catch (error: any) {
+      if (error?.message?.includes("Invalid reportingPeriod")) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
       next(error);
     }
   }

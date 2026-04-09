@@ -107,6 +107,7 @@ import approvalRoutes from "./routes/approvalRoutes"
 import inventoryRoutes from "./routes/inventoryRoutes"
 import assetRoutes from "./routes/assetRoutes"
 import cronRoutes from "./routes/cronRoutes"
+import publicReportingTestRoutes from "./routes/publicReportingTestRoutes"
 import creditNoteRoutes from "./routes/creditNoteRoutes"
 import statementRoutes from "./routes/statementRoutes"
 import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
@@ -191,6 +192,7 @@ app.use(cors({
     'Accept',
     'Origin',
     'X-Depreciation-Cron-Secret',
+    'X-Reporting-Reminders-Cron-Secret',
   ],
   optionsSuccessStatus: 200
 }))
@@ -379,6 +381,7 @@ app.get("/test-db", async (req, res) => {
 
 // Cron / automation (no JWT — use route-specific secrets)
 app.use("/api/cron", cronRoutes)
+app.use("/api/public/reporting", publicReportingTestRoutes)
 
 // Auth routes
 app.use("/api/auth", authRoutes)

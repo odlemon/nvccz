@@ -1038,8 +1038,25 @@ model PortfolioCompany {
   user                     User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   fund                     Fund?                     @relation(fields: [fundId], references: [id], onDelete: SetNull)
   investmentImplementation InvestmentImplementation?
+  reportingPeriodOperationalKpis ReportingPeriodOperationalKpi[]
 
   @@map("portfolio_companies")
+}
+
+/// Investee-entered operational / unit-economics KPIs for one reporting period (non-financial-statement metrics).
+model ReportingPeriodOperationalKpi {
+  id                 String           @id @default(cuid())
+  portfolioCompanyId String           @map("portfolio_company_id")
+  /// Same calendar key as `financialKpis.kpiValues` and `reporting_notification_logs.reporting_period`.
+  reportingPeriodEnd DateTime         @map("reporting_period_end") @db.Date
+  payload            Json
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  portfolioCompany   PortfolioCompany @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioCompanyId, reportingPeriodEnd], map: "reporting_period_operational_kpis_company_period_uniq")
+  @@index([portfolioCompanyId], map: "reporting_period_operational_kpis_company_idx")
+  @@map("reporting_period_operational_kpis")
 }
 
 model Fund {
@@ -1066,6 +1083,30 @@ model Fund {
   investmentCommitments     InvestmentCommitment[]
 
   @@map("funds")
+}
+
+/// Investee reporting automation: cadence + when to open a calendar (REQUEST) vs reminders-only (AUTO tiers for already-open periods). Applies to all eligible portfolio companies — same scope as manual POST .../reporting/requests.
+model ReportingScheduleConfig {
+  id                               String   @id @default(cuid())
+  name                             String
+  /// MONTHLY | QUARTERLY | YEARLY | CUSTOM (CUSTOM uses customMonthEnds: month numbers 1–12).
+  frequency                        String
+  isActive                         Boolean  @default(true) @map("is_active")
+  /// When true, schedule tick may broadcast REQUEST for the computed period. When false, tick only runs AUTO reminders for periods already opened.
+  autoOpenCalendar                 Boolean  @default(true) @map("auto_open_calendar")
+  /// Due date = period end + this many calendar days.
+  dueDateOffsetDaysAfterPeriodEnd  Int      @default(15) @map("due_date_offset_days_after_period_end")
+  /// Open/send REQUEST on/after period end + this many calendar days (typically 1 = first day after period closes).
+  openCalendarAfterPeriodEndDays   Int      @default(1) @map("open_calendar_after_period_end_days")
+  /// JSON string[] of catalog ids; same as POST .../reporting/requests attachmentOptionIds.
+  defaultAttachmentOptionIds       Json?    @map("default_attachment_option_ids")
+  /// JSON number[] — for CUSTOM frequency: month numbers 1–12 whose last day is a period end.
+  customMonthEnds                  Json?    @map("custom_month_ends")
+  createdAt                        DateTime @default(now()) @map("created_at")
+  updatedAt                        DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive], map: "reporting_schedule_configs_is_active_idx")
+  @@map("reporting_schedule_configs")
 }
 
 model Client {

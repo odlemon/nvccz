@@ -1,6 +1,7 @@
 // @ts-nocheck
 import express from "express";
 import { PortfolioCompanyController } from "../controllers/PortfolioCompanyController";
+import { ReportingScheduleConfigController } from "../controllers/ReportingScheduleConfigController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
@@ -299,6 +300,92 @@ router.get("/", authenticate, PortfolioCompanyController.getAllPortfolioCompanie
 
 /**
  * @swagger
+ * /api/portfolio-companies/{id}/document-organisation:
+ *   get:
+ *     summary: Document organisation (investor, per company)
+ *     description: |
+ *       Returns submitted report files for one portfolio company in a fixed folder structure:
+ *       **Financial** (income statement, balance sheet, cash flow, bank statements, tax documents, audits, management accounts),
+ *       **Operational** (HR, payroll, sales reports, inventory, production, non-financial KPIs),
+ *       **Investment** (business plans, investor reports, compliance documents).
+ *       Subfolders are always present; empty subfolders return `files: []`.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Portfolio company ID.
+ *       - in: query
+ *         name: status
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Comma-separated statuses (e.g. PENDING,ACCEPTED). Default excludes DRAFT only.
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 2000
+ *         description: Max reports loaded before grouping (cap 5000).
+ *     responses:
+ *       200:
+ *         description: documentOrganisation tree (Financial / Operational / Investment)
+ *       400:
+ *         description: Missing company ID
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Portfolio company not found
+ */
+router.get(
+  "/:id/document-organisation",
+  authenticate,
+  PortfolioCompanyController.getDocumentOrganisation
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/reporting-audit:
+ *   get:
+ *     summary: Financial reporting audit trail (investor)
+ *     description: |
+ *       Timeline of reporting-related events for one portfolio company — investee submissions, file uploads,
+ *       staff reviews (accept / reject / needs revision), and period-level KPI data saves. Uses `audit_logs`
+ *       (company name and reporting period appear inside each event's `newValues` / `oldValues` JSON).
+ *       The response also includes **`communicationLog`**: email/portal notification events
+ *       (original request, T−3 reminder, overdue alert, manual nudge, viewed-by-investee) from `reporting_notification_logs`.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Paginated events
+ *       404:
+ *         description: Company not found
+ */
+router.get("/:id/reporting-audit", authenticate, PortfolioCompanyController.getReportingAudit);
+
+/**
+ * @swagger
  * /api/portfolio-companies/{id}/financial-reports:
  *   get:
  *     summary: List financial reports for a portfolio company
@@ -378,7 +465,6 @@ router.get("/:id/financial-reports", authenticate, PortfolioCompanyController.ge
 router.get(
   "/:id/financial-reports/:reportId/download",
   authenticate,
-  authorize(["admin"]),
   PortfolioCompanyController.downloadFinancialReport
 );
 
@@ -446,22 +532,405 @@ router.get(
 router.post(
   "/:id/financial-reports/:reportId/review",
   authenticate,
-  authorize(["admin"]),
   PortfolioCompanyController.reviewFinancialReport
 );
 
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/reporting/nudge:
+ *   post:
+ *     summary: Manual reporting nudge (email investee)
+ *     description: |
+ *       Sends an immediate email to the portfolio company's investee user with **custom analyst text** in the body.
+ *       Logged as `MANUAL_NUDGE` in `reporting_notification_logs` (see **GET** `.../reporting-audit` → `communicationLog`).
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reportingPeriod, dueDate, message]
+ *             properties:
+ *               reportingPeriod:
+ *                 type: string
+ *                 example: "2025-12-31"
+ *               dueDate:
+ *                 type: string
+ *                 example: "2026-01-15"
+ *               message:
+ *                 type: string
+ *                 description: Shown in the email body (alias `notes`)
+ *               notes:
+ *                 type: string
+ *               attachmentOptionIds:
+ *                 type: array
+ *                 description: Optional; multi-select catalog ids (overrides mandatoryAttachments when non-empty).
+ *                 items:
+ *                   type: string
+ *                   enum:
+ *                     - INCOME_STATEMENT
+ *                     - STATEMENT_OF_FINANCIAL_POSITION
+ *                     - CASH_FLOW_STATEMENT
+ *                     - BANK_STATEMENTS
+ *                     - TAX_COMPLIANCE
+ *                     - MANAGEMENT_ACCOUNTS
+ *                     - BUSINESS_PLAN
+ *               mandatoryAttachments:
+ *                 type: array
+ *                 description: Optional when attachmentOptionIds provided; else defaults to full standard list.
+ *                 items:
+ *                   type: object
+ *                   required: [name, formats]
+ *                   properties:
+ *                     name: { type: string }
+ *                     formats: { type: string }
+ *     responses:
+ *       200:
+ *         description: Nudge queued/sent for that company
+ *       400:
+ *         description: Missing fields or empty message
+ */
 router.post(
   "/:id/reporting/nudge",
   authenticate,
-  authorize(["admin"]),
   PortfolioCompanyController.nudgeReporting
 );
 
+/**
+ * @swagger
+ * /api/portfolio-companies/reporting/mandatory-attachment-options:
+ *   get:
+ *     summary: Mandatory reporting attachments catalog (investor)
+ *     description: |
+ *       Rows for **multi-select** in the Reporting Calendar UI. Each `id` can be sent in `attachmentOptionIds`
+ *       on **POST** `/reporting/requests` (recommended) instead of building `mandatoryAttachments` by hand.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: `{ options: [{ id, name, formats }, ...] }`
+ */
+router.get(
+  "/reporting/mandatory-attachment-options",
+  authenticate,
+  PortfolioCompanyController.getMandatoryAttachmentOptions
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/reporting/requests:
+ *   post:
+ *     summary: Open reporting calendar — Request for data (broadcast)
+ *     description: |
+ *       Sends the initial “Request for data” email to all eligible portfolio companies and opens the period on the investee portal.
+ *       **Each `reportingPeriod` can only be opened once** (409 if a `REQUEST` already exists for that date).
+ *       For **`phase: REQUEST`** (default), supply **either** `attachmentOptionIds` (recommended; multi-select from GET `/reporting/mandatory-attachment-options`)
+ *       **or** `mandatoryAttachments` (explicit `{ name, formats }[]`). If `attachmentOptionIds` is present and non-empty, it wins.
+ *       Reminder/cron phases (`T_MINUS_3`, `OVERDUE`, `AUTO`) may omit both; server defaults apply.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reportingPeriod, dueDate]
+ *             properties:
+ *               reportingPeriod:
+ *                 type: string
+ *                 format: date
+ *                 example: "2024-03-31"
+ *                 description: Period end date (e.g. Q1 2024 → 2024-03-31)
+ *               dueDate:
+ *                 type: string
+ *                 format: date
+ *                 example: "2024-04-15"
+ *               attachmentOptionIds:
+ *                 type: array
+ *                 description: Recommended — one entry per multi-selected catalog row (Swagger try-it-out add multiple values).
+ *                 items:
+ *                   type: string
+ *                   enum:
+ *                     - INCOME_STATEMENT
+ *                     - STATEMENT_OF_FINANCIAL_POSITION
+ *                     - CASH_FLOW_STATEMENT
+ *                     - BANK_STATEMENTS
+ *                     - TAX_COMPLIANCE
+ *                     - MANAGEMENT_ACCOUNTS
+ *                     - BUSINESS_PLAN
+ *                 example:
+ *                   - INCOME_STATEMENT
+ *                   - STATEMENT_OF_FINANCIAL_POSITION
+ *                   - CASH_FLOW_STATEMENT
+ *                   - BANK_STATEMENTS
+ *                   - TAX_COMPLIANCE
+ *                   - MANAGEMENT_ACCOUNTS
+ *                   - BUSINESS_PLAN
+ *               mandatoryAttachments:
+ *                 type: array
+ *                 minItems: 1
+ *                 description: |
+ *                   Alternative to `attachmentOptionIds` when opening the calendar. Omit if using ids.
+ *                 items:
+ *                   type: object
+ *                   required: [name, formats]
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                       example: "Income statement"
+ *                     formats:
+ *                       type: string
+ *                       example: "Excel (.xlsx)"
+ *               phase:
+ *                 type: string
+ *                 enum: [REQUEST, T_MINUS_3, OVERDUE, AUTO]
+ *                 default: REQUEST
+ *           examples:
+ *             multiSelectAllCatalog:
+ *               summary: Recommended — all standard attachments via ids (UI multi-select)
+ *               value:
+ *                 reportingPeriod: "2024-03-31"
+ *                 dueDate: "2024-04-15"
+ *                 attachmentOptionIds:
+ *                   - INCOME_STATEMENT
+ *                   - STATEMENT_OF_FINANCIAL_POSITION
+ *                   - CASH_FLOW_STATEMENT
+ *                   - BANK_STATEMENTS
+ *                   - TAX_COMPLIANCE
+ *                   - MANAGEMENT_ACCOUNTS
+ *                   - BUSINESS_PLAN
+ *             multiSelectSubset:
+ *               summary: Subset — e.g. core statements only
+ *               value:
+ *                 reportingPeriod: "2024-03-31"
+ *                 dueDate: "2024-04-15"
+ *                 attachmentOptionIds:
+ *                   - INCOME_STATEMENT
+ *                   - STATEMENT_OF_FINANCIAL_POSITION
+ *                   - CASH_FLOW_STATEMENT
+ *             explicitNameFormats:
+ *               summary: Explicit mandatoryAttachments (no catalog ids)
+ *               value:
+ *                 reportingPeriod: "2024-03-31"
+ *                 dueDate: "2024-04-15"
+ *                 mandatoryAttachments:
+ *                   - name: "Income statement"
+ *                     formats: "Excel (.xlsx)"
+ *                   - name: "Statement of financial position (balance sheet)"
+ *                     formats: "Excel (.xlsx)"
+ *                   - name: "Cash flow statement"
+ *                     formats: "Excel (.xlsx)"
+ *                   - name: "Bank statements"
+ *                     formats: "Excel (.xlsx) or PDF"
+ *                   - name: "Tax / compliance filings and certificates"
+ *                     formats: "PDF (Excel where applicable)"
+ *                   - name: "Management accounts"
+ *                     formats: "Excel (.xlsx) or PDF"
+ *                   - name: "Business plan / investor narrative and projections"
+ *                     formats: "PDF (Excel for models)"
+ *     responses:
+ *       200:
+ *         description: Emails dispatched
+ *       400:
+ *         description: Missing or invalid fields
+ *       409:
+ *         description: Period already opened on the calendar
+ */
 router.post(
   "/reporting/requests",
   authenticate,
-  authorize(["admin"]),
   PortfolioCompanyController.openReportingRequest
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/reporting/calendar:
+ *   get:
+ *     summary: Reporting calendar — full list (investor)
+ *     description: |
+ *       Lists **opened calendars**: one row per **`reportingPeriod`** that has at least one **`REQUEST`** in
+ *       `reporting_notification_logs` (manual POST **.../reporting/requests** or automated schedule tick).
+ *       Returns **`data.periods`** (alias **`data.openedCalendars`**) and **`data.meta.listKind`** = `opened_calendars`.
+ *       Each row includes: label, **dueDate**, first/last request time, last activity, **investeePortalUrl**,
+ *       **mandatoryAttachments** (from latest REQUEST log), **lastRequestEmailSubject**, full **notificationSummary**
+ *       (request / T−3 / overdue / nudge / viewed counts), companies that received the initial request vs **companiesSubmitted**
+ *       (PENDING/ACCEPTED reports for that period).
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 200
+ *         description: Max periods (cap 500)
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: `{ success, data: { periods, openedCalendars, meta } }`
+ */
+router.get(
+  "/reporting/calendar",
+  authenticate,
+  PortfolioCompanyController.getReportingCalendar
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/reporting/calendar/detail:
+ *   get:
+ *     summary: Reporting calendar period detail + email inspector (investor)
+ *     description: |
+ *       Due date, investee portal deep link (`FRONTEND_URL/application-portal/reports`), mandatory attachment list,
+ *       notification counts, and **sampleEmail** (subject + html) from the latest REQUEST log — same content sent to investees
+ *       (stored in `reporting_notification_logs.meta` for new mailings).
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: reportingPeriod
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "2024-03-31"
+ *     responses:
+ *       200:
+ *         description: Period detail
+ *       400:
+ *         description: Missing or invalid reportingPeriod
+ */
+router.get(
+  "/reporting/calendar/detail",
+  authenticate,
+  PortfolioCompanyController.getReportingCalendarPeriodDetail
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/reporting/schedule-configs:
+ *   get:
+ *     summary: List reporting automation configs (cadence — not opened calendars)
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: `{ success, data: { configs } }`
+ *   post:
+ *     summary: Create reporting schedule config
+ *     description: |
+ *       Defines **when** the system may auto-broadcast REQUEST (open calendar) or run reminder-only AUTO tiers.
+ *       Does **not** open a period by itself until **POST** `/api/cron/reporting/schedule-tick` (or your scheduler) runs.
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, frequency]
+ *             properties:
+ *               name: { type: string, example: "Quarterly portfolio pack" }
+ *               frequency:
+ *                 type: string
+ *                 enum: [MONTHLY, QUARTERLY, YEARLY, CUSTOM]
+ *               isActive: { type: boolean, default: true }
+ *               autoOpenCalendar:
+ *                 type: boolean
+ *                 default: true
+ *                 description: If false, tick runs AUTO reminders only for periods already opened (fund-scoped).
+ *               dueDateOffsetDaysAfterPeriodEnd: { type: integer, default: 15 }
+ *               openCalendarAfterPeriodEndDays: { type: integer, default: 1 }
+ *               defaultAttachmentOptionIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               customMonthEnds:
+ *                 type: array
+ *                 items: { type: integer }
+ *                 description: Required when frequency is CUSTOM — month numbers 1–12 (period end = last day of that month).
+ *     responses:
+ *       201:
+ *         description: Created
+ */
+router.get(
+  "/reporting/schedule-configs",
+  authenticate,
+  ReportingScheduleConfigController.list
+);
+router.post(
+  "/reporting/schedule-configs",
+  authenticate,
+  ReportingScheduleConfigController.create
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/reporting/schedule-configs/{id}:
+ *   get:
+ *     summary: Get one reporting schedule config
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *   put:
+ *     summary: Update reporting schedule config
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *   delete:
+ *     summary: Delete reporting schedule config
+ *     tags: ['Financial Reporting']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ */
+router.get(
+  "/reporting/schedule-configs/:id",
+  authenticate,
+  ReportingScheduleConfigController.getById
+);
+router.put(
+  "/reporting/schedule-configs/:id",
+  authenticate,
+  ReportingScheduleConfigController.update
+);
+router.delete(
+  "/reporting/schedule-configs/:id",
+  authenticate,
+  ReportingScheduleConfigController.remove
 );
 
 /**
@@ -513,7 +982,6 @@ router.post(
 router.post(
   "/:id/valuation-adjustments",
   authenticate,
-  authorize(["admin", "cio", "ceo", "INV_ANALYST", "analyst", "investment_analyst"]),
   PortfolioCompanyController.recordValuationAdjustment
 );
 
@@ -563,7 +1031,6 @@ router.post(
 router.post(
   "/:id/dividends",
   authenticate,
-  authorize(["admin", "cio", "ceo", "INV_ANALYST", "analyst", "investment_analyst"]),
   PortfolioCompanyController.recordDividend
 );
 

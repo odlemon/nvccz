@@ -131,7 +131,11 @@ export class PortfolioCompanyAccountingService {
 
     const currencyId = await this.getDefaultCurrencyId();
     const txDateIso = new Date(params.valuationDate).toISOString().split("T")[0];
-    const description = `Valuation adjustment for ${company.name}`;
+    // Arcus SRD §2.1 (gain) / §2.2 (loss): VC books only — 1502 with 4050 (gain) or 6050 (loss).
+    const description =
+      difference > 0
+        ? `Unrealized Gain on ${company.name} Valuation Adjustment.`
+        : `Unrealized Loss on ${company.name} Valuation Adjustment.`;
 
     const { journalEntryId } = await this.createJournalEntryFromAccountCodes({
       createdById: params.approvedById,
@@ -145,13 +149,13 @@ export class PortfolioCompanyAccountingService {
                 accountCode: "1502",
                 debitAmount: Math.abs(difference),
                 creditAmount: 0,
-                description: "Increase in investment fair value",
+                description: "Investment Asset — increase fair value (Dr)",
               },
               {
                 accountCode: "4050",
                 debitAmount: 0,
                 creditAmount: Math.abs(difference),
-                description: "Unrealized gain on investment",
+                description: "Unrealized Gain on Investment (Cr)",
               },
             ]
           : [
@@ -159,13 +163,13 @@ export class PortfolioCompanyAccountingService {
                 accountCode: "6050",
                 debitAmount: Math.abs(difference),
                 creditAmount: 0,
-                description: "Unrealized loss on investment",
+                description: "Unrealized Loss on Investment (Dr)",
               },
               {
                 accountCode: "1502",
                 debitAmount: 0,
                 creditAmount: Math.abs(difference),
-                description: "Decrease in investment fair value",
+                description: "Investment Asset — decrease fair value (Cr)",
               },
             ],
     });
@@ -247,7 +251,8 @@ export class PortfolioCompanyAccountingService {
     }
 
     const txDateIso = new Date(params.dividendDate).toISOString().split("T")[0];
-    const description = `Dividend income from ${company.name}`;
+    // Arcus SRD §2.3: dividend — Dr cash/bank, Cr 4100; does not touch 1502 (no valuation adjustment).
+    const description = `Dividend received — ${company.name}`;
 
     const { journalEntryId } = await this.createJournalEntryFromAccountCodes({
       createdById: params.approvedById,
@@ -259,13 +264,13 @@ export class PortfolioCompanyAccountingService {
           accountCode: String(bank.glAccount.accountNo),
           debitAmount: params.amount,
           creditAmount: 0,
-          description: "Dividend cash received",
+          description: "Cash / bank — dividend received (Dr)",
         },
         {
           accountCode: "4100",
           debitAmount: 0,
           creditAmount: params.amount,
-          description: "Dividend income",
+          description: "Dividend Income (Cr)",
         },
       ],
     });

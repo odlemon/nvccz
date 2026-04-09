@@ -86,11 +86,55 @@ export const investeeReportingEndpoints = {
     },
   },
 
+  "/applicant/financial-reports/{reportId}": {
+    get: {
+      summary: "Get one report for edit (investee)",
+      description:
+        "Returns full detail including `data` (line items), reviewer feedback, canSubmit, canUploadFile. Use after staff requests revision.",
+      tags: ["Investee Reporting"],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: "path", name: "reportId", required: true, schema: { type: "string" } }],
+      responses: {
+        200: { description: "Report detail" },
+        404: { description: "Not found" },
+        401: { description: "Unauthorized" },
+      },
+    },
+  },
+
+  "/applicant/financial-reports/{reportId}/data": {
+    patch: {
+      summary: "Update manual form data on a report (investee)",
+      description:
+        "Replaces parsedSnapshot for core statements / NON_FINANCIAL_KPIS. Status stays NEEDS_REVISION until submit. Use POST /file to replace attachment.",
+      tags: ["Investee Reporting"],
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: "path", name: "reportId", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["data"],
+              properties: { data: { type: "object" } },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "Updated" },
+        400: { description: "Invalid request" },
+        401: { description: "Unauthorized" },
+      },
+    },
+  },
+
   "/applicant/financial-reports/submit": {
     post: {
       summary: "Submit reporting period bundle (investee)",
       description:
-        "Submits all DRAFT/NEEDS_REVISION reports for the same company + reportingPeriod as the provided reportId.",
+        "Submits all DRAFT/NEEDS_REVISION/REJECTED reports for the same company + reportingPeriod as the provided reportId.",
       tags: ["Investee Reporting"],
       security: [{ bearerAuth: [] }],
       parameters: [

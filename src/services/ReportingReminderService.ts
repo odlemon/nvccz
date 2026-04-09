@@ -1,5 +1,8 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
+import { MANDATORY_REPORTING_ATTACHMENTS } from "../utils/reportingEmail";
+import { resolveReportingNotificationRecipient } from "../utils/reportingRecipient";
+import { ReportingCalendarService } from "./ReportingCalendarService";
 import { EmailNotificationService } from "./EmailNotificationService";
 
 export class ReportingReminderService {
@@ -34,8 +37,13 @@ export class ReportingReminderService {
     reportingPeriod: string; // YYYY-MM-DD
     dueDate: string; // YYYY-MM-DD
     asOfDate?: string; // YYYY-MM-DD (default today)
-    phase?: "AUTO" | "REQUEST" | "T_MINUS_3" | "OVERDUE";
-    portfolioCompanyId?: string; // optional: restrict to one company (manual nudge)
+    phase?: "AUTO" | "REQUEST" | "T_MINUS_3" | "OVERDUE" | "MANUAL_NUDGE";
+    portfolioCompanyId?: string; // required for MANUAL_NUDGE; optional otherwise (restrict to one company)
+    /** Required when phase is MANUAL_NUDGE — included in the email body and stored in notification log meta. */
+    analystMessage?: string;
+    analystUserId?: string | null;
+    /** Excel/PDF list for emails; defaults when omitted (cron/reminders). */
+    mandatoryAttachments?: ReadonlyArray<{ name: string; formats: string }>;
   }): Promise<{
     reportingPeriod: string;
     dueDate: string;
@@ -56,6 +64,16 @@ export class ReportingReminderService {
     const asOfIso = asOfDate.toISOString().split("T")[0];
 
     const phase = (params.phase || "AUTO") as any;
+
+    if (phase === "REQUEST" && !params.portfolioCompanyId) {
+      const exists = await ReportingCalendarService.isReportingCalendarPeriodAlreadyOpen(reportingIso);
+      if (exists) {
+        throw new Error(
+          "This reporting period already has a REQUEST batch. Use POST /api/portfolio-companies/reporting/requests to open the calendar once, then use phase T_MINUS_3 or OVERDUE for reminder tiers (or the public/cron trigger endpoints)."
+        );
+      }
+    }
+
     let eventType: string | null = null;
     let isOverdue = false;
     if (phase === "REQUEST") {
@@ -65,6 +83,16 @@ export class ReportingReminderService {
     } else if (phase === "OVERDUE") {
       eventType = "OVERDUE_T_PLUS_1";
       isOverdue = true;
+    } else if (phase === "MANUAL_NUDGE") {
+      if (!params.portfolioCompanyId) {
+        throw new Error("portfolioCompanyId is required for MANUAL_NUDGE");
+      }
+      const msg = String(params.analystMessage || "").trim();
+      if (!msg) {
+        throw new Error("analystMessage is required for MANUAL_NUDGE");
+      }
+      eventType = "MANUAL_NUDGE";
+      isOverdue = asOfIso > dueIso;
     } else {
       // AUTO: only send on T-3 or T+1 (so we don't spam daily)
       const dueMs = new Date(dueIso).getTime();
@@ -80,6 +108,11 @@ export class ReportingReminderService {
       }
     }
 
+    const resolvedAttachments =
+      Array.isArray(params.mandatoryAttachments) && params.mandatoryAttachments.length > 0
+        ? params.mandatoryAttachments
+        : [...MANDATORY_REPORTING_ATTACHMENTS];
+
     const submittedRows = await prisma.$queryRawUnsafe<Array<{ portfolioCompanyId: string }>>(
       `SELECT DISTINCT portfolioCompanyId
        FROM financial_reports
@@ -89,14 +122,17 @@ export class ReportingReminderService {
     );
     const submittedSet = new Set(submittedRows.map((r) => r.portfolioCompanyId));
 
+    // “Active” investees eligible for reporting (live portfolio companies).
     const companies = await prisma.portfolioCompany.findMany({
       where: {
-        status: { in: ["APPROVED", "ACTIVE"] },
+        status: { in: ["ACTIVE", "APPROVED"] },
         ...(params.portfolioCompanyId ? { id: params.portfolioCompanyId } : {}),
       },
       select: {
         id: true,
         name: true,
+        contactEmail: true,
+        contactPerson: true,
         user: { select: { email: true } },
       },
     });
@@ -109,25 +145,70 @@ export class ReportingReminderService {
         skipped++;
         continue;
       }
-      const email = c.user?.email;
-      if (!email) {
+      const rcpt = resolveReportingNotificationRecipient({
+        companyName: c.name,
+        contactEmail: c.contactEmail,
+        contactPerson: c.contactPerson,
+        portalUserEmail: c.user?.email,
+      });
+      if (!rcpt) {
         skipped++;
         continue;
       }
-      await EmailNotificationService.sendReportingPeriodReminderEmail({
-        recipientEmail: email,
-        companyName: c.name,
-        reportingPeriod: reportingIso,
-        dueDate: dueIso,
-        isOverdue,
-      });
+      let emailSnapshot: { subject: string; html: string };
+      if (phase === "MANUAL_NUDGE") {
+        emailSnapshot = await EmailNotificationService.sendReportingManualNudgeEmail({
+          recipientEmail: rcpt.email,
+          companyName: c.name,
+          reportingPeriod: reportingIso,
+          dueDate: dueIso,
+          analystMessage: String(params.analystMessage || "").trim(),
+          isOverdue,
+          mandatoryAttachments: resolvedAttachments,
+          recipientMailboxName: rcpt.mailboxDisplayName,
+          recipientGreetingName: rcpt.salutation,
+        });
+      } else {
+        const kind =
+          eventType === "REQUEST"
+            ? "REQUEST"
+            : eventType === "REMINDER_T_MINUS_3"
+              ? "REMINDER"
+              : "OVERDUE";
+        emailSnapshot = await EmailNotificationService.sendReportingPeriodReminderEmail({
+          recipientEmail: rcpt.email,
+          companyName: c.name,
+          reportingPeriod: reportingIso,
+          dueDate: dueIso,
+          isOverdue,
+          kind,
+          mandatoryAttachments: resolvedAttachments,
+          recipientMailboxName: rcpt.mailboxDisplayName,
+          recipientGreetingName: rcpt.salutation,
+        });
+      }
       await this.logEvent({
         portfolioCompanyId: c.id,
         reportingPeriodIso: reportingIso,
         eventType,
-        recipientEmail: email,
+        recipientEmail: rcpt.email,
         status: "SENT",
-        meta: { dueDate: dueIso, asOfDate: asOfIso },
+        meta: {
+          dueDate: dueIso,
+          asOfDate: asOfIso,
+          emailSubject: emailSnapshot.subject,
+          emailHtml: emailSnapshot.html,
+          mandatoryAttachments: resolvedAttachments,
+          recipientSource: rcpt.source,
+          portalUserEmail: rcpt.source === "PRIMARY_FINANCIAL_CONTACT" ? c.user?.email || null : null,
+          contactPerson: c.contactPerson || null,
+          ...(phase === "MANUAL_NUDGE"
+            ? {
+                analystUserId: params.analystUserId ?? null,
+                analystMessage: String(params.analystMessage || "").trim(),
+              }
+            : {}),
+        },
       });
       reminded++;
     }

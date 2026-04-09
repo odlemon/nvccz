@@ -42,7 +42,12 @@ export default class FiscalCalendarController {
       });
       res.json({ success: true, ...result });
     } catch (e: any) {
-      res.status(500).json({ success: false, message: e?.message ?? "Commit failed" });
+      const status = typeof e?.statusCode === "number" ? e.statusCode : 500;
+      res.status(status).json({
+        success: false,
+        message: e?.message ?? "Commit failed",
+        ...(e?.details ? { details: e.details } : {}),
+      });
     }
   }
 

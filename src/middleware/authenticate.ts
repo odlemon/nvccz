@@ -20,17 +20,19 @@ export function createToken(userId: string): string {
 }
 
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
-  console.log(`🔐 Auth check for ${req.method} ${req.path}`);
-  console.log(`📋 Headers:`, req.headers.authorization ? 'Authorization header present' : 'No Authorization header');
-  
+  if (DEBUG_AUTH) {
+    console.log(`🔐 Auth check for ${req.method} ${req.path}`);
+    console.log(`📋 Headers:`, req.headers.authorization ? "Authorization header present" : "No Authorization header");
+  }
+
   const authHeader = req.headers.authorization;
-  
+
   // Check if authorization header exists and has correct format
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.log(`❌ No valid auth header for ${req.path}`);
-    res.status(401).json({ 
+    if (DEBUG_AUTH) console.log(`❌ No valid auth header for ${req.path}`);
+    res.status(401).json({
       success: false,
-      message: "Unauthorized" 
+      message: "Unauthorized",
     });
     return;
   }
