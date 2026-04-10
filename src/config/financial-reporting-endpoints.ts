@@ -1,6 +1,7 @@
 import {
   OPERATIONAL_KPI_FIELD_KEYS,
   OPERATIONAL_KPI_FULL_EXAMPLE,
+  OPERATIONAL_KPI_NUMERIC_INVALID,
   OPERATIONAL_KPI_OPENAPI_PROPERTIES,
 } from './operationalKpiFieldSchema';
 import {
@@ -18,13 +19,24 @@ const AUD_APPLICANT_INVESTEE =
 const AUD_INVESTOR_FUND =
   '**Audience:** **Investor (fund staff)** — e.g. admin, fund_manager, investments_manager, finance_manager. ';
 
+const PERIOD_KPI_VARIANCE_NOTE_PROP = {
+  varianceExplanationNote: {
+    type: 'string',
+    nullable: true,
+    description:
+      '**Submit gate (UAT):** When revenue for this period is **>50% below** the prior saved period, **`POST .../submit`** is rejected unless this note has **≥20 characters** (or you attach a variance PDF / `VARIANCE_EXPLANATION` report in the same bundle). Save via this route **before** submit.',
+    example:
+      'Q2 saw delayed enterprise renewals and one large contract pushed to Q3; pipeline rebuilt in July. CFO review attached separately.',
+  },
+} as const;
+
 export const financialReportingEndpoints = {
   '/applicant/financial-reports': {
     post: {
       summary: 'Upload financial report (draft) — investee',
       description:
         AUD_APPLICANT_INVESTEE +
-        'Multipart upload with file. **Core statements** (`INCOME_STATEMENTS`, `STATEMENT_OF_FINANCIAL_POSITION`, `CASHFLOW_STATEMENTS`, and legacy `BALANCE_SHEET` / `INCOME_STATEMENT` / `CASHFLOW_STATEMENT`) require **.xlsx** only. Other categories (e.g. bank statements, business plan) may use **.xlsx** or **.pdf** where allowed. Prefer typed **`.../income-statement/draft`** (etc.) JSON routes plus **`.../file`** attach for core statements.',
+        'Multipart upload with file. **Core statements** (`INCOME_STATEMENTS`, `STATEMENT_OF_FINANCIAL_POSITION`, `CASHFLOW_STATEMENTS`, and legacy `BALANCE_SHEET` / `INCOME_STATEMENT` / `CASHFLOW_STATEMENT`) require **.xlsx** or **.xls** (not PDF). Other categories (e.g. bank statements, business plan) may use **.pdf** where allowed. Prefer typed **`.../income-statement/draft`** (etc.) JSON routes plus **`.../file`** attach for core statements.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -38,7 +50,8 @@ export const financialReportingEndpoints = {
                 file: {
                   type: 'string',
                   format: 'binary',
-                  description: 'Financial report file. Accepts .xlsx (for new report types) or .csv (for legacy types).'
+                  description:
+                    'Financial report file. Core statement types: **.xlsx** or **.xls** only. Other types may be .csv (legacy) or .pdf where allowed.',
                 },
                 reportType: {
                   type: 'string',
@@ -52,7 +65,8 @@ export const financialReportingEndpoints = {
                     'INCOME_STATEMENT', 
                     'CASHFLOW_STATEMENT'
                   ],
-                  description: 'INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, CASHFLOW_STATEMENTS, and NON_FINANCIAL_KPIS use XLSX format. Legacy types use CSV.'
+                  description:
+                    'INCOME_STATEMENTS, STATEMENT_OF_FINANCIAL_POSITION, and CASHFLOW_STATEMENTS require Excel **.xlsx** or **.xls** for uploads. Legacy types may use CSV. NON_FINANCIAL_KPIS templates are XLSX; uploads follow non-core file rules.',
                 },
                 periodType: {
                   type: 'string',
@@ -168,7 +182,7 @@ export const financialReportingEndpoints = {
       summary: 'Submit multiple financial reports — investee',
       description:
         AUD_APPLICANT_INVESTEE +
-        'Submit one or more draft financial reports for fund review (`PENDING`).',
+        'Submit one or more draft financial reports for fund review (**`PENDING`**). **Validation:** If revenue for the period is **>50% below** the prior period stored in `financialKpis`, you must have saved **`varianceExplanationNote`** (≥20 chars) via **POST** `.../period-kpis` (or include a variance PDF / `VARIANCE_EXPLANATION` report in the bundle); otherwise **400**.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -192,7 +206,10 @@ export const financialReportingEndpoints = {
       },
       responses: {
         200: { description: 'Reports submitted successfully' },
-        400: { description: 'Invalid request' },
+        400: {
+          description:
+            'Invalid request, not in submittable status, or **variance validation** failed (large revenue drop vs prior period without explanation).',
+        },
         401: { description: 'Unauthorized' },
         403: { description: 'Forbidden' }
       }
@@ -203,7 +220,7 @@ export const financialReportingEndpoints = {
       summary: 'Create income statement draft (data only) — investee',
       description:
         AUD_APPLICANT_INVESTEE +
-        'Creates a **DRAFT** `financial_reports` row with `reportType` **INCOME_STATEMENTS**. Response includes `id`; attach XLSX via **POST** `/applicant/financial-reports/file?reportId=`. `data` must use canonical template keys (see example).',
+        `Creates a **DRAFT** \`financial_reports\` row with \`reportType\` **INCOME_STATEMENTS**. Response includes \`id\`; attach **.xlsx** or **.xls** via **POST** \`/applicant/financial-reports/file?reportId=\`. \`data\` must use canonical template keys; **non-numeric text** in numeric fields returns **400** (\`${OPERATIONAL_KPI_NUMERIC_INVALID}\`).`,
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -246,7 +263,7 @@ export const financialReportingEndpoints = {
       summary: 'Create balance sheet draft (data only) — investee',
       description:
         AUD_APPLICANT_INVESTEE +
-        'Creates a **DRAFT** with `reportType` **STATEMENT_OF_FINANCIAL_POSITION**. `data` wraps **`currentPeriod`** and **`priorPeriod`** objects (canonical BS keys only; no Excel total rows).',
+        'Creates a **DRAFT** with `reportType` **STATEMENT_OF_FINANCIAL_POSITION**. `data` wraps **`currentPeriod`** and **`priorPeriod`** objects (canonical BS keys only). **Server validates** each populated period: **total assets = total liabilities + equity** (small float tolerance); mismatch → **400** `Accounting Error: Balance Sheet is out of balance by $…`.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -343,7 +360,7 @@ export const financialReportingEndpoints = {
       summary: 'Create operational KPIs draft (JSON only, no file) — investee',
       description:
         AUD_APPLICANT_INVESTEE +
-        'Creates **DRAFT** `OPERATIONAL_KPIS` in `financial_reports`. Fast (single insert). **`data.operational`** must include every KPI key (use `0` if N/A). Update with **PATCH** `.../financial-reports/{reportId}/data` if needed. **Submit** with **POST** `/applicant/financial-reports/submit` (body `reportId`): then `reporting_period_operational_kpis` is updated and derived KPIs recomputed. No file attach required.',
+        `Creates **DRAFT** \`OPERATIONAL_KPIS\` in \`financial_reports\`. Fast (single insert). **\`data.operational\`** must include every KPI key (use \`0\` if N/A). **Reject:** present keys with non-numeric text (e.g. \`"Ten"\`) return **400** (\`${OPERATIONAL_KPI_NUMERIC_INVALID}\`). Update with **PATCH** \`.../financial-reports/{reportId}/data\` if needed. **Submit** with **POST** \`/applicant/financial-reports/submit\` (body \`reportId\`): then \`reporting_period_operational_kpis\` is updated and derived KPIs recomputed. No file attach required.`,
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -403,7 +420,7 @@ export const financialReportingEndpoints = {
       summary: 'Attach file to draft report — investee (query reportId)',
       description:
         AUD_APPLICANT_INVESTEE +
-        'Multipart file upload. Pass **reportId** as a query parameter. Same validation as **POST** `/applicant/financial-reports/{reportId}/file`.',
+        'Multipart file upload. Pass **reportId** as a query parameter. **Core** report types require **.xlsx** or **.xls**; PDF rejected. Same rules as path variant **`POST .../{reportId}/file`**.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -430,18 +447,80 @@ export const financialReportingEndpoints = {
       },
       responses: {
         201: { description: 'File attached' },
-        400: { description: 'Invalid file or reportId' },
+        400: {
+          description:
+            'Invalid file extension (e.g. PDF for core statement), wrong reportId, or report not in DRAFT/NEEDS_REVISION/REJECTED.',
+        },
         401: { description: 'Unauthorized' }
       }
     }
+  },
+  '/applicant/financial-reports/period-kpis': {
+    post: {
+      summary: 'Save period KPIs and manual statement sections — investee (combined)',
+      description:
+        AUD_APPLICANT_INVESTEE +
+        'Persists **`portfolio_companies.financialKpis.kpiValues[periodEnd]`** — optional **`incomeStatement`**, **`statementOfFinancialPosition`**, **`cashflowStatement`**, **`nonFinancialKpis`** (numeric leaves validated; non-numeric text → **400**), summary **`totalRevenue` / `netProfit` / `cashFlowNet`**, and **`varianceExplanationNote`** for submit-time revenue-drop checks. Derives **`CURRENT_RATIO`** and other metrics via **`recomputeAndPersist`**.',
+      tags: ['Financial Reporting', 'Investee Reporting'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['periodStart', 'periodEnd'],
+              properties: {
+                periodStart: { type: 'string', format: 'date', example: '2025-01-01' },
+                periodEnd: { type: 'string', format: 'date', example: '2025-03-31' },
+                totalRevenue: { type: 'number', nullable: true },
+                netProfit: { type: 'number', nullable: true },
+                cashFlowNet: { type: 'number', nullable: true },
+                incomeStatement: {
+                  type: 'object',
+                  additionalProperties: { type: 'number' },
+                  description: 'Canonical income-statement line items (strict numeric values).',
+                  example: OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE,
+                },
+                statementOfFinancialPosition: {
+                  type: 'object',
+                  description:
+                    'Flat or **`{ currentPeriod, priorPeriod }`** SOFP line items; each period must **balance** (assets = liabilities + equity).',
+                  example: OPENAPI_BALANCE_SHEET_DATA_EXAMPLE,
+                },
+                cashflowStatement: {
+                  type: 'object',
+                  additionalProperties: { type: 'number' },
+                  example: OPENAPI_CASHFLOW_DATA_EXAMPLE,
+                },
+                nonFinancialKpis: {
+                  type: 'object',
+                  description: 'Nested object with numeric leaves only (non-numeric strings → **400**).',
+                  additionalProperties: true,
+                },
+                ...PERIOD_KPI_VARIANCE_NOTE_PROP,
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Saved; audit log may include **fieldChanges** when manual entries differ from prior' },
+        400: {
+          description:
+            'Invalid body, balance sheet out of balance, or non-numeric KPI / line-item value (see error message).',
+        },
+        401: { description: 'Unauthorized' },
+      },
+    },
   },
   '/applicant/financial-reports/period-kpis/income-statement': {
     post: {
       summary: 'Save income statement line items for a period — investee',
       description:
         AUD_APPLICANT_INVESTEE +
-        'Persists workbook / KPI-tab style income line items for the reporting window (implementation-specific storage).',
-      tags: ['Financial Reporting'],
+        'Persists **`manualEntries.incomeStatement`** for **`periodEnd`**. **Strict numerics:** invalid strings → **400**. Optional **`varianceExplanationNote`** (see **POST** `.../period-kpis`).',
+      tags: ['Financial Reporting', 'Investee Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -461,6 +540,7 @@ export const financialReportingEndpoints = {
                 totalRevenue: { type: 'number', nullable: true, example: 1245800 },
                 netProfit: { type: 'number', nullable: true, example: 189400 },
                 cashFlowNet: { type: 'number', nullable: true, example: 142000 },
+                ...PERIOD_KPI_VARIANCE_NOTE_PROP,
               },
               example: {
                 periodStart: '2025-01-01',
@@ -476,7 +556,7 @@ export const financialReportingEndpoints = {
       },
       responses: {
         200: { description: 'Saved' },
-        400: { description: 'Invalid request' },
+        400: { description: 'Invalid data or non-numeric line value' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -484,8 +564,10 @@ export const financialReportingEndpoints = {
   '/applicant/financial-reports/period-kpis/balance-sheet': {
     post: {
       summary: 'Save balance sheet line items for a period — investee',
-      description: AUD_APPLICANT_INVESTEE + 'Same shape as BS draft `data` (current / prior columns) for KPI sync.',
-      tags: ['Financial Reporting'],
+      description:
+        AUD_APPLICANT_INVESTEE +
+        'Same shape as BS draft **`data`**. **Balanced:** assets must equal liabilities + equity per period (**400** with `Accounting Error: Balance Sheet is out of balance…` if not). Optional **`varianceExplanationNote`**.',
+      tags: ['Financial Reporting', 'Investee Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -504,6 +586,7 @@ export const financialReportingEndpoints = {
                 totalRevenue: { type: 'number', nullable: true, example: 0 },
                 netProfit: { type: 'number', nullable: true, example: 0 },
                 cashFlowNet: { type: 'number', nullable: true, example: 0 },
+                ...PERIOD_KPI_VARIANCE_NOTE_PROP,
               },
               example: {
                 periodStart: '2025-01-01',
@@ -516,7 +599,7 @@ export const financialReportingEndpoints = {
       },
       responses: {
         200: { description: 'Saved' },
-        400: { description: 'Invalid request' },
+        400: { description: 'Invalid request, imbalanced sheet, or bad numeric' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -524,8 +607,10 @@ export const financialReportingEndpoints = {
   '/applicant/financial-reports/period-kpis/cash-flow': {
     post: {
       summary: 'Save cash flow line items for a period — investee',
-      description: AUD_APPLICANT_INVESTEE + 'Stores cash-flow line items for the period (KPI workbook / bridge).',
-      tags: ['Financial Reporting'],
+      description:
+        AUD_APPLICANT_INVESTEE +
+        'Stores **`manualEntries.cashflowStatement`** (strict numerics). Optional **`varianceExplanationNote`**.',
+      tags: ['Financial Reporting', 'Investee Reporting'],
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -545,6 +630,7 @@ export const financialReportingEndpoints = {
                 totalRevenue: { type: 'number', nullable: true, example: 0 },
                 netProfit: { type: 'number', nullable: true, example: 0 },
                 cashFlowNet: { type: 'number', nullable: true, example: 142000 },
+                ...PERIOD_KPI_VARIANCE_NOTE_PROP,
               },
               example: {
                 periodStart: '2025-01-01',
@@ -558,7 +644,7 @@ export const financialReportingEndpoints = {
       },
       responses: {
         200: { description: 'Saved' },
-        400: { description: 'Invalid request' },
+        400: { description: 'Invalid request or non-numeric line value' },
         401: { description: 'Unauthorized' }
       }
     }
@@ -569,7 +655,7 @@ export const financialReportingEndpoints = {
       description:
         AUD_APPLICANT_INVESTEE +
         'Returns the persisted operational payload from `reporting_period_operational_kpis` and the last computed `derived` object from `financialKpis.kpiValues[periodEnd]` (financial + operationalDerived + missingInputs).',
-      tags: ['Financial Reporting'],
+      tags: ['Financial Reporting', 'Investee Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [
         {
@@ -626,7 +712,7 @@ export const financialReportingEndpoints = {
       summary: 'Financial reporting audit trail (investor)',
       description:
         AUD_INVESTOR_FUND +
-        'Paginated audit events for one company: submissions, file attachments, reviews (accept/reject/needs revision), period KPI saves. Each row includes action, timestamps, actor, and JSON old/new values.',
+        'Paginated audit events for one company: submissions, file attachments, reviews (accept/reject/needs revision), period KPI saves. **FINANCIAL_REPORTING_PERIOD_DATA** / **FINANCIAL_REPORT_DATA_UPDATED** may include **newValues.fieldChanges**: map of leaf paths to `{ from, to }` (capped) for field-level audit.',
       tags: ['Financial Reporting'],
       security: [{ bearerAuth: [] }],
       parameters: [

@@ -8,7 +8,7 @@ const router = express.Router();
 
 /**
  * @swagger
- * /api/clients:
+ * /clients:
  *   post:
  *     summary: "0a. Create LP (client) + optional fund commitment — prerequisite for capital calls"
  *     description: >
@@ -118,7 +118,7 @@ const router = express.Router();
  *                 currency: "USD"
  *                 effective_date: "2026-04-10"
  *             lpOnlyNoCommitment:
- *               summary: LP only — add commitment later via PUT /api/clients/{id}
+ *               summary: LP only — add commitment later via PUT /clients/{id}
  *               value:
  *                 type: "individual"
  *                 legal_name: "Rudo Moyo"
@@ -196,7 +196,7 @@ router.post("/", authenticate, authorize(["admin"]), ClientController.createClie
 
 /**
  * @swagger
- * /api/clients:
+ * /clients:
  *   get:
  *     summary: Get all clients with filtering
  *     description: Retrieve all clients with pagination and filtering options
@@ -286,7 +286,7 @@ router.get("/", authenticate, authorize(["admin", "fund_manager"]), ClientContro
 
 /**
  * @swagger
- * /api/clients/statistics:
+ * /clients/statistics:
  *   get:
  *     summary: Get client statistics
  *     description: Get comprehensive statistics about clients and their investments
@@ -324,7 +324,7 @@ router.get("/statistics", authenticate, authorize(["admin", "fund_manager"]), Cl
 
 /**
  * @swagger
- * /api/clients/{id}:
+ * /clients/{id}:
  *   get:
  *     summary: Get client by ID
  *     description: Retrieve a specific client with their investment commitments
@@ -348,7 +348,7 @@ router.get("/:id", authenticate, authorize(["admin", "fund_manager"]), ClientCon
 
 /**
  * @swagger
- * /api/clients/investor/{investorId}:
+ * /clients/investor/{investorId}:
  *   get:
  *     summary: Get client by investor ID
  *     description: Retrieve a client by their external investor ID
@@ -372,7 +372,7 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
 
 /**
  * @swagger
- * /api/clients/{id}:
+ * /clients/{id}:
  *   put:
  *     summary: "0b. Add or update fund commitment on an existing LP — prerequisite for capital calls"
  *     description: >
@@ -389,7 +389,7 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
  *         schema:
  *           type: string
  *           example: "cmnsk42b50000unukxntnpkov"
- *         description: Client primary key (`data.id` from POST /api/clients)
+ *         description: Client primary key (`data.id` from POST /clients; resolves to `{server}/clients/{id}`)
  *     requestBody:
  *       required: true
  *       content:
@@ -465,7 +465,7 @@ router.put("/:id", authenticate, authorize(["admin"]), ClientController.updateCl
 
 /**
  * @swagger
- * /api/clients/{id}:
+ * /clients/{id}:
  *   delete:
  *     summary: Delete client
  *     description: Delete a client (only if no active investment commitments)

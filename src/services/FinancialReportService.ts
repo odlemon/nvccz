@@ -13,10 +13,14 @@ import {
   incomeStatementSchema,
   statementOfFinancialPositionLineItemsSchema,
 } from "../config/financialReportFormSchemas";
-import { normalizeOperationalKpiPayload } from "../config/operationalKpiFieldSchema";
+import {
+  normalizeOperationalKpiPayload,
+  OPERATIONAL_KPI_NUMERIC_INVALID,
+} from "../config/operationalKpiFieldSchema";
+import { totalsFromIncomeLineItems, totalsFromSofpCurrent } from "../utils/reportingDerivedKpis";
 import { InvestmentMonitoringKpiService } from "./InvestmentMonitoringKpiService";
 import AuditService from "./AuditService";
-import { ReportingPeriodKpiService } from "./ReportingPeriodKpiService";
+import { ReportingPeriodKpiService, priorPeriodRevenueFromSnapshot } from "./ReportingPeriodKpiService";
 import { isReportTypeAcceptWithoutAccounting } from "../config/financialReportAcceptPolicy";
 
 export type FinancialReportType = 
@@ -166,6 +170,196 @@ export class FinancialReportService {
     return value;
   }
 
+  private static parseStrictLineItemNumber(fieldKey: string, value: unknown, defaultWhenEmpty: number): number {
+    if (value === null || value === undefined || value === "") {
+      return defaultWhenEmpty;
+    }
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) {
+        throw new Error(OPERATIONAL_KPI_NUMERIC_INVALID);
+      }
+      return value;
+    }
+    if (typeof value === "string") {
+      const t = value.trim();
+      if (t === "") return defaultWhenEmpty;
+      const n = Number(t);
+      if (!Number.isFinite(n)) {
+        throw new Error(OPERATIONAL_KPI_NUMERIC_INVALID);
+      }
+      return n;
+    }
+    throw new Error(OPERATIONAL_KPI_NUMERIC_INVALID);
+  }
+
+  /** UAT 5.3: assets must equal liabilities + equity (from line-item rollups). */
+  private static assertStatementOfFinancialPositionBalanced(periodLabel: string, periodLineItems: Record<string, number>) {
+    const t = totalsFromSofpCurrent(periodLineItems);
+    const rhs = t.totalLiabilities + t.equity;
+    const diff = Math.abs(t.totalAssets - rhs);
+    if (diff > 0.02) {
+      throw new Error(
+        `Accounting Error: Balance Sheet is out of balance by $${diff.toFixed(2)}. (${periodLabel})`
+      );
+    }
+  }
+
+  private static sofpPeriodHasAnyNonZero(period: Record<string, number>): boolean {
+    return Object.values(period).some((v) => Number(v) !== 0);
+  }
+
+  /**
+   * Investee uploads: core statements must be Excel (.xlsx / .xls) for parsing; PDF allowed for other categories.
+   * Matches ApplicantPortalController rules (defense in depth if another caller hits the service).
+   */
+  static assertInvesteeReportUploadExtension(reportType: string, originalFileName: string): void {
+    const ext = originalFileName.split(".").pop()?.toLowerCase() || "";
+    const u = String(reportType || "").toUpperCase();
+    const isCore =
+      u === "INCOME_STATEMENTS" ||
+      u === "INCOME_STATEMENT" ||
+      u === "BALANCE_SHEET" ||
+      u === "STATEMENT_OF_FINANCIAL_POSITION" ||
+      u === "CASHFLOW_STATEMENTS" ||
+      u === "CASHFLOW_STATEMENT";
+    if (!ext || !["xlsx", "xls", "csv", "pdf"].includes(ext)) {
+      throw new Error("Invalid file type. Only .xlsx, .xls, .csv, and .pdf files are allowed");
+    }
+    if (isCore) {
+      if (ext === "pdf") {
+        throw new Error(
+          "Invalid file type for this reportType: core financial statements must be .xlsx or .xls (PDFs are for narrative/compliance categories only)."
+        );
+      }
+      if (ext !== "xlsx" && ext !== "xls") {
+        throw new Error(
+          "Mandatory Requirement: Core financial statements must be uploaded in Excel (.xlsx or .xls) format for system parsing."
+        );
+      }
+    }
+  }
+
+  private static normalizeNonFinancialKpisStrict(dataSnapshot: any): any {
+    if (dataSnapshot === null || dataSnapshot === undefined) return null;
+    if (Array.isArray(dataSnapshot)) {
+      return dataSnapshot.map((x) => this.normalizeNonFinancialKpisStrict(x));
+    }
+    if (typeof dataSnapshot !== "object") {
+      throw new Error("NON_FINANCIAL_KPIS data must be a JSON object");
+    }
+    const out: any = {};
+    for (const [k, v] of Object.entries(dataSnapshot)) {
+      if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+        out[k] = this.normalizeNonFinancialKpisStrict(v);
+      } else {
+        out[k] = this.parseStrictLineItemNumber(k, v, 0);
+      }
+    }
+    return out;
+  }
+
+  private static diffReportingManualLeaves(
+    oldRoot: Record<string, unknown> | null | undefined,
+    newRoot: Record<string, unknown> | null | undefined,
+    maxEntries = 80
+  ): Record<string, { from: unknown; to: unknown }> {
+    const out: Record<string, { from: unknown; to: unknown }> = {};
+    const walk = (prefix: string, a: any, b: any) => {
+      if (Object.keys(out).length >= maxEntries) return;
+      if (a === b) return;
+      const aObj = a !== null && typeof a === "object" && !Array.isArray(a);
+      const bObj = b !== null && typeof b === "object" && !Array.isArray(b);
+      if (aObj && bObj) {
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const k of keys) {
+          if (Object.keys(out).length >= maxEntries) break;
+          const p = prefix ? `${prefix}.${k}` : k;
+          walk(p, a[k], b[k]);
+        }
+        return;
+      }
+      try {
+        if (JSON.stringify(a) !== JSON.stringify(b)) {
+          out[prefix || "(root)"] = { from: a, to: b };
+        }
+      } catch {
+        out[prefix || "(root)"] = { from: a, to: b };
+      }
+    };
+    walk("", oldRoot || {}, newRoot || {});
+    return out;
+  }
+
+  private static revenueFromIncomeSnapshot(raw: any): number | null {
+    if (raw == null) return null;
+    let o = raw;
+    if (typeof raw === "string" && String(raw).trim()) {
+      try {
+        o = JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    }
+    if (!o || typeof o !== "object") return null;
+    const t = totalsFromIncomeLineItems(o as Record<string, unknown>);
+    return t.revenue > 0 ? t.revenue : null;
+  }
+
+  /**
+   * UAT 5.10: if revenue falls more than 50% vs prior posted period, require variance explanation text
+   * (or a dedicated VARIANCE_EXPLANATION report / PDF with "variance" in title in the submit bundle).
+   */
+  private static async assertVarianceExplanationIfRequiredForSubmit(opts: {
+    portfolioCompanyId: string;
+    reportingPeriodIso: string;
+    bundleForPeriod: any[];
+    financialKpisSnapshot: any;
+  }): Promise<void> {
+    const { portfolioCompanyId, reportingPeriodIso, bundleForPeriod, financialKpisSnapshot } = opts;
+    const periodKey = reportingPeriodIso;
+    const prior = priorPeriodRevenueFromSnapshot(financialKpisSnapshot, periodKey);
+    if (prior == null || prior <= 0) return;
+
+    let current: number | null = null;
+    const manualInc = financialKpisSnapshot?.kpiValues?.[periodKey]?.manualEntries?.incomeStatement;
+    if (manualInc && typeof manualInc === "object") {
+      const t = totalsFromIncomeLineItems(manualInc);
+      if (t.revenue > 0) current = t.revenue;
+    }
+    if (current == null) {
+      for (const r of bundleForPeriod) {
+        const rt = String(r.reportType || "").toUpperCase();
+        if (rt !== "INCOME_STATEMENTS" && rt !== "INCOME_STATEMENT") continue;
+        const rev = this.revenueFromIncomeSnapshot(r.parsedSnapshot ?? r.parsedsnapshot);
+        if (rev != null) {
+          current = rev;
+          break;
+        }
+      }
+    }
+    if (current == null || current >= prior * 0.5) return;
+
+    const noteRaw = financialKpisSnapshot?.kpiValues?.[periodKey]?.manualEntries?.varianceExplanationNote;
+    const noteOk = noteRaw != null && String(noteRaw).trim().length >= 20;
+    const hasVarianceDoc = bundleForPeriod.some((r) => {
+      const rt = String(r.reportType || "").toUpperCase();
+      const title = String(r.title || "").toLowerCase();
+      const url = String(r.reportUrl || r.reporturl || "").toLowerCase();
+      return (
+        rt === "VARIANCE_EXPLANATION" ||
+        (url.endsWith(".pdf") && (title.includes("variance") || title.includes("explanation")))
+      );
+    });
+    if (!noteOk && !hasVarianceDoc) {
+      throw new Error(
+        "Variance validation: Revenue is more than 50% below the prior reporting period. " +
+          "Add `varianceExplanationNote` (min 20 characters) on **POST .../period-kpis**, " +
+          "attach a PDF whose title mentions variance/explanation, or add a report with reportType **VARIANCE_EXPLANATION**, " +
+          "then submit again."
+      );
+    }
+  }
+
   /** Public URL fields for list/detail responses (empty DB placeholders → null; tolerate driver column casing). */
   private static reportFileFieldsFromRow(row: any): {
     reportUrl: string | null;
@@ -312,55 +506,59 @@ export class FinancialReportService {
     const rt = String(reportType || "").toUpperCase();
     if (rt === "INCOME_STATEMENTS" || rt === "INCOME_STATEMENT") {
       const defaults = canonicalFieldDefaults(incomeStatementSchema);
-      const normalized = this.normalizeNumericObjectDeep(dataSnapshot);
-
+      const src = dataSnapshot && typeof dataSnapshot === "object" ? dataSnapshot : {};
       const out: any = {};
       for (const k of Object.keys(defaults)) {
-        out[k] = normalized?.[k] ?? defaults[k];
+        out[k] = this.parseStrictLineItemNumber(k, src[k], defaults[k]);
       }
       return out;
     }
 
     if (rt === "STATEMENT_OF_FINANCIAL_POSITION" || rt === "BALANCE_SHEET") {
       const defaults = canonicalFieldDefaults(statementOfFinancialPositionLineItemsSchema);
-      const raw = this.normalizeNumericObjectDeep(dataSnapshot);
+      const raw = dataSnapshot && typeof dataSnapshot === "object" ? dataSnapshot : {};
       const hasNested =
-        raw &&
-        typeof raw === "object" &&
-        (Object.prototype.hasOwnProperty.call(raw, "currentPeriod") ||
-          Object.prototype.hasOwnProperty.call(raw, "priorPeriod"));
+        Object.prototype.hasOwnProperty.call(raw, "currentPeriod") ||
+        Object.prototype.hasOwnProperty.call(raw, "priorPeriod");
 
       const mergePeriod = (obj: any) => {
         const src = obj && typeof obj === "object" ? obj : {};
         const o: any = {};
         for (const k of Object.keys(defaults)) {
-          o[k] = src[k] ?? defaults[k];
+          o[k] = this.parseStrictLineItemNumber(k, src[k], defaults[k]);
         }
         return o;
       };
 
+      let result: { currentPeriod: Record<string, number>; priorPeriod: Record<string, number> };
       if (hasNested) {
-        return {
-          currentPeriod: mergePeriod(raw.currentPeriod),
-          priorPeriod: mergePeriod(raw.priorPeriod),
+        result = {
+          currentPeriod: mergePeriod((raw as any).currentPeriod),
+          priorPeriod: mergePeriod((raw as any).priorPeriod),
+        };
+      } else {
+        const flat: any = { ...raw };
+        delete flat.currentPeriod;
+        delete flat.priorPeriod;
+        result = {
+          currentPeriod: mergePeriod(flat),
+          priorPeriod: mergePeriod({}),
         };
       }
 
-      const flat: any = { ...raw };
-      delete flat.currentPeriod;
-      delete flat.priorPeriod;
-      return {
-        currentPeriod: mergePeriod(flat),
-        priorPeriod: mergePeriod({}),
-      };
+      this.assertStatementOfFinancialPositionBalanced("current period", result.currentPeriod);
+      if (this.sofpPeriodHasAnyNonZero(result.priorPeriod)) {
+        this.assertStatementOfFinancialPositionBalanced("prior period", result.priorPeriod);
+      }
+      return result;
     }
 
     if (rt === "CASHFLOW_STATEMENTS" || rt === "CASHFLOW_STATEMENT") {
       const defaults = canonicalFieldDefaults(cashflowStatementSchema);
-      const normalized = this.normalizeNumericObjectDeep(dataSnapshot);
+      const src = dataSnapshot && typeof dataSnapshot === "object" ? dataSnapshot : {};
       const out: any = {};
       for (const k of Object.keys(defaults)) {
-        out[k] = normalized?.[k] ?? defaults[k];
+        out[k] = this.parseStrictLineItemNumber(k, src[k], defaults[k]);
       }
       return out;
     }
@@ -374,6 +572,10 @@ export class FinancialReportService {
           : dataSnapshot;
       const operational = normalizeOperationalKpiPayload(raw ?? {});
       return { operational };
+    }
+
+    if (rt === "NON_FINANCIAL_KPIS") {
+      return this.normalizeNonFinancialKpisStrict(dataSnapshot);
     }
 
     return this.normalizeNumericObjectDeep(dataSnapshot);
@@ -429,6 +631,7 @@ export class FinancialReportService {
   static async createReport(params: CreateReportParams) {
     const id = randomUUID();
     await this.assertOpenReportingRequestExists(params.portfolioCompanyId, params.reportingPeriod);
+    this.assertInvesteeReportUploadExtension(params.reportType, params.originalFileName);
 
     const timestamp = Date.now();
 
@@ -583,6 +786,7 @@ export class FinancialReportService {
     if (!["DRAFT", "NEEDS_REVISION", "REJECTED"].includes(String(report.status))) {
       throw new Error("Only draft, needs-revision, or rejected reports can accept file uploads");
     }
+    this.assertInvesteeReportUploadExtension(String(report.reportType), params.originalFileName);
 
     const reportingPeriod = report.reportingPeriod || report.periodEnd;
     const rp = new Date(reportingPeriod);
@@ -687,6 +891,13 @@ export class FinancialReportService {
     }
     const normalized = this.normalizeReportDataOrThrow(report.reportType, params.data);
     const json = JSON.stringify(normalized);
+    const oldParsedRoot = this.parseParsedSnapshotColumn(report.parsedSnapshot ?? report.parsedsnapshot);
+    const oldFlat =
+      oldParsedRoot && typeof oldParsedRoot === "object" && !Array.isArray(oldParsedRoot)
+        ? (oldParsedRoot as Record<string, unknown>)
+        : {};
+    const newFlat = normalized && typeof normalized === "object" && !Array.isArray(normalized) ? normalized : {};
+    const parsedFieldChanges = this.diffReportingManualLeaves(oldFlat, newFlat as Record<string, unknown>);
     await prisma.$executeRawUnsafe(
       `UPDATE financial_reports SET parsedSnapshot = ?, updatedAt = NOW(3) WHERE id = ?`,
       json,
@@ -706,6 +917,7 @@ export class FinancialReportService {
         reportingPeriod: report.reportingPeriod
           ? this.toEmailDate(report.reportingPeriod).toISOString().split("T")[0]
           : null,
+        ...(Object.keys(parsedFieldChanges).length > 0 ? { fieldChanges: parsedFieldChanges } : {}),
       },
     });
 
@@ -1470,6 +1682,30 @@ export class FinancialReportService {
       await this.assertApplicantOwnsFinancialReport(r, userId);
     }
 
+    const kpiSnapshotByCompany = new Map<string, any>();
+    for (const g of groups.values()) {
+      if (!kpiSnapshotByCompany.has(g.portfolioCompanyId)) {
+        const row = await prisma.portfolioCompany.findUnique({
+          where: { id: g.portfolioCompanyId },
+          select: { financialKpis: true },
+        });
+        kpiSnapshotByCompany.set(g.portfolioCompanyId, row?.financialKpis || {});
+      }
+      const snap = kpiSnapshotByCompany.get(g.portfolioCompanyId);
+      const bundleSlice = bundle.filter((r) => {
+        const rp = r.reportingPeriod || r.periodEnd;
+        if (!rp) return false;
+        const iso = new Date(rp).toISOString().split("T")[0];
+        return r.portfolioCompanyId === g.portfolioCompanyId && iso === g.reportingPeriod;
+      });
+      await this.assertVarianceExplanationIfRequiredForSubmit({
+        portfolioCompanyId: g.portfolioCompanyId,
+        reportingPeriodIso: g.reportingPeriod,
+        bundleForPeriod: bundleSlice,
+        financialKpisSnapshot: snap,
+      });
+    }
+
     await prisma.$executeRawUnsafe(
       `UPDATE financial_reports
        SET status = 'PENDING',
@@ -1805,6 +2041,8 @@ export class FinancialReportService {
     statementOfFinancialPosition?: any;
     cashflowStatement?: any;
     nonFinancialKpis?: any;
+    /** UAT 5.10: required text when revenue drops >50% vs prior period before submit. */
+    varianceExplanationNote?: string | null;
   }): Promise<{
     periodStart: string;
     periodEnd: string;
@@ -1824,6 +2062,9 @@ export class FinancialReportService {
 
     const snapshot = company.financialKpis || {};
     const periodKey = new Date(params.periodEnd).toISOString().split('T')[0];
+    const oldManualEntries = JSON.parse(
+      JSON.stringify(snapshot.kpiValues?.[periodKey]?.manualEntries || {})
+    );
 
     // Parse numeric values (allow null/undefined)
     const parseNumeric = (value: any): number | null => {
@@ -1863,9 +2104,20 @@ export class FinancialReportService {
       );
     }
     if (params.nonFinancialKpis && typeof params.nonFinancialKpis === "object") {
-      snapshot.kpiValues[periodKey].manualEntries.nonFinancialKpis = this.normalizeNumericObjectDeep(params.nonFinancialKpis);
+      snapshot.kpiValues[periodKey].manualEntries.nonFinancialKpis = this.normalizeNonFinancialKpisStrict(
+        params.nonFinancialKpis
+      );
     }
-    
+
+    if (params.varianceExplanationNote !== undefined) {
+      const ve = params.varianceExplanationNote;
+      if (ve === null || String(ve).trim() === "") {
+        delete snapshot.kpiValues[periodKey].manualEntries.varianceExplanationNote;
+      } else {
+        snapshot.kpiValues[periodKey].manualEntries.varianceExplanationNote = String(ve).trim();
+      }
+    }
+
     if (totalRevenue !== null) {
       snapshot.kpiValues[periodKey].TOTAL_REVENUE = totalRevenue;
     }
@@ -1894,6 +2146,9 @@ export class FinancialReportService {
     // Update metadata
     snapshot.lastReportDate = periodKey;
     snapshot.lastUpdatedAt = new Date().toISOString();
+
+    const newManualEntries = snapshot.kpiValues[periodKey].manualEntries || {};
+    const fieldChanges = this.diffReportingManualLeaves(oldManualEntries, newManualEntries);
 
     // Save to database
     await prisma.portfolioCompany.update({
@@ -1926,6 +2181,7 @@ export class FinancialReportService {
           netProfit,
           cashFlowNet,
         },
+        ...(Object.keys(fieldChanges).length > 0 ? { fieldChanges } : {}),
       },
     });
 

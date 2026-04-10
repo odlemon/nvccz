@@ -57,16 +57,16 @@ function financialReportFileExtension(file: Express.Multer.File): string | null 
 
 /** Returns error message or null if OK. */
 function validateFinancialReportFileExtension(ext: string | null, reportType: string): string | null {
-  if (!ext || !["xlsx", "csv", "pdf"].includes(ext)) {
-    return "Invalid file type. Only .xlsx, .csv, and .pdf files are allowed";
+  if (!ext || !["xlsx", "xls", "csv", "pdf"].includes(ext)) {
+    return "Invalid file type. Only .xlsx, .xls, .csv, and .pdf files are allowed";
   }
   const rt = String(reportType || "").toUpperCase();
   const isCore = isCoreFinancialStatementReportType(rt);
   if (ext === "pdf" && isCore) {
-    return "Invalid file type for this reportType: core financial statements must be .xlsx (PDFs are for narrative/compliance categories only).";
+    return "Invalid file type for this reportType: core financial statements must be .xlsx or .xls (PDFs are for narrative/compliance categories only).";
   }
-  if (isCore && ext !== "xlsx") {
-    return "Core financial statements (income statement, balance sheet, cash flow) must be uploaded as .xlsx only.";
+  if (isCore && ext !== "xlsx" && ext !== "xls") {
+    return "Mandatory Requirement: Core financial statements must be uploaded in Excel (.xlsx or .xls) format for system parsing.";
   }
   return null;
 }
@@ -590,8 +590,13 @@ export class ApplicantPortalController {
       }
 
       const fileExtension = req.file.originalname.split(".").pop()?.toLowerCase();
-      if (!fileExtension || !["xlsx", "csv", "pdf"].includes(fileExtension)) {
-        return ResponseHelper.error(res, "Invalid file type. Only .xlsx, .csv, and .pdf files are allowed", undefined, 400);
+      if (!fileExtension || !["xlsx", "xls", "csv", "pdf"].includes(fileExtension)) {
+        return ResponseHelper.error(
+          res,
+          "Invalid file type. Only .xlsx, .xls, .csv, and .pdf files are allowed",
+          undefined,
+          400
+        );
       }
 
       // Validate by reportType stored on the report (PDF rules)
@@ -604,15 +609,15 @@ export class ApplicantPortalController {
       if (fileExtension === "pdf" && isCoreStatement) {
         return ResponseHelper.error(
           res,
-          "Invalid file type for this reportType: core financial statements must be .xlsx (PDFs are for narrative/compliance categories only).",
+          "Invalid file type for this reportType: core financial statements must be .xlsx or .xls (PDFs are for narrative/compliance categories only).",
           undefined,
           400
         );
       }
-      if (isCoreStatement && fileExtension !== "xlsx") {
+      if (isCoreStatement && fileExtension !== "xlsx" && fileExtension !== "xls") {
         return ResponseHelper.error(
           res,
-          "Core financial statements (income statement, balance sheet, cash flow) must be uploaded as .xlsx only.",
+          "Mandatory Requirement: Core financial statements must be uploaded in Excel (.xlsx or .xls) format for system parsing.",
           undefined,
           400
         );
@@ -731,6 +736,7 @@ export class ApplicantPortalController {
         statementOfFinancialPosition,
         cashflowStatement,
         nonFinancialKpis,
+        varianceExplanationNote,
       } = req.body;
 
       if (!periodStart || !periodEnd) {
@@ -749,6 +755,7 @@ export class ApplicantPortalController {
         statementOfFinancialPosition,
         cashflowStatement,
         nonFinancialKpis,
+        varianceExplanationNote,
       });
 
       return ResponseHelper.success(res, "Period KPIs saved successfully", savedKPIs, 200);
