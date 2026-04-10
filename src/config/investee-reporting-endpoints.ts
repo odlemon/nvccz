@@ -1,5 +1,6 @@
 // Fallback Swagger paths for Investee (Applicant Portal) reporting flow.
 // Used when swagger-jsdoc parsing fails in production.
+import { OPERATIONAL_KPI_NUMERIC_INVALID } from "./operationalKpiFieldSchema";
 import { OPENAPI_INCOME_STATEMENT_DATA_EXAMPLE } from "./financialReportOpenApiExamples";
 
 const AUD_APPLICANT =
@@ -25,7 +26,7 @@ export const investeeReportingEndpoints = {
       summary: "Upload report document(s) (investee)",
       description:
         AUD_APPLICANT +
-        "Upload one or more reporting documents for a reporting period. Core statements require **.xlsx**; narrative/compliance categories may allow **PDF**.",
+        "Upload one or more reporting documents for a reporting period. Core statements require **.xlsx** or **.xls** (not PDF). Narrative/compliance categories may allow **PDF**.",
       tags: ["Investee Reporting"],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -121,7 +122,9 @@ export const investeeReportingEndpoints = {
       summary: "Update manual form data on a report (investee)",
       description:
         AUD_APPLICANT +
-        "Replaces **parsedSnapshot** for core statements / **NON_FINANCIAL_KPIS**. Status stays **NEEDS_REVISION** until submit. Use **POST** `.../file` to replace attachment.",
+        "Replaces **parsedSnapshot** for core statements / **NON_FINANCIAL_KPIS**. **Validates:** numeric line items (non-numeric text → **400** with `" +
+        OPERATIONAL_KPI_NUMERIC_INVALID +
+        "`); **balance sheet** periods must balance (assets = liabilities + equity). Status stays editable until submit.",
       tags: ["Investee Reporting"],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: "path", name: "reportId", required: true, schema: { type: "string" } }],
@@ -147,7 +150,7 @@ export const investeeReportingEndpoints = {
       },
       responses: {
         200: { description: "Updated" },
-        400: { description: "Invalid request" },
+        400: { description: "Invalid data, imbalanced BS, or non-numeric fields" },
         401: { description: "Unauthorized" },
       },
     },
@@ -166,7 +169,7 @@ export const investeeReportingEndpoints = {
       ],
       responses: {
         200: { description: "Submitted for review" },
-        400: { description: "Missing reportId/reportIds" },
+        400: { description: "Missing reportId, not submittable, or variance validation failed" },
         401: { description: "Unauthorized" },
       },
     },

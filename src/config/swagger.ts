@@ -14,7 +14,7 @@ import { vatRateEndpoints } from './vat-rate-endpoints';
 import { consolidatedAccountingReportEndpoints } from './consolidated-accounting-report-endpoints';
 import { shortTermInvestmentsEndpoints } from './short-term-investments-endpoints';
 import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
-import { capitalCallsEndpoints } from './capital-calls-endpoints';
+import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from './capital-calls-endpoints';
 
 const options = {
   definition: {
@@ -32,8 +32,8 @@ const options = {
         url: 'https://opensource.org/licenses/ISC'
       }
     },
-      // NOTE: Paths in this spec already include the `/api/...` prefix.
-      // If the server URL also includes `/api`, Swagger will show `/api/api/...` (duplicated).
+      // NOTE: `servers[].url` ends with `/api`. OpenAPI paths are relative to that base
+      // (e.g. `/clients`, `/funds/...`) — do NOT prefix paths with `/api` or Swagger shows `/api/api/...`.
       servers: [
         {
           url: 'https://nvccz-pi.vercel.app/api',
@@ -48,7 +48,7 @@ const options = {
       {
         name: 'Capital Calls (LP drawdowns)',
         description:
-          '**Start here:** add the LP (**`POST /api/clients`**) and fund **investment commitment** (same call or **`PUT /api/clients/{id}`**). Then **`/api/funds/.../capital-calls`**: list/initiate (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice**, **send-notices** (HTML + **PDF**), **GET/POST …/payments**. **Docs:** **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**. **IDs:** **`npm run db:print:capital-call-postman`**.'
+          '**Start here:** add the LP (**`POST /clients`** — full URL with default server: `/api/clients`) and fund **investment commitment** (same call or **`PUT /clients/{id}`**). Then **`/funds/.../capital-calls`**: list/initiate (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice**, **send-notices** (HTML + **PDF**), **GET/POST …/payments**. **Docs:** **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**. **IDs:** **`npm run db:print:capital-call-postman`**.'
       },
       {
         name: 'Company Profile',
@@ -8456,6 +8456,8 @@ try {
   };
   console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + events + dashboards + cashbook)`);
 }
+
+specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);
 
 export { specs }; 
 

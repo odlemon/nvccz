@@ -130,17 +130,15 @@ export const OPERATIONAL_KPI_FULL_EXAMPLE: Record<(typeof OPERATIONAL_KPI_FIELD_
 
 export type OperationalKpiFieldKey = (typeof OPERATIONAL_KPI_FIELD_KEYS)[number];
 
-function num(v: unknown): number {
-  if (v === null || v === undefined || v === "") return 0;
-  const n = typeof v === "number" ? v : Number(String(v).trim());
-  return Number.isFinite(n) ? n : 0;
-}
-
 /**
  * Full operational payload: every whitelisted key is stored. Missing keys default to `0`.
  * Churn: if value > 1, treat as percentage and divide by 100.
  * Unknown keys on `raw` are ignored.
  */
+/** UAT: reject non-numeric text when the field is present (e.g. "Ten" for staff-related counts). */
+export const OPERATIONAL_KPI_NUMERIC_INVALID =
+  "Invalid Input: Please enter a numerical value for this KPI.";
+
 export function normalizeOperationalKpiPayload(raw: unknown): Record<string, number> {
   const src =
     raw === null || raw === undefined
@@ -153,7 +151,19 @@ export function normalizeOperationalKpiPayload(raw: unknown): Record<string, num
   }
   const out: Record<string, number> = {};
   for (const key of OPERATIONAL_KPI_FIELD_KEYS) {
-    let v = Object.prototype.hasOwnProperty.call(src, key) ? num(src[key]) : 0;
+    if (!Object.prototype.hasOwnProperty.call(src, key)) {
+      out[key] = 0;
+      continue;
+    }
+    const rawVal = src[key];
+    if (rawVal === null || rawVal === undefined || rawVal === "") {
+      out[key] = 0;
+      continue;
+    }
+    let v = typeof rawVal === "number" ? rawVal : Number(String(rawVal).trim());
+    if (!Number.isFinite(v)) {
+      throw new Error(OPERATIONAL_KPI_NUMERIC_INVALID);
+    }
     if (key === "churnRate" && v > 1) v = v / 100;
     out[key] = v;
   }

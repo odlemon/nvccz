@@ -8,7 +8,8 @@ function periodKeyFromEnd(periodEnd: Date | string): string {
   return d.toISOString().split("T")[0];
 }
 
-function priorPeriodRevenueFromSnapshot(snapshot: any, currentKey: string): number | null {
+/** Exported for submit-time validation (revenue variance vs prior period). */
+export function priorPeriodRevenueFromSnapshot(snapshot: any, currentKey: string): number | null {
   const kpiValues = snapshot?.kpiValues;
   if (!kpiValues || typeof kpiValues !== "object") return null;
   const keys = Object.keys(kpiValues)

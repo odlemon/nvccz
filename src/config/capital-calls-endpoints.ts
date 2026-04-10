@@ -1,7 +1,7 @@
 /**
- * Swagger paths for LP capital calls. Order matches recommended integration flow and `docs/capital-calls-lp-drawdowns.md`.
- * **Prerequisite** `POST /api/clients` and `PUT /api/clients/{id}` are documented on `clientRoutes.ts` with tag **Capital Calls (LP drawdowns)** first (summaries **0a** / **0b**).
- * Mirrors `/api/funds/...` in `fundRoutes.ts` (paths here are without `/api` where noted in `swagger.ts` servers).
+ * Swagger paths for LP capital calls. Paths are relative to `servers[].url` (ends with `/api`).
+ * **0a / 0b** (`POST /clients`, `PUT /clients/{id}`) are merged via {@link mergeCapitalCallClientPrerequisitePaths}
+ * so they appear when route JSDoc parsing fails; `clientRoutes.ts` remains the source of richer schemas when JSDoc loads.
  */
 
 const AUD =
@@ -37,6 +37,107 @@ const allocationIdParam = {
   description: 'Allocation primary key — returned as `data.allocations[].id` from initiate',
   schema: { type: 'string', example: EX.allocationId },
 };
+
+const clientIdParam = {
+  name: 'id',
+  in: 'path' as const,
+  required: true,
+  description: 'Client primary key (`data.id` from POST /clients)',
+  schema: { type: 'string', example: 'cmnsk42b50000unukxntnpkov' },
+};
+
+/** Shallow-merge these methods into existing path entries (does not replace GET/DELETE on `/clients` / `/clients/{id}`). */
+export const capitalCallClientPrerequisitePathOps: Record<string, Record<string, unknown>> = {
+  '/clients': {
+    post: {
+      tags: ['Capital Calls (LP drawdowns)', 'Client Management'],
+      summary: '0a. Create LP (client) + optional fund commitment — prerequisite for capital calls',
+      description:
+        '**Capital calls** need at least one **ACTIVE** or **PENDING** `investment_commitment` on the fund (single currency). ' +
+        'Pass `fund_id`, `amount`, `effective_date` (and `currency`) for a **PENDING** commitment in one step. **Admin** JWT. ' +
+        'Body **snake_case** or **camelCase** per `ClientController`.',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['type', 'legal_name', 'email', 'country'],
+              properties: {
+                investor_id: { type: 'string', example: 'EXT-LP-2026-0042' },
+                type: { type: 'string', enum: ['individual', 'institutional'] },
+                legal_name: { type: 'string', example: 'Jamie Patel' },
+                email: { type: 'string', format: 'email' },
+                country: { type: 'string', example: 'ZW' },
+                phone: { type: 'string' },
+                address: { type: 'string' },
+                tax_id: { type: 'string' },
+                status: { type: 'string', enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'], default: 'ACTIVE' },
+                fund_id: {
+                  type: 'string',
+                  description: 'With amount + effective_date → **PENDING** commitment',
+                  example: EX.fundId,
+                },
+                amount: { type: 'number', example: 50000 },
+                currency: { type: 'string', default: 'USD' },
+                effective_date: { type: 'string', format: 'date', example: '2026-04-10' },
+                notes: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        201: { description: 'Created — commitment optional per body' },
+        400: { description: 'Validation error' },
+        401: { description: 'Unauthorized' },
+        409: { description: 'Duplicate email / investor' },
+      },
+    },
+  },
+  '/clients/{id}': {
+    put: {
+      tags: ['Capital Calls (LP drawdowns)', 'Client Management'],
+      summary: '0b. Add or update fund commitment on an existing LP — prerequisite for capital calls',
+      description:
+        'When the client exists, send `fund_id`, `amount`, and `effective_date` to create/update a **PENDING** commitment. **Admin** JWT.',
+      security: [{ bearerAuth: [] }],
+      parameters: [clientIdParam],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                legal_name: { type: 'string' },
+                email: { type: 'string' },
+                fund_id: { type: 'string', example: EX.fundId },
+                amount: { type: 'number', example: 50000 },
+                currency: { type: 'string', default: 'USD' },
+                effective_date: { type: 'string', format: 'date', example: '2026-04-10' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Updated' },
+        404: { description: 'Client not found' },
+        409: { description: 'Conflict — duplicate email / investor' },
+      },
+    },
+  },
+};
+
+export function mergeCapitalCallClientPrerequisitePaths(paths: Record<string, Record<string, unknown>> | undefined) {
+  const out: Record<string, Record<string, unknown>> = paths && typeof paths === 'object' ? { ...paths } : {};
+  for (const [pathKey, methods] of Object.entries(capitalCallClientPrerequisitePathOps)) {
+    out[pathKey] = { ...(out[pathKey] || {}), ...methods };
+  }
+  return out;
+}
 
 export const capitalCallsEndpoints = {
   // --- 1–2: list + initiate -------------------------------------------------
