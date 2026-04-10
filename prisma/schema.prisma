@@ -146,6 +146,7 @@ model User {
   savedFilterFavorites              SavedFilterFavorite[]
   cashbookReconSessionsCreated      CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished     CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
+  capitalCallsInitiated             CapitalCall[]                @relation("CapitalCallCreator")
   lineManagedEmployees              Employee[]                   @relation("EmployeeLineManager")
   performanceContractsAsSubject     PerformanceContract[]        @relation("PerformanceContractSubjectUser")
   performanceContractsCreated       PerformanceContract[]        @relation("PerformanceContractCreator")
@@ -501,6 +502,7 @@ model Currency {
   shortTermInvestmentInstruments          ShortTermInvestmentInstrument[] @relation("StiInstrumentCurrency")
   shortTermInvestmentInstrumentsFunctional ShortTermInvestmentInstrument[] @relation("StiFunctionalCurrency")
   shortTermInvestmentAccrualsFunctional   ShortTermInvestmentAccrual[]    @relation("StiAccrualFunctionalCurrency")
+  capitalCalls                          CapitalCall[]
 
   @@map("currencies")
 }
@@ -634,6 +636,7 @@ model JournalEntry {
   stiAccrualsAsReversal    ShortTermInvestmentAccrual[] @relation("StiAccrualReversalJournalEntry")
   stiLiquidationInstruments ShortTermInvestmentInstrument[] @relation("StiLiquidationJe")
   stiFxRevaluationEntries   ShortTermInvestmentFxRevaluation[] @relation("StiFxRevaluationJe")
+  capitalCall               CapitalCall?
 
   @@map("journal_entries")
 }
@@ -1081,6 +1084,7 @@ model Fund {
   fundDisbursements         FundDisbursement[]
   investmentImplementations InvestmentImplementation[]
   investmentCommitments     InvestmentCommitment[]
+  capitalCalls              CapitalCall[]
 
   @@map("funds")
 }
@@ -1123,6 +1127,7 @@ model Client {
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   investmentCommitments InvestmentCommitment[]
+  capitalCallAllocations CapitalCallAllocation[]
 
   @@map("clients")
 }
@@ -1141,9 +1146,77 @@ model InvestmentCommitment {
   updatedAt     DateTime @updatedAt
   client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   fund          Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  capitalCallAllocations CapitalCallAllocation[]
 
   @@unique([clientId, fundId])
   @@map("investment_commitments")
+}
+
+/// LP capital call (drawdown) header — one row per fund call event.
+model CapitalCall {
+  id               String    @id @default(cuid())
+  fundId           String    @map("fund_id")
+  currencyId       String    @map("currency_id")
+  callPercent      Decimal   @map("call_percent") @db.Decimal(12, 6)
+  paymentDueDate   DateTime  @map("payment_due_date") @db.Date
+  bankInstructions String    @map("bank_instructions") @db.Text
+  transactionDate  DateTime  @map("transaction_date") @db.Date
+  journalEntryId   String?   @unique @map("journal_entry_id")
+  status           String    @default("INITIATED") @db.VarChar(32)
+  noticesSentAt    DateTime? @map("notices_sent_at")
+  createdById      String    @map("created_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  fund         Fund                    @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  currency     Currency                @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?           @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy    User                    @relation("CapitalCallCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  allocations  CapitalCallAllocation[]
+
+  @@index([fundId], map: "capital_calls_fund_id_idx")
+  @@index([fundId, createdAt], map: "capital_calls_fund_created_idx")
+  @@map("capital_calls")
+}
+
+/// Per-LP line for a capital call (amounts snapshot at initiation; payments update `amountPaid` / `status`).
+model CapitalCallAllocation {
+  id                            String   @id @default(cuid())
+  capitalCallId                 String   @map("capital_call_id")
+  clientId                      String   @map("client_id")
+  investmentCommitmentId        String   @map("investment_commitment_id")
+  lpLegalNameSnapshot           String   @map("lp_legal_name_snapshot") @db.VarChar(512)
+  totalCommitmentSnapshot       Decimal  @map("total_commitment_snapshot") @db.Decimal(15, 2)
+  uncalledCapitalBeforeSnapshot Decimal  @map("uncalled_capital_before_snapshot") @db.Decimal(15, 2)
+  currentCallAmount             Decimal  @map("current_call_amount") @db.Decimal(15, 2)
+  amountPaid                    Decimal  @default(0) @map("amount_paid") @db.Decimal(15, 2)
+  status                        String   @default("PENDING") @db.VarChar(32)
+  createdAt                     DateTime @default(now()) @map("created_at")
+  updatedAt                     DateTime @updatedAt @map("updated_at")
+
+  capitalCall          CapitalCall          @relation(fields: [capitalCallId], references: [id], onDelete: Cascade)
+  client               Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  investmentCommitment InvestmentCommitment @relation(fields: [investmentCommitmentId], references: [id], onDelete: Restrict)
+  payments             CapitalCallAllocationPayment[]
+
+  @@index([capitalCallId], map: "capital_call_allocations_call_idx")
+  @@index([clientId], map: "capital_call_allocations_client_idx")
+  @@index([investmentCommitmentId], map: "capital_call_allocations_commitment_idx")
+  @@map("capital_call_allocations")
+}
+
+/// Posted receipt against one capital-call allocation (append-only ledger; allocation.amountPaid is roll-up).
+model CapitalCallAllocationPayment {
+  id                      String   @id @default(cuid())
+  capitalCallAllocationId String   @map("capital_call_allocation_id")
+  amount                  Decimal  @db.Decimal(15, 2)
+  recordedAt              DateTime @default(now()) @map("recorded_at")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  capitalCallAllocation CapitalCallAllocation @relation(fields: [capitalCallAllocationId], references: [id], onDelete: Cascade)
+
+  @@index([capitalCallAllocationId], map: "capital_call_allocation_payments_allocation_idx")
+  @@map("capital_call_allocation_payments")
 }
 
 model FundManager {

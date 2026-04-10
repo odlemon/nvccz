@@ -14,6 +14,7 @@ import { vatRateEndpoints } from './vat-rate-endpoints';
 import { consolidatedAccountingReportEndpoints } from './consolidated-accounting-report-endpoints';
 import { shortTermInvestmentsEndpoints } from './short-term-investments-endpoints';
 import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
+import { capitalCallsEndpoints } from './capital-calls-endpoints';
 
 const options = {
   definition: {
@@ -53,6 +54,11 @@ const options = {
         description: 'Manage VAT rates — only one can be active at a time. The active rate is used by all accounting services for VAT calculations.'
       },
       {
+        name: 'Capital Calls (LP drawdowns)',
+        description:
+          'LP drawdown flow under **`/api/funds`**: list/initiate calls (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice** (JSON), **send-notices** (HTML + **PDF** attachment per LP, parallel SMTP **`CAPITAL_CALL_EMAIL_CONCURRENCY`** default 14), **GET/POST …/payments** (ledger + receipts). **Docs:** repo **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**.'
+      },
+      {
         name: 'Accounting - Period lock',
         description:
           'End-to-end period locking: **legacy cashbook** (`/cashbook/periods/...`) and **fiscal calendar** (`/accounting/fiscal-calendar/...`) — month status, lock/unlock, validate date, module draft/commit, policy, audit, posting exceptions. Production Swagger groups all these operations under this tag.'
@@ -60,7 +66,7 @@ const options = {
       {
         name: 'Financial Reporting',
         description:
-          'Portfolio financial reports and automation. Endpoint descriptions state **Audience:** **Applicant (investee)** vs **Investor (fund staff)**. Covers investor calendar (opened periods), mandatory-attachment catalog, **reporting schedule automation** (CRUD on `reporting_schedule_configs`), manual nudge, and cron triggers (`/cron/reporting/*`, `/public/reporting/*`). `/applicant/*` routes are investee; `/portfolio-companies/*` reporting routes are investor.'
+          'Portfolio financial reports and automation. Endpoint descriptions state **Audience:** **Applicant (investee)** vs **Investor (fund staff)**. Covers investor calendar (opened periods), mandatory-attachment catalog, **reporting schedule config** CRUD (`reporting_schedule_configs`, investor JWT), manual nudge, and (where documented) reminder cron helpers. **Schedule-tick** automation endpoints are intentionally omitted from this spec. `/applicant/*` routes are investee; `/portfolio-companies/*` reporting routes are typically investor.'
       },
       {
         name: 'Investee Reporting',
@@ -1655,6 +1661,7 @@ const fallbackSpec = {
     ...performanceEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
+    ...capitalCallsEndpoints,
     ...procurementEndpoints,
     ...eventsEndpoints,
     ...dashboardsEndpoints,
@@ -8398,6 +8405,7 @@ try {
       ...performanceEndpoints,
       ...taskAssignmentEndpoints,
       ...financialReportingEndpoints,
+      ...capitalCallsEndpoints,
       ...investeeReportingEndpoints,
       ...reportingScheduleSwaggerEndpoints,
       ...procurementEndpoints,
@@ -8416,6 +8424,7 @@ try {
       ...performanceEndpoints,
       ...taskAssignmentEndpoints,
       ...financialReportingEndpoints,
+      ...capitalCallsEndpoints,
       ...investeeReportingEndpoints,
       ...reportingScheduleSwaggerEndpoints,
       ...procurementEndpoints,
@@ -8438,6 +8447,7 @@ try {
     ...performanceEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
+    ...capitalCallsEndpoints,
     ...investeeReportingEndpoints,
     ...reportingScheduleSwaggerEndpoints,
     ...procurementEndpoints,

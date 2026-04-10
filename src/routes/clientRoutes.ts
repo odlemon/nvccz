@@ -22,7 +22,6 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required:
- *               - investor_id
  *               - type
  *               - legal_name
  *               - email
@@ -30,7 +29,7 @@ const router = express.Router();
  *             properties:
  *               investor_id:
  *                 type: string
- *                 description: External investor ID (e.g., "inv_001")
+ *                 description: Optional external reference. If omitted, the server sets a unique `inv-{uuid}` value.
  *                 example: "inv_001"
  *               type:
  *                 type: string

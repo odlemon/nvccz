@@ -69,16 +69,7 @@ const router = express.Router();
  */
 router.post("/reminders", ReportingRemindersCronController.postReportingRemindersCron);
 
-/**
- * @swagger
- * /api/public/reporting/schedule-tick:
- *   post:
- *     summary: Apply active reporting schedule configs (no JWT)
- *     description: |
- *       Same auth as **POST** `/api/cron/reporting/schedule-tick`. Body optional `{ asOfDate?: "YYYY-MM-DD" }` for simulations.
- *       Processes **`reporting_schedule_configs`** rows with **`isActive`**: opens calendars (`autoOpenCalendar`) or runs reminder AUTO tiers.
- *     tags: ['Financial Reporting']
- */
+/** Intentionally omitted from Swagger — ops-only (same handler as cron schedule-tick). */
 router.post("/schedule-tick", ReportingScheduleCronController.postScheduleTick);
 
 export default router;

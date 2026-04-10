@@ -1,8 +1,11 @@
 /**
- * OpenAPI paths for reporting **schedule automation** (CRUD + cron tick).
- * Merged last in `swagger.ts` so production/fallback specs always show full examples
- * even if swagger-jsdoc drops route comments.
+ * OpenAPI paths for **reporting schedule configuration** (investor CRUD on `reporting_schedule_configs`).
+ * Schedule **tick** HTTP routes are intentionally omitted from Swagger — they remain callable for ops (`/api/cron/...`, `/api/public/...`) but are not part of the public API doc surface.
+ * Merged in `swagger.ts` so production/fallback specs stay complete for config management.
  */
+
+const AUD_SCHEDULE_CONFIG_INVESTOR =
+  "**Audience:** **Investor (fund staff)** — JWT (e.g. admin, fund_manager, investments_manager). Not for investee portal users. ";
 
 const scheduleConfigSchema = {
   type: "object",
@@ -18,7 +21,7 @@ const scheduleConfigSchema = {
     isActive: {
       type: "boolean",
       default: true,
-      description: "Inactive configs are skipped by **POST** `/cron/reporting/schedule-tick`.",
+      description: "Inactive configs are skipped when the reporting schedule automation job runs.",
     },
     autoOpenCalendar: {
       type: "boolean",
@@ -78,9 +81,10 @@ const ALL_ATTACHMENT_IDS = [
 export const reportingScheduleSwaggerEndpoints = {
   "/portfolio-companies/reporting/schedule-configs": {
     get: {
-      summary: "List reporting schedule configs (automation cadence)",
+      summary: "List reporting schedule configs — investor",
       description:
-        "Returns `{ success, data: { configs } }`. Each row is a **schedule definition** (not an opened calendar). Apply configs with **POST** `/cron/reporting/schedule-tick` (or `/public/reporting/schedule-tick`). Requires JWT.",
+        AUD_SCHEDULE_CONFIG_INVESTOR +
+        "Returns `{ success, data: { configs } }`. Each row is a **schedule definition** (cadence + timing), not an opened calendar period. Active configs are consumed by server automation on its own schedule.",
       tags: ["Financial Reporting"],
       security: [{ bearerAuth: [] }],
       responses: {
@@ -99,9 +103,10 @@ export const reportingScheduleSwaggerEndpoints = {
       },
     },
     post: {
-      summary: "Create reporting schedule config",
+      summary: "Create reporting schedule config — investor",
       description:
-        "Persists cadence + timing fields in `reporting_schedule_configs`. Does **not** send email until a **schedule-tick** runs. After schema changes, run `npx prisma generate` so Prisma Client matches MySQL. DB: `npm run db:migrate:reporting-schedule-configs`.",
+        AUD_SCHEDULE_CONFIG_INVESTOR +
+        "Persists cadence + timing fields in `reporting_schedule_configs`. Opening periods / reminder sends happen when automation runs — not immediately on save. After schema changes, run `npx prisma generate`. DB: `npm run db:migrate:reporting-schedule-configs`.",
       tags: ["Financial Reporting"],
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -178,7 +183,8 @@ export const reportingScheduleSwaggerEndpoints = {
 
   "/portfolio-companies/reporting/schedule-configs/{id}": {
     get: {
-      summary: "Get one reporting schedule config",
+      summary: "Get one reporting schedule config — investor",
+      description: AUD_SCHEDULE_CONFIG_INVESTOR + "Fetch a single `reporting_schedule_configs` row by id.",
       tags: ["Financial Reporting"],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
@@ -189,8 +195,9 @@ export const reportingScheduleSwaggerEndpoints = {
       },
     },
     put: {
-      summary: "Update reporting schedule config",
-      description: "Send only fields to change (partial update).",
+      summary: "Update reporting schedule config — investor",
+      description:
+        AUD_SCHEDULE_CONFIG_INVESTOR + "Send only fields to change (partial update).",
       tags: ["Financial Reporting"],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
@@ -230,7 +237,8 @@ export const reportingScheduleSwaggerEndpoints = {
       },
     },
     delete: {
-      summary: "Delete reporting schedule config",
+      summary: "Delete reporting schedule config — investor",
+      description: AUD_SCHEDULE_CONFIG_INVESTOR + "Hard-remove a config; automation will no longer reference it.",
       tags: ["Financial Reporting"],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
@@ -238,97 +246,6 @@ export const reportingScheduleSwaggerEndpoints = {
         200: { description: "Deleted" },
         404: { description: "Not found" },
         401: { description: "Unauthorized" },
-      },
-    },
-  },
-
-  "/cron/reporting/schedule-tick": {
-    post: {
-      summary: "Run reporting schedule automation (cron)",
-      description: `
-**No JWT.** Same auth as **POST** \`/cron/reporting/reminders\`:
-- If \`REPORTING_REMINDERS_CRON_SECRET\` is set → header **X-Reporting-Reminders-Cron-Secret** must match.
-- If unset → only **localhost** may call.
-
-Evaluates all **active** rows in \`reporting_schedule_configs\` for \`asOfDate\` (default today).
-      `.trim(),
-      tags: ["Financial Reporting"],
-      parameters: [
-        {
-          in: "header",
-          name: "X-Reporting-Reminders-Cron-Secret",
-          required: false,
-          schema: { type: "string" },
-          description: "Required when env `REPORTING_REMINDERS_CRON_SECRET` is set.",
-        },
-      ],
-      requestBody: {
-        required: false,
-        content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              properties: {
-                asOfDate: {
-                  type: "string",
-                  format: "date",
-                  description: "Simulate “today” (YYYY-MM-DD) for testing.",
-                  example: "2026-04-15",
-                },
-              },
-            },
-            examples: {
-              empty: { summary: "Production — use server date", value: {} },
-              simulate: { summary: "UAT — fixed date", value: { asOfDate: "2026-04-15" } },
-            },
-          },
-        },
-      },
-      responses: {
-        200: {
-          description: "`{ success, data: { asOfDate, configsProcessed, actions } }`",
-        },
-        401: { description: "Wrong/missing secret" },
-        403: { description: "Non-loopback when secret not configured" },
-        500: { description: "Tick error" },
-      },
-    },
-  },
-
-  "/public/reporting/schedule-tick": {
-    post: {
-      summary: "Run reporting schedule automation (public / UAT)",
-      description: "Same handler and auth as **POST** `/cron/reporting/schedule-tick`.",
-      tags: ["Financial Reporting"],
-      parameters: [
-        {
-          in: "header",
-          name: "X-Reporting-Reminders-Cron-Secret",
-          required: false,
-          schema: { type: "string" },
-        },
-      ],
-      requestBody: {
-        required: false,
-        content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              properties: {
-                asOfDate: { type: "string", format: "date", example: "2026-04-15" },
-              },
-            },
-            examples: {
-              empty: { value: {} },
-              simulate: { value: { asOfDate: "2026-04-15" } },
-            },
-          },
-        },
-      },
-      responses: {
-        200: { description: "Tick completed" },
-        401: { description: "Unauthorized" },
-        403: { description: "Forbidden host" },
       },
     },
   },
