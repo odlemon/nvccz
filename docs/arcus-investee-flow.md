@@ -33,17 +33,14 @@
   - **Operational KPIs and document-only categories** (e.g. business plan, bank PDFs): same **`POST .../financial-reports/{reportId}/review`** with **`ACCEPT`** — the server skips GL automation for those `reportType` values; any valuation/dividend body is ignored. See **`docs/investee-reporting-frontend-flow.md`** Step 11.
   - Approved KPI values sync to dashboards; manual verification remains in scope (no auto parsing yet).
 
-- **PMRAS-3 Valuation Adjustment → Accounting JE**
-  - CIO/Analyst sets `newAmount`, `previousAmount`, `valuationDate` in `portfolioCompanies/{id}/valuations/{valuationId}` (immutable record).
-  - CF-PMRAS-3.2 guardrails:
-    - Reject if `valuationDate <= lastReportDate`.
-    - `difference = newAmount - previousAmount`.
-    - If `difference > 0`: Debit 1502 Investment Asset, Credit 4050 Unrealized Gain.
-    - If `difference < 0`: Debit 6050 Unrealized Loss, Credit 1502 Investment Asset.
-  - Sends balanced JE JSON to Accounting API `/accounting/api/post_journal_entry` with `totalDebit == totalCredit`, `date`, `description`, `lines`.
-  - Implements retry with exponential backoff; logs success/error.
-  - Writes returned `accountingJEId` back to `valuations/{valuationId}`.
-  - Immutable source: valuation record remains read-only after create; updates only add linkage/status.
+- **PMRAS-3 Valuation Adjustment → Accounting JE** (`POST /api/portfolio-companies/{id}/valuation-adjustments`)
+  - CIO records fair-value change; body requires **`reasonForAdjustment`** (or **`notes`**) plus amounts and **`valuationDate`**.
+  - **CF-PMRAS-3.2** (implemented in `PortfolioCompanyAccountingService.recordValuationAdjustment`): structured **`console.log`** JSON with `triggerId: "CF-PMRAS-3.2"` after JE posts; **`audit_logs`** row with **`userId`**, **`createdAt`**, **`oldValues.previousValue`**, **`newValues.newValue`**, **`newValues.reasonForAdjustment`**, **`newValues.triggerId`**.
+  - Guardrails (same user-facing message if blocked): **`Cannot update valuation until the latest financial reporting period is approved.`** when (a) no **`financial_reports`** row exists, (b) the **latest `reportingPeriod`** has no **ACCEPTED** report, or (c) **`valuationDate`** is **strictly before** **`financialKpis.lastReportDate`** (same day as last approved period end is allowed so **ACCEPT → automation** can value as-of that date).
+  - **`difference = newAmount - previousAmount`**.
+  - If **`difference > 0`**: Dr **1502**, Cr **4050** (unrealized gain). If **`difference < 0`**: Dr **6050**, Cr **1502** (loss).
+  - Updates **`portfolio_companies.financialKpis`**: **`latestValuation`**, **`currentValuation`** (= new fair value), history, KPI keys.
+  - JE via internal **`JournalEntryService.createManualJournalEntry`** (not a separate HTTP accounting microcall in this repo).
 
 - **Dividend Recording (Realized Income)**
   - Triggered when fund receives dividend and records it in PMS.

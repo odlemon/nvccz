@@ -48,13 +48,12 @@ These need to be added to the chart of accounts before we can automate postings.
 4. **Oversight Alert (Procurement Cloud Function)** – Sends push notification back to PMS for oversight tracking.
 
 ### Flow PMRAS-3: Valuation Adjustment & Accounting JE Sync
-1. **Manual Trigger (CIO/Analyst UI)** – Analyst reviews performance, sets `newValuationAmount`, saves valuation document in `portfolioCompanies/{id}/valuations/{id}` with fields: `newAmount`, `previousAmount`, `valuationDate`.
-2. **JE Generation (CF-PMRAS-3.2)** – Function fires on new valuation document, validates:
-   - `valuationDate` must be after `portfolioCompanies/{id}.lastReportDate`.
+1. **Manual Trigger (CIO/Analyst UI)** – **`POST /api/portfolio-companies/{id}/valuation-adjustments`** with `previousAmount`, `newAmount`, `valuationDate`, and **`reasonForAdjustment`** (or `notes`). Persists `portfolio_company_valuations` and updates **`financialKpis.currentValuation`**.
+2. **JE Generation (CF-PMRAS-3.2)** – Server posts JE and logs JSON with **`triggerId: CF-PMRAS-3.2`**; **`audit_logs`** stores user, timestamp, previous/new value, reason. Validates:
+   - Latest **`financial_reports.reportingPeriod`** must have at least one **`ACCEPTED`** row; **`valuationDate`** must **not be before** **`financialKpis.lastReportDate`** when set (same day allowed). Else: **`Cannot update valuation until the latest financial reporting period is approved.`**
    - Difference = `newAmount - previousAmount`.
-   - If positive → apply Scenario 1.1 logic (Debit 1502, Credit 4050).
-   - If negative → apply Scenario 1.2 logic (Debit 6050, Credit 1502).
-   - Abort with error/log if validations fail.
+   - If positive → Debit 1502, Credit 4050.
+   - If negative → Debit 6050, Credit 1502.
 
 ## 3. Performance Module Alignment
 Relevant hardcoded KPIs (`src/config/hardcodedKPIs.ts`) to link with financial uploads:

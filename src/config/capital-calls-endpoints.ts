@@ -1,6 +1,7 @@
 /**
  * Swagger paths for LP capital calls. Order matches recommended integration flow and `docs/capital-calls-lp-drawdowns.md`.
- * Mirrors `/api/funds/...` in `fundRoutes.ts` (global `/api` prefix applied in swagger.ts).
+ * **Prerequisite** `POST /api/clients` and `PUT /api/clients/{id}` are documented on `clientRoutes.ts` with tag **Capital Calls (LP drawdowns)** first (summaries **0a** / **0b**).
+ * Mirrors `/api/funds/...` in `fundRoutes.ts` (paths here are without `/api` where noted in `swagger.ts` servers).
  */
 
 const AUD =

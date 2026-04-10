@@ -452,10 +452,12 @@ Frontends need a JWT before the routes above: **POST** `/api/auth/login` (see Sw
 
 **Swagger:** tag **Capital Calls (LP drawdowns)** — paths match the doc order; examples use concrete sample values (not placeholders).
 
-**Quick map** (`/api/funds`, Bearer token):
+**Quick map** (Bearer token):
 
 | Order | Method | Path |
 |-------|--------|------|
+| 0a | POST | `/api/clients` — create LP + optional commitment (`fund_id`, `amount`, `currency`, `effective_date`; **admin**) |
+| 0b | PUT | `/api/clients/{id}` — add/update commitment on existing LP (**admin**) |
 | 1 | POST | `/api/funds/{fundId}/capital-calls` — initiate (body: `callPercent`, `paymentDueDate`, `transactionDate`, `bankInstructions`) |
 | 2 | GET | `/api/funds/{fundId}/capital-calls` — list |
 | 3 | GET | `/api/funds/{fundId}/capital-calls/lp-summary` — per-LP balances |

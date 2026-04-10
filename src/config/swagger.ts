@@ -46,17 +46,17 @@ const options = {
       ],
     tags: [
       {
+        name: 'Capital Calls (LP drawdowns)',
+        description:
+          '**Start here:** add the LP (**`POST /api/clients`**) and fund **investment commitment** (same call or **`PUT /api/clients/{id}`**). Then **`/api/funds/.../capital-calls`**: list/initiate (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice**, **send-notices** (HTML + **PDF**), **GET/POST …/payments**. **Docs:** **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**. **IDs:** **`npm run db:print:capital-call-postman`**.'
+      },
+      {
         name: 'Company Profile',
         description: 'Company letterhead profile, addresses (one active at a time), and logo upload'
       },
       {
         name: 'VAT Rates',
         description: 'Manage VAT rates — only one can be active at a time. The active rate is used by all accounting services for VAT calculations.'
-      },
-      {
-        name: 'Capital Calls (LP drawdowns)',
-        description:
-          'LP drawdown flow under **`/api/funds`**: list/initiate calls (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice** (JSON), **send-notices** (HTML + **PDF** attachment per LP, parallel SMTP **`CAPITAL_CALL_EMAIL_CONCURRENCY`** default 14), **GET/POST …/payments** (ledger + receipts). **Docs:** repo **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**.'
       },
       {
         name: 'Accounting - Period lock',
