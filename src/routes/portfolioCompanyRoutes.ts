@@ -501,6 +501,7 @@ router.get(
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [action]
  *             properties:
  *               action:
  *                 type: string
@@ -509,9 +510,63 @@ router.get(
  *               comment:
  *                 type: string
  *                 example: "Looks good"
- *               mapping:
+ *               totalRevenue:
+ *                 type: number
+ *                 example: 500000
+ *               netProfit:
+ *                 type: number
+ *                 example: 45000
+ *               cashFlowNet:
+ *                 type: number
+ *                 example: 12000
+ *               valuationAdjustment:
  *                 type: object
- *                 description: Mapping snapshot for accounting/performance.
+ *                 description: |
+ *                   For core financial statement **ACCEPT**, often required with dividend payload. Drives **CF-PMRAS-3.2**
+ *                   (`PortfolioCompanyAccountingService.recordValuationAdjustment`). Include **reasonForAdjustment** or **notes** so automation has audit text (else a default reason is used).
+ *                 properties:
+ *                   newAmount:
+ *                     type: number
+ *                     example: 120000
+ *                   previousAmount:
+ *                     type: number
+ *                     example: 100000
+ *                   valuationDate:
+ *                     type: string
+ *                     format: date
+ *                     example: "2026-03-31"
+ *                   reasonForAdjustment:
+ *                     type: string
+ *                     example: "Mark-to-market on ACCEPT — aligned to period end."
+ *                   notes:
+ *                     type: string
+ *                     example: "Alias of reasonForAdjustment for automation."
+ *                   comment:
+ *                     type: string
+ *                     description: Also accepted as narrative when reason/notes omitted
+ *               valuation:
+ *                 type: object
+ *                 description: Alias object shape for valuationAdjustment (same nested fields).
+ *               dividend:
+ *                 type: object
+ *               dividends:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *           examples:
+ *             acceptWithValuation:
+ *               summary: ACCEPT with valuation automation (+$20k)
+ *               value:
+ *                 action: ACCEPT
+ *                 comment: "Approved — valuation per board."
+ *                 valuationAdjustment:
+ *                   previousAmount: 100000
+ *                   newAmount: 120000
+ *                   valuationDate: "2026-03-31"
+ *                   reasonForAdjustment: "Fair value +$20k — Series B (automation on accept)."
+ *                 totalRevenue: 400000
+ *                 netProfit: 50000
+ *                 cashFlowNet: 10000
  *     responses:
  *       200:
  *         description: Review recorded successfully; body includes updated report (with reportUrl/fileUrl when stored).
@@ -948,7 +1003,13 @@ router.delete(
  * /api/portfolio-companies/{id}/valuation-adjustments:
  *   post:
  *     summary: Record a valuation adjustment for a portfolio company
- *     description: Captures valuation approvals and posts the related accounting and KPI updates.
+ *     description: |
+ *       Posts **Dr 1502 / Cr 4050** (gain) or loss pairing per VC policy; updates **`financialKpis.currentValuation`**;
+ *       emits structured log **CF-PMRAS-3.2**; writes **`audit_logs`** with user, previous/new value, and **reasonForAdjustment**.
+ *       Blocked until the **latest `financial_reports.reportingPeriod` has an ACCEPTED row** and `valuationDate` is **not before** **`financialKpis.lastReportDate`**
+ *       (same day as last approved period end is allowed).
+ *       Otherwise: `Cannot update valuation until the latest financial reporting period is approved.`
+ *       Body must include non-empty **reasonForAdjustment** or **notes** (either field satisfies the requirement).
  *     tags: ['Financial Reporting']
  *     security:
  *       - bearerAuth: []
@@ -969,21 +1030,42 @@ router.delete(
  *             properties:
  *               previousAmount:
  *                 type: number
- *                 example: 1250000
+ *                 example: 100000
  *               newAmount:
  *                 type: number
- *                 example: 1500000
+ *                 example: 120000
  *               valuationDate:
  *                 type: string
  *                 format: date
+ *                 example: "2026-03-15"
+ *               reasonForAdjustment:
+ *                 type: string
+ *                 description: Required narrative (audit log). Example — funding round markup.
+ *                 example: "Fair value upward adjustment +$20k per Series B funding round (CIO approval)."
  *               notes:
  *                 type: string
- *                 example: "Q4 valuation approved by CIO"
+ *                 description: Legacy alias for reasonForAdjustment — use one or the other (both must not be empty).
+ *                 example: "Q4 valuation approved by CIO."
+ *           examples:
+ *             fundingRoundPlus20k:
+ *               summary: +$20k upward adjustment (Dr 1502 / Cr 4050)
+ *               value:
+ *                 previousAmount: 100000
+ *                 newAmount: 120000
+ *                 valuationDate: "2026-04-15"
+ *                 reasonForAdjustment: "Fair value upward adjustment +$20k based on recent funding round (CIO)."
+ *             usingNotesAlias:
+ *               summary: Same payload using `notes` instead of reasonForAdjustment
+ *               value:
+ *                 previousAmount: 1250000
+ *                 newAmount: 1500000
+ *                 valuationDate: "2026-05-01"
+ *                 notes: "Board-approved mark-to-market for Q1."
  *     responses:
  *       201:
  *         description: Valuation adjustment recorded
  *       400:
- *         description: Invalid payload
+ *         description: Invalid payload (e.g. missing reason/notes, reporting gate, or zero delta)
  *       401:
  *         description: Unauthorized
  *       default:

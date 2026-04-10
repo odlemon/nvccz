@@ -2,7 +2,7 @@
 
 This document describes the full lifecycle: data prerequisites, REST calls in recommended order, accounting behavior, emails, payments ledger, and troubleshooting. All routes live under **`/api/funds`** and require a valid **`Authorization: Bearer`** token header unless noted.
 
-**OpenAPI:** Swagger tag **Capital Calls (LP drawdowns)** (same order as this doc).  
+**OpenAPI:** Swagger tag **Capital Calls (LP drawdowns)** is listed **first** in the spec. It includes **prerequisite** **`POST /api/clients`** (**0a**) and **`PUT /api/clients/{id}`** (**0b**) before **`/api/funds/.../capital-calls`** operations (see `src/routes/clientRoutes.ts` JSDoc + `src/config/capital-calls-endpoints.ts`).  
 **Code:** `src/routes/fundRoutes.ts`, `src/controllers/CapitalCallController.ts`, `src/services/CapitalCallService.ts`.
 
 ---
@@ -20,6 +20,10 @@ This document describes the full lifecycle: data prerequisites, REST calls in re
 ---
 
 ## Data prerequisites (before POST initiate)
+
+0. **Create the LP and commitment (Swagger 0a / 0b)**  
+   - **POST** `/api/clients` — optional `fund_id`, `amount`, `currency`, `effective_date` to create a **PENDING** commitment in one step (**admin** JWT).  
+   - **PUT** `/api/clients/{id}` — add a commitment to an existing client for a **`fund_id`** (**admin** JWT).
 
 1. **Fund** exists and is **`OPEN`** if you create commitments through **`POST /api/clients`** with a **`fundId`** (validation in `ClientService`).
 2. **Investment commitments:** at least one **`investment_commitments`** row for that fund with status **`ACTIVE`** or **`PENDING`**, and **all eligible commitments on that fund share one currency** (e.g. all USD).

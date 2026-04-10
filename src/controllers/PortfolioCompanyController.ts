@@ -449,13 +449,28 @@ export class PortfolioCompanyController {
         return res.status(400).json({ success: false, message: "previousAmount and newAmount must be numeric" });
       }
 
+      const reasonRaw =
+        req.body.reasonForAdjustment != null && String(req.body.reasonForAdjustment).trim() !== ""
+          ? String(req.body.reasonForAdjustment).trim()
+          : req.body.notes != null
+            ? String(req.body.notes).trim()
+            : "";
+      if (!reasonRaw) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "reasonForAdjustment is required (non-empty). You may send `notes` instead for backward compatibility.",
+        });
+      }
+
       const result = await PortfolioCompanyAccountingService.recordValuationAdjustment({
         portfolioCompanyId: id,
         previousAmount,
         newAmount,
         valuationDate: req.body.valuationDate,
         approvedById: userId,
-        notes: req.body.notes,
+        reasonForAdjustment: reasonRaw,
+        notes: reasonRaw,
         authToken: jwt
       });
 

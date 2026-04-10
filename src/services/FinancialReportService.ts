@@ -1625,6 +1625,13 @@ export class FinancialReportService {
       const difference = Number((newAmount - previousAmount).toFixed(2));
 
       if (difference !== 0) {
+        const autoReason =
+          String(
+            valuationPayload.reasonForAdjustment ||
+              valuationPayload.notes ||
+              valuationPayload.comment ||
+              ""
+          ).trim() || "Valuation adjustment from accepted financial report";
         automations.push(
           PortfolioCompanyAccountingService.recordValuationAdjustment({
             portfolioCompanyId: report.portfolioCompanyId,
@@ -1632,7 +1639,8 @@ export class FinancialReportService {
             newAmount,
             valuationDate,
             approvedById: reviewerId,
-            notes: valuationPayload.notes || valuationPayload.comment || null,
+            reasonForAdjustment: autoReason,
+            notes: autoReason,
             authToken: mapping?.authToken || process.env.ACCOUNTING_API_SERVICE_TOKEN
           })
         );
