@@ -1,6 +1,7 @@
 //@ts-nocheck
 import express from 'express';
 import { FundController } from '../controllers/FundController';
+import { CapitalCallController } from '../controllers/CapitalCallController';
 import { authenticate } from '../middleware/authenticate';
 import { authorize } from '../middleware/permissionAuth';
 
@@ -229,6 +230,50 @@ router.get('/statistics',
   authenticate, 
   authorize(['admin', 'fund_manager']), 
   FundController.getFundStatistics
+);
+
+/**
+ * Capital calls (LP drawdowns) — see Swagger tag **Capital Calls (LP drawdowns)** for schemas.
+ */
+router.post(
+  '/:fundId/capital-calls',
+  authenticate,
+  CapitalCallController.initiate
+);
+router.get(
+  '/:fundId/capital-calls',
+  authenticate,
+  CapitalCallController.list
+);
+router.get(
+  '/:fundId/capital-calls/lp-summary',
+  authenticate,
+  CapitalCallController.lpSummary
+);
+router.get(
+  '/:fundId/capital-calls/:capitalCallId/allocations/:allocationId/notice',
+  authenticate,
+  CapitalCallController.getNoticeData
+);
+router.get(
+  '/:fundId/capital-calls/:capitalCallId',
+  authenticate,
+  CapitalCallController.getOne
+);
+router.post(
+  '/:fundId/capital-calls/:capitalCallId/send-notices',
+  authenticate,
+  CapitalCallController.sendNotices
+);
+router.get(
+  '/:fundId/capital-calls/:capitalCallId/allocations/:allocationId/payments',
+  authenticate,
+  CapitalCallController.listAllocationPayments
+);
+router.post(
+  '/:fundId/capital-calls/:capitalCallId/allocations/:allocationId/payments',
+  authenticate,
+  CapitalCallController.recordPayment
 );
 
 /**

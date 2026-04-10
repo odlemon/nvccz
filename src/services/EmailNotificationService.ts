@@ -8,6 +8,7 @@ import {
   reportingPeriodQuarterLabel,
   type ReportingMandatoryAttachment,
 } from "../utils/reportingEmail";
+import { capitalCallNoticeEmailSubject } from "../utils/capitalCallNoticeSubject";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -4901,5 +4902,35 @@ export class EmailNotificationService {
       html,
     });
     console.log(`Recurring journal notification sent to ${recipients.length} recipient(s)`);
+  }
+
+  /**
+   * Capital call notice — subject per spec: `Capital Call Notice , {fundName} , {date}` (spaces around commas).
+   * HTML body plus official notice PDF attachment (same content as GET …/notice).
+   */
+  static async sendCapitalCallNoticeEmail(data: {
+    lpEmail: string;
+    lpDisplayName: string;
+    fundName: string;
+    subjectDateLabel: string;
+    html: string;
+    pdfAttachment?: { filename: string; content: Buffer };
+  }): Promise<void> {
+    const subject = capitalCallNoticeEmailSubject(data.fundName, data.subjectDateLabel);
+    const from = getFromAddress("investment");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${data.lpDisplayName}" <${data.lpEmail}>`,
+      subject,
+      html: data.html,
+      attachments: data.pdfAttachment
+        ? [
+            {
+              filename: data.pdfAttachment.filename,
+              content: data.pdfAttachment.content,
+            },
+          ]
+        : undefined,
+    });
   }
 }

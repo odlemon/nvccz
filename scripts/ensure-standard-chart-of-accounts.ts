@@ -31,6 +31,7 @@ const STANDARD_CHART_OF_ACCOUNTS: StdRow[] = [
   { accountNo: '1100', accountName: 'Bank - Operating Account', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1101', accountName: 'VAT Input Recoverable', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1200', accountName: 'Accounts Receivable', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
+  { accountNo: '1210', accountName: 'Capital Contributions Receivable', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT', notes: 'LP capital calls: Dr on initiation (see CapitalCallService / npm run db:ensure:capital-call-accounts)' },
   { accountNo: '1300', accountName: 'Prepayments', accountType: 'Current Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT' },
   { accountNo: '1510', accountName: 'Office Equipment', accountType: 'Fixed Asset', financialStatement: 'Balance Sheet', naturalBalance: 'DEBIT', notes: 'Furniture, computers, equipment' },
 
@@ -43,6 +44,7 @@ const STANDARD_CHART_OF_ACCOUNTS: StdRow[] = [
   { accountNo: '2250', accountName: 'Net Wages Payable', accountType: 'Current Liability', financialStatement: 'Balance Sheet', naturalBalance: 'CREDIT' },
 
   // —— Equity ——
+  { accountNo: '3010', accountName: 'Partners Capital - Uncalled', accountType: 'Equity', financialStatement: 'Balance Sheet', naturalBalance: 'CREDIT', notes: 'LP capital calls: Cr on initiation (see CapitalCallService / npm run db:ensure:capital-call-accounts)' },
   { accountNo: '3100', accountName: 'Retained Earnings', accountType: 'Equity', financialStatement: 'Balance Sheet', naturalBalance: 'CREDIT' },
 
   // —— Revenue ——

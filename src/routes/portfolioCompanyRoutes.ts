@@ -832,7 +832,9 @@ router.get(
  * @swagger
  * /api/portfolio-companies/reporting/schedule-configs:
  *   get:
- *     summary: List reporting automation configs (cadence — not opened calendars)
+ *     summary: List reporting schedule configs — investor
+ *     description: |
+ *       **Audience:** Investor (fund staff). JWT required. Cadence definitions only; not opened calendar rows.
  *     tags: ['Financial Reporting']
  *     security:
  *       - bearerAuth: []
@@ -840,10 +842,10 @@ router.get(
  *       200:
  *         description: `{ success, data: { configs } }`
  *   post:
- *     summary: Create reporting schedule config
+ *     summary: Create reporting schedule config — investor
  *     description: |
- *       Defines **when** the system may auto-broadcast REQUEST (open calendar) or run reminder-only AUTO tiers.
- *       Does **not** open a period by itself until **POST** `/api/cron/reporting/schedule-tick` (or your scheduler) runs.
+ *       **Audience:** Investor (fund staff). Defines **when** automation may auto-broadcast REQUEST (open calendar) or run reminder-only AUTO tiers.
+ *       Does **not** immediately open a period; effects occur when the server’s reporting automation job runs.
  *     tags: ['Financial Reporting']
  *     security:
  *       - bearerAuth: []
@@ -892,7 +894,8 @@ router.post(
  * @swagger
  * /api/portfolio-companies/reporting/schedule-configs/{id}:
  *   get:
- *     summary: Get one reporting schedule config
+ *     summary: Get one reporting schedule config — investor
+ *     description: "**Audience:** Investor (fund staff)."
  *     tags: ['Financial Reporting']
  *     security:
  *       - bearerAuth: []
@@ -902,7 +905,8 @@ router.post(
  *         required: true
  *         schema: { type: string }
  *   put:
- *     summary: Update reporting schedule config
+ *     summary: Update reporting schedule config — investor
+ *     description: "**Audience:** Investor (fund staff)."
  *     tags: ['Financial Reporting']
  *     security:
  *       - bearerAuth: []
@@ -912,7 +916,8 @@ router.post(
  *         required: true
  *         schema: { type: string }
  *   delete:
- *     summary: Delete reporting schedule config
+ *     summary: Delete reporting schedule config — investor
+ *     description: "**Audience:** Investor (fund staff)."
  *     tags: ['Financial Reporting']
  *     security:
  *       - bearerAuth: []

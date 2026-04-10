@@ -445,8 +445,32 @@ Frontends need a JWT before the routes above: **POST** `/api/auth/login` (see Sw
 
 ---
 
+## Capital calls (LP drawdowns)
+
+**Full specification (prerequisites, ordered REST flow, request bodies, responses, errors, ops):**  
+**[`docs/capital-calls-lp-drawdowns.md`](./capital-calls-lp-drawdowns.md)**
+
+**Swagger:** tag **Capital Calls (LP drawdowns)** — paths match the doc order; examples use concrete sample values (not placeholders).
+
+**Quick map** (`/api/funds`, Bearer token):
+
+| Order | Method | Path |
+|-------|--------|------|
+| 1 | POST | `/api/funds/{fundId}/capital-calls` — initiate (body: `callPercent`, `paymentDueDate`, `transactionDate`, `bankInstructions`) |
+| 2 | GET | `/api/funds/{fundId}/capital-calls` — list |
+| 3 | GET | `/api/funds/{fundId}/capital-calls/lp-summary` — per-LP balances |
+| 4 | GET | `/api/funds/{fundId}/capital-calls/{capitalCallId}` — detail |
+| 5 | GET | `/api/funds/{fundId}/capital-calls/{capitalCallId}/allocations/{allocationId}/notice` — notice JSON |
+| 6 | POST | `/api/funds/{fundId}/capital-calls/{capitalCallId}/send-notices` — HTML + PDF email |
+| 7 | GET / POST | `.../allocations/{allocationId}/payments` — ledger + record payment |
+
+**DB:** `npm run db:migrate:capital-calls`, `npm run db:migrate:capital-call-allocation-payments`, `npm run db:ensure:capital-call-accounts` (1210 / 3010). **IDs:** `npm run db:print:capital-call-postman`.
+
+---
+
 ## See also (repo)
 
+- **`docs/capital-calls-lp-drawdowns.md`** — capital calls deep dive.  
 - **`docs/postman-investee-reporting-test-flow.md`** — Postman-style checklist and sample IDs.  
 - **`docs/arcus-investee-flow.md`** — Higher-level workflow narrative (Arcus / PMRAS).  
-- **Swagger** — OpenAPI for every path above; search tags **Financial Reporting** (includes schedule CRUD + schedule-tick examples) and **Investee Reporting**.
+- **Swagger** — OpenAPI for every path above; search tags **Financial Reporting** (includes schedule CRUD + schedule-tick examples), **Investee Reporting**, and **Capital Calls (LP drawdowns)**.
