@@ -267,6 +267,9 @@ export class ApplicantPortalService {
   ): number {
     const stageProgressMap: { [key: string]: number } = {
       'SUBMITTED': 5,
+      'SCREENING_PENDING': 5,
+      'SCREENING': 10,
+      'ACTIVE_DD': 20,
       'PENDING_SHORTLISTING': 5,
       'SHORTLISTED': 10,
       'UNDER_DUE_DILIGENCE': 20,
@@ -283,6 +286,8 @@ export class ApplicantPortalService {
       'PORTFOLIO_MANAGEMENT': 100,
       'BELOW_THRESHOLD': 0,
       'REJECTED': 0,
+      'REJECTED_SCREENING': 0,
+      'AUTO_REJECTED': 0,
       'NOT_SELECTED': 0
     };
 

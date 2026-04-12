@@ -92,7 +92,7 @@ export async function createJournalEntryWithAuditSequence(
 ): Promise<JournalEntry> {
   return prisma.$transaction(
     (tx) => assignNextAuditIdAndCreateJournal(tx, data, periodLockOpts),
-    { maxWait: 10_000, timeout: 25_000 }
+    { maxWait: 8_000, timeout: 15_000 }
   );
 }
 

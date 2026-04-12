@@ -7,6 +7,9 @@ import { logger } from '../utils/logger';
 import { FirebaseStorageService } from '../services/FirebaseStorageService';
 import { prisma } from '../utils/database';
 import { parseDate } from "../utils/dateHelper";
+import { userCanAccessApplication } from "../utils/applicationFundAccess";
+import { RBZ_EXCHANGE_CONTROL_DOCUMENT_TYPE } from "../config/applicationStatutoryCompliance";
+import { DealCollaborationService } from "../services/DealCollaborationService";
 
 export class ApplicationController {
   /**
@@ -17,17 +20,16 @@ export class ApplicationController {
     // Declare files outside try block so it's accessible in catch
     let files: Express.Multer.File[] = [];
     let isMultipart = false;
-    
+
     try {
-      // Safely extract files from request
       try {
         if (req.files) {
           const filesObj = req.files as { [fieldname: string]: Express.Multer.File[] };
-          files = filesObj['files'] || [];
+          files = filesObj.files || [];
         }
         isMultipart = files.length > 0;
       } catch (filesError: any) {
-        logger.warn('Error extracting files from request', { error: filesError.message });
+        logger.warn("Error extracting files from request", { error: filesError.message });
         files = [];
         isMultipart = false;
       }
@@ -89,24 +91,23 @@ export class ApplicationController {
       }> = [];
 
       if (isMultipart && files.length > 0) {
-        // Parse documentTypes if it's a string (JSON)
         let docTypes: string[] = [];
         if (documentTypes) {
           try {
-            docTypes = typeof documentTypes === 'string' ? JSON.parse(documentTypes) : documentTypes;
+            docTypes =
+              typeof documentTypes === "string" ? JSON.parse(documentTypes) : documentTypes;
           } catch (e) {
             ResponseHelper.error(res, "Invalid documentTypes format. Expected JSON array.", undefined, 400);
             return;
           }
         }
 
-        // If documentTypes not provided or doesn't match, auto-detect from filenames
         if (docTypes.length !== files.length) {
-          logger.info('Auto-detecting document types from filenames', {
+          logger.info("Auto-detecting document types from filenames", {
             filesCount: files.length,
             docTypesCount: docTypes.length
           });
-          
+
           docTypes = files.map(file => {
             const fileName = file.originalname.toUpperCase();
             // Auto-detect document type from filename
@@ -242,47 +243,56 @@ export class ApplicationController {
 
       ResponseHelper.success(res, "Application created successfully", application, 201);
     } catch (error: any) {
-      // Ensure files and isMultipart are defined even if error occurred early
       const fileCount = files ? files.length : 0;
       const hasFiles = isMultipart || false;
-      
+
       logger.error("❌ Error creating application", {
-        error: error.message,
-        stack: error.stack,
+        error: error?.message,
+        stack: error?.stack,
         applicantEmail: req.body?.applicantEmail,
         businessName: req.body?.businessName,
-        fileCount: fileCount,
-        hasFiles: hasFiles,
-        errorName: error.name,
-        errorCode: error.code
+        fileCount,
+        hasFiles,
+        errorName: error?.name,
+        errorCode: error?.code
       });
-      
-      // Extract meaningful error message
-      let errorMessage = error.message || 'Unknown error occurred';
-      
-      // Handle ReferenceError specifically (like "files is not defined")
-      if (error.name === 'ReferenceError') {
-        errorMessage = `Code error: ${error.message}. This is a programming error, please check server logs.`;
-        logger.error("ReferenceError detected - this is a code bug", {
-          message: error.message,
-          stack: error.stack
-        });
-      }
-      
-      // Handle specific error types
-      if (error.message?.includes('upload')) {
-        // Upload-related errors - provide detailed message
-        errorMessage = error.message;
-      } else if (error.message?.includes('email already')) {
-        ResponseHelper.error(res, error.message, undefined, 400);
-        return;
-      } else if (error.message?.includes('Missing required')) {
-        ResponseHelper.error(res, error.message, undefined, 400);
-        return;
-      }
-      
-      ResponseHelper.error(res, `Failed to create application: ${errorMessage}`, undefined, 500);
+
+      const msg =
+        typeof error?.message === "string" && error.message.trim()
+          ? error.message.trim()
+          : "An unexpected error occurred";
+
+      const statusCode = ApplicationController.resolveCreateApplicationErrorStatus(error, msg);
+      ResponseHelper.error(res, msg, msg, statusCode);
     }
+  }
+
+  /** Maps thrown errors to HTTP status; response body uses the real `message` (no generic wrapper). */
+  private static resolveCreateApplicationErrorStatus(err: any, msg: string): number {
+    if (err?.name === "ReferenceError") {
+      return 500;
+    }
+    if (err?.code === "P2002") {
+      return 409;
+    }
+    const clientError =
+      msg.includes("Missing required fields") ||
+      msg.includes("Missing required documents") ||
+      msg.includes("At least one document is required") ||
+      msg.includes("Requested amount must be greater than zero") ||
+      msg.includes("Invalid email format") ||
+      msg.includes("already applied for investment") ||
+      msg.includes("already linked to an internal user account") ||
+      msg.includes("Fund not found") ||
+      msg.includes("Fund is not accepting applications") ||
+      msg.includes("Invalid documentTypes format") ||
+      msg.includes("Failed to upload document") ||
+      msg.includes("Either files must be uploaded") ||
+      msg.includes("This email already applied");
+    if (clientError) {
+      return 400;
+    }
+    return 500;
   }
 
   /**
@@ -419,7 +429,33 @@ export class ApplicationController {
         return;
       }
 
-      const application = await ApplicationService.getApplicationById(id);
+      const gate = await prisma.application.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          fundId: true,
+          assignedAnalystId: true,
+          dueDiligenceReview: { select: { reviewerId: true } }
+        }
+      });
+
+      if (!gate) {
+        ResponseHelper.error(res, "Application not found", undefined, 404);
+        return;
+      }
+
+      const user = (req as any).user;
+      if (!(await userCanAccessApplication(user, gate))) {
+        ResponseHelper.error(res, "Forbidden: you cannot access this deal", undefined, 403);
+        return;
+      }
+
+      const light =
+        req.query.light === "true" ||
+        req.query.light === "1" ||
+        String(req.query.light || "").toLowerCase() === "yes";
+
+      const application = await ApplicationService.getApplicationById(id, { light });
 
       if (!application) {
         ResponseHelper.error(res, "Application not found", undefined, 404);
@@ -539,7 +575,12 @@ export class ApplicationController {
         return;
       }
 
-      const application = await ApplicationService.changeApplicationStage(id, newStage, notes);
+      const application = await ApplicationService.changeApplicationStage(
+        id,
+        newStage,
+        notes,
+        (req as any).user?.id
+      );
 
       logger.info("Application stage changed", {
         applicationId: application.id,
@@ -552,6 +593,330 @@ export class ApplicationController {
     } catch (error: any) {
       logger.error("Error changing application stage", { error: error.message });
       ResponseHelper.error(res, `Failed to change application stage: ${error.message}`, undefined, 500);
+    }
+  }
+
+  /**
+   * Legal/compliance — KYC + RBZ document gate for fund disbursement (statutory guardrail).
+   */
+  static async assignLeadAnalyst(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const analystUserId = req.body?.analystUserId;
+      const actorId = (req as any).user?.id;
+
+      if (!id || !analystUserId || !actorId) {
+        ResponseHelper.error(res, "Application id, analystUserId, and authentication are required", undefined, 400);
+        return;
+      }
+
+      const application = await ApplicationService.assignLeadAnalyst(id, analystUserId, actorId);
+
+      const an = application.assignedAnalyst;
+      if (an?.email) {
+        void EmailNotificationService.sendLeadAnalystAssignedEmail({
+          analystName: `${an.firstName} ${an.lastName}`.trim() || "Analyst",
+          analystEmail: an.email,
+          businessName: application.businessName,
+          dealReference: application.dealReference ?? null
+        });
+      }
+
+      ResponseHelper.success(res, "Lead analyst assigned", application);
+    } catch (error: any) {
+      logger.error("assignLeadAnalyst", { error: error.message });
+      const msg = error.message || "Failed to assign analyst";
+      let status = 400;
+      if (
+        msg.includes("Application not found") ||
+        msg.includes("Analyst user not found") ||
+        msg.includes("Actor not found")
+      ) {
+        status = 404;
+      } else if (msg.includes("Only fund managers or executives")) {
+        status = 403;
+      }
+      ResponseHelper.error(res, msg, undefined, status);
+    }
+  }
+
+  static async recordAnalystScreeningScore(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const score = req.body?.score;
+      const actorId = (req as any).user?.id;
+
+      if (!id || actorId == null) {
+        ResponseHelper.error(res, "Application id and authentication are required", undefined, 400);
+        return;
+      }
+
+      if (typeof score !== "number") {
+        ResponseHelper.error(res, "score (number 0-100) is required", undefined, 400);
+        return;
+      }
+
+      const application = await ApplicationService.recordAnalystScreeningScore(id, actorId, score);
+      ResponseHelper.success(res, "Screening score recorded", application);
+    } catch (error: any) {
+      logger.error("recordAnalystScreeningScore", { error: error.message });
+      const msg = error.message || "Failed to record screening score";
+      let status = 500;
+      if (msg.includes("not found")) {
+        status = 404;
+      } else if (msg.includes("Only the assigned lead analyst")) {
+        status = 403;
+      } else if (
+        msg.includes("Assign a lead analyst before") ||
+        msg.includes("SCREENING stage") ||
+        msg.includes("score must be a number")
+      ) {
+        status = 400;
+      }
+      ResponseHelper.error(res, msg, undefined, status);
+    }
+  }
+
+  /**
+   * RBZ Exchange Control approval upload: multipart/form-data, `:id` = application id, field `file`.
+   * UAT: any authenticated user (Legal/Compliance role check disabled for testing).
+   */
+  static async uploadRbzExchangeControlDocument(req: Request, res: Response): Promise<void> {
+    try {
+      const id = String(req.params.id || "").trim();
+      const file = req.file as Express.Multer.File | undefined;
+
+      if (!id) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+      if (!file) {
+        ResponseHelper.error(
+          res,
+          "file is required (multipart/form-data, field name: file)",
+          undefined,
+          400
+        );
+        return;
+      }
+
+      const { downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
+        file.buffer,
+        file.originalname,
+        id,
+        RBZ_EXCHANGE_CONTROL_DOCUMENT_TYPE
+      );
+
+      const document = await ApplicationService.replaceRbzExchangeControlDocument(id, {
+        fileName: file.originalname,
+        fileUrl: downloadURL,
+        fileSize: file.size
+      });
+
+      ResponseHelper.success(
+        res,
+        "RBZ Exchange Control document uploaded",
+        {
+          applicationId: id,
+          document: {
+            id: document.id,
+            documentType: document.documentType,
+            fileName: document.fileName,
+            fileUrl: document.fileUrl,
+            fileSize: document.fileSize
+          }
+        },
+        201
+      );
+    } catch (error: any) {
+      logger.error("Error uploading RBZ Exchange Control document", { error: error.message });
+      const msg = error.message || "Failed to upload document";
+      const notFound = msg.includes("Application not found");
+      ResponseHelper.error(res, msg, undefined, notFound ? 404 : 500);
+    }
+  }
+
+  static async updateStatutoryCompliance(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const kycVerified = req.body?.kycVerified;
+
+      if (!id) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+
+      if (typeof kycVerified !== "boolean") {
+        ResponseHelper.error(res, "kycVerified (boolean) is required", undefined, 400);
+        return;
+      }
+
+      const application = await ApplicationService.updateStatutoryCompliance(id, kycVerified);
+      ResponseHelper.success(res, "Statutory compliance updated", application);
+    } catch (error: any) {
+      logger.error("Error updating statutory compliance", { error: error.message });
+      const msg = error.message || "Failed to update statutory compliance";
+      const isValidation =
+        msg.includes("RBZ Exchange Control") || msg.includes("Application not found");
+      ResponseHelper.error(
+        res,
+        msg,
+        undefined,
+        isValidation ? (msg.includes("not found") ? 404 : 400) : 500
+      );
+    }
+  }
+
+  /** Portfolio deal collaboration — mirrors task `GET /api/tasks/:id/messages` shape. */
+  static async getDealCollaborationMessages(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id;
+      if (!id?.trim() || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID required" });
+      }
+      const messages = await DealCollaborationService.listMessages(id.trim(), userId);
+      return res.status(200).json({
+        success: true,
+        messages,
+        realtime: {
+          subscribeEvent: "deal_collaboration_message",
+          roomPattern: `deal:${id.trim()}`
+        }
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** JSON-only deal message (no attachments). Same persistence + Socket.IO as multipart `.../collaboration/comments`. */
+  static async createDealCollaborationMessage(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id;
+      const { content, mentionUserIds: rawMentions } = req.body || {};
+      const mentionUserIds = Array.isArray(rawMentions)
+        ? rawMentions
+        : rawMentions != null && rawMentions !== ""
+          ? [String(rawMentions)]
+          : [];
+
+      if (!id?.trim() || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID required" });
+      }
+
+      const data = await DealCollaborationService.createMessage({
+        applicationId: id.trim(),
+        actorId: userId,
+        content: String(content || ""),
+        mentionUserIds,
+        files: []
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Deal collaboration message sent successfully",
+        data,
+        realtime: {
+          event: "deal_collaboration_message",
+          room: `deal:${id.trim()}`,
+          hint: "Subscribe via Socket.IO after emit join_deal { applicationId }"
+        }
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** Multipart deal comment with optional attachments (mirrors `POST /api/tasks/:id/comments`). */
+  static async createDealCollaborationComment(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id;
+      if (!id?.trim() || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID required" });
+      }
+
+      const mentionUserIds = Array.isArray(req.body.mentionUserIds)
+        ? req.body.mentionUserIds
+        : typeof req.body.mentionUserIds === "string"
+          ? JSON.parse(req.body.mentionUserIds)
+          : [];
+
+      const comment = await DealCollaborationService.createMessage({
+        applicationId: id.trim(),
+        actorId: userId,
+        content: req.body.content,
+        mentionUserIds,
+        files: Array.isArray(req.files) ? req.files : []
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Deal collaboration comment created successfully",
+        comment,
+        realtime: {
+          event: "deal_collaboration_message",
+          room: `deal:${id.trim()}`
+        }
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  static async deleteDealCollaborationMessage(req: Request, res: Response): Promise<void> {
+    try {
+      const { id, msgId } = req.params;
+      const userId = (req as any).user?.id;
+      if (!id?.trim() || !msgId || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID and message ID required" });
+      }
+
+      const result = await DealCollaborationService.deleteMessage(id.trim(), msgId, userId);
+
+      return res.status(200).json({
+        success: true,
+        message: "Deal collaboration message deleted successfully",
+        result,
+        realtime: {
+          events: ["deal_collaboration_message", "deal_comment_deleted"],
+          roomPattern: `deal:${id.trim()}`,
+          hint: "Payload includes isDeleted: true; remove row from UI by id"
+        }
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /** Single message row (mirrors `GET /api/tasks/:id/chats/:msgId`). */
+  static async getDealCollaborationChatMessage(req: Request, res: Response): Promise<void> {
+    try {
+      const { id, msgId } = req.params;
+      const userId = (req as any).user?.id;
+      if (!id?.trim() || !msgId || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID and message ID required" });
+      }
+      const message = await DealCollaborationService.getChatMessage(id.trim(), msgId, userId);
+      return res.status(200).json({ success: true, message });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  static async getDealCollaborationMentionSuggestions(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id;
+      const q = req.query.q as string | undefined;
+      if (!id?.trim() || !userId) {
+        return res.status(400).json({ success: false, message: "Application ID required" });
+      }
+      const users = await DealCollaborationService.getMentionSuggestions(id.trim(), userId, q);
+      return res.status(200).json({ success: true, users });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
     }
   }
 
@@ -595,10 +960,10 @@ export class ApplicationController {
         return;
       }
 
-      if (application.currentStage !== "PENDING_SHORTLISTING") {
+      if (application.currentStage !== "SCREENING_PENDING") {
         ResponseHelper.error(
           res,
-          `Application is currently in ${application.currentStage}. Only applications pending shortlisting can be processed.`,
+          `Application is currently in ${application.currentStage}. Only applications in SCREENING_PENDING can be processed.`,
           undefined,
           400
         );
@@ -709,13 +1074,12 @@ export class ApplicationController {
       const page = req.query.page ? parseInt(req.query.page as string) : 1;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
 
-      // Fetch both REJECTED and BELOW_THRESHOLD applications
       const result = await ApplicationService.getAllApplications(
         page,
         limit,
-        ["REJECTED", "BELOW_THRESHOLD"],
+        ["REJECTED", "REJECTED_SCREENING", "AUTO_REJECTED", "BELOW_THRESHOLD"],
         undefined,
-        true  // Enable pagination
+        true
       );
 
       logger.info("Below threshold applications retrieved", {

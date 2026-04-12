@@ -354,39 +354,7 @@ Auth and env for these URLs are documented under **Configuration — server** (`
 
 **Public test / no scheduler:** same body and **shared-secret** behaviour as cron — set **`REPORTING_REMINDERS_CRON_SECRET`** in `.env` and send header **`X-Reporting-Reminders-Cron-Secret`**. If unset, only **localhost** may call.
 
-- **POST** `/api/public/reporting/reminders` *(alias for testing; documented in Swagger)*  
-- **POST** `/api/cron/reporting/reminders` *(same handler)*  
 
-Body: `reportingPeriod`, `dueDate`, optional `asOfDate`, **`phase`**: `T_MINUS_3` | `OVERDUE` | `REQUEST` | `AUTO`.
-
-**Relation to schedule automation:** If you use **`reporting_schedule_configs`**, the tick may open periods with **`dueDate`** derived from config (`dueDateOffsetDaysAfterPeriodEnd`, etc.). If you do **not** use configs, the analyst still sets **`reportingPeriod`** and **`dueDate`** manually in Step 0.
-
----
-
-## Automation — reporting schedule (CADENCE + tick)
-
-Defines **how often** the platform *may* open reporting windows and run reminder tiers for eligible companies, without replacing **Step 0** when you choose to open everything manually.
-
-| Piece | Role |
-|-------|------|
-| **CRUD (admin JWT)** | **GET** / **POST** `/api/portfolio-companies/reporting/schedule-configs`; **GET** / **PUT** / **DELETE** `/api/portfolio-companies/reporting/schedule-configs/:id`. Persists rows in **`reporting_schedule_configs`** only — **no email** until a tick runs. |
-| **Tick (no JWT)** | **POST** `/api/cron/reporting/schedule-tick` or **POST** `/api/public/reporting/schedule-tick` — same handler. Optional body **`{ "asOfDate": "YYYY-MM-DD" }`** to simulate “today” for testing; omit for live **UTC** date. Auth: same as reminder cron (**`REPORTING_REMINDERS_CRON_SECRET`** + **`X-Reporting-Reminders-Cron-Secret`**, or localhost if secret unset). |
-| **`autoOpenCalendar`** | **true**: tick can broadcast REQUEST (open calendar) when timing rules match. **false**: tick only runs AUTO reminder tiers for periods **already** opened (e.g. analyst opened via Step 0). |
-| **`defaultAttachmentOptionIds`** | Same catalog **string ids** as **POST** `/api/portfolio-companies/reporting/requests` (`attachmentOptionIds`); see Step 0 and Swagger enums. |
-
-**Operational flow:** migrate DB → **`npx prisma generate`** → create/update configs in admin UI or via API → schedule an external job (daily) calling **`schedule-tick`** with the shared secret → investee flow from Step 1 onward unchanged.
-
-**Documentation:** all paths, schemas, and **multiple example request bodies** are under Swagger tag **Financial Reporting** (bundle merged in `src/config/swagger.ts` so **production** UI includes them even if route JSDoc is sparse).
-
----
-
-## Related — same investee portal, outside the core reporting submit path
-
-Optional if the product includes Arcus procurement from investees:
-
-- **POST** `/api/applicant/procurement-requests`
-
----
 
 ## Endpoint checklist (quick copy)
 

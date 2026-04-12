@@ -41,7 +41,7 @@ const upload = multer({
  *   post:
  *     summary: Create a new investment application (PUBLIC)
  *     description: Create a new investment application. Supports both multipart/form-data (with files) and application/json (with document URLs). Files are automatically uploaded to Firebase Storage.
- *     tags: [Portfolio Management]
+ *     tags: [Portfolio Management, Updated investment flow]
  *     requestBody:
  *       required: true
  *       content:
@@ -211,9 +211,7 @@ const upload = multer({
  *       500:
  *         description: Internal server error
  */
-router.post("/", upload.fields([
-  { name: 'files', maxCount: 10 }
-]), ApplicationController.createApplication);
+router.post("/", upload.fields([{ name: "files", maxCount: 10 }]), ApplicationController.createApplication);
 
 /**
  * @swagger
@@ -452,31 +450,106 @@ router.get("/below-threshold", authenticate, ApplicationController.getBelowThres
 
 /**
  * @swagger
- * /api/applications/{id}:
+ * /api/applications/{id}/assigned-analyst:
+ *   patch:
+ *     summary: Assign lead investment analyst (screening / Active DD task owner)
+ *     description: |
+ *       Body `{ "analystUserId": "<cuid>" }`. Role checks apply only when `NVCCZ_STRICT_DEAL_ACCESS=true`.
+ *     tags: [Portfolio Management, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch("/:id/assigned-analyst", authenticate, ApplicationController.assignLeadAnalyst);
+
+/**
+ * @swagger
+ * /api/applications/{id}/analyst-screening:
+ *   post:
+ *     summary: Record analyst Initial Screening Scorecard (UAT); below minimum score rejects deal
+ *     description: |
+ *       Body `{ "score": 0..100 }`. Only the **assigned lead analyst** (`assignedAnalystId`) may score; assign analyst first if unset.
+ *     tags: [Portfolio Management, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post("/:id/analyst-screening", authenticate, ApplicationController.recordAnalystScreeningScore);
+
+/**
+ * @swagger
+ * /api/applications/{id}/collaboration/messages:
  *   get:
- *     summary: Get application by ID (PROTECTED)
- *     description: Get detailed information about an application. Admin/Fund Manager access required.
- *     tags: [Portfolio Management]
+ *     summary: List deal collaboration messages
+ *     tags: [Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *         description: Application ID
+ *         schema: { type: string }
  *     responses:
- *       200:
- *         description: Application retrieved successfully
- *       404:
- *         description: Application not found
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Internal server error
+ *       200: { description: OK }
+ *   post:
+ *     summary: Post deal collaboration message
+ *     tags: [Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       201: { description: Created }
+ * /api/applications/{id}/collaboration/comments:
+ *   post:
+ *     summary: Post deal collaboration comment (optional multipart attachments)
+ *     tags: [Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       201: { description: Created }
  */
-router.get("/:id", authenticate, ApplicationController.getApplicationById);
+
+/**
+ * Portfolio deal collaboration feed — parity with task chat (`/api/tasks/:id/messages`, `comments`, delete, chats).
+ */
+router.get(
+  "/:id/collaboration/chats/:msgId",
+  authenticate,
+  ApplicationController.getDealCollaborationChatMessage
+);
+router.delete(
+  "/:id/collaboration/messages/:msgId",
+  authenticate,
+  ApplicationController.deleteDealCollaborationMessage
+);
+router.get(
+  "/:id/collaboration/mention-suggestions",
+  authenticate,
+  ApplicationController.getDealCollaborationMentionSuggestions
+);
+router.get(
+  "/:id/collaboration/messages",
+  authenticate,
+  ApplicationController.getDealCollaborationMessages
+);
+router.post(
+  "/:id/collaboration/messages",
+  authenticate,
+  ApplicationController.createDealCollaborationMessage
+);
+router.post(
+  "/:id/collaboration/comments",
+  authenticate,
+  upload.array("attachments", 10),
+  ApplicationController.createDealCollaborationComment
+);
 
 /**
  * @swagger
@@ -584,6 +657,88 @@ router.put("/:id", authenticate, ApplicationController.updateApplication);
  */
 router.post("/:id/change-stage", authenticate, ApplicationController.changeApplicationStage);
 
+/**
+ * @swagger
+ * /api/applications/{id}/statutory-compliance:
+ *   patch:
+ *     summary: Update KYC / statutory compliance flags
+ *     description: |
+ *       Authenticated users (UAT: role-based `authorize` removed from route).
+ *       When `kycVerified` is true, requires an application document with type `RBZ_EXCHANGE_CONTROL`.
+ *       Sets `complianceCleared` when both are satisfied. Fund disbursement APIs stay blocked until `complianceCleared` is true.
+ *     tags: [Portfolio Management, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - kycVerified
+ *             properties:
+ *               kycVerified:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Application updated
+ *       400:
+ *         description: Validation error (e.g. missing RBZ document when verifying KYC)
+ */
+/**
+ * @swagger
+ * /api/applications/{id}/rbz-exchange-control-document:
+ *   post:
+ *     summary: Upload RBZ Exchange Control approval (Legal / Compliance)
+ *     description: |
+ *       `multipart/form-data` only. Application ID in the path. Form field **`file`** (single file).
+ *       Replaces any previous RBZ document for this application. UAT: any authenticated user.
+ *       Then call `PATCH /{id}/statutory-compliance` with `kycVerified: true` to set compliance cleared.
+ *     tags: [Portfolio Management, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Application ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Document stored
+ *       400:
+ *         description: Missing file
+ *       401:
+ *         description: Not authenticated
+ */
+router.post(
+  "/:id/rbz-exchange-control-document",
+  upload.single("file"),
+  ApplicationController.uploadRbzExchangeControlDocument
+);
+
+router.patch("/:id/statutory-compliance", authenticate, ApplicationController.updateStatutoryCompliance);
+
 router.post("/:id/trigger-shortlisting", authenticate, ApplicationController.triggerShortlisting);
 
 /**
@@ -616,6 +771,44 @@ router.post("/:id/trigger-shortlisting", authenticate, ApplicationController.tri
  */
 router.delete("/:id", authenticate, ApplicationController.deleteApplication);
 
+/**
+ * @swagger
+ * /api/applications/{id}:
+ *   get:
+ *     summary: Get application by ID (PROTECTED)
+ *     description: |
+ *       Deal detail. Optional query `light=true` for a smaller payload.
+ *       **403 fund isolation** applies only when env `NVCCZ_STRICT_DEAL_ACCESS=true` (otherwise any authenticated user may read the deal for UAT).
+ *       Registered after `/:id/...` routes so paths like `/assigned-analyst` are not swallowed by `:id`.
+ *     tags: [Portfolio Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Application ID
+ *       - in: query
+ *         name: light
+ *         schema:
+ *           type: boolean
+ *         description: When true, returns a lighter payload (faster; omits heavy disbursement joins).
+ *     responses:
+ *       200:
+ *         description: Application retrieved successfully
+ *       403:
+ *         description: Forbidden — deal access denied when NVCCZ_STRICT_DEAL_ACCESS=true
+ *       404:
+ *         description: Application not found
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/:id", authenticate, ApplicationController.getApplicationById);
+
 // Due Diligence Routes
 /**
  * @swagger
@@ -623,7 +816,7 @@ router.delete("/:id", authenticate, ApplicationController.deleteApplication);
  *   post:
  *     summary: Initiate due diligence for an application (PROTECTED)
  *     description: Start the due diligence process for an application. Admin/Fund Manager access required.
- *     tags: [Portfolio Management]
+ *     tags: [Portfolio Management, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:

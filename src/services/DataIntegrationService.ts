@@ -355,7 +355,7 @@ export class DataIntegrationService {
 
       // Calculate average time to close (simplified)
       const completedApplications = applications.filter(app => 
-        ['FUNDED', 'REJECTED'].includes(app.currentStage)
+        ['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)
       );
       
       let averageTimeToClose = 0;
@@ -413,7 +413,7 @@ export class DataIntegrationService {
 
       const totalDealsSourced = applications.length;
       const totalDealsClosed = applications.filter(app => 
-        ['FUNDED', 'REJECTED'].includes(app.currentStage)
+        ['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)
       ).length;
 
       const totalValue = applications.reduce((sum, app) => sum.plus(app.requestedAmount), new Decimal(0));
@@ -421,7 +421,7 @@ export class DataIntegrationService {
 
       // Calculate average time to close
       const completedApplications = applications.filter(app => 
-        ['FUNDED', 'REJECTED'].includes(app.currentStage)
+        ['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)
       );
       
       let averageTimeToClose = 0;
@@ -468,7 +468,7 @@ export class DataIntegrationService {
             managerGroups[managerId].dealsSourced++;
             managerGroups[managerId].totalValue = managerGroups[managerId].totalValue.plus(app.requestedAmount);
             
-            if (['FUNDED', 'REJECTED'].includes(app.currentStage)) {
+            if (['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)) {
               managerGroups[managerId].dealsClosed++;
               
               if (app.submittedAt && app.updatedAt) {
@@ -622,7 +622,7 @@ export class DataIntegrationService {
           dealFlow[managerId][month].sourced++;
           dealFlow[managerId][month].value = dealFlow[managerId][month].value.plus(app.requestedAmount);
           
-          if (['FUNDED', 'REJECTED'].includes(app.currentStage)) {
+          if (['FUNDED', 'REJECTED', 'REJECTED_SCREENING', 'AUTO_REJECTED'].includes(app.currentStage)) {
             dealFlow[managerId][month].closed++;
           }
         });
@@ -843,7 +843,7 @@ export class DataIntegrationService {
     const stageTransitions: Record<string, Record<string, number>> = {};
     
     // This is simplified - in reality you'd track stage transitions over time
-    const stages = ['SHORTLISTED', 'UNDER_DUE_DILIGENCE', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'FUNDED'];
+    const stages = ['SCREENING', 'ACTIVE_DD', 'DUE_DILIGENCE_COMPLETED', 'UNDER_BOARD_REVIEW', 'BOARD_APPROVED', 'FUNDED'];
     
     const conversionRates: Array<{fromStage: string; toStage: string; rate: number}> = [];
     

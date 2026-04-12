@@ -1,96 +1,141 @@
 //@ts-nocheck
 import { Request, Response } from 'express';
-import { BoardReviewService, CreateBoardReviewRequest, UpdateBoardReviewRequest } from '../services/BoardReviewService';
+import {
+  BoardReviewService,
+  BoardReviewWithRelations,
+  CreateBoardReviewRequest,
+  UpdateBoardReviewRequest
+} from '../services/BoardReviewService';
 import { EmailNotificationService } from '../services/EmailNotificationService';
 import { UserService } from '../services/UserService';
 import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 
+function parseMultipartBool(v: unknown, defaultFalse = false): boolean {
+  if (v === true || v === false) {
+    return v;
+  }
+  if (v === undefined || v === null || v === "") {
+    return defaultFalse;
+  }
+  const s = String(v).toLowerCase();
+  return s === "true" || s === "1" || s === "yes";
+}
+
+function parseOptionalOverallScore(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === "") {
+    return undefined;
+  }
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function dispatchApplicantEmailsAfterBoardReviewCreate(
+  boardReview: BoardReviewWithRelations,
+  p: { investmentApproved: boolean; investmentRejected: boolean; conditionalApproval: boolean }
+): void {
+  let emailMethod: typeof EmailNotificationService.sendBoardReviewStartedEmail;
+  let currentStage: string;
+
+  if (p.investmentApproved) {
+    emailMethod = EmailNotificationService.sendInvestmentDecisionEmail;
+    currentStage = "BOARD_APPROVED";
+  } else if (p.investmentRejected) {
+    emailMethod = EmailNotificationService.sendApplicationRejectedEmail;
+    currentStage = "BOARD_REJECTED";
+  } else if (p.conditionalApproval) {
+    emailMethod = EmailNotificationService.sendInvestmentDecisionEmail;
+    currentStage = "BOARD_CONDITIONAL";
+  } else {
+    emailMethod = EmailNotificationService.sendBoardReviewStartedEmail;
+    currentStage = "UNDER_BOARD_REVIEW";
+  }
+
+  void emailMethod({
+    applicantName: boardReview.application.applicantName,
+    applicantEmail: boardReview.application.applicantEmail,
+    businessName: boardReview.application.businessName,
+    applicationId: boardReview.application.id,
+    currentStage: currentStage
+  })
+    .then(() => {
+      logger.info("Board review applicant email dispatched", {
+        applicationId: boardReview.applicationId,
+        applicantEmail: boardReview.application.applicantEmail,
+        decision: currentStage
+      });
+    })
+    .catch((emailError: any) => {
+      logger.error("Failed to send board review decision email", {
+        applicationId: boardReview.applicationId,
+        error: emailError?.message
+      });
+    });
+}
+
+/** Same field rules as {@link BoardReviewController.createBoardReview} (multipart). */
+function parseCreateBoardReviewMultipartBody(
+  body: Record<string, unknown>
+): Omit<CreateBoardReviewRequest, "applicationId" | "reviewerId" | "memorandumFile"> {
+  const b = body || {};
+  return {
+    investmentApproved: parseMultipartBool(b.investmentApproved),
+    investmentRejected: parseMultipartBool(b.investmentRejected),
+    conditionalApproval: parseMultipartBool(b.conditionalApproval),
+    recommendationReport: b.recommendationReport ? String(b.recommendationReport) : undefined,
+    additionalInformation: b.additionalInformation ? String(b.additionalInformation) : undefined,
+    decisionReason: b.decisionReason ? String(b.decisionReason) : undefined,
+    conditions: b.conditions ? String(b.conditions) : undefined,
+    nextSteps: b.nextSteps ? String(b.nextSteps) : undefined,
+    overallScore: parseOptionalOverallScore(b.overallScore),
+    finalComments: b.finalComments ? String(b.finalComments) : undefined
+  };
+}
+
 export class BoardReviewController {
   /**
-   * Create a new board review (PROTECTED - admin/fund manager access)
+   * Create board review + upload final IM (multipart). Field `document` = file; other fields as text form fields.
    */
     static async createBoardReview(req: Request, res: Response): Promise<void> {
     try {
       const { applicationId } = req.params;
-      const {
-        investmentApproved,
-        investmentRejected,
-        conditionalApproval,
-        recommendationReport,
-        additionalInformation,
-        decisionReason,
-        conditions,
-        nextSteps,
-        overallScore,
-        finalComments
-      } = req.body;
+      const file = (req as any).file;
 
-      // Validate required fields
       if (!applicationId) {
         ResponseHelper.error(res, "Application ID is required", undefined, 400);
         return;
       }
 
-      const userId = (req as any).user.id;
+      if (!file?.buffer?.length) {
+        ResponseHelper.error(
+          res,
+          "Multipart field `document` (final Investment Memorandum) is required",
+          undefined,
+          400
+        );
+        return;
+      }
 
-             const boardReviewParams: CreateBoardReviewRequest = {
-         applicationId,
-         reviewerId: userId,
-         investmentApproved,
-         investmentRejected,
-         conditionalApproval,
-         recommendationReport,
-         additionalInformation,
-         decisionReason,
-         conditions,
-         nextSteps,
-         overallScore,
-         finalComments
-       };
+      const userId = (req as any).user.id;
+      const b = req.body || {};
+
+      const boardReviewParams: CreateBoardReviewRequest = {
+        applicationId,
+        reviewerId: userId,
+        ...parseCreateBoardReviewMultipartBody(b as Record<string, unknown>),
+        memorandumFile: {
+          buffer: file.buffer,
+          originalname: file.originalname || "investment-memorandum.pdf"
+        }
+      };
 
       const boardReview = await BoardReviewService.createBoardReview(boardReviewParams);
 
-      // Send appropriate email notification based on the decision
-      try {
-        let emailMethod;
-        let currentStage;
-        
-        if (investmentApproved) {
-          emailMethod = EmailNotificationService.sendInvestmentDecisionEmail;
-          currentStage = 'BOARD_APPROVED';
-        } else if (investmentRejected) {
-          emailMethod = EmailNotificationService.sendApplicationRejectedEmail;
-          currentStage = 'BOARD_REJECTED';
-        } else if (conditionalApproval) {
-          emailMethod = EmailNotificationService.sendInvestmentDecisionEmail;
-          currentStage = 'BOARD_CONDITIONAL';
-        } else {
-          // If no decision is made yet, send board review started email
-          emailMethod = EmailNotificationService.sendBoardReviewStartedEmail;
-          currentStage = 'UNDER_BOARD_REVIEW';
-        }
-
-        await emailMethod({
-          applicantName: boardReview.application.applicantName,
-          applicantEmail: boardReview.application.applicantEmail,
-          businessName: boardReview.application.businessName,
-          applicationId: boardReview.application.id,
-          currentStage: currentStage
-        });
-        
-        logger.info("Board review decision email sent successfully", {
-          applicationId: boardReview.applicationId,
-          applicantEmail: boardReview.application.applicantEmail,
-          decision: currentStage
-        });
-      } catch (emailError) {
-        logger.error("Failed to send board review decision email", {
-          applicationId: boardReview.applicationId,
-          error: emailError.message
-        });
-        // Don't fail the board review creation if email fails
-      }
+      dispatchApplicantEmailsAfterBoardReviewCreate(boardReview, {
+        investmentApproved: boardReviewParams.investmentApproved,
+        investmentRejected: boardReviewParams.investmentRejected,
+        conditionalApproval: boardReviewParams.conditionalApproval
+      });
 
       logger.info("Board review created successfully", {
         boardReviewId: boardReview.id,
@@ -190,13 +235,16 @@ export class BoardReviewController {
         return;
       }
 
-      const approvingUser = await UserService.getUserById(userId);
-      if (
-        approvingUser.userDepartment !== 'Investments' ||
-        approvingUser.roleCode !== 'BOARD_CHAIR'
-      ) {
-        ResponseHelper.error(res, "Only the Board Chairman can finalize the board review", undefined, 403);
-        return;
+      const strictBoard = process.env.NVCCZ_STRICT_BOARD_VOTE === "true";
+      if (strictBoard) {
+        const approvingUser = await UserService.getUserById(userId);
+        if (
+          approvingUser.userDepartment !== "Investments" ||
+          approvingUser.roleCode !== "BOARD_CHAIR"
+        ) {
+          ResponseHelper.error(res, "Only the Board Chairman can finalize the board review", undefined, 403);
+          return;
+        }
       }
 
       const boardReview = await BoardReviewService.completeBoardReview(applicationId);
@@ -214,27 +262,27 @@ export class BoardReviewController {
       // Only send generic decision email if user wasn't created (e.g., rejected)
       // For BOARD_APPROVED (both approved and conditional), user is created and credentials email is sent
       // So we should NOT send the generic email if user was created
-      if (!userWasCreated && boardReview.application.currentStage === 'BOARD_REJECTED') {
-        try {
-          await EmailNotificationService.sendInvestmentDecisionEmail({
-            applicantName: boardReview.application.applicantName,
-            applicantEmail: boardReview.application.applicantEmail,
-            businessName: boardReview.application.businessName,
-            applicationId: boardReview.application.id,
-            currentStage: boardReview.application.currentStage
+      if (!userWasCreated && boardReview.application.currentStage === "BOARD_REJECTED") {
+        void EmailNotificationService.sendInvestmentDecisionEmail({
+          applicantName: boardReview.application.applicantName,
+          applicantEmail: boardReview.application.applicantEmail,
+          businessName: boardReview.application.businessName,
+          applicationId: boardReview.application.id,
+          currentStage: boardReview.application.currentStage
+        })
+          .then(() => {
+            logger.info("Investment decision email dispatched", {
+              applicationId: boardReview.applicationId,
+              applicantEmail: boardReview.application.applicantEmail,
+              decision: boardReview.application.currentStage
+            });
+          })
+          .catch((emailError: any) => {
+            logger.error("Failed to send investment decision email", {
+              applicationId: boardReview.applicationId,
+              error: emailError?.message
+            });
           });
-          logger.info("Investment decision email sent successfully", {
-            applicationId: boardReview.applicationId,
-            applicantEmail: boardReview.application.applicantEmail,
-            decision: boardReview.application.currentStage
-          });
-        } catch (emailError) {
-          logger.error("Failed to send investment decision email", {
-            applicationId: boardReview.applicationId,
-            error: emailError.message
-          });
-          // Don't fail the board review completion if email fails
-        }
       } else if (userWasCreated) {
         logger.info("User account created - credentials email already sent from createUserAndPortfolioCompany", {
           applicationId: boardReview.applicationId,
@@ -306,14 +354,21 @@ export class BoardReviewController {
         return;
       }
 
-      const requester = await UserService.getUserById(requesterId);
-      const privilegedRoles = ["admin", "fund_manager"];
-      const isPrivilegedRole = requester.role?.name ? privilegedRoles.includes(requester.role.name) : false;
-      const isBoardRole = requester.userDepartment === 'Investments' && (requester.roleCode === 'BOARD_MEMBER' || requester.roleCode === 'BOARD_CHAIR');
+      const strictBoard = process.env.NVCCZ_STRICT_BOARD_VOTE === "true";
+      if (strictBoard) {
+        const requester = await UserService.getUserById(requesterId);
+        const privilegedRoles = ["admin", "fund_manager"];
+        const isPrivilegedRole = requester.role?.name
+          ? privilegedRoles.includes(requester.role.name)
+          : false;
+        const isBoardRole =
+          requester.userDepartment === "Investments" &&
+          (requester.roleCode === "BOARD_MEMBER" || requester.roleCode === "BOARD_CHAIR");
 
-      if (!isPrivilegedRole && !isBoardRole) {
-        ResponseHelper.error(res, "You are not authorized to view board vote summaries", undefined, 403);
-        return;
+        if (!isPrivilegedRole && !isBoardRole) {
+          ResponseHelper.error(res, "You are not authorized to view board vote summaries", undefined, 403);
+          return;
+        }
       }
 
       const summary = await BoardReviewService.getVoteSummary(applicationId, requesterId);
@@ -452,6 +507,110 @@ export class BoardReviewController {
     } catch (error: any) {
       logger.error("Error updating voting power", { error: error.message });
       ResponseHelper.error(res, `Failed to update voting power: ${error.message}`, undefined, 400);
+    }
+  }
+
+  static async uploadInvestmentMemorandum(req: Request, res: Response): Promise<void> {
+    try {
+      const { applicationId } = req.params;
+      const actorId = (req as any).user?.id;
+      const file = (req as any).file;
+
+      if (!applicationId) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+      if (!actorId) {
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+      if (!file?.buffer) {
+        ResponseHelper.error(res, "Multipart file field `document` is required", undefined, 400);
+        return;
+      }
+
+      const rawBody = (req.body || {}) as Record<string, unknown>;
+      const createFields = parseCreateBoardReviewMultipartBody(rawBody);
+
+      const { boardReview, createdNew } = await BoardReviewService.uploadInvestmentMemorandumAndCallToVote(
+        applicationId,
+        { buffer: file.buffer, originalname: file.originalname || "investment-memorandum.pdf" },
+        actorId,
+        { createFields, rawBody }
+      );
+
+      if (createdNew) {
+        dispatchApplicantEmailsAfterBoardReviewCreate(boardReview, {
+          investmentApproved: boardReview.investmentApproved,
+          investmentRejected: boardReview.investmentRejected,
+          conditionalApproval: boardReview.conditionalApproval
+        });
+      }
+
+      logger.info("Investment memorandum submitted (upload + call to vote)", {
+        applicationId,
+        createdNew,
+        boardReviewId: boardReview.id
+      });
+
+      ResponseHelper.success(
+        res,
+        createdNew
+          ? "Board review created, investment memorandum uploaded, and call to vote completed"
+          : "Investment memorandum uploaded and call to vote completed",
+        boardReview,
+        createdNew ? 201 : 200
+      );
+    } catch (error: any) {
+      logger.error("Error uploading investment memorandum", { error: error.message });
+      ResponseHelper.error(res, error.message || "Upload failed", undefined, 400);
+    }
+  }
+
+  static async callToVote(req: Request, res: Response): Promise<void> {
+    try {
+      const { applicationId } = req.params;
+      const actorId = (req as any).user?.id;
+      const resendNotifications = Boolean(req.body?.resendNotifications);
+
+      if (!applicationId) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+      if (!actorId) {
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+
+      const boardReview = await BoardReviewService.callToVote(applicationId, actorId, {
+        resendNotifications
+      });
+      ResponseHelper.success(res, "Call to vote completed", boardReview);
+    } catch (error: any) {
+      logger.error("Error in call to vote", { error: error.message });
+      ResponseHelper.error(res, error.message || "Call to vote failed", undefined, 400);
+    }
+  }
+
+  static async getInvestmentMemorandumAccess(req: Request, res: Response): Promise<void> {
+    try {
+      const { applicationId } = req.params;
+      const actorId = (req as any).user?.id;
+
+      if (!applicationId) {
+        ResponseHelper.error(res, "Application ID is required", undefined, 400);
+        return;
+      }
+      if (!actorId) {
+        ResponseHelper.error(res, "User not authenticated", undefined, 401);
+        return;
+      }
+
+      const payload = await BoardReviewService.getInvestmentMemorandumAccess(applicationId, actorId);
+      ResponseHelper.success(res, "Investment memorandum access recorded", payload);
+    } catch (error: any) {
+      logger.error("Error accessing investment memorandum", { error: error.message });
+      ResponseHelper.error(res, error.message || "Access failed", undefined, 400);
     }
   }
 }

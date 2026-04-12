@@ -32,27 +32,6 @@ export class DueDiligenceController {
         reviewerId: userId
       });
 
-      // Send due diligence started email notification
-      try {
-        await EmailNotificationService.sendDueDiligenceStartedEmail({
-          applicantName: dueDiligence.application.applicantName,
-          applicantEmail: dueDiligence.application.applicantEmail,
-          businessName: dueDiligence.application.businessName,
-          applicationId: dueDiligence.application.id,
-          currentStage: 'UNDER_DUE_DILIGENCE'
-        });
-        logger.info("Due diligence started email sent successfully", {
-          applicationId: id,
-          applicantEmail: dueDiligence.application.applicantEmail
-        });
-      } catch (emailError) {
-        logger.error("Failed to send due diligence started email", {
-          applicationId: id,
-          error: emailError.message
-        });
-        // Don't fail the due diligence initiation if email fails
-      }
-
       logger.info("Due diligence initiated", {
         applicationId: id,
         reviewerId: userId,

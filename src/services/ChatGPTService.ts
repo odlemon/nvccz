@@ -196,8 +196,8 @@ ${documentInfo}
    - Always balance these concerns with any strengths the application demonstrates; err on the side of giving the applicant a fair chance when there is potential.
 
 **Important Rules:**
-- If score < 40%: Application should be REJECTED
-- If score >= 40%: Application should be SHORTLISTED
+- If score < 50%: Application should be REJECTED_SCREENING
+- If score >= 50%: Application should be SCREENING
 - Be lenient and generous in your scoring - give credit for effort and potential
 - Consider the strategic parameters (Youth/Women focus gets higher scores)
 - Don't be too strict - if there's potential, give it a chance

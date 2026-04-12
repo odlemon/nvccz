@@ -78,9 +78,9 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
 export function authorize(roles: string[] | string) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      res.status(401).json({ 
+      res.status(401).json({
         success: false,
-        message: "Unauthorized" 
+        message: "Unauthorized"
       });
       return;
     }
@@ -89,13 +89,38 @@ export function authorize(roles: string[] | string) {
     const allowedRoles = typeof roles === "string" ? [roles] : roles;
 
     if (!allowedRoles.includes(userRole)) {
-      res.status(403).json({ 
+      res.status(403).json({
         success: false,
-        message: "Forbidden: insufficient permissions" 
+        message: "Forbidden: insufficient permissions"
       });
       return;
     }
 
     next();
   };
+}
+
+/** JWT user is CFO by roleCode or canonical role name (not JSON permissions). */
+export function authorizeCfo(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (!req.user) {
+    res.status(401).json({
+      success: false,
+      message: "Unauthorized"
+    });
+    return;
+  }
+  const name = req.user.role?.name;
+  const code = req.user.roleCode;
+  const ok =
+    code === "CFO" ||
+    name === "Chief Financial Officer" ||
+    name === "CFO";
+  if (!ok) {
+    res.status(403).json({
+      success: false,
+      message: "Forbidden: CFO role required"
+    });
+    return;
+  }
+  next();
 }

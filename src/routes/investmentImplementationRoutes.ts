@@ -91,6 +91,7 @@ const router = express.Router();
  *           type: string
  *         status:
  *           type: string
+ *           description: PENDING, APPROVED, DISBURSED, or REJECTED (rejected tranches do not reserve IC cap)
  *         approvedById:
  *           type: string
  *         disbursedById:
@@ -99,6 +100,13 @@ const router = express.Router();
  *           type: string
  *         transactionReference:
  *           type: string
+ *         trancheIndex:
+ *           type: integer
+ *           description: 1-based tranche order for this implementation (API-computed on create and summary)
+ *         cfoApprovalStatusLabel:
+ *           type: string
+ *           example: PENDING_CFO_APPROVAL
+ *           description: PENDING_CFO_APPROVAL when PENDING; REJECTED when rejected
  */
 
 /**
@@ -106,7 +114,7 @@ const router = express.Router();
  * /api/investment-implementations/signed-term-sheets:
  *   get:
  *     summary: Get applications with signed term sheets
- *     tags: [Investment Implementation]
+ *     tags: [Investment Implementation, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -157,7 +165,7 @@ router.get('/signed-term-sheets',
  * /api/investment-implementations/initiate:
  *   post:
  *     summary: Initiate investment implementation
- *     tags: [Investment Implementation]
+ *     tags: [Investment Implementation, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -201,6 +209,9 @@ router.get('/signed-term-sheets',
  *                 type: number
  *                 example: 30000
  *                 description: Required if disbursementMode is MILESTONE_BASED. Total amount committed for this investment.
+ *               commitmentCurrencyId:
+ *                 type: string
+ *                 description: Optional. Currency of IC cap / totalCommittedAmount (currencies.id). Defaults to system default or USD when omitted.
  *           examples:
  *             milestoneBased:
  *               summary: Milestone-based disbursement
@@ -239,6 +250,31 @@ router.post('/initiate',
   authenticate, 
   authorize(['admin', 'fund_manager']), 
   InvestmentImplementationController.initiateInvestmentImplementation
+);
+
+/**
+ * @swagger
+ * /api/investment-implementations/disbursement-banks:
+ *   get:
+ *     summary: Banks eligible for fund disbursement approval (with GL accounts)
+ *     description: JWT only. For CFO picker; optional query paymentCurrencyId matches tranche payout currency.
+ *     tags: [Investment Implementation, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: paymentCurrencyId
+ *         schema:
+ *           type: string
+ *         description: When set, only banks in this currency (currencies.id)
+ *     responses:
+ *       200:
+ *         description: Active banks with linked chart-of-accounts GL
+ */
+router.get(
+  '/disbursement-banks',
+  authenticate,
+  InvestmentImplementationController.listDisbursementBanks
 );
 
 /**
@@ -430,18 +466,13 @@ router.post('/milestones/:milestoneId/complete',
   InvestmentImplementationController.completeMilestone
 );
 
-router.post('/initiate', 
-  authenticate, 
-  authorize(['admin', 'fund_manager']), 
-  InvestmentImplementationController.initiateInvestmentImplementation
-);
-
 /**
  * @swagger
  * /api/investment-implementations/disbursements:
  *   post:
  *     summary: Create fund disbursement
- *     tags: [Investment Implementation]
+ *     description: JWT only; no role authorize middleware.
+ *     tags: [Investment Implementation, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -470,12 +501,18 @@ router.post('/initiate',
  *                 type: string
  *                 enum: [INITIAL, MILESTONE, FINAL]
  *                 example: "MILESTONE"
+ *               milestoneId:
+ *                 type: string
+ *                 description: Optional; for MILESTONE_BASED implementations
  *               notes:
  *                 type: string
  *                 example: "First milestone payment"
+ *               paymentCurrencyId:
+ *                 type: string
+ *                 description: Optional. Currency of `amount` (payout). Defaults to implementation commitment currency. If different, commitment cap uses latest system `exchange_rates` as of disbursementDate (not manual).
  *     responses:
  *       201:
- *         description: Fund disbursement created successfully
+ *         description: Fund disbursement created (status PENDING); data includes trancheIndex and cfoApprovalStatusLabel
  *         content:
  *           application/json:
  *             schema:
@@ -490,16 +527,78 @@ router.post('/initiate',
  */
 router.post('/disbursements', 
   authenticate, 
-  authorize(['admin', 'fund_manager']), 
   InvestmentImplementationController.createFundDisbursement
+);
+
+/**
+ * @swagger
+ * /api/investment-implementations/disbursements/pending:
+ *   get:
+ *     summary: List PENDING fund disbursement requests (review queue)
+ *     description: JWT only. Same payload shape as prior CFO queue endpoint.
+ *     tags: [Investment Implementation, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Pending disbursements with tranche index and company context
+ */
+router.get(
+  '/disbursements/pending',
+  authenticate,
+  InvestmentImplementationController.listPendingDisbursementRequests
+);
+
+/**
+ * @swagger
+ * /api/investment-implementations/disbursements/{disbursementId}/decision:
+ *   post:
+ *     summary: Approve or reject a PENDING disbursement
+ *     description: Universal action. APPROVE requires bankId (payout bank), posts cashbook/GL, sets tranche DISBURSED (disbursedById/At), and moves application to DISBURSED when all tranches are disbursed. REJECT optional reason.
+ *     tags: [Investment Implementation, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: disbursementId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - decision
+ *             properties:
+ *               decision:
+ *                 type: string
+ *                 enum: [APPROVE, REJECT]
+ *               bankId:
+ *                 type: string
+ *                 description: Required when decision is APPROVE (from GET /disbursement-banks)
+ *               reason:
+ *                 type: string
+ *                 description: Optional; stored on disbursement notes when decision is REJECT
+ *     responses:
+ *       200:
+ *         description: Updated fund disbursement
+ */
+router.post(
+  '/disbursements/:disbursementId/decision',
+  authenticate,
+  InvestmentImplementationController.applyFundDisbursementDecision
 );
 
 /**
  * @swagger
  * /api/investment-implementations/disbursements/{disbursementId}/approve:
  *   post:
- *     summary: Approve fund disbursement
- *     tags: [Investment Implementation]
+ *     summary: Approve fund disbursement (legacy)
+ *     description: Same as POST .../decision with APPROVE; requires bankId. Completes disbursement (DISBURSED) in one step.
+ *     tags: [Investment Implementation, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -510,6 +609,18 @@ router.post('/disbursements',
  *           type: string
  *         description: Disbursement ID
  *         example: "disb_123"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - bankId
+ *             properties:
+ *               bankId:
+ *                 type: string
+ *                 description: Payout bank (from GET /disbursement-banks)
  *     responses:
  *       200:
  *         description: Fund disbursement approved successfully
@@ -527,7 +638,6 @@ router.post('/disbursements',
  */
 router.post('/disbursements/:disbursementId/approve', 
   authenticate, 
-  authorize(['admin', 'fund_manager']), 
   InvestmentImplementationController.approveFundDisbursement
 );
 
@@ -536,7 +646,7 @@ router.post('/disbursements/:disbursementId/approve',
  * /api/investment-implementations/{investmentImplementationId}/disbursement-summary:
  *   get:
  *     summary: Get disbursement summary
- *     tags: [Investment Implementation]
+ *     tags: [Investment Implementation, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -569,6 +679,17 @@ router.post('/disbursements/:disbursementId/approve',
  *                     remainingCommittedAmount:
  *                       type: number
  *                       example: 25000
+ *                     undrawnCommittedAmount:
+ *                       type: number
+ *                       example: 25000
+ *                       description: Same as remainingCommittedAmount
+ *                     complianceCleared:
+ *                       type: boolean
+ *                     kycVerified:
+ *                       type: boolean
+ *                     disbursementBlockedReason:
+ *                       type: string
+ *                       nullable: true
  *                     disbursementCount:
  *                       type: number
  *                       example: 1
@@ -581,6 +702,12 @@ router.post('/disbursements/:disbursementId/approve',
  *                         type: object
  *                         properties:
  *                           id:
+ *                             type: string
+ *                           trancheIndex:
+ *                             type: integer
+ *                           cfoApprovalStatusLabel:
+ *                             type: string
+ *                           milestoneId:
  *                             type: string
  *                           amount:
  *                             type: string
@@ -595,7 +722,6 @@ router.post('/disbursements/:disbursementId/approve',
  */
 router.get('/:investmentImplementationId/disbursement-summary',
   authenticate,
-  authorize(['admin', 'fund_manager']),
   InvestmentImplementationController.getDisbursementSummary
 );
 
@@ -641,7 +767,6 @@ router.get('/:investmentImplementationId/disbursement-summary',
  */
 router.post('/disbursements/:disbursementId/disburse', 
   authenticate, 
-  authorize(['admin', 'fund_manager']), 
   InvestmentImplementationController.markDisbursementAsDisbursed
 );
 

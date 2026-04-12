@@ -379,6 +379,102 @@ export default class PeriodLockService {
     throw new PeriodLockRejectedError(msg, String(params.moduleCode), fp.name, dateYmd);
   }
 
+  /**
+   * Cashbook payments post to BANK + GL. One fiscal/policy fetch and one module_lock query instead of two full assertModuleDateOpen calls.
+   */
+  static async assertBankAndGlOpenForCashbookPayment(params: {
+    accountingDate: Date;
+    userId: string;
+    source: PeriodLockSource;
+    actionType: string;
+    userPermissions?: Array<{ name: string; value: boolean }>;
+  }): Promise<void> {
+    const tz = await FiscalCalendarService.getFiscalTimezone();
+    const dateYmd = ymdString(params.accountingDate, tz);
+    const { y: calYear, m: calMonth } = getYmdInTimeZone(params.accountingDate, tz);
+
+    const [fp, policy] = await Promise.all([
+      FiscalCalendarService.getPeriodForDate(params.accountingDate),
+      prisma.companyAccountingPolicy.findUnique({ where: { id: "default" } }),
+    ]);
+
+    if (!fp) {
+      await this.assertLegacyPeriodLockoutAllowsPosting({
+        calYear,
+        calMonth,
+        dateYmd,
+        accountingDate: params.accountingDate,
+        moduleCode: "BANK",
+        userId: params.userId,
+        source: params.source,
+        actionType: params.actionType,
+        userPermissions: params.userPermissions,
+        policy,
+      });
+      return;
+    }
+
+    if (fp.status === "LOCKED" || fp.status === "CLOSED") {
+      const msg = this.formatLockedMessage("FISCAL", fp.name, dateYmd);
+      await this.logFailedAttempt({
+        moduleCode: "BANK",
+        accountingDate: params.accountingDate,
+        userId: params.userId,
+        actionType: params.actionType,
+        source: params.source,
+        detail: msg,
+      });
+      throw new PeriodLockRejectedError(msg, "BANK", fp.name, dateYmd);
+    }
+
+    const lockedPeriodPolicy = (policy?.lockedPeriodPolicy ?? "ERROR") as "ERROR" | "WARN";
+    const allowOverridePosting = policy?.allowOverridePosting ?? false;
+
+    const rows = await prisma.modulePeriodLock.findMany({
+      where: {
+        fiscalPeriodId: fp.id,
+        moduleCode: { in: ["BANK", "GL"] },
+      },
+    });
+    const byMod = new Map(rows.map((r) => [String(r.moduleCode).toUpperCase(), r]));
+
+    for (const mod of ["BANK", "GL"] as const) {
+      const row = byMod.get(mod);
+      const lockStatus = (row?.lockStatus ?? "OPEN").toUpperCase();
+      if (lockStatus !== "LOCKED" && lockStatus !== "CLOSED") {
+        continue;
+      }
+
+      const msg = this.formatLockedMessage(mod, fp.name, dateYmd);
+
+      if (
+        lockedPeriodPolicy === "WARN" &&
+        allowOverridePosting &&
+        userHasOverride(params.userPermissions)
+      ) {
+        await this.logAudit({
+          actionType: "PERIOD_LOCK_OVERRIDE_ALLOW",
+          moduleCode: mod,
+          fiscalPeriodId: fp.id,
+          newValue: { accountingDate: dateYmd, actionType: params.actionType },
+          performedById: params.userId,
+          source: params.source,
+        });
+        continue;
+      }
+
+      await this.logFailedAttempt({
+        moduleCode: mod,
+        accountingDate: params.accountingDate,
+        userId: params.userId,
+        actionType: params.actionType,
+        source: params.source,
+        detail: msg,
+      });
+      throw new PeriodLockRejectedError(msg, mod, fp.name, dateYmd);
+    }
+  }
+
   /** True if either GL or BANK module lock (or fiscal shell) blocks this date — cashbook / legacy parity. */
   static async isLegacyCashbookMonthLocked(accountingDate: Date): Promise<boolean> {
     try {
