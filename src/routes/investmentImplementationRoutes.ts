@@ -91,7 +91,7 @@ const router = express.Router();
  *           type: string
  *         status:
  *           type: string
- *           description: PENDING, APPROVED, DISBURSED, or REJECTED (rejected tranches do not reserve IC cap)
+ *           description: PENDING (awaiting CFO), DISBURSED (after CFO approve + post), REJECTED, or legacy APPROVED if not yet migrated
  *         approvedById:
  *           type: string
  *         disbursedById:
@@ -107,6 +107,43 @@ const router = express.Router();
  *           type: string
  *           example: PENDING_CFO_APPROVAL
  *           description: PENDING_CFO_APPROVAL when PENDING; REJECTED when rejected
+ *     DisbursementBankForCfo:
+ *       type: object
+ *       description: One bank row for the CFO approve picker; use **id** as **bankId** in POST .../decision.
+ *       properties:
+ *         id:
+ *           type: string
+ *           example: "cmh3bank00001unnvccbzusd01"
+ *         name:
+ *           type: string
+ *           example: "NVCCZ USD Operating Account"
+ *         accountNumber:
+ *           type: string
+ *           example: "10002938475621"
+ *         currencyId:
+ *           type: string
+ *           example: "cmh3bymy70000una4yk8leusu"
+ *         currencyCode:
+ *           type: string
+ *           example: "USD"
+ *         currencyName:
+ *           type: string
+ *           example: "US Dollar"
+ *         glAccount:
+ *           type: object
+ *           properties:
+ *             id:
+ *               type: string
+ *               example: "cmglacct0001coaoperating01"
+ *             accountNo:
+ *               type: string
+ *               example: "1010"
+ *             accountName:
+ *               type: string
+ *               example: "Bank — USD Operating"
+ *             accountType:
+ *               type: string
+ *               example: "ASSET"
  */
 
 /**
@@ -189,7 +226,7 @@ router.get('/signed-term-sheets',
  *                 description: Application ID
  *               fundId:
  *                 type: string
- *                 example: "cmht6ve7x0001jx04kz890uj6"
+ *                 example: "cmjfpk2g0000lktwmt25ni8p8"
  *                 description: Fund ID to link this implementation to
  *               implementationPlan:
  *                 type: string
@@ -218,19 +255,21 @@ router.get('/signed-term-sheets',
  *               value:
  *                 portfolioCompanyId: "cmi79aihl000ajx04sc7x6ec7"
  *                 applicationId: "cmi78trsi0000jx048i72bb7m"
- *                 fundId: "cmht6ve7x0001jx04kz890uj6"
+ *                 fundId: "cmjfpk2g0000lktwmt25ni8p8"
  *                 implementationPlan: "Phase 1: Product development, Phase 2: Market launch"
  *                 notes: "Investment implementation for LY company"
  *                 disbursementMode: "MILESTONE_BASED"
  *                 totalCommittedAmount: 30000
+ *                 commitmentCurrencyId: "cmh3bymy70000una4yk8leusu"
  *             oneTime:
  *               summary: One-time disbursement
  *               value:
  *                 portfolioCompanyId: "cmi79aihl000ajx04sc7x6ec7"
  *                 applicationId: "cmi78trsi0000jx048i72bb7m"
- *                 fundId: "cmht6ve7x0001jx04kz890uj6"
+ *                 fundId: "cmjfpk2g0000lktwmt25ni8p8"
  *                 implementationPlan: "Full investment implementation"
  *                 notes: "Investment implementation for LY company"
+ *                 disbursementMode: "ONE_TIME"
  *     responses:
  *       201:
  *         description: Investment implementation initiated successfully
@@ -256,8 +295,12 @@ router.post('/initiate',
  * @swagger
  * /api/investment-implementations/disbursement-banks:
  *   get:
- *     summary: Banks eligible for fund disbursement approval (with GL accounts)
- *     description: JWT only. For CFO picker; optional query paymentCurrencyId matches tranche payout currency.
+ *     operationId: getDisbursementBanksForCfo
+ *     summary: List banks and linked GL accounts (CFO disbursement picker)
+ *     description: |
+ *       **Call this before approving a tranche** so the CFO UI can show payout banks and their GL accounts.
+ *       Response `data` is an array of banks; each **`id`** is the **`bankId`** you send on `POST .../disbursements/{id}/decision` with `decision: APPROVE`.
+ *       Optional query **`paymentCurrencyId`** (same as tranche `paymentCurrencyId`) filters to banks in that currency.
  *     tags: [Investment Implementation, Updated investment flow]
  *     security:
  *       - bearerAuth: []
@@ -266,10 +309,48 @@ router.post('/initiate',
  *         name: paymentCurrencyId
  *         schema:
  *           type: string
- *         description: When set, only banks in this currency (currencies.id)
+ *           example: "cmh3bymy70000una4yk8leusu"
+ *         description: currencies.id — omit to list all eligible banks
  *     responses:
  *       200:
- *         description: Active banks with linked chart-of-accounts GL
+ *         description: success true; data = array of banks with glAccount
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Banks for disbursement approval retrieved successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/DisbursementBankForCfo'
+ *             examples:
+ *               sample:
+ *                 summary: Example response (one bank)
+ *                 value:
+ *                   success: true
+ *                   message: "Banks for disbursement approval retrieved successfully"
+ *                   data:
+ *                     - id: "cmh3bank00001unnvccbzusd01"
+ *                       name: "NVCCZ USD Operating Account"
+ *                       accountNumber: "10002938475621"
+ *                       currencyId: "cmh3bymy70000una4yk8leusu"
+ *                       currencyCode: "USD"
+ *                       currencyName: "US Dollar"
+ *                       glAccount:
+ *                         id: "cmglacct0001coaoperating01"
+ *                         accountNo: "1010"
+ *                         accountName: "Bank — USD Operating"
+ *                         accountType: "ASSET"
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
  */
 router.get(
   '/disbursement-banks',
@@ -489,27 +570,38 @@ router.post('/milestones/:milestoneId/complete',
  *             properties:
  *               investmentImplementationId:
  *                 type: string
- *                 example: "cmi78trsi0000jx048i72bb7m"
+ *                 example: "cmnvimpl0001ktwm9abcde01"
  *               amount:
  *                 type: number
- *                 example: 5000
+ *                 example: 20000
  *               disbursementDate:
  *                 type: string
  *                 format: date-time
- *                 example: "2024-01-15T00:00:00Z"
+ *                 example: "2026-04-12T12:00:00.000Z"
  *               disbursementType:
  *                 type: string
  *                 enum: [INITIAL, MILESTONE, FINAL]
- *                 example: "MILESTONE"
+ *                 example: "INITIAL"
  *               milestoneId:
  *                 type: string
  *                 description: Optional; for MILESTONE_BASED implementations
  *               notes:
  *                 type: string
- *                 example: "First milestone payment"
+ *                 example: "Tranche 1 — first draw"
  *               paymentCurrencyId:
  *                 type: string
+ *                 example: "cmh3bymy70000una4yk8leusu"
  *                 description: Optional. Currency of `amount` (payout). Defaults to implementation commitment currency. If different, commitment cap uses latest system `exchange_rates` as of disbursementDate (not manual).
+ *           examples:
+ *             firstTranche:
+ *               summary: Example — first draw
+ *               value:
+ *                 investmentImplementationId: "cmnvimpl0001ktwm9abcde01"
+ *                 amount: 20000
+ *                 disbursementDate: "2026-04-12T12:00:00.000Z"
+ *                 disbursementType: "INITIAL"
+ *                 notes: "Tranche 1 — first draw"
+ *                 paymentCurrencyId: "cmh3bymy70000una4yk8leusu"
  *     responses:
  *       201:
  *         description: Fund disbursement created (status PENDING); data includes trancheIndex and cfoApprovalStatusLabel
@@ -564,6 +656,7 @@ router.get(
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmnvpjsep0001unnsx7bwfjdi"
  *     requestBody:
  *       required: true
  *       content:
@@ -578,10 +671,23 @@ router.get(
  *                 enum: [APPROVE, REJECT]
  *               bankId:
  *                 type: string
+ *                 example: "cmh3bank00001unnvccbzusd01"
  *                 description: Required when decision is APPROVE (from GET /disbursement-banks)
  *               reason:
  *                 type: string
  *                 description: Optional; stored on disbursement notes when decision is REJECT
+ *                 example: "Incorrect milestone evidence — please resubmit tranche request."
+ *           examples:
+ *             approve:
+ *               summary: Example APPROVE
+ *               value:
+ *                 decision: "APPROVE"
+ *                 bankId: "cmh3bank00001unnvccbzusd01"
+ *             reject:
+ *               summary: Example REJECT
+ *               value:
+ *                 decision: "REJECT"
+ *                 reason: "Incorrect milestone evidence — please resubmit tranche request."
  *     responses:
  *       200:
  *         description: Updated fund disbursement
@@ -608,7 +714,7 @@ router.post(
  *         schema:
  *           type: string
  *         description: Disbursement ID
- *         example: "disb_123"
+ *         example: "cmnvpjsep0001unnsx7bwfjdi"
  *     requestBody:
  *       required: true
  *       content:
@@ -620,7 +726,13 @@ router.post(
  *             properties:
  *               bankId:
  *                 type: string
+ *                 example: "cmh3bank00001unnvccbzusd01"
  *                 description: Payout bank (from GET /disbursement-banks)
+ *           examples:
+ *             approveOnly:
+ *               summary: Example
+ *               value:
+ *                 bankId: "cmh3bank00001unnvccbzusd01"
  *     responses:
  *       200:
  *         description: Fund disbursement approved successfully
@@ -656,7 +768,7 @@ router.post('/disbursements/:disbursementId/approve',
  *         schema:
  *           type: string
  *         description: Investment Implementation ID
- *         example: "cmi78trsi0000jx048i72bb7m"
+ *         example: "cmnvimpl0001ktwm9abcde01"
  *     responses:
  *       200:
  *         description: Disbursement summary retrieved successfully

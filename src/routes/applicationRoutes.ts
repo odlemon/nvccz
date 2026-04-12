@@ -190,6 +190,42 @@ const upload = multer({
  *                     isRequired:
  *                       type: boolean
  *                       description: Whether this document is required
+ *           examples:
+ *             fullJsonApply:
+ *               summary: Example — JSON apply (document URLs)
+ *               value:
+ *                 applicantName: "Thandiwe Moyo"
+ *                 applicantEmail: "thandiwe.moyo@acmecrops.example"
+ *                 applicantPhone: "+263771234567"
+ *                 applicantAddress: "12 Enterprise Rd, Harare"
+ *                 businessName: "Acme Agri Processing Pvt Ltd"
+ *                 businessDescription: "Grain aggregation and cold storage for smallholder farmers."
+ *                 industry: "Agri-processing"
+ *                 businessStage: "OPERATIONAL"
+ *                 foundingDate: "2019-03-01"
+ *                 requestedAmount: 250000
+ *                 fundId: "cmjfpk2g0000lktwmt25ni8p8"
+ *                 documents:
+ *                   - documentType: "BUSINESS_PLAN"
+ *                     fileName: "acme-business-plan.pdf"
+ *                     fileUrl: "https://storage.example.com/deals/acme/business-plan.pdf"
+ *                     fileSize: 524288
+ *                     isRequired: true
+ *                   - documentType: "PROOF_OF_CONCEPT"
+ *                     fileName: "pilot-warehouse.pdf"
+ *                     fileUrl: "https://storage.example.com/deals/acme/poc.pdf"
+ *                     fileSize: 1024000
+ *                     isRequired: true
+ *                   - documentType: "MARKET_RESEARCH"
+ *                     fileName: "sadc-grain-market-2025.pdf"
+ *                     fileUrl: "https://storage.example.com/deals/acme/market.pdf"
+ *                     fileSize: 890000
+ *                     isRequired: true
+ *                   - documentType: "PROJECTED_CASH_FLOWS"
+ *                     fileName: "acme-5yr-projections.xlsx"
+ *                     fileUrl: "https://storage.example.com/deals/acme/cashflows.xlsx"
+ *                     fileSize: 156000
+ *                     isRequired: true
  *     responses:
  *       201:
  *         description: Application created successfully
@@ -454,10 +490,38 @@ router.get("/below-threshold", authenticate, ApplicationController.getBelowThres
  *   patch:
  *     summary: Assign lead investment analyst (screening / Active DD task owner)
  *     description: |
- *       Body `{ "analystUserId": "<cuid>" }`. Role checks apply only when `NVCCZ_STRICT_DEAL_ACCESS=true`.
+ *       Assign `assignedAnalystId`. Stricter role checks when `NVCCZ_STRICT_DEAL_ACCESS=true`.
  *     tags: [Portfolio Management, Updated investment flow]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [analystUserId]
+ *             properties:
+ *               analystUserId:
+ *                 type: string
+ *                 example: "cml7udye80014kt1b65oncfdl"
+ *           examples:
+ *             assignLead:
+ *               summary: Example assign analyst
+ *               value:
+ *                 analystUserId: "cml7udye80014kt1b65oncfdl"
+ *     responses:
+ *       200:
+ *         description: Analyst assigned
+ *       400:
+ *         description: Bad request
  */
 router.patch("/:id/assigned-analyst", authenticate, ApplicationController.assignLeadAnalyst);
 
@@ -465,12 +529,46 @@ router.patch("/:id/assigned-analyst", authenticate, ApplicationController.assign
  * @swagger
  * /api/applications/{id}/analyst-screening:
  *   post:
- *     summary: Record analyst Initial Screening Scorecard (UAT); below minimum score rejects deal
+ *     summary: Record analyst Initial Screening Scorecard; below minimum score rejects deal
  *     description: |
- *       Body `{ "score": 0..100 }`. Only the **assigned lead analyst** (`assignedAnalystId`) may score; assign analyst first if unset.
+ *       Only the **assigned lead analyst** may score. When `currentStage` is `SCREENING`, score &lt; 50 → `REJECTED_SCREENING`; score ≥ 50 → `ACTIVE_DD` and DD/tasks seeded.
  *     tags: [Portfolio Management, Updated investment flow]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [score]
+ *             properties:
+ *               score:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 100
+ *                 example: 72
+ *           examples:
+ *             passScreening:
+ *               summary: Example — pass (≥ 50)
+ *               value:
+ *                 score: 72
+ *             failScreening:
+ *               summary: Example — reject (&lt; 50)
+ *               value:
+ *                 score: 42
+ *     responses:
+ *       200:
+ *         description: Score recorded; stage may change
+ *       400:
+ *         description: Validation or wrong assignee/stage
  */
 router.post("/:id/analyst-screening", authenticate, ApplicationController.recordAnalystScreeningScore);
 
@@ -498,12 +596,36 @@ router.post("/:id/analyst-screening", authenticate, ApplicationController.record
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 example: "@cml7udye80014kt1b65oncfdl please upload Q3 management accounts before Friday."
+ *               mentionUserIds:
+ *                 type: array
+ *                 items: { type: string }
+ *                 example: ["cml7udye80014kt1b65oncfdl"]
+ *           examples:
+ *             withMentions:
+ *               summary: Example message with mentions
+ *               value:
+ *                 content: "@cml7udye80014kt1b65oncfdl please upload Q3 management accounts before Friday."
+ *                 mentionUserIds: ["cml7udye80014kt1b65oncfdl"]
  *     responses:
  *       201: { description: Created }
  * /api/applications/{id}/collaboration/comments:
  *   post:
  *     summary: Post deal collaboration comment (optional multipart attachments)
+ *     description: multipart/form-data — field `content` (string); repeat field `attachments` for each file (max 10).
  *     tags: [Updated investment flow]
  *     security:
  *       - bearerAuth: []
@@ -511,7 +633,25 @@ router.post("/:id/analyst-screening", authenticate, ApplicationController.record
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 example: "See attached legal opinion."
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
  *     responses:
  *       201: { description: Created }
  */
@@ -663,9 +803,8 @@ router.post("/:id/change-stage", authenticate, ApplicationController.changeAppli
  *   patch:
  *     summary: Update KYC / statutory compliance flags
  *     description: |
- *       Authenticated users (UAT: role-based `authorize` removed from route).
  *       When `kycVerified` is true, requires an application document with type `RBZ_EXCHANGE_CONTROL`.
- *       Sets `complianceCleared` when both are satisfied. Fund disbursement APIs stay blocked until `complianceCleared` is true.
+ *       Sets `complianceCleared` when rules are satisfied. Fund disbursement APIs stay blocked until `complianceCleared` is true.
  *     tags: [Portfolio Management, Updated investment flow]
  *     security:
  *       - bearerAuth: []
@@ -675,6 +814,7 @@ router.post("/:id/change-stage", authenticate, ApplicationController.changeAppli
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *     requestBody:
  *       required: true
  *       content:
@@ -686,6 +826,12 @@ router.post("/:id/change-stage", authenticate, ApplicationController.changeAppli
  *             properties:
  *               kycVerified:
  *                 type: boolean
+ *                 example: true
+ *           examples:
+ *             verifyKyc:
+ *               summary: Example — mark KYC verified
+ *               value:
+ *                 kycVerified: true
  *     responses:
  *       200:
  *         description: Application updated
@@ -698,9 +844,8 @@ router.post("/:id/change-stage", authenticate, ApplicationController.changeAppli
  *   post:
  *     summary: Upload RBZ Exchange Control approval (Legal / Compliance)
  *     description: |
- *       `multipart/form-data` only. Application ID in the path. Form field **`file`** (single file).
- *       Replaces any previous RBZ document for this application. UAT: any authenticated user.
- *       Then call `PATCH /{id}/statutory-compliance` with `kycVerified: true` to set compliance cleared.
+ *       `multipart/form-data` only. Form field **`file`** — single PDF or scan (e.g. `RBZ_Approval_Acme_2026.pdf`).
+ *       Replaces any previous RBZ document for this application. Then call `PATCH /{id}/statutory-compliance` with `kycVerified: true`.
  *     tags: [Portfolio Management, Updated investment flow]
  *     security:
  *       - bearerAuth: []
@@ -710,6 +855,7 @@ router.post("/:id/change-stage", authenticate, ApplicationController.changeAppli
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     requestBody:
  *       required: true
@@ -723,6 +869,7 @@ router.post("/:id/change-stage", authenticate, ApplicationController.changeAppli
  *               file:
  *                 type: string
  *                 format: binary
+ *                 description: RBZ Exchange Control approval document
  *     responses:
  *       201:
  *         description: Document stored
@@ -778,7 +925,7 @@ router.delete("/:id", authenticate, ApplicationController.deleteApplication);
  *     summary: Get application by ID (PROTECTED)
  *     description: |
  *       Deal detail. Optional query `light=true` for a smaller payload.
- *       **403 fund isolation** applies only when env `NVCCZ_STRICT_DEAL_ACCESS=true` (otherwise any authenticated user may read the deal for UAT).
+ *       **403 fund isolation** applies only when env `NVCCZ_STRICT_DEAL_ACCESS=true`.
  *       Registered after `/:id/...` routes so paths like `/assigned-analyst` are not swallowed by `:id`.
  *     tags: [Portfolio Management]
  *     security:
@@ -815,7 +962,8 @@ router.get("/:id", authenticate, ApplicationController.getApplicationById);
  * /api/applications/{id}/due-diligence/initiate:
  *   post:
  *     summary: Initiate due diligence for an application (PROTECTED)
- *     description: Start the due diligence process for an application. Admin/Fund Manager access required.
+ *     description: |
+ *       Typically when `currentStage` is `SCREENING`. Sets stage to `ACTIVE_DD`, creates DD record, seeds tasks (assignee prefers `assignedAnalystId`). No request body.
  *     tags: [Portfolio Management, Updated investment flow]
  *     security:
  *       - bearerAuth: []
@@ -825,6 +973,7 @@ router.get("/:id", authenticate, ApplicationController.getApplicationById);
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     responses:
  *       200:
