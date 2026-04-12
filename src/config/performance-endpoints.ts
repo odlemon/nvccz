@@ -1839,7 +1839,7 @@ export const performanceEndpoints = {
 
   '/applications': {
     post: {
-      tags: ['🏢 Portfolio Management'],
+      tags: ['🏢 Portfolio Management', 'Updated investment flow'],
       summary: 'Create a new investment application (PUBLIC)',
       description: 'Create a new investment application with document uploads. Files are automatically uploaded to Firebase Storage. No authentication required.',
       requestBody: {
