@@ -4,7 +4,7 @@ import bcrypt from "bcrypt";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import AuditService from "./AuditService";
 
-const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER"];
+const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER", "INV_COMM_MEM", "CIO"];
 
 export class UserService {
   private static isBoardVotingRole(roleCode?: string | null): boolean {
@@ -21,9 +21,10 @@ export class UserService {
   }
 
   private static async fetchBoardVotingMembers() {
+    const strict = process.env.NVCCZ_STRICT_BOARD_VOTE === "true";
     return prisma.user.findMany({
       where: {
-        userDepartment: "Investments",
+        ...(strict ? { userDepartment: "Investments" } : {}),
         roleCode: {
           in: BOARD_VOTING_ROLE_CODES
         }

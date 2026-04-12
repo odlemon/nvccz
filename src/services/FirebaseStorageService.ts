@@ -227,6 +227,31 @@ export class FirebaseStorageService {
   }
 
   /**
+   * Final Investment Memorandum for board / IC vote (uploaded by CIO / fund office).
+   */
+  static async uploadBoardReviewInvestmentMemorandum(
+    file: Buffer,
+    applicationId: string,
+    boardReviewId: string,
+    fileName: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    const sanitizedName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    const timestamp = Date.now();
+    const result = await remoteUploadService.uploadSingleFile(
+      {
+        buffer: file,
+        originalname: `im-${timestamp}-${sanitizedName}`,
+        mimetype: this.getMimeType(fileName)
+      },
+      "board-review-im"
+    );
+    return {
+      filePath: `board-review-im/${applicationId}/${boardReviewId}/im-${timestamp}-${sanitizedName}`,
+      downloadURL: result.downloadURL
+    };
+  }
+
+  /**
    * Delete file from Remote Server (replaces Firebase)
    */
   static async deleteFile(filePath: string): Promise<void> {

@@ -2,6 +2,9 @@ import axios from 'axios';
 
 const DEFAULT_ZIMRATE_URL = 'https://zimrate.statotec.com/api/v1/rates';
 
+/** Default key when `ZIMRATE_API_KEY` / `ZIMRATE_AUTHORIZATION` are unset (Zimrate now requires Bearer auth). Override via env in production if you rotate keys. */
+const DEFAULT_ZIMRATE_API_KEY = 'zr_df58266e02479a52d6581a2a52533527';
+
 export interface ZimrateUsdZwgRow {
   currency_pair: string;
   bid: number;
@@ -31,10 +34,8 @@ export async function fetchZimrateRates(): Promise<ZimrateRatesPayload> {
   if (authHeader) {
     headers.Authorization = authHeader;
   } else {
-    const apiKey = process.env.ZIMRATE_API_KEY?.trim();
-    if (apiKey) {
-      headers.Authorization = `Bearer ${apiKey}`;
-    }
+    const apiKey = process.env.ZIMRATE_API_KEY?.trim() || DEFAULT_ZIMRATE_API_KEY;
+    headers.Authorization = `Bearer ${apiKey}`;
   }
   const { data, status } = await axios.get<ZimrateRatesPayload>(url, {
     timeout: 15_000,

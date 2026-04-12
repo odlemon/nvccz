@@ -78,7 +78,10 @@ export class TaskController {
         isPerformanceTask,
         goalId,
         isOverdue,
-        search
+        search,
+        applicationId,
+        fromDueDiligence,
+        category
       } = req.query;
 
       const filters: any = {};
@@ -90,6 +93,9 @@ export class TaskController {
       if (goalId) filters.goalId = goalId as string;
       if (isOverdue !== undefined) filters.isOverdue = isOverdue === 'true';
       if (search) filters.search = search as string;
+      if (applicationId) filters.applicationId = String(applicationId).trim();
+      if (fromDueDiligence !== undefined) filters.fromDueDiligence = fromDueDiligence === 'true';
+      if (category) filters.category = String(category).trim();
 
       const tasks = await TaskService.getAllTasks(filters);
 
@@ -118,7 +124,9 @@ export class TaskController {
         isPerformanceTask,
         goalId,
         isOverdue,
-        search
+        search,
+        applicationId,
+        category
       } = req.query;
 
       const filters: any = {
@@ -132,6 +140,8 @@ export class TaskController {
       if (goalId) filters.goalId = goalId as string;
       if (isOverdue !== undefined) filters.isOverdue = isOverdue === 'true';
       if (search) filters.search = search as string;
+      if (applicationId) filters.applicationId = String(applicationId).trim();
+      if (category) filters.category = String(category).trim();
 
       const tasks = await TaskService.getUserTasks(userId, filters);
 

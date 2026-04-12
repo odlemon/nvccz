@@ -190,9 +190,26 @@ async function testFundDisbursementAccounting() {
 
     // Approve the disbursement (this should create the journal entry)
     try {
+      const bankPick = await prisma.bank.findFirst({
+        where: {
+          isActive: true,
+          glAccountId: { not: null },
+          ...(disbursement.paymentCurrencyId
+            ? { currencyId: disbursement.paymentCurrencyId }
+            : {}),
+        },
+        orderBy: { name: "asc" },
+      });
+      if (!bankPick) {
+        console.log("❌ No active bank with GL for this disbursement currency.");
+        await prisma.$disconnect();
+        return;
+      }
+
       const approvedDisbursement = await InvestmentImplementationService.approveFundDisbursement(
         disbursement.id,
-        adminUser.id
+        adminUser.id,
+        bankPick.id
       );
 
       console.log('\n✅ Disbursement approved successfully!');

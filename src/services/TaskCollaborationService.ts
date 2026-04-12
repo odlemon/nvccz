@@ -3,6 +3,7 @@ import { prisma } from "../utils/database";
 import { FirebaseStorageService } from "./FirebaseStorageService";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import { emitToTask, emitToUser, emitToUsers } from "./RealtimeSocketService";
+import { EmailNotificationService } from "./EmailNotificationService";
 
 export const TASK_STAGE_OPTIONS = [
   { code: "todo", label: "To Do", zone: "NEUTRAL" },
@@ -38,7 +39,8 @@ function safeJsonParse<T = any>(value: any, fallback: T): T {
   }
 }
 
-function buildCommentPayload(input: any) {
+/** Shared JSON shape for task + deal collaboration rows in `activity_logs.description`. Export only; logic unchanged. */
+export function buildCommentPayload(input: any) {
   return {
     kind: input.kind || "comment",
     content: input.content || "",
@@ -52,7 +54,18 @@ function buildCommentPayload(input: any) {
   };
 }
 
-export function buildTaskDeepLink(taskId: string, commentId?: string) {
+export function buildTaskDeepLink(taskId: string, commentId?: string, applicationId?: string | null) {
+  const dealId = applicationId || null;
+  if (dealId) {
+    return {
+      taskId,
+      commentId: commentId || null,
+      dealId,
+      path: `/deals/${dealId}`,
+      taskPath: `/tasks/${taskId}`,
+      modalTarget: "deal-card"
+    };
+  }
   return {
     taskId,
     commentId: commentId || null,
@@ -457,6 +470,7 @@ export class TaskCollaborationService {
     });
 
     if (mentions.length > 0) {
+      const deepLinkPayload = buildTaskDeepLink(task.id, comment.id, task.applicationId);
       await prisma.notification.createMany({
         data: mentions
           .filter((mention) => mention.userId !== params.actorId)
@@ -465,7 +479,7 @@ export class TaskCollaborationService {
             message: `${actor.firstName} ${actor.lastName} mentioned you in task "${task.title}".`,
             type: "TASK_MENTION",
             userId: mention.userId,
-            data: buildTaskDeepLink(task.id, comment.id),
+            data: deepLinkPayload,
             relatedEntity: "Task",
             relatedEntityId: task.id
           }))
@@ -477,9 +491,34 @@ export class TaskCollaborationService {
         "notification_created",
         {
           type: "TASK_MENTION",
-          ...buildTaskDeepLink(task.id, comment.id)
+          ...deepLinkPayload
         }
       );
+
+      const targetIds = mentions
+        .filter((mention) => mention.userId !== params.actorId)
+        .map((mention) => mention.userId);
+      if (targetIds.length > 0) {
+        const mentionedUsers = await prisma.user.findMany({
+          where: { id: { in: targetIds } }
+        });
+        for (const u of mentionedUsers) {
+          if (!u.email) continue;
+          EmailNotificationService.sendDealCollaborationMentionEmail({
+            recipientName: `${u.firstName} ${u.lastName}`.trim(),
+            recipientEmail: u.email,
+            authorName: `${actor.firstName} ${actor.lastName}`.trim(),
+            taskTitle: task.title,
+            dealId: task.applicationId || undefined,
+            commentPreview: String(params.content || "").slice(0, 500)
+          }).catch((err: any) => {
+            console.error("Deal collaboration mention email failed", {
+              userId: u.id,
+              error: err?.message
+            });
+          });
+        }
+      }
     }
 
     const response = {
@@ -705,7 +744,7 @@ export class TaskCollaborationService {
         message: `Task "${params.task.title}" is in Red Zone. ${params.reason}`,
         type: "TASK_RED_ZONE",
         userId: user.id,
-        data: buildTaskDeepLink(params.task.id),
+        data: buildTaskDeepLink(params.task.id, undefined, params.task.applicationId),
         relatedEntity: "Task",
         relatedEntityId: params.task.id
       }))
@@ -715,7 +754,7 @@ export class TaskCollaborationService {
       "notification_created",
       {
         type: "TASK_RED_ZONE",
-        ...buildTaskDeepLink(params.task.id)
+        ...buildTaskDeepLink(params.task.id, undefined, params.task.applicationId)
       }
     );
 

@@ -85,6 +85,7 @@ model User {
   dealProgressAssigned              DealProgress[]               @relation("DealProgressAssignedTo")
   dealProgressManaged               DealProgress[]               @relation("DealProgressManager")
   dealProgressUpdates               DealProgressUpdate[]
+  applicationsAssignedAsAnalyst     Application[]                @relation("ApplicationAssignedAnalyst")
   researchReportsAssigned           ResearchReport[]             @relation("ResearchReportAssignedTo")
   researchReportsCreated            ResearchReport[]             @relation("ResearchReportCreatedBy")
   researchReportActivities          ResearchReportActivity[]
@@ -503,6 +504,9 @@ model Currency {
   shortTermInvestmentInstrumentsFunctional ShortTermInvestmentInstrument[] @relation("StiFunctionalCurrency")
   shortTermInvestmentAccrualsFunctional   ShortTermInvestmentAccrual[]    @relation("StiAccrualFunctionalCurrency")
   capitalCalls                          CapitalCall[]
+  investmentImplementationsCommitmentCurrency InvestmentImplementation[] @relation("ImplementationCommitmentCurrency")
+  fundDisbursementsPaymentCurrency          FundDisbursement[]          @relation("FundDisbursementPaymentCurrency")
+  fundDisbursementsCommitmentCurrency       FundDisbursement[]          @relation("FundDisbursementCommitmentCurrency")
 
   @@map("currencies")
 }
@@ -1240,7 +1244,8 @@ model Application {
   id                       String                    @id @default(cuid())
   fundId                   String?
   requestedAmount          Decimal                   @db.Decimal(15, 2)
-  currentStage             String                    @default("SHORTLISTED")
+  /// UAT workflow: SCREENING_PENDING, SCREENING, ACTIVE_DD, REJECTED_SCREENING, AUTO_REJECTED, …
+  currentStage             String                    @default("SCREENING_PENDING")
   submittedAt              DateTime?
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
@@ -1256,7 +1261,16 @@ model Application {
   foundingDate             DateTime?
   industry                 String
   initialScreeningScore    Decimal?                  @db.Decimal(5, 2)
+  /// Analyst "Initial Screening Scorecard" (UAT); separate from AI `initialScreeningScore`.
+  screeningScore           Decimal?                  @db.Decimal(5, 2)
   screeningOutcome         String?
+  /// Human-readable sequential deal id: `{PREFIX}-{year}-{6-digit-seq}`; PREFIX from env `DEAL_REFERENCE_PREFIX` (default VST).
+  dealReference            String?                   @unique
+  assignedAnalystId        String?
+  assignedAnalyst          User?                     @relation("ApplicationAssignedAnalyst", fields: [assignedAnalystId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  /// Statutory guardrail (RBZ Exchange Control + KYC): fund disbursement APIs require this true.
+  complianceCleared        Boolean                   @default(false)
+  kycVerified              Boolean                   @default(false)
   fund                     Fund?                     @relation(fields: [fundId], references: [id])
   documents                ApplicationDocument[]
   notifications            ApplicationNotification[]
@@ -1265,6 +1279,8 @@ model Application {
   termSheet                TermSheet?
   investmentImplementation InvestmentImplementation?
   tasks                    Task[]
+  /// Portfolio deal collaboration feed (activity_logs with applicationId set, taskId null).
+  dealCollaborationLogs    ActivityLog[]              @relation("ApplicationDealCollaboration")
 
   @@map("applications")
 }
@@ -1345,6 +1361,15 @@ model BoardReview {
   overallScore          Decimal?    @db.Decimal(5, 2)
   finalComments         String?     @db.Text
   status                String      @default("IN_PROGRESS")
+  /// Final Investment Memorandum (uploaded before / as part of “call to vote”).
+  imDocumentUrl         String?     @map("im_document_url") @db.Text
+  imDocumentFileName    String?     @map("im_document_file_name")
+  /// NONE | READY_FOR_VOTE (READY_FOR_VOTE set when CIO triggers call to vote after IM is in place).
+  imStatus              String      @default("NONE") @map("im_status") @db.VarChar(32)
+  /// When IC members were emailed to vote (legacy: also set when creating review with immediate notifications).
+  voteInviteSentAt      DateTime?   @map("vote_invite_sent_at")
+  /// When true, votes are rejected until voteInviteSentAt is set (e.g. before IM upload on a partial row).
+  requiresExplicitVoteOpen Boolean  @default(false) @map("requires_explicit_vote_open")
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   completedAt           DateTime?
@@ -1509,6 +1534,8 @@ model Task {
   category              String?
   applicationId         String?
   fromDueDiligence      Boolean          @default(false)
+  /// PMS/deal workflow metadata (e.g. sourceModule, dealId).
+  taskMetadata          Json?
   createdBy             String
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
@@ -1564,12 +1591,15 @@ model InvestmentImplementation {
   // Milestone-based disbursement tracking
   disbursementMode  String                @default("ONE_TIME") // ONE_TIME, MILESTONE_BASED
   totalCommittedAmount Decimal?            @db.Decimal(15, 2) // Total amount committed for this investment
+  /// Currency of totalCommittedAmount / IC cap (defaults to system default or USD in code when null).
+  commitmentCurrencyId String?            @map("commitment_currency_id")
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
   completedAt        DateTime?
   portfolioCompany   PortfolioCompany      @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
   application        Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   fund               Fund?                 @relation(fields: [fundId], references: [id])
+  commitmentCurrency Currency?             @relation("ImplementationCommitmentCurrency", fields: [commitmentCurrencyId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   initiatedBy        User                  @relation(fields: [initiatedById], references: [id])
   milestones         InvestmentMilestone[]
   fundDisbursements  FundDisbursement[]
@@ -1601,6 +1631,7 @@ model FundDisbursement {
   fundId                     String
   investmentImplementationId String
   milestoneId                String?
+  /// Amount in paymentCurrency (bank payout currency); equals commitment currency when currencies match.
   amount                     Decimal                  @db.Decimal(15, 2)
   disbursementDate           DateTime
   disbursementType           String
@@ -1610,6 +1641,14 @@ model FundDisbursement {
   notes                      String?                  @db.Text
   transactionReference       String?
   cashbookEntryId            String?                 @unique @map("cashbook_entry_id")
+  /// Bank / payout currency for `amount` (system FX from `exchange_rates` when ≠ commitment).
+  paymentCurrencyId          String?                 @map("payment_currency_id")
+  /// IC commitment cap currency (mirrors implementation commitment currency at creation).
+  commitmentCurrencyId       String?                 @map("commitment_currency_id")
+  /// `amount` converted to commitment currency via latest system rate as of disbursementDate.
+  amountCommitmentCurrency   Decimal?                @map("amount_commitment_currency") @db.Decimal(15, 2)
+  /// System rate applied: payment → commitment (same semantics as MultiCurrencyService.convertCurrency).
+  appliedExchangeRate        Decimal?                @map("applied_exchange_rate") @db.Decimal(15, 6)
   createdAt                  DateTime                 @default(now())
   updatedAt                  DateTime                 @updatedAt
   approvedAt                 DateTime?
@@ -1617,6 +1656,8 @@ model FundDisbursement {
   fund                       Fund                     @relation(fields: [fundId], references: [id])
   investmentImplementation   InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
   milestone                  InvestmentMilestone?     @relation(fields: [milestoneId], references: [id])
+  paymentCurrency            Currency?                @relation("FundDisbursementPaymentCurrency", fields: [paymentCurrencyId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  commitmentCurrency         Currency?                @relation("FundDisbursementCommitmentCurrency", fields: [commitmentCurrencyId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   approvedBy                 User?                    @relation("FundDisbursementApprovedBy", fields: [approvedById], references: [id])
   disbursedBy                User?                    @relation("FundDisbursementDisbursedBy", fields: [disbursedById], references: [id])
   cashbookEntry              CashbookEntry?          @relation("FundDisbursementCashbook", fields: [cashbookEntryId], references: [id])
@@ -1853,6 +1894,8 @@ model ActivityLog {
   description           String?          @db.Text
   goalId                String?
   taskId                String?
+  /// Portfolio module: deal collaboration messages (`deal_comment` / `deal_system_message`), taskId null.
+  applicationId         String?
   kpiId                 String?
   monetaryValueAchieved Decimal?         @db.Decimal(15, 2)
   percentValueAchieved  Decimal?         @db.Decimal(5, 2)
@@ -1861,8 +1904,10 @@ model ActivityLog {
   user                  User             @relation(fields: [userId], references: [id])
   goal                  PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   task                  Task?            @relation(fields: [taskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  application           Application?     @relation("ApplicationDealCollaboration", fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   kpi                   KPI?             @relation(fields: [kpiId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([applicationId])
   @@map("activity_logs")
 }
 

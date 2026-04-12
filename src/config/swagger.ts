@@ -149,6 +149,11 @@ const options = {
         name: 'Accounting - Short-term investments',
         description:
           'Liquid short-term investments (money market, T-bills, CDs): instruments, APY history, accruals, catch-up, settlement, accrual approval, CFO dashboard, month-end unrealized FX. All routes require JWT only (no permission middleware). Try It Out: use server URL that includes the /api prefix (e.g. http://localhost:3009/api) so paths resolve to /api/accounting/short-term-investments/...'
+      },
+      {
+        name: 'Updated investment flow',
+        description:
+          'End-to-end deal journey (see docs/updated-investment-flow-workflow.md): (1) POST /applications — apply. (2) PATCH /applications/{id}/assigned-analyst — lead analyst. (3) POST /applications/{id}/analyst-screening — score. (4) POST /applications/{id}/rbz-exchange-control-document then PATCH /applications/{id}/statutory-compliance — KYC/RBZ. (5) GET/POST /applications/{id}/collaboration/* — deal collaboration. (6) POST /applications/{id}/due-diligence/initiate or applicant submit — Active DD; UI should show currentStage ACTIVE_DD and dealReference (not legacy UNDER_DUE_DILIGENCE). (7) POST /board-reviews/{applicationId} — multipart/form-data, required field document (Investment Memorandum). (8) GET /investment-implementations/signed-term-sheets, POST /initiate, POST /disbursements, GET disbursement-summary. (9) CFO: GET /investment-implementations/disbursements/pending, GET /disbursement-banks, POST /disbursements/{id}/decision (APPROVE + bankId posts cashbook/GL and DISBURSED) or REJECT. Related: docs/deal-workflow-api-tracker.md.'
       }
     ],
     components: {
@@ -1456,7 +1461,7 @@ const options = {
             foundingDate: { type: 'string', format: 'date-time', example: '2023-01-15T00:00:00.000Z' },
             requestedAmount: { type: 'number', example: 100000 },
             fundId: { type: 'string', example: 'clx1234567890abcdef' },
-            currentStage: { type: 'string', example: 'SHORTLISTED' },
+            currentStage: { type: 'string', example: 'SCREENING' },
             submittedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00.000Z' },
             initialScreeningScore: { type: 'number', example: 75.5 },
             screeningOutcome: { type: 'string', example: 'PASSED' },
@@ -7246,7 +7251,8 @@ const fallbackSpec = {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'List board voting members',
-          description: 'Retrieve board members eligible to vote along with their configured voting power.',
+          description:
+            'Users with role codes BOARD_CHAIR, BOARD_MEMBER, INV_COMM_MEM, or CIO. When NVCCZ_STRICT_BOARD_VOTE=true, only Investments department; otherwise all departments (UAT).',
           security: [{ bearerAuth: [] }],
           responses: {
             200: { description: 'Board voting members retrieved successfully' },
@@ -7373,11 +7379,13 @@ const fallbackSpec = {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Complete board review (Investor)',
-          description: 'Complete a board review and update application stage',
+          description:
+            'Complete a board review and update application stage. When NVCCZ_STRICT_BOARD_VOTE=true, only the Board Chair (Investments) may call this; otherwise any authenticated user may finalize for UAT.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           responses: {
             200: { description: 'Board review completed successfully' },
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and caller is not Board Chair' },
             404: { description: 'Board review not found' },
             401: { description: 'Unauthorized' }
           }
@@ -7387,7 +7395,8 @@ const fallbackSpec = {
         post: {
           tags: ['🗳️ Voting Process'],
           summary: 'Cast board review vote',
-          description: 'Submit your weighted vote (approve or reject) for a board review. Only authorized board members can vote.',
+          description:
+            'Submit APPROVE or REJECT. **comment** is required when vote is APPROVE. Eligibility: when NVCCZ_STRICT_BOARD_VOTE=true, Investments department and board/IC role codes apply; otherwise any authenticated user may vote (UAT). After BOARD_VOTE_QUORUM_YES_COUNT (default 3) APPROVE votes with an APPROVE majority, the review may auto-complete.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: {
@@ -7399,7 +7408,11 @@ const fallbackSpec = {
                   required: ['vote'],
                   properties: {
                     vote: { type: 'string', enum: ['APPROVE', 'REJECT'], example: 'APPROVE' },
-                    comment: { type: 'string', example: 'Strong fundamentals, I support this deal.' }
+                    comment: {
+                      type: 'string',
+                      example: 'Strong fundamentals, I support this deal.',
+                      description: 'Required when vote is APPROVE; optional for REJECT.'
+                    }
                   }
                 }
               }
@@ -7407,9 +7420,9 @@ const fallbackSpec = {
           },
           responses: {
             200: { description: 'Vote recorded successfully (response includes anonymized progress and your vote)' },
-            400: { description: 'Bad request' },
+            400: { description: 'Bad request (e.g. missing comment on APPROVE)' },
             401: { description: 'Unauthorized' },
-            403: { description: 'Forbidden - User not eligible to vote' }
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and user not eligible to vote' }
           }
         }
       },
@@ -7417,14 +7430,15 @@ const fallbackSpec = {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'Get board vote summary',
-          description: 'Retrieve the weighted voting progress and outcome. Individual votes remain hidden until the board review is completed.',
+          description:
+            'Weighted voting progress and outcome. Votes stay hidden until the review is completed. When NVCCZ_STRICT_BOARD_VOTE=true, only admin/fund_manager role name or Investments BOARD_MEMBER/BOARD_CHAIR may call; otherwise any authenticated user (UAT).',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           responses: {
             200: { description: 'Vote summary retrieved successfully' },
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' },
-            403: { description: 'Forbidden - User not permitted to view voting summary' }
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and user not permitted to view summary' }
           }
         }
       },
@@ -7747,7 +7761,8 @@ const fallbackSpec = {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
           summary: 'Create fund disbursement (Investor)',
-          description: 'Create a fund disbursement for an investment implementation',
+          description:
+            'Create a fund disbursement (initial status PENDING). Response includes trancheIndex (1-based order for this implementation) and cfoApprovalStatusLabel PENDING_CFO_APPROVAL while pending.',
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -7758,29 +7773,115 @@ const fallbackSpec = {
                   required: ['investmentImplementationId', 'amount', 'disbursementDate', 'disbursementType'],
                   properties: {
                     investmentImplementationId: { type: 'string' },
+                    milestoneId: { type: 'string', description: 'Optional milestone link for MILESTONE_BASED mode' },
                     amount: { type: 'number' },
                     disbursementDate: { type: 'string', format: 'date-time' },
                     disbursementType: { type: 'string', enum: ['INITIAL', 'MILESTONE', 'FINAL'] },
                     notes: { type: 'string' }
                   }
+                },
+                examples: {
+                  default: {
+                    summary: 'Fund disbursement payload',
+                    value: {
+                      investmentImplementationId: 'cmi78trsi0000jx048i72bb7m',
+                      amount: 5000,
+                      disbursementDate: '2024-01-15T00:00:00Z',
+                      disbursementType: 'MILESTONE',
+                      notes: 'First milestone payment'
+                    }
+                  }
                 }
               }
             }
-          ,examples: {
-            default: {
-              summary: 'Fund disbursement payload',
-              value: {
-                investmentImplementationId: 'cmi78trsi0000jx048i72bb7m',
-                amount: 5000,
-                disbursementDate: '2024-01-15T00:00:00Z',
-                disbursementType: 'MILESTONE',
-                notes: 'First milestone payment'
-              }
-            }
-          }
           },
           responses: {
-            201: { description: 'Fund disbursement created successfully' },
+            201: {
+              description: 'Fund disbursement created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    description: 'Wrapped in success/data by API; disbursement object includes extra UAT fields',
+                    properties: {
+                      trancheIndex: { type: 'integer', example: 1 },
+                      cfoApprovalStatusLabel: { type: 'string', example: 'PENDING_CFO_APPROVAL' },
+                      status: { type: 'string', example: 'PENDING' },
+                      amount: { type: 'string' },
+                      milestoneId: { type: 'string', nullable: true }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursement-banks': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Banks for disbursement approval picker',
+          description:
+            'Active banks with linked GL accounts. Optional query paymentCurrencyId filters to tranche payout currency.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'paymentCurrencyId',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'currencies.id — only banks in this currency'
+            }
+          ],
+          responses: {
+            200: { description: 'Banks with glAccount summary' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursements/pending': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'List PENDING disbursement requests',
+          description: 'JWT only. Review queue for all tranches awaiting approve/reject.',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Pending disbursements with tranche and company context' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursements/{disbursementId}/decision': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation'],
+          summary: 'Approve or reject disbursement',
+          description:
+            'APPROVE requires bankId (from GET disbursement-banks). REJECT optional reason.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'disbursementId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['decision'],
+                  properties: {
+                    decision: { type: 'string', enum: ['APPROVE', 'REJECT'] },
+                    bankId: {
+                      type: 'string',
+                      description: 'Required when decision is APPROVE'
+                    },
+                    reason: { type: 'string', description: 'Optional; appended to notes on reject' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Fund disbursement updated' },
+            400: { description: 'Invalid decision or not PENDING' },
             401: { description: 'Unauthorized' }
           }
         }
@@ -7788,10 +7889,22 @@ const fallbackSpec = {
       '/investment-implementations/disbursements/{disbursementId}/approve': {
         post: {
           tags: ['💼 Stage 5: Investment Implementation'],
-          summary: 'Approve fund disbursement (Investor)',
-          description: 'Approve a fund disbursement',
+          summary: 'Approve fund disbursement (legacy)',
+          description: 'Requires bankId in body; same effect as decision APPROVE.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'disbursementId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['bankId'],
+                  properties: { bankId: { type: 'string' } }
+                }
+              }
+            }
+          },
           responses: {
             200: { description: 'Fund disbursement approved successfully' },
             401: { description: 'Unauthorized' }
@@ -7845,14 +7958,29 @@ const fallbackSpec = {
                           totalCommittedAmount: { type: 'number', example: 30000 },
                           totalDisbursedAmount: { type: 'number', example: 5000 },
                           remainingCommittedAmount: { type: 'number', example: 25000 },
+                          undrawnCommittedAmount: {
+                            type: 'number',
+                            example: 25000,
+                            description: 'Same as remainingCommittedAmount (UAT undrawn commitment)'
+                          },
                           disbursementCount: { type: 'number', example: 2 },
                           disbursementMode: { type: 'string', example: 'MILESTONE_BASED' },
+                          complianceCleared: { type: 'boolean' },
+                          kycVerified: { type: 'boolean' },
+                          disbursementBlockedReason: { type: 'string', nullable: true },
                           disbursements: {
                             type: 'array',
                             items: {
                               type: 'object',
                               properties: {
                                 id: { type: 'string' },
+                                trancheIndex: { type: 'integer', example: 1 },
+                                cfoApprovalStatusLabel: {
+                                  type: 'string',
+                                  example: 'PENDING_CFO_APPROVAL',
+                                  description: 'Present when status is PENDING'
+                                },
+                                milestoneId: { type: 'string', nullable: true },
                                 amount: { type: 'string', example: '5000.00' },
                                 status: { type: 'string', example: 'APPROVED' },
                                 disbursementType: { type: 'string', example: 'MILESTONE' },

@@ -3,6 +3,7 @@ import { PrismaClient, DueDiligenceReview, Application } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { ActiveDdPmsTaskPackService } from './ActiveDdPmsTaskPackService';
 import { TaskService } from './TaskService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { BoardReviewService } from './BoardReviewService';
@@ -56,7 +57,7 @@ export class DueDiligenceService {
    */
   static async initiateDueDiligence(params: IDueDiligenceCreateParams): Promise<IDueDiligenceWithRelations> {
     try {
-      // Check if application exists and is in SHORTLISTED stage
+      // Check if application exists and is in SCREENING (qualified) stage
       const application = await prisma.application.findUnique({
         where: { id: params.applicationId }
       });
@@ -65,8 +66,8 @@ export class DueDiligenceService {
         throw new Error('Application not found');
       }
 
-      if (application.currentStage !== 'SHORTLISTED') {
-        throw new Error('Due diligence can only be initiated for applications in SHORTLISTED stage. Current stage: ' + application.currentStage);
+      if (application.currentStage !== 'SCREENING') {
+        throw new Error('Due diligence can only be initiated for applications in SCREENING stage. Current stage: ' + application.currentStage);
       }
 
       // Check if due diligence already exists - prevent multiple due diligence reviews
@@ -98,10 +99,25 @@ export class DueDiligenceService {
         }
       });
 
-      // Update application stage to UNDER_DUE_DILIGENCE
+      // Update application stage to ACTIVE_DD (UAT "Active DD" / active due diligence)
       await prisma.application.update({
         where: { id: params.applicationId },
-        data: { currentStage: 'UNDER_DUE_DILIGENCE' }
+        data: {
+          currentStage: 'ACTIVE_DD',
+          screeningOutcome: 'ACTIVE_DD'
+        }
+      });
+
+      const appRow = await prisma.application.findUnique({
+        where: { id: params.applicationId },
+        select: { dealReference: true, assignedAnalystId: true }
+      });
+
+      await ActiveDdPmsTaskPackService.ensureSeededForActiveDueDiligence({
+        applicationId: params.applicationId,
+        assigneeUserId: appRow?.assignedAnalystId || params.reviewerId,
+        createdByUserId: params.reviewerId,
+        dealReference: appRow?.dealReference ?? null
       });
 
       // Create notification for applicant
@@ -112,8 +128,21 @@ export class DueDiligenceService {
           recipientPhone: application.applicantPhone,
           notificationType: 'DUE_DILIGENCE_STARTED',
           title: 'Due Diligence Started',
-          message: `Your application for ${application.businessName} has entered the due diligence phase. We will conduct a thorough review of your business and will keep you updated on the progress.`
+          message: `Your application for ${application.businessName} has passed screening and entered active due diligence. We will conduct a thorough review and keep you updated.`
         }
+      });
+
+      void EmailNotificationService.sendDueDiligenceStartedEmail({
+        applicantName: application.applicantName,
+        applicantEmail: application.applicantEmail,
+        businessName: application.businessName,
+        applicationId: application.id,
+        currentStage: 'ACTIVE_DD'
+      }).catch((err: any) => {
+        logger.error('Due diligence started applicant email failed', {
+          applicationId: params.applicationId,
+          error: err?.message
+        });
       });
 
       return dueDiligence;
@@ -583,7 +612,27 @@ export class DueDiligenceService {
         }
       });
 
-      return completedDueDiligence;
+      // `completedDueDiligence` was loaded before `application.update` — nested `application` would stay stale (e.g. ACTIVE_DD).
+      const refreshed = await prisma.dueDiligenceReview.findUnique({
+        where: { applicationId },
+        include: {
+          application: true,
+          reviewer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          }
+        }
+      });
+
+      if (!refreshed) {
+        throw new Error('Due diligence record missing after completion');
+      }
+
+      return refreshed;
     } catch (error: any) {
       throw new Error(`Failed to complete due diligence: ${error.message}`);
     }

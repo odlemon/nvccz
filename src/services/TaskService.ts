@@ -306,6 +306,8 @@ export interface CreateTaskRequest {
     unitSymbol?: string;
     unitPosition?: string;
   };
+
+  taskMetadata?: Record<string, unknown> | null;
 }
 
 export interface UpdateTaskRequest {
@@ -341,6 +343,8 @@ export interface UpdateTaskRequest {
     unitSymbol?: string;
     unitPosition?: string;
   };
+
+  taskMetadata?: Record<string, unknown> | null;
 }
 
 export interface HistoricalTaskEntryRequest {
@@ -467,6 +471,7 @@ export class TaskService {
           applicationId: request.applicationId,
           fromDueDiligence: request.fromDueDiligence ?? false,
           category: request.category,
+          ...(request.taskMetadata != null ? { taskMetadata: request.taskMetadata as object } : {}),
           
           // Performance-related fields
           goalId: normalizedGoalId,
@@ -645,6 +650,7 @@ export class TaskService {
           ...(request.ruleset !== undefined && { ruleset: request.ruleset }),
           ...(request.applicationId !== undefined && { applicationId: request.applicationId }),
           ...(request.fromDueDiligence !== undefined && { fromDueDiligence: request.fromDueDiligence }),
+          ...(request.taskMetadata !== undefined && { taskMetadata: request.taskMetadata as object }),
           
           // Performance-related fields
           ...(request.goalId !== undefined && { goalId: nextGoalId }),
@@ -1102,6 +1108,10 @@ export class TaskService {
         where.applicationId = filters.applicationId;
       }
 
+      if (filters.category) {
+        where.category = filters.category as string;
+      }
+
       if (filters.search) {
         where.OR = [
           { title: { contains: filters.search, mode: 'insensitive' } },
@@ -1188,6 +1198,10 @@ export class TaskService {
         where.applicationId = filters.applicationId;
       }
 
+      if (filters.category) {
+        where.category = filters.category as string;
+      }
+
       if (filters.search) {
         where.OR = [
           { title: { contains: filters.search, mode: 'insensitive' } },
@@ -1207,6 +1221,8 @@ export class TaskService {
           date: true,
           priority: true,
           department: true,
+          category: true,
+          taskMetadata: true,
           goalId: true,
           performanceCategory: true,
           isPerformanceTask: true,
