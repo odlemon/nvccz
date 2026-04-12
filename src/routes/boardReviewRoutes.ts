@@ -342,12 +342,12 @@ router.get('/:applicationId/investment-memorandum', authenticate, BoardReviewCon
 
 /**
  * @swagger
- * /board-reviews/{applicationId}:
+ * /api/board-reviews/{applicationId}:
  *   post:
  *     summary: Create board review and upload final Investment Memorandum
  *     description: |
- *       **multipart/form-data** only. Required file field **`document`** (PDF/DOC/XLSX). Optional text fields: recommendationReport, finalComments, decisionReason, nextSteps, conditions, additionalInformation, overallScore, investmentApproved, investmentRejected, conditionalApproval (booleans as true/false strings).
- *       After success: IM stored, status READY_FOR_VOTE, IC members emailed automatically (no separate call-to-vote).
+ *       **multipart/form-data** only. Required file field **`document`**. Optional text fields use string values; booleans as `"true"` / `"false"`.
+ *       After success: IM stored, status READY_FOR_VOTE, IC members notified (no separate call-to-vote required).
  *     tags: [Voting Process, Updated investment flow]
  *     security:
  *       - bearerAuth: []
@@ -357,6 +357,7 @@ router.get('/:applicationId/investment-memorandum', authenticate, BoardReviewCon
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     requestBody:
  *       required: true
@@ -370,29 +371,39 @@ router.get('/:applicationId/investment-memorandum', authenticate, BoardReviewCon
  *               document:
  *                 type: string
  *                 format: binary
- *                 description: Final Investment Memorandum
+ *                 description: Final IM file (e.g. Acme_IM_Final_v3.pdf)
  *               recommendationReport:
  *                 type: string
+ *                 example: "Recommend approval subject to conditions below."
  *               additionalInformation:
  *                 type: string
+ *                 example: "Management meeting held 2026-04-01."
  *               decisionReason:
  *                 type: string
+ *                 example: "Strong unit economics and clear exit path."
  *               conditions:
  *                 type: string
+ *                 example: "Quarterly reporting within 30 days of quarter end."
  *               nextSteps:
  *                 type: string
+ *                 example: "Legal to finalize SHA within 14 days."
  *               overallScore:
  *                 type: string
- *                 description: Numeric score as text (e.g. 85.5)
+ *                 description: Numeric score as text
+ *                 example: "82.5"
  *               finalComments:
  *                 type: string
+ *                 example: "IC to note currency hedging discussion."
  *               investmentApproved:
  *                 type: string
- *                 description: "true" or "false" (omit defaults to false)
+ *                 example: "true"
+ *                 description: '"true" or "false"'
  *               investmentRejected:
  *                 type: string
+ *                 example: "false"
  *               conditionalApproval:
  *                 type: string
+ *                 example: "true"
  *     responses:
  *       201:
  *         description: Board review created successfully
@@ -518,12 +529,12 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
 
 /**
  * @swagger
- * /board-reviews/{applicationId}/votes:
+ * /api/board-reviews/{applicationId}/votes:
  *   post:
  *     summary: Cast a board review vote
  *     description: |
- *       `comment` is **required** when `vote` is APPROVE. When `NVCCZ_STRICT_BOARD_VOTE=true`, only eligible Investments board/IC users may vote; otherwise any authenticated user (UAT). Quorum auto-complete uses env `BOARD_VOTE_QUORUM_YES_COUNT` (default 3).
- *     tags: [Voting Process]
+ *       `comment` is **required** when `vote` is APPROVE. Quorum auto-complete uses env `BOARD_VOTE_QUORUM_YES_COUNT` (default 3). Stricter eligibility when `NVCCZ_STRICT_BOARD_VOTE=true`.
+ *     tags: [Voting Process, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -532,6 +543,7 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     requestBody:
  *       required: true
@@ -547,6 +559,17 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
  *               comment:
  *                 type: string
  *                 description: Required for APPROVE; optional for REJECT
+ *           examples:
+ *             approve:
+ *               summary: Example APPROVE (comment required)
+ *               value:
+ *                 vote: "APPROVE"
+ *                 comment: "I approve subject to conditions in the IM section 4.2."
+ *             reject:
+ *               summary: Example REJECT
+ *               value:
+ *                 vote: "REJECT"
+ *                 comment: "Valuation gap vs comparables."
  *     responses:
  *       200:
  *         description: Vote recorded successfully
@@ -563,12 +586,12 @@ router.post('/:applicationId/votes', authenticate, BoardReviewController.submitB
 
 /**
  * @swagger
- * /board-reviews/{applicationId}/votes/summary:
+ * /api/board-reviews/{applicationId}/votes/summary:
  *   get:
  *     summary: Get board vote summary
  *     description: |
- *       Weighted vote summary; votes hidden until review is completed. When `NVCCZ_STRICT_BOARD_VOTE=true`, restricted to admin/fund_manager or Investments BOARD_MEMBER/BOARD_CHAIR; otherwise any authenticated user (UAT).
- *     tags: [Voting Process]
+ *       Weighted vote summary; votes hidden until review is completed. Restricted when `NVCCZ_STRICT_BOARD_VOTE=true`.
+ *     tags: [Voting Process, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -577,6 +600,7 @@ router.post('/:applicationId/votes', authenticate, BoardReviewController.submitB
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     responses:
  *       200:
@@ -594,12 +618,12 @@ router.get('/:applicationId/votes/summary', authenticate, BoardReviewController.
 
 /**
  * @swagger
- * /board-reviews/{applicationId}/complete:
+ * /api/board-reviews/{applicationId}/complete:
  *   post:
  *     summary: Complete board review
  *     description: |
- *       Finalize voting and move application stage. When `NVCCZ_STRICT_BOARD_VOTE=true`, only Board Chair (Investments) may call; otherwise any authenticated user (UAT).
- *     tags: [Voting Process]
+ *       Finalize voting and move application stage. Board Chair only when `NVCCZ_STRICT_BOARD_VOTE=true`.
+ *     tags: [Voting Process, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -608,6 +632,7 @@ router.get('/:applicationId/votes/summary', authenticate, BoardReviewController.
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     responses:
  *       200:
