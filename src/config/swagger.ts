@@ -15,6 +15,7 @@ import { consolidatedAccountingReportEndpoints } from './consolidated-accounting
 import { shortTermInvestmentsEndpoints } from './short-term-investments-endpoints';
 import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
 import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from './capital-calls-endpoints';
+import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
 
 const options = {
   definition: {
@@ -6789,7 +6790,7 @@ const fallbackSpec = {
       // ==========================================
       '/applications': {
         post: {
-          tags: ['🏢 Portfolio Management'],
+          tags: ['🏢 Portfolio Management', 'Updated investment flow'],
           summary: 'Create a new investment application (PUBLIC)',
           description: 'Create a new investment application with document uploads. Files are automatically uploaded to Firebase Storage. No authentication required.',
           requestBody: {
@@ -7106,7 +7107,7 @@ const fallbackSpec = {
       // ==========================================
       '/applications/{id}/due-diligence/initiate': {
         post: {
-          tags: ['🔍 Stage 2: Due Diligence'],
+          tags: ['🔍 Stage 2: Due Diligence', 'Updated investment flow'],
           summary: 'Initiate due diligence (Investor)',
           description: 'Start the due diligence process for an application. Admin/Fund Manager access required.',
           security: [{ bearerAuth: [] }],
@@ -7301,7 +7302,7 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}': {
         post: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Create board review (Investor)',
           description: 'Create a board review for an application that has completed due diligence',
           security: [{ bearerAuth: [] }],
@@ -7377,7 +7378,7 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}/complete': {
         post: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Complete board review (Investor)',
           description:
             'Complete a board review and update application stage. When NVCCZ_STRICT_BOARD_VOTE=true, only the Board Chair (Investments) may call this; otherwise any authenticated user may finalize for UAT.',
@@ -7393,7 +7394,7 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}/votes': {
         post: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Cast board review vote',
           description:
             'Submit APPROVE or REJECT. **comment** is required when vote is APPROVE. Eligibility: when NVCCZ_STRICT_BOARD_VOTE=true, Investments department and board/IC role codes apply; otherwise any authenticated user may vote (UAT). After BOARD_VOTE_QUORUM_YES_COUNT (default 3) APPROVE votes with an APPROVE majority, the review may auto-complete.',
@@ -7428,7 +7429,7 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}/votes/summary': {
         get: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Get board vote summary',
           description:
             'Weighted voting progress and outcome. Votes stay hidden until the review is completed. When NVCCZ_STRICT_BOARD_VOTE=true, only admin/fund_manager role name or Investments BOARD_MEMBER/BOARD_CHAIR may call; otherwise any authenticated user (UAT).',
@@ -7611,7 +7612,7 @@ const fallbackSpec = {
       // ==========================================
       '/investment-implementations/signed-term-sheets': {
         get: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Get applications with signed term sheets (Investor)',
           description: 'Get all applications that have signed term sheets and are ready for implementation',
           security: [{ bearerAuth: [] }],
@@ -7627,7 +7628,7 @@ const fallbackSpec = {
       },
       '/investment-implementations/initiate': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Initiate investment implementation (Investor)',
           description: 'Start the investment implementation process for an approved application',
           security: [{ bearerAuth: [] }],
@@ -7759,7 +7760,7 @@ const fallbackSpec = {
       },
       '/investment-implementations/disbursements': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Create fund disbursement (Investor)',
           description:
             'Create a fund disbursement (initial status PENDING). Response includes trancheIndex (1-based order for this implementation) and cfoApprovalStatusLabel PENDING_CFO_APPROVAL while pending.',
@@ -7905,7 +7906,7 @@ const fallbackSpec = {
       },
       '/investment-implementations/disbursements/pending': {
         get: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'List PENDING disbursement requests',
           description: 'JWT only. Review queue for all tranches awaiting approve/reject.',
           security: [{ bearerAuth: [] }],
@@ -7917,7 +7918,7 @@ const fallbackSpec = {
       },
       '/investment-implementations/disbursements/{disbursementId}/decision': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Approve or reject disbursement',
           description:
             'APPROVE requires bankId (from GET disbursement-banks). REJECT optional reason.',
@@ -7951,7 +7952,7 @@ const fallbackSpec = {
       },
       '/investment-implementations/disbursements/{disbursementId}/approve': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Approve fund disbursement (legacy)',
           description: 'Requires bankId in body; same effect as decision APPROVE.',
           security: [{ bearerAuth: [] }],
@@ -8001,7 +8002,7 @@ const fallbackSpec = {
       },
       '/investment-implementations/{investmentImplementationId}/disbursement-summary': {
         get: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Disbursement summary (Investor)',
           description: 'Get the committed, disbursed, and remaining amounts for an investment implementation',
           security: [{ bearerAuth: [] }],
@@ -8647,6 +8648,11 @@ try {
   };
   console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + events + dashboards + cashbook)`);
 }
+
+specs.paths = {
+  ...specs.paths,
+  ...updatedInvestmentFlowExtraPaths
+};
 
 specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);
 
