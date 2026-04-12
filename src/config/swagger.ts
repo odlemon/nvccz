@@ -153,7 +153,7 @@ const options = {
       {
         name: 'Updated investment flow',
         description:
-          '**Read in this order** (Swagger UI may sort paths alphabetically — use `docs/updated-investment-flow-workflow.md` as the canonical sequence). **1** POST `/applications` apply. **2** PATCH `/applications/{id}/assigned-analyst`. **3** POST `/applications/{id}/analyst-screening`. **4** POST `/applications/{id}/rbz-exchange-control-document` (multipart `file`) then PATCH `/applications/{id}/statutory-compliance`. **5** GET/POST `/applications/{id}/collaboration/messages`, POST `.../collaboration/comments` (multipart optional). **6** POST `/applications/{id}/due-diligence/initiate` — Active DD; UI: show `ACTIVE_DD` and `dealReference`. **7** POST `/board-reviews/{applicationId}` (multipart IM). **8** POST `/board-reviews/{applicationId}/votes`, GET `.../votes/summary`, POST `.../complete`. **9** GET `/investment-implementations/signed-term-sheets`, POST `/investment-implementations/initiate`, POST `/disbursements`, GET `.../disbursement-summary`. **10** GET `/disbursements/pending`, GET `/disbursement-banks`, POST `/disbursements/{id}/decision` or `/approve`. Full JSON/multipart examples: `docs/updated-investment-flow-workflow.md`. Technical reference: `docs/deal-workflow-api-tracker.md`.'
+          '**Order:** use `docs/updated-investment-flow-workflow.md`. **CFO banks+GL:** `GET /investment-implementations/disbursement-banks` (operationId `getDisbursementBanksForCfo`) — each `data[].id` is `bankId` on approve; includes `glAccount`. Then `GET .../disbursements/pending`, `POST .../disbursements/{id}/decision`. Earlier steps: apply → assign analyst → screening → RBZ/KYC → collaboration → DD initiate → board IM + votes → signed-term-sheets → initiate → create disbursement → **disbursement-banks** → pending → decision.'
       }
     ],
     components: {
@@ -7820,22 +7820,85 @@ const fallbackSpec = {
       },
       '/investment-implementations/disbursement-banks': {
         get: {
-          tags: ['💼 Stage 5: Investment Implementation'],
-          summary: 'Banks for disbursement approval picker',
+          operationId: 'getDisbursementBanksForCfo',
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'List banks and linked GL accounts (CFO disbursement picker)',
           description:
-            'Active banks with linked GL accounts. Optional query paymentCurrencyId filters to tranche payout currency.',
+            'Call before APPROVE. Each bank `id` is the `bankId` for POST /investment-implementations/disbursements/{disbursementId}/decision. Optional query paymentCurrencyId = tranche payment currency.',
           security: [{ bearerAuth: [] }],
           parameters: [
             {
               name: 'paymentCurrencyId',
               in: 'query',
               required: false,
-              schema: { type: 'string' },
-              description: 'currencies.id — only banks in this currency'
+              schema: { type: 'string', example: 'cmh3bymy70000una4yk8leusu' },
+              description: 'currencies.id — filter banks to this payout currency'
             }
           ],
           responses: {
-            200: { description: 'Banks with glAccount summary' },
+            200: {
+              description: 'success + data[] banks with glAccount',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string', example: 'cmh3bank00001unnvccbzusd01' },
+                            name: { type: 'string', example: 'NVCCZ USD Operating Account' },
+                            accountNumber: { type: 'string', example: '10002938475621' },
+                            currencyId: { type: 'string' },
+                            currencyCode: { type: 'string', example: 'USD' },
+                            currencyName: { type: 'string', example: 'US Dollar' },
+                            glAccount: {
+                              type: 'object',
+                              properties: {
+                                id: { type: 'string' },
+                                accountNo: { type: 'string', example: '1010' },
+                                accountName: { type: 'string', example: 'Bank — USD Operating' },
+                                accountType: { type: 'string', example: 'ASSET' }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  examples: {
+                    oneBank: {
+                      summary: 'Example',
+                      value: {
+                        success: true,
+                        message: 'Banks for disbursement approval retrieved successfully',
+                        data: [
+                          {
+                            id: 'cmh3bank00001unnvccbzusd01',
+                            name: 'NVCCZ USD Operating Account',
+                            accountNumber: '10002938475621',
+                            currencyId: 'cmh3bymy70000una4yk8leusu',
+                            currencyCode: 'USD',
+                            currencyName: 'US Dollar',
+                            glAccount: {
+                              id: 'cmglacct0001coaoperating01',
+                              accountNo: '1010',
+                              accountName: 'Bank — USD Operating',
+                              accountType: 'ASSET'
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
             401: { description: 'Unauthorized' }
           }
         }

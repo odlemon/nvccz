@@ -107,6 +107,43 @@ const router = express.Router();
  *           type: string
  *           example: PENDING_CFO_APPROVAL
  *           description: PENDING_CFO_APPROVAL when PENDING; REJECTED when rejected
+ *     DisbursementBankForCfo:
+ *       type: object
+ *       description: One bank row for the CFO approve picker; use **id** as **bankId** in POST .../decision.
+ *       properties:
+ *         id:
+ *           type: string
+ *           example: "cmh3bank00001unnvccbzusd01"
+ *         name:
+ *           type: string
+ *           example: "NVCCZ USD Operating Account"
+ *         accountNumber:
+ *           type: string
+ *           example: "10002938475621"
+ *         currencyId:
+ *           type: string
+ *           example: "cmh3bymy70000una4yk8leusu"
+ *         currencyCode:
+ *           type: string
+ *           example: "USD"
+ *         currencyName:
+ *           type: string
+ *           example: "US Dollar"
+ *         glAccount:
+ *           type: object
+ *           properties:
+ *             id:
+ *               type: string
+ *               example: "cmglacct0001coaoperating01"
+ *             accountNo:
+ *               type: string
+ *               example: "1010"
+ *             accountName:
+ *               type: string
+ *               example: "Bank — USD Operating"
+ *             accountType:
+ *               type: string
+ *               example: "ASSET"
  */
 
 /**
@@ -258,8 +295,12 @@ router.post('/initiate',
  * @swagger
  * /api/investment-implementations/disbursement-banks:
  *   get:
- *     summary: Banks eligible for fund disbursement approval (with GL accounts)
- *     description: JWT only. For CFO picker; optional query paymentCurrencyId matches tranche payout currency.
+ *     operationId: getDisbursementBanksForCfo
+ *     summary: List banks and linked GL accounts (CFO disbursement picker)
+ *     description: |
+ *       **Call this before approving a tranche** so the CFO UI can show payout banks and their GL accounts.
+ *       Response `data` is an array of banks; each **`id`** is the **`bankId`** you send on `POST .../disbursements/{id}/decision` with `decision: APPROVE`.
+ *       Optional query **`paymentCurrencyId`** (same as tranche `paymentCurrencyId`) filters to banks in that currency.
  *     tags: [Investment Implementation, Updated investment flow]
  *     security:
  *       - bearerAuth: []
@@ -269,10 +310,47 @@ router.post('/initiate',
  *         schema:
  *           type: string
  *           example: "cmh3bymy70000una4yk8leusu"
- *         description: When set, only banks in this currency (currencies.id)
+ *         description: currencies.id — omit to list all eligible banks
  *     responses:
  *       200:
- *         description: Active banks with linked chart-of-accounts GL
+ *         description: success true; data = array of banks with glAccount
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Banks for disbursement approval retrieved successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/DisbursementBankForCfo'
+ *             examples:
+ *               sample:
+ *                 summary: Example response (one bank)
+ *                 value:
+ *                   success: true
+ *                   message: "Banks for disbursement approval retrieved successfully"
+ *                   data:
+ *                     - id: "cmh3bank00001unnvccbzusd01"
+ *                       name: "NVCCZ USD Operating Account"
+ *                       accountNumber: "10002938475621"
+ *                       currencyId: "cmh3bymy70000una4yk8leusu"
+ *                       currencyCode: "USD"
+ *                       currencyName: "US Dollar"
+ *                       glAccount:
+ *                         id: "cmglacct0001coaoperating01"
+ *                         accountNo: "1010"
+ *                         accountName: "Bank — USD Operating"
+ *                         accountType: "ASSET"
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
  */
 router.get(
   '/disbursement-banks',

@@ -1,24 +1,20 @@
-# Investment application flow — frontend integration guide
+# Investment application flow — frontend guide
 
-This is the **canonical order** of API calls from first apply through CFO disbursement. Use it as the single sequence reference.
+Call the API in **this step order**. Base URL + `/api`. Send `Authorization: Bearer <jwt>` except **Step 1** (and optional status).
 
-**Base URL:** your API host + `/api` (for example `http://localhost:3000/api`).
+Swagger tag **`Updated investment flow`** groups these routes (the UI may still sort paths alphabetically—use this doc for sequence).
 
-**Auth:** send `Authorization: Bearer <jwt>` on every step except **Step 1** (and optional status poll).
-
-**Swagger:** operations are also tagged **`Updated investment flow`**. Swagger UI may list paths **alphabetically** within that tag—follow the **step numbers here** for the real sequence.
-
-**Sample IDs** below are shaped like real CUIDs so you can copy into Postman; replace with values from your environment after each create.
+Replace sample IDs with values from your own responses.
 
 ---
 
-## Step 1 — Apply (public)
+## Step 1 — Create application (public)
 
-**What happens:** A new deal is created. You get `id` (application id), `dealReference` (human-readable deal id, e.g. `VST-2026-000001`), and `currentStage` (typically `SCREENING_PENDING` until automated screening runs).
+### `POST /api/applications`
 
-### `POST /applications`
+**Response (save):** `data.id` → `applicationId`, `data.dealReference`, `data.currentStage`.
 
-**Option A — `application/json`** (documents as URLs or metadata your backend accepts):
+**JSON example:**
 
 ```json
 {
@@ -66,23 +62,19 @@ This is the **canonical order** of API calls from first apply through CFO disbur
 }
 ```
 
-**Option B — `multipart/form-data`** (typical for file upload from browser): include the same business fields as form fields plus **`files`** (one or more binary parts). Optional **`documentTypes`**: JSON string array matching file order, e.g. `["BUSINESS_PLAN","PROOF_OF_CONCEPT","MARKET_RESEARCH","PROJECTED_CASH_FLOWS"]`.
+**Multipart:** same fields as form values + `files[]` binary parts; optional `documentTypes` JSON string array matching file order.
 
-**Save from response:** `applicationId` (e.g. `cmi78trsi0000jx048i72bb7m`), `dealReference`, `currentStage`.
+### Optional `GET /api/applications/status/:applicationId`
 
-### Optional — `GET /applications/status/:id`
-
-Lightweight poll for `currentStage` after submission (no heavy joins).
+Read `currentStage` only.
 
 ---
 
 ## Step 2 — Assign lead analyst
 
-**When:** `SCREENING_PENDING` or `SCREENING`.
+**Allowed stages:** `SCREENING_PENDING` or `SCREENING`.
 
-**What happens:** The chosen user becomes `assignedAnalystId`. Later, Active DD tasks prefer this assignee.
-
-### `PATCH /applications/{applicationId}/assigned-analyst`
+### `PATCH /api/applications/{applicationId}/assigned-analyst`
 
 ```json
 {
@@ -94,11 +86,11 @@ Lightweight poll for `currentStage` after submission (no heavy joins).
 
 ## Step 3 — Analyst screening score
 
-**When:** `SCREENING` only. Only the **assigned** analyst may call.
+**Allowed stage:** `SCREENING`. **Caller:** must be the assigned analyst.
 
-**What happens:** Score recorded. If score is **below 50**, stage becomes `REJECTED_SCREENING`. If **50 or above**, the deal moves to **Active DD** (`ACTIVE_DD`), due diligence is seeded, and PMS-style tasks are created for the analyst.
+**Resulting `currentStage`:** `REJECTED_SCREENING` if `score < 50`, else `ACTIVE_DD`.
 
-### `POST /applications/{applicationId}/analyst-screening`
+### `POST /api/applications/{applicationId}/analyst-screening`
 
 ```json
 {
@@ -108,29 +100,25 @@ Lightweight poll for `currentStage` after submission (no heavy joins).
 
 ---
 
-## Step 4 — (Optional) Trigger AI shortlisting
+## Step 4 (optional) — Shortlisting trigger
 
-**When:** `SCREENING_PENDING` only.
+**Allowed stage:** `SCREENING_PENDING`.
 
-### `POST /applications/{applicationId}/trigger-shortlisting`
+### `POST /api/applications/{applicationId}/trigger-shortlisting`
 
-Usually no body; confirm in Swagger for your build.
+Body: see Swagger (often empty).
 
 ---
 
-## Step 5 — RBZ document and KYC verification
+## Step 5 — RBZ file + KYC flag
 
-**When:** Any time before you need **`complianceCleared`** for fund disbursement. Disbursements are blocked until compliance is cleared.
+Disbursement screens should check `complianceCleared` on the application; fund disbursement APIs return an error until it is true.
 
-### `POST /applications/{applicationId}/rbz-exchange-control-document`
+### `POST /api/applications/{applicationId}/rbz-exchange-control-document`
 
-**Content-Type:** `multipart/form-data`
+`multipart/form-data`: field **`file`** (single RBZ PDF).
 
-| Field | Type | Required | Example |
-|--------|------|----------|---------|
-| `file` | binary | Yes | RBZ approval PDF |
-
-### `PATCH /applications/{applicationId}/statutory-compliance`
+### `PATCH /api/applications/{applicationId}/statutory-compliance`
 
 ```json
 {
@@ -138,94 +126,71 @@ Usually no body; confirm in Swagger for your build.
 }
 ```
 
-Requires the RBZ document to exist when setting `kycVerified` true; response should show `complianceCleared: true` when rules are satisfied.
-
 ---
 
-## Step 6 — Deal collaboration (internal thread)
+## Step 6 — Deal collaboration
 
-**When:** Any authenticated user on the deal; use during screening / DD / board prep.
+### `GET /api/applications/{applicationId}/collaboration/messages`
 
-### `GET /applications/{applicationId}/collaboration/messages`
-
-No body.
-
-### `POST /applications/{applicationId}/collaboration/messages`
+### `POST /api/applications/{applicationId}/collaboration/messages`
 
 ```json
 {
-  "content": "@cml7udye80014kt1b65oncfdl please upload updated Q3 management accounts before Friday.",
+  "content": "@cml7udye80014kt1b65oncfdl please upload Q3 management accounts before Friday.",
   "mentionUserIds": ["cml7udye80014kt1b65oncfdl"]
 }
 ```
 
-### `POST /applications/{applicationId}/collaboration/comments`
+### `POST /api/applications/{applicationId}/collaboration/comments`
 
-**Content-Type:** `multipart/form-data` when attaching files.
-
-| Field | Type | Required | Example |
-|--------|------|----------|---------|
-| `content` | string | Yes | "See attached legal opinion." |
-| `attachments` | file[] | No | One or more PDFs (field name repeated per file) |
+`multipart/form-data`: **`content`** (string); optional **`attachments`** files (repeat field name, up to 10).
 
 ---
 
-## Step 7 — Active due diligence (if not already in `ACTIVE_DD`)
+## Step 7 — Start due diligence (when still on `SCREENING`)
 
-**When:** From `SCREENING` if DD was not opened by the screening score path.
+### `POST /api/applications/{applicationId}/due-diligence/initiate`
 
-**What happens:** Stage becomes `ACTIVE_DD`; DD record and tasks are seeded.
+No body. **After success:** read `currentStage` → expect `ACTIVE_DD`.
 
-### `POST /applications/{applicationId}/due-diligence/initiate`
-
-Typically **no body** (confirm in Swagger).
-
-**UI:** Show **`currentStage`** as `ACTIVE_DD` and display **`dealReference`** on deal headers (not the legacy label `UNDER_DUE_DILIGENCE`).
+**UI:** show `dealReference` on the deal shell; use `currentStage` for labels (`ACTIVE_DD`, not old `UNDER_DUE_DILIGENCE`).
 
 ---
 
-## Step 8 — Board review: create review and upload Investment Memorandum
+## Step 8 — Board review: Investment Memorandum
 
-**When:** Application is in the board-review part of your funnel (per your stage rules).
+### `POST /api/board-reviews/{applicationId}`
 
-**What happens:** Final IM is stored; review moves toward **ready for vote**; IC members may be notified.
+`multipart/form-data`:
 
-### `POST /board-reviews/{applicationId}`
-
-**Content-Type:** `multipart/form-data`
-
-| Field | Type | Required | Example value |
-|--------|------|----------|----------------|
-| `document` | file | **Yes** | `Acme_IM_Final_v3.pdf` (binary) |
-| `recommendationReport` | string | No | "Recommend approval subject to conditions below." |
-| `additionalInformation` | string | No | "Management meeting held 2026-04-01." |
-| `decisionReason` | string | No | "Strong unit economics and clear exit path." |
-| `conditions` | string | No | "Quarterly reporting within 30 days of quarter end." |
-| `nextSteps` | string | No | "Legal to finalize SHA within 14 days." |
-| `overallScore` | string | No | "82.5" |
-| `finalComments` | string | No | "IC to note currency hedging discussion." |
-| `investmentApproved` | string | No | `"true"` or `"false"` |
-| `investmentRejected` | string | No | `"false"` |
-| `conditionalApproval` | string | No | `"true"` |
+| Field | Required | Example |
+|--------|----------|---------|
+| `document` | Yes | PDF binary |
+| `recommendationReport` | No | "Recommend approval subject to conditions below." |
+| `additionalInformation` | No | "Management meeting held 2026-04-01." |
+| `decisionReason` | No | "Strong unit economics and clear exit path." |
+| `conditions` | No | "Quarterly reporting within 30 days of quarter end." |
+| `nextSteps` | No | "Legal to finalize SHA within 14 days." |
+| `overallScore` | No | "82.5" |
+| `finalComments` | No | "IC to note currency hedging discussion." |
+| `investmentApproved` | No | `"true"` / `"false"` |
+| `investmentRejected` | No | `"false"` |
+| `conditionalApproval` | No | `"true"` |
 
 ---
 
 ## Step 9 — Board votes
 
-**What happens:** Each voter submits once. For **`APPROVE`**, **`comment` is required**. When enough APPROVE votes and quorum rules pass, the service may auto-complete the review (see env `BOARD_VOTE_QUORUM_YES_COUNT`).
+### `POST /api/board-reviews/{applicationId}/votes`
 
-### `POST /board-reviews/{applicationId}/votes`
-
-**Approve:**
+If `vote` is **`APPROVE`**, **`comment` is required.**
 
 ```json
 {
   "vote": "APPROVE",
-  "comment": "I approve subject to conditions in the IM §4.2."
+  "comment": "I approve subject to conditions in the IM section 4.2."
 }
 ```
-
-**Reject:**
 
 ```json
 {
@@ -234,25 +199,23 @@ Typically **no body** (confirm in Swagger).
 }
 ```
 
-### `GET /board-reviews/{applicationId}/votes/summary`
+### `GET /api/board-reviews/{applicationId}/votes/summary`
 
-No body (may be restricted in strict board-vote mode).
+### `POST /api/board-reviews/{applicationId}/complete`
 
-### `POST /board-reviews/{applicationId}/complete`
-
-No body — finalizes review and updates application stage when used manually (if not auto-completed).
+No body (manual finalize if your flow needs it).
 
 ---
 
-## Step 10 — Term sheet and investment implementation
+## Step 10 — Investment implementation
 
-After board approval, your product flow should reach **signed term sheet** and **`INVESTMENT_IMPLEMENTATION`** (or equivalent) on the application.
+**Application `currentStage`:** should be `INVESTMENT_IMPLEMENTATION` (after term sheet / board outcome in your product).
 
-### `GET /investment-implementations/signed-term-sheets`
+### `GET /api/investment-implementations/signed-term-sheets`
 
-Query: `page`, `limit`. Lists applications ready to start implementation.
+Query: `page`, `limit`.
 
-### `POST /investment-implementations/initiate`
+### `POST /api/investment-implementations/initiate`
 
 ```json
 {
@@ -267,15 +230,13 @@ Query: `page`, `limit`. Lists applications ready to start implementation.
 }
 ```
 
-**Save:** `investmentImplementationId` from the response (example shape: `cmnvimpl0001ktwm9abcde01`).
+**Save:** `data.id` → `investmentImplementationId`.
 
 ---
 
-## Step 11 — Create a disbursement request (tranche)
+## Step 11 — Create tranche (CFO queue item)
 
-**What happens:** A row with `status: "PENDING"` and `cfoApprovalStatusLabel: "PENDING_CFO_APPROVAL"`.
-
-### `POST /investment-implementations/disbursements`
+### `POST /api/investment-implementations/disbursements`
 
 ```json
 {
@@ -288,27 +249,65 @@ Query: `page`, `limit`. Lists applications ready to start implementation.
 }
 ```
 
-**Save:** `disbursementId` from response (e.g. `cmnvpjsep0001unnsx7bwfjdi`).
+**Save:** `data.id` → `disbursementId`. List row shows `status: "PENDING"`, `cfoApprovalStatusLabel: "PENDING_CFO_APPROVAL"`.
 
-### `GET /investment-implementations/{investmentImplementationId}/disbursement-summary`
+### `GET /api/investment-implementations/{investmentImplementationId}/disbursement-summary`
 
-No body — shows committed vs drawn, each tranche with `trancheIndex`, compliance flags.
+Shows caps, tranches, `trancheIndex`, compliance flags.
 
 ---
 
-## Step 12 — CFO: banks, queue, approve or reject
+## Step 12 — CFO: list payout banks + GL, queue, approve/reject
 
-### `GET /investment-implementations/disbursement-banks`
+### 12a — **Banks and GL accounts (required before APPROVE)**
 
-Optional query: `paymentCurrencyId=cmh3bymy70000una4yk8leusu` to filter banks by payout currency.
+### `GET /api/investment-implementations/disbursement-banks`
 
-### `GET /investment-implementations/disbursements/pending`
+Full URL: **`GET /api/investment-implementations/disbursement-banks`**
 
-CFO work queue.
+Optional query (match tranche payout currency):  
+`?paymentCurrencyId=cmh3bymy70000una4yk8leusu`
 
-### `POST /investment-implementations/disbursements/{disbursementId}/decision`
+**Use this response to build the bank picker.** Each item includes the **GL account** that will be credited on approve.
 
-**Approve** (posts cashbook + GL, marks tranche `DISBURSED`, sets `disbursedById` / `disbursedAt` / `transactionReference`; when all tranches are disbursed, application stage becomes `DISBURSED`):
+**Example response:**
+
+```json
+{
+  "success": true,
+  "message": "Banks for disbursement approval retrieved successfully",
+  "data": [
+    {
+      "id": "cmh3bank00001unnvccbzusd01",
+      "name": "NVCCZ USD Operating Account",
+      "accountNumber": "10002938475621",
+      "currencyId": "cmh3bymy70000una4yk8leusu",
+      "currencyCode": "USD",
+      "currencyName": "US Dollar",
+      "glAccount": {
+        "id": "cmglacct0001coaoperating01",
+        "accountNo": "1010",
+        "accountName": "Bank — USD Operating",
+        "accountType": "ASSET"
+      }
+    }
+  ]
+}
+```
+
+**Approve payload:** set **`bankId`** to the chosen row’s **`id`** (not `glAccount.id`).
+
+---
+
+### 12b — Pending tranches
+
+### `GET /api/investment-implementations/disbursements/pending`
+
+---
+
+### 12c — Approve or reject
+
+### `POST /api/investment-implementations/disbursements/{disbursementId}/decision`
 
 ```json
 {
@@ -317,8 +316,6 @@ CFO work queue.
 }
 ```
 
-**Reject:**
-
 ```json
 {
   "decision": "REJECT",
@@ -326,9 +323,9 @@ CFO work queue.
 }
 ```
 
-### `POST /investment-implementations/disbursements/{disbursementId}/approve`
+**After APPROVE:** response tranche has `status: "DISBURSED"`, `transactionReference`, `disbursedById`, `disbursedAt`. When every tranche is `DISBURSED`, application `currentStage` becomes **`DISBURSED`**.
 
-Legacy shortcut — body only:
+### `POST /api/investment-implementations/disbursements/{disbursementId}/approve`
 
 ```json
 {
@@ -336,43 +333,43 @@ Legacy shortcut — body only:
 }
 ```
 
-**Emails (async):** applicant receives approval + completed disbursement messages; lead analyst receives “disbursement approved / posted” if `assignedAnalystId` has an email.
+Same effect as `decision: APPROVE`.
 
 ---
 
-## Appendix A — Stage cheat sheet (`applications.currentStage`)
+## Appendix — `currentStage` values (UI labels)
 
-| Stage | Meaning |
-|--------|---------|
-| `SCREENING_PENDING` | Submitted; automated screening may still run |
-| `SCREENING` | Passed shortlist gate; analyst assignment and score happen here |
-| `ACTIVE_DD` | Active due diligence |
-| `REJECTED_SCREENING` | Failed analyst score or screening |
-| `AUTO_REJECTED` | Automated rejection |
-| `BELOW_THRESHOLD` | Below investment threshold |
-| `INVESTMENT_IMPLEMENTATION` | Post–term sheet implementation work |
-| `DISBURSED` | All tranches for the implementation are disbursed |
+| Value | Typical UI meaning |
+|--------|-------------------|
+| `SCREENING_PENDING` | Submitted / in screening queue |
+| `SCREENING` | Analyst work |
+| `ACTIVE_DD` | Due diligence |
+| `REJECTED_SCREENING` | Rejected at screening |
+| `AUTO_REJECTED` | Auto-rejected |
+| `BELOW_THRESHOLD` | Below threshold |
+| `INVESTMENT_IMPLEMENTATION` | Implementation / tranches |
+| `DISBURSED` | All tranches paid out |
 
 ---
 
-## Appendix B — DB scripts (local / QA reset)
+## Appendix — Local DB reset scripts (QA only)
 
 | Command | Use |
 |---------|-----|
-| `npm run db:revert:latest-fund-disbursement-approval` | Undo latest approved/disbursed tranche: restore fund, delete cashbook/JE, set tranche `PENDING`, roll application back to `INVESTMENT_IMPLEMENTATION` when no disbursed tranches remain |
-| `npm run db:reset:rejected-disbursement-pending` | Turn latest `REJECTED` tranche back to `PENDING` |
-| `npm run db:rollback:fund-disbursement-cashbook` | Clean orphan cashbook after a failed approve |
+| `npm run db:revert:latest-fund-disbursement-approval` | Undo last CFO approve: tranche → `PENDING`, restore fund, remove cashbook/JE, set app back to `INVESTMENT_IMPLEMENTATION` when nothing left disbursed |
+| `npm run db:reset:rejected-disbursement-pending` | Last `REJECTED` tranche → `PENDING` |
+| `npm run db:rollback:fund-disbursement-cashbook` | Orphan cashbook cleanup |
 
 ---
 
-## Appendix C — Optional environment behaviour
+## Appendix — Environment (only if you need stricter prod behaviour)
 
 | Variable | Effect |
 |----------|--------|
-| `NVCCZ_STRICT_DEAL_ACCESS=true` | Stricter rules on who may assign analysts / read deals |
-| `NVCCZ_STRICT_BOARD_VOTE=true` | Stricter board vote and complete rules |
-| `BOARD_VOTE_QUORUM_YES_COUNT` | Minimum APPROVE vote count for auto-complete (default `3`; `0` disables) |
+| `NVCCZ_STRICT_DEAL_ACCESS=true` | Stricter deal read / assign analyst |
+| `NVCCZ_STRICT_BOARD_VOTE=true` | Stricter board vote / complete |
+| `BOARD_VOTE_QUORUM_YES_COUNT` | Vote count for auto-complete (`0` = off) |
 
 ---
 
-*For migrations and task metadata JSON shape, see **`docs/deal-workflow-api-tracker.md`**.*
+Schema and migration notes: **`docs/deal-workflow-api-tracker.md`**.

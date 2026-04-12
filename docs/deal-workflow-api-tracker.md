@@ -64,21 +64,9 @@ Then `npx prisma generate`.
 
 | Topic | Detail |
 |--------|--------|
+| Banks + GL (picker) | **`GET /api/investment-implementations/disbursement-banks`** — optional `?paymentCurrencyId=`; `data[]` has `id` (use as `bankId`), `name`, `currency*`, **`glAccount`** `{ id, accountNo, accountName, accountType }` |
 | Create tranche | `POST /api/investment-implementations/disbursements` → `status: PENDING`, `cfoApprovalStatusLabel: PENDING_CFO_APPROVAL` |
 | Tranche index | `trancheIndex` is 1-based per implementation |
-| CFO approve | `POST .../disbursements/:id/decision` with `APPROVE` + `bankId`, or `POST .../approve` with `{ bankId }` — cashbook/GL, `DISBURSED`, emails |
-| Queue | `GET .../disbursements/pending`, `GET .../disbursement-banks` |
+| CFO approve | `POST .../disbursements/:id/decision` with `APPROVE` + `bankId`, or `POST .../approve` with `{ bankId }` |
+| Queue | `GET .../disbursements/pending` |
 
-## Environment variables
-
-| Variable | Default | Effect |
-|----------|---------|--------|
-| `NVCCZ_STRICT_DEAL_ACCESS` | unset | Permissive assign-analyst / deal read |
-| `NVCCZ_STRICT_DEAL_ACCESS=true` | — | Stricter assign-analyst checks |
-| `NVCCZ_STRICT_BOARD_VOTE` | unset | Permissive board vote / complete (except APPROVE comment rule) |
-| `NVCCZ_STRICT_BOARD_VOTE=true` | — | Stricter board eligibility and complete |
-| `BOARD_VOTE_QUORUM_YES_COUNT` | `3` | APPROVE vote count for auto-complete; `0` = off |
-
-## Performance tip
-
-Use **`GET /api/applications/:id?light=true`** for list/card views when full disbursement joins are not needed.
