@@ -7,15 +7,15 @@ import { StaffReimbursementVendorService } from '../services/StaffReimbursementV
 
 import { companyNameFullFromEnv } from '../config/companyDisplay';
 import { prisma } from '../utils/database';
+import { PerformancePayrollBscHookService } from '../services/PerformancePayrollBscHookService';
 import { parseDate } from '../utils/dateHelper';
-import { createDefaultEmployeePerformanceContract } from '../services/EmployeePerformanceContractService';
-
 export class PayrollController {
   /**
    * Create a new employee from user
    */
   static async createEmployee(req: Request, res: Response) {
     try {
+      // Optional: performance goal id for SRD vacant-posts / headcount counter (BSC).
       const {
         userId,
         bankName,
@@ -27,7 +27,8 @@ export class PayrollController {
         nextOfKin,
         nextOfKinContact,
         address,
-        pictureUrl
+        pictureUrl,
+        bscNewHireCounterGoalId
       } = req.body;
 
       // Check if user exists
@@ -74,40 +75,34 @@ export class PayrollController {
         });
       }
 
-      const employee = await prisma.$transaction(async (tx) => {
-        const emp = await tx.employee.create({
-          data: {
-            userId,
-            employeeNumber: nextEmployeeNumber,
-            bankName,
-            branchCode,
-            accountNumber,
-            basicSalary: parseFloat(basicSalary),
-            currencyId,
-            idNumber,
-            nextOfKin,
-            nextOfKinContact,
-            address,
-            pictureUrl
+      const employee = await prisma.employee.create({
+        data: {
+          userId,
+          employeeNumber: nextEmployeeNumber,
+          bankName,
+          branchCode,
+          accountNumber,
+          basicSalary: parseFloat(basicSalary),
+          currencyId,
+          idNumber,
+          nextOfKin,
+          nextOfKinContact,
+          address,
+          pictureUrl
+        },
+        include: {
+          user: {
+            select: { firstName: true, lastName: true, email: true }
           },
-          include: {
-            user: {
-              select: { firstName: true, lastName: true, email: true }
-            },
-            currency: true
-          }
-        });
-
-        await createDefaultEmployeePerformanceContract(tx, {
-          subjectUserId: userId,
-          departmentName: user.userDepartment || null,
-          createdById: actorId,
-          employeeFirstName: user.firstName || '',
-          employeeLastName: user.lastName || ''
-        });
-
-        return emp;
+          currency: true
+        }
       });
+
+      PerformancePayrollBscHookService.onEmployeeCreated({
+        bscNewHireCounterGoalId:
+          bscNewHireCounterGoalId != null ? String(bscNewHireCounterGoalId).trim() : undefined,
+        createdByUserId: actorId ? String(actorId) : null
+      }).catch((err) => console.warn("[payroll-bsc-hook] new hire KPI skipped:", err?.message || err));
 
       res.status(201).json({
         success: true,

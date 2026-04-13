@@ -229,6 +229,11 @@ export interface CreatePerformanceGoalRequest {
   isReverseKpi?: boolean;
   /** Required when `type` is `company` (organisational BSC pillar). */
   scorecardPillar?: string;
+  /**
+   * Links the goal to a performance contract. Use for CEO/Board indicators (required for those scorecards)
+   * and optional for `company` org lines; for `department`, if omitted the system ensures a department PC.
+   */
+  performanceContractId?: string;
 }
 
 export interface UpdatePerformanceGoalRequest {
@@ -588,8 +593,37 @@ export class PerformanceGoalService {
         pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
       }
 
-      let performanceContractId: string | undefined;
-      if (request.type === "department" && request.departmentName) {
+      let performanceContractId: string | undefined =
+        request.performanceContractId != null && String(request.performanceContractId).trim() !== ""
+          ? String(request.performanceContractId).trim()
+          : undefined;
+
+      if (performanceContractId) {
+        const pc = await prisma.performanceContract.findFirst({
+          where: {
+            id: performanceContractId,
+            status: { notIn: ["ARCHIVED", "CANCELLED"] }
+          },
+          select: { id: true, contractType: true, departmentName: true }
+        });
+        if (!pc) {
+          throw new Error("performanceContractId not found or is not an active contract");
+        }
+        if (request.type === "department" && request.departmentName) {
+          if (String(pc.contractType || "").toUpperCase() !== "DEPARTMENT") {
+            throw new Error("performanceContractId must reference a DEPARTMENT contract for department goals");
+          }
+          if (
+            pc.departmentName != null &&
+            String(pc.departmentName).trim() !== "" &&
+            String(pc.departmentName).trim() !== String(request.departmentName).trim()
+          ) {
+            throw new Error("performanceContractId department does not match goal departmentName");
+          }
+        }
+      }
+
+      if (request.type === "department" && request.departmentName && !performanceContractId) {
         performanceContractId = await ensureDepartmentPerformanceContractForGoal({
           departmentName: request.departmentName,
           goalStart: request.startDate,

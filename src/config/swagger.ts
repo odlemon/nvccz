@@ -16,6 +16,7 @@ import { shortTermInvestmentsEndpoints } from './short-term-investments-endpoint
 import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
 import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from './capital-calls-endpoints';
 import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
+import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
 
 const options = {
   definition: {
@@ -155,6 +156,11 @@ const options = {
         name: 'Updated investment flow',
         description:
           '**Order:** use `docs/updated-investment-flow-workflow.md`. **CFO banks+GL:** `GET /investment-implementations/disbursement-banks` (operationId `getDisbursementBanksForCfo`) — each `data[].id` is `bankId` on approve; includes `glAccount`. Then `GET .../disbursements/pending`, `POST .../disbursements/{id}/decision`. Earlier steps: apply → assign analyst → screening → RBZ/KYC → collaboration → DD initiate → board IM + votes → signed-term-sheets → initiate → create disbursement → **disbursement-banks** → pending → decision.'
+      },
+      {
+        name: 'Updated performance',
+        description:
+          'BSC **data entry**, **workflow**, and **performance contracts** — see `docs/performance-bsc-data-entry-flow.md` for paths, **example JSON bodies** (incl. contracts), and rules. **Contracts:** `POST /performance/contracts/board|ceo|department|employee` (annual `periodYear` or exact UTC year bounds; CEO may omit `subjectUserId` to resolve from roles). JWT only (no permission matrix on these routes).'
       }
     ],
     components: {
@@ -8651,7 +8657,8 @@ try {
 
 specs.paths = {
   ...specs.paths,
-  ...updatedInvestmentFlowExtraPaths
+  ...updatedInvestmentFlowExtraPaths,
+  ...updatedPerformanceSwaggerPaths
 };
 
 specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);

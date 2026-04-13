@@ -1,16 +1,10 @@
 import { prisma } from "../utils/database";
-
-function utcCalendarYearBounds(year: number) {
-  return {
-    periodStart: new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0)),
-    periodEnd: new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999))
-  };
-}
+import { utcCalendarYearBounds } from "./PerformanceContractSetupService";
 
 /**
  * Finds or creates an ACTIVE DEPARTMENT performance contract for the calendar year
- * of `goalStart` (UTC). Department goals are linked via `performanceContractId` so
- * `getDepartmentScorecard` can resolve `contractType: DEPARTMENT` for the period.
+ * of `goalStart` (UTC). Prefer creating department PCs explicitly at period start (CEO/HR);
+ * this remains as a fallback when the first department-scoped goal is saved without a PC.
  */
 export async function ensureDepartmentPerformanceContractForGoal(params: {
   departmentName: string;
@@ -45,7 +39,7 @@ export async function ensureDepartmentPerformanceContractForGoal(params: {
       periodEnd,
       departmentName: params.departmentName,
       createdById: params.createdById,
-      metadata: { source: "auto_created_with_department_goal" }
+      metadata: { source: "auto_linked_first_department_goal" }
     }
   });
   return created.id;

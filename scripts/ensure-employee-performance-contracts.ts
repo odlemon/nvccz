@@ -1,6 +1,7 @@
 /**
  * Idempotent: for each active Employee, ensure one ACTIVE EMPLOYEE PerformanceContract
- * overlapping the current calendar year (same default as payroll onboarding).
+ * overlapping the current calendar year. PCs are not created from payroll hire — use this
+ * backfill or POST /api/performance/contracts/employee after Manager/HR sets up the period.
  *
  * Uses PERFORMANCE_BACKFILL_ACTOR_USER_ID if set; otherwise the earliest-created User id.
  *

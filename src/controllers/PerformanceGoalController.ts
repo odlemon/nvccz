@@ -28,7 +28,10 @@ export class PerformanceGoalController {
         dataSourceModule,
         dataSourceField,
         trackingFrequency,
-        scorecardPillar
+        scorecardPillar,
+        performanceContractId,
+        contributionWeightPercent,
+        isReverseKpi
       } = req.body;
       const userId = req.user.id;
 
@@ -60,7 +63,10 @@ export class PerformanceGoalController {
         dataSourceModule,
         dataSourceField,
         trackingFrequency,
-        scorecardPillar
+        scorecardPillar,
+        performanceContractId,
+        contributionWeightPercent,
+        isReverseKpi
       }, userId);
 
       res.status(201).json({

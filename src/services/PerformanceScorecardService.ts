@@ -10,6 +10,7 @@ import {
   DEFAULT_ORG_PILLAR_WEIGHTS,
   ORG_BSC_PILLAR_META,
   assertIndividualGoalWeightsSum100,
+  normalizeEmployeeGoalWeightsForScorecard,
   buildPersonalAttributesRatingGrid,
   buildTrainingSection,
   computeBudgetUtilisationRating,
@@ -32,8 +33,12 @@ import {
   isMonitoringAndEvaluationLeader,
   isSysAdmin,
   normalisePillarWeightsTo100,
+  PERFORMANCE_RATING_SCALE,
   performanceLabelFromScore,
+  rawRatingBandLabel,
+  rawRatingToRowSeverity,
   redistributeWeights,
+  resolveScorecardLifecycleBanner,
   departmentGoalRowStatus,
   hasAnySignal,
   isEmployeeGoalStoredActualMissing,
@@ -45,6 +50,7 @@ import {
   resolveSectionWeights,
   resolveWeight,
   resolveStoredGoalActual,
+  periodLabelMatches,
   round,
   summariseEmployeeResultsDelivery,
   toNumber
@@ -466,7 +472,7 @@ export class PerformanceScorecardService {
       },
       include,
       orderBy: { updatedAt: "desc" },
-      take: 40
+      take: 100
     });
 
     if (!candidates.length) {
@@ -482,7 +488,9 @@ export class PerformanceScorecardService {
     }
 
     if (labelTrim) {
-      const byLabel = candidates.find((c) => c.periodLabel === labelTrim);
+      const byLabel = candidates.find(
+        (c) => c.periodLabel === labelTrim || periodLabelMatches(c.periodLabel, labelTrim)
+      );
       if (byLabel) {
         notes.push(
           "CEO contract matched by period label; contract dates may not overlap the requested window — verify period alignment."
@@ -523,13 +531,13 @@ export class PerformanceScorecardService {
 
     const candidates = await prisma.performanceContract.findMany({
       where: {
-        contractType: "BOARD",
+        contractType: { in: ["BOARD", "board"] },
         status: activeStatus,
         OR: orClause
       },
       include,
       orderBy: { updatedAt: "desc" },
-      take: 40
+      take: 100
     });
 
     if (!candidates.length) {
@@ -545,7 +553,9 @@ export class PerformanceScorecardService {
     }
 
     if (labelTrim) {
-      const byLabel = candidates.find((c) => c.periodLabel === labelTrim);
+      const byLabel = candidates.find(
+        (c) => c.periodLabel === labelTrim || periodLabelMatches(c.periodLabel, labelTrim)
+      );
       if (byLabel) {
         notes.push(
           "Board contract matched by period label; contract dates may not overlap the requested window — verify period alignment."
@@ -825,10 +835,7 @@ export class PerformanceScorecardService {
   private static employeeMatrixRowSeverity(row: any): string {
     if (row.isPendingApproval) return "pending";
     if (row.excludedFromScoring) return "excluded";
-    if (row.rawRating === 1) return "red";
-    if (row.rawRating === 3) return "amber";
-    if (row.rawRating === 4) return "green";
-    return "neutral";
+    return rawRatingToRowSeverity(row.rawRating);
   }
 
   /** User with `departmentRole` HEAD whose `userDepartment` matches the employee's (case-insensitive). */
@@ -940,6 +947,13 @@ export class PerformanceScorecardService {
           varianceStatus,
           progressPct: row.isPendingApproval ? "Pending Approval" : row.excludedFromScoring ? "N/A" : row.progressPct,
           rawRating: row.isPendingApproval ? "Pending Approval" : row.excludedFromScoring ? "N/A" : row.rawRating,
+          rawRatingLabel:
+            !row.isPendingApproval &&
+            !row.excludedFromScoring &&
+            row.rawRating != null &&
+            typeof row.rawRating === "number"
+              ? rawRatingBandLabel(row.rawRating)
+              : null,
           weight: row.originalWeight,
           effectiveWeight: row.effectiveWeight,
           weightedScore: row.isPendingApproval
@@ -992,10 +1006,8 @@ export class PerformanceScorecardService {
 
   private static departmentMatrixRowSeverity(row: any): string {
     if (row.isPendingApproval) return "pending";
-    if (row.rawRating === 1) return "red";
-    if (row.rawRating === 3) return "amber";
-    if (row.rawRating === 4) return "green";
-    return "neutral";
+    if (row.excludedFromScoring) return "excluded";
+    return rawRatingToRowSeverity(row.rawRating);
   }
 
   private static buildDepartmentDocument(params: {
@@ -1018,8 +1030,15 @@ export class PerformanceScorecardService {
         organisationName: resolveOrganisationDisplayName(params.organisationName ?? null),
         organisationLogoUrl: params.organisationLogoUrl ?? null,
         documentTitle: "Departmental Performance Scorecard",
+        /** Department scorecard = Head of Department scorecard (same artefact). */
+        scorecardFraming:
+          "This scorecard is the Head of Department’s performance review for this department — departmental results and HOD accountability are one document.",
         departmentId: params.departmentId ?? null,
         departmentName: params.departmentName,
+        headOfDepartmentName: params.manager
+          ? `${params.manager.firstName} ${params.manager.lastName}`.trim()
+          : null,
+        headOfDepartmentTitle: params.manager?.departmentRole || params.manager?.role?.name || null,
         managerName: params.manager
           ? `${params.manager.firstName} ${params.manager.lastName}`
           : null,
@@ -1067,6 +1086,10 @@ export class PerformanceScorecardService {
           varianceStatus,
           varianceStatusNote,
           rawRating: pending ? "Pending Approval" : row.rawRating,
+          rawRatingLabel:
+            !pending && row.rawRating != null && typeof row.rawRating === "number"
+              ? rawRatingBandLabel(row.rawRating)
+              : null,
           weight: row.originalWeight,
           effectiveWeight: row.effectiveWeight,
           weightedScore: pending ? "Pending Approval" : row.weightedScore,
@@ -1118,6 +1141,12 @@ export class PerformanceScorecardService {
       : {};
     const storedActual = resolveStoredGoalActual(goal).value;
 
+    const scSkills = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+    const bscKindForm = String((scSkills as any).bscEntryKind || "").trim();
+    if (bscKindForm === "SKILLS_DEVELOPMENT_PROGRESS" || bscKindForm === "CSR_PARTICIPATION_RATE") {
+      return storedActual;
+    }
+
     const formulaType = String(goal.formulaType || "").toUpperCase();
 
     switch (formulaType) {
@@ -1129,10 +1158,14 @@ export class PerformanceScorecardService {
         return inputs.totalFundedCompanies > 0
           ? (toNumber(inputs.activePortfolioCompanies, 0) / toNumber(inputs.totalFundedCompanies, 1)) * 100
           : storedActual;
-      case "CORPORATE_GOVERNANCE_INDEX":
+      case "CORPORATE_GOVERNANCE_INDEX": {
+        const sc = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+        const bscKind = String((sc as any).bscEntryKind || "").trim();
+        if (bscKind === "GOVERNANCE_CHECKLIST_INDEX") return storedActual;
         return inputs.totalGovernanceRequirements > 0
           ? (toNumber(inputs.complianceItemsMet, 0) / toNumber(inputs.totalGovernanceRequirements, 1)) * 100
           : storedActual;
+      }
       case "STAKEHOLDER_SATISFACTION_INDEX":
       case "EMPLOYEE_SATISFACTION_INDEX":
       case "CUSTOMER_SATISFACTION_INDEX":
@@ -1162,18 +1195,37 @@ export class PerformanceScorecardService {
           ["charterLocalLanguages", 5],
           ["customerAwareness", 10]
         ].reduce((sum, [key, weight]) => sum + ((toNumber(inputs[key], 0) * weight) / 100), 0);
-      case "EASE_OF_DOING_BUSINESS":
+      case "EASE_OF_DOING_BUSINESS": {
+        const sc = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+        const bscKind = String((sc as any).bscEntryKind || "").trim();
+        if (bscKind === "EASE_OF_DOING_BUSINESS_PROGRESS") return storedActual;
         return inputs.targetInnovations > 0
           ? (toNumber(inputs.innovationsCompleted, 0) / toNumber(inputs.targetInnovations, 1)) * 100
           : storedActual;
+      }
       case "STRATEGIC_ALLOCATION_COMPLIANCE":
         return inputs.totalBudget > 0
           ? (toNumber(inputs.budgetAlignedToPolicy, 0) / toNumber(inputs.totalBudget, 1)) * 100
           : storedActual;
+      case "STATUTORY_REPORTS": {
+        const sc = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+        const bscKind = String((sc as any).bscEntryKind || "").trim();
+        if (bscKind === "STATUTORY_REPORTS_OUTPUT") {
+          const tc =
+            toNumber(goal.preciseTargetValue, 0) ||
+            toNumber(goal.targetValue, 0) ||
+            toNumber(inputs.targetCount ?? inputs.reports_planned ?? inputs.reports_target, 0);
+          const cc = storedActual;
+          if (tc > 0) return (cc / tc) * 100;
+          return storedActual;
+        }
+        return inputs.targetCount > 0
+          ? (toNumber(inputs.completedCount, 0) / toNumber(inputs.targetCount, 1)) * 100
+          : storedActual;
+      }
       case "INTERNAL_PROCESS_EFFICIENCY":
       case "E_GOVERNMENT_FLAGSHIPS":
       case "PROJECTS_COMMISSIONED":
-      case "STATUTORY_REPORTS":
       case "POLICIES_FORMULATED":
       case "MONITORING_REPORTS":
       case "PERFORMANCE_LEVELS_EVALUATED":
@@ -1211,6 +1263,12 @@ export class PerformanceScorecardService {
     const miss = () => ({ value: 0, missingValue: true });
     const ok = (v: number) => ({ value: round(toNumber(v, 0), 4), missingValue: false });
 
+    const scSkillsCeo = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+    const bscKindCeo = String((scSkillsCeo as any).bscEntryKind || "").trim();
+    if (bscKindCeo === "SKILLS_DEVELOPMENT_PROGRESS" || bscKindCeo === "CSR_PARTICIPATION_RATE") {
+      return ok(storedActual);
+    }
+
     const type =
       raw === "SURVIVAL_RATE"
         ? "BUSINESS_SURVIVAL_RATE"
@@ -1244,12 +1302,21 @@ export class PerformanceScorecardService {
         }
         return ok(storedActual);
       }
-      case "ROI":
-        if (!(toNumber(inputs.initialCost, 0) > 0)) return miss();
+      case "ROI": {
+        // BSC financial-outcome ROI (net profit ÷ capital) is written to currentValue + syncConfig.bscEntryKind.
+        const sc = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+        const bscKind = String((sc as any).bscEntryKind || "").trim();
+        if (bscKind === "FINANCIAL_OUTCOME_ROI") {
+          return ok(storedActual);
+        }
+        if (!(toNumber(inputs.initialCost, 0) > 0)) {
+          return storedResolved.hasExplicitStored ? ok(storedActual) : miss();
+        }
         return ok(
           ((toNumber(inputs.finalValue, 0) - toNumber(inputs.initialCost, 0)) / toNumber(inputs.initialCost, 1)) *
             100
         );
+      }
       case "REVENUE_GROWTH": {
         const prev = toNumber(inputs.previousRevenue ?? inputs.previous_revenue, 0);
         if (prev <= 0) return miss();
@@ -1268,6 +1335,9 @@ export class PerformanceScorecardService {
           (toNumber(inputs.activePortfolioCompanies, 0) / toNumber(inputs.totalFundedCompanies, 1)) * 100
         );
       case "CORPORATE_GOVERNANCE_INDEX": {
+        const sc = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+        const bscKind = String((sc as any).bscEntryKind || "").trim();
+        if (bscKind === "GOVERNANCE_CHECKLIST_INDEX") return ok(storedActual);
         const totReq = toNumber(inputs.totalGovernanceRequirements ?? inputs.total_governance_requirements, 0);
         const met = toNumber(inputs.complianceItemsMet ?? inputs.compliance_items_met, 0);
         if (!(totReq > 0)) return miss();
@@ -1321,11 +1391,15 @@ export class PerformanceScorecardService {
             ] as const
           ).reduce((sum, [key, w]) => sum + (toNumber(inputs[key], 0) * w) / 100, 0)
         );
-      case "EASE_OF_DOING_BUSINESS":
+      case "EASE_OF_DOING_BUSINESS": {
+        const sc = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+        const bscKind = String((sc as any).bscEntryKind || "").trim();
+        if (bscKind === "EASE_OF_DOING_BUSINESS_PROGRESS") return ok(storedActual);
         if (!(toNumber(inputs.targetInnovations, 0) > 0)) return miss();
         return ok(
           (toNumber(inputs.innovationsCompleted, 0) / toNumber(inputs.targetInnovations, 1)) * 100
         );
+      }
       case "STRATEGIC_ALLOCATION_COMPLIANCE":
         if (!(toNumber(inputs.totalBudget, 0) > 0)) return miss();
         return ok(
@@ -1389,10 +1463,56 @@ export class PerformanceScorecardService {
         if (!Number.isFinite(den) || den <= 0 || !Number.isFinite(num)) return miss();
         return ok((num / den) * 100);
       }
+      case "STATUTORY_REPORTS": {
+        const sc = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+        const bscKind = String((sc as any).bscEntryKind || "").trim();
+        if (bscKind === "STATUTORY_REPORTS_OUTPUT") {
+          const tc =
+            toNumber(goal.preciseTargetValue, 0) ||
+            toNumber(goal.targetValue, 0) ||
+            toNumber(inputs.targetCount ?? inputs.reports_planned ?? inputs.reports_target, 0);
+          const cc = storedActual;
+          if (!(tc > 0)) return miss();
+          return ok((cc / tc) * 100);
+        }
+        const tc = toNumber(
+          inputs.targetCount ??
+            inputs.total_levels ??
+            inputs.contracts_planned ??
+            inputs.contracts_target ??
+            inputs.reviews_planned ??
+            inputs.reports_planned ??
+            inputs.reports_target ??
+            inputs.policies_target ??
+            inputs.planned_KPIs ??
+            inputs.planned_kpis ??
+            inputs.target_projects ??
+            inputs.assets_planned_for_disposal ??
+            inputs.it_initiatives_planned,
+          0
+        );
+        const cc = toNumber(
+          inputs.completedCount ??
+            inputs.evaluated_levels ??
+            inputs.contracts_signed ??
+            inputs.reviews_completed ??
+            inputs.reports_submitted ??
+            inputs.reports_produced ??
+            inputs.policies_approved ??
+            inputs.policies_submitted ??
+            inputs.achieved_KPIs ??
+            inputs.achieved_kpis ??
+            inputs.projects_commissioned ??
+            inputs.assets_disposed ??
+            inputs.it_initiatives_completed,
+          0
+        );
+        if (!(tc > 0)) return miss();
+        return ok((cc / tc) * 100);
+      }
       case "INTERNAL_PROCESS_EFFICIENCY":
       case "E_GOVERNMENT_FLAGSHIPS":
       case "PROJECTS_COMMISSIONED":
-      case "STATUTORY_REPORTS":
       case "POLICIES_FORMULATED":
       case "MONITORING_REPORTS":
       case "PERFORMANCE_LEVELS_EVALUATED":
@@ -1465,11 +1585,7 @@ export class PerformanceScorecardService {
   private static ceoIndicatorRowSeverity(row: any): string {
     if (row.isPendingApproval) return "pending";
     if (row.excludedFromScoring) return "excluded";
-    const r = row.rawRating;
-    if (r === 1) return "red";
-    if (r === 2 || r === 3) return "amber";
-    if (r === 4) return "green";
-    return "amber";
+    return rawRatingToRowSeverity(row.rawRating);
   }
 
   private static buildCEOSectionRows(goals: any[], contract: any, warningsOut: string[]) {
@@ -1485,8 +1601,15 @@ export class PerformanceScorecardService {
       const n = countBySection[section] || 1;
       const fallbackWeight = 100 / n;
       const { value: computedActual, missingValue: formulaMissing } = this.extractCEOFormulaActual(goal);
+      const storedResolved = resolveStoredGoalActual(goal);
+      let effectiveActual = computedActual;
+      let effectiveMissing = formulaMissing;
+      if (formulaMissing && storedResolved.hasExplicitStored) {
+        effectiveActual = storedResolved.value;
+        effectiveMissing = false;
+      }
       const isPending = Boolean(goal.isPendingApproval);
-      const excludedFromScoring = isPending || formulaMissing;
+      const excludedFromScoring = isPending || effectiveMissing;
       const targetValue = toNumber(goal.preciseTargetValue ?? goal.targetValue, 0);
       const stretchTargetValue = parseStretchTargetValueFromActivities(goal.activities);
       const weight = resolveWeight(goal.scorecardWeight, fallbackWeight);
@@ -1495,7 +1618,7 @@ export class PerformanceScorecardService {
       let rawRating: number | null = null;
       if (!excludedFromScoring) {
         rawRating = computeRawRating({
-          actualValue: computedActual,
+          actualValue: effectiveActual,
           targetValue,
           allowableVariance: goal.allowableVariance,
           isReverseKpi: goal.isReverseKpi
@@ -1505,7 +1628,7 @@ export class PerformanceScorecardService {
       const progress = excludedFromScoring
         ? { progressPct: null as number | null }
         : computeGoalProgress({
-            actualValue: computedActual,
+            actualValue: effectiveActual,
             targetValue,
             isReverseKpi: goal.isReverseKpi,
             stretchScoringEnabled: contract?.stretchScoringEnabled,
@@ -1520,12 +1643,12 @@ export class PerformanceScorecardService {
         unit,
         targetValue,
         stretchTargetValue,
-        computedActual: round(computedActual, 4),
+        computedActual: round(effectiveActual, 4),
         allowableVariance: toNumber(goal.allowableVariance, 0.1),
         isReverseKpi: Boolean(goal.isReverseKpi),
         isPendingApproval: isPending,
         excludedFromScoring,
-        missingValue: formulaMissing && !isPending,
+        missingValue: effectiveMissing && !isPending,
         originalWeight: round(weight, 4),
         weight,
         rawRating,
@@ -1656,8 +1779,15 @@ export class PerformanceScorecardService {
       const n = countBySection[section] || 1;
       const fallbackWeight = 100 / n;
       const { value: computedActual, missingValue: formulaMissing } = this.extractCEOFormulaActual(goal);
+      const storedResolved = resolveStoredGoalActual(goal);
+      let effectiveActual = computedActual;
+      let effectiveMissing = formulaMissing;
+      if (formulaMissing && storedResolved.hasExplicitStored) {
+        effectiveActual = storedResolved.value;
+        effectiveMissing = false;
+      }
       const isPending = Boolean(goal.isPendingApproval);
-      const excludedFromScoring = isPending || formulaMissing;
+      const excludedFromScoring = isPending || effectiveMissing;
       const targetValue = toNumber(goal.preciseTargetValue ?? goal.targetValue, 0);
       const stretchTargetValue = parseStretchTargetValueFromActivities(goal.activities);
       const weight = resolveWeight(goal.scorecardWeight, fallbackWeight);
@@ -1666,7 +1796,7 @@ export class PerformanceScorecardService {
       let rawRating: number | null = null;
       if (!excludedFromScoring) {
         rawRating = computeRawRating({
-          actualValue: computedActual,
+          actualValue: effectiveActual,
           targetValue,
           allowableVariance: goal.allowableVariance,
           isReverseKpi: goal.isReverseKpi
@@ -1676,7 +1806,7 @@ export class PerformanceScorecardService {
       const progress = excludedFromScoring
         ? { progressPct: null as number | null }
         : computeGoalProgress({
-            actualValue: computedActual,
+            actualValue: effectiveActual,
             targetValue,
             isReverseKpi: goal.isReverseKpi,
             stretchScoringEnabled: contract?.stretchScoringEnabled,
@@ -1691,12 +1821,12 @@ export class PerformanceScorecardService {
         unit,
         targetValue,
         stretchTargetValue,
-        computedActual: round(computedActual, 4),
+        computedActual: round(effectiveActual, 4),
         allowableVariance: toNumber(goal.allowableVariance, 0.1),
         isReverseKpi: Boolean(goal.isReverseKpi),
         isPendingApproval: isPending,
         excludedFromScoring,
-        missingValue: formulaMissing && !isPending,
+        missingValue: effectiveMissing && !isPending,
         originalWeight: round(weight, 4),
         weight,
         rawRating,
@@ -1973,9 +2103,8 @@ export class PerformanceScorecardService {
   }) {
     const periodInput = this.buildPeriod(params);
     const contractPeriodWhere = this.buildContractPeriodWhere(periodInput);
-    const goalPeriodWhere = this.buildPeriodWhere(periodInput);
 
-    const [employeeUser, contract, goals, branding] = await Promise.all([
+    const [employeeUser, contract, branding] = await Promise.all([
       prisma.user.findUnique({
         where: { id: params.employeeUserId },
         include: { role: true, employee: true }
@@ -2003,20 +2132,6 @@ export class PerformanceScorecardService {
         },
         orderBy: { updatedAt: "desc" }
       }),
-      prisma.performanceGoal.findMany({
-        where: {
-          assignedToId: params.employeeUserId,
-          type: "individual",
-          ...goalPeriodWhere
-        },
-        include: {
-          kpi: true,
-          parentGoal: {
-            select: { id: true, title: true, departmentName: true, scorecardPillar: true, parentGoalId: true }
-          }
-        },
-        orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }]
-      }),
       getCachedBranding()
     ]);
 
@@ -2029,6 +2144,27 @@ export class PerformanceScorecardService {
     if (!contract) {
       throw new Error("No active performance contract found for this employee in the selected period.");
     }
+
+    const goals = await prisma.performanceGoal.findMany({
+      where: {
+        assignedToId: params.employeeUserId,
+        type: "individual",
+        OR: [
+          { performanceContractId: contract.id },
+          this.buildPeriodWhere({
+            periodStart: contract.periodStart,
+            periodEnd: contract.periodEnd
+          })
+        ]
+      },
+      include: {
+        kpi: true,
+        parentGoal: {
+          select: { id: true, title: true, departmentName: true, scorecardPillar: true, parentGoalId: true }
+        }
+      },
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }]
+    });
 
     const employeeRecord = employeeUser.employee;
     const period = {
@@ -2084,7 +2220,20 @@ export class PerformanceScorecardService {
       );
     }
 
-    const [tasksByGoalIdRaw, departmentHeadUser, directManagerUser, existingScorecardResult] = await Promise.all(phase2Queries);
+    const [tasksByGoalIdRaw, departmentHeadUser, directManagerUser, existingScorecardResult] = await Promise.all(
+      phase2Queries
+    );
+
+    const latestScorecardForLifecycle = await prisma.performanceScorecard.findFirst({
+      where: {
+        scorecardType: "EMPLOYEE",
+        subjectUserId: employeeUser.id,
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { status: true, isLocked: true, archivedAt: true }
+    });
 
     const tasksByGoalId = new Map<string, any[]>();
     for (const t of tasksByGoalIdRaw) {
@@ -2094,13 +2243,19 @@ export class PerformanceScorecardService {
       tasksByGoalId.set(t.goalId, list);
     }
 
+    const warnings: string[] = [];
+    normalizeEmployeeGoalWeightsForScorecard(goals, warnings);
     assertIndividualGoalWeightsSum100(goals);
+
+    const siblingCountByParent = new Map<string, number>();
+    for (const g of goals) {
+      const pid = g.parentGoalId;
+      if (pid) siblingCountByParent.set(pid, (siblingCountByParent.get(pid) || 0) + 1);
+    }
 
     if (goals.length > 0 && goals.every((g) => Boolean(g.isPendingApproval))) {
       throw new Error("No scoreable goals available.");
     }
-
-    const warnings: string[] = [];
 
     const rows = this.buildEmployeeIndividualGoalRows(goals, {
       stretchScoringEnabled: contract.stretchScoringEnabled,
@@ -2125,6 +2280,7 @@ export class PerformanceScorecardService {
     }
 
     const periodEndDate = new Date(period.periodEnd);
+    const lifecycle = resolveScorecardLifecycleBanner(periodEndDate, latestScorecardForLifecycle);
     if (periodEndDate.getTime() > Date.now()) {
       warnings.push("This period has not ended. Scorecard reflects performance to date only.");
     }
@@ -2268,12 +2424,32 @@ export class PerformanceScorecardService {
           : null
       },
       warnings,
-      goals: rows.map(({ linkedTasks, sourceGoal, ...rest }) => rest),
+      lifecycle,
+      goals: rows.map(({ linkedTasks, sourceGoal, ...rest }) => ({
+        ...rest,
+        rawRatingLabel: rawRatingBandLabel(rest.rawRating)
+      })),
+      impactProgress: rows.map((row) => {
+        const n = row.parentGoalId ? siblingCountByParent.get(row.parentGoalId) : 0;
+        const equalSplitPct =
+          row.parentGoalId && n && n > 0 && row.rollupWeight == null ? round(100 / n, 4) : null;
+        return {
+          performanceGoalId: row.id,
+          goalName: row.goalName,
+          parentDepartmentGoalId: row.parentGoalId ?? null,
+          parentDepartmentGoalTitle: row.parentGoal?.title ?? null,
+          contributionPercentOfParentGoal: row.rollupWeight != null ? row.rollupWeight : equalSplitPct,
+          progressPct: row.progressPct,
+          rawRating: row.rawRating,
+          rawRatingLabel: rawRatingBandLabel(row.rawRating)
+        };
+      }),
       scores: {
         resultsDeliveryScore: round(resultsDeliveryScore, 2),
         budgetScore: budgetComponent.score,
         finalScore,
-        performanceLabel
+        performanceLabel,
+        ratingScale: { ...PERFORMANCE_RATING_SCALE }
       },
       document: documentPayload,
       savedRecord: scorecardRecord
@@ -2373,7 +2549,15 @@ export class PerformanceScorecardService {
       }),
       prisma.user.findMany({
         where: { userDepartment: departmentName },
-        include: { role: true, employee: true }
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          userDepartment: true,
+          departmentRole: true,
+          roleCode: true,
+          role: { select: { name: true } }
+        }
       }),
       prisma.performanceScorecard.findMany({
         where: {
@@ -2749,6 +2933,21 @@ export class PerformanceScorecardService {
       });
     }
 
+    const latestDeptScorecardLifecycle = await prisma.performanceScorecard.findFirst({
+      where: {
+        scorecardType: "DEPARTMENT",
+        departmentName,
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { status: true, isLocked: true, archivedAt: true }
+    });
+    const departmentLifecycle = resolveScorecardLifecycleBanner(
+      new Date(period.periodEnd),
+      latestDeptScorecardLifecycle
+    );
+
     return {
       scorecardType: "DEPARTMENT",
       access: accessFlags,
@@ -2758,7 +2957,12 @@ export class PerformanceScorecardService {
         managerId: departmentManager?.id || null,
         managerName: departmentManager
           ? `${departmentManager.firstName} ${departmentManager.lastName}`
-          : null
+          : null,
+        headOfDepartmentName: departmentManager
+          ? `${departmentManager.firstName} ${departmentManager.lastName}`.trim()
+          : null,
+        headOfDepartmentTitle:
+          departmentManager?.departmentRole || departmentManager?.role?.name || null
       },
       contract: {
         id: departmentContract.id,
@@ -2777,12 +2981,17 @@ export class PerformanceScorecardService {
           : null
       },
       warnings,
-      goals: goalRows,
+      lifecycle: departmentLifecycle,
+      goals: goalRows.map((gr: any) => ({
+        ...gr,
+        rawRatingLabel: rawRatingBandLabel(gr.rawRating)
+      })),
       rollupSummary,
       employeeRollupSummary: rollupSummary,
       scores: {
         departmentScore,
-        performanceLabel
+        performanceLabel,
+        ratingScale: { ...PERFORMANCE_RATING_SCALE }
       },
       document: documentPayload,
       savedRecord: scorecardRecord
@@ -2871,7 +3080,13 @@ export class PerformanceScorecardService {
         weight: s.weight,
         sectionScore: s.sectionScore,
         performanceLabel: s.performanceLabel,
-        indicators: s.indicators.map((ind: any) => stripGoal(ind))
+        indicators: s.indicators.map((ind: any) => {
+          const stripped = stripGoal(ind);
+          return {
+            ...stripped,
+            rawRatingLabel: rawRatingBandLabel(stripped.rawRating)
+          };
+        })
       };
     }
 
@@ -2909,6 +3124,7 @@ export class PerformanceScorecardService {
           computedActual: r.computedActual,
           allowableVariance: r.allowableVariance,
           rawRating: r.rawRating,
+          rawRatingLabel: rawRatingBandLabel(r.rawRating),
           weight: r.originalWeight,
           effectiveWeight: r.effectiveWeight,
           weightedScore: r.weightedScore,
@@ -3081,6 +3297,24 @@ export class PerformanceScorecardService {
         : await prisma.performanceScorecard.create({ data: upsertData });
     }
 
+    const ceoLifecycleWhere: Record<string, unknown> = {
+      scorecardType: "CEO",
+      periodStart: contract.periodStart,
+      periodEnd: contract.periodEnd
+    };
+    if (contract.subjectUserId) {
+      ceoLifecycleWhere.subjectUserId = contract.subjectUserId;
+    }
+    const latestCeoScorecardLifecycle = await prisma.performanceScorecard.findFirst({
+      where: ceoLifecycleWhere as any,
+      orderBy: { updatedAt: "desc" },
+      select: { status: true, isLocked: true, archivedAt: true }
+    });
+    const ceoLifecycle = resolveScorecardLifecycleBanner(
+      new Date(contract.periodEnd),
+      latestCeoScorecardLifecycle
+    );
+
     return {
       scorecardType: "CEO",
       access,
@@ -3102,6 +3336,7 @@ export class PerformanceScorecardService {
         reviewerName
       },
       warnings,
+      lifecycle: ceoLifecycle,
       sections: sectionsNested,
       agreedRatingsSummary,
       scores: {
@@ -3109,7 +3344,8 @@ export class PerformanceScorecardService {
         sectionBlendScore,
         budgetScore: budgetComponent.score,
         finalScore,
-        performanceLabel
+        performanceLabel,
+        ratingScale: { ...PERFORMANCE_RATING_SCALE }
       },
       document: documentPayload,
       savedRecord: scorecardRecord
@@ -3215,7 +3451,13 @@ export class PerformanceScorecardService {
         weight: s.weight,
         sectionScore: s.sectionScore,
         performanceLabel: s.performanceLabel,
-        indicators: s.indicators.map((ind: any) => stripGoal(ind))
+        indicators: s.indicators.map((ind: any) => {
+          const stripped = stripGoal(ind);
+          return {
+            ...stripped,
+            rawRatingLabel: rawRatingBandLabel(stripped.rawRating)
+          };
+        })
       };
     }
 
@@ -3253,6 +3495,7 @@ export class PerformanceScorecardService {
           computedActual: r.computedActual,
           allowableVariance: r.allowableVariance,
           rawRating: r.rawRating,
+          rawRatingLabel: rawRatingBandLabel(r.rawRating),
           weight: r.originalWeight,
           effectiveWeight: r.effectiveWeight,
           weightedScore: r.weightedScore,
@@ -3413,6 +3656,21 @@ export class PerformanceScorecardService {
         : await prisma.performanceScorecard.create({ data: upsertData });
     }
 
+    const latestBoardScorecardLifecycle = await prisma.performanceScorecard.findFirst({
+      where: {
+        scorecardType: "BOARD",
+        subjectUserId: params.viewer.id,
+        periodStart: contract.periodStart,
+        periodEnd: contract.periodEnd
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { status: true, isLocked: true, archivedAt: true }
+    });
+    const boardLifecycle = resolveScorecardLifecycleBanner(
+      new Date(contract.periodEnd),
+      latestBoardScorecardLifecycle
+    );
+
     return {
       scorecardType: "BOARD",
       access,
@@ -3434,12 +3692,14 @@ export class PerformanceScorecardService {
         reviewerName
       },
       warnings,
+      lifecycle: boardLifecycle,
       sections: sectionsNested,
       agreedRatingsSummary,
       scores: {
         sectionScores: sectionScoresMap,
         finalScore,
-        performanceLabel
+        performanceLabel,
+        ratingScale: { ...PERFORMANCE_RATING_SCALE }
       },
       document: documentPayload,
       savedRecord: scorecardRecord
@@ -3821,6 +4081,8 @@ export class PerformanceScorecardService {
       periodStart: period.periodStart.toISOString(),
       periodEnd: period.periodEnd.toISOString(),
       lastUpdated: new Date().toISOString(),
+      /** Indicator raw ratings else use 1–6; org pillar scores remain progress % for the heatmap. */
+      ratingScale: { ...PERFORMANCE_RATING_SCALE },
       ceoVision: {
         statement: visionStatement,
         strategyDocumentUrl

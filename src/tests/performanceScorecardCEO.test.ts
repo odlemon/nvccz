@@ -77,6 +77,72 @@ describe("PerformanceScorecardService CEO helpers", () => {
     expect(r.value).toBeCloseTo(50, 4);
   });
 
+  test("extractCEOFormulaActual: uses stored actual when bscEntryKind is CSR_PARTICIPATION_RATE", () => {
+    const r = Svc.extractCEOFormulaActual({
+      formulaType: "direct",
+      activities: { participantsCompleted: 1, participantsEligible: 99 },
+      targetValue: 100,
+      currentValue: 80,
+      preciseCurrentValue: "80",
+      syncConfig: { bscEntryKind: "CSR_PARTICIPATION_RATE" }
+    });
+    expect(r.missingValue).toBe(false);
+    expect(r.value).toBeCloseTo(80, 4);
+  });
+
+  test("extractCEOFormulaActual: uses stored actual when bscEntryKind is SKILLS_DEVELOPMENT_PROGRESS", () => {
+    const r = Svc.extractCEOFormulaActual({
+      formulaType: "direct",
+      activities: { completedCount: 1, targetCount: 99 },
+      targetValue: 100,
+      currentValue: 80,
+      preciseCurrentValue: "80",
+      syncConfig: { bscEntryKind: "SKILLS_DEVELOPMENT_PROGRESS" }
+    });
+    expect(r.missingValue).toBe(false);
+    expect(r.value).toBeCloseTo(80, 4);
+  });
+
+  test("extractCEOFormulaActual: EASE_OF_DOING_BUSINESS uses stored actual when bscEntryKind is EASE_OF_DOING_BUSINESS_PROGRESS", () => {
+    const r = Svc.extractCEOFormulaActual({
+      formulaType: "EASE_OF_DOING_BUSINESS",
+      activities: { innovationsCompleted: 2, targetInnovations: 3 },
+      targetValue: 100,
+      currentValue: 60,
+      preciseCurrentValue: "60",
+      syncConfig: { bscEntryKind: "EASE_OF_DOING_BUSINESS_PROGRESS" }
+    });
+    expect(r.missingValue).toBe(false);
+    expect(r.value).toBeCloseTo(60, 4);
+  });
+
+  test("extractCEOFormulaActual: CORPORATE_GOVERNANCE_INDEX uses stored actual when bscEntryKind is GOVERNANCE_CHECKLIST_INDEX", () => {
+    const r = Svc.extractCEOFormulaActual({
+      formulaType: "CORPORATE_GOVERNANCE_INDEX",
+      activities: { complianceItemsMet: 23, totalGovernanceRequirements: 25 },
+      targetValue: 95,
+      currentValue: 90,
+      preciseCurrentValue: "90",
+      syncConfig: { bscEntryKind: "GOVERNANCE_CHECKLIST_INDEX" }
+    });
+    expect(r.missingValue).toBe(false);
+    expect(r.value).toBeCloseTo(90, 4);
+  });
+
+  test("extractCEOFormulaActual: STATUTORY_REPORTS uses BSC currentValue when bscEntryKind is STATUTORY_REPORTS_OUTPUT", () => {
+    const r = Svc.extractCEOFormulaActual({
+      formulaType: "STATUTORY_REPORTS",
+      activities: { completedCount: 12, targetCount: 12 },
+      targetValue: 100,
+      preciseTargetValue: 100,
+      currentValue: 101,
+      preciseCurrentValue: "101",
+      syncConfig: { bscEntryKind: "STATUTORY_REPORTS_OUTPUT" }
+    });
+    expect(r.missingValue).toBe(false);
+    expect(r.value).toBeCloseTo(101, 4);
+  });
+
   test("buildCEOSectionRows: redistributes weights when one indicator is pending", () => {
     const warnings: string[] = [];
     const rows = Svc.buildCEOSectionRows(
