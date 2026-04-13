@@ -60,6 +60,7 @@
     "db:migrate:bank-gl-to-cash-equivalents": "ts-node scripts/run-bank-gl-to-cash-equivalents-migration.ts",
     "db:verify:bank-gl-cace": "ts-node scripts/verify-bank-gl-cace.ts",
     "db:cleanup:sti-accruals-by-date": "ts-node --transpile-only scripts/delete-sti-accruals-by-date.ts",
+    "verify:sti-approve-routes": "ts-node --transpile-only scripts/verify-sti-approve-routes.ts",
     "db:ensure:employee-performance-contracts": "ts-node scripts/ensure-employee-performance-contracts.ts",
     "db:seed:ceo-performance-contract": "ts-node scripts/seed-ceo-performance-contract.ts",
     "db:seed:board-performance-contract": "ts-node scripts/seed-board-performance-contract.ts",
