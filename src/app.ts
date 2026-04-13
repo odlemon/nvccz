@@ -119,6 +119,9 @@ import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
 import performanceConfigRoutes from "./routes/performanceConfigRoutes"
 import performanceIntegrationRoutes from "./routes/performanceIntegrationRoutes"
+import performanceBscEntryRoutes from "./routes/performanceBscEntryRoutes"
+import bscWorkflowRoutes from "./routes/bscWorkflowRoutes"
+import performanceContractRoutes from "./routes/performanceContractRoutes"
 import accountingApiRoutes from "./routes/accountingApiRoutes"
 import vatReportRoutes from "./routes/vatReportRoutes"
 import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
@@ -508,6 +511,9 @@ app.use("/api/performance/scorecards", performanceScorecardRoutes)
 app.use("/api/performance/analytics", performanceAnalyticsRoutes)
 app.use("/api/performance/config", performanceConfigRoutes)
 app.use("/api/performance/integration", performanceIntegrationRoutes)
+app.use("/api/performance/bsc-entry", performanceBscEntryRoutes)
+app.use("/api/performance/bsc-workflow", bscWorkflowRoutes)
+app.use("/api/performance/contracts", performanceContractRoutes)
 
 // CEO Dashboard routes
 app.use("/api/ceo-dashboard", ceoDashboardRoutes)

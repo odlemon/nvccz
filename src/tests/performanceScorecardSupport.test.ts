@@ -1,5 +1,7 @@
 import {
   assertIndividualGoalWeightsSum100,
+  normalizeEmployeeGoalWeightsForScorecard,
+  periodLabelMatches,
   buildEscalationStatus,
   computeBudgetUtilisationRating,
   isAdminViewer,
@@ -24,10 +26,31 @@ import {
   canViewOrgBscDashboard,
   isBoardChair,
   normalisePillarWeightsTo100,
-  normalizeOrgBscScorecardPillar
+  normalizeOrgBscScorecardPillar,
+  rawRatingBandLabel,
+  resolveScorecardLifecycleBanner
 } from "../services/performanceScorecardSupport";
 
 describe("performanceScorecardSupport", () => {
+  test("periodLabelMatches: same year across FY vs plain label", () => {
+    expect(periodLabelMatches("FY 2026", "2026")).toBe(true);
+    expect(periodLabelMatches("2026 Annual", "2026")).toBe(true);
+    expect(periodLabelMatches("2025", "2026")).toBe(false);
+  });
+
+  test("normalizeEmployeeGoalWeightsForScorecard: scales to 100% and satisfies assert", () => {
+    const goals = [
+      { scorecardWeight: 30 },
+      { scorecardWeight: 30 },
+      { scorecardWeight: 30 }
+    ];
+    const w: string[] = [];
+    normalizeEmployeeGoalWeightsForScorecard(goals, w);
+    expect(w.length).toBe(1);
+    expect(() => assertIndividualGoalWeightsSum100(goals)).not.toThrow();
+    expect(goals[0].scorecardWeight).toBeCloseTo(33.3333, 2);
+  });
+
   test("normalizeOrgBscScorecardPillar: API codes and case-insensitive names", () => {
     expect(normalizeOrgBscScorecardPillar("FINANCIAL")).toBe("Financial");
     expect(normalizeOrgBscScorecardPillar("LEARNING_GROWTH")).toBe("Learning, Growth & HR");
@@ -85,6 +108,27 @@ describe("performanceScorecardSupport", () => {
         isReverseKpi: true
       })
     ).toBe(3);
+  });
+
+  test("1–6 scale: standard KPI (target 10000, variance 10%)", () => {
+    const v = 0.1;
+    const t = 10_000;
+    expect(computeRawRating({ actualValue: 8000, targetValue: t, allowableVariance: v, isReverseKpi: false })).toBe(2);
+    expect(computeRawRating({ actualValue: 9500, targetValue: t, allowableVariance: v, isReverseKpi: false })).toBe(3);
+    expect(computeRawRating({ actualValue: 10000, targetValue: t, allowableVariance: v, isReverseKpi: false })).toBe(4);
+    expect(computeRawRating({ actualValue: 10800, targetValue: t, allowableVariance: v, isReverseKpi: false })).toBe(5);
+    expect(computeRawRating({ actualValue: 20000, targetValue: t, allowableVariance: v, isReverseKpi: false })).toBe(6);
+  });
+
+  test("1–6 scale: reverse KPI budget-style (target 10000, variance 10%)", () => {
+    const v = 0.1;
+    const t = 10_000;
+    expect(computeRawRating({ actualValue: 5000, targetValue: t, allowableVariance: v, isReverseKpi: true })).toBe(6);
+    expect(computeRawRating({ actualValue: 9500, targetValue: t, allowableVariance: v, isReverseKpi: true })).toBe(5);
+    expect(computeRawRating({ actualValue: 10000, targetValue: t, allowableVariance: v, isReverseKpi: true })).toBe(4);
+    expect(computeRawRating({ actualValue: 10500, targetValue: t, allowableVariance: v, isReverseKpi: true })).toBe(3);
+    expect(computeRawRating({ actualValue: 11500, targetValue: t, allowableVariance: v, isReverseKpi: true })).toBe(2);
+    expect(computeRawRating({ actualValue: 20000, targetValue: t, allowableVariance: v, isReverseKpi: true })).toBe(1);
   });
 
   test("redistributes active weights when one goal is pending", () => {
@@ -158,21 +202,23 @@ describe("performanceScorecardSupport", () => {
     ).toBe("AMBER ZONE");
   });
 
-  test("employee scorecard: budget utilisation bands (90–110 → 4, etc.)", () => {
+  test("employee scorecard: budget utilisation % mapped via reverse 1–6 (target 100%)", () => {
     expect(computeBudgetUtilisationRating(100)).toBe(4);
-    expect(computeBudgetUtilisationRating(90)).toBe(4);
-    expect(computeBudgetUtilisationRating(110)).toBe(4);
-    expect(computeBudgetUtilisationRating(85)).toBe(3);
-    expect(computeBudgetUtilisationRating(50)).toBe(2);
-    expect(computeBudgetUtilisationRating(49)).toBe(1);
+    expect(computeBudgetUtilisationRating(95)).toBe(5);
+    expect(computeBudgetUtilisationRating(105)).toBe(3);
+    expect(computeBudgetUtilisationRating(110)).toBe(3);
+    expect(computeBudgetUtilisationRating(85)).toBe(6);
+    expect(computeBudgetUtilisationRating(50)).toBe(6);
+    expect(computeBudgetUtilisationRating(160)).toBe(1);
   });
 
-  test("employee scorecard: performance label from final score", () => {
-    expect(performanceLabelFromScore(3.6)).toBe("Outstanding");
-    expect(performanceLabelFromScore(3.2)).toBe("Exceeds Expectations");
-    expect(performanceLabelFromScore(2.5)).toBe("Meets Expectations");
-    expect(performanceLabelFromScore(1.5)).toBe("Requires Improvement");
-    expect(performanceLabelFromScore(0.5)).toBe("Unsatisfactory");
+  test("employee scorecard: performance label from final score (1–6 bands)", () => {
+    expect(performanceLabelFromScore(5.7)).toBe("Exceptional");
+    expect(performanceLabelFromScore(4.8)).toBe("Exceeds Expectations");
+    expect(performanceLabelFromScore(3.8)).toBe("Meets Expectations");
+    expect(performanceLabelFromScore(2.8)).toBe("Satisfactory");
+    expect(performanceLabelFromScore(2.2)).toBe("Requires Improvement");
+    expect(performanceLabelFromScore(1.2)).toBe("Unsatisfactory");
   });
 
   test("redistributes weights when a goal is excluded from scoring", () => {
@@ -205,7 +251,7 @@ describe("performanceScorecardSupport", () => {
     expect(isAdminViewer({ role: { name: "Employee" } })).toBe(false);
   });
 
-  test("summariseEmployeeResultsDelivery matches weighted 0–4 score", () => {
+  test("summariseEmployeeResultsDelivery matches weighted mean of raw ratings", () => {
     const rows = [
       {
         isPendingApproval: false,
@@ -225,20 +271,22 @@ describe("performanceScorecardSupport", () => {
     expect(s.pendingApprovalCount).toBe(0);
   });
 
-  test("department v2: performance labels use spec bands (not employee labels)", () => {
-    expect(performanceLabelFromDepartmentScore(3.6)).toBe("Excellent");
-    expect(performanceLabelFromDepartmentScore(3.1)).toBe("Very Good");
-    expect(performanceLabelFromDepartmentScore(2.6)).toBe("Satisfactory");
-    expect(performanceLabelFromDepartmentScore(2.1)).toBe("Requires Improvement");
-    expect(performanceLabelFromDepartmentScore(1.5)).toBe("Unsatisfactory");
+  test("department v2: performance labels align with unified 1–6 bands", () => {
+    expect(performanceLabelFromDepartmentScore(5.7)).toBe("Exceptional");
+    expect(performanceLabelFromDepartmentScore(4.8)).toBe("Exceeds Expectations");
+    expect(performanceLabelFromDepartmentScore(3.8)).toBe("Meets Expectations");
+    expect(performanceLabelFromDepartmentScore(2.8)).toBe("Satisfactory");
+    expect(performanceLabelFromDepartmentScore(2.2)).toBe("Requires Improvement");
+    expect(performanceLabelFromDepartmentScore(1.2)).toBe("Unsatisfactory");
   });
 
-  test("CEO scorecard: performance labels from final score (contract review bands)", () => {
-    expect(performanceLabelFromCEOFinalScore(3.6)).toBe("Excellent");
-    expect(performanceLabelFromCEOFinalScore(3.1)).toBe("Very Good");
-    expect(performanceLabelFromCEOFinalScore(2.6)).toBe("Satisfactory");
-    expect(performanceLabelFromCEOFinalScore(2.1)).toBe("Requires Improvement");
-    expect(performanceLabelFromCEOFinalScore(1.5)).toBe("Unsatisfactory");
+  test("CEO scorecard: performance labels match unified 1–6 bands", () => {
+    expect(performanceLabelFromCEOFinalScore(5.7)).toBe("Exceptional");
+    expect(performanceLabelFromCEOFinalScore(4.8)).toBe("Exceeds Expectations");
+    expect(performanceLabelFromCEOFinalScore(3.8)).toBe("Meets Expectations");
+    expect(performanceLabelFromCEOFinalScore(2.8)).toBe("Satisfactory");
+    expect(performanceLabelFromCEOFinalScore(2.2)).toBe("Requires Improvement");
+    expect(performanceLabelFromCEOFinalScore(1.2)).toBe("Unsatisfactory");
   });
 
   test("CEO scorecard: No Data when no indicators and score 0 (audit)", () => {
@@ -247,7 +295,7 @@ describe("performanceScorecardSupport", () => {
     expect(ceoPerformanceLabelForSection(0, 2)).toBe("Unsatisfactory");
     expect(ceoPerformanceLabelForSection(0, 2, 0)).toBe("No Data");
     expect(ceoPerformanceLabelForSection(0, 2, 2)).toBe("Unsatisfactory");
-    expect(ceoPerformanceLabelOverall(3.2, 1)).toBe("Very Good");
+    expect(ceoPerformanceLabelOverall(3.2, 1)).toBe("Satisfactory");
     expect(ceoPerformanceLabelOverall(0, 3, 0)).toBe("No Data");
   });
 
@@ -392,5 +440,29 @@ describe("performanceScorecardSupport", () => {
     });
     expect(didNormalise).toBe(true);
     expect(normalised.A + normalised.B).toBeCloseTo(100, 2);
+  });
+
+  test("rawRatingBandLabel: Part 1 table labels for 1–6", () => {
+    expect(rawRatingBandLabel(1)).toBe("Unsatisfactory");
+    expect(rawRatingBandLabel(4)).toBe("Meets Target");
+    expect(rawRatingBandLabel(6)).toBe("Exceeds — Beyond Variance");
+    expect(rawRatingBandLabel(null)).toBeNull();
+  });
+
+  test("resolveScorecardLifecycleBanner: LIVE vs period ended vs locked", () => {
+    const future = new Date(Date.now() + 86400000 * 30);
+    expect(resolveScorecardLifecycleBanner(future, null).phase).toBe("LIVE");
+    const past = new Date(Date.now() - 86400000);
+    expect(resolveScorecardLifecycleBanner(past, null).phase).toBe("AWAITING_SIGNOFF");
+    expect(
+      resolveScorecardLifecycleBanner(past, { status: "FINAL", isLocked: true, archivedAt: null }).phase
+    ).toBe("FINAL_LOCKED");
+    expect(
+      resolveScorecardLifecycleBanner(past, {
+        status: "DRAFT",
+        isLocked: false,
+        archivedAt: new Date()
+      }).phase
+    ).toBe("ARCHIVED");
   });
 });

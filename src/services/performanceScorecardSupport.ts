@@ -2,6 +2,9 @@
 
 const DEFAULT_ALLOWABLE_VARIANCE = 0.1;
 
+/** Raw indicator and matrix ratings use this integer range (weighted finals are ~1–6). */
+export const PERFORMANCE_RATING_SCALE = { min: 1, max: 6 } as const;
+
 export const EMPLOYEE_PERSONAL_ATTRIBUTES = [
   "Judgement in decision making",
   "Leadership and Management",
@@ -315,6 +318,16 @@ export function computeGoalProgress(input: {
   };
 }
 
+/** True when `a` and `b` are the same for scorecard target/actual comparisons (floating-safe). */
+function nearEqualTargetActual(a: number, b: number): boolean {
+  const scale = Math.max(Math.abs(a), Math.abs(b), 1);
+  return Math.abs(a - b) <= Math.max(scale * 1e-9, 1e-6);
+}
+
+/**
+ * Raw indicator rating on a **1–6** scale (BSC / client spec).
+ * Standard KPI: higher actual is better. Reverse KPI: lower actual is better (e.g. cost ceiling).
+ */
 export function computeRawRating(input: {
   actualValue: any;
   targetValue: any;
@@ -331,21 +344,27 @@ export function computeRawRating(input: {
   }
 
   if (isReverseKpi) {
-    const upperVarianceBound = targetValue + targetValue * allowableVariance;
-    const fiftyPctUpperBound = targetValue * 1.5;
+    const upperVarianceBound = targetValue * (1 + allowableVariance);
+    const lowerVarianceBound = targetValue * (1 - allowableVariance);
+    const oneFiftyPctOfTarget = targetValue * 1.5;
 
-    if (actualValue <= targetValue) return 4;
-    if (actualValue <= upperVarianceBound) return 3;
-    if (actualValue <= fiftyPctUpperBound) return 2;
+    if (actualValue < lowerVarianceBound) return 6;
+    if (actualValue < targetValue && !nearEqualTargetActual(actualValue, targetValue)) return 5;
+    if (nearEqualTargetActual(actualValue, targetValue)) return 4;
+    if (actualValue > targetValue && actualValue <= upperVarianceBound) return 3;
+    if (actualValue > upperVarianceBound && actualValue <= oneFiftyPctOfTarget) return 2;
     return 1;
   }
 
-  const lowerVarianceBound = targetValue - targetValue * allowableVariance;
+  const upperVarianceBound = targetValue * (1 + allowableVariance);
+  const lowerVarianceBound = targetValue * (1 - allowableVariance);
   const fiftyPctOfTarget = targetValue * 0.5;
 
-  if (actualValue >= targetValue) return 4;
-  if (actualValue >= lowerVarianceBound) return 3;
-  if (actualValue >= fiftyPctOfTarget) return 2;
+  if (actualValue > upperVarianceBound) return 6;
+  if (actualValue > targetValue && actualValue <= upperVarianceBound) return 5;
+  if (nearEqualTargetActual(actualValue, targetValue)) return 4;
+  if (actualValue >= lowerVarianceBound && actualValue < targetValue) return 3;
+  if (actualValue >= fiftyPctOfTarget && actualValue < lowerVarianceBound) return 2;
   return 1;
 }
 
@@ -504,43 +523,122 @@ export function redistributeWeights<
   });
 }
 
-/** Employee scorecard budget utilisation bands (spec §6 Step 6). */
+/**
+ * Budget utilisation % (actual spend ÷ allocated × 100) on **1–6** scale.
+ * Treats 100% of budget as target with symmetric variance; lower spend is better (reverse-style).
+ */
 export function computeBudgetUtilisationRating(utilisationPct: number): number {
   const u = round(toNumber(utilisationPct, 0), 4);
-  if (u >= 90 && u <= 110) return 4;
-  if (u >= 80 && u <= 120) return 3;
-  if (u >= 50) return 2;
-  return 1;
+  return computeRawRating({
+    actualValue: u,
+    targetValue: 100,
+    allowableVariance: 0.1,
+    isReverseKpi: true
+  });
 }
 
-/** Final score (1–4 scale) to performance label (spec §6 Step 7). */
+/** Shared **1–6** weighted final score → performance label (employee, department, CEO, Board). */
 export function performanceLabelFromScore(finalScore: number): string {
   const s = toNumber(finalScore, 0);
-  if (s >= 3.5) return "Outstanding";
-  if (s >= 3) return "Exceeds Expectations";
-  if (s >= 2) return "Meets Expectations";
-  if (s >= 1) return "Requires Improvement";
+  if (s >= 5.5) return "Exceptional";
+  if (s >= 4.5) return "Exceeds Expectations";
+  if (s >= 3.5) return "Meets Expectations";
+  if (s >= 2.5) return "Satisfactory";
+  if (s >= 2) return "Requires Improvement";
+  if (s >= 1) return "Unsatisfactory";
   return "Unsatisfactory";
 }
 
-/** Department scorecard v2 — Step 10 label bands (1–4 scale). */
+/** @deprecated Use {@link performanceLabelFromScore} — same bands as employee scorecard since 1–6 scale. */
 export function performanceLabelFromDepartmentScore(departmentScore: number): string {
-  const s = toNumber(departmentScore, 0);
-  if (s >= 3.5) return "Excellent";
-  if (s >= 3) return "Very Good";
-  if (s >= 2.5) return "Satisfactory";
-  if (s >= 2) return "Requires Improvement";
-  return "Unsatisfactory";
+  return performanceLabelFromScore(departmentScore);
 }
 
-/** CEO / Board contract review — agreed ratings bands (spec Step 8). */
+/** @deprecated Use {@link performanceLabelFromScore} — same bands as employee scorecard since 1–6 scale. */
 export function performanceLabelFromCEOFinalScore(score: number): string {
-  const s = toNumber(score, 0);
-  if (s >= 3.5) return "Excellent";
-  if (s >= 3) return "Very Good";
-  if (s >= 2.5) return "Satisfactory";
-  if (s >= 2) return "Requires Improvement";
-  return "Unsatisfactory";
+  return performanceLabelFromScore(score);
+}
+
+/** Part 1 spec: human-readable label for each integer raw rating (1–6). */
+export function rawRatingBandLabel(rating: number | null | undefined): string | null {
+  if (rating == null || Number.isNaN(Number(rating))) return null;
+  const r = Math.round(Number(rating));
+  const labels: Record<number, string> = {
+    1: "Unsatisfactory",
+    2: "Requires Improvement",
+    3: "Within Variance",
+    4: "Meets Target",
+    5: "Exceeds — Within Variance",
+    6: "Exceeds — Beyond Variance"
+  };
+  return labels[r] ?? null;
+}
+
+/**
+ * Rule 4-style banner from period end + latest persisted scorecard row (if any).
+ * Does not imply auto-finalisation (see compliance tracker).
+ */
+export function resolveScorecardLifecycleBanner(
+  periodEnd: Date,
+  record?: { status?: string | null; isLocked?: boolean | null; archivedAt?: Date | null } | null
+): { phase: string; bannerMessage: string } {
+  const now = new Date();
+  if (record?.archivedAt) {
+    return { phase: "ARCHIVED", bannerMessage: "Archived." };
+  }
+  const st = String(record?.status ?? "").toUpperCase();
+  if (record?.isLocked && st === "FINAL") {
+    return { phase: "FINAL_LOCKED", bannerMessage: "Final — signed and locked." };
+  }
+  if (periodEnd.getTime() > now.getTime()) {
+    return {
+      phase: "LIVE",
+      bannerMessage: "Live — period in progress. Scores reflect performance to date."
+    };
+  }
+  if (!record || st === "DRAFT") {
+    return {
+      phase: "AWAITING_SIGNOFF",
+      bannerMessage: "Finalised — awaiting sign-off."
+    };
+  }
+  if (st === "FINAL") {
+    return {
+      phase: "FINAL_UNLOCKED",
+      bannerMessage: "Finalised — awaiting sign-off."
+    };
+  }
+  return {
+    phase: "PERIOD_ENDED",
+    bannerMessage: "Review period has ended. Scores reflect performance through the period end date."
+  };
+}
+
+/**
+ * UI / PDF row colour token from raw rating **1–6** (client colour mapping).
+ * Returns `neutral` when rating is null/unknown.
+ */
+export function rawRatingToRowSeverity(rawRating: number | null | undefined): string {
+  if (rawRating == null || rawRating === undefined || Number.isNaN(Number(rawRating))) {
+    return "neutral";
+  }
+  const r = Math.round(Number(rawRating));
+  switch (r) {
+    case 6:
+      return "dark_green";
+    case 5:
+      return "green";
+    case 4:
+      return "light_green";
+    case 3:
+      return "amber";
+    case 2:
+      return "orange";
+    case 1:
+      return "red";
+    default:
+      return "neutral";
+  }
 }
 
 /**
@@ -644,10 +742,47 @@ export function buildPersonalAttributesRatingGrid(template?: any) {
 
 const EMPLOYEE_WEIGHT_SUM_TOLERANCE = 0.01;
 
+/**
+ * When the client requests period "2026" but the contract row uses "FY 2026", "2026 Annual", etc.,
+ * still match on the same calendar year so scorecards resolve after UAT-style data entry.
+ */
+export function periodLabelMatches(stored: string | null | undefined, requested: string): boolean {
+  if (stored == null || requested == null) return false;
+  const s = String(stored).trim().toLowerCase();
+  const r = String(requested).trim().toLowerCase();
+  if (s === r) return true;
+  const m1 = r.match(/(\d{4})/);
+  const m2 = s.match(/(\d{4})/);
+  return Boolean(m1 && m2 && m1[1] === m2[1]);
+}
+
+/**
+ * Scales declared weights proportionally so they sum to 100% (in-memory mutation on goal rows).
+ * Call before scoring when legacy data has rounding drift or mis-keyed totals.
+ */
+export function normalizeEmployeeGoalWeightsForScorecard(goals: any[], warningsOut: string[]): void {
+  if (!goals?.length) return;
+  const fallback = 100 / goals.length;
+  const sum = goals.reduce((acc, g) => acc + resolveWeight(g?.scorecardWeight, fallback), 0);
+  if (Math.abs(sum - 100) <= EMPLOYEE_WEIGHT_SUM_TOLERANCE) return;
+  if (sum <= 0) return;
+  const scale = 100 / sum;
+  for (const g of goals) {
+    const w = resolveWeight(g.scorecardWeight, fallback);
+    const scaled = round(w * scale, 4);
+    g.scorecardWeight = scaled as any;
+  }
+  warningsOut.push(
+    `Individual goal weights were scaled to sum to 100% (declared total was ${round(sum, 2)}%).`
+  );
+}
+
 /** Declared/fallback weights for individual goals must sum to ~100% (spec §5). */
 export function assertIndividualGoalWeightsSum100(goals: any[]): void {
   if (!goals || goals.length === 0) {
-    throw new Error("Goal weights do not sum to 100%. Scorecard cannot be generated.");
+    throw new Error(
+      "No individual performance goals found for this employee in the selected period. Create goals linked to the contract or align goal dates with the period."
+    );
   }
   const fallbackWeight = 100 / goals.length;
   const sum = goals.reduce(
@@ -660,7 +795,8 @@ export function assertIndividualGoalWeightsSum100(goals: any[]): void {
 }
 
 /**
- * Results delivery on 0–4 scale: Σ(effectiveWeight × rawRating / 100) when Σ effectiveWeight = 100.
+ * Results delivery: weighted mean of raw ratings on **1–6** scale —
+ * Σ(effectiveWeight × rawRating / 100) re-scaled when Σ effectiveWeight = 100.
  */
 export function summariseEmployeeResultsDelivery(rows: {
   isPendingApproval?: boolean;
