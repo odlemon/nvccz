@@ -150,6 +150,8 @@ export async function resolveUsdZwgWithSource(client: PrismaClient): Promise<Usd
 
 // Short-lived cache so bulk operations (e.g. backfill) don't hammer Zimrate on every DB write
 let _cachedAvg: { value: number; expiresAt: number } | null = null;
+/** Separate cache for consolidated reports (live-first path) so middleware DB-first cache stays independent. */
+let _cachedConsolidatedUsdZwg: { value: number; expiresAt: number } | null = null;
 const RATE_CACHE_TTL_MS = 60_000;
 
 /**
@@ -173,7 +175,25 @@ export async function resolveUsdZwgAvgForSnapshot(client: PrismaClient): Promise
   return value;
 }
 
+/**
+ * USD/ZWG for consolidated reports: live Zimrate first (`resolveUsdZwgWithSource`), then last stored
+ * snapshot from transactions if the API fails or omits USD/ZWG. Does not prefer DB over live (unlike
+ * `resolveUsdZwgAvgForSnapshot`, which is optimized for middleware).
+ */
+export async function resolveUsdZwgAvgForConsolidatedReport(client: PrismaClient): Promise<number | null> {
+  if (_cachedConsolidatedUsdZwg && Date.now() < _cachedConsolidatedUsdZwg.expiresAt) {
+    return _cachedConsolidatedUsdZwg.value;
+  }
+  const r = await resolveUsdZwgWithSource(client);
+  if (!r) return null;
+  const value = r.source === 'zimrate' ? r.row.avg : r.rate;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  _cachedConsolidatedUsdZwg = { value, expiresAt: Date.now() + RATE_CACHE_TTL_MS };
+  return value;
+}
+
 /** Force-invalidate the rate cache (call after manual rate updates). */
 export function invalidateUsdZwgRateCache(): void {
   _cachedAvg = null;
+  _cachedConsolidatedUsdZwg = null;
 }

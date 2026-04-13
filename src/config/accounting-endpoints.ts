@@ -1963,7 +1963,8 @@ export const accountingEndpoints = {
   '/accounting/trial-balance': {
     get: {
       summary: 'Generate trial balance',
-      description: 'Supports period filters (month/quarter/year) via URL query parameters OR legacy date range. Period Filter Examples: Month: ?periodType=month&periodValue=2025-01, Quarter: ?periodType=quarter&periodValue=2025-Q1, Year: ?periodType=year&periodValue=2025',
+      description:
+        'Supports period filters (month/quarter/year) via URL query parameters OR legacy date range. Period Filter Examples: Month: ?periodType=month&periodValue=2025-01, Quarter: ?periodType=quarter&periodValue=2025-Q1, Year: ?periodType=year&periodValue=2025. **Ordering:** accounts by type then account number; each account’s `transactions[]` by **journal `transactionDate` newest first** (then line id), aligned with the journal-entries list — not by row creation time.',
       tags: ['Trial Balance'],
       security: [{ bearerAuth: [] }],
       parameters: [

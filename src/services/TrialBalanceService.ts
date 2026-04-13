@@ -366,8 +366,14 @@ export class TrialBalanceService {
         const displayDebit = netBalance > 0 ? netBalance : 0;
         const displayCredit = netBalance < 0 ? Math.abs(netBalance) : 0;
 
-        // Sort transactions by date
-        const transactions = balances.transactions.sort((a, b) => a.date.localeCompare(b.date));
+        // Sort transaction detail like journal list: **newest business date first**, then stable tie-break.
+        // (Previously: ascending date-only strings, which also hid same-day ordering — looked like "created" order.)
+        const transactions = [...balances.transactions].sort((a, b) => {
+          const ta = new Date(a.journalEntry.transactionDate).getTime();
+          const tb = new Date(b.journalEntry.transactionDate).getTime();
+          if (tb !== ta) return tb - ta;
+          return b.id.localeCompare(a.id);
+        });
 
         trialBalanceAccounts.push({
           accountId: account.id,
