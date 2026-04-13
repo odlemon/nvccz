@@ -1,4 +1,4 @@
-import type { Prisma, ShortTermInvestmentApyRate } from "@prisma/client";
+import { Prisma, type ShortTermInvestmentApyRate } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { randomBytes } from "crypto";
 import { prisma } from "../utils/database";
@@ -16,9 +16,24 @@ import {
   type StiDayCountConvention,
 } from "./ShortTermInvestmentAccrualCalculator";
 import { logger } from "../utils/logger";
+import { normalizeApyInputToDecimal } from "../utils/stiApyInput";
 import PeriodLockService from "./PeriodLockService";
 
 const SETTINGS_ID = "default";
+
+/** True when Prisma reports duplicate (instrument_id, accrual_date) on STI accrual insert. */
+function isStiAccrualDateUniqueConflict(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const err = e as { code?: string; meta?: { target?: string | string[]; modelName?: string } };
+  if (err.code !== "P2002") return false;
+  const raw = err.meta?.target;
+  const t = Array.isArray(raw) ? raw.join(" ") : String(raw ?? "");
+  if (t.includes("instrument_id_accrual_date") || t.includes("short_term_investment_accruals")) {
+    return true;
+  }
+  if (err.meta?.modelName === "ShortTermInvestmentAccrual") return true;
+  return false;
+}
 
 export type StiPostingMode = "DRAFT" | "APPROVED";
 
@@ -404,8 +419,9 @@ export class ShortTermInvestmentService {
       });
     }
 
-    return prisma.$transaction(
-      async (tx) => {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
         if (rounded.isZero()) {
           const row = await tx.shortTermInvestmentAccrual.create({
             data: {
@@ -481,24 +497,47 @@ export class ShortTermInvestmentService {
           accrualId: row.id,
           journalEntryId: journalEntry.id,
         };
-      },
-      { maxWait: 60_000, timeout: 120_000 }
-    );
+        },
+        {
+          maxWait: 60_000,
+          timeout: 120_000,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        }
+      );
+    } catch (e: any) {
+      if (isStiAccrualDateUniqueConflict(e)) {
+        const existingAfterConflict = await prisma.shortTermInvestmentAccrual.findUnique({
+          where: {
+            instrumentId_accrualDate: {
+              instrumentId: params.instrumentId,
+              accrualDate: accrualDateFromIso(params.accrualIso),
+            },
+          },
+        });
+        if (existingAfterConflict) {
+          return {
+            outcome: "duplicate" as const,
+            accrualId: existingAfterConflict.id,
+            journalEntryId: existingAfterConflict.journalEntryId,
+          };
+        }
+      }
+      throw e;
+    }
   }
 
   /**
-   * Runs the fiscal-day accrual pass at most once per cooldown (default 24h), keyed by
-   * `lastAccrualWatermark`. Intended to fire after login so a scheduled cron is not required.
+   * Runs the STI accrual catch-up pass at most once per cooldown (when set), keyed by
+   * `lastAccrualWatermark`. On each run, fills missing days through fiscal "today" (login backfill).
    * Swallows DB/module errors (e.g. STI tables not migrated) so callers never fail.
    */
   static async maybeRunDailyAccrualAfterLogin(actorId: string): Promise<void> {
     const cooldownMsRaw = Number(process.env.STI_LOGIN_ACCRUAL_COOLDOWN_MS);
-    const cooldownMs =
-      Number.isFinite(cooldownMsRaw) && cooldownMsRaw > 0
-        ? cooldownMsRaw
-        : 24 * 60 * 60 * 1000;
+    // Default: run STI check on every login. Cooldown applies only when explicitly configured.
+    const cooldownMs = Number.isFinite(cooldownMsRaw) && cooldownMsRaw > 0 ? cooldownMsRaw : 0;
 
     try {
+      logger.info("STI login accrual check started", { actorId, cooldownMs });
       const existing = await prisma.shortTermInvestmentSettings.findUnique({
         where: { id: SETTINGS_ID },
         select: { lastAccrualWatermark: true },
@@ -507,16 +546,31 @@ export class ShortTermInvestmentService {
       if (last != null) {
         const elapsed = Date.now() - last.getTime();
         if (elapsed < cooldownMs) {
+          logger.info("STI login accrual skipped by cooldown", {
+            actorId,
+            cooldownMs,
+            elapsedMs: elapsed,
+            lastAccrualWatermark: last.toISOString(),
+          });
           return;
         }
       }
 
       await getOrCreateSettingsRow();
-      await this.runDailyAccrualJob({ actorId });
+      const result = await this.runDailyAccrualJob({ actorId });
+      logger.info("STI login accrual run completed", {
+        actorId,
+        fiscalDate: result.fiscalDate,
+        processed: result.processed,
+        duplicates: result.duplicates,
+        skipped: result.skipped,
+        errors: result.errors.length,
+      });
     } catch (e: any) {
       logger.warn("Short-term investment login accrual skipped", {
         message: e?.message ?? String(e),
         code: e?.code,
+        actorId,
       });
     }
   }
@@ -547,16 +601,44 @@ export class ShortTermInvestmentService {
 
     for (const row of active) {
       try {
-        const r = await this.accrueOneCalendarDay({
+        // Login-triggered run: backfill every missing calendar day from (last accrual + 1) or
+        // instrument start through fiscal "today" — same as POST .../catch-up but automatic on login.
+        const catchUpRows = await this.catchUpAccruals({
           instrumentId: row.id,
-          accrualIso: fiscalToday,
+          throughIso: fiscalToday,
           actorId: params.actorId,
         });
-        if (r.outcome === "created") processed += 1;
-        else if (r.outcome === "duplicate") duplicates += 1;
-        else skipped += 1;
+        let created = 0;
+        let dup = 0;
+        let skip = 0;
+        for (const c of catchUpRows) {
+          if (c.outcome === "created") {
+            created += 1;
+            processed += 1;
+          } else if (c.outcome === "duplicate") {
+            dup += 1;
+            duplicates += 1;
+          } else {
+            skip += 1;
+            skipped += 1;
+          }
+        }
+        logger.info("STI accrual instrument catch-up finished", {
+          instrumentId: row.id,
+          throughIso: fiscalToday,
+          dayResults: catchUpRows.length,
+          created,
+          duplicate: dup,
+          skipped: skip,
+        });
       } catch (e: any) {
         errors.push(`${row.id}: ${e?.message ?? e}`);
+        logger.error("STI accrual instrument failed", {
+          instrumentId: row.id,
+          fiscalDate: fiscalToday,
+          message: e?.message ?? String(e),
+          code: e?.code,
+        });
       }
     }
 
@@ -564,6 +646,16 @@ export class ShortTermInvestmentService {
     await prisma.shortTermInvestmentSettings.update({
       where: { id: SETTINGS_ID },
       data: { lastAccrualWatermark: new Date() },
+    });
+
+    logger.info("STI daily accrual job finished", {
+      actorId: params.actorId,
+      fiscalDate: fiscalToday,
+      activeInstrumentCount: active.length,
+      processed,
+      duplicates,
+      skipped,
+      errors: errors.length,
     });
 
     return { fiscalDate: fiscalToday, processed, skipped, duplicates, errors };
@@ -816,7 +908,7 @@ export class ShortTermInvestmentService {
           });
         }
       },
-      { maxWait: 120_000, timeout: 300_000 }
+      { maxWait: 120_000, timeout: 900_000 }
     );
 
     await AuditService.log({
@@ -839,7 +931,12 @@ export class ShortTermInvestmentService {
     const acc = await prisma.shortTermInvestmentAccrual.findUnique({
       where: { id: accrualId },
     });
-    if (!acc?.journalEntryId) {
+    if (!acc) {
+      throw new Error(
+        "Accrual not found — use the accrual row id from GET /instruments/:id, not the instrument id"
+      );
+    }
+    if (!acc.journalEntryId) {
       throw new Error("Accrual has no journal entry");
     }
     if (acc.status !== "PENDING_POST") {
@@ -851,6 +948,63 @@ export class ShortTermInvestmentService {
       data: { status: "POSTED" },
     });
     return prisma.shortTermInvestmentAccrual.findUnique({ where: { id: accrualId } });
+  }
+
+  /**
+   * Posts every PENDING_POST accrual for an instrument (draft posting mode).
+   * Continues on individual failures; returns a summary for the client.
+   */
+  static async approveAllPendingAccrualJournalsForInstrument(
+    instrumentId: string,
+    userId: string
+  ): Promise<{
+    instrumentId: string;
+    pendingFound: number;
+    approved: number;
+    skipped: Array<{ accrualId: string; reason: string }>;
+    failures: Array<{ accrualId: string; error: string }>;
+  }> {
+    const inst = await prisma.shortTermInvestmentInstrument.findUnique({
+      where: { id: instrumentId },
+      select: { id: true },
+    });
+    if (!inst) {
+      throw new Error("Instrument not found");
+    }
+
+    const pending = await prisma.shortTermInvestmentAccrual.findMany({
+      where: { instrumentId, status: "PENDING_POST" },
+      orderBy: { accrualDate: "asc" },
+      select: { id: true, journalEntryId: true },
+    });
+
+    const skipped: Array<{ accrualId: string; reason: string }> = [];
+    const failures: Array<{ accrualId: string; error: string }> = [];
+    let approved = 0;
+
+    for (const row of pending) {
+      if (!row.journalEntryId) {
+        skipped.push({ accrualId: row.id, reason: "Accrual has no journal entry" });
+        continue;
+      }
+      try {
+        await ShortTermInvestmentService.approveAccrualJournal(row.id, userId);
+        approved += 1;
+      } catch (e: any) {
+        failures.push({
+          accrualId: row.id,
+          error: e?.message ?? String(e),
+        });
+      }
+    }
+
+    return {
+      instrumentId,
+      pendingFound: pending.length,
+      approved,
+      skipped,
+      failures,
+    };
   }
 
   static async reverseAccrualLinkedJournal(accrualId: string, actorId: string) {
@@ -1717,7 +1871,9 @@ export class ShortTermInvestmentService {
     },
     ctx: { userId: string; ipAddress?: string | null; userAgent?: string | null }
   ) {
-    const eff = payload.initialApyEffectiveFromIso ?? new Date().toISOString().slice(0, 10);
+    // For backdated instruments, default APY effective date to instrument start date.
+    // This ensures catch-up accrual has an active rate from day one.
+    const eff = payload.initialApyEffectiveFromIso ?? payload.startDateIso;
 
     const allowedDayCounts: StiDayCountConvention[] = ["ACTUAL_365", "ACTUAL_360", "THIRTY_360"];
     const dayCountConvention = (payload.dayCountConvention ?? "ACTUAL_365") as StiDayCountConvention;
@@ -1768,7 +1924,7 @@ export class ShortTermInvestmentService {
         apyRates: {
           create: {
             effectiveFrom: accrualDateFromIso(eff),
-            apy: new Decimal(payload.initialApy.toString()),
+            apy: normalizeApyInputToDecimal(payload.initialApy),
             createdById: ctx.userId,
           },
         },
@@ -1816,7 +1972,7 @@ export class ShortTermInvestmentService {
       data: {
         instrumentId: params.instrumentId,
         effectiveFrom: accrualDateFromIso(params.effectiveFromIso),
-        apy: new Decimal(params.apy.toString()),
+        apy: normalizeApyInputToDecimal(params.apy),
         createdById: params.userId,
       },
     });
