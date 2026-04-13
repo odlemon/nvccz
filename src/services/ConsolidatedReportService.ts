@@ -2,7 +2,7 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
-import { resolveUsdZwgAvgForSnapshot } from "./UsdZwgRateResolver";
+import { resolveUsdZwgAvgForConsolidatedReport } from "./UsdZwgRateResolver";
 import { BalanceSheetService } from "./BalanceSheetService";
 
 export interface CurrencyBreakdownItem {
@@ -41,7 +41,7 @@ type RateCache = Map<string, { rate: number; code: string }>;
 export class ConsolidatedReportService {
   /**
    * Resolve the conversion rate from `fromCurrencyId` to `toCurrencyId` as of `asOfDate`.
-   * Fallback chain: exact date → nearest earlier → inverse → UsdZwg snapshot for ZiG↔USD.
+   * Fallback chain: exact date → nearest earlier → inverse → live Zimrate USD/ZWG (then stored snapshot if API down) for ZiG↔USD.
    */
   private static async resolveRate(
     fromCurrencyId: string,
@@ -89,8 +89,8 @@ export class ConsolidatedReportService {
     });
     if (inv && Number(inv.rate) > 0) return 1 / Number(inv.rate);
 
-    // 6. UsdZwg snapshot fallback (covers ZiG↔USD when no explicit rate exists)
-    const snapshot = await resolveUsdZwgAvgForSnapshot(prisma as any).catch(() => null);
+    // 6. Live Zimrate USD/ZWG first, then last stored snapshot if API unavailable (covers ZiG↔USD when no explicit rate exists)
+    const snapshot = await resolveUsdZwgAvgForConsolidatedReport(prisma as any).catch(() => null);
     if (snapshot && snapshot > 0) {
       const [fromCcy, toCcy] = await Promise.all([
         prisma.currency.findUnique({ where: { id: fromCurrencyId }, select: { code: true } }),

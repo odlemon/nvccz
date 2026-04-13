@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
 import { ShortTermInvestmentService } from "../services/ShortTermInvestmentService";
+import { logger } from "../utils/logger";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import { companyNameShortFromEnv } from "../config/companyDisplay";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
@@ -129,6 +130,10 @@ export class AuthController {
 
       if (!isApplicant) {
         setImmediate(() => {
+          logger.info("Auth login trigger: STI accrual run requested", {
+            userId: user.id,
+            email: user.email,
+          });
           void ShortTermInvestmentService.maybeRunDailyAccrualAfterLogin(user.id);
         });
       }

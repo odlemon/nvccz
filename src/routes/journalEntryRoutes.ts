@@ -13,7 +13,7 @@ router.use(authenticate);
  * /api/accounting/journal-entries:
  *   get:
  *     summary: Get all journal entries
- *     description: Retrieve journal entries with optional status filtering. Defaults to showing POSTED and PENDING entries only (excludes VOID entries).
+ *     description: Retrieve journal entries with optional status filtering. Defaults to showing POSTED and PENDING entries only (excludes VOID entries). Results are sorted by **transaction date** (newest first), then by **createdAt** for the same date — not by when rows were inserted into the database alone.
  *     tags: [Journal Entries]
  *     security:
  *       - bearerAuth: []
@@ -42,6 +42,19 @@ router.use(authenticate);
  *           type: string
  *           format: date
  *         description: Optional YYYY-MM-DD; if set, startDate is required.
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 500
+ *         description: Optional page size. When set, response uses `ResponseHelper.paginated` with `data` + `pagination` (total, page, limit, …). Omit for full list (same filters; can be large).
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *         description: Optional skip for pagination (use with `limit`). Default 0.
  *     responses:
  *       200:
  *         description: Journal entries retrieved successfully

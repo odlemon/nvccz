@@ -24,6 +24,16 @@ router.post("/instruments/:id/apy-rates", ShortTermInvestmentController.appendAp
 router.post("/instruments/:id/catch-up", ShortTermInvestmentController.postCatchUp);
 router.post("/instruments/:id/liquidate", ShortTermInvestmentController.postLiquidate);
 router.post("/instruments/:id/void", ShortTermInvestmentController.postVoid);
+router.post(
+  "/instruments/:id/accruals/approve-all",
+  ShortTermInvestmentController.postApproveAllAccruals
+);
+
+/** Same handler as `/instruments/:id/accruals/approve-all`; path groups with `accruals/{accrualId}/approve` in Swagger. */
+router.post(
+  "/accruals/:instrumentId/approve-all",
+  ShortTermInvestmentController.postApproveAllAccruals
+);
 
 router.post("/accruals/:accrualId/approve", ShortTermInvestmentController.postApproveAccrual);
 

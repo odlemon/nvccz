@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Response } from "express";
 import { AuthRequest } from "../middleware/authenticate";
 import { prisma } from "../utils/database";
@@ -6,6 +7,9 @@ import { ShortTermInvestmentService } from "../services/ShortTermInvestmentServi
 
 /** Max accrual rows returned on GET instrument (newest first); avoids huge payloads after long catch-ups. */
 const TAKE_INSTRUMENT_ACCRUALS = 500;
+
+/** Max audit log rows merged into GET instrument (newest first). */
+const TAKE_INSTRUMENT_AUDIT_LOGS = 500;
 
 export class ShortTermInvestmentController {
   static async getSettings(req: AuthRequest, res: Response): Promise<void> {
@@ -45,9 +49,25 @@ export class ShortTermInvestmentController {
         include: {
           currency: { select: { id: true, code: true } },
           settlementBank: { select: { id: true, name: true, accountNumber: true } },
+          _count: { select: { accruals: true } },
+          accruals: {
+            orderBy: { accrualDate: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              accrualDate: true,
+              amountInstrumentCcy: true,
+              runningAccruedBalance: true,
+              status: true,
+            },
+          },
         },
       });
-      res.json({ success: true, data: rows });
+      const data = rows.map(({ accruals, ...rest }) => ({
+        ...rest,
+        latestAccrual: accruals[0] ?? null,
+      }));
+      res.json({ success: true, data });
     } catch (e: any) {
       res.status(500).json({ success: false, error: e?.message ?? String(e) });
     }
@@ -87,7 +107,41 @@ export class ShortTermInvestmentController {
         res.status(404).json({ success: false, error: "Not found" });
         return;
       }
-      res.json({ success: true, data: row });
+
+      const [accrualIdRows, apyRateIdRows] = await Promise.all([
+        prisma.shortTermInvestmentAccrual.findMany({
+          where: { instrumentId: id },
+          select: { id: true },
+        }),
+        prisma.shortTermInvestmentApyRate.findMany({
+          where: { instrumentId: id },
+          select: { id: true },
+        }),
+      ]);
+      const accrualIds = accrualIdRows.map((a) => a.id);
+      const apyRateIds = apyRateIdRows.map((r) => r.id);
+
+      const auditOr: Prisma.AuditLogWhereInput[] = [
+        { entityType: "ShortTermInvestmentInstrument", entityId: id },
+        { entityType: "ShortTermInvestmentAccrualCatchUp", entityId: id },
+      ];
+      if (accrualIds.length > 0) {
+        auditOr.push({ entityType: "ShortTermInvestmentAccrual", entityId: { in: accrualIds } });
+      }
+      if (apyRateIds.length > 0) {
+        auditOr.push({ entityType: "ShortTermInvestmentApyRate", entityId: { in: apyRateIds } });
+      }
+
+      const auditLogs = await prisma.auditLog.findMany({
+        where: { OR: auditOr },
+        orderBy: { createdAt: "desc" },
+        take: TAKE_INSTRUMENT_AUDIT_LOGS,
+        include: {
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+      });
+
+      res.json({ success: true, data: { ...row, auditLogs } });
     } catch (e: any) {
       res.status(500).json({ success: false, error: e?.message ?? String(e) });
     }
@@ -316,6 +370,30 @@ export class ShortTermInvestmentController {
       const { accrualId } = req.params;
       const row = await ShortTermInvestmentService.approveAccrualJournal(accrualId, userId);
       res.json({ success: true, data: row });
+    } catch (e: any) {
+      res.status(400).json({ success: false, error: e?.message ?? String(e) });
+    }
+  }
+
+  static async postApproveAllAccruals(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ success: false, error: "Unauthorized" });
+        return;
+      }
+      const instrumentId =
+        (req.params as { id?: string; instrumentId?: string }).id ??
+        (req.params as { id?: string; instrumentId?: string }).instrumentId;
+      if (!instrumentId) {
+        res.status(400).json({ success: false, error: "Missing instrument id" });
+        return;
+      }
+      const data = await ShortTermInvestmentService.approveAllPendingAccrualJournalsForInstrument(
+        instrumentId,
+        userId
+      );
+      res.json({ success: true, data });
     } catch (e: any) {
       res.status(400).json({ success: false, error: e?.message ?? String(e) });
     }

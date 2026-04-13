@@ -1430,8 +1430,9 @@ export class JournalEntryService {
     startDate: Date,
     endDate: Date,
     status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | 'POSTED_AND_PENDING',
-    currencyId?: string
-  ): Promise<any[]> {
+    currencyId?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<any[] | { entries: any[]; total: number; limit: number; offset: number }> {
     const andConditions: any[] = [
       {
         referenceNumber: {
@@ -1482,8 +1483,16 @@ export class JournalEntryService {
       }
     };
 
+    let totalForPagination: number | undefined;
+    if (pagination) {
+      totalForPagination = await prisma.journalEntry.count({ where: whereClause });
+    }
+
     const entries = await prisma.journalEntry.findMany({
       where: whereClause,
+      ...(pagination
+        ? { skip: pagination.offset, take: Math.min(Math.max(1, pagination.limit), 500) }
+        : {}),
       include: {
         journalEntryLines: {
           include: {
@@ -1637,11 +1646,10 @@ export class JournalEntryService {
           }
         }
       },
-      orderBy: {
-        transactionDate: 'desc'
-      }
+      /** Newest business dates first; `createdAt` breaks ties so order is not insertion/ID-dependent. */
+      orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
     });
-    
+
     // Additional client-side filter to ensure no voided/reversed entries slip through
     const filteredEntries = entries.filter(entry => {
       if (currencyId && (entry as any).currencyId !== currencyId) {
@@ -1664,7 +1672,7 @@ export class JournalEntryService {
     });
 
     // Attach paymentMethod to each line for each entry
-    return filteredEntries.map((entry: any) => {
+    const mapped = filteredEntries.map((entry: any) => {
       const cashbookPaymentMethod = (() => {
         const cb = entry.cashbookEntries?.[0];
         if (!cb) return null;
@@ -1690,6 +1698,28 @@ export class JournalEntryService {
         }))
       };
     });
+
+    // Defensive sort: always list by accounting date (newest first), not creation order.
+    mapped.sort((a: any, b: any) => {
+      const tb = new Date(b.transactionDate).getTime();
+      const ta = new Date(a.transactionDate).getTime();
+      if (tb !== ta) return tb - ta;
+      const cb = new Date(b.createdAt).getTime();
+      const ca = new Date(a.createdAt).getTime();
+      return cb - ca;
+    });
+
+    if (pagination && totalForPagination !== undefined) {
+      const take = Math.min(Math.max(1, pagination.limit), 500);
+      return {
+        entries: mapped,
+        total: totalForPagination,
+        limit: take,
+        offset: pagination.offset,
+      };
+    }
+
+    return mapped;
   }
 
   /**

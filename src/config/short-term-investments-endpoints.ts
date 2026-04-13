@@ -75,7 +75,10 @@ export const shortTermInvestmentsEndpoints = {
       tags: [tag],
       security: bearer,
       responses: {
-        200: { description: "Array of instruments (summary includes)" },
+        200: {
+          description:
+            "Array of instruments with currency, settlement bank, `_count.accruals`, and `latestAccrual` (most recent day row, if any). Full accrual history is on GET `/instruments/{id}`.",
+        },
         401: { description: "Unauthorized" },
       },
     },
@@ -123,7 +126,12 @@ export const shortTermInvestmentsEndpoints = {
                 realizedFxGlAccountId: { type: "string", nullable: true },
                 startDateIso: { type: "string", format: "date" },
                 maturityDateIso: { type: "string", format: "date", nullable: true },
-                initialApy: { type: "number", example: 0.05, description: "Decimal APY e.g. 0.05 = 5%" },
+                initialApy: {
+                  type: "number",
+                  example: 0.05,
+                  description:
+                    "Annual yield: decimal -1..1 (e.g. 0.05 = 5%) or whole percent 1..10000 (e.g. 5 = 5%, 80 = 80%). Set STI_APY_STRICT_DECIMAL_ONLY=true to require decimal only.",
+                },
                 initialApyEffectiveFromIso: { type: "string", format: "date" },
               },
             },
@@ -144,7 +152,10 @@ export const shortTermInvestmentsEndpoints = {
       security: bearer,
       parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
       responses: {
-        200: { description: "Instrument with apyRates, accruals (capped), relations" },
+        200: {
+          description:
+            "Instrument with `apyRates`, `accruals` (newest first, capped), `_count.accruals`, relations, and `auditLogs` (STI-related audit rows for this instrument, newest first, capped).",
+        },
         404: { description: "Not found" },
         401: { description: "Unauthorized" },
       },
@@ -208,7 +219,11 @@ export const shortTermInvestmentsEndpoints = {
               required: ["effectiveFromIso", "apy"],
               properties: {
                 effectiveFromIso: { type: "string", format: "date" },
-                apy: { type: "number" },
+                apy: {
+                  type: "number",
+                  description:
+                    "Same rules as initialApy: decimal (0.05 = 5%) or whole percent (5 = 5%, 80 = 80%) unless STI_APY_STRICT_DECIMAL_ONLY=true.",
+                },
               },
             },
           },
@@ -295,13 +310,48 @@ export const shortTermInvestmentsEndpoints = {
   "/accounting/short-term-investments/accruals/{accrualId}/approve": {
     post: {
       summary: "Approve accrual journal (DRAFT posting mode)",
-      description: "Posts linked JE when accrual is PENDING_POST.",
+      description:
+        "Path `accrualId` is the **accrual row id** from `GET /instruments/{id}` (`accruals[].id`), not the instrument id. Posts linked JE when accrual is PENDING_POST. **Bulk:** use the next operation, **`POST .../accruals/{instrumentId}/approve-all`**, to approve every pending accrual for an instrument.",
       tags: [tag],
       security: bearer,
-      parameters: [{ in: "path", name: "accrualId", required: true, schema: { type: "string" } }],
+      parameters: [
+        {
+          in: "path",
+          name: "accrualId",
+          required: true,
+          schema: { type: "string" },
+          description: "ShortTermInvestmentAccrual id (not ShortTermInvestmentInstrument id)",
+        },
+      ],
       responses: {
         200: { description: "Accrual updated" },
         400: { description: "Not pending" },
+        401: { description: "Unauthorized" },
+      },
+    },
+  },
+  "/accounting/short-term-investments/accruals/{instrumentId}/approve-all": {
+    post: {
+      summary: "Approve all pending accrual journals (DRAFT posting mode)",
+      description:
+        "Path `instrumentId` is the **instrument** row id (`ShortTermInvestmentInstrument.id`). Finds all accruals for that instrument with `status: PENDING_POST`, posts each linked journal entry, then sets accrual status to POSTED. Skips rows with no journal entry; continues on per-row failures and returns counts plus any errors. **Legacy URL (same behavior):** `POST /instruments/{id}/accruals/approve-all`.",
+      tags: [tag],
+      security: bearer,
+      parameters: [
+        {
+          in: "path",
+          name: "instrumentId",
+          required: true,
+          schema: { type: "string" },
+          description: "ShortTermInvestmentInstrument id",
+        },
+      ],
+      responses: {
+        200: {
+          description:
+            "`data` includes `pendingFound`, `approved`, `skipped`, `failures` (per-accrual errors if any).",
+        },
+        400: { description: "Instrument not found or validation error" },
         401: { description: "Unauthorized" },
       },
     },

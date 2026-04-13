@@ -27,21 +27,17 @@ export type JournalEntryPeriodLockOptions = {
 
 /**
  * Get the next audit trail sequence number and increment the counter.
- * Must be called inside a transaction when creating a journal entry to avoid gaps.
+ * Uses a single atomic `increment` so concurrent transactions cannot assign the same number
+ * (read-modify-write races caused duplicate `auditTrailSequenceNumber` / P2002 under load).
  */
 export async function getNextAuditTrailSequenceNumber(tx?: PrismaLike): Promise<number> {
   const client = tx ?? prisma;
-  const seq = await client.auditTrailSequence.findUnique({
+  await ensureAuditTrailSequenceExists(client);
+  const updated = await client.auditTrailSequence.update({
     where: { name: SEQUENCE_NAME },
+    data: { value: { increment: 1 } },
   });
-  const current = seq?.value ?? INITIAL_VALUE;
-  const next = current + 1;
-  await client.auditTrailSequence.upsert({
-    where: { name: SEQUENCE_NAME },
-    create: { name: SEQUENCE_NAME, value: next },
-    update: { value: next },
-  });
-  return next;
+  return updated.value;
 }
 
 /**
@@ -117,14 +113,12 @@ export async function reserveAuditSequencesInTx(
 ): Promise<number> {
   if (count <= 0) throw new Error('count must be > 0');
   await ensureAuditTrailSequenceExists(tx as PrismaLike);
-  const seq = await (tx as PrismaLike).auditTrailSequence.findUnique({ where: { name: SEQUENCE_NAME } });
-  const current = seq?.value ?? INITIAL_VALUE;
-  const firstReserved = current + 1;
-  await (tx as PrismaLike).auditTrailSequence.update({
+  const updated = await (tx as PrismaLike).auditTrailSequence.update({
     where: { name: SEQUENCE_NAME },
-    data: { value: current + count },
+    data: { value: { increment: count } },
   });
-  return firstReserved;
+  const lastAssigned = updated.value;
+  return lastAssigned - count + 1;
 }
 
 export interface AuditTrailEntry {
