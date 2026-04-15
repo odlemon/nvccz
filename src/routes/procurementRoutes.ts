@@ -278,6 +278,14 @@ router.get("/requisitions/my", ProcurementController.getMyPurchaseRequisitions);
  *         description: Unauthorized or user is not a department head
  */
 router.get("/requisitions/pending-approval", ProcurementController.getPendingRequisitionsForDepartmentHead);
+router.get(
+  "/requisitions/investee/sla-breached",
+  ProcurementController.listInvesteePrsPendingVcSlaBreached
+);
+router.get(
+  "/requisitions/investee",
+  ProcurementController.listInvesteePurchaseRequisitionsForVc
+);
 router.get("/requisitions", ProcurementController.getAllPurchaseRequisitions);
 
 /**
@@ -401,6 +409,8 @@ router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequi
 
 router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
 router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
+/** Must be before /purchase-orders/:id or "verify" is captured as an id (Suite 04 PDF verification). */
+router.get("/purchase-orders/verify", ProcurementController.verifyPurchaseOrderToken);
 router.get("/purchase-orders/:id", ProcurementController.getPurchaseOrderById);
 router.post("/purchase-orders/:id/send", ProcurementController.sendPurchaseOrder);
 router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.convertPOToBill);
@@ -520,6 +530,18 @@ router.post("/rfq", ProcurementController.createAndSendRFQ);
  */
 router.get("/rfq", ProcurementController.getAllRFQs);
 
+router.get("/rfqs/:id/comparison-matrix", ProcurementController.getRfqComparisonMatrix);
+router.post("/rfqs/:id/award", ProcurementController.awardRfq);
+router.patch("/rfqs/:id/closing", ProcurementController.patchRfqExtend);
+router.post("/rfqs/:id/clarifications", ProcurementController.postRfqClarification);
+router.get("/rfqs/:id/clarifications", ProcurementController.getRfqClarifications);
+
+router.get("/purchase-orders/:id/pdf", ProcurementController.getPurchaseOrderPdf);
+router.patch(
+  "/purchase-orders/:poId/lines/:lineId/cancel",
+  ProcurementController.cancelPurchaseOrderLine
+);
+router.post("/grn-return-to-vendor", ProcurementController.createGrnReturnToVendor);
 
 /**
  * @swagger
@@ -767,6 +789,10 @@ router.get("/invoices", ProcurementController.getAllProcurementInvoices);
  *               purchaseOrderId:
  *                 type: string
  *                 description: Purchase order ID
+ *               receivedDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Optional. Actual receipt time for lead-time vs PO expectedDeliveryDate (vendor rating). Defaults to now if omitted.
  *               items:
  *                 type: array
  *                 items:

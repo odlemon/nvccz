@@ -11,4 +11,12 @@ alwaysApply: true
 - **Do** apply DDL by writing and running **TypeScript scripts** in `scripts/` that connect with `PrismaClient` and use `$executeRawUnsafe` / `$queryRawUnsafe` (or `mysql2`) against MySQL — same pattern as `scripts/run-invoice-lifecycle-rate-snapshot-migration.ts` and `scripts/run-invoice-payment-snapshot-migration.ts`. Scripts should be **idempotent** where possible (check `information_schema` before `ALTER TABLE`).
 - **Do** run **`npx prisma generate`** after schema.prisma changes (stop processes that lock the Prisma engine on Windows if needed).
 - **Do** add an **`npm run db:migrate:…`** entry in `package.json` when you add a new migration script so it is easy to run and document.
+
+## Agent sequence after adding or changing a migration script
+
+1. **Run** the migration script once (`npm run db:migrate:…`) so the database matches the intended DDL.
+2. **Run** **`npx prisma generate`** so `node_modules/.prisma/client` matches `schema.prisma`.
+3. **Re-run** the same migration script to confirm it is **idempotent** (should log skips / no duplicate errors).
+4. **Run** **`npx prisma generate`** again (keeps the workflow consistent after any follow-up schema edits).
+5. **Run** the relevant **UAT** script(s) (e.g. `npm run uat:procurement:1.1`). On Windows, if generate hits **EPERM** on `query_engine-windows.dll.node`, **stop** `npm run dev` (or anything using Prisma), then generate, then restart the server.
 - Journal lines use **`db:migrate:journal-line-amount-precision`** (`DECIMAL(15,3)`) where sub-cent **Rounding Variance** postings are required (ZiG-style 0.001 remainders).

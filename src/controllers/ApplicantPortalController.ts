@@ -6,6 +6,8 @@ import { ApplicantPortalService } from "../services/ApplicantPortalService";
 import { ResponseHelper } from "../utils/responseHelper";
 import { prisma } from "../utils/database";
 import { FinancialReportService } from "../services/FinancialReportService";
+import { ProcurementService, Department } from "../services/ProcurementService";
+import { InvesteeDrawdownProcurementService } from "../services/InvesteeDrawdownProcurementService";
 import { ReportingPeriodKpiService } from "../services/ReportingPeriodKpiService";
 import axios from "axios";
 
@@ -1309,6 +1311,213 @@ export class ApplicantPortalController {
       }
       
       return res.send(template);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * Suite 02: committed / reserved / available drawdown + all investee PRs for this portfolio.
+   */
+  async getInvesteeDrawdownSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
+      const pc = await prisma.portfolioCompany.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!pc) {
+        return ResponseHelper.error(res, "No portfolio company found for this user", undefined, 404);
+      }
+      const data = await InvesteeDrawdownProcurementService.getDrawdownSummaryForPortfolio(pc.id);
+      return ResponseHelper.success(res, "Drawdown summary retrieved successfully", data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createInvesteePurchaseRequisition(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
+      const pc = await prisma.portfolioCompany.findUnique({
+        where: { userId },
+        select: { id: true, fundId: true },
+      });
+      if (!pc) {
+        return ResponseHelper.error(res, "No portfolio company found for this user", undefined, 404);
+      }
+      const {
+        title,
+        description,
+        priority,
+        justification,
+        sourcingCategory,
+        items,
+        drawdownRequestAmount,
+        useOfFundsDocumentUrl,
+        department,
+      } = req.body || {};
+      if (!title || !items || !Array.isArray(items) || items.length === 0) {
+        return ResponseHelper.error(res, "title and items are required", undefined, 400);
+      }
+      if (drawdownRequestAmount == null || Number(drawdownRequestAmount) <= 0) {
+        return ResponseHelper.error(res, "drawdownRequestAmount is required and must be positive", undefined, 400);
+      }
+      if (!useOfFundsDocumentUrl || String(useOfFundsDocumentUrl).trim() === "") {
+        return ResponseHelper.error(
+          res,
+          "useOfFundsDocumentUrl is required (use of funds / business case attachment — Suite 02).",
+          undefined,
+          400
+        );
+      }
+      const dept =
+        department && Object.values(Department).includes(department)
+          ? department
+          : Department.PROCUREMENT;
+      const created = await ProcurementService.createPurchaseRequisition({
+        title,
+        description,
+        department: dept,
+        requestedById: userId,
+        priority,
+        justification,
+        sourcingCategory,
+        portfolioCompanyId: pc.id,
+        fundId: pc.fundId ?? undefined,
+        useOfFundsDocumentUrl,
+        drawdownRequestAmount: Number(drawdownRequestAmount),
+        items,
+      });
+      return ResponseHelper.success(res, "Purchase requisition created successfully", created, 201);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async submitInvesteePurchaseRequisition(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
+      const { id } = req.params;
+      if (!id) {
+        return ResponseHelper.error(res, "Requisition id is required", undefined, 400);
+      }
+      const updated = await ProcurementService.submitPurchaseRequisition(id, userId);
+      return ResponseHelper.success(res, "Requisition submitted for VC executive review", updated);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async cancelInvesteePurchaseRequisition(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
+      const { id } = req.params;
+      if (!id) {
+        return ResponseHelper.error(res, "Requisition id is required", undefined, 400);
+      }
+      const updated = await ProcurementService.cancelInvesteePurchaseRequisition(id, userId);
+      return ResponseHelper.success(
+        res,
+        "Requisition returned to Draft; drawdown capacity restored (Suite 02).",
+        updated
+      );
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Suite 05 — investee-submitted GRN (requires PO tied to this portfolio company’s PR). */
+  async createInvesteeGoodsReceivedNote(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied.", undefined, 403);
+      }
+      const userId = user.id || user.userId;
+      const { prisma } = await import("../utils/database");
+      const { ProcurementService } = await import("../services/ProcurementService");
+      const pc = await prisma.portfolioCompany.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!pc) {
+        return ResponseHelper.error(res, "No portfolio company for this applicant", undefined, 404);
+      }
+      const { purchaseOrderId, items, receivedDate, attachmentUrls, latitude, longitude, geoCapturedAt } =
+        req.body;
+      if (!purchaseOrderId || !items?.length) {
+        return ResponseHelper.error(res, "purchaseOrderId and items are required", undefined, 400);
+      }
+      const po = await prisma.purchaseOrder.findUnique({
+        where: { id: purchaseOrderId },
+        include: { requisition: { select: { portfolioCompanyId: true } } },
+      });
+      if (!po?.requisition?.portfolioCompanyId || po.requisition.portfolioCompanyId !== pc.id) {
+        return ResponseHelper.error(
+          res,
+          "Purchase order is not linked to your investee requisition",
+          undefined,
+          403
+        );
+      }
+      const grn = await ProcurementService.createGoodsReceivedNote(
+        purchaseOrderId,
+        userId,
+        items,
+        {
+          receivedDate: receivedDate ? new Date(receivedDate) : undefined,
+          attachmentUrls,
+          latitude: latitude != null ? Number(latitude) : undefined,
+          longitude: longitude != null ? Number(longitude) : undefined,
+          geoCapturedAt: geoCapturedAt ? new Date(geoCapturedAt) : undefined,
+          submittedByInvestee: true,
+        }
+      );
+      return ResponseHelper.success(res, "Goods received note created (pending GP review if applicable)", grn);
     } catch (error: any) {
       next(error);
     }

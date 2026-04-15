@@ -712,6 +712,147 @@ router.get("/investment", authenticate, applicantPortalController.getInvestmentD
 
 /**
  * @swagger
+ * /applicant/procurement/drawdown:
+ *   get:
+ *     summary: Investee drawdown summary & PR ledger (Suite 02)
+ *     description: Committed/reserved/available tranche, ledger-approved PRs, full PR list for the portfolio company.
+ *     tags:
+ *       - Applicant Portal
+ *       - Investee Portal — Investment Drawdown
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Not an applicant
+ *       404:
+ *         description: No portfolio company
+ */
+router.get(
+  "/procurement/drawdown",
+  authenticate,
+  applicantPortalController.getInvesteeDrawdownSummary
+);
+/**
+ * @swagger
+ * /applicant/procurement/requisitions:
+ *   post:
+ *     summary: Create investee purchase requisition — DRAFT (Suite 02)
+ *     tags:
+ *       - Applicant Portal
+ *       - Investee Portal — Investment Drawdown
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - items
+ *               - drawdownRequestAmount
+ *               - useOfFundsDocumentUrl
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               sourcingCategory:
+ *                 type: string
+ *                 example: IT_SERVICES
+ *               drawdownRequestAmount:
+ *                 type: number
+ *               useOfFundsDocumentUrl:
+ *                 type: string
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - itemName
+ *                     - quantity
+ *                   properties:
+ *                     itemName:
+ *                       type: string
+ *                     quantity:
+ *                       type: number
+ *                     unit:
+ *                       type: string
+ *     responses:
+ *       201:
+ *         description: Created
+ *       400:
+ *         description: Validation error
+ */
+router.post(
+  "/procurement/requisitions",
+  authenticate,
+  applicantPortalController.createInvesteePurchaseRequisition
+);
+/**
+ * @swagger
+ * /applicant/procurement/requisitions/{id}/submit:
+ *   put:
+ *     summary: Submit investee PR for VC executive review (Suite 02)
+ *     tags:
+ *       - Applicant Portal
+ *       - Investee Portal — Investment Drawdown
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Submitted — PENDING_VC_EXECUTIVE_REVIEW
+ */
+router.put(
+  "/procurement/requisitions/:id/submit",
+  authenticate,
+  applicantPortalController.submitInvesteePurchaseRequisition
+);
+/**
+ * @swagger
+ * /applicant/procurement/requisitions/{id}/cancel:
+ *   post:
+ *     summary: Cancel investee PR — returns to DRAFT (Suite 02)
+ *     tags:
+ *       - Applicant Portal
+ *       - Investee Portal — Investment Drawdown
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Cancelled / back to DRAFT
+ */
+router.post(
+  "/procurement/requisitions/:id/cancel",
+  authenticate,
+  applicantPortalController.cancelInvesteePurchaseRequisition
+);
+
+router.post(
+  "/procurement/goods-received-notes",
+  authenticate,
+  applicantPortalController.createInvesteeGoodsReceivedNote
+);
+
+/**
+ * @swagger
  * /api/applicant/valuations:
  *   get:
  *     summary: Get portfolio valuations

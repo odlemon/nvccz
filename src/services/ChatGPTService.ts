@@ -1,16 +1,12 @@
 //@ts-nocheck
-import axios from 'axios';
 import { logger } from '../utils/logger';
 import { ExtractedDocumentContent } from './DocumentTextExtractionService';
+import { LlmChatService } from './LlmChatService';
 
 /**
- * ChatGPT Service for Application Scoring
- * Uses OpenAI API to analyze application documents and calculate scores
+ * Application scoring via configurable LLM (see LlmChatService / LLM_* env vars).
  */
 export class ChatGPTService {
-  private static readonly API_KEY = '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';
-  private static readonly API_URL = 'https://api.openai.com/v1/chat/completions';
-  private static readonly MODEL = 'gpt-4o'; // Use GPT-4 for better analysis
 
   /**
    * Score an investment application based on documents and application data
@@ -40,51 +36,33 @@ export class ChatGPTService {
       // Build the prompt for ChatGPT
       const prompt = this.buildScoringPrompt(applicationData, documents);
 
-      logger.info('🤖 ChatGPT API: Sending request to OpenAI', {
+      logger.info('🤖 LLM: Sending scoring request', {
         businessName: applicationData.businessName,
-        model: this.MODEL,
         promptLength: prompt.length,
         documentCount: documents.length
       });
 
       const startTime = Date.now();
 
-      // Call ChatGPT API
-      const response = await axios.post(
-        this.API_URL,
-        {
-          model: this.MODEL,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an expert investment analyst evaluating startup applications for an investment fund. Analyze the provided documents and application data to calculate a comprehensive score.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: 0.3, // Lower temperature for more consistent scoring
-          max_tokens: 2000
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.API_KEY}`,
-            'Content-Type': 'application/json'
-          }
-        }
+      const aiResponse = await LlmChatService.chatCompletion(
+        [
+          {
+            role: 'system',
+            content:
+              'You are an expert investment analyst evaluating startup applications for an investment fund. Analyze the provided documents and application data to calculate a comprehensive score.'
+          },
+          { role: 'user', content: prompt }
+        ],
+        { temperature: 0.3, maxTokens: 2000 }
       );
 
-      const endTime = Date.now();
-      const duration = endTime - startTime;
+      const duration = Date.now() - startTime;
 
-      logger.info('🤖 ChatGPT API: Received response', {
+      logger.info('🤖 LLM: Received response', {
         businessName: applicationData.businessName,
         responseTime: `${duration}ms`,
-        hasResponse: !!response.data.choices?.[0]?.message?.content
+        hasResponse: !!aiResponse
       });
-
-      const aiResponse = response.data.choices[0].message.content;
 
       logger.info('🤖 ChatGPT API: Raw AI Response', {
         businessName: applicationData.businessName,

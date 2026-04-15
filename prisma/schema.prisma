@@ -112,6 +112,8 @@ model User {
   procurementInvoicesApproved       ProcurementInvoice[]         @relation("InvoiceApprovedBy")
   purchaseInvoicesCreated           PurchaseInvoice[]            @relation("PurchaseInvoiceCreatedBy")
   purchaseInvoicePaymentsRecorded   PurchaseInvoicePayment[]     @relation("PurchaseInvoicePaymentCreatedBy")
+  vendorInvoiceIntakesCreated       VendorInvoiceIntake[]        @relation("VendorInvoiceIntakeCreatedBy")
+  vendorInvoiceFieldCorrections     VendorInvoiceFieldCorrection[] @relation("VendorInvoiceFieldCorrectionCreatedBy")
   recurringJournalTemplatesCreated RecurringJournalTemplate[]   @relation("RecurringJournalTemplateCreator")
   grnsReceived                      GoodsReceivedNote[]          @relation("GRNReceivedBy")
   grnsApproved                      GoodsReceivedNote[]          @relation("GRNApprovedBy")
@@ -156,6 +158,9 @@ model User {
   generatedPerformanceScorecards    PerformanceScorecard[]       @relation("PerformanceScorecardGeneratedBy")
   finalisedPerformanceScorecards    PerformanceScorecard[]       @relation("PerformanceScorecardFinalisedBy")
   subjectPerformanceScorecards      PerformanceScorecard[]       @relation("PerformanceScorecardSubjectUser")
+  procurementRfqsCreated            ProcurementRfq[]             @relation("ProcurementRfqCreatedBy")
+  rfqClarificationsAuthored         RfqClarification[]           @relation("RfqClarificationUser")
+  grnReturnsCreated                 GrnReturnToVendor[]          @relation("GrnReturnToVendorCreatedBy")
   shortTermInvestmentInstrumentsCreated ShortTermInvestmentInstrument[] @relation("StiInstrumentCreatedBy")
   shortTermInvestmentInstrumentsVoided  ShortTermInvestmentInstrument[] @relation("StiInstrumentVoidedBy")
   shortTermInvestmentApyRatesCreated   ShortTermInvestmentApyRate[]    @relation("StiApyCreatedBy")
@@ -503,6 +508,8 @@ model Currency {
   inventoryItemsRecorded   InventoryItem[]       @relation("InventoryItemRecordedCurrency")
   journalEntryLinesRecorded JournalEntryLine[]   @relation("JournalLineRecordedCurrency")
   recurringJournalTemplates RecurringJournalTemplate[]
+  vendorSettlements         Vendor[]                    @relation("VendorSettlementCurrency")
+  procurementRfqsReporting  ProcurementRfq[]            @relation("ProcurementRfqReportingCurrency")
   shortTermInvestmentInstruments          ShortTermInvestmentInstrument[] @relation("StiInstrumentCurrency")
   shortTermInvestmentInstrumentsFunctional ShortTermInvestmentInstrument[] @relation("StiFunctionalCurrency")
   shortTermInvestmentAccrualsFunctional   ShortTermInvestmentAccrual[]    @relation("StiAccrualFunctionalCurrency")
@@ -555,6 +562,8 @@ model Vendor {
   id                    String                    @id @default(cuid())
   name                  String
   taxNumber             String?
+  /// Business Partner (BP) number; deduplicated against other active vendors (normalized).
+  bpNumber              String?                   @map("bp_number")
   contactPerson         String?
   email                 String?
   phone                 String?
@@ -569,6 +578,23 @@ model Vendor {
   taxRevalidationAlertDueAt DateTime?             @map("tax_revalidation_alert_due_at")
   /// Set when in-app notifications were sent for the current alert cycle.
   taxRevalidationAlertNotifiedAt DateTime?        @map("tax_revalidation_alert_notified_at")
+  /// Vendor commodity/service category used to filter automated RFQ invitations (e.g. AGROTECH, SOLAR, IT_SERVICES).
+  category              String?                   @map("category")
+  /// True when vendor is blacklisted; excluded from all RFQs and PO issuance.
+  isBlacklisted         Boolean                   @default(false) @map("is_blacklisted")
+  /// Reason recorded when vendor is blacklisted.
+  blacklistReason       String?                   @map("blacklist_reason")
+  /// Auto-calculated performance rating (1–5 stars) derived from GRN delivery history.
+  vendorRating          Decimal?                  @map("vendor_rating") @db.Decimal(3, 2)
+  vendorRatingUpdatedAt DateTime?                 @map("vendor_rating_updated_at")
+  /// Primary settlement currency for PO generation (e.g. USD, ZiG, ZAR).
+  settlementCurrencyId  String?                   @map("settlement_currency_id")
+  /// Onboarding lifecycle: PENDING_REVIEW (self-reg awaiting GP approval), ACTIVE, SUSPENDED.
+  registrationStatus    String                    @default("ACTIVE") @map("registration_status")
+  /// True when vendor self-registered via the external vendor portal.
+  selfRegistered        Boolean                   @default(false) @map("self_registered")
+  /// Unique one-time token embedded in the self-registration link.
+  selfRegistrationToken String?                   @unique @map("self_registration_token")
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
   expenses              Expense[]
@@ -583,8 +609,66 @@ model Vendor {
   cashbookEntries       CashbookEntry[]
   /** Creditors sub-ledger shell for staff reimbursement (one employee ↔ one vendor). */
   reimbursementEmployee Employee?                 @relation("EmployeeReimbursementVendor")
+  settlementCurrency    Currency?                 @relation("VendorSettlementCurrency", fields: [settlementCurrencyId], references: [id])
+  banks                 VendorBank[]
+  kycDocuments          VendorKycDocument[]
+  rfqInvitations        RfqVendorInvitation[]
+  rfqClarifications     RfqClarification[]
+  vendorInvoiceIntakes  VendorInvoiceIntake[]
+  invoiceFieldCorrections VendorInvoiceFieldCorrection[]
 
   @@map("vendors")
+}
+
+/// Vendor-specific banking details (not the company's own bank accounts).
+/// No GL accounts are maintained here — vendors are external parties.
+model VendorBank {
+  id            String   @id @default(cuid())
+  vendorId      String   @map("vendor_id")
+  bankName      String   @map("bank_name")
+  accountName   String   @map("account_name")
+  accountNumber String   @map("account_number")
+  iban          String?
+  /// Required for ZW payment readiness gate.
+  branchCode    String   @map("branch_code")
+  /// SWIFT / BIC — required for ZW payment readiness gate.
+  swiftCode     String   @map("swift_code")
+  /// Settlement currency for this bank account (required for ZW payment readiness gate).
+  currencyCode  String   @map("currency_code")
+  isPrimary     Boolean  @default(false) @map("is_primary")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdById   String   @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+
+  @@map("vendor_banks")
+}
+
+/// KYC document uploads for vendor onboarding (CR14, Bank Letter, Certificate of Incorporation, etc.).
+model VendorKycDocument {
+  id            String    @id @default(cuid())
+  vendorId      String    @map("vendor_id")
+  /// Document type: CR14, BANK_LETTER, CERTIFICATE_OF_INCORPORATION, ITF263, OTHER
+  documentType  String    @map("document_type")
+  fileName      String    @map("file_name")
+  fileUrl       String    @map("file_url") @db.Text
+  filePath      String?   @map("file_path") @db.Text
+  fileSize      Int?      @map("file_size")
+  mimeType      String?   @map("mime_type")
+  /// At-rest encryption (AES-256-GCM) before remote upload; IV + tag stored for decryption by authorized roles.
+  isEncrypted   Boolean   @default(true) @map("is_encrypted")
+  encryptionIv  String?   @map("encryption_iv") @db.Text
+  encryptionAuthTag String? @map("encryption_auth_tag") @db.VarChar(64)
+  isVerified    Boolean   @default(false) @map("is_verified")
+  verifiedById  String?   @map("verified_by_id")
+  verifiedAt    DateTime? @map("verified_at")
+  uploadedById  String    @map("uploaded_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  vendor        Vendor    @relation(fields: [vendorId], references: [id])
+
+  @@map("vendor_kyc_documents")
 }
 
 model ExpenseCategory {
@@ -1048,6 +1132,7 @@ model PortfolioCompany {
   user                     User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   fund                     Fund?                     @relation(fields: [fundId], references: [id], onDelete: SetNull)
   investmentImplementation InvestmentImplementation?
+  investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteePortfolioRequisition")
   reportingPeriodOperationalKpis ReportingPeriodOperationalKpi[]
 
   @@map("portfolio_companies")
@@ -1091,6 +1176,7 @@ model Fund {
   fundDisbursements         FundDisbursement[]
   investmentImplementations InvestmentImplementation[]
   investmentCommitments     InvestmentCommitment[]
+  investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteeFundRequisition")
   capitalCalls              CapitalCall[]
 
   @@map("funds")
@@ -1998,15 +2084,30 @@ model PurchaseRequisition {
   rejectionReason   String?                   @db.Text
   totalAmount       Decimal                   @default(0.00) @db.Decimal(15, 2)
   currencyId        String?
+  /// Matches vendor.category for automated / filtered RFQ vendor lists (e.g. AGROTECH, SOLAR, IT_SERVICES).
+  sourcingCategory  String?                   @map("sourcing_category") @db.VarChar(100)
+  /// Investee portal (Suite 02): links PR to portfolio company for held-investment / drawdown caps.
+  portfolioCompanyId String?                  @map("portfolio_company_id")
+  fundId            String?                   @map("fund_id")
+  /// Use-of-funds / business case attachment URL (visible at VC CFO approval).
+  useOfFundsDocumentUrl String?               @map("use_of_funds_document_url") @db.Text
+  /// Declared drawdown amount against tranche (enforced vs commitment − other pending PRs).
+  drawdownRequestAmount Decimal?              @map("drawdown_request_amount") @db.Decimal(15, 2)
+  investeeSubmittedAt DateTime?               @map("investee_submitted_at")
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
   department        String?
   requestedBy       User                      @relation("RequisitionRequestedBy", fields: [requestedById], references: [id])
   approvedBy        User?                     @relation("RequisitionApprovedBy", fields: [approvedById], references: [id])
   currency          Currency?                 @relation("RequisitionCurrency", fields: [currencyId], references: [id])
+  portfolioCompany  PortfolioCompany?         @relation("InvesteePortfolioRequisition", fields: [portfolioCompanyId], references: [id], onDelete: SetNull)
+  fund              Fund?                     @relation("InvesteeFundRequisition", fields: [fundId], references: [id], onDelete: SetNull)
   items             PurchaseRequisitionItem[]
   purchaseOrders    PurchaseOrder[]
+  procurementRfqs   ProcurementRfq[]
 
+  @@index([portfolioCompanyId])
+  @@index([fundId])
   @@map("purchase_requisitions")
 }
 
@@ -2054,18 +2155,34 @@ model PurchaseOrder {
   createdById          String
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
-  requisition          PurchaseRequisition? @relation(fields: [requisitionId], references: [id])
+  /// Suite 04: investee / fund tagging for recharge (copied from requisition when present).
+  portfolioCompanyId   String?              @map("portfolio_company_id")
+  fundId               String?              @map("fund_id")
+  drawdownTrancheId    String?              @map("drawdown_tranche_id") @db.VarChar(191)
+  version              Int                  @default(1)
+  amendmentOfPoId      String?              @map("amendment_of_po_id")
+  validityEndDate        DateTime?            @map("validity_end_date")
+  dispatchedAt         DateTime?            @map("dispatched_at")
+  vendorAckToken       String?              @unique @map("vendor_ack_token") @db.VarChar(64)
+  vendorAcknowledgedAt DateTime?            @map("vendor_acknowledged_at")
+  poPdfVerificationToken String?          @unique @map("po_pdf_verification_token") @db.VarChar(64)
+  requisition          PurchaseRequisition? @relation(fields: [requisitionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   quotation            VendorQuotation?     @relation("QuotationPO", fields: [quotationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   vendor               Vendor               @relation("POVendor", fields: [vendorId], references: [id])
   currency             Currency?            @relation("POCurrency", fields: [currencyId], references: [id])
   approvedBy           User?                @relation("POApprovedBy", fields: [approvedById], references: [id])
   sentBy               User?                @relation("POSentBy", fields: [sentById], references: [id])
   createdBy            User                 @relation("POCreatedBy", fields: [createdById], references: [id])
+  amendmentParent      PurchaseOrder?       @relation("POAmendmentChain", fields: [amendmentOfPoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  amendmentChildren    PurchaseOrder[]      @relation("POAmendmentChain")
   items                PurchaseOrderItem[]
   invoices             ProcurementInvoice[]
   goodsReceivedNotes   GoodsReceivedNote[]
   linkedVendorBills    PurchaseInvoice[]    @relation("PurchaseInvoiceSourcePO")
+  vendorInvoiceIntakes VendorInvoiceIntake[]
 
+  @@index([portfolioCompanyId])
+  @@index([fundId])
   @@map("purchase_orders")
 }
 
@@ -2081,6 +2198,10 @@ model PurchaseOrderItem {
   quantityReceived       Decimal                 @default(0.00) @db.Decimal(10, 2)
   quantityPending        Decimal                 @default(0.00) @db.Decimal(10, 2)
   specifications         Json?
+  /// Suite 04: per-line delivery window (multi-tranche).
+  expectedDeliveryDate   DateTime?               @map("expected_delivery_date")
+  /// ACTIVE | CANCELLED — cancelled lines excluded from GRN receipt.
+  lineStatus             String                  @default("ACTIVE") @map("line_status") @db.VarChar(32)
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   purchaseOrder          PurchaseOrder           @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
@@ -2094,6 +2215,8 @@ model VendorQuotation {
   quotationNumber String                @unique
   rfqNumber       String?
   requisitionId   String?
+  /// Suite 03: link to formal RFQ row (when created after migration).
+  procurementRfqId String?              @map("procurement_rfq_id")
   vendorName      String
   vendorEmail     String
   companyName     String?
@@ -2112,6 +2235,8 @@ model VendorQuotation {
   deliveryTime    String?
   notes           String?               @db.Text
   attachments     Json?
+  /// Suite 03.8: non-price score inputs (warranty, ESG, etc.) for weighted scoring.
+  technicalScoreJson Json?              @map("technical_score_json")
   reviewedById    String?
   reviewedAt      DateTime?
   reviewNotes     String?               @db.Text
@@ -2122,9 +2247,88 @@ model VendorQuotation {
   reviewedBy      User?                 @relation("QuotationReviewedBy", fields: [reviewedById], references: [id])
   invoice         ProcurementInvoice?   @relation("QuotationInvoice", fields: [invoiceId], references: [id])
   purchaseOrder   PurchaseOrder?        @relation("QuotationPO")
+  procurementRfq  ProcurementRfq?       @relation("QuotationToProcurementRfq", fields: [procurementRfqId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   items           VendorQuotationItem[]
 
+  @@index([procurementRfqId])
   @@map("vendor_quotations")
+}
+
+/// Suite 03: formal RFQ record (replaces audit-log-only tracking for new RFQs).
+model ProcurementRfq {
+  id                   String               @id @default(cuid())
+  rfqNumber            String               @unique @map("rfq_number")
+  requisitionId        String?              @map("requisition_id")
+  title                String
+  description          String?              @db.Text
+  status               String               @default("OPEN")
+  visibility           String               @default("INVITED_ONLY")
+  closingAt            DateTime?            @map("closing_at")
+  reportingCurrencyId  String?              @map("reporting_currency_id")
+  priceWeight          Decimal?             @map("price_weight") @db.Decimal(5, 4)
+  technicalWeight      Decimal?             @map("technical_weight") @db.Decimal(5, 4)
+  scoringConfig        Json?                @map("scoring_config")
+  /// Winning quote id (no Prisma relation — avoids cycle with VendorQuotation.procurementRfq).
+  awardedQuotationId   String?              @unique @map("awarded_quotation_id")
+  awardRationale       String?              @map("award_rationale") @db.Text
+  deliveryAddress      String?              @map("delivery_address") @db.Text
+  expectedDeliveryDate DateTime?            @map("expected_delivery_date")
+  specialRequirements  String?              @map("special_requirements") @db.Text
+  itemsSnapshot        Json?                @map("items_snapshot")
+  createdById          String               @map("created_by_id")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  requisition          PurchaseRequisition? @relation(fields: [requisitionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  reportingCurrency    Currency?            @relation("ProcurementRfqReportingCurrency", fields: [reportingCurrencyId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  createdBy            User                 @relation("ProcurementRfqCreatedBy", fields: [createdById], references: [id])
+  invitations          RfqVendorInvitation[]
+  clarifications       RfqClarification[]
+  quotations           VendorQuotation[]    @relation("QuotationToProcurementRfq")
+
+  @@index([requisitionId])
+  @@index([status])
+  @@map("procurement_rfqs")
+}
+
+model RfqVendorInvitation {
+  id                 String          @id @default(cuid())
+  procurementRfqId   String          @map("procurement_rfq_id")
+  vendorId           String          @map("vendor_id")
+  invitationToken    String          @unique @map("invitation_token") @db.VarChar(64)
+  emailSentAt        DateTime?       @map("email_sent_at")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  procurementRfq     ProcurementRfq  @relation(fields: [procurementRfqId], references: [id], onDelete: Cascade)
+  vendor             Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([procurementRfqId, vendorId])
+  @@map("rfq_vendor_invitations")
+}
+
+model RfqClarification {
+  id               String         @id @default(cuid())
+  procurementRfqId String         @map("procurement_rfq_id")
+  authorType       String         @map("author_type") @db.VarChar(32)
+  vendorId         String?        @map("vendor_id")
+  userId           String?        @map("user_id")
+  body             String         @db.Text
+  attachmentUrl    String?        @map("attachment_url") @db.Text
+  createdAt        DateTime       @default(now()) @map("created_at")
+  procurementRfq   ProcurementRfq @relation(fields: [procurementRfqId], references: [id], onDelete: Cascade)
+  vendor           Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  user             User?          @relation("RfqClarificationUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([procurementRfqId])
+  @@map("rfq_clarifications")
+}
+
+/// Singleton procurement knobs (e.g. over-delivery tolerance %).
+model ProcurementSettings {
+  id                       String  @id @default("default")
+  overDeliveryTolerancePct Decimal @default(5.00) @map("over_delivery_tolerance_pct") @db.Decimal(5, 2)
+  poValidityGraceDays      Int     @default(30) @map("po_validity_grace_days")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@map("procurement_settings")
 }
 
 model VendorQuotationItem {
@@ -2240,10 +2444,17 @@ model PurchaseInvoice {
   notes            String?               @db.Text
   /** When set, bill is tied to a PO; posting cannot exceed PO total by >20% without manager override. */
   sourcePurchaseOrderId String?          @map("source_purchase_order_id")
+  /// Suite 06: optional GRN used for PO vs GRN vs invoice line match.
+  sourceGoodsReceivedNoteId String?     @map("source_goods_received_note_id")
+  /// Suite 06: MATCHED | DISPUTED | PENDING_VERIFICATION | PENDING_MATCH | null if not evaluated.
+  suite06MatchStatus   String?           @map("suite06_match_status") @db.VarChar(32)
+  suite06MatchResultJson Json?           @map("suite06_match_result_json")
   createdById      String                @map("created_by_id")
   createdAt        DateTime              @default(now()) @map("created_at")
   updatedAt        DateTime              @updatedAt @map("updated_at")
   sourcePurchaseOrder PurchaseOrder?     @relation("PurchaseInvoiceSourcePO", fields: [sourcePurchaseOrderId], references: [id], onDelete: SetNull)
+  sourceGoodsReceivedNote GoodsReceivedNote? @relation("PurchaseInvoiceSourceGRN", fields: [sourceGoodsReceivedNoteId], references: [id], onDelete: SetNull)
+  vendorInvoiceIntake VendorInvoiceIntake?
   vendor           Vendor                @relation("PurchaseInvoiceVendor", fields: [vendorId], references: [id])
   currency         Currency              @relation("PurchaseInvoiceCurrency", fields: [currencyId], references: [id])
   journalEntry     JournalEntry?          @relation("PurchaseInvoiceJournal", fields: [journalEntryId], references: [id])
@@ -2308,12 +2519,22 @@ model GoodsReceivedNote {
   qualityNotes    String?                 @db.Text
   approvedById    String?
   approvedAt      DateTime?
+  /// Suite 05: delivery note / waybill URLs for 3-way match.
+  attachmentUrls  Json?                   @map("attachment_urls")
+  latitude        Decimal?                @db.Decimal(10, 7)
+  longitude       Decimal?                @db.Decimal(10, 7)
+  geoCapturedAt   DateTime?               @map("geo_captured_at")
+  /// True when created via investee applicant portal (may require GP review).
+  submittedByInvestee Boolean             @default(false) @map("submitted_by_investee")
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
-  purchaseOrder   PurchaseOrder           @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrder   PurchaseOrder           @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   receivedBy      User                    @relation("GRNReceivedBy", fields: [receivedById], references: [id])
   approvedBy      User?                   @relation("GRNApprovedBy", fields: [approvedById], references: [id])
   items           GoodsReceivedNoteItem[]
+  returnToVendors GrnReturnToVendor[]
+  linkedPurchaseInvoices PurchaseInvoice[] @relation("PurchaseInvoiceSourceGRN")
+  vendorInvoiceIntakes   VendorInvoiceIntake[]
 
   @@map("goods_received_notes")
 }
@@ -2328,12 +2549,80 @@ model GoodsReceivedNoteItem {
   quantityRejected    Decimal           @default(0.00) @db.Decimal(10, 2)
   qualityStatus       String            @default("PENDING")
   qualityNotes        String?           @db.Text
+  /// GOODS | SERVICE (SES-style milestone / hours).
+  lineType            String            @default("GOODS") @map("line_type") @db.VarChar(32)
+  milestoneDescription String?          @map("milestone_description") @db.Text
+  serialNumbers       Json?             @map("serial_numbers")
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
-  grn                 GoodsReceivedNote @relation(fields: [grnId], references: [id], onDelete: Cascade)
-  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+  grn                 GoodsReceivedNote @relation(fields: [grnId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("goods_received_note_items")
+}
+
+/// Suite 05.9: minimal RTV record (inventory reversal deferred to posting layer).
+/// purchaseOrderItemId is stored without Prisma FK to avoid GRN↔PO↔GRN relation cycles.
+model GrnReturnToVendor {
+  id                   String              @id @default(cuid())
+  goodsReceivedNoteId  String              @map("goods_received_note_id")
+  purchaseOrderItemId  String              @map("purchase_order_item_id")
+  quantity             Decimal             @db.Decimal(10, 2)
+  reason               String?             @db.Text
+  status               String              @default("DRAFT")
+  createdById          String              @map("created_by_id")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  goodsReceivedNote    GoodsReceivedNote   @relation(fields: [goodsReceivedNoteId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  createdBy            User                @relation("GrnReturnToVendorCreatedBy", fields: [createdById], references: [id])
+
+  @@index([goodsReceivedNoteId])
+  @@index([purchaseOrderItemId])
+  @@map("grn_return_to_vendors")
+}
+
+/// Suite 06: vendor invoice PDF intake + LLM extraction pipeline.
+model VendorInvoiceIntake {
+  id                     String    @id @default(cuid())
+  intakeNumber           String    @unique @map("intake_number")
+  documentUrl            String    @map("document_url") @db.Text
+  rawExtractedText       String?   @map("raw_extracted_text") @db.LongText
+  extractedPayloadJson   Json?     @map("extracted_payload_json")
+  llmMetaJson            Json?     @map("llm_meta_json")
+  status                 String    @default("DRAFT")
+  overallConfidence      Decimal?  @map("overall_confidence") @db.Decimal(7, 4)
+  vendorId               String    @map("vendor_id")
+  sourcePurchaseOrderId  String?   @map("source_purchase_order_id")
+  goodsReceivedNoteId    String?   @map("goods_received_note_id")
+  purchaseInvoiceId      String?   @unique @map("purchase_invoice_id")
+  taxParseStatus         String?   @map("tax_parse_status") @db.VarChar(32)
+  createdById            String    @map("created_by_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  vendor                 Vendor    @relation(fields: [vendorId], references: [id], onDelete: NoAction)
+  sourcePurchaseOrder    PurchaseOrder? @relation(fields: [sourcePurchaseOrderId], references: [id], onDelete: SetNull)
+  goodsReceivedNote      GoodsReceivedNote? @relation(fields: [goodsReceivedNoteId], references: [id], onDelete: SetNull)
+  purchaseInvoice        PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onDelete: SetNull)
+  createdBy              User      @relation("VendorInvoiceIntakeCreatedBy", fields: [createdById], references: [id])
+
+  @@index([vendorId])
+  @@index([status])
+  @@map("vendor_invoice_intakes")
+}
+
+/// Suite 06: per-vendor manual correction hints for extraction (learning map).
+model VendorInvoiceFieldCorrection {
+  id              String   @id @default(cuid())
+  vendorId        String   @map("vendor_id")
+  fieldKey        String   @map("field_key") @db.VarChar(128)
+  correctedValue  String   @map("corrected_value") @db.Text
+  createdById     String   @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  vendor          Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  createdBy       User     @relation("VendorInvoiceFieldCorrectionCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([vendorId, fieldKey], map: "vendor_invoice_field_corrections_vendor_field_key")
+  @@index([vendorId])
+  @@map("vendor_invoice_field_corrections")
 }
 
 /// Singleton row id `default` — perpetual inventory policy (e.g. allow sales into negative on-hand).
@@ -3555,6 +3844,8 @@ model Bank {
   name                String
   accountNumber       String                @unique
   currencyId          String
+  branchCode          String?               @map("branch_code")
+  swiftCode           String?               @map("swift_code")
   /// Shared across all banks (Cash and Cash Equivalents); not unique — many `Bank` rows reference one CoA.
   glAccountId         String?
   isActive            Boolean               @default(true)
