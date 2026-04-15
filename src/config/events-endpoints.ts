@@ -1,11 +1,11 @@
-// Comprehensive Events Management endpoints for fallback Swagger spec
+// EventSync — fallback OpenAPI paths (see docs/events-uat.md)
 export const eventsEndpoints = {
   // ========== EVENTS MANAGEMENT - CORE EVENTS ==========
   '/events': {
     post: {
       summary: 'Create a new event',
       description: '**Required Role:** Any authenticated user (Event Organizer). Create a new company event with enhanced features including event type, RSVP requirements, budget planning, and Google Calendar integration. All users are notified when a new event is created.',
-      tags: ['Events Management - Core Events'],
+      tags: ['Events — Core & calendar (EventSync)'],
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -60,7 +60,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get all active events',
       description: '**Required Role:** Any authenticated user. Retrieve all active events ordered by start date. Returns events with author information.',
-      tags: ['Events Management - Core Events'],
+      tags: ['Events — Core & calendar (EventSync)'],
       security: [{ bearerAuth: [] }],
       responses: {
         200: {
@@ -90,7 +90,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get all active events (PUBLIC)',
       description: '**PUBLIC ENDPOINT** - No authentication required. Retrieve all active events ordered by start date. Returns events with author information. Perfect for public event listings.',
-      tags: ['Events Management - Core Events'],
+      tags: ['Events — Core & calendar (EventSync)'],
       responses: {
         200: {
           description: 'Events retrieved successfully',
@@ -122,7 +122,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get upcoming events',
       description: '**Required Role:** Any authenticated user. Retrieve all upcoming events (start date >= current date) ordered by start date',
-      tags: ['Events Management - Core Events'],
+      tags: ['Events — Core & calendar (EventSync)'],
       security: [{ bearerAuth: [] }],
       responses: {
         200: {
@@ -144,7 +144,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get event by ID',
       description: '**Required Role:** Any authenticated user. Retrieve a specific event by ID with full details including author information',
-      tags: ['Events Management - Core Events'],
+      tags: ['Events — Core & calendar (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -158,7 +158,7 @@ export const eventsEndpoints = {
     put: {
       summary: 'Update an event',
       description: '**Required Role:** Event Organizer (Must be event author - only author can update). Update an event. Only the event author can update their events. Updates basic event information.',
-      tags: ['Events Management - Core Events'],
+      tags: ['Events — Core & calendar (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -200,7 +200,7 @@ export const eventsEndpoints = {
     delete: {
       summary: 'Delete an event',
       description: '**Required Role:** Event Organizer (Must be event author - only author can delete). Delete an event (soft delete by setting isActive to false). Only the event author can delete their events.',
-      tags: ['Events Management - Core Events'],
+      tags: ['Events — Core & calendar (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -219,7 +219,7 @@ export const eventsEndpoints = {
     post: {
       summary: 'Add guests to an event',
       description: '**Required Role:** Event Organizer (Any authenticated user). Add one or more guests to an event. Invitation emails with unique RSVP links are automatically sent to all guests.',
-      tags: ['Events Management - Guest Management'],
+      tags: ['Events — Guests & RSVP (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -284,7 +284,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get event guests',
       description: '**Required Role:** Any authenticated user. Retrieve all guests for an event with pagination and optional RSVP status filtering',
-      tags: ['Events Management - Guest Management'],
+      tags: ['Events — Guests & RSVP (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' },
@@ -313,7 +313,7 @@ export const eventsEndpoints = {
     post: {
       summary: 'Handle RSVP response (PUBLIC)',
       description: '**Required Role:** PUBLIC (No authentication required). Guests use this endpoint to respond to event invitations using their unique invitation token. Organizers receive email notifications when guests respond.',
-      tags: ['Events Management - Guest Management'],
+      tags: ['Events — Guests & RSVP (EventSync)'],
       parameters: [
         { in: 'path', name: 'invitationToken', required: true, schema: { type: 'string' }, description: 'Unique invitation token sent to guest via email', example: 'abc123def456...' }
       ],
@@ -358,7 +358,7 @@ export const eventsEndpoints = {
     post: {
       summary: 'Check in guest to event',
       description: '**Required Role:** Event Staff (Any authenticated user - Reception staff, event coordinator, etc.). Check in a guest to an event. Creates a check-in record and updates the guest\'s check-in status. Used during event day operations.',
-      tags: ['Events Management - Guest Management'],
+      tags: ['Events — Guests & RSVP (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' },
@@ -407,7 +407,7 @@ export const eventsEndpoints = {
     post: {
       summary: 'Add budget items to an event',
       description: '**Required Role:** Event Organizer (Any authenticated user). Add one or more budget items to an event. Budget items are categorized expenses with estimated costs. Adding budget items automatically changes the event budget status from DRAFT to SUBMITTED and event status to BUDGET_PENDING, making it ready for approval.',
-      tags: ['Events Management - Budget Management'],
+      tags: ['Events — Budget & approval (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -471,7 +471,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get event budget items',
       description: '**Required Role:** Any authenticated user. Retrieve all budget items for an event',
-      tags: ['Events Management - Budget Management'],
+      tags: ['Events — Budget & approval (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -496,7 +496,7 @@ export const eventsEndpoints = {
     post: {
       summary: 'Approve event budget',
       description: '**Required Role:** Budget Approver (Finance Manager, Department Head, or any user with approval rights). Approve an event budget. **Required:** Budget must be in SUBMITTED status. Creates a journal entry for budget allocation (Dr. Event Budget Account, Cr. Cash/Bank). Sends email notification to event organizer. Once approved, budget status becomes APPROVED and event status becomes BUDGET_APPROVED, allowing expenses to be recorded.',
-      tags: ['Events Management - Budget Management'],
+      tags: ['Events — Budget & approval (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -547,7 +547,7 @@ export const eventsEndpoints = {
     post: {
       summary: 'Record event expense',
       description: '**Required Role:** Event Organizer (Any authenticated user). Record an expense for an event. **Requires budget to be approved first.** Automatically creates accounting journal entries (Dr. Expense, Dr. VAT if taxable, Cr. AP). VAT is calculated automatically at 15.5% if expense is taxable. Links expense to budget items if provided.',
-      tags: ['Events Management - Expense Management'],
+      tags: ['Events — Expenses & accounting (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -603,7 +603,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get event expenses',
       description: '**Required Role:** Any authenticated user. Retrieve all expenses for an event',
-      tags: ['Events Management - Expense Management'],
+      tags: ['Events — Expenses & accounting (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -630,7 +630,7 @@ export const eventsEndpoints = {
     post: {
       summary: 'Submit event feedback (PUBLIC)',
       description: '**Required Role:** PUBLIC (No authentication required). Submit feedback for an event. Supports anonymous feedback. Multi-dimensional rating system for overall satisfaction, content quality, venue quality, food quality, and organization.',
-      tags: ['Events Management - Feedback Management'],
+      tags: ['Events — Feedback (EventSync)'],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
       ],
@@ -695,7 +695,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get event feedback',
       description: '**Required Role:** Any authenticated user. Retrieve all feedback for an event. Guest information is not included in the response.',
-      tags: ['Events Management - Feedback Management'],
+      tags: ['Events — Feedback (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -739,7 +739,7 @@ export const eventsEndpoints = {
     get: {
       summary: 'Get event analytics',
       description: '**Required Role:** Any authenticated user. Retrieve comprehensive analytics for an event including RSVP rates, check-in rates, feedback rates, average ratings, budget utilization, and cost per attendee.',
-      tags: ['Events Management - Analytics & Reporting'],
+      tags: ['Events — Analytics & reports (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
@@ -781,7 +781,7 @@ export const eventsEndpoints = {
     post: {
       summary: 'Generate event report',
       description: '**Required Role:** Event Organizer (Any authenticated user). Generate a comprehensive event report with metrics, analytics, and recommendations. Report includes RSVP statistics, check-in data, feedback analysis, budget vs actual expenses, and performance recommendations.',
-      tags: ['Events Management - Analytics & Reporting'],
+      tags: ['Events — Analytics & reports (EventSync)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
