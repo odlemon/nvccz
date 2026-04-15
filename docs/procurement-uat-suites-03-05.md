@@ -1,6 +1,8 @@
 # Procurement UAT — Suites 03, 04 & 05 (2026)
 
-This document maps spreadsheet acceptance criteria to **API behaviour**, **auth**, and **configuration**. Global API prefix: **`/api`** (e.g. staff RFQ matrix: `GET /api/procurement/rfqs/:id/comparison-matrix`).
+Part of the suite index in [procurement-uat.md](./procurement-uat.md). This document maps spreadsheet acceptance criteria to **API behaviour**, **auth**, and **configuration**. Global API prefix: **`/api`** (e.g. staff RFQ matrix: `GET /api/procurement/rfqs/:id/comparison-matrix`).
+
+**Swagger (`/api-docs`):** use tags **`Procurement — RFQ & Bidding (Suite 03)`**, **`Procurement — PO & Sign-off (Suite 04)`**, **`Procurement — GRN & QC (Suite 05)`** (em dash `—`, not hyphen). Shared routes also appear under **`Procurement - RFQ`**, **`Procurement - Purchase Orders`**, **`Procurement - GRN`**.
 
 ---
 
@@ -72,4 +74,5 @@ Re-run the migration to confirm **idempotent** `[skip]` logs.
 
 ## Related
 
-- [procurement-uat.md](./procurement-uat.md) — Suites 01 & 02 (vendor master, investee drawdown).
+- [procurement-uat.md](./procurement-uat.md) — Suite index (01–06) and deep links for Suites 01 & 02.
+- [procurement-uat-suite-06.md](./procurement-uat-suite-06.md) — Suite 06.
