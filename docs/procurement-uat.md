@@ -1,9 +1,23 @@
 # Procurement UAT
 
-This document is grouped by **suite** (aligned with UAT spreadsheets):
+This folder documents **Suites 01–06** (aligned with UAT spreadsheets). **OpenAPI** lists paths **without** repeating the global `/api` prefix (e.g. `GET /procurement/rfq`); in Postman or curl use `{{baseUrl}}/api/...`.
 
-- **Suite 01 — Vendor Master, Compliance & KYC** (vendor lifecycle, KYC, eligibility, blacklist, rating where covered below).
-- **Suite 02 — Investee Portal: Investment Drawdown & PR** (portfolio-linked PRs, VC CFO gate, fund scope, SLA).
+## Suite index (all)
+
+| Suite | Name (matches Swagger tag) | Primary doc |
+|-------|---------------------------|-------------|
+| **01** | **`Vendor Master, Compliance & KYC (Suite 01)`** | [§ Suite 01](#vendor-master-compliance--kyc-suite-01) below |
+| **02** | **`Investee Portal — Investment Drawdown`** (often with **`Applicant Portal`** or **`Procurement - *`**) | [§ Suite 02](#investee-portal-investment-drawdown--pr-suite-02--2026) below |
+| **03** | **`Procurement — RFQ & Bidding (Suite 03)`** (plus **`Procurement - RFQ`** on shared routes) | [procurement-uat-suites-03-05.md](./procurement-uat-suites-03-05.md#suite-03--rfq--competitive-bidding) |
+| **04** | **`Procurement — PO & Sign-off (Suite 04)`** (plus **`Procurement - Purchase Orders`**) | [procurement-uat-suites-03-05.md](./procurement-uat-suites-03-05.md#suite-04--po-management--sign-off) |
+| **05** | **`Procurement — GRN & QC (Suite 05)`** (plus **`Procurement - GRN`**) | [procurement-uat-suites-03-05.md](./procurement-uat-suites-03-05.md#suite-05--grn--quality-control) |
+| **06** | **`Procurement — AI invoice intake (Suite 06)`**, **`Procurement — 3-way match (Suite 06)`**, **`Procurement — Match dashboard (Suite 06)`** | [procurement-uat-suite-06.md](./procurement-uat-suite-06.md) |
+
+### Where to read details
+
+- **Suites 01 & 02** — sections below on this page.
+- **Suites 03, 04 & 05** — [procurement-uat-suites-03-05.md](./procurement-uat-suites-03-05.md) (IDs 3.x–5.x, migrations, endpoints).
+- **Suite 06** — [procurement-uat-suite-06.md](./procurement-uat-suite-06.md) (AI intake, 3-way match, env vars, tests).
 
 ---
 
@@ -123,7 +137,7 @@ Both write **`BLACKLIST` / `UNBLACKLIST`** rows to **`audit_logs`** (`entityType
 
 ### Swagger (Suite 01)
 
-Staff **`/api/accounting/vendors/...`** operations are tagged **`Vendor Master, Compliance & KYC (Suite 01)`** together with **`Accounting - Vendors`**. Public self-registration routes under **`/api/public/vendor-registration`** are not yet duplicated in OpenAPI with that tag; use the paths in the tables above in Postman.
+In **`/api-docs`**, filter by **`Vendor Master, Compliance & KYC (Suite 01)`**. Staff vendor APIs are also tagged **`Accounting - Vendors`**. Public self-registration and KYC uploads use the same suite tag on paths under **`/public/vendor-registration`** (no auth) and **`/accounting/vendors/...`** (JWT).
 
 ---
 
@@ -193,10 +207,26 @@ Staff may also **`POST /api/procurement/requisitions`** with optional `portfolio
 
 ### Related
 
-- [procurement-uat-suite-06.md](./procurement-uat-suite-06.md) — Suite 06 (AI-assisted vendor invoice intake and 3-way match).
+- [procurement-uat-suites-03-05.md](./procurement-uat-suites-03-05.md) — Suites **03–05** (RFQ & bidding, PO sign-off, GRN & QC).
+- [procurement-uat-suite-06.md](./procurement-uat-suite-06.md) — Suite **06** (AI-assisted vendor invoice intake and 3-way match).
 
-### Swagger
+### Swagger (Suite 02)
 
-Operations are tagged **`Investee Portal — Investment Drawdown`** (and **`Applicant Portal`** where the route is under `/api/applicant/...`). Shared procurement routes also keep **`Procurement - Requisitions`** / **`Procurement - Dashboard`** so they appear under those groups too.
+Filter **`/api-docs`** by **`Investee Portal — Investment Drawdown`** and **`Applicant Portal`**. Applicant-only routes (`/applicant/procurement/...`) use both tags where applicable. Staff investee lists use **`Procurement - Requisitions`** / **`Procurement - Dashboard`** as well. Investee **GRN** create is tagged **`Procurement — GRN & QC (Suite 05)`** in addition to the investee tags.
 
-**Path prefix:** OpenAPI paths are listed **without** repeating the global `/api` segment (e.g. `GET /applicant/procurement/drawdown`). When testing in Postman, call **`{{baseUrl}}/api/applicant/procurement/drawdown`** (same pattern as other applicant routes).
+**Path prefix:** OpenAPI lists paths **without** `/api` (e.g. `GET /applicant/procurement/drawdown`). Call **`{{baseUrl}}/api/applicant/procurement/drawdown`** in clients.
+
+---
+
+## Suites 03–06 (summary)
+
+For full acceptance tables, migrations, and endpoint lists, use the linked files above. Swagger groups the same suite names:
+
+| Suite | OpenAPI tags to filter |
+|-------|-------------------------|
+| 03 | **`Procurement — RFQ & Bidding (Suite 03)`** · **`Procurement - RFQ`** |
+| 04 | **`Procurement — PO & Sign-off (Suite 04)`** · **`Procurement - Purchase Orders`** |
+| 05 | **`Procurement — GRN & QC (Suite 05)`** · **`Procurement - GRN`** |
+| 06 | **`Procurement — AI invoice intake (Suite 06)`** · **`Procurement — 3-way match (Suite 06)`** · **`Procurement — Match dashboard (Suite 06)`** |
+
+Base path for Suite 06 APIs: **`/procurement/suite06`** (full URL: **`/api/procurement/suite06/...`**).

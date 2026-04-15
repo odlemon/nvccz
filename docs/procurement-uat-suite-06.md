@@ -57,3 +57,13 @@ npm run test:uat:suite06:all
 Or step by step: `npm run test:api:timeout-paths`, `npm run test:uat:suite06`, `npm run uat:suite06:smoke`. (`test:api:timeout-paths` asserts Suite 06 + vendor-bill routes use the long HTTP timeout bucket where expected.)
 
 With database: `npm run test:uat:three-way-variance` (PO variance / submit behaviour).
+
+## Swagger (`/api-docs`)
+
+Filter by these tags (exact names):
+
+- **`Procurement — AI invoice intake (Suite 06)`** — `POST /procurement/suite06/intakes`, extract, verify, draft bill, field corrections, verification queue.
+- **`Procurement — 3-way match (Suite 06)`** — `POST /procurement/suite06/purchase-invoices/{purchaseInvoiceId}/run-match`.
+- **`Procurement — Match dashboard (Suite 06)`** — `GET /procurement/suite06/cfo-dashboard`.
+
+Suite index: [procurement-uat.md](./procurement-uat.md).

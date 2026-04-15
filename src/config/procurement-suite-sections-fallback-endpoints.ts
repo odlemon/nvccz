@@ -186,6 +186,19 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
       responses: { 201: { description: "Created" }, 400: { description: "Bad request" } },
     },
   },
+  "/applicant/procurement/goods-received-notes": {
+    post: {
+      summary: "Create investee GRN (Suite 05) — PO must belong to applicant portfolio PR",
+      tags: [
+        S05,
+        "Procurement - GRN",
+        "Applicant Portal",
+        "Investee Portal — Investment Drawdown",
+      ],
+      security: bearer,
+      responses: { 201: { description: "Created" }, 400: { description: "Bad request" } },
+    },
+  },
 
   // --- Suite 06: AI intake + 3-way match + CFO dashboard (see procurementSuite06Routes) ---
   "/procurement/suite06/intakes": {

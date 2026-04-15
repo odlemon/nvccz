@@ -845,6 +845,29 @@ router.post(
   applicantPortalController.cancelInvesteePurchaseRequisition
 );
 
+/**
+ * @swagger
+ * /applicant/procurement/goods-received-notes:
+ *   post:
+ *     summary: Create investee GRN (Suite 05) — PO must tie to this portfolio company’s PR
+ *     tags:
+ *       - Applicant Portal
+ *       - Investee Portal — Investment Drawdown
+ *       - Procurement — GRN & QC (Suite 05)
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: GRN created (may be PENDING_GP_REVIEW per workflow)
+ *       400:
+ *         description: Validation / over-delivery / PO scope
+ */
 router.post(
   "/procurement/goods-received-notes",
   authenticate,
