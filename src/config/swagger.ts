@@ -4,12 +4,19 @@ import { performanceEndpoints } from './performance-endpoints';
 import { taskAssignmentEndpoints } from './task-assignment-endpoints';
 import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
+import { investeeReportingEndpoints } from './investee-reporting-endpoints';
+import { reportingScheduleSwaggerEndpoints } from './reporting-schedule-swagger-endpoints';
 import { eventsEndpoints } from './events-endpoints';
 import { dashboardsEndpoints } from './dashboards-endpoints';
 import { userSavedFilterFavoriteEndpoints } from './user-saved-filter-favorite-endpoints';
 import { companyProfileEndpoints } from './company-profile-endpoints';
 import { vatRateEndpoints } from './vat-rate-endpoints';
 import { consolidatedAccountingReportEndpoints } from './consolidated-accounting-report-endpoints';
+import { shortTermInvestmentsEndpoints } from './short-term-investments-endpoints';
+import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
+import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from './capital-calls-endpoints';
+import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
+import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
 
 const options = {
   definition: {
@@ -27,19 +34,24 @@ const options = {
         url: 'https://opensource.org/licenses/ISC'
       }
     },
-      // NOTE: Paths in this spec already include the `/api/...` prefix.
-      // If the server URL also includes `/api`, Swagger will show `/api/api/...` (duplicated).
+      // NOTE: `servers[].url` ends with `/api`. OpenAPI paths are relative to that base
+      // (e.g. `/clients`, `/funds/...`) — do NOT prefix paths with `/api` or Swagger shows `/api/api/...`.
       servers: [
         {
-          url: 'https://nvccz-pi.vercel.app',
-          description: 'Production server'
+          url: 'https://nvccz-pi.vercel.app/api',
+          description: 'Production API base (paths are /accounting/..., /auth/..., etc.)'
         },
         {
-          url: 'http://localhost:3000',
-          description: 'Development server'
+          url: 'http://localhost:3000/api',
+          description: 'Development API base'
         }
       ],
     tags: [
+      {
+        name: 'Capital Calls (LP drawdowns)',
+        description:
+          '**Start here:** add the LP (**`POST /clients`** — full URL with default server: `/api/clients`) and fund **investment commitment** (same call or **`PUT /clients/{id}`**). Then **`/funds/.../capital-calls`**: list/initiate (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice**, **send-notices** (HTML + **PDF**), **GET/POST …/payments**. **Docs:** **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**. **IDs:** **`npm run db:print:capital-call-postman`**.'
+      },
       {
         name: 'Company Profile',
         description: 'Company letterhead profile, addresses (one active at a time), and logo upload'
@@ -49,8 +61,19 @@ const options = {
         description: 'Manage VAT rates — only one can be active at a time. The active rate is used by all accounting services for VAT calculations.'
       },
       {
+        name: 'Accounting - Period lock',
+        description:
+          'End-to-end period locking: **legacy cashbook** (`/cashbook/periods/...`) and **fiscal calendar** (`/accounting/fiscal-calendar/...`) — month status, lock/unlock, validate date, module draft/commit, policy, audit, posting exceptions. Production Swagger groups all these operations under this tag.'
+      },
+      {
         name: 'Financial Reporting',
-        description: 'Endpoints for uploading and reviewing portfolio financial reports'
+        description:
+          'Portfolio financial reports and automation. Endpoint descriptions state **Audience:** **Applicant (investee)** vs **Investor (fund staff)**. Covers investor calendar (opened periods), mandatory-attachment catalog, **reporting schedule config** CRUD (`reporting_schedule_configs`, investor JWT), manual nudge, and (where documented) reminder cron helpers. **Schedule-tick** automation endpoints are intentionally omitted from this spec. `/applicant/*` routes are investee; `/portfolio-companies/*` reporting routes are typically investor.'
+      },
+      {
+        name: 'Investee Reporting',
+        description:
+          '**Audience:** Applicant (investee) only. Reporting flow: list open requests, upload statement XLSX/PDFs, attach files, submit a reporting period for review, download templates, update draft line items, and save period KPIs.'
       },
       {
         name: 'Accounts Payables',
@@ -166,6 +189,21 @@ const options = {
       {
         name: 'Saved filter favorites',
         description: 'User-scoped named filter presets (routeKey + JSON filters) for lists and reports — not tied to a single report definition'
+      },
+      {
+        name: 'Accounting - Short-term investments',
+        description:
+          'Liquid short-term investments (money market, T-bills, CDs): instruments, APY history, accruals, catch-up, settlement, accrual approval, CFO dashboard, month-end unrealized FX. All routes require JWT only (no permission middleware). Try It Out: use server URL that includes the /api prefix (e.g. http://localhost:3009/api) so paths resolve to /api/accounting/short-term-investments/...'
+      },
+      {
+        name: 'Updated investment flow',
+        description:
+          '**Order:** use `docs/updated-investment-flow-workflow.md`. **CFO banks+GL:** `GET /investment-implementations/disbursement-banks` (operationId `getDisbursementBanksForCfo`) — each `data[].id` is `bankId` on approve; includes `glAccount`. Then `GET .../disbursements/pending`, `POST .../disbursements/{id}/decision`. Earlier steps: apply → assign analyst → screening → RBZ/KYC → collaboration → DD initiate → board IM + votes → signed-term-sheets → initiate → create disbursement → **disbursement-banks** → pending → decision.'
+      },
+      {
+        name: 'Updated performance',
+        description:
+          'BSC **data entry**, **workflow**, and **performance contracts** — see `docs/performance-bsc-data-entry-flow.md` for paths, **example JSON bodies** (incl. contracts), and rules. **Contracts:** `POST /performance/contracts/board|ceo|department|employee` (annual `periodYear` or exact UTC year bounds; CEO may omit `subjectUserId` to resolve from roles). JWT only (no permission matrix on these routes).'
       }
     ],
     components: {
@@ -1473,7 +1511,7 @@ const options = {
             foundingDate: { type: 'string', format: 'date-time', example: '2023-01-15T00:00:00.000Z' },
             requestedAmount: { type: 'number', example: 100000 },
             fundId: { type: 'string', example: 'clx1234567890abcdef' },
-            currentStage: { type: 'string', example: 'SHORTLISTED' },
+            currentStage: { type: 'string', example: 'SCREENING' },
             submittedAt: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00.000Z' },
             initialScreeningScore: { type: 'number', example: 75.5 },
             screeningOutcome: { type: 'string', example: 'PASSED' },
@@ -1670,16 +1708,20 @@ const fallbackSpec = {
   ...options.definition,
   paths: {
     ...accountingEndpoints,
+    ...shortTermInvestmentsEndpoints,
+    ...fiscalCalendarEndpoints,
     ...vatRateEndpoints,
     ...companyProfileEndpoints,
     ...consolidatedAccountingReportEndpoints,
     ...performanceEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
+    ...capitalCallsEndpoints,
     ...procurementEndpoints,
     ...eventsEndpoints,
     ...dashboardsEndpoints,
     ...userSavedFilterFavoriteEndpoints,
+    ...reportingScheduleSwaggerEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -2404,7 +2446,7 @@ const fallbackSpec = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['name', 'accountNumber', 'currencyId', 'glAccountId'],
+                required: ['name', 'accountNumber', 'currencyId'],
                 properties: {
                   name: {
                     type: 'string',
@@ -2423,7 +2465,8 @@ const fallbackSpec = {
                   },
                   glAccountId: {
                     type: 'string',
-                    description: 'GL account ID',
+                    description:
+                      'Optional. When omitted, the server auto-creates a dedicated bank GL account and links the bank to it. Do not use 1000 (Cash and Cash Equivalents) — it is reporting-only.',
                     example: 'cmh3c1fdt0001unxkqzzihy55'
                   },
                   bankCode: {
@@ -6390,8 +6433,9 @@ const fallbackSpec = {
       '/cashbook/periods/lock': {
         post: {
           summary: 'Lock/unlock accounting period',
-          description: 'Lock or unlock an accounting period to prevent transactions',
-          tags: ['Period Lockout'],
+          description:
+            'Lock or unlock a calendar month (`YYYY-MM`). Syncs module locks (when a fiscal period exists), `accounting_periods`, and `period_lockouts`. The authenticated user is recorded as the locker — do not send `lockedBy` in the body. On failure, `message` contains the server error detail.',
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -6435,7 +6479,7 @@ const fallbackSpec = {
         get: {
           summary: 'Get period lockout status',
           description: 'Check if a specific accounting period is locked',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -6482,7 +6526,7 @@ const fallbackSpec = {
         get: {
           summary: 'Get all periods with lockout status',
           description: 'Retrieve all accounting periods with their lockout status',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -6525,7 +6569,7 @@ const fallbackSpec = {
         post: {
           summary: 'Validate transaction date against period lockout',
           description: 'Check if a transaction can be created on a specific date',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -6580,7 +6624,7 @@ const fallbackSpec = {
         get: {
           summary: 'Get lockout history for a period',
           description: 'Retrieve the lockout/unlock history for a specific period',
-          tags: ['Period Lockout'],
+          tags: ['Accounting - Period lock'],
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -6795,7 +6839,7 @@ const fallbackSpec = {
       // ==========================================
       '/applications': {
         post: {
-          tags: ['🏢 Portfolio Management'],
+          tags: ['🏢 Portfolio Management', 'Updated investment flow'],
           summary: 'Create a new investment application (PUBLIC)',
           description: 'Create a new investment application with document uploads. Files are automatically uploaded to Firebase Storage. No authentication required.',
           requestBody: {
@@ -7112,7 +7156,7 @@ const fallbackSpec = {
       // ==========================================
       '/applications/{id}/due-diligence/initiate': {
         post: {
-          tags: ['🔍 Stage 2: Due Diligence'],
+          tags: ['🔍 Stage 2: Due Diligence', 'Updated investment flow'],
           summary: 'Initiate due diligence (Investor)',
           description: 'Start the due diligence process for an application. Admin/Fund Manager access required.',
           security: [{ bearerAuth: [] }],
@@ -7257,7 +7301,8 @@ const fallbackSpec = {
         get: {
           tags: ['🗳️ Voting Process'],
           summary: 'List board voting members',
-          description: 'Retrieve board members eligible to vote along with their configured voting power.',
+          description:
+            'Users with role codes BOARD_CHAIR, BOARD_MEMBER, INV_COMM_MEM, or CIO. When NVCCZ_STRICT_BOARD_VOTE=true, only Investments department; otherwise all departments (UAT).',
           security: [{ bearerAuth: [] }],
           responses: {
             200: { description: 'Board voting members retrieved successfully' },
@@ -7306,7 +7351,7 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}': {
         post: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Create board review (Investor)',
           description: 'Create a board review for an application that has completed due diligence',
           security: [{ bearerAuth: [] }],
@@ -7382,13 +7427,15 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}/complete': {
         post: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Complete board review (Investor)',
-          description: 'Complete a board review and update application stage',
+          description:
+            'Complete a board review and update application stage. When NVCCZ_STRICT_BOARD_VOTE=true, only the Board Chair (Investments) may call this; otherwise any authenticated user may finalize for UAT.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           responses: {
             200: { description: 'Board review completed successfully' },
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and caller is not Board Chair' },
             404: { description: 'Board review not found' },
             401: { description: 'Unauthorized' }
           }
@@ -7396,9 +7443,10 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}/votes': {
         post: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Cast board review vote',
-          description: 'Submit your weighted vote (approve or reject) for a board review. Only authorized board members can vote.',
+          description:
+            'Submit APPROVE or REJECT. **comment** is required when vote is APPROVE. Eligibility: when NVCCZ_STRICT_BOARD_VOTE=true, Investments department and board/IC role codes apply; otherwise any authenticated user may vote (UAT). After BOARD_VOTE_QUORUM_YES_COUNT (default 3) APPROVE votes with an APPROVE majority, the review may auto-complete.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: {
@@ -7410,7 +7458,11 @@ const fallbackSpec = {
                   required: ['vote'],
                   properties: {
                     vote: { type: 'string', enum: ['APPROVE', 'REJECT'], example: 'APPROVE' },
-                    comment: { type: 'string', example: 'Strong fundamentals, I support this deal.' }
+                    comment: {
+                      type: 'string',
+                      example: 'Strong fundamentals, I support this deal.',
+                      description: 'Required when vote is APPROVE; optional for REJECT.'
+                    }
                   }
                 }
               }
@@ -7418,24 +7470,25 @@ const fallbackSpec = {
           },
           responses: {
             200: { description: 'Vote recorded successfully (response includes anonymized progress and your vote)' },
-            400: { description: 'Bad request' },
+            400: { description: 'Bad request (e.g. missing comment on APPROVE)' },
             401: { description: 'Unauthorized' },
-            403: { description: 'Forbidden - User not eligible to vote' }
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and user not eligible to vote' }
           }
         }
       },
       '/board-reviews/{applicationId}/votes/summary': {
         get: {
-          tags: ['🗳️ Voting Process'],
+          tags: ['🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Get board vote summary',
-          description: 'Retrieve the weighted voting progress and outcome. Individual votes remain hidden until the board review is completed.',
+          description:
+            'Weighted voting progress and outcome. Votes stay hidden until the review is completed. When NVCCZ_STRICT_BOARD_VOTE=true, only admin/fund_manager role name or Investments BOARD_MEMBER/BOARD_CHAIR may call; otherwise any authenticated user (UAT).',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           responses: {
             200: { description: 'Vote summary retrieved successfully' },
             400: { description: 'Bad request' },
             401: { description: 'Unauthorized' },
-            403: { description: 'Forbidden - User not permitted to view voting summary' }
+            403: { description: 'Forbidden when NVCCZ_STRICT_BOARD_VOTE=true and user not permitted to view summary' }
           }
         }
       },
@@ -7608,7 +7661,7 @@ const fallbackSpec = {
       // ==========================================
       '/investment-implementations/signed-term-sheets': {
         get: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Get applications with signed term sheets (Investor)',
           description: 'Get all applications that have signed term sheets and are ready for implementation',
           security: [{ bearerAuth: [] }],
@@ -7624,7 +7677,7 @@ const fallbackSpec = {
       },
       '/investment-implementations/initiate': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Initiate investment implementation (Investor)',
           description: 'Start the investment implementation process for an approved application',
           security: [{ bearerAuth: [] }],
@@ -7756,9 +7809,10 @@ const fallbackSpec = {
       },
       '/investment-implementations/disbursements': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Create fund disbursement (Investor)',
-          description: 'Create a fund disbursement for an investment implementation',
+          description:
+            'Create a fund disbursement (initial status PENDING). Response includes trancheIndex (1-based order for this implementation) and cfoApprovalStatusLabel PENDING_CFO_APPROVAL while pending.',
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -7769,40 +7823,201 @@ const fallbackSpec = {
                   required: ['investmentImplementationId', 'amount', 'disbursementDate', 'disbursementType'],
                   properties: {
                     investmentImplementationId: { type: 'string' },
+                    milestoneId: { type: 'string', description: 'Optional milestone link for MILESTONE_BASED mode' },
                     amount: { type: 'number' },
                     disbursementDate: { type: 'string', format: 'date-time' },
                     disbursementType: { type: 'string', enum: ['INITIAL', 'MILESTONE', 'FINAL'] },
                     notes: { type: 'string' }
                   }
+                },
+                examples: {
+                  default: {
+                    summary: 'Fund disbursement payload',
+                    value: {
+                      investmentImplementationId: 'cmi78trsi0000jx048i72bb7m',
+                      amount: 5000,
+                      disbursementDate: '2024-01-15T00:00:00Z',
+                      disbursementType: 'MILESTONE',
+                      notes: 'First milestone payment'
+                    }
+                  }
                 }
               }
             }
-          ,examples: {
-            default: {
-              summary: 'Fund disbursement payload',
-              value: {
-                investmentImplementationId: 'cmi78trsi0000jx048i72bb7m',
-                amount: 5000,
-                disbursementDate: '2024-01-15T00:00:00Z',
-                disbursementType: 'MILESTONE',
-                notes: 'First milestone payment'
-              }
-            }
-          }
           },
           responses: {
-            201: { description: 'Fund disbursement created successfully' },
+            201: {
+              description: 'Fund disbursement created successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    description: 'Wrapped in success/data by API; disbursement object includes extra UAT fields',
+                    properties: {
+                      trancheIndex: { type: 'integer', example: 1 },
+                      cfoApprovalStatusLabel: { type: 'string', example: 'PENDING_CFO_APPROVAL' },
+                      status: { type: 'string', example: 'PENDING' },
+                      amount: { type: 'string' },
+                      milestoneId: { type: 'string', nullable: true }
+                    }
+                  }
+                }
+              }
+            },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursement-banks': {
+        get: {
+          operationId: 'getDisbursementBanksForCfo',
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'List banks and linked GL accounts (CFO disbursement picker)',
+          description:
+            'Call before APPROVE. Each bank `id` is the `bankId` for POST /investment-implementations/disbursements/{disbursementId}/decision. Optional query paymentCurrencyId = tranche payment currency.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'paymentCurrencyId',
+              in: 'query',
+              required: false,
+              schema: { type: 'string', example: 'cmh3bymy70000una4yk8leusu' },
+              description: 'currencies.id — filter banks to this payout currency'
+            }
+          ],
+          responses: {
+            200: {
+              description: 'success + data[] banks with glAccount',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      message: { type: 'string' },
+                      data: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string', example: 'cmh3bank00001unnvccbzusd01' },
+                            name: { type: 'string', example: 'NVCCZ USD Operating Account' },
+                            accountNumber: { type: 'string', example: '10002938475621' },
+                            currencyId: { type: 'string' },
+                            currencyCode: { type: 'string', example: 'USD' },
+                            currencyName: { type: 'string', example: 'US Dollar' },
+                            glAccount: {
+                              type: 'object',
+                              properties: {
+                                id: { type: 'string' },
+                                accountNo: { type: 'string', example: '1010' },
+                                accountName: { type: 'string', example: 'Bank — USD Operating' },
+                                accountType: { type: 'string', example: 'ASSET' }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  examples: {
+                    oneBank: {
+                      summary: 'Example',
+                      value: {
+                        success: true,
+                        message: 'Banks for disbursement approval retrieved successfully',
+                        data: [
+                          {
+                            id: 'cmh3bank00001unnvccbzusd01',
+                            name: 'NVCCZ USD Operating Account',
+                            accountNumber: '10002938475621',
+                            currencyId: 'cmh3bymy70000una4yk8leusu',
+                            currencyCode: 'USD',
+                            currencyName: 'US Dollar',
+                            glAccount: {
+                              id: 'cmglacct0001coaoperating01',
+                              accountNo: '1010',
+                              accountName: 'Bank — USD Operating',
+                              accountType: 'ASSET'
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursements/pending': {
+        get: {
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'List PENDING disbursement requests',
+          description: 'JWT only. Review queue for all tranches awaiting approve/reject.',
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: 'Pending disbursements with tranche and company context' },
+            401: { description: 'Unauthorized' }
+          }
+        }
+      },
+      '/investment-implementations/disbursements/{disbursementId}/decision': {
+        post: {
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'Approve or reject disbursement',
+          description:
+            'APPROVE requires bankId (from GET disbursement-banks). REJECT optional reason.',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'disbursementId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['decision'],
+                  properties: {
+                    decision: { type: 'string', enum: ['APPROVE', 'REJECT'] },
+                    bankId: {
+                      type: 'string',
+                      description: 'Required when decision is APPROVE'
+                    },
+                    reason: { type: 'string', description: 'Optional; appended to notes on reject' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Fund disbursement updated' },
+            400: { description: 'Invalid decision or not PENDING' },
             401: { description: 'Unauthorized' }
           }
         }
       },
       '/investment-implementations/disbursements/{disbursementId}/approve': {
         post: {
-          tags: ['💼 Stage 5: Investment Implementation'],
-          summary: 'Approve fund disbursement (Investor)',
-          description: 'Approve a fund disbursement',
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
+          summary: 'Approve fund disbursement (legacy)',
+          description: 'Requires bankId in body; same effect as decision APPROVE.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'disbursementId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['bankId'],
+                  properties: { bankId: { type: 'string' } }
+                }
+              }
+            }
+          },
           responses: {
             200: { description: 'Fund disbursement approved successfully' },
             401: { description: 'Unauthorized' }
@@ -7836,7 +8051,7 @@ const fallbackSpec = {
       },
       '/investment-implementations/{investmentImplementationId}/disbursement-summary': {
         get: {
-          tags: ['💼 Stage 5: Investment Implementation'],
+          tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Disbursement summary (Investor)',
           description: 'Get the committed, disbursed, and remaining amounts for an investment implementation',
           security: [{ bearerAuth: [] }],
@@ -7856,14 +8071,29 @@ const fallbackSpec = {
                           totalCommittedAmount: { type: 'number', example: 30000 },
                           totalDisbursedAmount: { type: 'number', example: 5000 },
                           remainingCommittedAmount: { type: 'number', example: 25000 },
+                          undrawnCommittedAmount: {
+                            type: 'number',
+                            example: 25000,
+                            description: 'Same as remainingCommittedAmount (UAT undrawn commitment)'
+                          },
                           disbursementCount: { type: 'number', example: 2 },
                           disbursementMode: { type: 'string', example: 'MILESTONE_BASED' },
+                          complianceCleared: { type: 'boolean' },
+                          kycVerified: { type: 'boolean' },
+                          disbursementBlockedReason: { type: 'string', nullable: true },
                           disbursements: {
                             type: 'array',
                             items: {
                               type: 'object',
                               properties: {
                                 id: { type: 'string' },
+                                trancheIndex: { type: 'integer', example: 1 },
+                                cfoApprovalStatusLabel: {
+                                  type: 'string',
+                                  example: 'PENDING_CFO_APPROVAL',
+                                  description: 'Present when status is PENDING'
+                                },
+                                milestoneId: { type: 'string', nullable: true },
                                 amount: { type: 'string', example: '5000.00' },
                                 status: { type: 'string', example: 'APPROVED' },
                                 disbursementType: { type: 'string', example: 'MILESTONE' },
@@ -8406,18 +8636,75 @@ try {
   if (!specs || !specs.paths || Object.keys(specs.paths).length === 0) {
     console.log('Swagger-jsdoc returned empty spec, using fallback');
     specs = fallbackSpec;
+    // Ensure fallback has all merged endpoints too (including Investee Reporting).
+    specs.paths = {
+      ...(specs.paths || {}),
+      ...userSavedFilterFavoriteEndpoints,
+      ...accountingEndpoints,
+      ...shortTermInvestmentsEndpoints,
+      ...fiscalCalendarEndpoints,
+      ...performanceEndpoints,
+      ...taskAssignmentEndpoints,
+      ...financialReportingEndpoints,
+      ...capitalCallsEndpoints,
+      ...investeeReportingEndpoints,
+      ...reportingScheduleSwaggerEndpoints,
+      ...procurementEndpoints,
+      ...eventsEndpoints,
+      ...dashboardsEndpoints,
+    };
   } else {
     console.log(`Swagger-jsdoc generated ${Object.keys(specs.paths).length} endpoints`);
     // Merge accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints with generated spec
-    specs.paths = { ...specs.paths, ...userSavedFilterFavoriteEndpoints, ...accountingEndpoints, ...performanceEndpoints, ...taskAssignmentEndpoints, ...financialReportingEndpoints, ...procurementEndpoints, ...eventsEndpoints, ...dashboardsEndpoints };
+    specs.paths = {
+      ...specs.paths,
+      ...userSavedFilterFavoriteEndpoints,
+      ...accountingEndpoints,
+      ...shortTermInvestmentsEndpoints,
+      ...fiscalCalendarEndpoints,
+      ...performanceEndpoints,
+      ...taskAssignmentEndpoints,
+      ...financialReportingEndpoints,
+      ...capitalCallsEndpoints,
+      ...investeeReportingEndpoints,
+      ...reportingScheduleSwaggerEndpoints,
+      ...procurementEndpoints,
+      ...eventsEndpoints,
+      ...dashboardsEndpoints,
+    };
     console.log(`Added accounting, cashbook, performance, task assignment, financial reporting, procurement, events, and dashboards endpoints, total: ${Object.keys(specs.paths).length} endpoints`);
   }
 } catch (error: any) {
   // Silently use fallback spec - it already includes all endpoints
   // Suppress error logging to avoid cluttering console with known parsing issues
   specs = fallbackSpec;
+  // Ensure fallback has all merged endpoints too (including Investee Reporting).
+  specs.paths = {
+    ...(specs.paths || {}),
+    ...userSavedFilterFavoriteEndpoints,
+    ...accountingEndpoints,
+    ...shortTermInvestmentsEndpoints,
+    ...fiscalCalendarEndpoints,
+    ...performanceEndpoints,
+    ...taskAssignmentEndpoints,
+    ...financialReportingEndpoints,
+    ...capitalCallsEndpoints,
+    ...investeeReportingEndpoints,
+    ...reportingScheduleSwaggerEndpoints,
+    ...procurementEndpoints,
+    ...eventsEndpoints,
+    ...dashboardsEndpoints,
+  };
   console.log(`✅ Using fallback Swagger spec with ${Object.keys(fallbackSpec.paths).length} endpoints (accounting + performance + task assignment + financial reporting + procurement + events + dashboards + cashbook)`);
 }
+
+specs.paths = {
+  ...specs.paths,
+  ...updatedInvestmentFlowExtraPaths,
+  ...updatedPerformanceSwaggerPaths
+};
+
+specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);
 
 export { specs }; 
 

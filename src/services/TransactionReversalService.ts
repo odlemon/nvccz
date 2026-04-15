@@ -2,6 +2,7 @@
 import { PrismaClient, Decimal } from '@prisma/client';
 import { prisma } from '../utils/database';
 import { createJournalEntryWithAuditSequence } from './AuditTrailSequenceService';
+import PeriodLockService from './PeriodLockService';
 
 export interface ReversalRequest {
   transactionId: string;
@@ -275,23 +276,10 @@ export class TransactionReversalService {
    */
   private static async isPeriodLocked(transactionDate: Date): Promise<boolean> {
     try {
-      
-      const year = transactionDate.getFullYear();
-      const month = transactionDate.getMonth() + 1;
-      
-      const lockout = await prisma.periodLockout.findFirst({
-        where: {
-          year: year,
-          month: month,
-          isLocked: true
-        }
-      });
-      
-      return !!lockout;
-      
+      return await PeriodLockService.isLegacyCashbookMonthLocked(transactionDate);
     } catch (error: any) {
-      console.error('❌ Error checking period lockout:', error.message);
-      return false; // Allow reversal if we can't check lockout
+      console.error("❌ Error checking period lockout:", error.message);
+      return false;
     }
   }
   

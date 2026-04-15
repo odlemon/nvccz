@@ -206,6 +206,25 @@ export class RollupCalculationService {
   }
 
   /**
+   * Same DB updates as {@link recalculateAllRollups} but skips the heavy
+   * {@link calculateGoalRollup} summary query — use after scorecard persist when the
+   * return value is unused.
+   */
+  static async syncEntireGoalHierarchyFromRoot(rootGoalId: string): Promise<void> {
+    const root = await prisma.performanceGoal.findUnique({
+      where: { id: rootGoalId },
+      select: { id: true, parentGoalId: true }
+    });
+    if (!root) {
+      throw new Error("Root goal not found");
+    }
+    if (root.parentGoalId) {
+      throw new Error("syncEntireGoalHierarchyFromRoot expects a top-level goal id");
+    }
+    await this.recalculateFromBottomUp(root.id);
+  }
+
+  /**
    * Recalculate roll-up data from bottom up
    */
   private static async recalculateFromBottomUp(goalId: string) {

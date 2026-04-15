@@ -23,12 +23,12 @@ async function main() {
     }),
     prisma.currency.findFirst({ where: { code: 'USD', isActive: true } }),
     prisma.currency.findFirst({
-      where: { code: { in: ['ZWL', 'ZWG'] }, isActive: true },
+      where: { code: { in: ['ZWL', 'ZWG', 'ZIG'] }, isActive: true },
       orderBy: { code: 'asc' }
     })
   ]);
 
-  assert(!!user && !!customer && !!usd && !!zwl, 'Need user, customer, USD, and ZWL (or ZWG) currency');
+  assert(!!user && !!customer && !!usd && !!zwl, 'Need user, customer, USD, and ZWL/ZWG/ZIG currency');
 
   const rateAtInvoice = 10;
   const paymentZwl = 1200;

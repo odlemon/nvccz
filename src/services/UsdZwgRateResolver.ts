@@ -6,6 +6,57 @@ import {
   type ZimrateUsdZwgRow
 } from './ZimrateRateService';
 
+/**
+ * Live Zimrate first. When `UAT_ZIMRATE_FALLBACK=1`, on failure builds a minimal payload from the last
+ * USD/ZWG snapshot in the DB plus `UAT_STUB_ZWG_PER_ZAR` (ZWG per 1 ZAR) so USD→ZAR invoice UATs can run offline.
+ */
+export async function fetchZimrateRatesOrUatFallback(client: PrismaClient): Promise<ZimrateRatesPayload> {
+  try {
+    return await fetchZimrateRates();
+  } catch (e) {
+    if (process.env.UAT_ZIMRATE_FALLBACK !== "1") {
+      throw e;
+    }
+    const stored = await getLastStoredUsdZwgFromDb(client);
+    if (!stored) {
+      throw e;
+    }
+    const usd = stored.rate;
+    const zwgPerZar = Number(process.env.UAT_STUB_ZWG_PER_ZAR ?? "1.65");
+    if (!Number.isFinite(zwgPerZar) || zwgPerZar <= 0) {
+      throw new Error("UAT_STUB_ZWG_PER_ZAR must be a positive number (ZWG per 1 ZAR)");
+    }
+    console.warn(
+      "[fetchZimrateRatesOrUatFallback] live Zimrate failed; using DB USD/ZWG snapshot + synthetic ZAR/ZWG (UAT only)"
+    );
+    return {
+      data: {
+        rates: [
+          {
+            currency_pair: "USD/ZWG",
+            bid: usd,
+            ask: usd,
+            avg: usd,
+            date_label: "uat-fallback"
+          },
+          {
+            currency_pair: "ZAR/ZWG",
+            bid: zwgPerZar,
+            ask: zwgPerZar,
+            avg: zwgPerZar,
+            date_label: "uat-fallback"
+          }
+        ]
+      },
+      meta: {
+        last_updated: "",
+        count: 2,
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+}
+
 export type UsdZwgResolved =
   | { source: 'zimrate'; row: ZimrateUsdZwgRow; meta: ZimrateRatesPayload['meta'] }
   | { source: 'stored'; rate: number; usedAt: Date };
@@ -99,12 +150,23 @@ export async function resolveUsdZwgWithSource(client: PrismaClient): Promise<Usd
 
 // Short-lived cache so bulk operations (e.g. backfill) don't hammer Zimrate on every DB write
 let _cachedAvg: { value: number; expiresAt: number } | null = null;
+/** Separate cache for consolidated reports (live-first path) so middleware DB-first cache stays independent. */
+let _cachedConsolidatedUsdZwg: { value: number; expiresAt: number } | null = null;
 const RATE_CACHE_TTL_MS = 60_000;
 
-/** For Prisma middleware: numeric avg or null. Cached for 60 s to avoid repeated external calls. */
+/**
+ * For Prisma middleware: numeric avg or null. Cached for 60 s.
+ * Prefer last stored DB snapshot first so journal/cashbook creates stay fast (Zimrate can take 30s+ or hang on slow networks).
+ * Fall back to live Zimrate + stored only when nothing exists in DB yet.
+ */
 export async function resolveUsdZwgAvgForSnapshot(client: PrismaClient): Promise<number | null> {
   if (_cachedAvg && Date.now() < _cachedAvg.expiresAt) {
     return _cachedAvg.value;
+  }
+  const fromDb = await getLastStoredUsdZwgFromDb(client);
+  if (fromDb && Number.isFinite(fromDb.rate) && fromDb.rate > 0) {
+    _cachedAvg = { value: fromDb.rate, expiresAt: Date.now() + RATE_CACHE_TTL_MS };
+    return fromDb.rate;
   }
   const r = await resolveUsdZwgWithSource(client);
   if (!r) return null;
@@ -113,7 +175,25 @@ export async function resolveUsdZwgAvgForSnapshot(client: PrismaClient): Promise
   return value;
 }
 
+/**
+ * USD/ZWG for consolidated reports: live Zimrate first (`resolveUsdZwgWithSource`), then last stored
+ * snapshot from transactions if the API fails or omits USD/ZWG. Does not prefer DB over live (unlike
+ * `resolveUsdZwgAvgForSnapshot`, which is optimized for middleware).
+ */
+export async function resolveUsdZwgAvgForConsolidatedReport(client: PrismaClient): Promise<number | null> {
+  if (_cachedConsolidatedUsdZwg && Date.now() < _cachedConsolidatedUsdZwg.expiresAt) {
+    return _cachedConsolidatedUsdZwg.value;
+  }
+  const r = await resolveUsdZwgWithSource(client);
+  if (!r) return null;
+  const value = r.source === 'zimrate' ? r.row.avg : r.rate;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  _cachedConsolidatedUsdZwg = { value, expiresAt: Date.now() + RATE_CACHE_TTL_MS };
+  return value;
+}
+
 /** Force-invalidate the rate cache (call after manual rate updates). */
 export function invalidateUsdZwgRateCache(): void {
   _cachedAvg = null;
+  _cachedConsolidatedUsdZwg = null;
 }

@@ -30,11 +30,18 @@ export class ResponseHelper {
     })
   }
 
-  static error(res: Response, message: string, error?: string, statusCode = 500): Response {
+  static error(
+    res: Response,
+    message: string,
+    error?: string,
+    statusCode = 500,
+    extra?: { code?: string }
+  ): Response {
     return res.status(statusCode).json({
       success: false,
       message,
-      error,
+      ...(error != null && error !== "" ? { error } : {}),
+      ...(extra?.code ? { code: extra.code } : {}),
       timestamp: new Date().toISOString(),
     })
   }

@@ -1,13 +1,13 @@
-// @ts-nocheck
-// Period Lockout Service
-// Handles accounting period lockout functionality
+// Period Lockout Service — legacy `/api/cashbook/periods` routes.
+// Delegates effective GL+BANK locks to `PeriodLockService` + `ModulePeriodLock` (see fiscal-calendar API).
 
-import { prisma } from '../utils/database';
+import { prisma } from "../utils/database";
+import { PeriodLockRejectedError, utcDateFromYmd } from "./fiscalPeriodLockTypes";
+import PeriodLockService from "./PeriodLockService";
 
 export default class PeriodLockoutService {
-  
   /**
-   * Lock accounting period
+   * Lock accounting period (immediate effect). Syncs ModulePeriodLock, accounting_periods, period_lockouts.
    */
   static async lockPeriod(data: {
     period: string; // Format: YYYY-MM
@@ -16,91 +16,50 @@ export default class PeriodLockoutService {
     reason?: string;
   }) {
     try {
-      
-      // Check if period already exists
-      const existingPeriod = await prisma.accountingPeriod.findFirst({
-        where: { period: data.period }
+      await PeriodLockService.applyLegacyImmediateLock({
+        period: data.period,
+        isLocked: data.isLocked,
+        userId: data.lockedBy,
+        reason: data.reason,
       });
 
-      let period;
-      if (existingPeriod) {
-        // Update existing period
-        period = await prisma.accountingPeriod.update({
-          where: { id: existingPeriod.id },
-          data: {
-            isLocked: data.isLocked,
-            lockedBy: data.lockedBy,
-            lockedAt: data.isLocked ? new Date() : null,
-            reason: data.reason
-          }
-        });
-      } else {
-        // Create new period
-        period = await prisma.accountingPeriod.create({
-          data: {
-            period: data.period,
-            isLocked: data.isLocked,
-            lockedBy: data.lockedBy,
-            lockedAt: data.isLocked ? new Date() : null,
-            reason: data.reason
-          }
-        });
-      }
-
-      // Log the lockout action
-      await prisma.auditLog.create({
-        data: {
-          action: data.isLocked ? 'LOCK_PERIOD' : 'UNLOCK_PERIOD',
-          entityType: 'ACCOUNTING_PERIOD',
-          entityId: period.id,
-          userId: data.lockedBy,
-          oldValues: data.isLocked ? null : { isLocked: true },
-          newValues: { 
-            isLocked: data.isLocked,
-            period: data.period,
-            reason: data.reason
-          }
-        }
+      const periodRow = await prisma.accountingPeriod.findFirst({
+        where: { period: data.period },
       });
 
       return {
         success: true,
-        message: `Period ${data.isLocked ? 'locked' : 'unlocked'} successfully`,
-        data: period
+        message: `Period ${data.isLocked ? "locked" : "unlocked"} successfully`,
+        data: periodRow,
       };
-    } catch (error) {
-      console.error('Error locking period:', error);
+    } catch (error: unknown) {
+      console.error("Error locking period:", error);
+      const detail =
+        error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error";
       return {
         success: false,
-        message: 'Failed to lock period',
-        error: error.message
+        message: detail,
+        error: detail,
       };
     }
   }
 
-  /**
-   * Check if period is locked
-   */
   static async isPeriodLocked(period: string) {
     try {
-      
-      const periodRecord = await prisma.accountingPeriod.findFirst({
-        where: { period }
-      });
-
-      return periodRecord?.isLocked || false;
+      const m = /^(\d{4})-(\d{2})$/.exec(period.trim());
+      if (!m) return false;
+      const y = parseInt(m[1], 10);
+      const mo = parseInt(m[2], 10);
+      const probe = utcDateFromYmd(y, mo, 15);
+      return await PeriodLockService.isLegacyCashbookMonthLocked(probe);
     } catch (error) {
-      console.error('Error checking period lock:', error);
+      console.error("Error checking period lock:", error);
       return false;
     }
   }
 
-  /**
-   * Get period lockout status
-   */
   static async getPeriodStatus(period: string) {
     try {
-      
       const periodRecord = await prisma.accountingPeriod.findFirst({
         where: { period },
         include: {
@@ -109,59 +68,61 @@ export default class PeriodLockoutService {
               id: true,
               email: true,
               firstName: true,
-              lastName: true
-            }
-          }
-        }
+              lastName: true,
+            },
+          },
+        },
       });
+
+      const effective = await this.isPeriodLocked(period);
 
       if (!periodRecord) {
         return {
           success: true,
-          message: 'Period status retrieved successfully',
+          message: "Period status retrieved successfully",
           data: {
             period,
-            isLocked: false,
+            isLocked: effective,
             lockedAt: null,
             lockedBy: null,
-            reason: null
-          }
+            reason: null,
+            effectiveModuleLock: effective,
+          },
         };
       }
 
       return {
         success: true,
-        message: 'Period status retrieved successfully',
+        message: "Period status retrieved successfully",
         data: {
           period: periodRecord.period,
-          isLocked: periodRecord.isLocked,
+          isLocked: periodRecord.isLocked || effective,
           lockedAt: periodRecord.lockedAt,
           lockedBy: periodRecord.lockedByUser,
-          reason: periodRecord.reason
-        }
+          reason: periodRecord.reason,
+          effectiveModuleLock: effective,
+        },
       };
-    } catch (error) {
-      console.error('Error getting period status:', error);
+    } catch (error: any) {
+      console.error("Error getting period status:", error);
       return {
         success: false,
-        message: 'Failed to get period status',
-        error: error.message
+        message: "Failed to get period status",
+        error: error.message,
       };
     }
   }
 
-  /**
-   * Get all periods with lockout status
-   */
-  static async getAllPeriods(filters: {
-    year?: number;
-    isLocked?: boolean;
-    currencyId?: string;
-  } = {}) {
+  static async getAllPeriods(
+    filters: {
+      year?: number;
+      isLocked?: boolean;
+      currencyId?: string;
+    } = {}
+  ) {
     try {
-      
-      const whereClause: any = {};
-      
+      const whereClause: Record<string, unknown> = {};
+
       if (filters.isLocked !== undefined) {
         whereClause.isLocked = filters.isLocked;
       }
@@ -170,18 +131,18 @@ export default class PeriodLockoutService {
       if (filters.currencyId) {
         const entries = await prisma.cashbookEntry.findMany({
           where: { bank: { currencyId: filters.currencyId } },
-          select: { transactionDate: true }
+          select: { transactionDate: true },
         });
         const monthSet = new Set<string>();
         for (const e of entries) {
           const d = new Date(e.transactionDate);
-          monthSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+          monthSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
         }
         if (monthSet.size === 0) {
           return {
             success: true,
-            message: 'No accounting periods with cashbook activity in this currency',
-            data: []
+            message: "No accounting periods with cashbook activity in this currency",
+            data: [],
           };
         }
         periodInSet = [...monthSet];
@@ -191,7 +152,7 @@ export default class PeriodLockoutService {
         const y = filters.year.toString();
         periodInSet = periodInSet.filter((p) => p.startsWith(y));
         if (periodInSet.length === 0) {
-          return { success: true, message: 'No periods match year and currency', data: [] };
+          return { success: true, message: "No periods match year and currency", data: [] };
         }
         whereClause.period = { in: periodInSet };
       } else if (periodInSet) {
@@ -208,97 +169,92 @@ export default class PeriodLockoutService {
               id: true,
               email: true,
               firstName: true,
-              lastName: true
-            }
-          }
+              lastName: true,
+            },
+          },
         },
         orderBy: {
-          period: 'desc'
-        }
+          period: "desc",
+        },
       });
 
       return {
         success: true,
-        message: 'Periods retrieved successfully',
-        data: periods
+        message: "Periods retrieved successfully",
+        data: periods,
       };
-    } catch (error) {
-      console.error('Error getting periods:', error);
+    } catch (error: any) {
+      console.error("Error getting periods:", error);
       return {
         success: false,
-        message: 'Failed to get periods',
-        error: error.message
+        message: "Failed to get periods",
+        error: error.message,
       };
     }
   }
 
-  /**
-   * Validate transaction date against period lockout
-   */
   static async validateTransactionDate(transactionDate: Date, userId: string) {
     try {
-      
-      // Extract period from transaction date (YYYY-MM format)
-      const year = transactionDate.getFullYear();
-      const month = String(transactionDate.getMonth() + 1).padStart(2, '0');
-      const period = `${year}-${month}`;
-
-      // Check if period is locked
-      const isLocked = await this.isPeriodLocked(period);
-      
-      if (isLocked) {
-        // Log the attempt to create transaction in locked period
-        await prisma.auditLog.create({
-          data: {
-            action: 'ATTEMPT_LOCKED_PERIOD_TRANSACTION',
-            entityType: 'CASHBOOK_ENTRY',
-            entityId: 'locked-period-attempt',
-            userId: userId,
-            oldValues: null,
-            newValues: {
-              transactionDate: transactionDate,
-              period: period,
-              message: 'Transaction attempted in locked period'
-            }
-          }
+      try {
+        await PeriodLockService.assertModuleDateOpen({
+          moduleCode: "BANK",
+          accountingDate: transactionDate,
+          userId,
+          source: "API",
+          actionType: "CASHBOOK_VALIDATE",
         });
-
-        return {
-          success: false,
-          message: `Cannot create transaction in locked period: ${period}`
-        };
+        await PeriodLockService.assertModuleDateOpen({
+          moduleCode: "GL",
+          accountingDate: transactionDate,
+          userId,
+          source: "API",
+          actionType: "CASHBOOK_VALIDATE",
+        });
+      } catch (e) {
+        if (e instanceof PeriodLockRejectedError) {
+          await prisma.auditLog.create({
+            data: {
+              action: "ATTEMPT_LOCKED_PERIOD_TRANSACTION",
+              entityType: "CASHBOOK_ENTRY",
+              entityId: "locked-period-attempt",
+              userId,
+              oldValues: undefined,
+              newValues: {
+                transactionDate,
+                message: e.message,
+              },
+            },
+          });
+          return {
+            success: false,
+            message: e.message,
+          };
+        }
+        throw e;
       }
 
       return {
         success: true,
-        message: 'Transaction date is valid',
-        data: null
+        message: "Transaction date is valid",
+        data: null,
       };
-    } catch (error) {
-      console.error('Error validating transaction date:', error);
+    } catch (error: any) {
+      console.error("Error validating transaction date:", error);
       return {
         success: false,
-        message: 'Failed to validate transaction date',
-        error: error.message
+        message: "Failed to validate transaction date",
+        error: error.message,
       };
     }
   }
 
-  /**
-   * Get lockout history for a period
-   */
   static async getLockoutHistory(period: string) {
     try {
-      
-      const history = await prisma.auditLog.findMany({
+      const raw = await prisma.auditLog.findMany({
         where: {
           action: {
-            in: ['LOCK_PERIOD', 'UNLOCK_PERIOD']
+            in: ["LOCK_PERIOD", "UNLOCK_PERIOD"],
           },
-          details: {
-            path: ['period'],
-            equals: period
-          }
         },
         include: {
           user: {
@@ -306,26 +262,30 @@ export default class PeriodLockoutService {
               id: true,
               email: true,
               firstName: true,
-              lastName: true
-            }
-          }
+              lastName: true,
+            },
+          },
         },
         orderBy: {
-          createdAt: 'desc'
-        }
+          createdAt: "desc",
+        },
+      });
+      const history = raw.filter((row) => {
+        const nv = row.newValues as { period?: string } | null;
+        return nv?.period === period;
       });
 
       return {
         success: true,
-        message: 'Lockout history retrieved successfully',
-        data: history
+        message: "Lockout history retrieved successfully",
+        data: history,
       };
-    } catch (error) {
-      console.error('Error getting lockout history:', error);
+    } catch (error: any) {
+      console.error("Error getting lockout history:", error);
       return {
         success: false,
-        message: 'Failed to get lockout history',
-        error: error.message
+        message: "Failed to get lockout history",
+        error: error.message,
       };
     }
   }

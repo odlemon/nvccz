@@ -10,6 +10,7 @@ import AuditService from "./AuditService";
 import { assignNextAuditIdAndCreateJournal, createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
 import { parseDate } from "../utils/dateHelper";
 import { assertPurchaseInvoicePaymentAllowedForSuite06 } from "../utils/suite06PaymentGuard";
+import PeriodLockService from "./PeriodLockService";
 
 /** User-facing duplicate vendor bill reference (vendor invoice number) message. */
 export const DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE =
@@ -1010,6 +1011,31 @@ export class PurchaseInvoiceService {
       let journalEntry: any = null;
       let cashbookEntry: any = null;
 
+      /** Value date for BANK/CASH payment; null for CREDIT (no payment yet). */
+      let bankCashPaymentDate: Date | null =
+        submitData.paymentMethod === "CREDIT"
+          ? null
+          : submitData.paymentDate != null && String(submitData.paymentDate).trim() !== ""
+            ? parseDate(String(submitData.paymentDate).trim())
+            : invoice.invoiceDate;
+
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: "AP",
+        accountingDate: invoice.invoiceDate,
+        userId: processedById,
+        source: "API",
+        actionType: "SUBMIT_PURCHASE_INVOICE",
+      });
+      if (bankCashPaymentDate) {
+        await PeriodLockService.assertModuleDateOpen({
+          moduleCode: "BANK",
+          accountingDate: bankCashPaymentDate,
+          userId: processedById,
+          source: "API",
+          actionType: "SUBMIT_PURCHASE_INVOICE_BANK",
+        });
+      }
+
       if (submitData.paymentMethod === "CREDIT") {
         // CREDIT: Create journal entry directly (no cashbook needed)
         const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
@@ -1071,11 +1097,6 @@ export class PurchaseInvoiceService {
         });
       } else {
         // BANK or CASH: Use cashbook to record payment, then create journal entry
-        const bankCashPaymentDate =
-          submitData.paymentDate != null && String(submitData.paymentDate).trim() !== ""
-            ? parseDate(submitData.paymentDate.trim())
-            : invoice.invoiceDate;
-
         let bankId: string;
         let bankName: string;
 
@@ -1129,7 +1150,7 @@ export class PurchaseInvoiceService {
         const vatCode = invoice.vatAmount.gt(0) ? '15%' : '0%';
         const cashbookResult = await CashbookService.createCashPayment({
           bankId: bankId,
-          transactionDate: bankCashPaymentDate,
+          transactionDate: bankCashPaymentDate!,
           description: `Purchase Invoice Payment - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
           amount: Number(invoice.totalAmount),
           reference: `PINV-${submitData.paymentMethod}-${invoice.invoiceNumber}`,
@@ -1243,8 +1264,7 @@ export class PurchaseInvoiceService {
           paymentStatus: submitData.paymentMethod === "CREDIT" ? "PENDING" : "PAID",
           paidAmount: submitData.paymentMethod === "CREDIT" ? new Decimal(0) : invoice.totalAmount,
           outstandingAmount: submitData.paymentMethod === "CREDIT" ? invoice.totalAmount : new Decimal(0),
-          paymentDate:
-            submitData.paymentMethod === "CREDIT" ? null : bankCashPaymentDate,
+          paymentDate: bankCashPaymentDate,
           journalEntryId: journalEntry.id,
           cashbookEntryId: cashbookEntry?.id || null
         },

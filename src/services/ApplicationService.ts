@@ -3,6 +3,11 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { RBZ_EXCHANGE_CONTROL_DOCUMENT_TYPE } from '../config/applicationStatutoryCompliance';
+import { ANALYST_SCREENING_MIN_SCORE } from '../config/dealWorkflowStages';
+import { ActiveDdPmsTaskPackService } from './ActiveDdPmsTaskPackService';
+import { DealReferenceService } from './DealReferenceService';
+import { DueDiligenceService } from './DueDiligenceService';
 import { EmailNotificationService } from './EmailNotificationService';
 
 export interface CreateApplicationRequest {
@@ -190,59 +195,62 @@ export class ApplicationService {
       }
 
       const requiredDocumentTypes = ["BUSINESS_PLAN", "PROOF_OF_CONCEPT", "MARKET_RESEARCH", "PROJECTED_CASH_FLOWS"];
-      const providedDocumentTypes = params.documents.map(doc => doc.documentType);
-      
-      const missingDocuments = requiredDocumentTypes.filter(type => !providedDocumentTypes.includes(type));
+      const providedDocumentTypes = params.documents.map((doc) => doc.documentType);
+
+      const missingDocuments = requiredDocumentTypes.filter((type) => !providedDocumentTypes.includes(type));
       if (missingDocuments.length > 0) {
         throw new Error(`Missing required documents: ${missingDocuments.join(", ")}`);
       }
 
-      // Create the application with documents
-      const application = await prisma.application.create({
-        data: {
-          applicantName: params.applicantName,
-          applicantEmail: normalizedEmail,
-          applicantPhone: params.applicantPhone,
-          applicantAddress: params.applicantAddress,
-          businessName: params.businessName,
-          businessDescription: params.businessDescription,
-          industry: params.industry,
-          businessStage: params.businessStage,
-          foundingDate: params.foundingDate,
-          requestedAmount: new Decimal(params.requestedAmount),
-          fundId: params.fundId,
-          currentStage: "PENDING_SHORTLISTING", // Start with PENDING_SHORTLISTING - will be evaluated by AI
-          submittedAt: new Date(),
-          documents: {
-            create: params.documents.map(doc => ({
-              documentType: doc.documentType,
-              fileName: doc.fileName,
-              fileUrl: doc.fileUrl,
-              fileSize: doc.fileSize,
-              isRequired: doc.isRequired,
-              isSubmitted: true
-            }))
-          }
-        },
-        include: {
-          fund: {
-            select: {
-              id: true,
-              name: true,
-              status: true
+      const application = await prisma.$transaction(async (tx) => {
+        const dealReference = await DealReferenceService.allocateNext(tx);
+        return tx.application.create({
+          data: {
+            applicantName: params.applicantName,
+            applicantEmail: normalizedEmail,
+            applicantPhone: params.applicantPhone,
+            applicantAddress: params.applicantAddress,
+            businessName: params.businessName,
+            businessDescription: params.businessDescription,
+            industry: params.industry,
+            businessStage: params.businessStage,
+            foundingDate: params.foundingDate,
+            requestedAmount: new Decimal(params.requestedAmount),
+            fundId: params.fundId,
+            dealReference,
+            currentStage: "SCREENING_PENDING",
+            submittedAt: new Date(),
+            documents: {
+              create: params.documents.map(doc => ({
+                documentType: doc.documentType,
+                fileName: doc.fileName,
+                fileUrl: doc.fileUrl,
+                fileSize: doc.fileSize,
+                isRequired: doc.isRequired,
+                isSubmitted: true
+              }))
             }
           },
-          documents: {
-            select: {
-              id: true,
-              documentType: true,
-              fileName: true,
-              fileUrl: true,
-              isRequired: true,
-              isSubmitted: true
+          include: {
+            fund: {
+              select: {
+                id: true,
+                name: true,
+                status: true
+              }
+            },
+            documents: {
+              select: {
+                id: true,
+                documentType: true,
+                fileName: true,
+                fileUrl: true,
+                isRequired: true,
+                isSubmitted: true
+              }
             }
           }
-        }
+        });
       });
 
       return application;
@@ -253,9 +261,107 @@ export class ApplicationService {
 
   /**
    * Get application by ID (admin/fund manager access)
+   * @param options.light Faster response: omits heavy disbursement / nested user joins.
    */
-  static async getApplicationById(id: string): Promise<ApplicationWithRelations | null> {
+  static async getApplicationById(
+    id: string,
+    options?: { light?: boolean }
+  ): Promise<ApplicationWithRelations | null> {
     try {
+      if (options?.light) {
+        const application = await prisma.application.findUnique({
+          where: { id },
+          include: {
+            fund: {
+              select: {
+                id: true,
+                name: true,
+                status: true
+              }
+            },
+            documents: {
+              select: {
+                id: true,
+                documentType: true,
+                fileName: true,
+                fileUrl: true,
+                isRequired: true,
+                isSubmitted: true
+              }
+            },
+            assignedAnalyst: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                roleCode: true
+              }
+            },
+            dueDiligenceReview: {
+              select: {
+                id: true,
+                status: true,
+                reviewerId: true,
+                reviewer: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            },
+            boardReview: {
+              select: {
+                id: true,
+                status: true,
+                reviewerId: true,
+                reviewer: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true
+                  }
+                }
+              }
+            },
+            termSheet: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                version: true,
+                investmentAmount: true,
+                valuation: true,
+                equityPercentage: true
+              }
+            },
+            investmentImplementation: {
+              select: {
+                id: true,
+                disbursementMode: true,
+                totalCommittedAmount: true
+              }
+            }
+          }
+        });
+        if (!application) {
+          return null;
+        }
+        return {
+          ...application,
+          disbursements: {
+            disbursementMode: null,
+            totalCommittedAmount: null,
+            totalDisbursedAmount: 0,
+            disbursements: []
+          }
+        } as any;
+      }
+
       const application = await prisma.application.findUnique({
         where: { id },
         include: {
@@ -473,9 +579,9 @@ export class ApplicationService {
         throw new Error("Application not found");
       }
 
-      // Only allow updates if application is in SHORTLISTED stage
-      if (application.currentStage !== "SHORTLISTED") {
-        throw new Error("Cannot update application that is not in SHORTLISTED stage");
+      // Only allow updates if application is in Screening (qualified) stage
+      if (application.currentStage !== "SCREENING") {
+        throw new Error("Cannot update application that is not in SCREENING stage");
       }
 
       const updateData: any = {};
@@ -540,8 +646,8 @@ export class ApplicationService {
         throw new Error("Application not found");
       }
 
-      if (application.currentStage !== "SHORTLISTED") {
-        throw new Error("Application is not in SHORTLISTED stage");
+      if (application.currentStage !== "SCREENING") {
+        throw new Error("Application is not in SCREENING stage");
       }
 
       // Check if all required documents are uploaded
@@ -556,7 +662,7 @@ export class ApplicationService {
       const updatedApplication = await prisma.application.update({
         where: { id },
         data: {
-          currentStage: "UNDER_DUE_DILIGENCE",
+          currentStage: "ACTIVE_DD",
           submittedAt: new Date()
         },
         include: {
@@ -592,6 +698,33 @@ export class ApplicationService {
         }
       });
 
+      let seedActorId: string | null = null;
+      if (updatedApplication.fundId) {
+        const fm = await prisma.fundManager.findFirst({
+          where: { fundId: updatedApplication.fundId, isActive: true },
+          select: { userId: true }
+        });
+        const fund = await prisma.fund.findUnique({
+          where: { id: updatedApplication.fundId },
+          select: { createdById: true }
+        });
+        seedActorId = fm?.userId ?? fund?.createdById ?? null;
+      }
+      if (seedActorId) {
+        const assignee = updatedApplication.assignedAnalystId || seedActorId;
+        await ActiveDdPmsTaskPackService.ensureSeededForActiveDueDiligence({
+          applicationId: id,
+          assigneeUserId: assignee,
+          createdByUserId: seedActorId,
+          dealReference: updatedApplication.dealReference ?? null
+        }).catch((err: any) => {
+          console.error("Active DD PMS task pack seed failed (submitApplication)", {
+            applicationId: id,
+            error: err?.message
+          });
+        });
+      }
+
       return updatedApplication;
     } catch (error: any) {
       throw new Error(`Failed to submit application: ${error.message}`);
@@ -601,7 +734,12 @@ export class ApplicationService {
   /**
    * Change application stage (admin/fund manager access)
    */
-  static async changeApplicationStage(id: string, newStage: string, notes?: string): Promise<ApplicationWithRelations> {
+  static async changeApplicationStage(
+    id: string,
+    newStage: string,
+    notes?: string,
+    actorUserId?: string
+  ): Promise<ApplicationWithRelations> {
     try {
       const application = await prisma.application.findUnique({
         where: { id }
@@ -611,11 +749,14 @@ export class ApplicationService {
         throw new Error("Application not found");
       }
 
+      const previousStage = application.currentStage;
+
       // Validate stage transition
       // New workflow: Due Diligence → Term Sheet → Board Review → Investment Implementation
       const validTransitions: { [key: string]: string[] } = {
-        "SHORTLISTED": ["UNDER_DUE_DILIGENCE", "BELOW_THRESHOLD"],
-        "UNDER_DUE_DILIGENCE": ["DUE_DILIGENCE_COMPLETED", "BELOW_THRESHOLD"],
+        "SCREENING_PENDING": ["SCREENING", "REJECTED_SCREENING", "AUTO_REJECTED", "BELOW_THRESHOLD"],
+        "SCREENING": ["ACTIVE_DD", "REJECTED_SCREENING", "BELOW_THRESHOLD"],
+        "ACTIVE_DD": ["DUE_DILIGENCE_COMPLETED", "BELOW_THRESHOLD"],
         "DUE_DILIGENCE_COMPLETED": ["TERM_SHEET", "TERM_SHEET_NEGOTIATION", "BELOW_THRESHOLD"],
         "TERM_SHEET": ["TERM_SHEET_NEGOTIATION", "UNDER_BOARD_REVIEW", "BELOW_THRESHOLD"],
         "TERM_SHEET_NEGOTIATION": ["UNDER_BOARD_REVIEW", "BELOW_THRESHOLD"],
@@ -681,10 +822,132 @@ export class ApplicationService {
         }
       });
 
+      if (previousStage === "SCREENING" && newStage === "ACTIVE_DD" && actorUserId) {
+        const assignee = updatedApplication.assignedAnalystId || actorUserId;
+        await ActiveDdPmsTaskPackService.ensureSeededForActiveDueDiligence({
+          applicationId: id,
+          assigneeUserId: assignee,
+          createdByUserId: actorUserId,
+          dealReference: updatedApplication.dealReference ?? null
+        }).catch((err: any) => {
+          console.error("Active DD PMS task pack seed failed (changeApplicationStage)", {
+            applicationId: id,
+            error: err?.message
+          });
+        });
+      }
+
       return updatedApplication;
     } catch (error: any) {
       throw new Error(`Failed to change application stage: ${error.message}`);
     }
+  }
+
+  /**
+   * Legal/compliance: KYC verified + existing RBZ Exchange Control document → complianceCleared.
+   * Clearing KYC clears complianceCleared (funds disbursement remains blocked).
+   */
+  static async updateStatutoryCompliance(
+    applicationId: string,
+    kycVerified: boolean
+  ): Promise<ApplicationWithRelations> {
+    try {
+      const application = await prisma.application.findUnique({ where: { id: applicationId } });
+      if (!application) {
+        throw new Error("Application not found");
+      }
+
+      if (!kycVerified) {
+        return await prisma.application.update({
+          where: { id: applicationId },
+          data: { kycVerified: false, complianceCleared: false, updatedAt: new Date() },
+          include: {
+            fund: {
+              select: {
+                id: true,
+                name: true,
+                status: true
+              }
+            },
+            documents: {
+              select: {
+                id: true,
+                documentType: true,
+                fileName: true,
+                fileUrl: true,
+                isRequired: true,
+                isSubmitted: true
+              }
+            }
+          }
+        });
+      }
+
+      const rbz = await prisma.applicationDocument.findFirst({
+        where: { applicationId, documentType: RBZ_EXCHANGE_CONTROL_DOCUMENT_TYPE }
+      });
+      if (!rbz) {
+        throw new Error(
+          "RBZ Exchange Control approval document must be uploaded before KYC can be verified."
+        );
+      }
+
+      return await prisma.application.update({
+        where: { id: applicationId },
+        data: { kycVerified: true, complianceCleared: true, updatedAt: new Date() },
+        include: {
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              status: true
+            }
+          },
+          documents: {
+            select: {
+              id: true,
+              documentType: true,
+              fileName: true,
+              fileUrl: true,
+              isRequired: true,
+              isSubmitted: true
+            }
+          }
+        }
+      });
+    } catch (error: any) {
+      throw new Error(`Failed to update statutory compliance: ${error.message}`);
+    }
+  }
+
+  /**
+   * Replace any existing RBZ Exchange Control document for this application with a new row (single current file).
+   */
+  static async replaceRbzExchangeControlDocument(
+    applicationId: string,
+    params: { fileName: string; fileUrl: string; fileSize: number }
+  ) {
+    const application = await prisma.application.findUnique({ where: { id: applicationId } });
+    if (!application) {
+      throw new Error("Application not found");
+    }
+
+    return prisma.$transaction(async (tx) => {
+      await tx.applicationDocument.deleteMany({
+        where: { applicationId, documentType: RBZ_EXCHANGE_CONTROL_DOCUMENT_TYPE }
+      });
+      return tx.applicationDocument.create({
+        data: {
+          applicationId,
+          documentType: RBZ_EXCHANGE_CONTROL_DOCUMENT_TYPE,
+          fileName: params.fileName,
+          fileUrl: params.fileUrl,
+          fileSize: params.fileSize,
+          isRequired: false,
+          isSubmitted: true
+        }
+      });
+    });
   }
 
   private static async sendStageChangeNotification(application: any, newStage: string): Promise<void> {
@@ -706,10 +969,10 @@ export class ApplicationService {
     };
 
     switch (newStage) {
-      case "SHORTLISTED":
+      case "SCREENING":
         await EmailNotificationService.sendApplicationShortlistedEmail(emailData);
         break;
-      case "UNDER_DUE_DILIGENCE":
+      case "ACTIVE_DD":
         await EmailNotificationService.sendDueDiligenceStartedEmail(emailData);
         break;
       case "DUE_DILIGENCE_COMPLETED":
@@ -747,6 +1010,9 @@ export class ApplicationService {
   ): number {
     const stageProgressMap: { [key: string]: number } = {
       'SUBMITTED': 5,
+      'SCREENING_PENDING': 5,
+      'SCREENING': 10,
+      'ACTIVE_DD': 20,
       'PENDING_SHORTLISTING': 5,
       'SHORTLISTED': 10,
       'UNDER_DUE_DILIGENCE': 20,
@@ -763,6 +1029,8 @@ export class ApplicationService {
       'PORTFOLIO_MANAGEMENT': 100,
       'BELOW_THRESHOLD': 0,
       'REJECTED': 0,
+      'REJECTED_SCREENING': 0,
+      'AUTO_REJECTED': 0,
       'NOT_SELECTED': 0
     };
 
@@ -821,9 +1089,15 @@ export class ApplicationService {
           where.currentStage = stage;
         }
       } else {
-        // Exclude rejected applications (both REJECTED and BELOW_THRESHOLD)
         where.currentStage = {
-          notIn: ['REJECTED', 'BELOW_THRESHOLD', 'PENDING_SHORTLISTING']
+          notIn: [
+            'REJECTED',
+            'REJECTED_SCREENING',
+            'AUTO_REJECTED',
+            'BELOW_THRESHOLD',
+            'SCREENING_PENDING',
+            'PENDING_SHORTLISTING'
+          ]
         };
       }
       
@@ -1039,6 +1313,198 @@ export class ApplicationService {
       };
     } catch (error: any) {
       throw new Error(`Failed to get applications: ${error.message}`);
+    }
+  }
+
+  static async assignLeadAnalyst(
+    applicationId: string,
+    analystUserId: string,
+    actorUserId: string
+  ): Promise<ApplicationWithRelations> {
+    try {
+      const application = await prisma.application.findUnique({
+        where: { id: applicationId }
+      });
+      if (!application) {
+        throw new Error("Application not found");
+      }
+      if (!["SCREENING_PENDING", "SCREENING"].includes(application.currentStage)) {
+        throw new Error("Lead analyst can only be assigned during screening stages");
+      }
+
+      const actor = await prisma.user.findUnique({
+        where: { id: actorUserId },
+        include: { role: true }
+      });
+      if (!actor) {
+        throw new Error("Actor not found");
+      }
+
+      if (process.env.NVCCZ_STRICT_DEAL_ACCESS === "true") {
+        const rn = String(actor.role?.name || "").toLowerCase();
+        const privileged = rn === "admin" || rn === "ceo" || rn === "cio";
+        let isFundStaff = privileged;
+        if (!isFundStaff && application.fundId) {
+          const fm = await prisma.fundManager.findFirst({
+            where: { fundId: application.fundId, userId: actorUserId, isActive: true }
+          });
+          isFundStaff = Boolean(fm);
+        }
+        if (!isFundStaff) {
+          throw new Error("Only fund managers or executives can assign the lead analyst");
+        }
+      }
+
+      const analyst = await prisma.user.findUnique({
+        where: { id: analystUserId },
+        include: { role: true }
+      });
+      if (!analyst) {
+        throw new Error("Analyst user not found");
+      }
+      if (analyst.userDepartment !== "Investments") {
+        throw new Error("Lead analyst must be a user in the Investments department");
+      }
+      const arc = String(analyst.roleCode || "").toUpperCase();
+      const arn = String(analyst.role?.name || "").toLowerCase();
+      const isAnalyst = arc === "INV_ANALYST" || arn.includes("investment analyst");
+      if (!isAnalyst) {
+        throw new Error("Assigned user must be an investment analyst");
+      }
+
+      return await prisma.application.update({
+        where: { id: applicationId },
+        data: { assignedAnalystId: analystUserId, updatedAt: new Date() },
+        include: {
+          fund: {
+            select: {
+              id: true,
+              name: true,
+              status: true
+            }
+          },
+          documents: {
+            select: {
+              id: true,
+              documentType: true,
+              fileName: true,
+              fileUrl: true,
+              isRequired: true,
+              isSubmitted: true
+            }
+          },
+          assignedAnalyst: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              roleCode: true
+            }
+          }
+        }
+      });
+    } catch (error: any) {
+      throw new Error(`Failed to assign lead analyst: ${error.message}`);
+    }
+  }
+
+  static async recordAnalystScreeningScore(
+    applicationId: string,
+    actorUserId: string,
+    score: number
+  ): Promise<ApplicationWithRelations> {
+    try {
+      if (typeof score !== "number" || Number.isNaN(score) || score < 0 || score > 100) {
+        throw new Error("score must be a number between 0 and 100");
+      }
+
+      const application = await prisma.application.findUnique({
+        where: { id: applicationId }
+      });
+      if (!application) {
+        throw new Error("Application not found");
+      }
+      if (application.currentStage !== "SCREENING") {
+        throw new Error("Analyst screening score can only be recorded in SCREENING stage");
+      }
+
+      if (!application.assignedAnalystId) {
+        throw new Error("Assign a lead analyst before recording the screening score");
+      }
+      if (application.assignedAnalystId !== actorUserId) {
+        throw new Error("Only the assigned lead analyst can record the screening score for this application");
+      }
+
+      const below = score < ANALYST_SCREENING_MIN_SCORE;
+
+      const fullInclude = {
+        fund: {
+          select: {
+            id: true,
+            name: true,
+            status: true
+          }
+        },
+        documents: {
+          select: {
+            id: true,
+            documentType: true,
+            fileName: true,
+            fileUrl: true,
+            isRequired: true,
+            isSubmitted: true
+          }
+        },
+        assignedAnalyst: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            roleCode: true
+          }
+        }
+      };
+
+      if (below) {
+        return await prisma.application.update({
+          where: { id: applicationId },
+          data: {
+            screeningScore: new Decimal(score),
+            currentStage: "REJECTED_SCREENING",
+            screeningOutcome: "REJECTED_SCREENING",
+            updatedAt: new Date()
+          },
+          include: fullInclude
+        });
+      }
+
+      await prisma.application.update({
+        where: { id: applicationId },
+        data: {
+          screeningScore: new Decimal(score),
+          screeningOutcome: "PASSED_SCREENING",
+          currentStage: "SCREENING",
+          updatedAt: new Date()
+        }
+      });
+
+      await DueDiligenceService.initiateDueDiligence({
+        applicationId,
+        reviewerId: application.assignedAnalystId
+      });
+
+      const refreshed = await prisma.application.findUnique({
+        where: { id: applicationId },
+        include: fullInclude
+      });
+      if (!refreshed) {
+        throw new Error("Application not found after due diligence initiation");
+      }
+      return refreshed;
+    } catch (error: any) {
+      throw new Error(`Failed to record analyst screening score: ${error.message}`);
     }
   }
 

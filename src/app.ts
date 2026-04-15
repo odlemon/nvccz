@@ -47,6 +47,7 @@ import incomeStatementRoutes from "./routes/incomeStatementRoutes"
 import cashFlowRoutes from "./routes/cashFlowRoutes"
 import balanceSheetRoutes from "./routes/balanceSheetRoutes"
 import accountingDashboardRoutes from "./routes/accountingDashboardRoutes"
+import shortTermInvestmentRoutes from "./routes/shortTermInvestmentRoutes"
 import accountingPeIntegrationV1Routes from "./routes/accountingPeIntegrationV1Routes"
 import statementOfEquityRoutes from "./routes/statementOfEquityRoutes"
 import revenueRoutes from "./routes/revenueRoutes"
@@ -61,6 +62,7 @@ import transactionReversalRoutes from "./routes/transactionReversalRoutes"
 import cashbookTransferRoutes from "./routes/cashbookTransferRoutes"
 import entryTypeRoutes from "./routes/entryTypeRoutes"
 import trialBalanceRoutes from "./routes/trialBalanceRoutes"
+import fiscalCalendarRoutes from "./routes/fiscalCalendarRoutes"
 import miniKycRoutes from "./routes/miniKycRoutes"
 import companyProfileRoutes from "./routes/companyProfileRoutes"
 import portfolioCompanyRoutes from "./routes/portfolioCompanyRoutes"
@@ -110,6 +112,7 @@ import approvalRoutes from "./routes/approvalRoutes"
 import inventoryRoutes from "./routes/inventoryRoutes"
 import assetRoutes from "./routes/assetRoutes"
 import cronRoutes from "./routes/cronRoutes"
+import publicReportingTestRoutes from "./routes/publicReportingTestRoutes"
 import creditNoteRoutes from "./routes/creditNoteRoutes"
 import statementRoutes from "./routes/statementRoutes"
 import multiCurrencyRoutes from "./routes/multiCurrencyRoutes"
@@ -121,6 +124,10 @@ import performanceScorecardRoutes from "./routes/performanceScorecardRoutes"
 import performanceAnalyticsRoutes from "./routes/performanceAnalyticsRoutes"
 import performanceConfigRoutes from "./routes/performanceConfigRoutes"
 import performanceIntegrationRoutes from "./routes/performanceIntegrationRoutes"
+import performanceBscEntryRoutes from "./routes/performanceBscEntryRoutes"
+import bscWorkflowRoutes from "./routes/bscWorkflowRoutes"
+import performanceContractRoutes from "./routes/performanceContractRoutes"
+import accountingApiRoutes from "./routes/accountingApiRoutes"
 import vatReportRoutes from "./routes/vatReportRoutes"
 import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
 import { initSocketServer } from "./services/RealtimeSocketService"
@@ -193,6 +200,7 @@ app.use(cors({
     'Accept',
     'Origin',
     'X-Depreciation-Cron-Secret',
+    'X-Reporting-Reminders-Cron-Secret',
   ],
   optionsSuccessStatus: 200
 }))
@@ -393,6 +401,7 @@ app.get("/test-db", async (req, res) => {
 
 // Cron / automation (no JWT — use route-specific secrets)
 app.use("/api/cron", cronRoutes)
+app.use("/api/public/reporting", publicReportingTestRoutes)
 
 // Auth routes
 app.use("/api/auth", authRoutes)
@@ -434,6 +443,7 @@ app.use("/api/accounting/income-statement", incomeStatementRoutes)
 app.use("/api/accounting/cash-flow", cashFlowRoutes)
 app.use("/api/accounting/balance-sheet", balanceSheetRoutes)
 app.use("/api/accounting/dashboard", accountingDashboardRoutes)
+app.use("/api/accounting/short-term-investments", shortTermInvestmentRoutes)
 app.use("/api/accounting/v1", accountingPeIntegrationV1Routes)
 app.use("/api/accounting/statement-of-equity", statementOfEquityRoutes)
 app.use("/api/accounting/revenues", revenueRoutes)
@@ -465,6 +475,8 @@ app.use("/api/cashbook/contra", contraEntryRoutes)
 app.use("/api/cashbook/entry-types", entryTypeRoutes)
 app.use("/api/cashbook/periods", periodLockoutRoutes)
 app.use("/api/accounting/trial-balance", trialBalanceRoutes)
+app.use("/api/accounting/fiscal-calendar", fiscalCalendarRoutes)
+app.use("/accounting/api", accountingApiRoutes)
 
 // Mini-KYC routes
 app.use("/api/mini-kyc", miniKycRoutes)
@@ -520,6 +532,9 @@ app.use("/api/performance/scorecards", performanceScorecardRoutes)
 app.use("/api/performance/analytics", performanceAnalyticsRoutes)
 app.use("/api/performance/config", performanceConfigRoutes)
 app.use("/api/performance/integration", performanceIntegrationRoutes)
+app.use("/api/performance/bsc-entry", performanceBscEntryRoutes)
+app.use("/api/performance/bsc-workflow", bscWorkflowRoutes)
+app.use("/api/performance/contracts", performanceContractRoutes)
 
 // CEO Dashboard routes
 app.use("/api/ceo-dashboard", ceoDashboardRoutes)

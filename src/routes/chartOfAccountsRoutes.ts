@@ -134,6 +134,12 @@ router.post("/", authenticate, ChartOfAccountsController.createChartOfAccounts);
  *         schema:
  *           type: string
  *         description: Filter by parent account ID
+ *       - in: query
+ *         name: forPosting
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: When true, excludes reporting-only buckets like 1000 Cash and Cash Equivalents from results (use for posting/account pickers).
  *     responses:
  *       200:
  *         description: Chart of accounts retrieved successfully

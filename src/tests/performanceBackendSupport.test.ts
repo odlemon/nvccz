@@ -4,7 +4,10 @@ import {
   HARD_CODED_BSC_PILLARS,
   buildExponentialBackoffSchedule,
   isHighPrecisionPerformanceSync,
+  isPayrollTurnoverCompatibleGoal,
+  isPortfolioAumCompatibleGoal,
   isPortfolioIrrCompatibleGoal,
+  isPortfolioTotalRevenueCompatibleGoal,
   normaliseSyncedDecimal,
   resolveReviewWorkflowStatus,
   shouldRaiseDataQualityAlert,
@@ -55,6 +58,39 @@ describe("performanceBackendSupport", () => {
     expect(isPortfolioIrrCompatibleGoal({ formulaType: "IRR", kpi: { name: "Total Revenue" } })).toBe(true);
     expect(isPortfolioIrrCompatibleGoal({ formulaType: "PORTFOLIO_IRR_PCT", kpi: null })).toBe(true);
     expect(isPortfolioIrrCompatibleGoal({ formulaType: "AUM_TOTAL", kpi: { name: "Portfolio IRR" } })).toBe(false);
+  });
+
+  it("restricts PE portfolio AUM sync to AUM KPIs or formula (not IRR)", () => {
+    expect(isPortfolioAumCompatibleGoal({ formulaType: null, kpi: { name: "Total Revenue" } })).toBe(false);
+    expect(isPortfolioAumCompatibleGoal({ formulaType: null, kpi: { name: "Assets Under Management" } })).toBe(true);
+    expect(isPortfolioAumCompatibleGoal({ formulaType: "AUM_TOTAL", kpi: { name: "Revenue" } })).toBe(true);
+    expect(isPortfolioAumCompatibleGoal({ formulaType: "IRR", kpi: { name: "Assets Under Management" } })).toBe(false);
+    expect(isPortfolioAumCompatibleGoal({ formulaType: null, kpi: { name: "Portfolio IRR" } })).toBe(false);
+  });
+
+  it("restricts portfolio total revenue sync to revenue KPIs (not IRR/AUM/turnover)", () => {
+    expect(isPortfolioTotalRevenueCompatibleGoal({ formulaType: null, kpi: { name: "Total Revenue" } })).toBe(
+      true
+    );
+    expect(
+      isPortfolioTotalRevenueCompatibleGoal({ formulaType: null, kpi: { name: "Individual revenue contribution" } })
+    ).toBe(true);
+    expect(isPortfolioTotalRevenueCompatibleGoal({ formulaType: null, kpi: { name: "Portfolio IRR" } })).toBe(
+      false
+    );
+    expect(isPortfolioTotalRevenueCompatibleGoal({ formulaType: null, kpi: { name: "Assets Under Management" } })).toBe(
+      false
+    );
+    expect(
+      isPortfolioTotalRevenueCompatibleGoal({ formulaType: null, kpi: { name: "Employee Turnover Rate" } })
+    ).toBe(false);
+  });
+
+  it("restricts payroll turnover sync to turnover KPIs (not IRR/AUM)", () => {
+    expect(isPayrollTurnoverCompatibleGoal({ formulaType: null, kpi: { name: "Employee Turnover Rate" } })).toBe(true);
+    expect(isPayrollTurnoverCompatibleGoal({ formulaType: "EMPLOYEE_TURNOVER", kpi: null })).toBe(true);
+    expect(isPayrollTurnoverCompatibleGoal({ formulaType: null, kpi: { name: "Portfolio IRR" } })).toBe(false);
+    expect(isPayrollTurnoverCompatibleGoal({ formulaType: null, kpi: { name: "Assets Under Management" } })).toBe(false);
   });
 
   it("raises data quality alerts for precision-sensitive KPI drift", () => {

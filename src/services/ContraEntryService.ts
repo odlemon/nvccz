@@ -198,6 +198,14 @@ export default class ContraEntryService {
       }
 
       // Generate contra entry based on configuration
+      const bankGlId = cashbookEntry.bank?.glAccountId;
+      if (!bankGlId || !cashbookEntry.glAccountId) {
+        return {
+          success: false,
+          message: 'Bank and counterparty GL accounts are required to generate a contra entry',
+        };
+      }
+
       let contraEntry;
       if (contraConfig.contraType === 'DETAILED') {
         // Create detailed contra entry
@@ -207,8 +215,8 @@ export default class ContraEntryService {
             contraType: 'DETAILED',
             description: `Contra for ${cashbookEntry.description}`,
             amount: cashbookEntry.amount,
-            debitAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.bankId : cashbookEntry.glAccountId,
-            creditAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.glAccountId : cashbookEntry.bankId,
+            debitAccountId: cashbookEntry.type === 'RECEIPT' ? bankGlId : cashbookEntry.glAccountId,
+            creditAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.glAccountId : bankGlId,
             createdById: createdById
           }
         });
@@ -220,8 +228,8 @@ export default class ContraEntryService {
             contraType: 'SUMMARY',
             description: `Summary contra for ${cashbookEntry.description}`,
             amount: cashbookEntry.amount,
-            debitAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.bankId : cashbookEntry.glAccountId,
-            creditAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.glAccountId : cashbookEntry.bankId,
+            debitAccountId: cashbookEntry.type === 'RECEIPT' ? bankGlId : cashbookEntry.glAccountId,
+            creditAccountId: cashbookEntry.type === 'RECEIPT' ? cashbookEntry.glAccountId : bankGlId,
             createdById: createdById
           }
         });

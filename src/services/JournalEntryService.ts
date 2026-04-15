@@ -21,6 +21,7 @@ import {
   zigTotalsBalanced,
   type ZigLineBreakdown,
 } from "../utils/manualJournalZigEquivalence";
+import PeriodLockService from "./PeriodLockService";
 
 export interface CreateExpenseJournalEntryParams {
   vendorId: string;
@@ -213,6 +214,25 @@ export class JournalEntryService {
     return { totalAmountForHeader, zigEquivalence };
   }
 
+  private static async assertNoPostingToReportingBuckets(
+    chartOfAccountIds: string[],
+    context: string
+  ): Promise<void> {
+    const ids = [...new Set(chartOfAccountIds.filter(Boolean))];
+    if (ids.length === 0) return;
+    const accounts = await prisma.chartOfAccounts.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, accountNo: true, accountName: true },
+    });
+    const bad = accounts.filter((a) => a.accountNo === "1000");
+    if (bad.length > 0) {
+      const a = bad[0];
+      throw new Error(
+        `${context}: ${a.accountNo} ${a.accountName} is a reporting bucket and cannot be used as a posting account. Select a specific bank/cash GL instead.`
+      );
+    }
+  }
+
   /**
    * Replace header and lines of a **PENDING** manual journal only.
    * Posted/voided journals throw {@link JournalEntryImmutableError} (ledger immutability).
@@ -252,6 +272,11 @@ export class JournalEntryService {
       journalEntryLines,
       createdById,
     } = params;
+
+    await this.assertNoPostingToReportingBuckets(
+      journalEntryLines.map((l) => l.chartOfAccountId),
+      "Manual journal update rejected"
+    );
 
     if (referenceNumber !== existing.referenceNumber) {
       const clash = await prisma.journalEntry.findUnique({ where: { referenceNumber } });
@@ -354,6 +379,11 @@ export class JournalEntryService {
         ipAddress,
         userAgent,
       } = params;
+
+      await this.assertNoPostingToReportingBuckets(
+        journalEntryLines.map((l) => l.chartOfAccountId),
+        "Manual journal rejected"
+      );
 
       const { totalAmountForHeader, zigEquivalence } = await this.validateManualJournalEconomics(
         currencyId,
@@ -1023,14 +1053,20 @@ export class JournalEntryService {
    * Get the Cash Account
    */
   private static async getCashAccount(): Promise<ChartOfAccounts> {
-    const cashAccount = await prisma.chartOfAccounts.findFirst({
-      where: {
-        accountName: {
-          contains: "Cash"
+    // Prefer explicit petty cash / cash-on-hand accounts and NEVER auto-select 1000 (reporting bucket).
+    const cashAccount =
+      (await prisma.chartOfAccounts.findFirst({
+        where: { accountNo: { in: ["1010", "1030", "CASH-001"] }, isActive: true },
+        orderBy: { accountNo: "asc" },
+      })) ??
+      (await prisma.chartOfAccounts.findFirst({
+        where: {
+          isActive: true,
+          accountNo: { not: "1000" },
+          OR: [{ accountName: { contains: "Petty" } }, { accountName: { contains: "Cash" } }],
         },
-        isActive: true
-      }
-    });
+        orderBy: { accountNo: "asc" },
+      }));
 
     if (!cashAccount) {
       throw new Error("No Cash Account found in chart of accounts");
@@ -1060,23 +1096,35 @@ export class JournalEntryService {
   }
 
   /**
-   * Get the Bank Account (use Cash and Cash Equivalents since it includes bank balances)
+   * Get a Bank posting account (bank-linked GL if available; never use 1000 reporting bucket).
    */
   private static async getBankAccount(): Promise<ChartOfAccounts> {
-    const bankAccount = await prisma.chartOfAccounts.findFirst({
-      where: {
-        accountName: {
-          contains: "Cash and Cash Equivalents"
-        },
-        isActive: true
-      }
+    const bank = await prisma.bank.findFirst({
+      where: { isActive: true, glAccountId: { not: null } },
+      orderBy: { createdAt: "asc" },
+      select: { glAccountId: true },
     });
-
-    if (!bankAccount) {
-      throw new Error("No Cash and Cash Equivalents account found in chart of accounts");
+    if (bank?.glAccountId) {
+      const coa = await prisma.chartOfAccounts.findUnique({ where: { id: bank.glAccountId } });
+      if (coa) return coa;
     }
 
-    return bankAccount;
+    const fallback = await prisma.chartOfAccounts.findFirst({
+      where: {
+        accountNo: { not: "1000" },
+        OR: [
+          { accountNo: "1100" },
+          { accountName: { contains: "Bank" } },
+          { accountName: { contains: "Cash" } }
+        ],
+        isActive: true,
+      },
+      orderBy: { accountNo: "asc" },
+    });
+    if (!fallback) {
+      throw new Error("No bank/cash account found in chart of accounts (and no active bank.glAccountId set).");
+    }
+    return fallback;
   }
 
   /**
@@ -1382,8 +1430,9 @@ export class JournalEntryService {
     startDate: Date,
     endDate: Date,
     status?: 'POSTED' | 'PENDING' | 'VOID' | 'ALL' | 'POSTED_AND_PENDING',
-    currencyId?: string
-  ): Promise<any[]> {
+    currencyId?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<any[] | { entries: any[]; total: number; limit: number; offset: number }> {
     const andConditions: any[] = [
       {
         referenceNumber: {
@@ -1434,8 +1483,16 @@ export class JournalEntryService {
       }
     };
 
+    let totalForPagination: number | undefined;
+    if (pagination) {
+      totalForPagination = await prisma.journalEntry.count({ where: whereClause });
+    }
+
     const entries = await prisma.journalEntry.findMany({
       where: whereClause,
+      ...(pagination
+        ? { skip: pagination.offset, take: Math.min(Math.max(1, pagination.limit), 500) }
+        : {}),
       include: {
         journalEntryLines: {
           include: {
@@ -1589,11 +1646,10 @@ export class JournalEntryService {
           }
         }
       },
-      orderBy: {
-        transactionDate: 'desc'
-      }
+      /** Newest business dates first; `createdAt` breaks ties so order is not insertion/ID-dependent. */
+      orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
     });
-    
+
     // Additional client-side filter to ensure no voided/reversed entries slip through
     const filteredEntries = entries.filter(entry => {
       if (currencyId && (entry as any).currencyId !== currencyId) {
@@ -1616,7 +1672,7 @@ export class JournalEntryService {
     });
 
     // Attach paymentMethod to each line for each entry
-    return filteredEntries.map((entry: any) => {
+    const mapped = filteredEntries.map((entry: any) => {
       const cashbookPaymentMethod = (() => {
         const cb = entry.cashbookEntries?.[0];
         if (!cb) return null;
@@ -1642,12 +1698,38 @@ export class JournalEntryService {
         }))
       };
     });
+
+    // Defensive sort: always list by accounting date (newest first), not creation order.
+    mapped.sort((a: any, b: any) => {
+      const tb = new Date(b.transactionDate).getTime();
+      const ta = new Date(a.transactionDate).getTime();
+      if (tb !== ta) return tb - ta;
+      const cb = new Date(b.createdAt).getTime();
+      const ca = new Date(a.createdAt).getTime();
+      return cb - ca;
+    });
+
+    if (pagination && totalForPagination !== undefined) {
+      const take = Math.min(Math.max(1, pagination.limit), 500);
+      return {
+        entries: mapped,
+        total: totalForPagination,
+        limit: take,
+        offset: pagination.offset,
+      };
+    }
+
+    return mapped;
   }
 
   /**
    * Post a journal entry (change status from PENDING to POSTED)
    */
-  static async postJournalEntry(journalEntryId: string, performedById?: string): Promise<JournalEntry> {
+  static async postJournalEntry(
+    journalEntryId: string,
+    performedById?: string,
+    options?: { userPermissions?: Array<{ name: string; value: boolean }> }
+  ): Promise<JournalEntry> {
     try {
       // Get the journal entry with its lines
       const journalEntry = await prisma.journalEntry.findUnique({
@@ -1673,6 +1755,15 @@ export class JournalEntryService {
       if (!this.validateJournalEntryBalance(journalEntry.journalEntryLines)) {
         throw new Error("Journal entry is not balanced. Debits must equal credits.");
       }
+
+      await PeriodLockService.assertModuleDateOpen({
+        moduleCode: "GL",
+        accountingDate: journalEntry.transactionDate,
+        userId: performedById ?? journalEntry.createdById,
+        source: "API",
+        actionType: "POST_JOURNAL",
+        userPermissions: options?.userPermissions
+      });
 
       // Update the status to POSTED
       const updatedJournalEntry = await prisma.journalEntry.update({

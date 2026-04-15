@@ -2,6 +2,9 @@ import axios from 'axios';
 
 const DEFAULT_ZIMRATE_URL = 'https://zimrate.statotec.com/api/v1/rates';
 
+/** Zimrate Bearer token (embedded; API requires `Authorization: Bearer …`). */
+const ZIMRATE_API_KEY = 'zr_df58266e02479a52d6581a2a52533527';
+
 export interface ZimrateUsdZwgRow {
   currency_pair: string;
   bid: number;
@@ -26,9 +29,13 @@ export interface ZimrateRatesPayload {
  */
 export async function fetchZimrateRates(): Promise<ZimrateRatesPayload> {
   const url = process.env.ZIMRATE_RATES_URL?.trim() || DEFAULT_ZIMRATE_URL;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    Authorization: `Bearer ${ZIMRATE_API_KEY}`,
+  };
   const { data, status } = await axios.get<ZimrateRatesPayload>(url, {
     timeout: 15_000,
-    headers: { Accept: 'application/json' },
+    headers,
     validateStatus: () => true
   });
   if (status < 200 || status >= 300) {

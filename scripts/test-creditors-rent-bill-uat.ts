@@ -16,7 +16,7 @@ async function main() {
     prisma.user.findFirst({ orderBy: { createdAt: 'asc' } }),
     prisma.vendor.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'asc' } }),
     prisma.currency.findFirst({
-      where: { code: { in: ['ZWL', 'ZWG', 'USD'] }, isActive: true },
+      where: { code: { in: ['ZWL', 'ZWG', 'ZIG', 'USD'] }, isActive: true },
       orderBy: { code: 'asc' }
     }),
     prisma.chartOfAccounts.findFirst({
@@ -82,7 +82,7 @@ async function main() {
   );
 
   const report = await CreditorsAgeAnalysisService.generate();
-  const row = report.lines.find((l) => l.purchaseInvoiceId === posted.id);
+  const row = report.vendors.flatMap((v) => v.bills).find((l) => l.purchaseInvoiceId === posted.id);
   assert(!!row, 'Bill in creditors age report');
   assert(row.bucket === 'current', `Current bucket (not past due), got ${row.bucket}`);
   const curTot = report.totalsByCurrency[currency.code.toUpperCase()];

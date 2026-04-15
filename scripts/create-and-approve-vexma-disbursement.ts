@@ -127,9 +127,30 @@ async function main() {
     console.log(`🔍 Step 4: Approving disbursement...\n`);
     
     try {
+      const disbRow = await prisma.fundDisbursement.findUnique({
+        where: { id: disbursementId },
+        select: { paymentCurrencyId: true },
+      });
+      const bank = await prisma.bank.findFirst({
+        where: {
+          isActive: true,
+          glAccountId: { not: null },
+          ...(disbRow?.paymentCurrencyId
+            ? { currencyId: disbRow.paymentCurrencyId }
+            : {}),
+        },
+        orderBy: { name: "asc" },
+      });
+      if (!bank) {
+        console.log(`❌ No active bank with GL for this disbursement currency.`);
+        await prisma.$disconnect();
+        return;
+      }
+
       const approvedDisbursement = await InvestmentImplementationService.approveFundDisbursement(
         disbursementId,
-        approver.id
+        approver.id,
+        bank.id
       );
 
       console.log(`✅ Successfully approved disbursement!`);

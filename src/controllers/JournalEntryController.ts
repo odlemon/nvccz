@@ -16,6 +16,20 @@ function queryCurrencyId(req: Request): string | undefined {
   return undefined;
 }
 
+/** Optional `?limit=&offset=` for GET list — max 500 per page. Omits pagination when `limit` absent. */
+function parseJePagination(req: Request): { limit: number; offset: number } | undefined {
+  const rawLimit = req.query.limit;
+  if (rawLimit == null || String(rawLimit).trim() === "") return undefined;
+  const limit = parseInt(String(rawLimit), 10);
+  if (Number.isNaN(limit) || limit < 1) return undefined;
+  const rawOff = req.query.offset;
+  const offset =
+    rawOff != null && String(rawOff).trim() !== ""
+      ? Math.max(0, parseInt(String(rawOff), 10) || 0)
+      : 0;
+  return { limit: Math.min(limit, 500), offset };
+}
+
 export class JournalEntryController {
   /**
    * Create a manual journal entry
@@ -111,12 +125,37 @@ export class JournalEntryController {
         rangeEnd = lte;
       }
 
+      const pagination = parseJePagination(req);
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
         rangeStart,
         rangeEnd,
         filterStatus,
-        currencyId
+        currencyId,
+        pagination
       );
+
+      if (
+        journalEntries &&
+        typeof journalEntries === "object" &&
+        !Array.isArray(journalEntries) &&
+        "total" in journalEntries
+      ) {
+        const totalPages = Math.ceil(journalEntries.total / journalEntries.limit) || 1;
+        const page = Math.floor(journalEntries.offset / journalEntries.limit) + 1;
+        return ResponseHelper.paginated(
+          res,
+          "Journal entries retrieved successfully",
+          journalEntries.entries,
+          {
+            page,
+            limit: journalEntries.limit,
+            total: journalEntries.total,
+            totalPages,
+            hasNextPage: journalEntries.offset + journalEntries.limit < journalEntries.total,
+            hasPrevPage: journalEntries.offset > 0,
+          }
+        );
+      }
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
     } catch (error) {
@@ -225,7 +264,10 @@ export class JournalEntryController {
     try {
       const { id } = req.params;
       const userId = (req as any).user?.id;
-      const journalEntry = await JournalEntryService.postJournalEntry(id, userId);
+      const perms = (req as any).user?.role?.permissions;
+      const journalEntry = await JournalEntryService.postJournalEntry(id, userId, {
+        userPermissions: perms,
+      });
 
       return ResponseHelper.success(res, "Journal entry posted successfully", journalEntry);
     } catch (error) {
@@ -289,12 +331,37 @@ export class JournalEntryController {
         );
       }
 
+      const pagination = parseJePagination(req);
       const journalEntries = await JournalEntryService.getJournalEntriesByDateRange(
         gte,
         lte,
         status,
-        currencyId
+        currencyId,
+        pagination
       );
+
+      if (
+        journalEntries &&
+        typeof journalEntries === "object" &&
+        !Array.isArray(journalEntries) &&
+        "total" in journalEntries
+      ) {
+        const totalPages = Math.ceil(journalEntries.total / journalEntries.limit) || 1;
+        const page = Math.floor(journalEntries.offset / journalEntries.limit) + 1;
+        return ResponseHelper.paginated(
+          res,
+          "Journal entries retrieved successfully",
+          journalEntries.entries,
+          {
+            page,
+            limit: journalEntries.limit,
+            total: journalEntries.total,
+            totalPages,
+            hasNextPage: journalEntries.offset + journalEntries.limit < journalEntries.total,
+            hasPrevPage: journalEntries.offset > 0,
+          }
+        );
+      }
 
       return ResponseHelper.success(res, "Journal entries retrieved successfully", journalEntries);
     } catch (error) {

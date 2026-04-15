@@ -13,9 +13,15 @@ jest.mock('../../services/AuditService', () => ({
 
 jest.mock('../../utils/database', () => {
   const prisma = {
-    journalEntry: { create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
+    journalEntry: {
+      create: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      count: jest.fn(),
+    },
     journalEntryLine: { create: jest.fn(), findMany: jest.fn() },
-    chartOfAccounts: { findFirst: jest.fn() },
+    bank: { findFirst: jest.fn() },
+    chartOfAccounts: { findFirst: jest.fn(), findUnique: jest.fn() },
   };
   return { prisma };
 });
@@ -45,8 +51,8 @@ describe('JournalEntryService', () => {
 
     const mockBankGlAccount = {
       id: 'bank-gl-id',
-      accountNo: '1000',
-      accountName: 'Cash and Cash Equivalents',
+      accountNo: '1100',
+      accountName: 'Bank - Operating Account',
       accountType: 'Current Asset',
     };
 
@@ -86,7 +92,7 @@ describe('JournalEntryService', () => {
         chartOfAccountId: 'bank-gl-id',
         debitAmount: 0,
         creditAmount: 1145,
-        description: 'Cash and Cash Equivalents: Legal Fees',
+        description: 'Bank - Operating Account: Legal Fees',
         vatAmount: 0,
       }
     ];
@@ -94,8 +100,10 @@ describe('JournalEntryService', () => {
     beforeEach(() => {
       mockPrisma.chartOfAccounts.findFirst
         .mockResolvedValueOnce(mockExpenseAccount)
-        .mockResolvedValueOnce(mockVATInputAccount)
-        .mockResolvedValueOnce(mockBankGlAccount);
+        .mockResolvedValueOnce(mockVATInputAccount);
+
+      mockPrisma.bank.findFirst.mockResolvedValueOnce({ glAccountId: 'bank-gl-id' });
+      mockPrisma.chartOfAccounts.findUnique.mockResolvedValueOnce(mockBankGlAccount);
 
       createJournalEntryWithAuditSequence.mockResolvedValue(mockJournalEntry);
 
@@ -239,7 +247,10 @@ describe('JournalEntryService', () => {
         .mockReset()
         .mockResolvedValueOnce(mockExpenseAccount)
         .mockResolvedValueOnce(mockVATInputAccount)
-        .mockResolvedValueOnce(null);
+        .mockResolvedValueOnce(null); // fallback OR(1100/Bank/Cash) also missing
+
+      mockPrisma.bank.findFirst.mockReset().mockResolvedValueOnce(null);
+      mockPrisma.chartOfAccounts.findUnique.mockReset();
 
       const params = {
         vendorId: 'vendor-id',
@@ -256,7 +267,7 @@ describe('JournalEntryService', () => {
       };
 
       await expect(JournalEntryService.createExpenseJournalEntry(params)).rejects.toThrow(
-        'No Cash and Cash Equivalents account found in chart of accounts'
+        'No bank/cash account found in chart of accounts (and no active bank.glAccountId set).'
       );
     });
   });
@@ -337,44 +348,139 @@ describe('JournalEntryService', () => {
   });
 
   describe('getJournalEntriesByDateRange', () => {
-    it('should return journal entries within date range', async () => {
+    const minimalJe = (overrides: Record<string, unknown>) => ({
+      id: 'je-id',
+      transactionDate: new Date('2024-01-15'),
+      createdAt: new Date('2024-01-10T12:00:00.000Z'),
+      referenceNumber: 'JE-X',
+      description: 'd',
+      totalAmount: 100,
+      currencyId: 'cur-1',
+      status: 'POSTED',
+      createdById: 'u1',
+      journalEntryLines: [],
+      expenses: [],
+      revenues: [],
+      invoices: [],
+      purchaseInvoices: [],
+      cashbookEntries: [],
+      createdBy: { id: 'u1', firstName: 'A', lastName: 'B', email: 'a@b.c' },
+      ...overrides,
+    });
+
+    it('should return journal entries within date range (no pagination)', async () => {
       const startDate = new Date('2024-01-01');
       const endDate = new Date('2024-01-31');
 
       const mockEntries = [
-        {
+        minimalJe({
           id: 'entry-1',
           transactionDate: new Date('2024-01-15'),
+          createdAt: new Date('2024-01-05T10:00:00.000Z'),
           referenceNumber: 'JE-1',
-          journalEntryLines: [],
-          expenses: [],
-          revenues: [],
-          invoices: [],
-          cashbookEntries: [],
-        },
-        {
+        }),
+        minimalJe({
           id: 'entry-2',
           transactionDate: new Date('2024-01-20'),
+          createdAt: new Date('2024-01-06T10:00:00.000Z'),
           referenceNumber: 'JE-2',
-          journalEntryLines: [],
-          expenses: [],
-          revenues: [],
-          invoices: [],
-          cashbookEntries: [],
-        },
+        }),
       ];
 
       mockPrisma.journalEntry.findMany.mockResolvedValue(mockEntries);
 
       const result = await JournalEntryService.getJournalEntriesByDateRange(startDate, endDate);
 
+      expect(Array.isArray(result)).toBe(true);
       expect(result).toHaveLength(2);
-      expect(result[0].id).toBe('entry-1');
+      // Defensive sort: newest transactionDate first
+      expect(result[0].id).toBe('entry-2');
+      expect(result[1].id).toBe('entry-1');
+      expect(mockPrisma.journalEntry.count).not.toHaveBeenCalled();
       expect(mockPrisma.journalEntry.findMany).toHaveBeenCalled();
       const arg = mockPrisma.journalEntry.findMany.mock.calls[0][0];
       expect(arg.where.transactionDate).toEqual({ gte: startDate, lte: endDate });
       expect(arg.where.status).toBe('POSTED');
-      expect(arg.orderBy).toEqual({ transactionDate: 'desc' });
+      expect(arg.orderBy).toEqual([
+        { transactionDate: "desc" },
+        { createdAt: "desc" },
+      ]);
+      expect(arg.skip).toBeUndefined();
+      expect(arg.take).toBeUndefined();
+    });
+
+    it('should pass skip/take and return envelope when pagination is set', async () => {
+      const startDate = new Date('2024-01-01');
+      const endDate = new Date('2024-12-31');
+      mockPrisma.journalEntry.count.mockResolvedValue(42);
+      mockPrisma.journalEntry.findMany.mockResolvedValue([
+        minimalJe({ id: 'a', transactionDate: new Date('2024-06-01') }),
+      ]);
+
+      const result = await JournalEntryService.getJournalEntriesByDateRange(
+        startDate,
+        endDate,
+        'POSTED',
+        undefined,
+        { limit: 10, offset: 20 }
+      );
+
+      expect(Array.isArray(result)).toBe(false);
+      expect(result).toMatchObject({
+        total: 42,
+        limit: 10,
+        offset: 20,
+      });
+      expect(result.entries).toHaveLength(1);
+      expect(mockPrisma.journalEntry.count).toHaveBeenCalledTimes(1);
+      const arg = mockPrisma.journalEntry.findMany.mock.calls[0][0];
+      expect(arg.skip).toBe(20);
+      expect(arg.take).toBe(10);
+    });
+
+    it('should clamp pagination limit to 500', async () => {
+      const startDate = new Date('2024-01-01');
+      const endDate = new Date('2024-12-31');
+      mockPrisma.journalEntry.count.mockResolvedValue(1000);
+      mockPrisma.journalEntry.findMany.mockResolvedValue([]);
+
+      const result = await JournalEntryService.getJournalEntriesByDateRange(
+        startDate,
+        endDate,
+        'POSTED',
+        undefined,
+        { limit: 9999, offset: 0 }
+      );
+
+      const arg = mockPrisma.journalEntry.findMany.mock.calls[0][0];
+      expect(arg.take).toBe(500);
+      expect(result.limit).toBe(500);
+    });
+
+    it('should sort same transactionDate by createdAt descending', async () => {
+      const startDate = new Date('2024-01-01');
+      const endDate = new Date('2024-01-31');
+      const sameDay = new Date('2024-01-15T00:00:00.000Z');
+      const mockEntries = [
+        minimalJe({
+          id: 'older-je',
+          transactionDate: sameDay,
+          createdAt: new Date('2024-01-05T08:00:00.000Z'),
+          referenceNumber: 'JE-OLD',
+        }),
+        minimalJe({
+          id: 'newer-je',
+          transactionDate: sameDay,
+          createdAt: new Date('2024-01-05T18:00:00.000Z'),
+          referenceNumber: 'JE-NEW',
+        }),
+      ];
+      mockPrisma.journalEntry.findMany.mockResolvedValue(mockEntries);
+
+      const result = await JournalEntryService.getJournalEntriesByDateRange(startDate, endDate);
+
+      expect(result[0].id).toBe('newer-je');
+      expect(result[1].id).toBe('older-je');
     });
   });
 }); 

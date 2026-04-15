@@ -11,7 +11,12 @@ import {
   isTargetMet,
   mergeContributionWeightIntoActivities
 } from "./performanceGoalRollupUtils";
-import { resolveGoalEscalationStatus } from "./performanceScorecardSupport";
+import {
+  normalizeOrgBscScorecardPillar,
+  ORG_BSC_CANONICAL_TO_PILLAR_ID,
+  resolveGoalEscalationStatus
+} from "./performanceScorecardSupport";
+import { ensureDepartmentPerformanceContractForGoal } from "./DepartmentPerformanceContractService";
 import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
 import { FirebaseStorageService } from "./FirebaseStorageService";
 
@@ -170,19 +175,30 @@ const REVERSE_KPI_NAME_HINTS = [
   "utilisation",
   "utilization",
   "loss",
-  "spend"
+  "spend",
+  "cogs",
+  "cost of goods"
 ];
 
-function inferReverseKpiFromNameOrAccountType(kpiName?: string | null): boolean {
-  const n = String(kpiName || "").toLowerCase().trim();
-  if (!n) return false;
-  const hardcoded = HARDCODED_KPIS.find(
-    (k) => String(k.name || "").toLowerCase().trim() === n
-  );
-  if (hardcoded?.accountType === "Expense" || hardcoded?.accountType === "Liability") {
-    return true;
+function inferReverseKpiFromNameOrAccountType(
+  kpiName?: string | null,
+  goalTitle?: string | null
+): boolean {
+  const sources = [kpiName, goalTitle];
+  for (const src of sources) {
+    const n = String(src || "").toLowerCase().trim();
+    if (!n) continue;
+    const hardcoded = HARDCODED_KPIS.find(
+      (k) => String(k.name || "").toLowerCase().trim() === n
+    );
+    if (hardcoded?.accountType === "Expense" || hardcoded?.accountType === "Liability") {
+      return true;
+    }
+    if (REVERSE_KPI_NAME_HINTS.some((hint) => n.includes(hint))) {
+      return true;
+    }
   }
-  return REVERSE_KPI_NAME_HINTS.some((hint) => n.includes(hint));
+  return false;
 }
 
 export interface CreatePerformanceGoalRequest {
@@ -211,6 +227,13 @@ export interface CreatePerformanceGoalRequest {
   contributionWeightPercent?: number;
   /** When set, overrides auto-derivation from targetOperator. */
   isReverseKpi?: boolean;
+  /** Required when `type` is `company` (organisational BSC pillar). */
+  scorecardPillar?: string;
+  /**
+   * Links the goal to a performance contract. Use for CEO/Board indicators (required for those scorecards)
+   * and optional for `company` org lines; for `department`, if omitted the system ensures a department PC.
+   */
+  performanceContractId?: string;
 }
 
 export interface UpdatePerformanceGoalRequest {
@@ -238,6 +261,7 @@ export interface UpdatePerformanceGoalRequest {
   /** Stored in `activities.stretchTargetValue` for BSC stretch line (target remains `targetValue`). */
   stretchTargetValue?: number;
   isReverseKpi?: boolean;
+  scorecardPillar?: string | null;
 }
 
 export class PerformanceGoalService {
@@ -306,7 +330,7 @@ export class PerformanceGoalService {
         throw new Error("value must be a number");
       }
 
-      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(goal.kpi?.name);
+      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(goal.kpi?.name, goal.title);
       const effectiveIsReverseKpi =
         Boolean(goal.isReverseKpi) ||
         String(goal.targetOperator || "").trim() === "<=" ||
@@ -433,9 +457,9 @@ export class PerformanceGoalService {
         };
       } else {
         const loaded = await prisma.performanceGoal.findUnique({
-          where: { id: goalId },
-          include: { kpi: true }
-        });
+        where: { id: goalId },
+        include: { kpi: true }
+      });
         if (!loaded?.kpi) {
           return;
         }
@@ -459,6 +483,16 @@ export class PerformanceGoalService {
 
       if (kpiConfig && kpiConfig.isFinancial) {
         // Create journal entry based on KPI completion
+        // Use a bank-linked GL account as the cash offset (Cash & Cash Equivalents is a reporting bucket).
+        const bank = await prisma.bank.findFirst({
+          where: { isActive: true, glAccountId: { not: null } },
+          orderBy: { createdAt: "asc" },
+          select: { glAccountId: true },
+        });
+        if (!bank?.glAccountId) {
+          throw new Error("No active bank with a GL account linked (banks.glAccountId).");
+        }
+
         const journalEntry = await createJournalEntryWithAuditSequence({
           transactionDate: new Date(),
           referenceNumber: `KPI-${goal.id}-${Date.now()}`,
@@ -470,13 +504,13 @@ export class PerformanceGoalService {
           journalEntryLines: {
             create: [
               {
-                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : "1000",
+                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : bank.glAccountId,
                 debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
                 creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
                 description: `KPI: ${goal.kpi.name}`,
               },
               {
-                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : "1000",
+                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : bank.glAccountId,
                 debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
                 creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
                 description: `KPI: ${goal.kpi.name}`,
@@ -532,7 +566,7 @@ export class PerformanceGoalService {
         }
       }
 
-      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(kpiName);
+      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(kpiName, request.title);
       const resolvedIsReverseKpi =
         typeof request.isReverseKpi === "boolean"
           ? request.isReverseKpi
@@ -546,6 +580,57 @@ export class PerformanceGoalService {
             ? "<="
             : ">=";
 
+      const companyPillarMsg =
+        'Organisational (company) goals require scorecardPillar: Financial, Customer & Market, Internal Operations, or Learning, Growth & HR (or FINANCIAL, CUSTOMER, INTERNAL_OPS, LEARNING_GROWTH).';
+      let scorecardPillarDb: string | undefined;
+      let pillarIdDb: string | null | undefined;
+      if (request.type === "company") {
+        const p = normalizeOrgBscScorecardPillar(request.scorecardPillar);
+        if (!p) {
+          throw new Error(companyPillarMsg);
+        }
+        scorecardPillarDb = p;
+        pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
+      }
+
+      let performanceContractId: string | undefined =
+        request.performanceContractId != null && String(request.performanceContractId).trim() !== ""
+          ? String(request.performanceContractId).trim()
+          : undefined;
+
+      if (performanceContractId) {
+        const pc = await prisma.performanceContract.findFirst({
+          where: {
+            id: performanceContractId,
+            status: { notIn: ["ARCHIVED", "CANCELLED"] }
+          },
+          select: { id: true, contractType: true, departmentName: true }
+        });
+        if (!pc) {
+          throw new Error("performanceContractId not found or is not an active contract");
+        }
+        if (request.type === "department" && request.departmentName) {
+          if (String(pc.contractType || "").toUpperCase() !== "DEPARTMENT") {
+            throw new Error("performanceContractId must reference a DEPARTMENT contract for department goals");
+          }
+          if (
+            pc.departmentName != null &&
+            String(pc.departmentName).trim() !== "" &&
+            String(pc.departmentName).trim() !== String(request.departmentName).trim()
+          ) {
+            throw new Error("performanceContractId department does not match goal departmentName");
+          }
+        }
+      }
+
+      if (request.type === "department" && request.departmentName && !performanceContractId) {
+        performanceContractId = await ensureDepartmentPerformanceContractForGoal({
+          departmentName: request.departmentName,
+          goalStart: request.startDate,
+          createdById
+        });
+      }
+
       // Create the performance goal with absolute value targets
       const goal = await prisma.performanceGoal.create({
         data: {
@@ -555,6 +640,7 @@ export class PerformanceGoalService {
           category: request.category,
           parentGoalId: request.parentGoalId,
           departmentName: request.departmentName,
+          ...(performanceContractId ? { performanceContractId } : {}),
           // Store absolute value targets
           targetValue: request.targetValue,
           targetUnit: request.targetUnit,
@@ -577,7 +663,10 @@ export class PerformanceGoalService {
           ...(() => {
             const act = mergeContributionWeightIntoActivities(null, request.contributionWeightPercent);
             return act ? { activities: act as object } : {};
-          })()
+          })(),
+          ...(scorecardPillarDb
+            ? { scorecardPillar: scorecardPillarDb, pillarId: pillarIdDb ?? null }
+            : {})
         },
         include: {
           kpi: {
@@ -673,6 +762,17 @@ export class PerformanceGoalService {
               ? String(departmentData.targetOperator).trim() === "<="
               : Boolean(parentGoal.isReverseKpi);
 
+        const deptGoalStart = coerceGoalDateTime(
+          departmentData.startDate,
+          parentGoal.startDate,
+          false
+        );
+        const performanceContractId = await ensureDepartmentPerformanceContractForGoal({
+          departmentName,
+          goalStart: deptGoalStart,
+          createdById: parentGoal.createdById
+        });
+
         // Create department goal with specified target and fields
         const departmentGoal = await prisma.performanceGoal.create({
           data: {
@@ -682,16 +782,13 @@ export class PerformanceGoalService {
             category: parentGoal.category,
             parentGoalId: parentGoalId,
             departmentName: departmentName, // Use hardcoded department name
+            performanceContractId,
             targetValue: departmentData.targetValue,
             targetUnit: departmentData.targetUnit || parentGoal.targetUnit,
             currentValue: 0,
             kpiId: parentGoal.kpiId, // Copy KPI from parent goal
             priority: departmentData.priority || parentGoal.priority,
-            startDate: coerceGoalDateTime(
-              departmentData.startDate,
-              parentGoal.startDate,
-              false
-            ),
+            startDate: deptGoalStart,
             endDate: coerceGoalDateTime(departmentData.endDate, parentGoal.endDate, true),
             createdById: parentGoal.createdById,
             status: "active",
@@ -869,6 +966,18 @@ export class PerformanceGoalService {
         where.parentGoalId = filters.parentGoalId;
       }
 
+      if (filters.strategicThemeId) {
+        where.strategicThemeId = filters.strategicThemeId;
+      }
+
+      if (filters.scorecardPillar) {
+        where.scorecardPillar = filters.scorecardPillar;
+      }
+
+      if (filters.pillarId) {
+        where.pillarId = filters.pillarId;
+      }
+
       if (filters.search) {
         // MySQL doesn't support mode: 'insensitive', so we use case-insensitive search via SQL
         const searchLower = filters.search.toLowerCase();
@@ -911,6 +1020,13 @@ export class PerformanceGoalService {
               id: true,
               title: true,
               type: true
+            }
+          },
+          strategicTheme: {
+            select: {
+              id: true,
+              name: true,
+              status: true
             }
           },
           subGoals: {
@@ -1037,6 +1153,30 @@ export class PerformanceGoalService {
         }
       }
 
+      const companyPillarMsg =
+        'Organisational (company) goals require scorecardPillar: Financial, Customer & Market, Internal Operations, or Learning, Growth & HR (or FINANCIAL, CUSTOMER, INTERNAL_OPS, LEARNING_GROWTH).';
+      const nextType = request.type ?? existingGoal.type;
+      const pillarData: { scorecardPillar?: string | null; pillarId?: string | null } = {};
+      if (nextType === "company") {
+        const raw =
+          request.scorecardPillar !== undefined
+            ? request.scorecardPillar
+            : existingGoal.scorecardPillar;
+        const normalized = normalizeOrgBscScorecardPillar(raw);
+        if (!normalized) {
+          throw new Error(companyPillarMsg);
+        }
+        pillarData.scorecardPillar = normalized;
+        pillarData.pillarId = ORG_BSC_CANONICAL_TO_PILLAR_ID[normalized] ?? null;
+      } else if (existingGoal.type === "company" && nextType !== "company") {
+        pillarData.scorecardPillar = null;
+        pillarData.pillarId = null;
+      } else if (request.scorecardPillar !== undefined) {
+        const normalized = normalizeOrgBscScorecardPillar(request.scorecardPillar);
+        pillarData.scorecardPillar = normalized;
+        pillarData.pillarId = normalized ? ORG_BSC_CANONICAL_TO_PILLAR_ID[normalized] ?? null : null;
+      }
+
       const activitiesPatch = mergeContributionWeightIntoActivities(
         existingGoal.activities,
         request.contributionWeightPercent
@@ -1074,7 +1214,10 @@ export class PerformanceGoalService {
         kpiNameForInference = k?.name || null;
       }
 
-      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(kpiNameForInference);
+      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(
+        kpiNameForInference,
+        request.title ?? existingGoal.title
+      );
       const resolvedIsReverseKpi =
         request.isReverseKpi !== undefined
           ? request.isReverseKpi
@@ -1093,6 +1236,7 @@ export class PerformanceGoalService {
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id },
         data: {
+          ...pillarData,
           ...(request.title && { title: request.title }),
           ...(request.description !== undefined && { description: request.description }),
           ...(request.type && { type: request.type }),

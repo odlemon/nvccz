@@ -7,7 +7,10 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
+import { ShortTermInvestmentService } from "../services/ShortTermInvestmentService";
+import { logger } from "../utils/logger";
 import { emailTransport, getFromAddress } from "../config/email.config";
+import { companyNameShortFromEnv } from "../config/companyDisplay";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 
 export class AuthController {
@@ -58,15 +61,20 @@ export class AuthController {
         });
       }
 
+      const roleNameFromDb = user.role?.name ? String(user.role.name).trim() : null;
+      const roleCodeEffective =
+        (user.roleCode && String(user.roleCode).trim()) || roleNameFromDb || null;
+      const roleDisplay = roleNameFromDb || roleCodeEffective;
+
       const token = jwt.sign({
         userId: user.id,
         roleId: user.roleId,
-        roleName: user.roleCode,
+        roleName: roleDisplay,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
         department: user.userDepartment,
-        roleCode: user.roleCode
+        roleCode: roleCodeEffective
       }, JWT_SECRET, { expiresIn: "7d" });
 
       // Check if user is an applicant (applicants don't have roles - identified by having an application)
@@ -101,7 +109,7 @@ export class AuthController {
         userAgent,
       });
 
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         message: "Logged in successfully",
         token,
@@ -111,11 +119,26 @@ export class AuthController {
           firstName: user.firstName,
           lastName: user.lastName,
           department: user.userDepartment,
-          role: user.roleCode,
+          role: roleDisplay,
+          roleName: roleNameFromDb,
+          roleCode: user.roleCode ?? null,
+          roleId: user.roleId,
           isApplicant: isApplicant,
           passwordChanged: passwordChanged // Flag to indicate if user has changed password from initial email
         }
       });
+
+      if (!isApplicant) {
+        setImmediate(() => {
+          logger.info("Auth login trigger: STI accrual run requested", {
+            userId: user.id,
+            email: user.email,
+          });
+          void ShortTermInvestmentService.maybeRunDailyAccrualAfterLogin(user.id);
+        });
+      }
+
+      return;
     } catch (error) {
       next(error);
     }
@@ -275,11 +298,12 @@ export class AuthController {
       const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
 
       const from = getFromAddress("it");
-      const subject = "Reset your NVCCZ account password";
+      const shortName = companyNameShortFromEnv();
+      const subject = `Reset your ${shortName} account password`;
       const html = `
         <h1>Reset Your Password</h1>
         <p>Hi ${user.firstName || "there"},</p>
-        <p>We received a request to reset the password for your NVCCZ account.</p>
+        <p>We received a request to reset the password for your ${shortName} account.</p>
         <p>If you made this request, click the button below to reset your password:</p>
         <p>
           <a href="${resetUrl}" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:4px;">
@@ -289,7 +313,7 @@ export class AuthController {
         <p>If the button doesn't work, copy and paste this link into your browser:</p>
         <p>${resetUrl}</p>
         <p>This link will expire in 1 hour. If you did not request a password reset, you can safely ignore this email.</p>
-        <p>Best regards,<br/>NVCCZ IT Team</p>
+        <p>Best regards,<br/>${shortName} IT Team</p>
       `;
 
       const mailOptions = {

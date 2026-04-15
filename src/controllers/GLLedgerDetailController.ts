@@ -112,7 +112,8 @@ export class GLLedgerDetailController {
         startDate: start,
         endDate: end,
         currencyId: bank.currencyId || undefined,
-        includeMultiCurrency: includeMultiCurrencyFlag
+        includeMultiCurrency: includeMultiCurrencyFlag,
+        restrictToBankId: bankId,
       });
 
       // Add bank information to the response

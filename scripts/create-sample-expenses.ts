@@ -117,12 +117,12 @@ async function createExpenses() {
   console.log('\n📝 Bank Payment Expense:');
   console.log('   Dr. 5100 - Office Equipment          $1,500.00');
   console.log('   Dr. 1101 - VAT Input                 $225.00');
-  console.log('       Cr. 1000 - Cash and Cash Equivalents $1,725.00');
+  console.log('       Cr. (Bank GL linked to the selected bank) $1,725.00');
   
   console.log('\n📝 Credit Payment Expense:');
   console.log('   Dr. 5070 - Travel Expense            $800.00');
   console.log('   Dr. 1101 - VAT Input                 $120.00');
-  console.log('       Cr. 1000 - Cash and Cash Equivalents $920.00');
+  console.log('       Cr. Accounts Payable (or relevant liability) $920.00');
   
   console.log('\n💡 Note: These expenses require authentication to create.');
   console.log('   Use the admin dashboard or login first to get a valid token.');

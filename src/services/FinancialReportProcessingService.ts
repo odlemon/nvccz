@@ -4,6 +4,7 @@ import { PassThrough } from 'stream';
 import XLSX from 'xlsx';
 import { prisma } from '../utils/database';
 import { FirebaseStorageService } from './FirebaseStorageService';
+import { ReportingPeriodKpiService } from './ReportingPeriodKpiService';
 
 interface ParsedBalanceSheet {
   reportTitle: string;
@@ -174,7 +175,8 @@ export class FinancialReportProcessingService {
       report.portfolioCompanyId,
       periodEnd,
       report.reportType,
-      aggregatedData
+      aggregatedData,
+      { periodStart: report.periodStart, periodEnd: report.periodEnd }
     );
 
     return {
@@ -599,7 +601,8 @@ export class FinancialReportProcessingService {
     portfolioCompanyId: string,
     periodKey: string,
     reportType: string,
-    parsedData: any
+    parsedData: any,
+    periodBounds?: { periodStart?: Date | string; periodEnd?: Date | string }
   ) {
     const reportKey = this.normalizeReportType(reportType);
     const existing = await prisma.portfolioCompany.findUnique({
@@ -630,6 +633,18 @@ export class FinancialReportProcessingService {
       data: { financialKpis: snapshot }
     });
 
+    try {
+      const pStart = periodBounds?.periodStart ?? periodKey;
+      const pEnd = periodBounds?.periodEnd ?? periodKey;
+      await ReportingPeriodKpiService.recomputeAndPersist({
+        portfolioCompanyId,
+        periodStart: pStart,
+        periodEnd: pEnd,
+      });
+    } catch (e) {
+      console.error("[financial-report-process] recompute derived KPIs:", e);
+    }
+
     return derivedKpis;
   }
 
@@ -646,6 +661,8 @@ export class FinancialReportProcessingService {
         return 'cashflowStatement';
       case 'NON_FINANCIAL_KPIS':
         return 'nonFinancialKPIs';
+      case 'OPERATIONAL_KPIS':
+        return 'operationalKpis';
       default:
         return reportType.toLowerCase();
     }

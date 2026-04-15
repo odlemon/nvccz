@@ -112,21 +112,18 @@ export class BankReconciliationEngineService {
         );
       }
 
-      // Get relevant journal entries (Cash and Cash Equivalents)
-      const cashAccount = await prisma.chartOfAccounts.findFirst({
-        where: { 
-          accountName: { contains: 'Cash and Cash Equivalents' },
-          isActive: true 
-        }
+      // Get relevant journal entries (bank-linked GL accounts).
+      const bank = await prisma.bankReconciliation.findUnique({
+        where: { id: reconciliationId },
+        select: { bankId: true },
       });
-      // If cash account isn't configured yet, do a graceful no-op reconciliation
-      if (!cashAccount) {
-        // Mark as completed with zero matches to avoid hard failures in fresh setups
-        return await this.updateReconciliationSummary(
-          reconciliationId,
-          bankTransactions.length,
-          0
-        );
+      const bankRow = bank?.bankId
+        ? await prisma.bank.findUnique({ where: { id: bank.bankId }, select: { glAccountId: true } })
+        : null;
+      const bankGlId = bankRow?.glAccountId ?? null;
+      if (!bankGlId) {
+        // No GL link: treat as no-op to avoid hard failures in fresh setups
+        return await this.updateReconciliationSummary(reconciliationId, bankTransactions.length, 0);
       }
 
       const journalEntries = await prisma.journalEntry.findMany({
@@ -134,7 +131,7 @@ export class BankReconciliationEngineService {
           status: 'POSTED',
           journalEntryLines: {
             some: {
-              chartOfAccountId: cashAccount.id
+              chartOfAccountId: bankGlId
             }
           }
         },
@@ -438,15 +435,18 @@ export class BankReconciliationEngineService {
       throw new Error('Bank transaction not found');
     }
 
-    const cashAccount = await prisma.chartOfAccounts.findFirst({
-      where: { 
-        accountName: { contains: 'Cash and Cash Equivalents' },
-        isActive: true 
-      }
-    });
+    // Prefer bank-linked GL account(s) over any single "Cash and Cash Equivalents" posting account.
+    const activeBankGlIds = (
+      await prisma.bank.findMany({
+        where: { isActive: true, glAccountId: { not: null } },
+        select: { glAccountId: true },
+      })
+    )
+      .map((b) => b.glAccountId)
+      .filter(Boolean) as string[];
 
-    if (!cashAccount) {
-      throw new Error('Cash and Cash Equivalents account not found');
+    if (activeBankGlIds.length === 0) {
+      throw new Error("No active bank GL accounts found (banks.glAccountId is null).");
     }
 
     // Find journal entries with similar amounts
@@ -456,9 +456,9 @@ export class BankReconciliationEngineService {
         totalAmount: bankTransaction.amount,
         journalEntryLines: {
           some: {
-            chartOfAccountId: cashAccount.id
-          }
-        }
+            chartOfAccountId: { in: activeBankGlIds },
+          },
+        },
       },
       include: {
         journalEntryLines: {

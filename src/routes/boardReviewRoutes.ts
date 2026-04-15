@@ -1,9 +1,31 @@
 //@ts-nocheck
 import express from 'express';
+import multer from 'multer';
 import { BoardReviewController } from '../controllers/BoardReviewController';
 import { authenticate } from '../middleware/authenticate';
 
 const router = express.Router();
+
+const imUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const okMime =
+      [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/msword',
+        'application/vnd.ms-excel'
+      ].includes(file.mimetype) ||
+      /\.(pdf|doc|docx|xls|xlsx)$/i.test(file.originalname || '');
+    if (okMime) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, Word, or Excel files are allowed for the Investment Memorandum'));
+    }
+  }
+});
 
 /**
  * @swagger
@@ -166,7 +188,8 @@ const router = express.Router();
  * /board-reviews/voting-members:
  *   get:
  *     summary: List board voting members
- *     description: Retrieve board members eligible to vote along with their current voting power configuration
+ *     description: |
+ *       Role codes BOARD_CHAIR, BOARD_MEMBER, INV_COMM_MEM, CIO. Investments-only filter when NVCCZ_STRICT_BOARD_VOTE=true.
  *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
@@ -229,10 +252,14 @@ router.put('/voting-members/:userId/voting-power', authenticate, BoardReviewCont
 
 /**
  * @swagger
- * /board-reviews/{applicationId}:
+ * /board-reviews/{applicationId}/investment-memorandum:
  *   post:
- *     summary: Create a new board review
- *     description: Create a board review for an application that has completed due diligence
+ *     summary: Upload Investment Memorandum and open vote (same multipart body as create board review)
+ *     description: |
+ *       **multipart/form-data** only. Same optional text/boolean fields as `POST /board-reviews/{applicationId}`.
+ *       Required file field **`document`**. Booleans as strings `true` / `false`. Omitted booleans default to false when **creating** a new board review; when a review already exists, only fields you include in the form are patched.
+ *       Extra field **`resendNotifications`** (optional): `true` to resend IC vote emails if already READY_FOR_VOTE.
+ *       If no board review row exists: creates it, uploads IM, call-to-vote + IC emails. If it exists: patch (optional), upload IM, call-to-vote.
  *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
@@ -242,18 +269,141 @@ router.put('/voting-members/:userId/voting-power', authenticate, BoardReviewCont
  *         required: true
  *         schema:
  *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - document
+ *             properties:
+ *               document:
+ *                 type: string
+ *                 format: binary
+ *               recommendationReport:
+ *                 type: string
+ *               additionalInformation:
+ *                 type: string
+ *               decisionReason:
+ *                 type: string
+ *               conditions:
+ *                 type: string
+ *               nextSteps:
+ *                 type: string
+ *               overallScore:
+ *                 type: string
+ *                 description: Numeric score as text (e.g. 85.5)
+ *               finalComments:
+ *                 type: string
+ *               investmentApproved:
+ *                 type: string
+ *                 description: "true" or "false"
+ *               investmentRejected:
+ *                 type: string
+ *               conditionalApproval:
+ *                 type: string
+ *               resendNotifications:
+ *                 type: string
+ *                 description: Optional. "true" to force resending vote invite emails.
+ *     responses:
+ *       200:
+ *         description: Existing board review — IM uploaded and call to vote completed
+ *       201:
+ *         description: New board review created — IM uploaded and call to vote completed
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  '/:applicationId/investment-memorandum',
+  authenticate,
+  (req, res, next) => {
+    imUpload.single('document')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ success: false, message: err.message || 'Invalid upload' });
+      }
+      next();
+    });
+  },
+  BoardReviewController.uploadInvestmentMemorandum
+);
+
+/**
+ * Call to vote — sets IM to READY_FOR_VOTE, emails IC members (idempotent). Body optional: { "resendNotifications": true }
+ */
+router.post('/:applicationId/call-to-vote', authenticate, BoardReviewController.callToVote);
+
+/**
+ * Returns IM metadata + URL; writes audit log row BOARD_IM_VIEWED.
+ */
+router.get('/:applicationId/investment-memorandum', authenticate, BoardReviewController.getInvestmentMemorandumAccess);
+
+/**
+ * @swagger
+ * /api/board-reviews/{applicationId}:
+ *   post:
+ *     summary: Create board review and upload final Investment Memorandum
+ *     description: |
+ *       **multipart/form-data** only. Required file field **`document`**. Optional text fields use string values; booleans as `"true"` / `"false"`.
+ *       After success: IM stored, status READY_FOR_VOTE, IC members notified (no separate call-to-vote required).
+ *     tags: [Voting Process, Updated investment flow]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: applicationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
- *             $ref: '#/components/schemas/CreateBoardReviewRequest'
- *           example:
- *             investmentApproved: true
- *             recommendationReport: "Based on our analysis, we recommend approving this investment..."
- *             decisionReason: "Strong market potential and solid financial projections"
- *             nextSteps: "Proceed to term sheet negotiation"
+ *             type: object
+ *             required:
+ *               - document
+ *             properties:
+ *               document:
+ *                 type: string
+ *                 format: binary
+ *                 description: Final IM file (e.g. Acme_IM_Final_v3.pdf)
+ *               recommendationReport:
+ *                 type: string
+ *                 example: "Recommend approval subject to conditions below."
+ *               additionalInformation:
+ *                 type: string
+ *                 example: "Management meeting held 2026-04-01."
+ *               decisionReason:
+ *                 type: string
+ *                 example: "Strong unit economics and clear exit path."
+ *               conditions:
+ *                 type: string
+ *                 example: "Quarterly reporting within 30 days of quarter end."
+ *               nextSteps:
+ *                 type: string
+ *                 example: "Legal to finalize SHA within 14 days."
+ *               overallScore:
+ *                 type: string
+ *                 description: Numeric score as text
+ *                 example: "82.5"
+ *               finalComments:
+ *                 type: string
+ *                 example: "IC to note currency hedging discussion."
+ *               investmentApproved:
+ *                 type: string
+ *                 example: "true"
+ *                 description: '"true" or "false"'
+ *               investmentRejected:
+ *                 type: string
+ *                 example: "false"
+ *               conditionalApproval:
+ *                 type: string
+ *                 example: "true"
  *     responses:
  *       201:
  *         description: Board review created successfully
@@ -275,7 +425,19 @@ router.put('/voting-members/:userId/voting-power', authenticate, BoardReviewCont
  *       500:
  *         description: Internal server error
  */
-router.post('/:applicationId', authenticate, BoardReviewController.createBoardReview);
+router.post(
+  '/:applicationId',
+  authenticate,
+  (req, res, next) => {
+    imUpload.single('document')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ success: false, message: err.message || 'Invalid upload' });
+      }
+      next();
+    });
+  },
+  BoardReviewController.createBoardReview
+);
 
 /**
  * @swagger
@@ -367,11 +529,12 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
 
 /**
  * @swagger
- * /board-reviews/{applicationId}/votes:
+ * /api/board-reviews/{applicationId}/votes:
  *   post:
  *     summary: Cast a board review vote
- *     description: Submit a yes/no vote for a board review. Only eligible board members can vote.
- *     tags: [Voting Process]
+ *     description: |
+ *       `comment` is **required** when `vote` is APPROVE. Quorum auto-complete uses env `BOARD_VOTE_QUORUM_YES_COUNT` (default 3). Stricter eligibility when `NVCCZ_STRICT_BOARD_VOTE=true`.
+ *     tags: [Voting Process, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -380,6 +543,7 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     requestBody:
  *       required: true
@@ -394,7 +558,18 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
  *                 enum: [APPROVE, REJECT]
  *               comment:
  *                 type: string
- *                 description: Optional comment to accompany the vote
+ *                 description: Required for APPROVE; optional for REJECT
+ *           examples:
+ *             approve:
+ *               summary: Example APPROVE (comment required)
+ *               value:
+ *                 vote: "APPROVE"
+ *                 comment: "I approve subject to conditions in the IM section 4.2."
+ *             reject:
+ *               summary: Example REJECT
+ *               value:
+ *                 vote: "REJECT"
+ *                 comment: "Valuation gap vs comparables."
  *     responses:
  *       200:
  *         description: Vote recorded successfully
@@ -411,11 +586,12 @@ router.post('/:applicationId/votes', authenticate, BoardReviewController.submitB
 
 /**
  * @swagger
- * /board-reviews/{applicationId}/votes/summary:
+ * /api/board-reviews/{applicationId}/votes/summary:
  *   get:
  *     summary: Get board vote summary
- *     description: Retrieve the weighted vote summary for a board review. Votes remain anonymous until the review is completed.
- *     tags: [Voting Process]
+ *     description: |
+ *       Weighted vote summary; votes hidden until review is completed. Restricted when `NVCCZ_STRICT_BOARD_VOTE=true`.
+ *     tags: [Voting Process, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -424,6 +600,7 @@ router.post('/:applicationId/votes', authenticate, BoardReviewController.submitB
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     responses:
  *       200:
@@ -441,11 +618,12 @@ router.get('/:applicationId/votes/summary', authenticate, BoardReviewController.
 
 /**
  * @swagger
- * /board-reviews/{applicationId}/complete:
+ * /api/board-reviews/{applicationId}/complete:
  *   post:
  *     summary: Complete board review
- *     description: Complete a board review and update application stage
- *     tags: [Voting Process]
+ *     description: |
+ *       Finalize voting and move application stage. Board Chair only when `NVCCZ_STRICT_BOARD_VOTE=true`.
+ *     tags: [Voting Process, Updated investment flow]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -454,6 +632,7 @@ router.get('/:applicationId/votes/summary', authenticate, BoardReviewController.
  *         required: true
  *         schema:
  *           type: string
+ *           example: "cmi78trsi0000jx048i72bb7m"
  *         description: Application ID
  *     responses:
  *       200:

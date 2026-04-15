@@ -44,6 +44,61 @@ export class PerformanceIntegrationController {
     }
   }
 
+  /** In-process AUM from Fund totals (OPEN/CLOSED) → same goal updates as manual sync. */
+  static async syncPePortfolioAum(req: Request, res: Response) {
+    try {
+      const { goalId, kpiId, fundId } = req.body || {};
+      const data = await PerformanceIntegrationService.runPePortfolioAumSync({
+        goalId,
+        kpiId,
+        fundId,
+        actor: req.user,
+        meta: requestMeta(req)
+      });
+      return responseHelper.success(res, data, "Portfolio AUM synced from accounting funds successfully");
+    } catch (error: any) {
+      const msg = error instanceof Error ? error.message : String(error ?? "Portfolio AUM sync failed");
+      return responseHelper.error(res, msg, undefined, 400);
+    }
+  }
+
+  /** In-process sum of portfolio companies' reported TOTAL_REVENUE → revenue KPI goals. */
+  static async syncPePortfolioTotalRevenue(req: Request, res: Response) {
+    try {
+      const { goalId, kpiId, fundId } = req.body || {};
+      const data = await PerformanceIntegrationService.runPePortfolioTotalRevenueSync({
+        goalId,
+        kpiId,
+        fundId,
+        actor: req.user,
+        meta: requestMeta(req)
+      });
+      return responseHelper.success(res, data, "Portfolio total revenue synced successfully");
+    } catch (error: any) {
+      const msg =
+        error instanceof Error ? error.message : String(error ?? "Portfolio total revenue sync failed");
+      return responseHelper.error(res, msg, undefined, 400);
+    }
+  }
+
+  /** Payroll Employee headcount (active vs inactive) → turnover rate % on the goal. */
+  static async syncPayrollTurnoverRate(req: Request, res: Response) {
+    try {
+      const { goalId, kpiId } = req.body || {};
+      const data = await PerformanceIntegrationService.runPayrollTurnoverRateSync({
+        goalId,
+        kpiId,
+        actor: req.user,
+        meta: requestMeta(req)
+      });
+      return responseHelper.success(res, data, "Payroll employee turnover rate synced successfully");
+    } catch (error: any) {
+      const msg =
+        error instanceof Error ? error.message : String(error ?? "Payroll turnover rate sync failed");
+      return responseHelper.error(res, msg, undefined, 400);
+    }
+  }
+
   static async listSyncJobs(req: Request, res: Response) {
     try {
       const data = await PerformanceIntegrationService.listSyncJobs({

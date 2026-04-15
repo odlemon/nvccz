@@ -174,12 +174,29 @@ async function testFundDisbursementJournalEntry() {
     console.log('💰 Approving fund disbursement...');
     console.log('   This will automatically create a balanced journal entry:');
     console.log(`   DR 1501 - Portfolio Investments: $${Number(disbursementToApprove.amount).toLocaleString()}`);
-    console.log(`   CR 1010 - Main Bank Account: $${Number(disbursementToApprove.amount).toLocaleString()}`);
+    console.log(`   CR: selected bank GL (see disbursement-banks)`);
     console.log('');
+
+    const bankPick = await prisma.bank.findFirst({
+      where: {
+        isActive: true,
+        glAccountId: { not: null },
+        ...((disbursementToApprove as any).paymentCurrencyId
+          ? { currencyId: (disbursementToApprove as any).paymentCurrencyId }
+          : {}),
+      },
+      orderBy: { name: "asc" },
+    });
+    if (!bankPick) {
+      console.log("❌ No active bank with GL for this currency.");
+      await prisma.$disconnect();
+      return;
+    }
 
     const approvedDisbursement = await InvestmentImplementationService.approveFundDisbursement(
       disbursementToApprove.id,
-      approver.id
+      approver.id,
+      bankPick.id
     );
 
     console.log('✅ Disbursement approved successfully!');

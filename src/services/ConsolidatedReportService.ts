@@ -2,7 +2,8 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { buildJournalEntryWhereForGlReporting } from "../utils/journalEntryReportingFilter";
-import { resolveUsdZwgAvgForSnapshot } from "./UsdZwgRateResolver";
+import { resolveUsdZwgAvgForConsolidatedReport } from "./UsdZwgRateResolver";
+import { BalanceSheetService } from "./BalanceSheetService";
 
 export interface CurrencyBreakdownItem {
   sourceCurrency: string;
@@ -40,7 +41,7 @@ type RateCache = Map<string, { rate: number; code: string }>;
 export class ConsolidatedReportService {
   /**
    * Resolve the conversion rate from `fromCurrencyId` to `toCurrencyId` as of `asOfDate`.
-   * Fallback chain: exact date → nearest earlier → inverse → UsdZwg snapshot for ZiG↔USD.
+   * Fallback chain: exact date → nearest earlier → inverse → live Zimrate USD/ZWG (then stored snapshot if API down) for ZiG↔USD.
    */
   private static async resolveRate(
     fromCurrencyId: string,
@@ -88,8 +89,8 @@ export class ConsolidatedReportService {
     });
     if (inv && Number(inv.rate) > 0) return 1 / Number(inv.rate);
 
-    // 6. UsdZwg snapshot fallback (covers ZiG↔USD when no explicit rate exists)
-    const snapshot = await resolveUsdZwgAvgForSnapshot(prisma as any).catch(() => null);
+    // 6. Live Zimrate USD/ZWG first, then last stored snapshot if API unavailable (covers ZiG↔USD when no explicit rate exists)
+    const snapshot = await resolveUsdZwgAvgForConsolidatedReport(prisma as any).catch(() => null);
     if (snapshot && snapshot > 0) {
       const [fromCcy, toCcy] = await Promise.all([
         prisma.currency.findUnique({ where: { id: fromCurrencyId }, select: { code: true } }),
@@ -289,15 +290,22 @@ export class ConsolidatedReportService {
         .map((b) => b.glAccountId)
         .filter(Boolean) as string[]
     );
+    // Note: Cash & Cash Equivalents is a reporting bucket, not a single posting account.
+    // We treat any bank-linked GL accounts (banks.glAccountId) as cash/bank for reporting.
 
     const allAccounts = [...accountMap.values()];
     const eps = 0.01;
 
-    const isCash = (a: ConsolidatedAccount) => {
-      const lc = a.accountName.toLowerCase();
-      const inRange = a.accountNo >= "1100" && a.accountNo <= "1199";
-      return lc.includes("cash") || lc.includes("bank") || (a.accountType === "Current Asset" && inRange) || bankGLAccountIds.has(a.accountId);
-    };
+    const isCash = (a: ConsolidatedAccount) =>
+      BalanceSheetService.isCashOrBankEquivalentForReporting(
+        {
+          id: a.accountId,
+          accountNo: a.accountNo,
+          accountName: a.accountName,
+          accountType: a.accountType,
+        },
+        bankGLAccountIds
+      );
 
     const cashAccounts = allAccounts.filter((a) => a.accountType.includes("Asset") && isCash(a));
     const currentAssets = allAccounts.filter((a) => a.accountType === "Current Asset" && !isCash(a));

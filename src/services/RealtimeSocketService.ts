@@ -55,6 +55,18 @@ export function initSocketServer(httpServer: any) {
       if (!taskId) return;
       socket.leave(`task:${taskId}`);
     });
+
+    socket.on("join_deal", (payload: { applicationId?: string }) => {
+      const applicationId = String(payload?.applicationId || "").trim();
+      if (!applicationId) return;
+      socket.join(`deal:${applicationId}`);
+    });
+
+    socket.on("leave_deal", (payload: { applicationId?: string }) => {
+      const applicationId = String(payload?.applicationId || "").trim();
+      if (!applicationId) return;
+      socket.leave(`deal:${applicationId}`);
+    });
   });
 
   return io;
@@ -63,6 +75,11 @@ export function initSocketServer(httpServer: any) {
 export function emitToTask(taskId: string, event: string, payload: any) {
   if (!io || !taskId) return;
   io.to(`task:${taskId}`).emit(event, payload);
+}
+
+export function emitToDeal(applicationId: string, event: string, payload: any) {
+  if (!io || !applicationId) return;
+  io.to(`deal:${applicationId}`).emit(event, payload);
 }
 
 export function emitToUser(userId: string, event: string, payload: any) {

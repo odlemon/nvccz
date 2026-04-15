@@ -21,8 +21,8 @@ This section covers manual sync, sync jobs, approvals, manager overrides, bulk K
 | B.09 Bulk KPI import | Implemented | `POST /api/performance/integration/import` |
 | B.10 JWT token expiry refresh | Shared-auth concern | outside performance module backend |
 | B.11 IRR fetch from internal modules | Implemented | `POST /api/performance/integration/sync` |
-| B.12 AUM real-time sync | Implemented | `POST /api/performance/integration/sync` |
-| B.15 Employee turnover rate integration | Implemented | `POST /api/performance/integration/sync`, `POST /api/performance/goal-tracking/:goalId` |
+| B.12 AUM real-time sync | Implemented | `POST /api/performance/integration/sync-pe-portfolio-aum` (aggregate `Fund.totalAmount` via `calculateAUM`; optional `fundId` for single-fund total). UAT: `npm run test:uat:performance-b12-aum-realtime-sync` |
+| B.15 Employee turnover rate integration | Implemented | `POST /api/performance/integration/sync-payroll-turnover-rate` (Payroll `Employee` active vs inactive headcount → `turnoverRatePct`). UAT: `npm run test:uat:performance-b15-payroll-turnover` |
 | B.17 Project completion rate integration | Implemented | `PUT /api/tasks/:id/stage`, `PUT /api/tasks/bulk/stage` |
 | B.18 Exponential backoff on internal APIs | Implemented | `POST /api/performance/integration/sync` |
 

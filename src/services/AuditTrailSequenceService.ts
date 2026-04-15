@@ -5,6 +5,8 @@
 
 import type { JournalEntry, Prisma } from "@prisma/client";
 import { prisma } from "../utils/database";
+import type { PeriodLockSource } from "./fiscalPeriodLockTypes";
+import PeriodLockService from "./PeriodLockService";
 
 /** Journal create payload without audit id (assigned automatically). */
 export type JournalEntryCreateWithoutAudit = Omit<
@@ -17,23 +19,25 @@ const INITIAL_VALUE = 1000;
 
 type PrismaLike = typeof prisma;
 
+/** Optional: pass from HTTP layer for WARN/override; jobs omit. */
+export type JournalEntryPeriodLockOptions = {
+  userPermissions?: Array<{ name: string; value: boolean }>;
+  source?: PeriodLockSource;
+};
+
 /**
  * Get the next audit trail sequence number and increment the counter.
- * Must be called inside a transaction when creating a journal entry to avoid gaps.
+ * Uses a single atomic `increment` so concurrent transactions cannot assign the same number
+ * (read-modify-write races caused duplicate `auditTrailSequenceNumber` / P2002 under load).
  */
 export async function getNextAuditTrailSequenceNumber(tx?: PrismaLike): Promise<number> {
   const client = tx ?? prisma;
-  const seq = await client.auditTrailSequence.findUnique({
+  await ensureAuditTrailSequenceExists(client);
+  const updated = await client.auditTrailSequence.update({
     where: { name: SEQUENCE_NAME },
+    data: { value: { increment: 1 } },
   });
-  const current = seq?.value ?? INITIAL_VALUE;
-  const next = current + 1;
-  await client.auditTrailSequence.upsert({
-    where: { name: SEQUENCE_NAME },
-    create: { name: SEQUENCE_NAME, value: next },
-    update: { value: next },
-  });
-  return next;
+  return updated.value;
 }
 
 /**
@@ -53,8 +57,21 @@ export async function ensureAuditTrailSequenceExists(tx?: PrismaLike): Promise<v
  */
 export async function assignNextAuditIdAndCreateJournal(
   tx: Prisma.TransactionClient,
-  data: JournalEntryCreateWithoutAudit
+  data: JournalEntryCreateWithoutAudit,
+  periodLockOpts?: JournalEntryPeriodLockOptions
 ): Promise<JournalEntry> {
+  const accountingDate =
+    data.transactionDate instanceof Date
+      ? data.transactionDate
+      : new Date(data.transactionDate as string | number);
+  await PeriodLockService.assertModuleDateOpen({
+    moduleCode: "GL",
+    accountingDate,
+    userId: data.createdById,
+    source: periodLockOpts?.source ?? "SYSTEM",
+    actionType: "CREATE_JOURNAL",
+    userPermissions: periodLockOpts?.userPermissions,
+  });
   await ensureAuditTrailSequenceExists(tx as PrismaLike);
   const auditTrailSequenceNumber = await getNextAuditTrailSequenceNumber(tx as PrismaLike);
   return tx.journalEntry.create({
@@ -66,11 +83,12 @@ export async function assignNextAuditIdAndCreateJournal(
  * Standalone: atomically reserve audit id + create journal (use when not already in a transaction).
  */
 export async function createJournalEntryWithAuditSequence(
-  data: JournalEntryCreateWithoutAudit
+  data: JournalEntryCreateWithoutAudit,
+  periodLockOpts?: JournalEntryPeriodLockOptions
 ): Promise<JournalEntry> {
   return prisma.$transaction(
-    (tx) => assignNextAuditIdAndCreateJournal(tx, data),
-    { maxWait: 60000, timeout: 120000 }
+    (tx) => assignNextAuditIdAndCreateJournal(tx, data, periodLockOpts),
+    { maxWait: 8_000, timeout: 15_000 }
   );
 }
 
@@ -82,16 +100,25 @@ export async function createJournalEntryWithAuditSequence(
 export async function reserveAuditSequences(count: number): Promise<number> {
   if (count <= 0) throw new Error('count must be > 0');
   return prisma.$transaction(async (tx) => {
-    await ensureAuditTrailSequenceExists(tx as PrismaLike);
-    const seq = await (tx as PrismaLike).auditTrailSequence.findUnique({ where: { name: SEQUENCE_NAME } });
-    const current = seq?.value ?? INITIAL_VALUE;
-    const firstReserved = current + 1;
-    await (tx as PrismaLike).auditTrailSequence.update({
-      where: { name: SEQUENCE_NAME },
-      data: { value: current + count },
-    });
-    return firstReserved;
+    return reserveAuditSequencesInTx(tx, count);
   }, { maxWait: 30000, timeout: 60000 });
+}
+
+/**
+ * Reserve `count` consecutive audit IDs using an existing Prisma transaction (same semantics as `reserveAuditSequences`).
+ */
+export async function reserveAuditSequencesInTx(
+  tx: Prisma.TransactionClient,
+  count: number
+): Promise<number> {
+  if (count <= 0) throw new Error('count must be > 0');
+  await ensureAuditTrailSequenceExists(tx as PrismaLike);
+  const updated = await (tx as PrismaLike).auditTrailSequence.update({
+    where: { name: SEQUENCE_NAME },
+    data: { value: { increment: count } },
+  });
+  const lastAssigned = updated.value;
+  return lastAssigned - count + 1;
 }
 
 export interface AuditTrailEntry {

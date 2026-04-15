@@ -152,8 +152,8 @@ const upload = multer({
  *     summary: Run a manual performance KPI sync (HTTP data source)
  *     description: |
  *       Fetches a value from an internal HTTP path (`endpointPath` must include `/v1/`; optional env base URL).
- *       For **portfolio IRR** from PE/accounting without any HTTP hop or base URL, use
- *       `POST /api/performance/integration/sync-pe-portfolio-irr` instead.
+ *       For **portfolio IRR**, **AUM**, **total revenue**, or **Payroll turnover rate** without an HTTP hop, use
+ *       `sync-pe-portfolio-irr`, `sync-pe-portfolio-aum`, `sync-pe-portfolio-total-revenue`, or `sync-payroll-turnover-rate` instead.
  *     tags: [Performance Integration]
  *     security:
  *       - bearerAuth: []
@@ -232,6 +232,98 @@ router.post(
   "/sync-pe-portfolio-irr",
   authenticate,
   PerformanceIntegrationController.syncPePortfolioIrr
+);
+
+/**
+ * @swagger
+ * /api/performance/integration/sync-pe-portfolio-aum:
+ *   post:
+ *     summary: Sync Assets Under Management from accounting funds (in-process)
+ *     description: |
+ *       Reads total AUM as the sum of `Fund.totalAmount` for OPEN and CLOSED funds (same as CEO / portfolio accounting),
+ *       or a single fund's `totalAmount` when `fundId` is supplied. Updates AUM-linked performance goals with no HTTP self-call.
+ *       Body requires `goalId` or `kpiId`. Each affected goal must have an AUM-linked KPI (`formulaType` `AUM` or `AUM_TOTAL`,
+ *       or KPI name indicating assets under management); IRR-only goals are rejected.
+ *     tags: [Performance Integration]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               goalId:
+ *                 type: string
+ *               kpiId:
+ *                 type: string
+ *               fundId:
+ *                 type: string
+ *                 description: Omit to use aggregate AUM across all OPEN/CLOSED funds; set to sync one fund's total only.
+ *     responses:
+ *       200:
+ *         description: Sync completed (may be pending manager approval for high-precision KPIs)
+ *       400:
+ *         description: Invalid request
+ */
+router.post(
+  "/sync-pe-portfolio-aum",
+  authenticate,
+  PerformanceIntegrationController.syncPePortfolioAum
+);
+
+/**
+ * @swagger
+ * /api/performance/integration/sync-pe-portfolio-total-revenue:
+ *   post:
+ *     summary: Sync aggregated portfolio total revenue from PE company KPIs (in-process)
+ *     description: |
+ *       Sums `TOTAL_REVENUE` from `PortfolioCompany.financialKpis` (same source as portfolio summary).
+ *       Body requires `goalId` or `kpiId`; optional `fundId` scopes to one fund's portfolio companies.
+ *       Goals must be revenue-linked KPIs (not IRR, AUM, or turnover).
+ *     tags: [Performance Integration]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/sync-pe-portfolio-total-revenue",
+  authenticate,
+  PerformanceIntegrationController.syncPePortfolioTotalRevenue
+);
+
+/**
+ * @swagger
+ * /api/performance/integration/sync-payroll-turnover-rate:
+ *   post:
+ *     summary: Sync employee turnover rate from Payroll (Employee headcount)
+ *     description: |
+ *       Reads active vs inactive `Employee` rows; turnover % = inactive / total × 100. Updates turnover-linked goals in-process.
+ *       Body requires `goalId` or `kpiId`. Goal must have turnover KPI or formulaType `TURNOVER_RATE` / `EMPLOYEE_TURNOVER`.
+ *     tags: [Performance Integration]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               goalId:
+ *                 type: string
+ *               kpiId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Sync completed
+ *       400:
+ *         description: Invalid request
+ */
+router.post(
+  "/sync-payroll-turnover-rate",
+  authenticate,
+  PerformanceIntegrationController.syncPayrollTurnoverRate
 );
 
 /**

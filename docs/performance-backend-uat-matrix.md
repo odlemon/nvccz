@@ -37,9 +37,9 @@ Status legend:
 | B.09 Bulk KPI import | Implemented | XLSX/CSV import path in `POST /api/performance/integration/import` |
 | B.10 JWT token expiry refresh | Out of Scope | Shared authentication/session flow, not performance-module backend logic |
 | B.11 IRR fetch from internal modules | Implemented | Same sync pipeline as B.01/B.02 |
-| B.12 AUM sync into PM KPI | Implemented | Same sync pipeline plus precise goal value storage |
-| B.15 Turnover-rate source integration | Implemented | Existing performance goal data-source integration plus precise sync support |
-| B.17 Project completion rate integration | Implemented | Existing task/goal roll-up pipeline plus sync-governance extensions |
+| B.12 AUM sync into PM KPI | Implemented | `POST /api/performance/integration/sync-pe-portfolio-aum` + `PerformanceIntegrationService.runPePortfolioAumSync` reads `DataIntegrationService.calculateAUM()` (fund `totalAmount` sum); UAT: `npm run test:uat:performance-b12-aum-realtime-sync` |
+| B.15 Turnover-rate source integration | Implemented | `POST /api/performance/integration/sync-payroll-turnover-rate` + `DataIntegrationService.calculatePayrollEmployeeTurnoverMetrics()` (`Employee.isActive`); UAT: `npm run test:uat:performance-b15-payroll-turnover` |
+| B.17 Project completion rate integration | Implemented | Linked tasks (`goalId`) roll up via `TaskService.updateLinkedGoalProgress` / `recalculateGoalProgressFromTasks` on `PUT /api/tasks/:id/stage` and `PUT /api/tasks/bulk/stage`; `isPerformanceTask` defaults true when a goal is linked on create |
 | B.18 Exponential backoff on internal APIs | Implemented | Same retry pipeline as B.05 |
 
 ## C-Series

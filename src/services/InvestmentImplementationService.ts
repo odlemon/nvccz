@@ -3,8 +3,18 @@ import { PrismaClient, InvestmentImplementation, InvestmentMilestone, FundDisbur
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { FUND_DISBURSEMENT_COMPLIANCE_BLOCKED_MESSAGE } from '../config/applicationStatutoryCompliance';
 import { CashbookService } from './CashbookService';
 import { EmailNotificationService } from './EmailNotificationService';
+import { MultiCurrencyService } from './MultiCurrencyService';
+
+function assertApplicationComplianceForDisbursement(
+  app: { complianceCleared?: boolean } | null | undefined
+): void {
+  if (!app?.complianceCleared) {
+    throw new Error(FUND_DISBURSEMENT_COMPLIANCE_BLOCKED_MESSAGE);
+  }
+}
 
 export interface CreateInvestmentImplementationRequest {
   portfolioCompanyId: string;
@@ -15,6 +25,8 @@ export interface CreateInvestmentImplementationRequest {
   notes?: string;
   disbursementMode?: 'ONE_TIME' | 'MILESTONE_BASED'; // Optional: defaults to ONE_TIME
   totalCommittedAmount?: number; // Required if MILESTONE_BASED
+  /** IC cap / commitment currency (defaults to system default currency or USD). */
+  commitmentCurrencyId?: string;
 }
 
 export interface CreateMilestoneRequest {
@@ -32,15 +44,33 @@ export interface CreateFundDisbursementRequest {
   disbursementDate: Date;
   disbursementType: string; // INITIAL, MILESTONE, FINAL
   notes?: string;
+  /**
+   * Payout currency for `amount`. When omitted, same as implementation commitment currency.
+   * Cross-currency uses latest system rate from `exchange_rates` as of disbursementDate (not manual).
+   */
+  paymentCurrencyId?: string;
 }
+
+export type DisbursementListItem = FundDisbursement & {
+  trancheIndex: number;
+  cfoApprovalStatusLabel?: string;
+};
 
 export interface DisbursementSummary {
   totalCommittedAmount: number;
   totalDisbursedAmount: number;
   remainingCommittedAmount: number;
+  /** Same as remainingCommittedAmount (UAT: undrawn commitment). */
+  undrawnCommittedAmount: number;
+  /** Sum of PENDING tranches in commitment currency (reserves cap). */
+  pendingCommitmentAmount: number;
+  commitmentCurrencyCode: string | null;
   disbursementCount: number;
   disbursementMode: string;
-  disbursements: FundDisbursement[];
+  disbursements: DisbursementListItem[];
+  complianceCleared: boolean;
+  kycVerified: boolean;
+  disbursementBlockedReason: string | null;
 }
 
 export interface InvestmentImplementationWithRelations extends InvestmentImplementation {
@@ -73,6 +103,31 @@ export interface InvestmentImplementationWithRelations extends InvestmentImpleme
 }
 
 export class InvestmentImplementationService {
+  /** Amount in commitment / IC cap currency for a disbursement row (legacy rows: amount only). */
+  private static commitmentEquivalent(d: { amount: unknown; amountCommitmentCurrency?: unknown }): Decimal {
+    if (d.amountCommitmentCurrency != null && d.amountCommitmentCurrency !== undefined) {
+      return new Decimal(d.amountCommitmentCurrency as any);
+    }
+    return new Decimal(d.amount as any);
+  }
+
+  private static async resolveCommitmentCurrencyIdForImplementation(implementation: {
+    commitmentCurrencyId?: string | null;
+  }): Promise<string> {
+    if (implementation.commitmentCurrencyId) {
+      return implementation.commitmentCurrencyId;
+    }
+    const cur =
+      (await prisma.currency.findFirst({ where: { isDefault: true } })) ||
+      (await prisma.currency.findFirst({ where: { code: "USD" } }));
+    if (!cur) {
+      throw new Error(
+        "No commitment currency on implementation and no default/USD currency in system. Set InvestmentImplementation.commitmentCurrencyId or configure currencies."
+      );
+    }
+    return cur.id;
+  }
+
   /**
    * Get applications with signed term sheets
    */
@@ -243,6 +298,22 @@ export class InvestmentImplementationService {
         }
       }
 
+      let commitmentCurrencyId: string;
+      if (params.commitmentCurrencyId) {
+        const cc = await prisma.currency.findFirst({
+          where: { id: params.commitmentCurrencyId, isActive: true }
+        });
+        if (!cc) {
+          throw new Error("commitmentCurrencyId is not a valid active currency");
+        }
+        commitmentCurrencyId = cc.id;
+      } else {
+        commitmentCurrencyId =
+          await InvestmentImplementationService.resolveCommitmentCurrencyIdForImplementation({
+            commitmentCurrencyId: null
+          });
+      }
+
                            // Create investment implementation
         const implementation = await prisma.investmentImplementation.create({
           data: {
@@ -254,6 +325,7 @@ export class InvestmentImplementationService {
             notes: params.notes,
             disbursementMode: params.disbursementMode || 'ONE_TIME',
             totalCommittedAmount: params.totalCommittedAmount ? new Decimal(params.totalCommittedAmount) : null,
+            commitmentCurrencyId,
             status: "IN_PROGRESS"
           },
         include: {
@@ -519,6 +591,14 @@ export class InvestmentImplementationService {
       const implementation = await prisma.investmentImplementation.findUnique({
         where: { id: investmentImplementationId },
         include: {
+          application: {
+            select: {
+              id: true,
+              complianceCleared: true,
+              kycVerified: true
+            }
+          },
+          commitmentCurrency: { select: { code: true } },
           fundDisbursements: {
             orderBy: { createdAt: 'asc' }
           }
@@ -529,27 +609,48 @@ export class InvestmentImplementationService {
         throw new Error("Investment implementation not found");
       }
 
-      // Calculate total disbursed (only APPROVED or DISBURSED status)
       const totalDisbursed = implementation.fundDisbursements
-        .filter(d => d.status === 'APPROVED' || d.status === 'DISBURSED')
-        .reduce((sum, d) => sum.plus(d.amount), new Decimal(0));
+        .filter((d) => d.status === "APPROVED" || d.status === "DISBURSED")
+        .reduce((sum, d) => sum.plus(InvestmentImplementationService.commitmentEquivalent(d)), new Decimal(0));
+
+      const pendingCommitment = implementation.fundDisbursements
+        .filter((d) => d.status === "PENDING")
+        .reduce((sum, d) => sum.plus(InvestmentImplementationService.commitmentEquivalent(d)), new Decimal(0));
 
       const totalCommitted = implementation.totalCommittedAmount || new Decimal(0);
       const remainingCommitted = totalCommitted.minus(totalDisbursed);
 
-      // Map disbursements to exclude disbursedAt field
-      const disbursements = implementation.fundDisbursements.map(d => {
+      const sorted = [...implementation.fundDisbursements].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      const trancheById = new Map(sorted.map((d, i) => [d.id, i + 1]));
+
+      const disbursements: DisbursementListItem[] = implementation.fundDisbursements.map((d) => {
         const { disbursedAt, ...rest } = d;
-        return rest;
+        const trancheIndex = trancheById.get(d.id) ?? 1;
+        let cfoApprovalStatusLabel: string | undefined;
+        if (d.status === "PENDING") cfoApprovalStatusLabel = "PENDING_CFO_APPROVAL";
+        else if (d.status === "REJECTED") cfoApprovalStatusLabel = "REJECTED";
+        return { ...rest, trancheIndex, cfoApprovalStatusLabel };
       });
+
+      const cleared = Boolean(implementation.application?.complianceCleared);
+      const kyc = Boolean(implementation.application?.kycVerified);
+      const remainingNum = Number(remainingCommitted);
 
       return {
         totalCommittedAmount: Number(totalCommitted),
         totalDisbursedAmount: Number(totalDisbursed),
-        remainingCommittedAmount: Number(remainingCommitted),
+        remainingCommittedAmount: remainingNum,
+        undrawnCommittedAmount: remainingNum,
+        pendingCommitmentAmount: Number(pendingCommitment),
+        commitmentCurrencyCode: implementation.commitmentCurrency?.code ?? null,
         disbursementCount: implementation.fundDisbursements.length,
-        disbursementMode: implementation.disbursementMode || 'ONE_TIME',
-        disbursements: disbursements
+        disbursementMode: implementation.disbursementMode || "ONE_TIME",
+        disbursements,
+        complianceCleared: cleared,
+        kycVerified: kyc,
+        disbursementBlockedReason: cleared ? null : FUND_DISBURSEMENT_COMPLIANCE_BLOCKED_MESSAGE
       };
     } catch (error: any) {
       throw new Error(`Failed to get disbursement summary: ${error.message}`);
@@ -560,16 +661,23 @@ export class InvestmentImplementationService {
    * Create fund disbursement
    * Supports both ONE_TIME and MILESTONE_BASED disbursement modes
    */
-  static async createFundDisbursement(params: CreateFundDisbursementRequest): Promise<FundDisbursement> {
+  static async createFundDisbursement(
+    params: CreateFundDisbursementRequest
+  ): Promise<DisbursementListItem> {
     try {
-      // Get the investment implementation to find the associated fund
       const implementation = await prisma.investmentImplementation.findUnique({
         where: { id: params.investmentImplementationId },
-        include: { 
+        include: {
           fund: true,
+          application: {
+            select: {
+              id: true,
+              complianceCleared: true
+            }
+          },
           fundDisbursements: {
             where: {
-              status: { in: ['APPROVED', 'DISBURSED'] }
+              status: { in: ["PENDING", "APPROVED", "DISBURSED"] }
             }
           }
         }
@@ -583,38 +691,64 @@ export class InvestmentImplementationService {
         throw new Error("Investment implementation is not associated with a fund");
       }
 
-      const disbursementAmount = new Decimal(params.amount);
-      const disbursementMode = implementation.disbursementMode || 'ONE_TIME';
+      assertApplicationComplianceForDisbursement(implementation.application);
 
-      // Validate fund has sufficient remaining amount
-      if (implementation.fund.remainingAmount.lessThan(disbursementAmount)) {
-        throw new Error("Insufficient funds available in fund for disbursement");
+      const commitmentCurrencyId =
+        await InvestmentImplementationService.resolveCommitmentCurrencyIdForImplementation(implementation);
+
+      let paymentCurrencyId = params.paymentCurrencyId || commitmentCurrencyId;
+      if (params.paymentCurrencyId) {
+        const pc = await prisma.currency.findFirst({
+          where: { id: params.paymentCurrencyId, isActive: true }
+        });
+        if (!pc) {
+          throw new Error("paymentCurrencyId is not a valid active currency");
+        }
+        paymentCurrencyId = pc.id;
       }
 
-      // For MILESTONE_BASED disbursements, validate against committed amount
-      if (disbursementMode === 'MILESTONE_BASED') {
-        if (!implementation.totalCommittedAmount) {
-          throw new Error("Total committed amount must be set for milestone-based disbursements");
-        }
+      const disbursementAmount = new Decimal(params.amount);
+      if (disbursementAmount.lte(0)) {
+        throw new Error("Disbursement amount must be positive");
+      }
 
-        // Calculate total already disbursed
-        const totalDisbursed = implementation.fundDisbursements.reduce(
-          (sum, d) => sum.plus(d.amount),
+      const conv = await MultiCurrencyService.convertCurrency({
+        amount: Number(disbursementAmount),
+        fromCurrencyId: paymentCurrencyId,
+        toCurrencyId: commitmentCurrencyId,
+        date: params.disbursementDate
+      });
+      const amountCommitmentCurrency = new Decimal(conv.convertedAmount);
+      const appliedRate = new Decimal(conv.exchangeRate);
+
+      const disbursementMode = implementation.disbursementMode || "ONE_TIME";
+
+      if (implementation.fund.remainingAmount.lessThan(amountCommitmentCurrency)) {
+        throw new Error("Insufficient funds available in fund for disbursement (commitment-currency equivalent)");
+      }
+
+      if (disbursementMode === "MILESTONE_BASED" && !implementation.totalCommittedAmount) {
+        throw new Error("Total committed amount must be set for milestone-based disbursements");
+      }
+
+      if (implementation.totalCommittedAmount) {
+        const reserved = implementation.fundDisbursements.reduce(
+          (sum, d) => sum.plus(InvestmentImplementationService.commitmentEquivalent(d)),
           new Decimal(0)
         );
-
-        // Calculate remaining committed amount
-        const remainingCommitted = implementation.totalCommittedAmount.minus(totalDisbursed);
-
-        // Validate this disbursement doesn't exceed remaining committed amount
-        if (remainingCommitted.lessThan(disbursementAmount)) {
+        const remainingCap = implementation.totalCommittedAmount.minus(reserved);
+        if (remainingCap.lessThan(amountCommitmentCurrency)) {
           throw new Error(
-            `Insufficient remaining committed amount. Remaining: $${remainingCommitted.toFixed(2)}, Requested: $${disbursementAmount.toFixed(2)}`
+            `Insufficient remaining committed amount (IC cap). Remaining: ${remainingCap.toFixed(2)}, this tranche (commitment CCY): ${amountCommitmentCurrency.toFixed(2)}`
           );
         }
       }
 
-      // Create disbursement
+      const priorCount = await prisma.fundDisbursement.count({
+        where: { investmentImplementationId: params.investmentImplementationId }
+      });
+      const trancheIndex = priorCount + 1;
+
       const disbursement = await prisma.fundDisbursement.create({
         data: {
           fundId: implementation.fund.id,
@@ -624,25 +758,267 @@ export class InvestmentImplementationService {
           disbursementDate: params.disbursementDate,
           disbursementType: params.disbursementType,
           notes: params.notes,
-          status: "PENDING"
+          status: "PENDING",
+          paymentCurrencyId,
+          commitmentCurrencyId,
+          amountCommitmentCurrency,
+          appliedExchangeRate: appliedRate
         }
       });
 
-      return disbursement;
+      void InvestmentImplementationService.notifyCfosOfPendingDisbursement(
+        disbursement.id,
+        trancheIndex
+      ).catch((e) => console.error("notifyCfosOfPendingDisbursement:", e));
+
+      return {
+        ...disbursement,
+        trancheIndex,
+        cfoApprovalStatusLabel: "PENDING_CFO_APPROVAL" as const
+      };
     } catch (error: any) {
       throw new Error(`Failed to create fund disbursement: ${error.message}`);
     }
   }
 
   /**
-   * Approve fund disbursement
-   * Creates a cashbook payment entry which automatically creates a journal entry:
-   * - Debit: 1501 - Portfolio Investments
-   * - Credit: 1010 - Main Bank Account (Main Bank Account)
+   * Email all users with CFO role after a tranche is created (PENDING).
+   */
+  static async notifyCfosOfPendingDisbursement(
+    disbursementId: string,
+    trancheIndex: number
+  ): Promise<void> {
+    const d = await prisma.fundDisbursement.findUnique({
+      where: { id: disbursementId },
+      include: {
+        paymentCurrency: { select: { code: true } },
+        investmentImplementation: {
+          include: {
+            application: { select: { businessName: true, dealReference: true } },
+            portfolioCompany: { select: { name: true } }
+          }
+        }
+      }
+    });
+    if (!d || d.status !== "PENDING") return;
+
+    const cfos = await prisma.user.findMany({
+      where: {
+        OR: [
+          { roleCode: "CFO" },
+          { role: { name: "Chief Financial Officer" } },
+          { role: { name: "CFO" } }
+        ]
+      },
+      select: { email: true, firstName: true, lastName: true }
+    });
+    if (cfos.length === 0) {
+      console.warn("No CFO users found for pending disbursement notification");
+      return;
+    }
+
+    const businessName =
+      d.investmentImplementation.application?.businessName || "Unknown business";
+    const portfolioCompanyName =
+      d.investmentImplementation.portfolioCompany?.name || "—";
+    const dealReference = d.investmentImplementation.application?.dealReference ?? null;
+    const code = d.paymentCurrency?.code || "USD";
+    const amountDisplay = `${code} ${Number(d.amount).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+
+    await Promise.all(
+      cfos.map((u) =>
+        EmailNotificationService.sendFundDisbursementPendingCfoEmail({
+          recipientName: [u.firstName, u.lastName].filter(Boolean).join(" ") || "CFO",
+          recipientEmail: u.email,
+          businessName,
+          portfolioCompanyName,
+          dealReference,
+          amountDisplay,
+          trancheIndex,
+          disbursementId: d.id,
+          investmentImplementationId: d.investmentImplementationId,
+          disbursementDate: d.disbursementDate
+        })
+      )
+    );
+  }
+
+  /**
+   * All PENDING tranches company-wide (review queue).
+   */
+  static async listPendingDisbursementRequests() {
+    const pending = await prisma.fundDisbursement.findMany({
+      where: { status: "PENDING" },
+      orderBy: [{ investmentImplementationId: "asc" }, { createdAt: "asc" }],
+      include: {
+        paymentCurrency: { select: { code: true } },
+        investmentImplementation: {
+          include: {
+            application: { select: { businessName: true, dealReference: true } },
+            portfolioCompany: { select: { name: true } }
+          }
+        }
+      }
+    });
+
+    const implIds = [...new Set(pending.map((p) => p.investmentImplementationId))];
+    const allOrdered =
+      implIds.length === 0
+        ? []
+        : await prisma.fundDisbursement.findMany({
+            where: { investmentImplementationId: { in: implIds } },
+            orderBy: [{ investmentImplementationId: "asc" }, { createdAt: "asc" }],
+            select: { id: true, investmentImplementationId: true }
+          });
+
+    const trancheById = new Map<string, number>();
+    let curImpl = "";
+    let n = 0;
+    for (const row of allOrdered) {
+      if (row.investmentImplementationId !== curImpl) {
+        curImpl = row.investmentImplementationId;
+        n = 0;
+      }
+      n += 1;
+      trancheById.set(row.id, n);
+    }
+
+    return pending.map((row) => {
+      const { investmentImplementation, paymentCurrency, ...disb } = row;
+      const trancheIndex = trancheById.get(row.id) ?? 1;
+      return {
+        ...disb,
+        trancheIndex,
+        cfoApprovalStatusLabel: "PENDING_CFO_APPROVAL" as const,
+        portfolioCompanyName: investmentImplementation.portfolioCompany?.name ?? null,
+        businessName: investmentImplementation.application?.businessName ?? null,
+        dealReference: investmentImplementation.application?.dealReference ?? null,
+        paymentCurrencyCode: paymentCurrency?.code ?? null
+      };
+    });
+  }
+
+  /**
+   * Banks eligible for fund-disbursement approval: active, linked GL on chart of accounts.
+   * Optional paymentCurrencyId filters to banks in that currency (match tranche payout currency).
+   */
+  static async listBanksForFundDisbursementApproval(paymentCurrencyId?: string | null) {
+    const banks = await prisma.bank.findMany({
+      where: {
+        isActive: true,
+        glAccountId: { not: null },
+        ...(paymentCurrencyId ? { currencyId: paymentCurrencyId } : {})
+      },
+      include: {
+        currency: { select: { id: true, code: true, name: true } },
+        glAccount: {
+          select: {
+            id: true,
+            accountNo: true,
+            accountName: true,
+            accountType: true
+          }
+        }
+      },
+      orderBy: [{ name: "asc" }, { accountNumber: "asc" }]
+    });
+
+    return banks.map((b) => ({
+      id: b.id,
+      name: b.name,
+      accountNumber: b.accountNumber,
+      currencyId: b.currencyId,
+      currencyCode: b.currency.code,
+      currencyName: b.currency.name,
+      glAccount: {
+        id: b.glAccount!.id,
+        accountNo: b.glAccount!.accountNo,
+        accountName: b.glAccount!.accountName,
+        accountType: b.glAccount!.accountType
+      }
+    }));
+  }
+
+  /**
+   * Universal approve / reject for a PENDING tranche (reject does not touch cashbook or fund balance).
+   * APPROVE requires bankId (CFO-selected payout bank with GL link; currency must match tranche payment currency).
+   */
+  static async applyFundDisbursementDecision(
+    disbursementId: string,
+    actorUserId: string,
+    decision: "APPROVE" | "REJECT",
+    reason?: string,
+    bankId?: string
+  ): Promise<FundDisbursement> {
+    if (decision === "APPROVE") {
+      const bid = bankId?.trim();
+      if (!bid) {
+        throw new Error(
+          "bankId is required when approving. Use GET /api/investment-implementations/disbursement-banks to list eligible banks."
+        );
+      }
+      return InvestmentImplementationService.approveFundDisbursement(
+        disbursementId,
+        actorUserId,
+        bid
+      );
+    }
+    return InvestmentImplementationService.rejectFundDisbursement(
+      disbursementId,
+      actorUserId,
+      reason
+    );
+  }
+
+  static async rejectFundDisbursement(
+    disbursementId: string,
+    rejectedById: string,
+    reason?: string
+  ): Promise<FundDisbursement> {
+    try {
+      const disbursement = await prisma.fundDisbursement.findUnique({
+        where: { id: disbursementId }
+      });
+
+      if (!disbursement) {
+        throw new Error("Fund disbursement not found");
+      }
+
+      if (disbursement.status !== "PENDING") {
+        throw new Error("Fund disbursement is not in pending status");
+      }
+
+      const stamp = new Date().toISOString();
+      const reasonLine = reason?.trim() ? ` Reason: ${reason.trim()}` : "";
+      const block = `[Rejected ${stamp} by ${rejectedById}]${reasonLine}`;
+      const newNotes = disbursement.notes?.trim()
+        ? `${disbursement.notes.trim()}\n${block}`
+        : block;
+
+      return await prisma.fundDisbursement.update({
+        where: { id: disbursementId },
+        data: {
+          status: "REJECTED",
+          notes: newNotes,
+          updatedAt: new Date()
+        }
+      });
+    } catch (error: any) {
+      throw new Error(`Failed to reject fund disbursement: ${error.message}`);
+    }
+  }
+
+  /**
+   * Approve fund disbursement: cashbook PAYMENT + posted journal
+   * — Debit Portfolio Investments (1501), Credit selected bank's GL account.
    */
   static async approveFundDisbursement(
     disbursementId: string,
-    approvedById: string
+    approvedById: string,
+    bankId: string
   ): Promise<FundDisbursement> {
     try {
       const disbursement = await prisma.fundDisbursement.findUnique({
@@ -669,7 +1045,16 @@ export class InvestmentImplementationService {
                   id: true,
                   applicantName: true,
                   applicantEmail: true,
-                  businessName: true
+                  businessName: true,
+                  complianceCleared: true,
+                  assignedAnalystId: true,
+                  assignedAnalyst: {
+                    select: {
+                      email: true,
+                      firstName: true,
+                      lastName: true
+                    }
+                  }
                 }
               }
             }
@@ -685,169 +1070,259 @@ export class InvestmentImplementationService {
         throw new Error("Fund disbursement is not in pending status");
       }
 
-      // Check if fund has sufficient remaining amount
-      if (disbursement.fund.remainingAmount.lessThan(disbursement.amount)) {
-        throw new Error("Insufficient funds available for disbursement");
-      }
+      assertApplicationComplianceForDisbursement(
+        disbursement.investmentImplementation?.application
+      );
 
-      // Get Portfolio Investments account (1501) for GL payment
-      const portfolioInvestmentAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: "1501" },
-            { accountName: { contains: "Portfolio Investment" } }
-          ],
-          isActive: true
-        }
-      });
+      const [portfolioInvestmentAccount, bank] = await Promise.all([
+        prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: "1501" },
+              { accountName: { contains: "Portfolio Investment" } }
+            ],
+            isActive: true
+          }
+        }),
+        prisma.bank.findFirst({
+          where: {
+            id: bankId,
+            isActive: true,
+            glAccountId: { not: null }
+          },
+          include: { currency: true, glAccount: true }
+        })
+      ]);
 
       if (!portfolioInvestmentAccount) {
         throw new Error("Portfolio Investments account (1501) not found in chart of accounts. Please create this account first.");
       }
 
-      // Get Main Bank Account (1010) - need to find the Bank record, not just the GL account
-      const bankGLAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: "1010" },
-            { accountName: { contains: "Main Bank Account" } }
-          ],
-          isActive: true
-        }
-      });
-
-      if (!bankGLAccount) {
-        throw new Error("Main Bank Account (1010) not found in chart of accounts. Please create this account first.");
+      if (!bank?.glAccount) {
+        throw new Error(
+          "Bank not found, inactive, or missing a chart-of-accounts link. Choose a bank from GET /api/investment-implementations/disbursement-banks."
+        );
       }
 
-      // Find the bank record linked to this GL account
-      const bank = await prisma.bank.findFirst({
-        where: {
-          glAccountId: bankGLAccount.id,
-          isActive: true
-        },
-        include: {
-          currency: true
-        }
-      });
+      if (disbursement.paymentCurrencyId && bank.currencyId !== disbursement.paymentCurrencyId) {
+        throw new Error(
+          "Selected bank currency must match this tranche payment currency. Filter disbursement-banks with paymentCurrencyId or pick another bank."
+        );
+      }
 
-      if (!bank) {
-        throw new Error("Bank account linked to Main Bank Account (1010) not found. Please create a bank account linked to GL account 1010.");
+      const deductFromFund =
+        disbursement.amountCommitmentCurrency != null
+          ? new Decimal(disbursement.amountCommitmentCurrency)
+          : new Decimal(disbursement.amount);
+
+      if (disbursement.fund.remainingAmount.lessThan(deductFromFund)) {
+        throw new Error("Insufficient funds available for disbursement");
       }
 
       const disbursementAmount = Number(disbursement.amount);
+      const paymentReference = `FD-${disbursementId.substring(0, 8).toUpperCase()}`;
       const portfolioCompanyName = disbursement.investmentImplementation?.portfolioCompany?.name || "Portfolio Company";
+      const cashbookDescription = `Fund Disbursement - ${portfolioCompanyName} - $${disbursementAmount.toLocaleString()}`;
+      const journalHeaderDescription = `Bank Payment: ${cashbookDescription}`;
 
-      // Create cashbook payment entry - this will automatically create the journal entry
       const cashbookResult = await CashbookService.createCashPayment({
         bankId: bank.id,
         transactionDate: disbursement.disbursementDate,
-        description: `Fund Disbursement - ${portfolioCompanyName} - $${disbursementAmount.toLocaleString()}`,
+        description: cashbookDescription,
         amount: disbursementAmount,
-        reference: `FD-${disbursementId.substring(0, 8).toUpperCase()}`,
-        counterpartyType: 'GL', // GL payment (not customer or supplier)
-        glAccountId: portfolioInvestmentAccount.id, // Debit Portfolio Investments
-        createdById: approvedById
+        reference: paymentReference,
+        counterpartyType: "GL",
+        glAccountId: portfolioInvestmentAccount.id,
+        createdById: approvedById,
+        skipVatRateRefresh: true,
+        preloadedBank: bank,
+        journalHeaderDescription
       });
 
       if (!cashbookResult.success || !cashbookResult.transaction) {
         throw new Error(cashbookResult.message || "Failed to create cashbook payment");
       }
 
-      // Update journal entry description to use "Bank" instead of "Cashbook PAYMENT"
-      if (cashbookResult.journalEntry) {
-        await prisma.journalEntry.update({
-          where: { id: cashbookResult.journalEntry.id },
-          data: {
-            description: `Bank Payment: Fund Disbursement - ${portfolioCompanyName} - $${disbursementAmount.toLocaleString()}`
-          }
-        });
-      }
+      const implementation = disbursement.investmentImplementation;
 
-      // Get portfolio company and application to update fundId
-      const portfolioCompanyId = disbursement.investmentImplementation?.portfolioCompany?.id;
-      const applicationId = disbursement.investmentImplementation?.application?.id;
-      
-      // Update disbursement status, fund remaining amount, portfolio company fundId, and application fundId in a transaction
-      const updatedDisbursement = await prisma.$transaction(async (tx) => {
-        const disbursementUpdate = await tx.fundDisbursement.update({
-          where: { id: disbursementId },
-          data: {
-            status: "APPROVED",
-            approvedById: approvedById,
-            approvedAt: new Date(),
-            cashbookEntryId: cashbookResult.transaction.id, // Link to cashbook entry
-            updatedAt: new Date()
-          }
-        });
-
-        await tx.fund.update({
-          where: { id: disbursement.fundId },
-          data: {
-            remainingAmount: disbursement.fund.remainingAmount.minus(disbursement.amount),
-            updatedAt: new Date()
-          }
-        });
-
-        // Update portfolio company fundId if not already set
-        if (portfolioCompanyId) {
-          await tx.portfolioCompany.update({
-            where: { id: portfolioCompanyId },
+      const updatedDisbursement = await prisma.$transaction(
+        async (tx) => {
+          const now = new Date();
+          const disbursementUpdate = await tx.fundDisbursement.update({
+            where: { id: disbursementId },
             data: {
-              fundId: disbursement.fundId,
+              status: "DISBURSED",
+              approvedById: approvedById,
+              approvedAt: now,
+              cashbookEntryId: cashbookResult.transaction.id,
+              disbursedById: approvedById,
+              disbursedAt: now,
+              transactionReference: paymentReference,
+              updatedAt: now
+            }
+          });
+
+          await tx.fund.update({
+            where: { id: disbursement.fundId },
+            data: {
+              remainingAmount: disbursement.fund.remainingAmount.minus(deductFromFund),
               updatedAt: new Date()
             }
           });
-        }
 
-        // Update application fundId if not already set
-        if (applicationId) {
-          await tx.application.update({
-            where: { id: applicationId },
-            data: {
-              fundId: disbursement.fundId,
-              updatedAt: new Date()
-            }
-          });
-        }
+          if (implementation) {
+            await InvestmentImplementationService.applyPostDisbursementSideEffects(tx, {
+              investmentImplementation: {
+                id: implementation.id,
+                portfolioCompanyId: implementation.portfolioCompanyId,
+                applicationId: implementation.applicationId
+              },
+              fundId: disbursement.fundId
+            });
+          }
 
-        return disbursementUpdate;
-      });
+          return disbursementUpdate;
+        },
+        { maxWait: 10_000, timeout: 20_000 }
+      );
 
-      console.log(`✅ Fund disbursement approved and cashbook payment created:`);
+      console.log(`✅ Fund disbursement approved, posted to cashbook/GL, and marked DISBURSED:`);
       console.log(`   Cashbook Entry: ${cashbookResult.transaction.id}`);
       if (cashbookResult.journalEntry) {
         console.log(`   Journal Entry: ${cashbookResult.journalEntry.referenceNumber}`);
       }
       console.log(`   Debit: ${portfolioInvestmentAccount.accountNo} - ${portfolioInvestmentAccount.accountName} - $${disbursementAmount.toLocaleString()}`);
-      console.log(`   Credit: ${bankGLAccount.accountNo} - ${bankGLAccount.accountName} - $${disbursementAmount.toLocaleString()}`);
+      const creditCoa = bank.glAccount;
+      console.log(
+        `   Credit: ${creditCoa?.accountNo ?? "bank GL unset"} - ${creditCoa?.accountName ?? "Bank"} - $${disbursementAmount.toLocaleString()}`
+      );
       console.log(`   ✅ Balanced: Debit = Credit = $${disbursementAmount.toLocaleString()}`);
 
-      // Send email notification to applicant
-      try {
-        const applicantInfo = this.getApplicantInfoFromDisbursement(disbursement);
-        if (applicantInfo) {
-          await EmailNotificationService.sendDisbursementApprovedEmail({
+      const applicantInfo = this.getApplicantInfoFromDisbursement(disbursement);
+      if (applicantInfo) {
+        void Promise.all([
+          EmailNotificationService.sendDisbursementApprovedEmail({
             applicantName: applicantInfo.name,
             applicantEmail: applicantInfo.email,
             businessName: applicantInfo.businessName,
             applicationId: applicantInfo.applicationId,
-            currentStage: 'INVESTMENT_IMPLEMENTATION',
+            currentStage: "DISBURSED",
             disbursementAmount: disbursementAmount,
-            disbursementDate: disbursement.disbursementDate
-          });
-          console.log(`✅ Disbursement approval email sent to ${applicantInfo.email}`);
-        } else {
-          console.warn(`⚠️ Could not find applicant info for disbursement ${disbursementId}`);
-        }
-      } catch (emailError: any) {
-        console.error(`❌ Failed to send disbursement approval email: ${emailError.message}`);
-        // Don't throw - email failure shouldn't fail the disbursement approval
+            disbursementDate: disbursement.disbursementDate,
+            immediateDisbursement: true
+          }),
+          EmailNotificationService.sendDisbursementCompletedEmail({
+            applicantName: applicantInfo.name,
+            applicantEmail: applicantInfo.email,
+            businessName: applicantInfo.businessName,
+            applicationId: applicantInfo.applicationId,
+            currentStage: "DISBURSED",
+            disbursementAmount: disbursementAmount,
+            transactionReference: paymentReference
+          })
+        ])
+          .then(() =>
+            console.log(
+              `✅ Disbursement approved + completed emails sent to applicant ${applicantInfo.email}`
+            )
+          )
+          .catch((emailError: any) =>
+            console.error(`❌ Failed to send applicant disbursement emails: ${emailError.message}`)
+          );
+      } else {
+        console.warn(`⚠️ Could not find applicant info for disbursement ${disbursementId}`);
+      }
+
+      const appRow = disbursement.investmentImplementation?.application;
+      const analystUser = appRow?.assignedAnalyst;
+      const analystEmail = analystUser?.email?.trim();
+      if (analystEmail) {
+        const analystName =
+          `${analystUser.firstName || ""} ${analystUser.lastName || ""}`.trim() || "Analyst";
+        const biz =
+          applicantInfo?.businessName ||
+          appRow?.businessName ||
+          portfolioCompanyName;
+        void EmailNotificationService.sendFundDisbursementApprovedAnalystEmail({
+          analystName,
+          analystEmail,
+          businessName: biz,
+          applicationId: appRow.id,
+          disbursementId,
+          disbursementAmount,
+          transactionReference: paymentReference
+        })
+          .then(() => console.log(`✅ Disbursement approved email sent to analyst ${analystEmail}`))
+          .catch((emailError: any) =>
+            console.error(`❌ Failed to send analyst disbursement email: ${emailError.message}`)
+          );
+      } else if (appRow) {
+        console.warn(
+          `⚠️ No assigned analyst email for application ${appRow.id}; skipping analyst disbursement notification`
+        );
       }
 
       return updatedDisbursement;
     } catch (error: any) {
       throw new Error(`Failed to approve fund disbursement: ${error.message}`);
+    }
+  }
+
+  /**
+   * After a tranche reaches DISBURSED: align PC/application fundId and, when no other
+   * non-DISBURSED tranches remain on the implementation, complete the implementation and set application to DISBURSED.
+   */
+  private static async applyPostDisbursementSideEffects(
+    tx: any,
+    params: {
+      investmentImplementation: {
+        id: string;
+        portfolioCompanyId: string;
+        applicationId: string;
+      };
+      fundId: string;
+    }
+  ): Promise<void> {
+    const { investmentImplementation: impl, fundId } = params;
+    await tx.portfolioCompany.update({
+      where: { id: impl.portfolioCompanyId },
+      data: {
+        fundId,
+        updatedAt: new Date()
+      }
+    });
+    await tx.application.update({
+      where: { id: impl.applicationId },
+      data: {
+        fundId,
+        updatedAt: new Date()
+      }
+    });
+
+    const remaining = await tx.fundDisbursement.count({
+      where: {
+        investmentImplementationId: impl.id,
+        status: { not: "DISBURSED" }
+      }
+    });
+
+    if (remaining === 0) {
+      await tx.investmentImplementation.update({
+        where: { id: impl.id },
+        data: {
+          fundsDisbursed: true,
+          status: "COMPLETED",
+          completedAt: new Date(),
+          updatedAt: new Date()
+        }
+      });
+      await tx.application.update({
+        where: { id: impl.applicationId },
+        data: {
+          currentStage: "DISBURSED",
+          updatedAt: new Date()
+        }
+      });
     }
   }
 
@@ -888,7 +1363,8 @@ export class InvestmentImplementationService {
                   id: true,
                   applicantName: true,
                   applicantEmail: true,
-                  businessName: true
+                  businessName: true,
+                  complianceCleared: true
                 }
               }
             }
@@ -903,6 +1379,10 @@ export class InvestmentImplementationService {
       if (disbursement.status !== "APPROVED") {
         throw new Error("Fund disbursement must be approved before marking as disbursed");
       }
+
+      assertApplicationComplianceForDisbursement(
+        disbursement.investmentImplementation?.application
+      );
 
       const implementation = disbursement.investmentImplementation;
       if (!implementation) {
@@ -921,57 +1401,15 @@ export class InvestmentImplementationService {
           }
         });
 
-        // Update portfolio company fundId if not already set (safety net)
-        if (implementation.portfolioCompanyId && disbursement.fund?.id) {
-          await tx.portfolioCompany.update({
-            where: { id: implementation.portfolioCompanyId },
-            data: {
-              fundId: disbursement.fund.id,
-              updatedAt: new Date()
-            }
+        if (disbursement.fund?.id) {
+          await InvestmentImplementationService.applyPostDisbursementSideEffects(tx, {
+            investmentImplementation: {
+              id: implementation.id,
+              portfolioCompanyId: implementation.portfolioCompanyId,
+              applicationId: implementation.applicationId
+            },
+            fundId: disbursement.fund.id
           });
-        }
-
-        // Update application fundId if not already set (safety net)
-        if (implementation.applicationId && disbursement.fund?.id) {
-          await tx.application.update({
-            where: { id: implementation.applicationId },
-            data: {
-              fundId: disbursement.fund.id,
-              updatedAt: new Date()
-            }
-          });
-        }
-
-        const remaining = await tx.fundDisbursement.count({
-          where: {
-            investmentImplementationId: implementation.id,
-            status: {
-              not: "DISBURSED"
-            }
-          }
-        });
-
-        if (remaining === 0) {
-          await tx.investmentImplementation.update({
-            where: { id: implementation.id },
-            data: {
-              fundsDisbursed: true,
-              status: "COMPLETED",
-              completedAt: new Date(),
-              updatedAt: new Date()
-            }
-          });
-
-          if (implementation.applicationId) {
-            await tx.application.update({
-              where: { id: implementation.applicationId },
-              data: {
-                currentStage: "DISBURSED",
-                updatedAt: new Date()
-              }
-            });
-          }
         }
 
         return disbursed;

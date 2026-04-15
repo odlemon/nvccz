@@ -17,7 +17,7 @@ async function main() {
     prisma.user.findFirst({ orderBy: { createdAt: 'asc' } }),
     prisma.customer.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'asc' } }),
     prisma.currency.findFirst({
-      where: { code: { in: ['ZWL', 'ZWG', 'USD'] }, isActive: true },
+      where: { code: { in: ['ZWL', 'ZWG', 'ZIG', 'USD'] }, isActive: true },
       orderBy: { code: 'asc' }
     })
   ]);

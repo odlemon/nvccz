@@ -1,5 +1,14 @@
 //@ts-nocheck
 import { emailTransport, getFromAddress } from "../config/email.config";
+import {
+  formatDueDateForEmail,
+  getInvesteeReportsPortalUrl,
+  MANDATORY_REPORTING_ATTACHMENTS,
+  mandatoryAttachmentsHtmlList,
+  reportingPeriodQuarterLabel,
+  type ReportingMandatoryAttachment,
+} from "../utils/reportingEmail";
+import { capitalCallNoticeEmailSubject } from "../utils/capitalCallNoticeSubject";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -39,7 +48,7 @@ export class EmailNotificationService {
    */
   static async sendDueDiligenceStartedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Due Diligence Process Started - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
+      const subject = `Application passed screening — Active Due Diligence - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlContent = this.getDueDiligenceStartedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -210,6 +219,133 @@ export class EmailNotificationService {
   }
 
   /**
+   * Lead investment analyst assigned to a deal (screening / DD owner). Fire-and-forget from API; failures are logged only.
+   */
+  static async sendLeadAnalystAssignedEmail(data: {
+    analystName: string;
+    analystEmail: string;
+    businessName: string;
+    dealReference: string | null;
+  }): Promise<void> {
+    try {
+      const to = String(data.analystEmail || "").trim();
+      if (!to) {
+        return;
+      }
+      const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+      const applicationsPath = `${base}/portfolio/applications`;
+      const esc = (s: string) =>
+        String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      const refSuffix = data.dealReference
+        ? ` — ${data.dealReference}`
+        : "";
+      const subject = `Lead analyst assignment — ${data.businessName}${refSuffix}`;
+      const refSentence = data.dealReference
+        ? ` Deal reference: <strong>${esc(data.dealReference)}</strong>.`
+        : "";
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px;">
+          <p>Dear ${esc(data.analystName)},</p>
+          <p>You have been assigned as the <strong>lead investment analyst</strong> for <strong>${esc(data.businessName)}</strong>.${refSentence}</p>
+          <p><a href="${applicationsPath}" style="color: #1e40af;">Open portfolio applications</a></p>
+        </div>
+      `;
+      const headerName = String(data.analystName || "Analyst").replace(/"/g, "'").slice(0, 120);
+      const from = getFromAddress("investment");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${headerName}" <${to}>`,
+        subject,
+        html: htmlContent
+      });
+      console.log(`Lead analyst assignment email sent to ${to}`);
+    } catch (error) {
+      console.error("Error sending lead analyst assignment email:", error);
+    }
+  }
+
+  /** Portfolio deal collaboration feed @mention — deep link to deal card (`/deals/{applicationId}`). */
+  static async sendPortfolioDealFeedMentionEmail(data: {
+    recipientName: string;
+    recipientEmail: string;
+    authorName: string;
+    businessName: string;
+    applicationId: string;
+    commentPreview: string;
+  }): Promise<void> {
+    try {
+      const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+      const dealPath = `${base}/deals/${data.applicationId}`;
+      const subject = `Deal mention — ${data.businessName} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
+      const safePreview = String(data.commentPreview || "")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px;">
+          <p>Dear ${data.recipientName},</p>
+          <p><strong>${data.authorName}</strong> mentioned you in the <strong>portfolio deal collaboration</strong> thread for <strong>${data.businessName}</strong>.</p>
+          <p style="white-space: pre-wrap; background: #f8fafc; padding: 12px; border-radius: 8px;">${safePreview}</p>
+          <p><a href="${dealPath}" style="color: #1e40af;">Open deal</a></p>
+        </div>
+      `;
+      const from = getFromAddress("investment");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.recipientName}" <${data.recipientEmail}>`,
+        subject,
+        html: htmlContent
+      });
+      console.log(`Portfolio deal feed mention email sent to ${data.recipientEmail}`);
+    } catch (error) {
+      console.error("Error sending portfolio deal feed mention email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * CF-3: CIO @mention on deal-linked task collaboration — email with deep link to deal card.
+   */
+  static async sendDealCollaborationMentionEmail(data: {
+    recipientName: string;
+    recipientEmail: string;
+    authorName: string;
+    taskTitle: string;
+    dealId?: string;
+    commentPreview: string;
+  }): Promise<void> {
+    try {
+      const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+      const dealPath = data.dealId ? `${base}/deals/${data.dealId}` : `${base}/tasks`;
+      const subject = `You were mentioned — ${data.taskTitle} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
+      const safePreview = String(data.commentPreview || "")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px;">
+          <p>Dear ${data.recipientName},</p>
+          <p><strong>${data.authorName}</strong> mentioned you in the collaboration thread for task <strong>${data.taskTitle}</strong>.</p>
+          <p style="white-space: pre-wrap; background: #f8fafc; padding: 12px; border-radius: 8px;">${safePreview}</p>
+          <p><a href="${dealPath}" style="color: #1e40af;">Open deal</a></p>
+        </div>
+      `;
+      const from = getFromAddress("investment");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.recipientName}" <${data.recipientEmail}>`,
+        subject,
+        html: htmlContent
+      });
+      console.log(`Deal collaboration mention email sent to ${data.recipientEmail}`);
+    } catch (error) {
+      console.error("Error sending deal collaboration mention email:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Send due diligence activity approved email (to assignee)
    */
   static async sendDueDiligenceActivityApprovedEmail(data: {
@@ -269,7 +405,8 @@ export class EmailNotificationService {
     recipientName: string;
     recipientEmail: string;
     businessName: string;
-    applicationId: string;
+    /** Shown as “Deal reference” in the email when set; internal application id is not shown. */
+    dealReference?: string | null;
     voteUrl: string;
   }): Promise<void> {
     try {
@@ -281,7 +418,11 @@ export class EmailNotificationService {
         from: `"${from.name}" <${from.address}>`,
         to: `"${data.recipientName}" <${data.recipientEmail}>`,
         subject,
-        html: htmlContent
+        html: htmlContent,
+        headers: {
+          'X-Priority': '1',
+          Importance: 'high'
+        }
       });
 
       console.log(`Board vote request email sent to ${data.recipientEmail}`);
@@ -351,6 +492,121 @@ export class EmailNotificationService {
       subject,
       html: html
     });
+  }
+
+  /**
+   * Automated reporting emails (open period, T−3, overdue). Snapshot returned for DB audit (`reporting_notification_logs.meta`).
+   */
+  static async sendReportingPeriodReminderEmail(data: {
+    recipientEmail: string;
+    companyName: string;
+    reportingPeriod: string; // YYYY-MM-DD
+    dueDate: string; // YYYY-MM-DD
+    isOverdue: boolean;
+    /** REQUEST = first “Request for data”; REMINDER = T−3; OVERDUE = past due. */
+    kind: "REQUEST" | "REMINDER" | "OVERDUE";
+    /** Mandatory Excel/PDF list (from open-calendar API or defaults). */
+    mandatoryAttachments?: ReadonlyArray<ReportingMandatoryAttachment>;
+    /** Primary financial contact name vs company (default companyName). */
+    recipientMailboxName?: string;
+    recipientGreetingName?: string;
+  }): Promise<{ subject: string; html: string }> {
+    const periodLabel = reportingPeriodQuarterLabel(data.reportingPeriod);
+    const dueDisplay = formatDueDateForEmail(data.dueDate);
+    const portalUrl = getInvesteeReportsPortalUrl();
+    const attachList =
+      data.mandatoryAttachments?.length > 0 ? data.mandatoryAttachments : MANDATORY_REPORTING_ATTACHMENTS;
+    const greet = (data.recipientGreetingName || data.companyName).replace(/"/g, "");
+    const toName = (data.recipientMailboxName || data.companyName).replace(/"/g, "");
+
+    let subject: string;
+    let leadParagraph: string;
+    if (data.kind === "REQUEST") {
+      subject = `Request for data — ${periodLabel} — ${data.companyName}`;
+      leadParagraph = `<p>You have a new <strong>reporting period</strong> open: <strong>${periodLabel}</strong> (period end <strong>${data.reportingPeriod}</strong>). Please submit the required package by the due date below.</p>`;
+    } else if (data.kind === "OVERDUE" || data.isOverdue) {
+      subject = `Urgent: overdue reporting — ${periodLabel} — ${data.companyName}`;
+      leadParagraph = `<p>This is a <strong>past-due</strong> reminder for your reporting package for <strong>${periodLabel}</strong> (period end <strong>${data.reportingPeriod}</strong>).</p>`;
+    } else {
+      subject = `Reminder: reporting due soon — ${periodLabel} — ${data.companyName}`;
+      leadParagraph = `<p>This is a friendly reminder to complete your reporting package for <strong>${periodLabel}</strong> (period end <strong>${data.reportingPeriod}</strong>).</p>`;
+    }
+
+    const html = `
+      <p>Hello ${greet},</p>
+      ${leadParagraph}
+      <p><strong>Reporting period:</strong> ${periodLabel} <span style="color:#64748b">(${data.reportingPeriod})</span></p>
+      <p><strong>Due date:</strong> ${dueDisplay}</p>
+      <p><strong>Submit here:</strong> <a href="${portalUrl}" target="_blank" rel="noopener noreferrer">${portalUrl}</a></p>
+      <p><strong>Mandatory attachments:</strong></p>
+      ${mandatoryAttachmentsHtmlList(attachList)}
+      <p>Thank you.</p>
+    `;
+
+    const from = getFromAddress("investment");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${toName}" <${data.recipientEmail}>`,
+      subject,
+      html,
+    });
+    return { subject, html };
+  }
+
+  /** Analyst-initiated nudge: same reporting context as automated mail, with custom body text. */
+  static async sendReportingManualNudgeEmail(data: {
+    recipientEmail: string;
+    companyName: string;
+    reportingPeriod: string;
+    dueDate: string;
+    analystMessage: string;
+    isOverdue: boolean;
+    mandatoryAttachments?: ReadonlyArray<ReportingMandatoryAttachment>;
+    recipientMailboxName?: string;
+    recipientGreetingName?: string;
+  }): Promise<{ subject: string; html: string }> {
+    const escape = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br/>");
+
+    const periodLabel = reportingPeriodQuarterLabel(data.reportingPeriod);
+    const dueDisplay = formatDueDateForEmail(data.dueDate);
+    const portalUrl = getInvesteeReportsPortalUrl();
+    const attachList =
+      data.mandatoryAttachments?.length > 0 ? data.mandatoryAttachments : MANDATORY_REPORTING_ATTACHMENTS;
+    const greet = (data.recipientGreetingName || data.companyName).replace(/"/g, "");
+    const toName = (data.recipientMailboxName || data.companyName).replace(/"/g, "");
+
+    const subject = data.isOverdue
+      ? `Important: reporting follow-up (overdue) — ${periodLabel} — ${data.companyName}`
+      : `Reporting follow-up — ${periodLabel} — ${data.companyName}`;
+
+    const html = `
+      <p>Hello ${greet},</p>
+      <p>Our team asked us to follow up on your reporting package for <strong>${periodLabel}</strong> <span style="color:#64748b">(${data.reportingPeriod})</span>.</p>
+      <p><strong>Due date:</strong> ${dueDisplay}</p>
+      ${data.isOverdue ? "<p><strong>This period is now past due.</strong></p>" : ""}
+      <p><strong>Message from the team:</strong></p>
+      <blockquote style="margin:12px 0;padding:12px 16px;border-left:4px solid #2563eb;background:#f8fafc;">
+        ${escape(data.analystMessage)}
+      </blockquote>
+      <p><strong>Submit here:</strong> <a href="${portalUrl}" target="_blank" rel="noopener noreferrer">${portalUrl}</a></p>
+      <p><strong>Mandatory attachments:</strong></p>
+      ${mandatoryAttachmentsHtmlList(attachList)}
+      <p>Thank you.</p>
+    `;
+
+    const from = getFromAddress("investment");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${toName}" <${data.recipientEmail}>`,
+      subject,
+      html,
+    });
+    return { subject, html };
   }
 
   /**
@@ -425,6 +681,35 @@ export class EmailNotificationService {
     });
   }
 
+  /** Investee: staff asked for corrections (resubmit / re-upload allowed). */
+  static async sendFinancialReportNeedsRevisionEmail(data: {
+    recipientEmail: string;
+    companyName: string;
+    reportType: string;
+    title: string;
+    periodStart: Date;
+    periodEnd: Date;
+    comment?: string;
+  }): Promise<void> {
+    const subject = `Action required: revise your financial report — ${data.companyName}`;
+    const period = `${data.periodStart.toISOString().split('T')[0]} to ${data.periodEnd.toISOString().split('T')[0]}`;
+    const html = `
+      <p>Hello,</p>
+      <p>Your <strong>${String(data.reportType).replace(/_/g, " ")}</strong> titled <strong>${data.title}</strong> needs <strong>revisions</strong> before it can be approved.</p>
+      <p>Reporting period: ${period}</p>
+      ${data.comment ? `<p><strong>Reviewer feedback:</strong> ${data.comment}</p>` : "<p>Please correct your entries or re-upload the required documents, then submit again from the portal.</p>"}
+    `;
+
+    const from = getFromAddress("investment");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${data.companyName}" <${data.recipientEmail}>`,
+      subject,
+      html,
+    });
+  }
+
+  /** Investee: submission was rejected (resubmit / fix data as directed). */
   static async sendFinancialReportRejectedEmail(data: {
     recipientEmail: string;
     companyName: string;
@@ -435,21 +720,21 @@ export class EmailNotificationService {
     status: string;
     comment?: string;
   }): Promise<void> {
-    const subject = `Financial Report Update Needed - ${data.companyName}`;
+    const subject = `Financial report rejected — ${data.companyName}`;
     const period = `${data.periodStart.toISOString().split('T')[0]} to ${data.periodEnd.toISOString().split('T')[0]}`;
     const html = `
       <p>Hello,</p>
-      <p>Your <strong>${data.reportType.replace('_', ' ')}</strong> titled <strong>${data.title}</strong> requires updates.</p>
+      <p>Your <strong>${String(data.reportType).replace(/_/g, " ")}</strong> titled <strong>${data.title}</strong> has been <strong>rejected</strong>.</p>
       <p>Reporting period: ${period}</p>
-      ${data.comment ? `<p><strong>Reviewer Comment:</strong> ${data.comment}</p>` : '<p>Please review and resubmit the report.</p>'}
+      ${data.comment ? `<p><strong>Reviewer feedback:</strong> ${data.comment}</p>` : "<p>Please review the feedback, correct your submission or attach a new document, and resubmit from the investee portal.</p>"}
     `;
 
-    const from = getFromAddress('investment');
+    const from = getFromAddress("investment");
     await emailTransport.sendMail({
       from: `"${from.name}" <${from.address}>`,
       to: `"${data.companyName}" <${data.recipientEmail}>`,
       subject,
-      html: html
+      html,
     });
   }
 
@@ -643,11 +928,11 @@ export class EmailNotificationService {
   }
 
   /**
-   * Send investment approved and account created email
+   * Send applicant portal login credentials (e.g. after DD completion creates a new user). No investment-approval wording.
    */
   static async sendInvestmentApprovedAccountCreatedEmail(data: EmailNotificationData & { tempPassword: string }): Promise<void> {
     try {
-      const subject = `Investment Approved - Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio!`;
+      const subject = `Your ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} portal login`;
       const htmlContent = this.getInvestmentApprovedAccountCreatedTemplate(data);
       
       const from = getFromAddress('investment');
@@ -658,9 +943,9 @@ export class EmailNotificationService {
         html: htmlContent
       });
 
-      console.log(`Investment approved account created email sent to ${data.applicantEmail}`);
+      console.log(`Applicant portal credentials email sent to ${data.applicantEmail}`);
     } catch (error) {
-      console.error("Error sending investment approved account created email:", error);
+      console.error("Error sending applicant portal credentials email:", error);
       throw error;
     }
   }
@@ -793,18 +1078,18 @@ export class EmailNotificationService {
         <div class="container">
           <div class="header">
             <h1>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</h1>
-            <h2>Due Diligence Process Started</h2>
+            <h2>Screening passed — Active Due Diligence</h2>
           </div>
           <div class="content">
             <p>Dear ${data.applicantName},</p>
-            
-            <p>Great news! Your application for <strong>${data.businessName}</strong> has passed the initial review and we are now beginning the due diligence process.</p>
-            
+
+            <p>Your application for <strong>${data.businessName}</strong> has <strong>passed screening</strong> and has moved to <strong>Active Due Diligence</strong>. Our team will now conduct a detailed review.</p>
+
             <h3>Application Details:</h3>
             <ul>
               <li><strong>Application ID:</strong> ${data.applicationId}</li>
               <li><strong>Business Name:</strong> ${data.businessName}</li>
-              <li><strong>Current Status:</strong> Under Due Diligence</li>
+              <li><strong>Current Status:</strong> Active Due Diligence</li>
               <li><strong>Due Diligence Started:</strong> ${new Date().toLocaleDateString()}</li>
             </ul>
             
@@ -1267,9 +1552,19 @@ export class EmailNotificationService {
   private static getBoardVoteRequestTemplate(data: {
     recipientName: string;
     businessName: string;
-    applicationId: string;
+    dealReference?: string | null;
     voteUrl: string;
   }): string {
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const refPart =
+      data.dealReference && String(data.dealReference).trim()
+        ? ` (Deal reference: <strong>${esc(String(data.dealReference).trim())}</strong>)`
+        : "";
     return `
       <!DOCTYPE html>
       <html>
@@ -1294,7 +1589,7 @@ export class EmailNotificationService {
           <div class="content">
             <p>Dear ${data.recipientName},</p>
 
-            <p>A new board review vote is required for <strong>${data.businessName}</strong> (Application ID: <strong>${data.applicationId}</strong>).</p>
+            <p>A new board review vote is required for <strong>${esc(data.businessName)}</strong>${refPart}.</p>
 
             <div class="info-box">
               <p style="margin: 0;">Please review the materials and cast your vote at your earliest convenience. Your voting power will be applied automatically.</p>
@@ -1945,63 +2240,43 @@ export class EmailNotificationService {
   }
 
   private static getInvestmentApprovedAccountCreatedTemplate(data: EmailNotificationData & { tempPassword: string }): string {
+    const loginBase = process.env.FRONTEND_URL || 'http://app.kyntaro.com';
     return `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Investment Approved - Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio!</title>
+        <title>Your ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} portal login</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #059669; color: white; padding: 20px; text-align: center; }
-          .content { padding: 20px; background-color: #f0fdf4; }
+          .header { background-color: #1e40af; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background-color: #f8fafc; }
           .footer { padding: 20px; text-align: center; color: #666; font-size: 14px; }
           .credentials { background-color: #e5f3ff; padding: 15px; border-radius: 5px; margin: 15px 0; }
-          .button { background-color: #1e40af; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 15px 0; }
         </style>
       </head>
       <body>
         <div class="container">
           <div class="header">
-            <h1>🎉 Congratulations!</h1>
-            <h2>Investment Approved - Welcome to ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} Portfolio!</h2>
+            <h1>${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</h1>
+            <h2>Your portal login</h2>
           </div>
           <div class="content">
             <p>Dear ${data.applicantName},</p>
             
-            <p><strong>Excellent news!</strong> We are thrilled to inform you that your investment application for <strong>${data.businessName}</strong> has been approved by our board!</p>
-            
-            <h3>🎯 What happens next?</h3>
-            <p>We have created your company account and you can now access the ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} platform to:</p>
-            <ul>
-              <li>View and sign your term sheet</li>
-              <li>Access your company dashboard</li>
-              <li>Manage your portfolio company profile</li>
-              <li>Track your investment progress</li>
-            </ul>
+            <p>An account has been created for <strong>${data.businessName}</strong> on the ${process.env.COMPANY_NAME_FULL || 'NVCCZ'} platform. Use the credentials below to sign in.</p>
             
             <div class="credentials">
-              <h3>🔐 Your Login Credentials</h3>
+              <h3>Login credentials</h3>
               <p><strong>Email:</strong> ${data.applicantEmail}</p>
-              <p><strong>Temporary Password:</strong> ${data.tempPassword}</p>
-              <p><strong>Login URL:</strong> <a href="${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login" target="_blank">${process.env.FRONTEND_URL || 'http://app.kyntaro.com'}/login</a></p>
+              <p><strong>Temporary password:</strong> ${data.tempPassword}</p>
+              <p><strong>Login URL:</strong> <a href="${loginBase}/login" target="_blank">${loginBase}/login</a></p>
             </div>
             
-            <h3>⚠️ Important Security Note</h3>
-            <p>Please change your password immediately after your first login for security purposes.</p>
+            <p><strong>Security:</strong> Change your password after your first login.</p>
             
-            <h3>📋 Next Steps</h3>
-            <ol>
-              <li>Log in to your account using the credentials above</li>
-              <li>Change your password to something secure</li>
-              <li>Complete your company profile</li>
-              <li>Review and sign your term sheet</li>
-            </ol>
-            
-            <p>Welcome to the ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'} family! We're excited to support your growth and success.</p>
-            
-            <p>If you have any questions or need assistance, please don't hesitate to contact our team.</p>
+            <p>If you did not expect this email, contact support.</p>
             
             <p>Best regards,<br>
             <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
@@ -2137,7 +2412,96 @@ export class EmailNotificationService {
   /**
    * Send disbursement approved email
    */
-  static async sendDisbursementApprovedEmail(data: EmailNotificationData & { disbursementAmount: number, disbursementDate: Date }): Promise<void> {
+  /**
+   * Notify CFO users that a tranche is waiting for approval (after POST create disbursement).
+   */
+  static async sendFundDisbursementPendingCfoEmail(data: {
+    recipientName: string;
+    recipientEmail: string;
+    businessName: string;
+    portfolioCompanyName: string;
+    dealReference: string | null;
+    amountDisplay: string;
+    trancheIndex: number;
+    disbursementId: string;
+    investmentImplementationId: string;
+    disbursementDate: Date;
+  }): Promise<void> {
+    try {
+      const subject = `Fund disbursement pending your approval — ${data.businessName}`;
+      const esc = (s: string) =>
+        String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      const dealLine = data.dealReference
+        ? `Deal reference: <strong>${esc(data.dealReference)}</strong><br/>`
+        : "";
+      const when =
+        data.disbursementDate instanceof Date
+          ? data.disbursementDate
+          : new Date(data.disbursementDate);
+      const base = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
+      const queueUrl = base ? `${base}/portfolio/disbursements` : "";
+      const html = `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8"><title>Disbursement pending CFO</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #0f172a; color: white; padding: 20px; text-align: center; }
+          .content { background: #fff; padding: 24px; border: 1px solid #e5e7eb; }
+          .footer { font-size: 12px; color: #6b7280; text-align: center; padding: 16px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header"><h1 style="margin:0;">Tranche pending approval</h1></div>
+          <div class="content">
+            <p>Dear ${esc(data.recipientName)},</p>
+            <p>A fund disbursement request requires CFO approval.</p>
+            <p>
+              <strong>${esc(data.businessName)}</strong> (${esc(data.portfolioCompanyName)})<br/>
+              ${dealLine}
+              Tranche: <strong>${data.trancheIndex}</strong><br/>
+              Amount: <strong>${esc(data.amountDisplay)}</strong><br/>
+              Scheduled date: <strong>${when.toLocaleDateString()}</strong><br/>
+              Disbursement ID: <code>${esc(data.disbursementId)}</code>
+            </p>
+            <p>Use the app queue or API <code>GET /api/investment-implementations/disbursements/pending</code>,
+            <code>GET /api/investment-implementations/disbursement-banks</code> (optional <code>?paymentCurrencyId=</code>),
+            then <code>POST /api/investment-implementations/disbursements/&lt;id&gt;/decision</code> with
+            ${'<code>{"decision":"APPROVE","bankId":"&lt;bank id&gt;"}</code> or <code>{"decision":"REJECT","reason":"…"}</code>'}.</p>
+            ${queueUrl ? `<p><a href="${queueUrl}">Open disbursements (frontend)</a></p>` : ""}
+          </div>
+          <div class="footer">Automated — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}</div>
+        </div>
+      </body>
+      </html>`;
+      const from = getFromAddress("investment");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.recipientName}" <${data.recipientEmail}>`,
+        subject,
+        html,
+        headers: { "X-Priority": "1", Importance: "high" }
+      });
+      console.log("CFO pending disbursement email sent", { to: data.recipientEmail, disbursementId: data.disbursementId });
+    } catch (error) {
+      console.error("Failed to send CFO pending disbursement email:", error);
+    }
+  }
+
+  static async sendDisbursementApprovedEmail(
+    data: EmailNotificationData & {
+      disbursementAmount: number;
+      disbursementDate: Date;
+      /** When true, copy reflects CFO approve + cashbook/GL in one step (no “processing queue” wording). */
+      immediateDisbursement?: boolean;
+    }
+  ): Promise<void> {
     try {
       const subject = `Fund Disbursement Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
       const htmlBody = this.getDisbursementApprovedTemplate(data);
@@ -2184,8 +2548,134 @@ export class EmailNotificationService {
     }
   }
 
-  private static getDisbursementApprovedTemplate(data: EmailNotificationData & { disbursementAmount: number, disbursementDate: Date }): string {
+  /**
+   * Notify lead investment analyst that a pending tranche was CFO-approved (and posted).
+   */
+  static async sendFundDisbursementApprovedAnalystEmail(data: {
+    analystName: string;
+    analystEmail: string;
+    businessName: string;
+    applicationId: string;
+    disbursementId: string;
+    disbursementAmount: number;
+    transactionReference?: string;
+  }): Promise<void> {
+    try {
+      const to = String(data.analystEmail || "").trim();
+      if (!to) return;
+
+      const subject = `Disbursement request approved — ${data.businessName} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
+      const htmlBody = this.getFundDisbursementApprovedAnalystTemplate(data);
+      const from = getFromAddress("platform");
+      const headerName = String(data.analystName || "Analyst").replace(/"/g, "'").slice(0, 120);
+
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${headerName}" <${to}>`,
+        subject,
+        html: htmlBody
+      });
+
+      console.log("Fund disbursement approved (analyst) email sent", { to, applicationId: data.applicationId });
+    } catch (error) {
+      console.error("Failed to send fund disbursement approved analyst email:", error);
+    }
+  }
+
+  private static getFundDisbursementApprovedAnalystTemplate(data: {
+    analystName: string;
+    businessName: string;
+    applicationId: string;
+    disbursementId: string;
+    disbursementAmount: number;
+    transactionReference?: string;
+  }): string {
+    const esc = (s: string) =>
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const ref = data.transactionReference ? esc(data.transactionReference) : "N/A";
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8"><title>Disbursement approved</title></head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+          <p>Dear ${esc(data.analystName)},</p>
+          <p>The <strong>funding disbursement request</strong> for <strong>${esc(data.businessName)}</strong> has been <strong>approved</strong> by finance and <strong>posted</strong> (cashbook / GL).</p>
+          <ul>
+            <li><strong>Application ID:</strong> ${esc(data.applicationId)}</li>
+            <li><strong>Disbursement ID:</strong> ${esc(data.disbursementId)}</li>
+            <li><strong>Amount:</strong> $${Number(data.disbursementAmount).toLocaleString()}</li>
+            <li><strong>Payment reference:</strong> ${ref}</li>
+          </ul>
+          <p>You can follow up with the investee as needed. This is an automated notification from ${esc(process.env.COMPANY_NAME_SHORT || "NVCCZ")}.</p>
+          <p>Regards,<br/><strong>${esc(process.env.EMAIL_FROM_NAME_INVESTMENT || "NVCCZ Investment Platform")}</strong></p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private static getDisbursementApprovedTemplate(
+    data: EmailNotificationData & {
+      disbursementAmount: number;
+      disbursementDate: Date;
+      immediateDisbursement?: boolean;
+    }
+  ): string {
     const disbursementDate = data.disbursementDate instanceof Date ? data.disbursementDate : new Date(data.disbursementDate);
+    if (data.immediateDisbursement) {
+      return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Fund Disbursement Approved - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background-color: #f8fafc; }
+          .footer { padding: 20px; text-align: center; color: #666; font-size: 14px; }
+          .highlight { background-color: #dbeafe; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .amount { font-size: 24px; font-weight: bold; color: #2563eb; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>✅ Fund Disbursement Approved</h1>
+            <h2>NVCCZ Investment Platform</h2>
+          </div>
+          <div class="content">
+            <p>Dear ${data.applicantName},</p>
+            <div class="highlight">
+              <h3>✅ Request approved</h3>
+              <p>Your <strong>funding disbursement request</strong> has been <strong>approved</strong> by our finance team. The payment has been recorded and <strong>funds have been disbursed</strong> according to this tranche.</p>
+            </div>
+            <h3>Disbursement details</h3>
+            <ul>
+              <li><strong>Application ID:</strong> ${data.applicationId}</li>
+              <li><strong>Business name:</strong> ${data.businessName}</li>
+              <li><strong>Amount:</strong> <span class="amount">$${data.disbursementAmount.toLocaleString()}</span></li>
+              <li><strong>Scheduled disbursement date:</strong> ${disbursementDate.toLocaleDateString()}</li>
+            </ul>
+            <p>You will receive a separate confirmation with your <strong>transaction reference</strong> and next steps.</p>
+            <p>Best regards,<br>
+            <strong>${process.env.EMAIL_FROM_NAME_INVESTMENT || 'NVCCZ Investment Team'}</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+    }
     return `
       <!DOCTYPE html>
       <html>
@@ -2278,7 +2768,7 @@ export class EmailNotificationService {
             
             <div class="highlight">
               <h3>✅ Disbursement Successfully Completed</h3>
-              <p>We are pleased to inform you that your fund disbursement has been successfully completed and the funds have been transferred to your account.</p>
+              <p>Your funding disbursement request was <strong>approved</strong> by our finance team. Your fund disbursement is now <strong>complete</strong> and the funds have been <strong>disbursed</strong> (recorded for payment from our side).</p>
             </div>
             
             <h3>Disbursement Details:</h3>
@@ -4900,5 +5390,35 @@ export class EmailNotificationService {
       html,
     });
     console.log(`Recurring journal notification sent to ${recipients.length} recipient(s)`);
+  }
+
+  /**
+   * Capital call notice — subject per spec: `Capital Call Notice , {fundName} , {date}` (spaces around commas).
+   * HTML body plus official notice PDF attachment (same content as GET …/notice).
+   */
+  static async sendCapitalCallNoticeEmail(data: {
+    lpEmail: string;
+    lpDisplayName: string;
+    fundName: string;
+    subjectDateLabel: string;
+    html: string;
+    pdfAttachment?: { filename: string; content: Buffer };
+  }): Promise<void> {
+    const subject = capitalCallNoticeEmailSubject(data.fundName, data.subjectDateLabel);
+    const from = getFromAddress("investment");
+    await emailTransport.sendMail({
+      from: `"${from.name}" <${from.address}>`,
+      to: `"${data.lpDisplayName}" <${data.lpEmail}>`,
+      subject,
+      html: data.html,
+      attachments: data.pdfAttachment
+        ? [
+            {
+              filename: data.pdfAttachment.filename,
+              content: data.pdfAttachment.content,
+            },
+          ]
+        : undefined,
+    });
   }
 }

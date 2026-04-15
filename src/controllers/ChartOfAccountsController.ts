@@ -135,7 +135,7 @@ export class ChartOfAccountsController {
    */
   static async getAllChartOfAccounts(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const { accountType, isActive, parentId } = req.query;
+      const { accountType, isActive, parentId, forPosting } = req.query;
 
       // Build where clause for filtering
       const where: any = {};
@@ -150,6 +150,12 @@ export class ChartOfAccountsController {
 
       if (parentId) {
         where.parentId = parentId;
+      }
+
+      // Reporting bucket: keep visible in COA list, but exclude from "posting" pickers.
+      // Frontend should call: GET /api/accounting/chart-of-accounts?forPosting=true
+      if (forPosting === 'true') {
+        where.NOT = [{ accountNo: '1000' }];
       }
 
       const chartOfAccounts = await prisma.chartOfAccounts.findMany({

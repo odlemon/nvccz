@@ -5,15 +5,17 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { PayrollService } from '../services/PayrollService';
 import { StaffReimbursementVendorService } from '../services/StaffReimbursementVendorService';
 
+import { companyNameFullFromEnv } from '../config/companyDisplay';
 import { prisma } from '../utils/database';
+import { PerformancePayrollBscHookService } from '../services/PerformancePayrollBscHookService';
 import { parseDate } from '../utils/dateHelper';
-
 export class PayrollController {
   /**
    * Create a new employee from user
    */
   static async createEmployee(req: Request, res: Response) {
     try {
+      // Optional: performance goal id for SRD vacant-posts / headcount counter (BSC).
       const {
         userId,
         bankName,
@@ -25,7 +27,8 @@ export class PayrollController {
         nextOfKin,
         nextOfKinContact,
         address,
-        pictureUrl
+        pictureUrl,
+        bscNewHireCounterGoalId
       } = req.body;
 
       // Check if user exists
@@ -64,6 +67,14 @@ export class PayrollController {
         nextEmployeeNumber = `EMP${nextNumber.toString().padStart(3, '0')}`;
       }
 
+      const actorId = (req as any).user?.id;
+      if (!actorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized'
+        });
+      }
+
       const employee = await prisma.employee.create({
         data: {
           userId,
@@ -86,6 +97,12 @@ export class PayrollController {
           currency: true
         }
       });
+
+      PerformancePayrollBscHookService.onEmployeeCreated({
+        bscNewHireCounterGoalId:
+          bscNewHireCounterGoalId != null ? String(bscNewHireCounterGoalId).trim() : undefined,
+        createdByUserId: actorId ? String(actorId) : null
+      }).catch((err) => console.warn("[payroll-bsc-hook] new hire KPI skipped:", err?.message || err));
 
       res.status(201).json({
         success: true,
@@ -1131,7 +1148,7 @@ export class PayrollController {
         payrollRun: payslip.payrollRun,
         currency: payslip.currency,
         // Company information
-        companyName: "National Venture Capital Company of Zimbabwe"
+        companyName: companyNameFullFromEnv()
       }));
 
       const total = await prisma.payslip.count({

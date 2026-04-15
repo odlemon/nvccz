@@ -10,7 +10,7 @@ import {
   parseZimrateDateLabel,
   type ZimrateRatesPayload
 } from './ZimrateRateService';
-import { getLastStoredUsdZwgFromDb } from './UsdZwgRateResolver';
+import { fetchZimrateRatesOrUatFallback, getLastStoredUsdZwgFromDb } from './UsdZwgRateResolver';
 import { randomUUID } from 'crypto';
 import { JournalEntryService } from './JournalEntryService';
 import AuditService from './AuditService';
@@ -94,6 +94,11 @@ export class MultiCurrencyService {
     try {
       const { date, fromCurrencyId, toCurrencyId, rate, createdById } = params;
 
+      // Store/compare exchange rates at UTC start-of-day so lookups are stable across timezones.
+      // (Some callers parse YYYY-MM-DD as noon-UTC to avoid off-by-one display issues.)
+      const normalizedDate = new Date(date);
+      normalizedDate.setUTCHours(0, 0, 0, 0);
+
       // Validate currencies exist
       const [fromCurrency, toCurrency] = await Promise.all([
         prisma.currency.findUnique({ where: { id: fromCurrencyId } }),
@@ -112,7 +117,7 @@ export class MultiCurrencyService {
       const existingRate = await prisma.exchangeRate.findUnique({
         where: {
           date_fromCurrencyId_toCurrencyId: {
-            date,
+            date: normalizedDate,
             fromCurrencyId,
             toCurrencyId
           }
@@ -126,7 +131,7 @@ export class MultiCurrencyService {
       // Create exchange rate
       const exchangeRate = await prisma.exchangeRate.create({
         data: {
-          date,
+          date: normalizedDate,
           rate: new Decimal(rate),
           fromCurrency: {
             connect: { id: fromCurrencyId }
@@ -237,9 +242,11 @@ export class MultiCurrencyService {
    * Get exchange rate for currency pair and date
    */
   private static async getExchangeRate(fromCurrencyId: string, toCurrencyId: string, date: Date): Promise<ExchangeRate | null> {
-    // Normalize date to start of day for exact matching
+    // Normalize to UTC calendar-day start for exact matching.
+    // Important: many endpoints store date-only inputs using a noon-UTC anchor (see `parseDate`)
+    // then persist as a DATE; using local `setHours` can shift the day on non-UTC hosts.
     const normalizedDate = new Date(date);
-    normalizedDate.setHours(0, 0, 0, 0);
+    normalizedDate.setUTCHours(0, 0, 0, 0);
     
     // First try to get exact date match
     let exchangeRate = await prisma.exchangeRate.findUnique({
@@ -486,7 +493,7 @@ export class MultiCurrencyService {
 
     let zimrateFull: ZimrateRatesPayload;
     try {
-      zimrateFull = await fetchZimrateRates();
+      zimrateFull = await fetchZimrateRatesOrUatFallback(prisma);
     } catch (e: any) {
       throw new Error(`Zimrate unavailable (needed for ZAR/ZWL payment leg): ${e?.message || e}`);
     }
@@ -865,19 +872,28 @@ export class MultiCurrencyService {
         throw new Error('Accounts Receivable account (1200) not found');
       }
 
-      // Get Bank/Cash account (use default bank account for ZWL)
-      const bankAccount = await prisma.chartOfAccounts.findFirst({
-        where: {
-          OR: [
-            { accountNo: '1100' },
-            { accountNo: '1000' },
-            { accountName: { contains: 'Bank' } },
-            { accountName: { contains: 'Cash' } }
-          ],
-          isActive: true
-        },
-        orderBy: { accountNo: 'asc' }
+      // Get Bank/Cash account:
+      // Prefer an active bank-linked GL account; fall back to accountNo 1100 or a cash-named account if needed.
+      const firstBank = await prisma.bank.findFirst({
+        where: { isActive: true, glAccountId: { not: null } },
+        orderBy: { createdAt: 'asc' },
+        select: { glAccountId: true },
       });
+      const bankAccount =
+        (firstBank?.glAccountId
+          ? await prisma.chartOfAccounts.findUnique({ where: { id: firstBank.glAccountId } })
+          : null) ||
+        (await prisma.chartOfAccounts.findFirst({
+          where: {
+            OR: [
+              { accountNo: '1100' },
+              { accountName: { contains: 'Bank' } },
+              { accountName: { contains: 'Cash' } }
+            ],
+            isActive: true
+          },
+          orderBy: { accountNo: 'asc' }
+        }));
 
       if (!bankAccount) {
         throw new Error('Bank/Cash account not found');

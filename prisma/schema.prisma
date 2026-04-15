@@ -85,6 +85,7 @@ model User {
   dealProgressAssigned              DealProgress[]               @relation("DealProgressAssignedTo")
   dealProgressManaged               DealProgress[]               @relation("DealProgressManager")
   dealProgressUpdates               DealProgressUpdate[]
+  applicationsAssignedAsAnalyst     Application[]                @relation("ApplicationAssignedAnalyst")
   researchReportsAssigned           ResearchReport[]             @relation("ResearchReportAssignedTo")
   researchReportsCreated            ResearchReport[]             @relation("ResearchReportCreatedBy")
   researchReportActivities          ResearchReportActivity[]
@@ -148,6 +149,7 @@ model User {
   savedFilterFavorites              SavedFilterFavorite[]
   cashbookReconSessionsCreated      CashbookReconciliationSession[] @relation("CashbookReconSessionCreatedBy")
   cashbookReconSessionsFinished     CashbookReconciliationSession[] @relation("CashbookReconSessionFinishedBy")
+  capitalCallsInitiated             CapitalCall[]                @relation("CapitalCallCreator")
   lineManagedEmployees              Employee[]                   @relation("EmployeeLineManager")
   performanceContractsAsSubject     PerformanceContract[]        @relation("PerformanceContractSubjectUser")
   performanceContractsCreated       PerformanceContract[]        @relation("PerformanceContractCreator")
@@ -159,6 +161,15 @@ model User {
   procurementRfqsCreated            ProcurementRfq[]             @relation("ProcurementRfqCreatedBy")
   rfqClarificationsAuthored         RfqClarification[]           @relation("RfqClarificationUser")
   grnReturnsCreated                 GrnReturnToVendor[]          @relation("GrnReturnToVendorCreatedBy")
+  shortTermInvestmentInstrumentsCreated ShortTermInvestmentInstrument[] @relation("StiInstrumentCreatedBy")
+  shortTermInvestmentInstrumentsVoided  ShortTermInvestmentInstrument[] @relation("StiInstrumentVoidedBy")
+  shortTermInvestmentApyRatesCreated   ShortTermInvestmentApyRate[]    @relation("StiApyCreatedBy")
+  modulePeriodLocksUpdated             ModulePeriodLock[]              @relation("ModulePeriodLockUpdatedBy")
+  periodLockDraftsUpdated              PeriodLockDraft[]               @relation("PeriodLockDraftUpdatedBy")
+  periodLockAuditLogsPerformed         PeriodLockAuditLog[]            @relation("PeriodLockAuditPerformedBy")
+  bscBudgetVarianceReportsSubmitted    BscBudgetVarianceReport[]
+  bscStatutorySubmissionsSubmitted     BscStatutorySubmission[]        @relation("BscStatutorySubmitter")
+  bscStatutorySubmissionsManagerSigned BscStatutorySubmission[]        @relation("BscStatutoryManagerSigner")
 
   @@map("users")
 }
@@ -499,6 +510,13 @@ model Currency {
   recurringJournalTemplates RecurringJournalTemplate[]
   vendorSettlements         Vendor[]                    @relation("VendorSettlementCurrency")
   procurementRfqsReporting  ProcurementRfq[]            @relation("ProcurementRfqReportingCurrency")
+  shortTermInvestmentInstruments          ShortTermInvestmentInstrument[] @relation("StiInstrumentCurrency")
+  shortTermInvestmentInstrumentsFunctional ShortTermInvestmentInstrument[] @relation("StiFunctionalCurrency")
+  shortTermInvestmentAccrualsFunctional   ShortTermInvestmentAccrual[]    @relation("StiAccrualFunctionalCurrency")
+  capitalCalls                          CapitalCall[]
+  investmentImplementationsCommitmentCurrency InvestmentImplementation[] @relation("ImplementationCommitmentCurrency")
+  fundDisbursementsPaymentCurrency          FundDisbursement[]          @relation("FundDisbursementPaymentCurrency")
+  fundDisbursementsCommitmentCurrency       FundDisbursement[]          @relation("FundDisbursementCommitmentCurrency")
 
   @@map("currencies")
 }
@@ -530,6 +548,12 @@ model ChartOfAccounts {
   contraEntryDebits             ContraEntry[]             @relation("ContraEntryDebitAccount")
   contraEntryCredits            ContraEntry[]             @relation("ContraEntryCreditAccount")
   entryTypeDefaults             CashbookEntryTypeConfig[] @relation("EntryTypeGLAccount")
+  stiPrincipalGlAccounts       ShortTermInvestmentInstrument[] @relation("StiPrincipalGl")
+  stiAccruedGlAccounts         ShortTermInvestmentInstrument[] @relation("StiAccruedGl")
+  stiIncomeGlAccounts          ShortTermInvestmentInstrument[] @relation("StiIncomeGl")
+  stiNegYieldGlAccounts        ShortTermInvestmentInstrument[] @relation("StiNegYieldGl")
+  stiUnrealizedFxGlAccounts    ShortTermInvestmentInstrument[] @relation("StiUnrealizedFxGl")
+  stiRealizedFxGlAccounts      ShortTermInvestmentInstrument[] @relation("StiRealizedFxGl")
 
   @@map("chart_of_accounts")
 }
@@ -699,6 +723,11 @@ model JournalEntry {
   forexGainLoss         ForexGainLoss[]        @relation("ForexGainLossJournal")
   cashbookEntries       CashbookEntry[]
   recurringJournalRun   RecurringJournalRun?
+  stiAccrualsAsJournal     ShortTermInvestmentAccrual[] @relation("StiAccrualJournalEntry")
+  stiAccrualsAsReversal    ShortTermInvestmentAccrual[] @relation("StiAccrualReversalJournalEntry")
+  stiLiquidationInstruments ShortTermInvestmentInstrument[] @relation("StiLiquidationJe")
+  stiFxRevaluationEntries   ShortTermInvestmentFxRevaluation[] @relation("StiFxRevaluationJe")
+  capitalCall               CapitalCall?
 
   @@map("journal_entries")
 }
@@ -1013,6 +1042,8 @@ model MiniKyc {
 
 model CompanyProfile {
   id        String   @id @default(cuid())
+  /// IANA timezone for fiscal/accrual calendar day (e.g. Africa/Harare). Optional; short-term investment cron may also read `ShortTermInvestmentSettings.fiscalTimezone` or `FISCAL_TIMEZONE` env.
+  fiscalTimezone String? @map("fiscal_timezone") @db.VarChar(64)
   /** Letterhead / identity fields (used on invoices, statements, PDFs). */
   legalName String?  @map("legal_name")
   registrationNumber String? @map("registration_number")
@@ -1102,8 +1133,25 @@ model PortfolioCompany {
   fund                     Fund?                     @relation(fields: [fundId], references: [id], onDelete: SetNull)
   investmentImplementation InvestmentImplementation?
   investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteePortfolioRequisition")
+  reportingPeriodOperationalKpis ReportingPeriodOperationalKpi[]
 
   @@map("portfolio_companies")
+}
+
+/// Investee-entered operational / unit-economics KPIs for one reporting period (non-financial-statement metrics).
+model ReportingPeriodOperationalKpi {
+  id                 String           @id @default(cuid())
+  portfolioCompanyId String           @map("portfolio_company_id")
+  /// Same calendar key as `financialKpis.kpiValues` and `reporting_notification_logs.reporting_period`.
+  reportingPeriodEnd DateTime         @map("reporting_period_end") @db.Date
+  payload            Json
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  portfolioCompany   PortfolioCompany @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioCompanyId, reportingPeriodEnd], map: "reporting_period_operational_kpis_company_period_uniq")
+  @@index([portfolioCompanyId], map: "reporting_period_operational_kpis_company_idx")
+  @@map("reporting_period_operational_kpis")
 }
 
 model Fund {
@@ -1129,8 +1177,33 @@ model Fund {
   investmentImplementations InvestmentImplementation[]
   investmentCommitments     InvestmentCommitment[]
   investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteeFundRequisition")
+  capitalCalls              CapitalCall[]
 
   @@map("funds")
+}
+
+/// Investee reporting automation: cadence + when to open a calendar (REQUEST) vs reminders-only (AUTO tiers for already-open periods). Applies to all eligible portfolio companies — same scope as manual POST .../reporting/requests.
+model ReportingScheduleConfig {
+  id                               String   @id @default(cuid())
+  name                             String
+  /// MONTHLY | QUARTERLY | YEARLY | CUSTOM (CUSTOM uses customMonthEnds: month numbers 1–12).
+  frequency                        String
+  isActive                         Boolean  @default(true) @map("is_active")
+  /// When true, schedule tick may broadcast REQUEST for the computed period. When false, tick only runs AUTO reminders for periods already opened.
+  autoOpenCalendar                 Boolean  @default(true) @map("auto_open_calendar")
+  /// Due date = period end + this many calendar days.
+  dueDateOffsetDaysAfterPeriodEnd  Int      @default(15) @map("due_date_offset_days_after_period_end")
+  /// Open/send REQUEST on/after period end + this many calendar days (typically 1 = first day after period closes).
+  openCalendarAfterPeriodEndDays   Int      @default(1) @map("open_calendar_after_period_end_days")
+  /// JSON string[] of catalog ids; same as POST .../reporting/requests attachmentOptionIds.
+  defaultAttachmentOptionIds       Json?    @map("default_attachment_option_ids")
+  /// JSON number[] — for CUSTOM frequency: month numbers 1–12 whose last day is a period end.
+  customMonthEnds                  Json?    @map("custom_month_ends")
+  createdAt                        DateTime @default(now()) @map("created_at")
+  updatedAt                        DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive], map: "reporting_schedule_configs_is_active_idx")
+  @@map("reporting_schedule_configs")
 }
 
 model Client {
@@ -1147,6 +1220,7 @@ model Client {
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   investmentCommitments InvestmentCommitment[]
+  capitalCallAllocations CapitalCallAllocation[]
 
   @@map("clients")
 }
@@ -1165,9 +1239,77 @@ model InvestmentCommitment {
   updatedAt     DateTime @updatedAt
   client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   fund          Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  capitalCallAllocations CapitalCallAllocation[]
 
   @@unique([clientId, fundId])
   @@map("investment_commitments")
+}
+
+/// LP capital call (drawdown) header — one row per fund call event.
+model CapitalCall {
+  id               String    @id @default(cuid())
+  fundId           String    @map("fund_id")
+  currencyId       String    @map("currency_id")
+  callPercent      Decimal   @map("call_percent") @db.Decimal(12, 6)
+  paymentDueDate   DateTime  @map("payment_due_date") @db.Date
+  bankInstructions String    @map("bank_instructions") @db.Text
+  transactionDate  DateTime  @map("transaction_date") @db.Date
+  journalEntryId   String?   @unique @map("journal_entry_id")
+  status           String    @default("INITIATED") @db.VarChar(32)
+  noticesSentAt    DateTime? @map("notices_sent_at")
+  createdById      String    @map("created_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  fund         Fund                    @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  currency     Currency                @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?           @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy    User                    @relation("CapitalCallCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  allocations  CapitalCallAllocation[]
+
+  @@index([fundId], map: "capital_calls_fund_id_idx")
+  @@index([fundId, createdAt], map: "capital_calls_fund_created_idx")
+  @@map("capital_calls")
+}
+
+/// Per-LP line for a capital call (amounts snapshot at initiation; payments update `amountPaid` / `status`).
+model CapitalCallAllocation {
+  id                            String   @id @default(cuid())
+  capitalCallId                 String   @map("capital_call_id")
+  clientId                      String   @map("client_id")
+  investmentCommitmentId        String   @map("investment_commitment_id")
+  lpLegalNameSnapshot           String   @map("lp_legal_name_snapshot") @db.VarChar(512)
+  totalCommitmentSnapshot       Decimal  @map("total_commitment_snapshot") @db.Decimal(15, 2)
+  uncalledCapitalBeforeSnapshot Decimal  @map("uncalled_capital_before_snapshot") @db.Decimal(15, 2)
+  currentCallAmount             Decimal  @map("current_call_amount") @db.Decimal(15, 2)
+  amountPaid                    Decimal  @default(0) @map("amount_paid") @db.Decimal(15, 2)
+  status                        String   @default("PENDING") @db.VarChar(32)
+  createdAt                     DateTime @default(now()) @map("created_at")
+  updatedAt                     DateTime @updatedAt @map("updated_at")
+
+  capitalCall          CapitalCall          @relation(fields: [capitalCallId], references: [id], onDelete: Cascade)
+  client               Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  investmentCommitment InvestmentCommitment @relation(fields: [investmentCommitmentId], references: [id], onDelete: Restrict)
+  payments             CapitalCallAllocationPayment[]
+
+  @@index([capitalCallId], map: "capital_call_allocations_call_idx")
+  @@index([clientId], map: "capital_call_allocations_client_idx")
+  @@index([investmentCommitmentId], map: "capital_call_allocations_commitment_idx")
+  @@map("capital_call_allocations")
+}
+
+/// Posted receipt against one capital-call allocation (append-only ledger; allocation.amountPaid is roll-up).
+model CapitalCallAllocationPayment {
+  id                      String   @id @default(cuid())
+  capitalCallAllocationId String   @map("capital_call_allocation_id")
+  amount                  Decimal  @db.Decimal(15, 2)
+  recordedAt              DateTime @default(now()) @map("recorded_at")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  capitalCallAllocation CapitalCallAllocation @relation(fields: [capitalCallAllocationId], references: [id], onDelete: Cascade)
+
+  @@index([capitalCallAllocationId], map: "capital_call_allocation_payments_allocation_idx")
+  @@map("capital_call_allocation_payments")
 }
 
 model FundManager {
@@ -1191,7 +1333,8 @@ model Application {
   id                       String                    @id @default(cuid())
   fundId                   String?
   requestedAmount          Decimal                   @db.Decimal(15, 2)
-  currentStage             String                    @default("SHORTLISTED")
+  /// UAT workflow: SCREENING_PENDING, SCREENING, ACTIVE_DD, REJECTED_SCREENING, AUTO_REJECTED, …
+  currentStage             String                    @default("SCREENING_PENDING")
   submittedAt              DateTime?
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
@@ -1207,7 +1350,16 @@ model Application {
   foundingDate             DateTime?
   industry                 String
   initialScreeningScore    Decimal?                  @db.Decimal(5, 2)
+  /// Analyst "Initial Screening Scorecard" (UAT); separate from AI `initialScreeningScore`.
+  screeningScore           Decimal?                  @db.Decimal(5, 2)
   screeningOutcome         String?
+  /// Human-readable sequential deal id: `{PREFIX}-{year}-{6-digit-seq}`; PREFIX from env `DEAL_REFERENCE_PREFIX` (default VST).
+  dealReference            String?                   @unique
+  assignedAnalystId        String?
+  assignedAnalyst          User?                     @relation("ApplicationAssignedAnalyst", fields: [assignedAnalystId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  /// Statutory guardrail (RBZ Exchange Control + KYC): fund disbursement APIs require this true.
+  complianceCleared        Boolean                   @default(false)
+  kycVerified              Boolean                   @default(false)
   fund                     Fund?                     @relation(fields: [fundId], references: [id])
   documents                ApplicationDocument[]
   notifications            ApplicationNotification[]
@@ -1216,6 +1368,8 @@ model Application {
   termSheet                TermSheet?
   investmentImplementation InvestmentImplementation?
   tasks                    Task[]
+  /// Portfolio deal collaboration feed (activity_logs with applicationId set, taskId null).
+  dealCollaborationLogs    ActivityLog[]              @relation("ApplicationDealCollaboration")
 
   @@map("applications")
 }
@@ -1296,6 +1450,15 @@ model BoardReview {
   overallScore          Decimal?    @db.Decimal(5, 2)
   finalComments         String?     @db.Text
   status                String      @default("IN_PROGRESS")
+  /// Final Investment Memorandum (uploaded before / as part of “call to vote”).
+  imDocumentUrl         String?     @map("im_document_url") @db.Text
+  imDocumentFileName    String?     @map("im_document_file_name")
+  /// NONE | READY_FOR_VOTE (READY_FOR_VOTE set when CIO triggers call to vote after IM is in place).
+  imStatus              String      @default("NONE") @map("im_status") @db.VarChar(32)
+  /// When IC members were emailed to vote (legacy: also set when creating review with immediate notifications).
+  voteInviteSentAt      DateTime?   @map("vote_invite_sent_at")
+  /// When true, votes are rejected until voteInviteSentAt is set (e.g. before IM upload on a partial row).
+  requiresExplicitVoteOpen Boolean  @default(false) @map("requires_explicit_vote_open")
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   completedAt           DateTime?
@@ -1460,6 +1623,8 @@ model Task {
   category              String?
   applicationId         String?
   fromDueDiligence      Boolean          @default(false)
+  /// PMS/deal workflow metadata (e.g. sourceModule, dealId).
+  taskMetadata          Json?
   createdBy             String
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
@@ -1515,12 +1680,15 @@ model InvestmentImplementation {
   // Milestone-based disbursement tracking
   disbursementMode  String                @default("ONE_TIME") // ONE_TIME, MILESTONE_BASED
   totalCommittedAmount Decimal?            @db.Decimal(15, 2) // Total amount committed for this investment
+  /// Currency of totalCommittedAmount / IC cap (defaults to system default or USD in code when null).
+  commitmentCurrencyId String?            @map("commitment_currency_id")
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
   completedAt        DateTime?
   portfolioCompany   PortfolioCompany      @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
   application        Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   fund               Fund?                 @relation(fields: [fundId], references: [id])
+  commitmentCurrency Currency?             @relation("ImplementationCommitmentCurrency", fields: [commitmentCurrencyId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   initiatedBy        User                  @relation(fields: [initiatedById], references: [id])
   milestones         InvestmentMilestone[]
   fundDisbursements  FundDisbursement[]
@@ -1552,6 +1720,7 @@ model FundDisbursement {
   fundId                     String
   investmentImplementationId String
   milestoneId                String?
+  /// Amount in paymentCurrency (bank payout currency); equals commitment currency when currencies match.
   amount                     Decimal                  @db.Decimal(15, 2)
   disbursementDate           DateTime
   disbursementType           String
@@ -1561,6 +1730,14 @@ model FundDisbursement {
   notes                      String?                  @db.Text
   transactionReference       String?
   cashbookEntryId            String?                 @unique @map("cashbook_entry_id")
+  /// Bank / payout currency for `amount` (system FX from `exchange_rates` when ≠ commitment).
+  paymentCurrencyId          String?                 @map("payment_currency_id")
+  /// IC commitment cap currency (mirrors implementation commitment currency at creation).
+  commitmentCurrencyId       String?                 @map("commitment_currency_id")
+  /// `amount` converted to commitment currency via latest system rate as of disbursementDate.
+  amountCommitmentCurrency   Decimal?                @map("amount_commitment_currency") @db.Decimal(15, 2)
+  /// System rate applied: payment → commitment (same semantics as MultiCurrencyService.convertCurrency).
+  appliedExchangeRate        Decimal?                @map("applied_exchange_rate") @db.Decimal(15, 6)
   createdAt                  DateTime                 @default(now())
   updatedAt                  DateTime                 @updatedAt
   approvedAt                 DateTime?
@@ -1568,6 +1745,8 @@ model FundDisbursement {
   fund                       Fund                     @relation(fields: [fundId], references: [id])
   investmentImplementation   InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
   milestone                  InvestmentMilestone?     @relation(fields: [milestoneId], references: [id])
+  paymentCurrency            Currency?                @relation("FundDisbursementPaymentCurrency", fields: [paymentCurrencyId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  commitmentCurrency         Currency?                @relation("FundDisbursementCommitmentCurrency", fields: [commitmentCurrencyId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   approvedBy                 User?                    @relation("FundDisbursementApprovedBy", fields: [approvedById], references: [id])
   disbursedBy                User?                    @relation("FundDisbursementDisbursedBy", fields: [disbursedById], references: [id])
   cashbookEntry              CashbookEntry?          @relation("FundDisbursementCashbook", fields: [cashbookEntryId], references: [id])
@@ -1636,6 +1815,8 @@ model PerformanceGoal {
   measureName           String?
   scorecardSection      String?
   scorecardPillar       String?
+  /// Stable BSC pillar key (slug) aligned with `scorecardPillar` — satisfies UAT pillar_id traceability.
+  pillarId              String?           @map("pillar_id")
   preciseTargetValue    Decimal?          @db.Decimal(18, 6)
   preciseCurrentValue   Decimal?          @db.Decimal(18, 6)
   pendingActualValue    Decimal?          @db.Decimal(18, 6)
@@ -1655,6 +1836,7 @@ model PerformanceGoal {
   performanceRiskZone   String?
   performanceRiskZoneAt DateTime?
   kpi                   KPI?              @relation(fields: [kpiId], references: [id])
+  strategicTheme        PerformanceTheme? @relation(fields: [strategicThemeId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   assignedTo            User?             @relation("GoalAssignee", fields: [assignedToId], references: [id])
   createdBy             User              @relation("GoalCreator", fields: [createdById], references: [id])
   parentGoal            PerformanceGoal?  @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1662,8 +1844,57 @@ model PerformanceGoal {
   subGoals              PerformanceGoal[] @relation("GoalHierarchy")
   tasks                 Task[]
   activityLogs          ActivityLog[]
+  bscBudgetVarianceReports BscBudgetVarianceReport[]
+  bscStatutorySubmissions  BscStatutorySubmission[]
 
+  @@index([performanceContractId], map: "performance_goals_performance_contract_id_idx")
+  @@index([type, assignedToId], map: "performance_goals_type_assigned_to_idx")
+  @@index([type, departmentName], map: "performance_goals_type_department_name_idx")
   @@map("performance_goals")
+}
+
+/// SRD Flow 6: Finance manager narrative after strategic allocation overspend (links to BSC budget goal).
+model BscBudgetVarianceReport {
+  id                    String    @id @default(cuid())
+  performanceGoalId     String    @map("performance_goal_id")
+  periodLabel           String?   @map("period_label") @db.VarChar(255)
+  periodStart           DateTime? @map("period_start")
+  periodEnd             DateTime? @map("period_end")
+  narrative             String    @db.Text
+  actualSpendSnapshot   Decimal?  @map("actual_spend_snapshot") @db.Decimal(15, 2)
+  allocationSnapshot    Decimal?  @map("allocation_snapshot") @db.Decimal(15, 2)
+  submittedById         String    @map("submitted_by_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  goal        PerformanceGoal @relation(fields: [performanceGoalId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  submittedBy User            @relation(fields: [submittedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([performanceGoalId], map: "bsc_budget_variance_reports_goal_idx")
+  @@map("bsc_budget_variance_reports")
+}
+
+/// SRD Flow 3: statutory upload + manager sign-off record (e-signature as recorded approval).
+model BscStatutorySubmission {
+  id                    String    @id @default(cuid())
+  performanceGoalId     String    @map("performance_goal_id")
+  periodLabel           String?   @map("period_label") @db.VarChar(255)
+  evidenceDocumentUrl   String?   @map("evidence_document_url") @db.Text
+  submittedById         String    @map("submitted_by_id")
+  managerSignOffById    String?   @map("manager_sign_off_by_id")
+  managerSignOffAt      DateTime? @map("manager_sign_off_at")
+  managerSignOffNote    String?   @map("manager_sign_off_note") @db.Text
+  status                String    @default("pending_manager_review") @db.VarChar(64)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  goal               PerformanceGoal @relation(fields: [performanceGoalId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  submittedBy        User            @relation("BscStatutorySubmitter", fields: [submittedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  managerSignOffBy   User?           @relation("BscStatutoryManagerSigner", fields: [managerSignOffById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([performanceGoalId], map: "bsc_statutory_submissions_goal_idx")
+  @@index([status], map: "bsc_statutory_submissions_status_idx")
+  @@map("bsc_statutory_submissions")
 }
 
 model PerformanceContract {
@@ -1731,6 +1962,7 @@ model PerformanceScorecard {
   generatedBy         User                 @relation("PerformanceScorecardGeneratedBy", fields: [generatedById], references: [id])
   finalisedBy         User?                @relation("PerformanceScorecardFinalisedBy", fields: [finalisedById], references: [id])
 
+  @@index([scorecardType, periodStart, periodEnd], map: "performance_scorecards_type_period_idx")
   @@map("performance_scorecards")
 }
 
@@ -1754,14 +1986,15 @@ model PerformanceStrategy {
 }
 
 model PerformanceTheme {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?  @db.Text
-  color       String?
-  status      String   @default("ACTIVE")
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String             @id @default(cuid())
+  name             String             @unique
+  description      String?            @db.Text
+  color            String?
+  status           String             @default("ACTIVE")
+  createdById      String
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  performanceGoals PerformanceGoal[]
 
   @@map("performance_themes")
 }
@@ -1800,6 +2033,8 @@ model ActivityLog {
   description           String?          @db.Text
   goalId                String?
   taskId                String?
+  /// Portfolio module: deal collaboration messages (`deal_comment` / `deal_system_message`), taskId null.
+  applicationId         String?
   kpiId                 String?
   monetaryValueAchieved Decimal?         @db.Decimal(15, 2)
   percentValueAchieved  Decimal?         @db.Decimal(5, 2)
@@ -1808,8 +2043,10 @@ model ActivityLog {
   user                  User             @relation(fields: [userId], references: [id])
   goal                  PerformanceGoal? @relation(fields: [goalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   task                  Task?            @relation(fields: [taskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  application           Application?     @relation("ApplicationDealCollaboration", fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   kpi                   KPI?             @relation(fields: [kpiId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([applicationId])
   @@map("activity_logs")
 }
 
@@ -3609,7 +3846,8 @@ model Bank {
   currencyId          String
   branchCode          String?               @map("branch_code")
   swiftCode           String?               @map("swift_code")
-  glAccountId         String?               @unique
+  /// Shared across all banks (Cash and Cash Equivalents); not unique — many `Bank` rows reference one CoA.
+  glAccountId         String?
   isActive            Boolean               @default(true)
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -3621,6 +3859,7 @@ model Bank {
   transfersFrom       CashbookTransfer[]     @relation("TransferFromBank")
   transfersTo         CashbookTransfer[]    @relation("TransferToBank")
   cashbookReconciliationSessions CashbookReconciliationSession[]
+  shortTermInvestmentsSettlement  ShortTermInvestmentInstrument[] @relation("StiSettlementBank")
 
   @@map("banks")
 }
@@ -4019,6 +4258,254 @@ model AccountingPeriod {
   lockedByUser User?     @relation("PeriodLockedBy", fields: [lockedBy], references: [id])
 
   @@map("accounting_periods")
+}
+
+/// Fiscal year master (calendar or fiscal-year boundaries).
+model FiscalYear {
+  id        String         @id @default(cuid())
+  name      String         @db.VarChar(128)
+  startDate DateTime       @map("start_date") @db.Date
+  endDate   DateTime       @map("end_date") @db.Date
+  status    String         @default("OPEN") @db.VarChar(32)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+  periods   FiscalPeriod[]
+
+  @@index([startDate, endDate], map: "fiscal_years_start_end_idx")
+  @@map("fiscal_years")
+}
+
+/// One row per fiscal period (e.g. month); optional shell lock in `status`.
+model FiscalPeriod {
+  id           String         @id @default(cuid())
+  fiscalYearId String         @map("fiscal_year_id")
+  periodNumber Int            @map("period_number")
+  name         String         @db.VarChar(128)
+  startDate    DateTime       @map("start_date") @db.Date
+  endDate      DateTime       @map("end_date") @db.Date
+  status       String         @default("OPEN") @db.VarChar(32)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  fiscalYear         FiscalYear          @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+  moduleLocks        ModulePeriodLock[]
+  periodLockAuditLog PeriodLockAuditLog[]
+
+  @@unique([fiscalYearId, periodNumber], map: "fiscal_periods_year_num_key")
+  @@index([startDate, endDate], map: "fiscal_periods_start_end_idx")
+  @@map("fiscal_periods")
+}
+
+/// Per-module lock state for a fiscal period (GL, AR, AP, BANK, etc.).
+model ModulePeriodLock {
+  id             String       @id @default(cuid())
+  moduleCode     String       @map("module_code") @db.VarChar(16)
+  fiscalPeriodId String       @map("fiscal_period_id")
+  lockStatus     String       @default("OPEN") @map("lock_status") @db.VarChar(32)
+  reason         String?      @db.VarChar(512)
+  updatedById    String?      @map("updated_by_id")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  fiscalPeriod FiscalPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
+  updatedBy    User?        @relation("ModulePeriodLockUpdatedBy", fields: [updatedById], references: [id])
+
+  @@unique([moduleCode, fiscalPeriodId], map: "module_period_locks_mod_fp_key")
+  @@index([fiscalPeriodId], map: "module_period_locks_fp_idx")
+  @@map("module_period_locks")
+}
+
+/// Singleton (`id` = default): ERROR vs WARN, override flags, config version for cache busting.
+model CompanyAccountingPolicy {
+  id                   String   @id @default("default")
+  lockedPeriodPolicy   String   @default("ERROR") @map("locked_period_policy") @db.VarChar(16)
+  allowOverridePosting Boolean  @default(false) @map("allow_override_posting")
+  glErrorBatchEnabled  Boolean  @default(true) @map("gl_error_batch_enabled")
+  lockConfigVersion    Int      @default(0) @map("lock_config_version")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("company_accounting_policies")
+}
+
+/// Staging only — not used for validation until committed via fiscal-calendar API.
+model PeriodLockDraft {
+  id          String   @id @default("default")
+  draftJson   Json     @map("draft_json")
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("PeriodLockDraftUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("period_lock_drafts")
+}
+
+/// Parked feeder/subledger work when target module/date is locked.
+model PostingException {
+  id                 String   @id @default(cuid())
+  sourceModule       String   @map("source_module") @db.VarChar(16)
+  targetModule       String   @map("target_module") @db.VarChar(16)
+  sourceDocumentType String   @map("source_document_type") @db.VarChar(64)
+  sourceDocumentId   String   @map("source_document_id") @db.VarChar(191)
+  accountingDate     DateTime @map("accounting_date") @db.Date
+  reasonCode         String   @map("reason_code") @db.VarChar(64)
+  status             String   @default("OPEN") @db.VarChar(32)
+  payloadSnapshot    Json?    @map("payload_snapshot")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([status, createdAt], map: "posting_exceptions_status_created_idx")
+  @@index([targetModule, accountingDate], map: "posting_exceptions_tgt_date_idx")
+  @@map("posting_exceptions")
+}
+
+model PeriodLockAuditLog {
+  id             String   @id @default(cuid())
+  actionType     String   @map("action_type") @db.VarChar(64)
+  moduleCode     String?  @map("module_code") @db.VarChar(16)
+  fiscalPeriodId String?  @map("fiscal_period_id")
+  oldValue       Json?    @map("old_value")
+  newValue       Json?    @map("new_value")
+  reason         String?  @db.Text
+  performedById  String   @map("performed_by_id")
+  source         String   @default("API") @db.VarChar(32)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  fiscalPeriod FiscalPeriod? @relation(fields: [fiscalPeriodId], references: [id], onDelete: SetNull)
+  performedBy  User          @relation("PeriodLockAuditPerformedBy", fields: [performedById], references: [id])
+
+  @@index([createdAt], map: "period_lock_audit_logs_created_idx")
+  @@index([actionType], map: "period_lock_audit_logs_action_idx")
+  @@map("period_lock_audit_logs")
+}
+
+/// Singleton-style settings row (`id` = `default`). Posting mode and optional fiscal timezone for STI accrual cron.
+model ShortTermInvestmentSettings {
+  id                   String    @id @default("default")
+  /// DRAFT: accrual journals created as PENDING. APPROVED: created as POSTED.
+  postingMode          String    @default("DRAFT") @map("posting_mode") @db.VarChar(32)
+  /// UTC time when `runDailyAccrualJob` last finished successfully; used for 24h login-trigger cooldown.
+  lastAccrualWatermark DateTime? @map("last_accrual_watermark")
+  fiscalTimezone       String?   @map("fiscal_timezone") @db.VarChar(64)
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("short_term_investment_settings")
+}
+
+/// Liquid short-term investments (money market, T-bills, CDs, CP, etc.).
+model ShortTermInvestmentInstrument {
+  id                              String    @id @default(cuid())
+  name                            String    @db.VarChar(255)
+  category                        String?   @db.VarChar(128)
+  broker                          String?   @db.VarChar(255)
+  /// ACTIVE | SETTLED | VOIDED
+  status                          String    @default("ACTIVE") @db.VarChar(32)
+  principal                       Decimal   @db.Decimal(18, 2)
+  currencyId                      String    @map("currency_id")
+  functionalCurrencyId            String?   @map("functional_currency_id")
+  /// SIMPLE | COMPOUND_DAILY | COMPOUND_MONTHLY
+  compoundingMethod               String    @map("compounding_method") @db.VarChar(32)
+  /// ACTUAL_365: denominator 365, or 366 in leap years (see calculator).
+  dayCountConvention              String    @default("ACTUAL_365") @map("day_count_convention") @db.VarChar(32)
+  dayCountLocked                  Boolean   @default(false) @map("day_count_locked")
+  settlementBankId                String    @map("settlement_bank_id")
+  principalGlAccountId            String    @map("principal_gl_account_id")
+  accruedInterestGlAccountId      String    @map("accrued_interest_gl_account_id")
+  interestIncomeGlAccountId       String    @map("interest_income_gl_account_id")
+  negativeYieldExpenseGlAccountId String    @map("negative_yield_expense_gl_account_id")
+  unrealizedFxGlAccountId         String?   @map("unrealized_fx_gl_account_id")
+  realizedFxGlAccountId           String?   @map("realized_fx_gl_account_id")
+  startDate                       DateTime  @map("start_date") @db.Date
+  maturityDate                    DateTime? @map("maturity_date") @db.Date
+  capitalErosion                  Boolean   @default(false) @map("capital_erosion")
+  liquidationJournalEntryId       String?   @unique(map: "sti_inst_liquidation_je_id_key") @map("liquidation_journal_entry_id")
+  liquidationDate                 DateTime? @map("liquidation_date") @db.Date
+  liquidationCashReceived         Decimal?  @map("liquidation_cash_received") @db.Decimal(18, 2)
+  carryingFunctionalAtSettlement  Decimal?  @map("carrying_functional_at_settlement") @db.Decimal(18, 6)
+  voidedAt                        DateTime? @map("voided_at")
+  voidedById                      String?   @map("voided_by_id")
+  createdById                     String    @map("created_by_id")
+  createdAt                       DateTime  @default(now()) @map("created_at")
+  updatedAt                       DateTime  @updatedAt @map("updated_at")
+
+  currency               Currency @relation("StiInstrumentCurrency", fields: [currencyId], references: [id])
+  functionalCurrency     Currency? @relation("StiFunctionalCurrency", fields: [functionalCurrencyId], references: [id])
+  settlementBank         Bank @relation("StiSettlementBank", fields: [settlementBankId], references: [id])
+  principalGl            ChartOfAccounts @relation("StiPrincipalGl", fields: [principalGlAccountId], references: [id])
+  accruedInterestGl      ChartOfAccounts @relation("StiAccruedGl", fields: [accruedInterestGlAccountId], references: [id])
+  interestIncomeGl       ChartOfAccounts @relation("StiIncomeGl", fields: [interestIncomeGlAccountId], references: [id])
+  negativeYieldExpenseGl ChartOfAccounts @relation("StiNegYieldGl", fields: [negativeYieldExpenseGlAccountId], references: [id])
+  unrealizedFxGl         ChartOfAccounts? @relation("StiUnrealizedFxGl", fields: [unrealizedFxGlAccountId], references: [id])
+  realizedFxGl           ChartOfAccounts? @relation("StiRealizedFxGl", fields: [realizedFxGlAccountId], references: [id])
+  liquidationJournalEntry JournalEntry? @relation("StiLiquidationJe", fields: [liquidationJournalEntryId], references: [id])
+  voidedBy               User? @relation("StiInstrumentVoidedBy", fields: [voidedById], references: [id])
+  createdBy              User @relation("StiInstrumentCreatedBy", fields: [createdById], references: [id])
+  apyRates               ShortTermInvestmentApyRate[]
+  accruals               ShortTermInvestmentAccrual[]
+  fxRevaluations         ShortTermInvestmentFxRevaluation[]
+
+  @@index([status])
+  @@index([maturityDate])
+  @@map("short_term_investment_instruments")
+}
+
+model ShortTermInvestmentApyRate {
+  id            String    @id @default(cuid())
+  instrumentId  String    @map("instrument_id")
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  /// Annual rate as decimal, e.g. 0.05 for 5% APY.
+  apy           Decimal   @db.Decimal(20, 12)
+  createdById   String    @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  instrument ShortTermInvestmentInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  createdBy  User @relation("StiApyCreatedBy", fields: [createdById], references: [id])
+  accruals   ShortTermInvestmentAccrual[]
+
+  @@index([instrumentId, effectiveFrom])
+  @@map("short_term_investment_apy_rates")
+}
+
+model ShortTermInvestmentAccrual {
+  id                      String    @id @default(cuid())
+  instrumentId            String    @map("instrument_id")
+  accrualDate             DateTime  @map("accrual_date") @db.Date
+  amountInstrumentCcy     Decimal   @map("amount_instrument_ccy") @db.Decimal(18, 6)
+  runningAccruedBalance   Decimal   @map("running_accrued_balance") @db.Decimal(18, 6)
+  apyRateId               String    @map("apy_rate_id")
+  journalEntryId          String?   @unique(map: "short_term_investment_accruals_journal_entry_id_key") @map("journal_entry_id")
+  reversalJournalEntryId  String?   @unique(map: "short_term_investment_accruals_reversal_journal_entry_id_key") @map("reversal_journal_entry_id")
+  /// PENDING_POST | POSTED | REVERSED
+  status                  String    @default("PENDING_POST") @map("status") @db.VarChar(32)
+  reportingAmountFunctional Decimal? @map("reporting_amount_functional") @db.Decimal(18, 6)
+  functionalCurrencyId    String?   @map("functional_currency_id")
+  fxRateUsed              Decimal?  @map("fx_rate_used") @db.Decimal(24, 12)
+
+  instrument            ShortTermInvestmentInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  apyRate               ShortTermInvestmentApyRate @relation(fields: [apyRateId], references: [id], onDelete: Restrict)
+  journalEntry          JournalEntry? @relation("StiAccrualJournalEntry", fields: [journalEntryId], references: [id])
+  reversalJournalEntry  JournalEntry? @relation("StiAccrualReversalJournalEntry", fields: [reversalJournalEntryId], references: [id])
+  functionalCurrency    Currency? @relation("StiAccrualFunctionalCurrency", fields: [functionalCurrencyId], references: [id])
+
+  @@unique([instrumentId, accrualDate], map: "short_term_investment_accruals_instrument_id_accrual_date_key")
+  @@index([instrumentId, accrualDate])
+  @@map("short_term_investment_accruals")
+}
+
+model ShortTermInvestmentFxRevaluation {
+  id                        String   @id @default(cuid())
+  instrumentId              String   @map("instrument_id")
+  yearMonth                 String   @map("year_month") @db.VarChar(7)
+  journalEntryId            String   @unique(map: "sti_fx_journal_entry_id_key") @map("journal_entry_id")
+  priorCarryingFunctional   Decimal  @map("prior_carrying_functional") @db.Decimal(18, 6)
+  revisedCarryingFunctional Decimal  @map("revised_carrying_functional") @db.Decimal(18, 6)
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  instrument   ShortTermInvestmentInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  journalEntry JournalEntry @relation("StiFxRevaluationJe", fields: [journalEntryId], references: [id])
+
+  @@unique([instrumentId, yearMonth], map: "sti_fx_inst_year_month_key")
+  @@map("short_term_investment_fx_revaluations")
 }
 
 enum EventStatus {

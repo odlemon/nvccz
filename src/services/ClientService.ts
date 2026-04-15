@@ -1,9 +1,11 @@
 // @ts-nocheck
+import { randomUUID } from "crypto";
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 
 export interface CreateClientRequest {
-  investorId: string;
+  /** Optional. When omitted, a unique value is generated (`inv-{uuid}`). */
+  investorId?: string;
   type: string; // "individual" or "institutional"
   legalName: string;
   email: string;
@@ -45,13 +47,19 @@ export class ClientService {
   // Create a new client with optional investment commitment
   static async createClient(request: CreateClientRequest) {
     try {
-      // Check if investor ID already exists
-      const existingClient = await prisma.client.findUnique({
-        where: { investorId: request.investorId }
-      });
+      const providedInvestorId =
+        request.investorId != null && String(request.investorId).trim() !== ""
+          ? String(request.investorId).trim()
+          : null;
+      const investorId = providedInvestorId ?? `inv-${randomUUID()}`;
 
-      if (existingClient) {
-        throw new Error("Client with this investor ID already exists");
+      if (providedInvestorId) {
+        const existingClient = await prisma.client.findUnique({
+          where: { investorId: providedInvestorId },
+        });
+        if (existingClient) {
+          throw new Error("Client with this investor ID already exists");
+        }
       }
 
       // Check if email already exists
@@ -106,7 +114,7 @@ export class ClientService {
         // Create the client
         const client = await tx.client.create({
           data: {
-            investorId: request.investorId,
+            investorId,
             type: request.type,
             legalName: request.legalName,
             email: request.email,
