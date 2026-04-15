@@ -198,7 +198,7 @@ export const procurementEndpoints = {
     get: {
       summary: 'Get all RFQs',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Retrieve all RFQs from the system',
-      tags: ['Procurement - RFQ'],
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'query', name: 'rfqNumber', schema: { type: 'string' }, description: 'Filter by RFQ number' },
@@ -214,7 +214,7 @@ export const procurementEndpoints = {
     post: {
       summary: 'Create and send RFQ to multiple vendors',
       description: '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Sends RFQ emails to all specified vendors with public quotation submission link',
-      tags: ['Procurement - RFQ'],
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
