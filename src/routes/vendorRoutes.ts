@@ -14,21 +14,248 @@ const uploadKyc = multer({
 // All routes require authentication
 router.use(authenticate);
 
+/**
+ * @swagger
+ * /accounting/vendors/for-rfq:
+ *   get:
+ *     summary: RFQ picker — eligible vendors (Suite 01)
+ *     description: Returns active vendors for invite-to-quote; blacklisted / ineligible vendors excluded.
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Optional name filter
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.get("/for-rfq", VendorController.listVendorsForRfq);
+
+/**
+ * @swagger
+ * /accounting/vendors/pending-review:
+ *   get:
+ *     summary: Vendors pending staff review (self-registration queue)
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.get("/pending-review", VendorController.listPendingReviewVendors);
+
+/**
+ * @swagger
+ * /accounting/vendors/kyc-documents/{documentId}/download:
+ *   get:
+ *     summary: Download KYC artifact (staff)
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: documentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: File stream
+ */
 router.get("/kyc-documents/:documentId/download", VendorController.downloadVendorKyc);
+
+/**
+ * @swagger
+ * /accounting/vendors/{id}/approve-registration:
+ *   put:
+ *     summary: Approve vendor self-registration (activates vendor)
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.put("/:id/approve-registration", VendorController.approveVendorRegistration);
+
+/**
+ * @swagger
+ * /accounting/vendors/{id}/blacklist:
+ *   post:
+ *     summary: Blacklist vendor (excluded from RFQ picker)
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               blacklistReason:
+ *                 type: string
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.post("/:id/blacklist", VendorController.blacklistVendor);
+
+/**
+ * @swagger
+ * /accounting/vendors/{id}/unblacklist:
+ *   post:
+ *     summary: Remove vendor from blacklist
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.post("/:id/unblacklist", VendorController.unblacklistVendor);
+
+/**
+ * @swagger
+ * /accounting/vendors/{id}/banks:
+ *   post:
+ *     summary: Add vendor bank account (branch, SWIFT, currency required for payment readiness)
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201:
+ *         description: Created
+ *   get:
+ *     summary: List vendor bank accounts
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.post("/:id/banks", VendorController.createVendorBank);
 router.get("/:id/banks", VendorController.listVendorBanks);
+
+/**
+ * @swagger
+ * /accounting/vendors/{id}/banks/{bankId}:
+ *   put:
+ *     summary: Update vendor bank (IBAN/account changes audited)
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: bankId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.put("/:id/banks/:bankId", VendorController.updateVendorBank);
+
+/**
+ * @swagger
+ * /accounting/vendors/{id}/kyc-documents:
+ *   post:
+ *     summary: Staff upload KYC document for vendor
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *   get:
+ *     summary: List KYC documents for vendor
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 router.post("/:id/kyc-documents", uploadKyc.single("file"), VendorController.uploadVendorKyc);
 router.get("/:id/kyc-documents", VendorController.listVendorKyc);
 
 /**
  * @swagger
- * /vendors:
+ * /accounting/vendors:
  *   post:
  *     summary: Create a new vendor
  *     description: Create a new vendor for expense tracking
@@ -97,7 +324,7 @@ router.post("/", VendorController.createVendor);
 
 /**
  * @swagger
- * /vendors:
+ * /accounting/vendors:
  *   get:
  *     summary: Get all vendors
  *     description: Retrieve all vendors with optional filters
@@ -137,7 +364,7 @@ router.get("/", VendorController.getVendors);
 
 /**
  * @swagger
- * /vendors/{id}:
+ * /accounting/vendors/{id}:
  *   get:
  *     summary: Get vendor by ID
  *     description: Retrieve a specific vendor by ID with recent expenses
@@ -173,7 +400,7 @@ router.get("/:id", VendorController.getVendorById);
 
 /**
  * @swagger
- * /vendors/{id}:
+ * /accounting/vendors/{id}:
  *   put:
  *     summary: Update vendor
  *     description: Update a vendor
@@ -230,7 +457,7 @@ router.put("/:id", VendorController.updateVendor);
 
 /**
  * @swagger
- * /vendors/{id}:
+ * /accounting/vendors/{id}:
  *   delete:
  *     summary: Delete vendor
  *     description: Soft delete a vendor (sets isActive to false)
@@ -258,7 +485,7 @@ router.delete("/:id", VendorController.deleteVendor);
 
 /**
  * @swagger
- * /vendors/{id}/expenses:
+ * /accounting/vendors/{id}/expenses:
  *   get:
  *     summary: Get vendor expenses
  *     description: Retrieve expenses for a specific vendor

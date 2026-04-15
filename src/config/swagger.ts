@@ -17,6 +17,8 @@ import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
 import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from './capital-calls-endpoints';
 import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
+import { vendorMasterSuite01Endpoints } from './vendor-master-suite01-endpoints';
+import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-sections-fallback-endpoints';
 
 const options = {
   definition: {
@@ -8705,6 +8707,41 @@ specs.paths = {
 };
 
 specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);
+
+/** Fill missing path/method entries only so rich JSDoc (e.g. Suite 06) is not clobbered. */
+function mergeOpenApiPathItemsPreferExisting(
+  base: Record<string, Record<string, unknown>> | undefined,
+  additions: Record<string, Record<string, unknown>>
+): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = { ...(base ?? {}) };
+  for (const [pathKey, pathItem] of Object.entries(additions)) {
+    if (!out[pathKey]) {
+      out[pathKey] = pathItem;
+      continue;
+    }
+    const existing = out[pathKey]!;
+    const merged: Record<string, unknown> = { ...existing };
+    for (const [method, op] of Object.entries(pathItem)) {
+      if (merged[method] === undefined) {
+        merged[method] = op;
+      }
+    }
+    out[pathKey] = merged as Record<string, unknown>;
+  }
+  return out;
+}
+
+// Suites 03–06 + public procurement — fill gaps (swagger-jsdoc may omit route blocks)
+specs.paths = mergeOpenApiPathItemsPreferExisting(
+  specs.paths,
+  procurementSuiteSectionsFallbackEndpoints
+);
+
+// Suite 01 — always expose vendor master / public registration (swagger-jsdoc may be skipped)
+specs.paths = {
+  ...specs.paths,
+  ...vendorMasterSuite01Endpoints,
+};
 
 export { specs }; 
 
