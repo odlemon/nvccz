@@ -733,6 +733,7 @@ export default class CashbookController {
         glAccountId,
         bankCode,
         branchCode,
+        swiftCode,
         isActive = true
       } = req.body;
       
@@ -740,7 +741,7 @@ export default class CashbookController {
       if (!name || !accountNumber || !currencyId || !glAccountId) {
         return ResponseHelper.badRequest(res, 'Missing required fields: name, accountNumber, currencyId, glAccountId');
       }
-      
+
       const bank = await CashbookService.createBank({
         name,
         accountNumber,
@@ -748,6 +749,7 @@ export default class CashbookController {
         glAccountId,
         bankCode,
         branchCode,
+        swiftCode,
         isActive
       });
       
@@ -770,7 +772,7 @@ export default class CashbookController {
           error.message.includes('not found')) {
         return ResponseHelper.badRequest(res, error.message);
       }
-      
+
       return ResponseHelper.error(res, 'Failed to create bank account', error.message);
     }
   }
@@ -786,13 +788,15 @@ export default class CashbookController {
         return ResponseHelper.unauthorized(res, 'User not authenticated.');
       }
       const { id } = req.params;
-      const { name, accountNumber, currencyId, glAccountId, isActive } = req.body;
+      const { name, accountNumber, currencyId, glAccountId, branchCode, swiftCode, isActive } = req.body;
 
       const bank = await CashbookService.updateBank(id, {
         name,
         accountNumber,
         currencyId,
         glAccountId,
+        branchCode,
+        swiftCode,
         isActive
       });
       return ResponseHelper.success(res, 'Bank account updated successfully', bank);

@@ -171,10 +171,37 @@ export class ApprovalService {
             });
             approverIds = deptUsers.map(u => u.id);
           } else if (stage.stepType === "AMOUNT_THRESHOLD") {
-            // For amount-based approval, we'll need to dynamically assign based on entity amount
-            // For now, skip this - implement later if needed
-            console.log(`⚠️  AMOUNT_THRESHOLD stage type not yet implemented for stage ${stage.stepNumber}`);
-            continue;
+            let entityAmount = 0;
+            if (params.stageType === "PURCHASE_ORDER") {
+              const po = await tx.purchaseOrder.findUnique({
+                where: { id: params.entityId },
+                select: { totalAmount: true },
+              });
+              entityAmount = po ? Number(po.totalAmount) : 0;
+            } else if (params.stageType === "PURCHASE_REQUISITION") {
+              const pr = await tx.purchaseRequisition.findUnique({
+                where: { id: params.entityId },
+                select: { totalAmount: true },
+              });
+              entityAmount = pr ? Number(pr.totalAmount) : 0;
+            }
+            const threshold =
+              stage.amountThreshold != null ? Number(stage.amountThreshold) : Number.POSITIVE_INFINITY;
+            if (entityAmount <= threshold) {
+              console.log(
+                `   ⏭️  AMOUNT_THRESHOLD: amount ${entityAmount} ≤ ${threshold} — skipping CFO step ${stage.stepNumber}`
+              );
+              continue;
+            }
+            const roleToUse = stage.roleCode || "CFO";
+            const cfoUsers = await tx.user.findMany({
+              where: { roleCode: roleToUse },
+              select: { id: true },
+            });
+            approverIds = cfoUsers.map((u) => u.id);
+            console.log(
+              `   📋 AMOUNT_THRESHOLD: amount ${entityAmount} > ${threshold} — routing to role ${roleToUse} (${approverIds.length} user(s))`
+            );
           }
 
           // Create approval records for each approver
@@ -427,10 +454,24 @@ export class ApprovalService {
         console.log("════════════════════════════════════════════════════════════════");
         console.log("");
 
-        return { approval: updatedApproval, request: updatedRequest };
+        return {
+          approval: updatedApproval,
+          request: updatedRequest,
+          _stageType: approval.request.stageType,
+          _entityId: approval.request.entityId,
+        };
       });
 
-      return result;
+      if (result.request?.status === "APPROVED" && result._stageType === "GRN" && result._entityId) {
+        const { VendorRatingService } = await import("./VendorRatingService");
+        try {
+          await VendorRatingService.recalculateForGrnEntity(result._entityId);
+        } catch (e) {
+          console.error("VendorRatingService.recalculateForGrnEntity:", e);
+        }
+      }
+
+      return { approval: result.approval, request: result.request };
     } catch (error) {
       console.error("\n════════════════════════════════════════════════════════════════");
       console.error("❌ ERROR APPROVING APPROVAL");

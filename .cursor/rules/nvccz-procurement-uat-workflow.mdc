@@ -1,0 +1,39 @@
+---
+description: NVCCZ — how to run procurement UATs (seed data, execute tests, fix code, document only when asked)
+globs: docs/procurement-uat.md, scripts/**/*procurement*, scripts/**/*uat*, src/**/Procurement*, src/**/VendorQuotation*
+alwaysApply: false
+---
+
+# Procurement UAT workflow (agent)
+
+When the user provides a procurement UAT case (ID, description, expected result, accounting/system logic, and usually endpoint + request body):
+
+## 1. Data readiness
+
+- **Inspect the database** (via Prisma in a script, or targeted queries) to confirm every foreign key and prerequisite exists: users/roles, vendors, currencies, banks, approval configs, departments, etc.
+- If data is **missing**, add or extend a **TypeScript script under `scripts/`** (e.g. idempotent seed/fixture script) that uses `PrismaClient` to create only what is needed. Prefer reusing existing patterns such as `scripts/create-procurement-test-users.js`, `scripts/test-procurement-purchase-orders-uat.ts`, and other `scripts/*procurement*` / `scripts/run-*-migration.ts` files.
+- **Do not** rely on manual one-off DB edits without a checked-in script, so UATs are repeatable.
+
+## 2. Execute the UAT
+
+- Run the scenario against a **running API** (e.g. `npm run dev`) using the stated endpoint and body: HTTP client script, existing `npm run test:uat:procurement-po`, or a small dedicated script.
+- Record actual vs expected for the user when reporting.
+
+## 3. On failure
+
+- **Diagnose** (logs, response body, DB state).
+- **Fix** the minimal code path—typically **controller or service** (and only related layers). Avoid unrelated refactors.
+- **Re-run** the UAT until it passes.
+
+## 4. On success
+
+- **Tell the user** the UAT passed and what was exercised (and any seed script added).
+- **Do not** append rows to `docs/procurement-uat.md` unless the user explicitly asks to record the case there.
+
+## 5. Schema / DDL changes
+
+- Follow **`nvccz-database-no-prisma-migrate`**: **do not** use `prisma migrate` or `prisma db push` as the way to apply team DB changes.
+- Add a **new idempotent TypeScript script** in `scripts/` using `$queryRawUnsafe` / `$executeRawUnsafe` (check `information_schema` before `ALTER TABLE`), mirroring `scripts/run-purchase-invoice-source-po-migration.ts` and peers.
+- Keep **`prisma/schema.prisma`** aligned with the real database.
+- After each new migration script: **run migration → `npx prisma generate` → re-run migration (idempotency) → `npx prisma generate` → run UAT** (see **`nvccz-database-no-prisma-migrate`** for the full sequence).
+- Add **`npm run db:migrate:…`** in `package.json` for each new migration script.

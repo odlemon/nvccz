@@ -1,12 +1,30 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import { VendorController } from "../controllers/VendorController";
 import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
 
+const uploadKyc = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
+
 // All routes require authentication
 router.use(authenticate);
+
+router.get("/for-rfq", VendorController.listVendorsForRfq);
+router.get("/pending-review", VendorController.listPendingReviewVendors);
+router.get("/kyc-documents/:documentId/download", VendorController.downloadVendorKyc);
+router.put("/:id/approve-registration", VendorController.approveVendorRegistration);
+router.post("/:id/blacklist", VendorController.blacklistVendor);
+router.post("/:id/unblacklist", VendorController.unblacklistVendor);
+router.post("/:id/banks", VendorController.createVendorBank);
+router.get("/:id/banks", VendorController.listVendorBanks);
+router.put("/:id/banks/:bankId", VendorController.updateVendorBank);
+router.post("/:id/kyc-documents", uploadKyc.single("file"), VendorController.uploadVendorKyc);
+router.get("/:id/kyc-documents", VendorController.listVendorKyc);
 
 /**
  * @swagger
@@ -14,7 +32,7 @@ router.use(authenticate);
  *   post:
  *     summary: Create a new vendor
  *     description: Create a new vendor for expense tracking
- *     tags: [Accounting - Vendors]
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -83,7 +101,7 @@ router.post("/", VendorController.createVendor);
  *   get:
  *     summary: Get all vendors
  *     description: Retrieve all vendors with optional filters
- *     tags: [Accounting - Vendors]
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -123,7 +141,7 @@ router.get("/", VendorController.getVendors);
  *   get:
  *     summary: Get vendor by ID
  *     description: Retrieve a specific vendor by ID with recent expenses
- *     tags: [Accounting - Vendors]
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -159,7 +177,7 @@ router.get("/:id", VendorController.getVendorById);
  *   put:
  *     summary: Update vendor
  *     description: Update a vendor
- *     tags: [Accounting - Vendors]
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -216,7 +234,7 @@ router.put("/:id", VendorController.updateVendor);
  *   delete:
  *     summary: Delete vendor
  *     description: Soft delete a vendor (sets isActive to false)
- *     tags: [Accounting - Vendors]
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -244,7 +262,7 @@ router.delete("/:id", VendorController.deleteVendor);
  *   get:
  *     summary: Get vendor expenses
  *     description: Retrieve expenses for a specific vendor
- *     tags: [Accounting - Vendors]
+ *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
  *     parameters:

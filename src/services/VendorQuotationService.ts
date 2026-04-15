@@ -33,6 +33,8 @@ export interface CreateVendorQuotationParams {
     model?: string;
     warranty?: string;
   }[];
+  /** Suite 03.8 — warranty, ESG, local content, etc. */
+  technicalScoreJson?: Record<string, unknown>;
 }
 
 export interface ReviewQuotationParams {
@@ -78,8 +80,18 @@ export class VendorQuotationService {
         deliveryTime,
         notes,
         attachments,
-        items
+        items,
+        technicalScoreJson,
       } = params;
+
+      let procurementRfqId: string | null = null;
+      if (rfqNumber) {
+        const rfqRow = await prisma.procurementRfq.findUnique({
+          where: { rfqNumber },
+          select: { id: true },
+        });
+        procurementRfqId = rfqRow?.id ?? null;
+      }
 
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📝 CREATING VENDOR QUOTATION");
@@ -135,6 +147,8 @@ export class VendorQuotationService {
           deliveryTime,
           notes,
           attachments,
+          procurementRfqId,
+          technicalScoreJson: technicalScoreJson ?? undefined,
           subtotal: new Decimal(subtotal),
           taxAmount: new Decimal(taxAmount),
           totalAmount: new Decimal(totalAmount),
@@ -266,8 +280,11 @@ export class VendorQuotationService {
         prisma.vendorQuotation.count({ where })
       ]);
 
+      const { maybeRedactQuotationsListForStaff } = await import("../utils/quotationRedaction");
+      const redacted = await maybeRedactQuotationsListForStaff(quotations);
+
       return {
-        quotations,
+        quotations: redacted,
         count,
         limit,
         offset
@@ -311,7 +328,8 @@ export class VendorQuotationService {
         throw new Error("Quotation not found");
       }
 
-      return quotation;
+      const { maybeRedactQuotationForStaff } = await import("../utils/quotationRedaction");
+      return maybeRedactQuotationForStaff(quotation);
     } catch (error: any) {
       console.error("Error fetching quotation:", error);
       throw error;
@@ -668,7 +686,8 @@ export class VendorQuotationService {
         orderBy: { submittedAt: 'desc' }
       });
 
-      return quotations;
+      const { maybeRedactQuotationsListForStaff } = await import("../utils/quotationRedaction");
+      return maybeRedactQuotationsListForStaff(quotations);
     } catch (error: any) {
       console.error("Error fetching quotations by RFQ:", error);
       throw error;

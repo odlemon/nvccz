@@ -5,7 +5,7 @@ export const procurementEndpoints = {
     post: {
       summary: 'Create a new purchase requisition',
       description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
-      tags: ['Procurement - Requisitions'],
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -20,6 +20,11 @@ export const procurementEndpoints = {
                 department: { type: 'string', enum: ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT'] },
                 priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'], example: 'MEDIUM' },
                 justification: { type: 'string', example: 'Essential operational expenses' },
+                portfolioCompanyId: { type: 'string', description: 'Suite 02: links PR to portfolio company for drawdown cap' },
+                fundId: { type: 'string', description: 'Suite 02: optional fund scope' },
+                useOfFundsDocumentUrl: { type: 'string', description: 'Suite 02: use of funds / business case URL' },
+                sourcingCategory: { type: 'string', description: 'Aligns with vendor.category for RFQ (e.g. IT_SERVICES)' },
+                drawdownRequestAmount: { type: 'number', description: 'Suite 02: required with portfolioCompanyId' },
                 items: {
                   type: 'array',
                   items: {
@@ -63,8 +68,8 @@ export const procurementEndpoints = {
     },
     get: {
       summary: 'Get all purchase requisitions (filtered by user\'s department)',
-      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target.',
-      tags: ['Procurement - Requisitions'],
+      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target. **Suite 02:** investee-linked rows are further scoped by fund for FundManagers (CFO/SYSADMIN/PROC_MGR see all).',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'query', name: 'status', schema: { type: 'string', enum: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CONVERTED_TO_PO'] }, description: 'Filter by status' },
@@ -107,8 +112,8 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}': {
     get: {
       summary: 'Get purchase requisition by ID',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM)',
-      tags: ['Procurement - Requisitions'],
+      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). **Suite 02:** investee-linked PRs require portfolio owner, requester, CFO/SYSADMIN/PROC_MGR, or FundManager for that fund.',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
@@ -123,8 +128,8 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}/submit': {
     put: {
       summary: 'Submit a purchase requisition for approval',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). ⚠️ Once submitted, status becomes PENDING_APPROVAL and cannot be modified',
-      tags: ['Procurement - Requisitions'],
+      description: '**Standard:** status becomes PENDING_APPROVAL. **Suite 02 (investee PR):** portfolio owner only; requires useOfFundsDocumentUrl; status PENDING_VC_EXECUTIVE_REVIEW; notifies procurement desk.',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
@@ -139,8 +144,8 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}/approve': {
     put: {
       summary: 'Approve a purchase requisition',
-      description: '**Required Role:** User\'s roleCode must match approval config roleCode (e.g., PROC_MGR, FIN_MGR) OR user must be department HEAD/DEPUTY for their department\'s requisitions. ⚠️ Once approved, status becomes APPROVED and cannot be modified',
-      tags: ['Procurement - Requisitions'],
+      description: '**Department PR:** HEAD/DEPUTY or configured role. **Suite 02 (PENDING_VC_EXECUTIVE_REVIEW):** only **CFO** or **SYSADMIN**; triggers auto-RFQ to eligible vendors.',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
@@ -155,8 +160,8 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}/reject': {
     put: {
       summary: 'Reject a purchase requisition',
-      description: '**Required Role:** Department HEAD or DEPUTY for the owning department. ⚠️ Once rejected, status becomes REJECTED and cannot be modified',
-      tags: ['Procurement - Requisitions'],
+      description: '**Department PR:** HEAD/DEPUTY. **Suite 02 (PENDING_VC_EXECUTIVE_REVIEW):** only **CFO** or **SYSADMIN**; body requires rejectionReason.',
+      tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
@@ -605,11 +610,141 @@ export const procurementEndpoints = {
   '/procurement/dashboard': {
     get: {
       summary: 'Get procurement dashboard data with detailed information',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). Returns detailed data for requisitions, invoices, RFQs, quotations, payments, and vendors. Excludes GRN and Purchase Orders.',
-      tags: ['Procurement - Dashboard'],
+      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). Includes **suite02InvesteeDrawdown** (SLA list) when authenticated. Recent requisitions respect Suite 02 fund visibility for FundManagers.',
+      tags: ['Procurement - Dashboard', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       responses: {
         200: { description: 'Dashboard data retrieved successfully. Returns detailed statistics, recent items, and analytics for requisitions, invoices, RFQs, quotations, payments, and top vendors.' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+
+  '/procurement/requisitions/investee': {
+    get: {
+      summary: 'List investee (portfolio-linked) purchase requisitions (Suite 02)',
+      description:
+        '**Scope:** CFO, SYSADMIN, or PROC_MGR see all; active **FundManager** users only see PRs for their fund(s). Others receive 403.',
+      tags: ['Investee Portal — Investment Drawdown'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'List of investee PRs' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Not authorized for investee drawdown list' }
+      }
+    }
+  },
+  '/procurement/requisitions/investee/sla-breached': {
+    get: {
+      summary: 'Investee PRs pending VC executive review longer than 48 hours (Suite 02 SLA)',
+      description: 'Same fund scope as `/procurement/requisitions/investee`.',
+      tags: ['Investee Portal — Investment Drawdown'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'SLA breach list' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Forbidden' }
+      }
+    }
+  },
+
+  '/applicant/procurement/drawdown': {
+    get: {
+      summary: 'Investee drawdown summary and PR ledger (Suite 02)',
+      description:
+        'Committed / reserved / available tranche amounts plus PR rows. **Auth:** applicant with portfolio company.',
+      tags: ['Investee Portal — Investment Drawdown', 'Applicant Portal'],
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'Drawdown caps + requisitions + ledger fields' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Not an applicant' },
+        404: { description: 'No portfolio company' }
+      }
+    }
+  },
+  '/applicant/procurement/requisitions': {
+    post: {
+      summary: 'Create investee purchase requisition (draft) (Suite 02)',
+      description:
+        'Requires `drawdownRequestAmount`, `useOfFundsDocumentUrl`, and line items. Links to caller’s portfolio company.',
+      tags: ['Investee Portal — Investment Drawdown', 'Applicant Portal'],
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['title', 'items', 'drawdownRequestAmount', 'useOfFundsDocumentUrl'],
+              properties: {
+                title: { type: 'string' },
+                description: { type: 'string' },
+                priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] },
+                justification: { type: 'string' },
+                sourcingCategory: { type: 'string', example: 'IT_SERVICES' },
+                drawdownRequestAmount: { type: 'number', example: 5000 },
+                useOfFundsDocumentUrl: { type: 'string', format: 'uri' },
+                department: {
+                  type: 'string',
+                  enum: ['Finance', 'Operations', 'Procurement', 'Human Resources', 'Marketing', 'Legal', 'IT']
+                },
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['itemName', 'quantity'],
+                    properties: {
+                      itemName: { type: 'string' },
+                      description: { type: 'string' },
+                      quantity: { type: 'number' },
+                      unit: { type: 'string' },
+                      specifications: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: { description: 'Draft PR created' },
+        400: { description: 'Validation error' },
+        401: { description: 'Unauthorized' },
+        403: { description: 'Not an applicant' },
+        404: { description: 'No portfolio company' }
+      }
+    }
+  },
+  '/applicant/procurement/requisitions/{id}/submit': {
+    put: {
+      summary: 'Submit investee PR for VC executive review (Suite 02)',
+      description: 'Investee portal user for the portfolio company only. Sets PENDING_VC_EXECUTIVE_REVIEW.',
+      tags: ['Investee Portal — Investment Drawdown', 'Applicant Portal'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
+      ],
+      responses: {
+        200: { description: 'Submitted' },
+        400: { description: 'Validation / tranche exceeded' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/applicant/procurement/requisitions/{id}/cancel': {
+    post: {
+      summary: 'Cancel investee PR before RFQ award — returns to DRAFT (Suite 02)',
+      description: 'Allowed for DRAFT or PENDING_VC_EXECUTIVE_REVIEW only.',
+      tags: ['Investee Portal — Investment Drawdown', 'Applicant Portal'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Requisition ID' }
+      ],
+      responses: {
+        200: { description: 'Returned to DRAFT' },
+        400: { description: 'Invalid state' },
         401: { description: 'Unauthorized' }
       }
     }

@@ -3000,6 +3000,81 @@ export class EmailNotificationService {
   }
 
   /**
+   * High-priority alert when vendor IBAN or account number changes (fraud-prevention UAT).
+   */
+  static async sendVendorBankCriticalChangeAlert(data: {
+    vendorName: string;
+    vendorId: string;
+    bankId: string;
+    actorUserId: string;
+    changedFields?: string[];
+  }): Promise<void> {
+    const { prisma } = await import("../utils/database");
+    const toSet = new Set<string>();
+    const envCfo = process.env.CFO_EMAIL;
+    if (envCfo) {
+      envCfo.split(/[,;]/).forEach((e) => {
+        const t = e.trim();
+        if (t) toSet.add(t);
+      });
+    }
+    const cfos = await prisma.user.findMany({
+      where: {
+        OR: [
+          { roleCode: "CFO" },
+          { role: { name: "Chief Financial Officer" } },
+        ],
+      },
+      select: { email: true },
+    });
+    for (const u of cfos) {
+      if (u.email) toSet.add(u.email.trim());
+    }
+    if (toSet.size === 0) {
+      console.warn(
+        "[VendorBank] Critical change alert: no CFO_EMAIL and no users with CFO role (roleCode CFO or role name Chief Financial Officer)"
+      );
+      return;
+    }
+    const actor = await prisma.user.findUnique({
+      where: { id: data.actorUserId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const actorLabel = actor
+      ? `${actor.firstName || ""} ${actor.lastName || ""} (${actor.email || data.actorUserId})`.trim()
+      : data.actorUserId;
+    const fieldsLine =
+      data.changedFields && data.changedFields.length
+        ? `<li><strong>Fields changed:</strong> ${data.changedFields.join(", ")}</li>`
+        : "";
+    const subject = `[HIGH] Vendor banking details changed — ${data.vendorName}`;
+    const html = `
+      <p>A vendor <strong>account number</strong> and/or <strong>IBAN</strong> was modified.</p>
+      <ul>
+        <li><strong>Vendor:</strong> ${data.vendorName} (${data.vendorId})</li>
+        <li><strong>Vendor bank record:</strong> ${data.bankId}</li>
+        ${fieldsLine}
+        <li><strong>Changed by:</strong> ${actorLabel}</li>
+        <li><strong>Time:</strong> ${new Date().toISOString()}</li>
+      </ul>
+      <p>Review audit logs for entity type <code>VendorBank</code> (filter by this bank id or vendor id) if this change was not expected.</p>
+    `;
+    const from = getFromAddress("procurement");
+    for (const to of toSet) {
+      try {
+        await emailTransport.sendMail({
+          from: `"${from.name}" <${from.address}>`,
+          to,
+          subject,
+          html,
+        });
+      } catch (err) {
+        console.error("[VendorBank] CFO critical-change email failed for", to, err);
+      }
+    }
+  }
+
+  /**
    * Send quotation accepted email to vendor
    */
   static async sendQuotationAcceptedEmail(data: {
@@ -3170,6 +3245,70 @@ export class EmailNotificationService {
   }
 
   /**
+   * Suite 02: investee drawdown PR submitted → notify VC procurement desk (pending VC executive review).
+   */
+  static async sendInvesteeDrawdownSubmittedToProcurementDesk(data: {
+    recipients: { email: string; name: string }[];
+    portfolioCompanyName: string;
+    requisitionNumber: string;
+    title: string;
+    drawdownAmount: string;
+    submittedByName: string;
+    useOfFundsDocumentUrl: string | null;
+  }): Promise<void> {
+    try {
+      if (!data.recipients.length) {
+        console.warn(
+          "[Suite 02] sendInvesteeDrawdownSubmittedToProcurementDesk: no recipients; set PROCUREMENT_INVESTEE_NOTIFY_EMAILS or assign Procurement users."
+        );
+        return;
+      }
+      const esc = (s: string) =>
+        String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      const subSafe = String(data.requisitionNumber).replace(/[\r\n]/g, " ");
+      const subject = `Investee drawdown PR — Pending VC review — ${subSafe}`;
+      const docBlock =
+        data.useOfFundsDocumentUrl && String(data.useOfFundsDocumentUrl).trim() !== ""
+          ? `<p><strong>Use of funds document:</strong> <a href="${encodeURI(
+              String(data.useOfFundsDocumentUrl).trim()
+            )}">Open attachment</a></p>`
+          : "";
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8"/><title>${esc(subject)}</title></head>
+        <body style="font-family: sans-serif; line-height: 1.5;">
+          <h2 style="margin-bottom: 0.5em;">Investee drawdown request (Suite 02)</h2>
+          <p>A purchase requisition was submitted for <strong>VC executive review</strong>.</p>
+          <ul>
+            <li><strong>Portfolio company:</strong> ${esc(data.portfolioCompanyName)}</li>
+            <li><strong>Requisition:</strong> ${esc(data.requisitionNumber)} — ${esc(data.title)}</li>
+            <li><strong>Drawdown amount:</strong> ${esc(data.drawdownAmount)}</li>
+            <li><strong>Submitted by:</strong> ${esc(data.submittedByName)}</li>
+          </ul>
+          ${docBlock}
+          <p>Please review in the procurement system (CFO approval gate).</p>
+        </body></html>`;
+      const from = getFromAddress("procurement");
+      for (const r of data.recipients) {
+        await emailTransport.sendMail({
+          from: `"${from.name}" <${from.address}>`,
+          to: `"${r.name}" <${r.email}>`,
+          subject,
+          html: htmlContent,
+        });
+        console.log(`✅ Suite 02 investee drawdown notification sent to ${r.email}`);
+      }
+    } catch (error) {
+      console.error("❌ Error sending investee drawdown procurement notification:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Send requisition approval notification to submitter
    */
   static async sendRequisitionApprovedToSubmitter(data: {
@@ -3296,6 +3435,9 @@ export class EmailNotificationService {
     paymentTerms?: string;
     notes?: string;
     companyName?: string;
+    /** Suite 04: one-time POST link for vendor acknowledgement */
+    vendorAckUrl?: string;
+    verificationUrl?: string;
   }): Promise<void> {
     try {
       const subject = `Purchase Order ${data.poNumber} - ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
@@ -3831,6 +3973,8 @@ export class EmailNotificationService {
     paymentTerms?: string;
     notes?: string;
     companyName?: string;
+    vendorAckUrl?: string;
+    verificationUrl?: string;
   }): string {
     const currencySymbol = data.currency === 'USD' ? '$' : data.currency === 'ZWL' ? 'ZWL' : data.currency;
     const formattedDate = data.poDate.toLocaleDateString('en-US', { 
@@ -4047,6 +4191,13 @@ export class EmailNotificationService {
               <li>Provide delivery timeline confirmation</li>
               <li>Send your invoice as per the agreed terms</li>
             </ul>
+
+            ${data.vendorAckUrl ? `
+            <p><strong>Acknowledge this PO (one-time link):</strong></p>
+            <p><a class="action-button" href="${data.vendorAckUrl}">Accept / acknowledge PO</a></p>
+            <p style="font-size:12px;color:#666;">Opens a public API endpoint; no login required. Link is tied to this email dispatch.</p>
+            ` : ''}
+            ${data.verificationUrl ? `<p style="font-size:12px;color:#666;">Verification reference: <a href="${data.verificationUrl}">${data.verificationUrl}</a></p>` : ''}
 
             <p>If you have any questions or need clarification on any items, please don't hesitate to contact our procurement team.</p>
             

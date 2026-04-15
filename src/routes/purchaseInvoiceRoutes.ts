@@ -60,6 +60,15 @@ const router = express.Router();
  *                 type: string
  *               notes:
  *                 type: string
+ *               vendorInvoiceReference:
+ *                 type: string
+ *                 description: Supplier invoice number (Suite 06 / 3-way match)
+ *               sourcePurchaseOrderId:
+ *                 type: string
+ *                 description: Optional linked PO for 3-way match (DRAFT bills)
+ *               sourceGoodsReceivedNoteId:
+ *                 type: string
+ *                 description: Optional linked GRN for 3-way match (DRAFT bills)
  *     responses:
  *       201:
  *         description: Purchase invoice created successfully
@@ -123,6 +132,8 @@ router.post(
  * /accounting/purchase-invoices/batch-pay:
  *   post:
  *     summary: Batch pay vendor bills (one bank movement, one payment record per bill)
+ *     description: |
+ *       Per invoice, Suite 06 3-way match rules apply when a PO and GRN are linked; bills that fail the guard are rejected with 400.
  *     tags: [Accounts Payables]
  *     security:
  *       - bearerAuth: []
@@ -520,6 +531,15 @@ router.get(
  *                 description: If true, VAT will be calculated (15.5% default if not specified in items)
  *               notes:
  *                 type: string
+ *               vendorInvoiceReference:
+ *                 type: string
+ *                 description: Supplier invoice number (Suite 06 / 3-way match)
+ *               sourcePurchaseOrderId:
+ *                 type: string
+ *                 description: Linked PO for 3-way match (DRAFT only; must align with vendor)
+ *               sourceGoodsReceivedNoteId:
+ *                 type: string
+ *                 description: Linked GRN for 3-way match (DRAFT only; must align with PO)
  *     responses:
  *       200:
  *         description: Purchase invoice updated successfully
@@ -575,6 +595,9 @@ router.delete(
  *       - BANK: Dr Expense Account, Dr VAT Input (if applicable), Cr Bank Account (bankId required)
  *       - CASH: Dr Expense Account, Dr VAT Input (if applicable), Cr Petty Cash (1030)
  *       - CREDIT: Dr Expense Account, Dr VAT Input (if applicable), Cr Accounts Payable (2000)
+ *
+ *       When Suite 06 is enabled and the bill links both a PO and GRN, submit is blocked until the
+ *       supplier invoice passes 3-way match (same guard as pay / batch-pay).
  *     tags: [Accounts Payables]
  *     security:
  *       - bearerAuth: []
@@ -668,7 +691,7 @@ router.delete(
  *                         status:
  *                           type: string
  *       400:
- *         description: Bad request - invoice must be in DRAFT status, or bankId required when paymentMethod is BANK
+ *         description: Bad request - invoice must be in DRAFT status, bankId required when paymentMethod is BANK, or Suite 06 3-way match not satisfied
  */
 router.post(
   "/:id/submit",
@@ -686,6 +709,8 @@ router.post(
  *       - BANK: Dr Accounts Payable, Cr Bank Account (bankId required)
  *       - CASH: Dr Accounts Payable, Cr Cash Account
  *       Only invoices submitted with CREDIT payment method can be paid.
+ *
+ *       When Suite 06 is enabled and the bill links both a PO and GRN, pay is blocked until the supplier invoice passes 3-way match.
  *     tags: [Accounts Payables]
  *     security:
  *       - bearerAuth: []

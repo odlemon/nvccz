@@ -9,6 +9,7 @@ import { CashbookService } from "./CashbookService";
 import AuditService from "./AuditService";
 import { assignNextAuditIdAndCreateJournal, createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
 import { parseDate } from "../utils/dateHelper";
+import { assertPurchaseInvoicePaymentAllowedForSuite06 } from "../utils/suite06PaymentGuard";
 
 /** User-facing duplicate vendor bill reference (vendor invoice number) message. */
 export const DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE =
@@ -70,6 +71,8 @@ export interface CreatePurchaseInvoiceParams {
   createdById: string;
   /** Links AP vendor bill to PO for variance check on submit (three-way match). */
   sourcePurchaseOrderId?: string | null;
+  /** Suite 06: GRN for PO vs GRN vs bill line match. */
+  sourceGoodsReceivedNoteId?: string | null;
 }
 
 export interface PurchaseInvoiceWithRelations extends PurchaseInvoice {
@@ -219,7 +222,8 @@ export class PurchaseInvoiceService {
         vendorInvoiceReference,
         notes,
         createdById,
-        sourcePurchaseOrderId
+        sourcePurchaseOrderId,
+        sourceGoodsReceivedNoteId,
       } = params;
 
       // Validate input
@@ -240,6 +244,22 @@ export class PurchaseInvoiceService {
         }
         if (srcPo.vendorId !== vendorId) {
           throw new Error("Vendor must match the linked purchase order");
+        }
+      }
+
+      if (sourceGoodsReceivedNoteId) {
+        const grn = await prisma.goodsReceivedNote.findUnique({
+          where: { id: sourceGoodsReceivedNoteId },
+          include: { purchaseOrder: { select: { id: true, vendorId: true } } },
+        });
+        if (!grn) {
+          throw new Error("Source goods received note not found");
+        }
+        if (grn.purchaseOrder.vendorId !== vendorId) {
+          throw new Error("Vendor must match the GRN purchase order");
+        }
+        if (sourcePurchaseOrderId && grn.purchaseOrderId !== sourcePurchaseOrderId) {
+          throw new Error("GRN must belong to the linked purchase order");
         }
       }
 
@@ -319,6 +339,7 @@ export class PurchaseInvoiceService {
               notes: notes || null,
               createdById,
               sourcePurchaseOrderId: sourcePurchaseOrderId || null,
+              sourceGoodsReceivedNoteId: sourceGoodsReceivedNoteId || null,
               items: {
                 create: invoiceItems.map(item => ({
                   itemName: item.itemName,
@@ -688,6 +709,45 @@ export class PurchaseInvoiceService {
         updateData.vendorInvoiceReference = nextVendorRef;
       }
 
+      if (params.sourcePurchaseOrderId !== undefined) {
+        if (params.sourcePurchaseOrderId === null || params.sourcePurchaseOrderId === "") {
+          updateData.sourcePurchaseOrderId = null;
+        } else {
+          const srcPo = await prisma.purchaseOrder.findUnique({
+            where: { id: params.sourcePurchaseOrderId },
+            select: { id: true, vendorId: true },
+          });
+          if (!srcPo) throw new Error("Source purchase order not found");
+          if (srcPo.vendorId !== nextVendorId) {
+            throw new Error("Vendor must match the linked purchase order");
+          }
+          updateData.sourcePurchaseOrderId = params.sourcePurchaseOrderId;
+        }
+      }
+
+      if (params.sourceGoodsReceivedNoteId !== undefined) {
+        if (params.sourceGoodsReceivedNoteId === null || params.sourceGoodsReceivedNoteId === "") {
+          updateData.sourceGoodsReceivedNoteId = null;
+        } else {
+          const grn = await prisma.goodsReceivedNote.findUnique({
+            where: { id: params.sourceGoodsReceivedNoteId },
+            include: { purchaseOrder: { select: { id: true, vendorId: true } } },
+          });
+          if (!grn) throw new Error("Source goods received note not found");
+          if (grn.purchaseOrder.vendorId !== nextVendorId) {
+            throw new Error("Vendor must match the GRN purchase order");
+          }
+          const poId =
+            params.sourcePurchaseOrderId !== undefined && params.sourcePurchaseOrderId
+              ? params.sourcePurchaseOrderId
+              : existingInvoice.sourcePurchaseOrderId;
+          if (poId && grn.purchaseOrderId !== poId) {
+            throw new Error("GRN must belong to the linked purchase order");
+          }
+          updateData.sourceGoodsReceivedNoteId = params.sourceGoodsReceivedNoteId;
+        }
+      }
+
       // Update invoice
       const updatedInvoice = await prisma.$transaction(async (tx) => {
         // Delete existing items
@@ -914,6 +974,8 @@ export class PurchaseInvoiceService {
         submitData,
         processedById
       );
+
+      await assertPurchaseInvoicePaymentAllowedForSuite06(invoiceId);
 
       // Validate payment method
       if (!["BANK", "CASH", "CREDIT"].includes(submitData.paymentMethod)) {
@@ -1276,6 +1338,8 @@ export class PurchaseInvoiceService {
         throw new Error("Invoice must be submitted before payment");
       }
 
+      await assertPurchaseInvoicePaymentAllowedForSuite06(invoiceId);
+
       // Validate payment method
       if (!["BANK", "CASH"].includes(paymentData.paymentMethod)) {
         throw new Error("Payment method must be BANK or CASH");
@@ -1495,6 +1559,7 @@ export class PurchaseInvoiceService {
       if (inv.currencyId !== currencyId) {
         throw new Error("All invoices in a batch must use the same currency");
       }
+      await assertPurchaseInvoicePaymentAllowedForSuite06(inv.id);
     }
 
     const accountsPayableAccount = await prisma.chartOfAccounts.findFirst({
@@ -1778,8 +1843,8 @@ export class PurchaseInvoiceService {
         id: bank.id,
         name: bank.name,
         accountNumber: bank.accountNumber,
-        bankCode: bank.bankCode,
         branchCode: bank.branchCode,
+        swiftCode: bank.swiftCode,
         currency: bank.currency,
         glAccount: bank.glAccount,
         isActive: bank.isActive

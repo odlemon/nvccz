@@ -176,6 +176,17 @@ export default class AuditService {
           reason: n.reason ?? null
         };
       }
+      if (log.entityType === "VendorBank" && log.action === "UPDATE") {
+        const n = (log.newValues || {}) as Record<string, unknown>;
+        if (n.auditPriority === "HIGH" || n._priority === "HIGH") {
+          entry.criticalVendorBankChange = {
+            auditPriority: "HIGH",
+            reason: (n.auditReason ?? n._reason) as string | null | undefined,
+            fieldsChanged: (n.criticalBankingFieldsChanged as string[] | undefined) ?? null,
+            vendorId: (n.vendorId as string | undefined) ?? null,
+          };
+        }
+      }
       return entry;
     });
 

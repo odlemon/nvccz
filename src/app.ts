@@ -4,8 +4,10 @@ import { createServer } from "http"
 import cors from "cors"
 import helmet from "helmet"
 import dotenv from "dotenv"
+import compression from "compression"
 
 import { errorMiddleware } from "./middleware/error"
+import { apiRequestTimeout } from "./middleware/apiRequestTimeout"
 import { prisma, checkDatabaseConnection } from "./utils/database"
 import { envConfig } from "./utils/env"
 import { logger } from "./utils/logger"
@@ -32,6 +34,8 @@ import eventRoutes from "./routes/eventRoutes"
 import homepageRoutes from "./routes/homepageRoutes"
 import currencyRoutes from "./routes/currencyRoutes"
 import vendorRoutes from "./routes/vendorRoutes"
+import vendorPublicRegistrationRoutes from "./routes/vendorPublicRegistrationRoutes"
+import publicProcurementRoutes from "./routes/publicProcurementRoutes"
 import expenseCategoryRoutes from "./routes/expenseCategoryRoutes"
 import expenseRoutes from "./routes/expenseRoutes"
 import journalEntryRoutes from "./routes/journalEntryRoutes"
@@ -98,6 +102,7 @@ import individualGoalToTaskRoutes from "./routes/individualGoalToTaskRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
 import payrollDashboardRoutes from "./routes/payrollDashboardRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
+import procurementSuite06Routes from "./routes/procurementSuite06Routes"
 import vendorQuotationRoutes from "./routes/vendorQuotationRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
@@ -193,6 +198,15 @@ app.use(cors({
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+app.use(
+  compression({
+    threshold: 1024,
+    filter: (req, res) => {
+      if (req.headers["x-no-compression"]) return false
+      return compression.filter(req, res)
+    },
+  })
+)
 
 // Disallow intermediate caching for API responses to keep freshness predictable
 app.use((req, res, next) => {
@@ -244,6 +258,9 @@ app.use(async (req, res, next) => {
     });
   }
 });
+
+// Default 5s response budget for /api (see API_REQUEST_TIMEOUT_MS); longer for Suite 06 LLM, batch pay, cron, etc.
+app.use(apiRequestTimeout())
 
 // Attach request metadata (ip, user-agent) for audit logging
 import { attachRequestMeta } from "./middleware/requestMeta"
@@ -399,6 +416,10 @@ app.use("/api/newsletter", newsletterSubscriptionRoutes)
 app.use("/api/events", eventRoutes)
 app.use("/api/homepage", homepageRoutes)
 
+// Public vendor self-registration (no JWT)
+app.use("/api/public", vendorPublicRegistrationRoutes)
+app.use("/api/public", publicProcurementRoutes)
+
 // Accounting module routes
 app.use("/api/accounting/currencies", currencyRoutes)
 app.use("/api/accounting/vendors", vendorRoutes)
@@ -543,6 +564,7 @@ app.use("/api/payroll/dashboard", payrollDashboardRoutes)
 
 // Procurement Management routes
 app.use("/api/procurement", procurementRoutes)
+app.use("/api/procurement/suite06", procurementSuite06Routes)
 
 // Vendor Quotation routes (some are public/unauthenticated)
 app.use("/api/vendor-quotations", vendorQuotationRoutes)

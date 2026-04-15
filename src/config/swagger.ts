@@ -89,6 +89,49 @@ const options = {
         description: 'Procurement dashboard - Get summary statistics and overview data'
       },
       {
+        name: 'Vendor Master, Compliance & KYC (Suite 01)',
+        description:
+          'Suite 01: Vendor master data, self-registration and KYC upload (token), staff approval, blacklist / RFQ eligibility, and related accounting vendor APIs where tagged.'
+      },
+      {
+        name: 'Procurement — RFQ & Bidding (Suite 03)',
+        description:
+          'Suite 03: Formal RFQs (procurement_rfqs), sealed bid viewing until closing, comparison matrix with FX normalization, award + regret emails, deadline extension, clarifications, public tender listing.'
+      },
+      {
+        name: 'Procurement — PO & Sign-off (Suite 04)',
+        description:
+          'Suite 04: PO investee/fund tagging, amount-threshold approvals, PDF with verification placeholder, dispatch/ack tokens, line cancel, GRN return-to-vendor stub.'
+      },
+      {
+        name: 'Procurement — GRN & QC (Suite 05)',
+        description:
+          'Suite 05: Goods receipt with over-delivery tolerance, attachments/geo, investee GRN path, partial PO status, RTV records.'
+      },
+      {
+        name: 'Procurement — AI invoice intake (Suite 06)',
+        description:
+          'Suite 06: Vendor invoice PDF URL intake, text extraction, configurable OpenAI-compatible LLM parse, per-vendor correction map, human verification queue.'
+      },
+      {
+        name: 'Procurement — 3-way match (Suite 06)',
+        description:
+          'Suite 06: Deterministic PO vs GRN vs vendor bill line match; price variance and quantity vs GRN; payment blocked when DISPUTED.'
+      },
+      {
+        name: 'Procurement — Match dashboard (Suite 06)',
+        description: 'Suite 06: CFO-oriented counts — matched bills, disputed bills, intakes pending verification.'
+      },
+      {
+        name: 'Investee Portal — Investment Drawdown',
+        description:
+          'Suite 02: Investee purchase requisitions against held investment tranche, VC CFO executive gate, auto-RQFs, fund-scoped visibility, SLA alerts, and applicant portal drawdown APIs.'
+      },
+      {
+        name: 'Applicant Portal',
+        description: 'Investee / portfolio company applicant APIs (profile, application, Suite 02 procurement when tagged).'
+      },
+      {
         name: 'Procurement - Approval Configuration',
         description: 'Approval configuration management - Create and manage approval workflows (SINGLE CONFIG SYSTEM). Also includes approval request endpoints for approvers.'
       },

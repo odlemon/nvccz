@@ -1223,6 +1223,7 @@ export class CashbookService {
     glAccountId: string;
     bankCode?: string;
     branchCode?: string;
+    swiftCode?: string;
     isActive?: boolean;
   }) {
     const {
@@ -1232,6 +1233,7 @@ export class CashbookService {
       glAccountId,
       bankCode,
       branchCode,
+      swiftCode,
       isActive = true
     } = params;
 
@@ -1282,6 +1284,8 @@ export class CashbookService {
         accountNumber,
         currencyId,
         glAccountId,
+        branchCode: (branchCode ?? "").trim(),
+        swiftCode: (swiftCode ?? "").trim(),
         isActive
       },
       include: {
@@ -1295,7 +1299,6 @@ export class CashbookService {
 
   /**
    * Update Bank Account
-   * Updates an existing bank account (name, accountNumber, currencyId, glAccountId, isActive).
    */
   static async updateBank(
     bankId: string,
@@ -1304,6 +1307,8 @@ export class CashbookService {
       accountNumber?: string;
       currencyId?: string;
       glAccountId?: string;
+      branchCode?: string | null;
+      swiftCode?: string | null;
       isActive?: boolean;
     }
   ) {
@@ -1315,7 +1320,8 @@ export class CashbookService {
       throw new Error('Bank account not found');
     }
 
-    const { name, accountNumber, currencyId, glAccountId, isActive } = params;
+    const { name, accountNumber, currencyId, glAccountId, branchCode, swiftCode, isActive } =
+      params;
 
     if (accountNumber !== undefined) {
       const duplicate = await prisma.bank.findFirst({
@@ -1359,6 +1365,8 @@ export class CashbookService {
     if (currencyId !== undefined) data.currencyId = currencyId;
     if (glAccountId !== undefined) data.glAccountId = glAccountId;
     if (isActive !== undefined) data.isActive = isActive;
+    if (branchCode !== undefined) data.branchCode = String(branchCode).trim();
+    if (swiftCode !== undefined) data.swiftCode = String(swiftCode).trim();
 
     const bank = await prisma.bank.update({
       where: { id: bankId },

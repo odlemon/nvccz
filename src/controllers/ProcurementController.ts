@@ -20,7 +20,12 @@ export class ProcurementController {
         department,
         priority,
         justification,
-        items
+        sourcingCategory,
+        items,
+        portfolioCompanyId,
+        fundId,
+        useOfFundsDocumentUrl,
+        drawdownRequestAmount,
       } = req.body;
 
       const requestedById = req.user?.id;
@@ -53,6 +58,11 @@ export class ProcurementController {
         requestedById,
         priority,
         justification,
+        sourcingCategory,
+        portfolioCompanyId,
+        fundId,
+        useOfFundsDocumentUrl,
+        drawdownRequestAmount,
         items
       });
 
@@ -194,6 +204,8 @@ export class ProcurementController {
       if (requestedById) where.requestedById = requestedById;
       if (priority) where.priority = priority;
 
+      await ProcurementService.applyInvesteeFundScopeToDepartmentRequisitionWhere(userId, where);
+
       const requisitions = await prisma.purchaseRequisition.findMany({
         where,
         include: {
@@ -258,6 +270,13 @@ export class ProcurementController {
   static async getPurchaseRequisitionById(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
 
       const requisition = await prisma.purchaseRequisition.findUnique({
         where: { id },
@@ -313,6 +332,19 @@ export class ProcurementController {
         });
       }
 
+      try {
+        await ProcurementService.assertUserCanViewInvesteePurchaseRequisition(userId, {
+          portfolioCompanyId: requisition.portfolioCompanyId,
+          fundId: requisition.fundId,
+          requestedById: requisition.requestedById,
+        });
+      } catch (accessErr: any) {
+        return res.status(403).json({
+          success: false,
+          message: accessErr?.message || "Not authorized",
+        });
+      }
+
       res.status(200).json({
         success: true,
         data: requisition
@@ -322,6 +354,54 @@ export class ProcurementController {
       res.status(400).json({
         success: false,
         message: error.message || "Failed to get purchase requisition"
+      });
+    }
+  }
+
+  /** Suite 02: investee-linked PRs for VC desk (fund-scoped for FundManagers). */
+  static async listInvesteePurchaseRequisitionsForVc(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+      const rows = await ProcurementService.listInvesteePurchaseRequisitionsForVc(userId);
+      return res.status(200).json({
+        success: true,
+        message: "Investee purchase requisitions retrieved successfully",
+        data: rows,
+        count: rows.length,
+      });
+    } catch (error: any) {
+      console.error("Error listing investee purchase requisitions:", error);
+      const code = error?.message?.includes("Not authorized") ? 403 : 400;
+      return res.status(code).json({
+        success: false,
+        message: error.message || "Failed to list investee requisitions",
+      });
+    }
+  }
+
+  /** Suite 02: SLA — pending VC executive review longer than 48 hours. */
+  static async listInvesteePrsPendingVcSlaBreached(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+      const rows = await ProcurementService.listInvesteePrsPendingVcOver48Hours(userId);
+      return res.status(200).json({
+        success: true,
+        message: "Investee PRs pending VC approval over 48h retrieved successfully",
+        data: rows,
+        count: rows.length,
+      });
+    } catch (error: any) {
+      console.error("Error listing investee PR SLA breaches:", error);
+      const code = error?.message?.includes("Not authorized") ? 403 : 400;
+      return res.status(code).json({
+        success: false,
+        message: error.message || "Failed to list SLA breaches",
       });
     }
   }
@@ -511,7 +591,11 @@ export class ProcurementController {
         deliveryAddress,
         rfqDeadline,
         specialRequirements,
-        items
+        items,
+        visibility,
+        reportingCurrencyId,
+        priceWeight,
+        technicalWeight,
       } = req.body;
 
       // Validation
@@ -540,7 +624,11 @@ export class ProcurementController {
         rfqDeadline: rfqDeadline ? new Date(rfqDeadline) : undefined,
         specialRequirements,
         createdById,
-        items
+        items,
+        visibility,
+        reportingCurrencyId,
+        priceWeight,
+        technicalWeight,
       });
 
       res.status(201).json({
@@ -1186,7 +1274,15 @@ export class ProcurementController {
    */
   static async createGoodsReceivedNote(req: Request, res: Response) {
     try {
-      const { purchaseOrderId, items } = req.body;
+      const {
+        purchaseOrderId,
+        items,
+        receivedDate,
+        attachmentUrls,
+        latitude,
+        longitude,
+        geoCapturedAt,
+      } = req.body;
       const receivedById = req.user?.id;
 
       if (!receivedById) {
@@ -1203,7 +1299,18 @@ export class ProcurementController {
         });
       }
 
-      const grn = await ProcurementService.createGoodsReceivedNote(purchaseOrderId, receivedById, items);
+      const grn = await ProcurementService.createGoodsReceivedNote(
+        purchaseOrderId,
+        receivedById,
+        items,
+        {
+          receivedDate: receivedDate ? new Date(receivedDate) : undefined,
+          attachmentUrls,
+          latitude: latitude != null ? Number(latitude) : undefined,
+          longitude: longitude != null ? Number(longitude) : undefined,
+          geoCapturedAt: geoCapturedAt ? new Date(geoCapturedAt) : undefined,
+        }
+      );
 
       res.status(201).json({
         success: true,
@@ -1224,7 +1331,14 @@ export class ProcurementController {
    */
   static async getProcurementDashboard(req: Request, res: Response) {
     try {
-      const dashboard = await ProcurementService.getProcurementDashboard();
+      const viewerUserId = req.user?.id;
+      if (!viewerUserId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+      const dashboard = await ProcurementService.getProcurementDashboard(viewerUserId);
 
       res.status(200).json({
         success: true,
@@ -1391,6 +1505,149 @@ export class ProcurementController {
         success: false,
         message: error.message || "Failed to get payments"
       });
+    }
+  }
+
+  /** Suite 03 — comparison matrix */
+  static async getRfqComparisonMatrix(req: Request, res: Response) {
+    try {
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const data = await ProcurementRfqService.getComparisonMatrix(req.params.id);
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  static async awardRfq(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const { winningQuotationId, awardRationale } = req.body;
+      if (!winningQuotationId || !awardRationale) {
+        return res.status(400).json({ success: false, message: "winningQuotationId and awardRationale required" });
+      }
+      const data = await ProcurementRfqService.awardRfq({
+        procurementRfqId: req.params.id,
+        winningQuotationId,
+        awardRationale,
+        awardedById: userId,
+      });
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  static async patchRfqExtend(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const { newClosingAt } = req.body;
+      if (!newClosingAt) return res.status(400).json({ success: false, message: "newClosingAt required" });
+      const data = await ProcurementRfqService.extendClosing({
+        procurementRfqId: req.params.id,
+        newClosingAt: new Date(newClosingAt),
+        extendedById: userId,
+      });
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  static async postRfqClarification(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const { body, attachmentUrl } = req.body;
+      if (!body) return res.status(400).json({ success: false, message: "body required" });
+      const row = await ProcurementRfqService.addClarification({
+        procurementRfqId: req.params.id,
+        authorType: "STAFF",
+        body,
+        attachmentUrl,
+        userId,
+      });
+      res.status(201).json({ success: true, data: row });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  static async getRfqClarifications(req: Request, res: Response) {
+    try {
+      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const data = await ProcurementRfqService.listClarifications(req.params.id);
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  /** Suite 04 — PO PDF */
+  static async getPurchaseOrderPdf(req: Request, res: Response) {
+    try {
+      const { ProcurementPoPdfService } = await import("../services/ProcurementPoPdfService");
+      const buf = await ProcurementPoPdfService.renderPurchaseOrderPdf(req.params.id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="po-${req.params.id}.pdf"`);
+      res.send(buf);
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  static async verifyPurchaseOrderToken(req: Request, res: Response) {
+    try {
+      const { token } = req.query;
+      const { prisma } = await import("../utils/database");
+      const po = await prisma.purchaseOrder.findFirst({
+        where: { poPdfVerificationToken: String(token) },
+        select: { id: true, poNumber: true, status: true },
+      });
+      if (!po) return res.status(404).json({ success: false, message: "Invalid token" });
+      res.json({ success: true, data: po });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  static async cancelPurchaseOrderLine(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementService } = await import("../services/ProcurementService");
+      const data = await ProcurementService.cancelPurchaseOrderLine(
+        req.params.poId,
+        req.params.lineId,
+        userId
+      );
+      res.json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
+
+  static async createGrnReturnToVendor(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const { ProcurementService } = await import("../services/ProcurementService");
+      const { goodsReceivedNoteId, purchaseOrderItemId, quantity, reason } = req.body;
+      const data = await ProcurementService.createGrnReturnToVendor({
+        goodsReceivedNoteId,
+        purchaseOrderItemId,
+        quantity,
+        reason,
+        createdById: userId,
+      });
+      res.status(201).json({ success: true, data });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
     }
   }
 }
