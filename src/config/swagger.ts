@@ -19,6 +19,7 @@ import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagg
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
 import { vendorMasterSuite01Endpoints } from './vendor-master-suite01-endpoints';
 import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-sections-fallback-endpoints';
+import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
 
 const options = {
   definition: {
@@ -161,28 +162,34 @@ const options = {
         description: 'Approval configuration management - Create and manage approval workflows (SINGLE CONFIG SYSTEM). Also includes approval request endpoints for approvers.'
       },
       {
-        name: 'Events Management - Core Events',
-        description: 'Core event management - Create, view, update, and delete events with enhanced features including event types, RSVP requirements, and Google Calendar integration'
+        name: 'Events — Core & calendar (EventSync)',
+        description:
+          'EventSync UAT: listings, create/update/delete, public event pages, upcoming; Google Calendar sync when configured. See docs/events-uat.md.'
       },
       {
-        name: 'Events Management - Guest Management',
-        description: 'Guest management - Add guests, send invitations, handle RSVPs, and manage check-ins for events'
+        name: 'Events — Guests & RSVP (EventSync)',
+        description:
+          'EventSync UAT: guest list, invitations, public RSVP by token, check-in. See docs/events-uat.md.'
       },
       {
-        name: 'Events Management - Budget Management',
-        description: 'Budget management - Plan event budgets, add budget items, and approve budgets with accounting integration'
+        name: 'Events — Budget & approval (EventSync)',
+        description:
+          'EventSync UAT: budget line items and internal budget approval (not Procurement PR in current build). See docs/events-uat.md.'
       },
       {
-        name: 'Events Management - Expense Management',
-        description: 'Expense management - Record event expenses with automatic journal entry creation and VAT calculation'
+        name: 'Events — Expenses & accounting (EventSync)',
+        description:
+          'EventSync UAT: record event expenses; journal entries via accounting services. See docs/events-uat.md.'
       },
       {
-        name: 'Events Management - Feedback Management',
-        description: 'Feedback management - Collect and view multi-dimensional event feedback from attendees'
+        name: 'Events — Feedback (EventSync)',
+        description:
+          'EventSync UAT: public feedback submit and staff feedback list. See docs/events-uat.md.'
       },
       {
-        name: 'Events Management - Analytics & Reporting',
-        description: 'Analytics and reporting - Get event analytics and generate comprehensive event reports with metrics and recommendations'
+        name: 'Events — Analytics & reports (EventSync)',
+        description:
+          'EventSync UAT: event analytics and generated reports (EventReport). See docs/events-uat.md.'
       },
       {
         name: 'Dashboards',
@@ -8736,6 +8743,9 @@ specs.paths = mergeOpenApiPathItemsPreferExisting(
   specs.paths,
   procurementSuiteSectionsFallbackEndpoints
 );
+
+// EventSync — public event listing gaps (swagger-jsdoc may omit route blocks)
+specs.paths = mergeOpenApiPathItemsPreferExisting(specs.paths, eventsEventsyncFallbackEndpoints);
 
 // Suite 01 — always expose vendor master / public registration (swagger-jsdoc may be skipped)
 specs.paths = {
