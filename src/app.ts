@@ -130,6 +130,8 @@ import performanceContractRoutes from "./routes/performanceContractRoutes"
 import accountingApiRoutes from "./routes/accountingApiRoutes"
 import vatReportRoutes from "./routes/vatReportRoutes"
 import glLedgerDetailRoutes from "./routes/glLedgerDetailRoutes"
+import publicMediaRoutes from "./routes/publicMediaRoutes"
+import publicMediaTestRoutes from "./routes/publicMediaTestRoutes"
 import { initSocketServer } from "./services/RealtimeSocketService"
 
 
@@ -216,6 +218,16 @@ app.use(
   })
 )
 
+// Serve uploaded files over HTTPS via this API (proxies from REMOTE_MEDIA_INTERNAL_BASE). Set FRONTEND_URL (or REMOTE_MEDIA_BASE_URL).
+app.use("/api/public-media", publicMediaRoutes)
+const enablePublicMediaTest =
+  process.env.ALLOW_PUBLIC_MEDIA_TEST_UPLOAD === "true" ||
+  process.env.NODE_ENV === "development" ||
+  process.env.npm_lifecycle_event === "dev";
+if (enablePublicMediaTest) {
+  app.use("/api/dev/public-media-test", publicMediaTestRoutes);
+}
+
 // Disallow intermediate caching for API responses to keep freshness predictable
 app.use((req, res, next) => {
   res.set("Cache-Control", "no-store");
@@ -230,6 +242,13 @@ let lastHealthCheckStatus = true;
 app.use(async (req, res, next) => {
   // Skip health checks for OPTIONS requests and when explicit bypass flag is set
   if (req.method === "OPTIONS" || process.env.SKIP_REQUEST_HEALTH_CHECK === "true") {
+    return next();
+  }
+  // Static-ish media proxy + dev upload smoke test (no DB)
+  if (
+    req.path.startsWith("/api/public-media") ||
+    req.path.startsWith("/api/dev/public-media-test")
+  ) {
     return next();
   }
 

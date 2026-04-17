@@ -5,6 +5,7 @@ import { EmailNotificationService } from '../services/EmailNotificationService';
 import { PrismaClient } from '@prisma/client';
 
 import { prisma } from '../utils/database';
+import { rewritePublicMediaUrl } from '../services/RemoteUploadService';
 
 export class TermSheetController {
   /**
@@ -44,7 +45,7 @@ export class TermSheetController {
       } : null,
       // Include applicant signature data
       applicantSignature: termSheet.applicantSignatureUrl ? {
-        signatureUrl: termSheet.applicantSignatureUrl,
+        signatureUrl: rewritePublicMediaUrl(termSheet.applicantSignatureUrl),
         signatureFileName: termSheet.applicantSignatureFileName,
         signedAt: termSheet.applicantSignedAt,
         signedBy: termSheet.applicantSignedBy ? {
@@ -56,7 +57,7 @@ export class TermSheetController {
       } : null,
       // Include investor signature data
       investorSignature: termSheet.investorSignatureUrl ? {
-        signatureUrl: termSheet.investorSignatureUrl,
+        signatureUrl: rewritePublicMediaUrl(termSheet.investorSignatureUrl),
         signatureFileName: termSheet.investorSignatureFileName,
         signedAt: termSheet.investorSignedAt,
         signedBy: termSheet.investorSignedBy ? {

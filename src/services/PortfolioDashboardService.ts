@@ -32,9 +32,12 @@ const IRR_BY_QUARTER_CAP_AUM = 8;
 export interface PortfolioDashboardParams {
   fundId?: string; // Optional fund filter - if not provided, aggregates all funds
   portfolioCompanyId?: string; // Optional single-company slice (same fund context)
-  year?: number; // Optional year filter for historical data
-  currencyId?: string; // Optional currency filter
-  asOfDate?: Date; // Optional date for snapshot
+  /** Filters J-curve + IRR-by-quarter series only — does NOT filter which investees appear in portfolioSummary. */
+  year?: number;
+  currencyId?: string; // Optional currency filter (echoed in response; FX conversion not applied server-side yet)
+  asOfDate?: Date; // Optional snapshot date: limits DISBURSED disbursements to this date (UTC EOD); holding-period IRR uses this as "today"
+  /** Case-insensitive substring match on company name, industry, or id (alias: `q`). */
+  search?: string;
   /**
    * `aum`: lighter payload (no comparison/waterfall/analyst rollup; shorter IRR series). Faster for AUM-only tiles.
    * `full` (default): complete dashboard.
@@ -322,6 +325,8 @@ export interface PortfolioDashboardData {
     year: number | null;
     /** Echo of request `scope` (`full` default); `aum` = lighter payload. */
     scope: "full" | "aum";
+    search: string | null;
+    currencyId: string | null;
   };
   
   generatedAt: Date;
@@ -459,9 +464,33 @@ export class PortfolioDashboardService {
         fundName: partial.fundName,
         year: partial.year,
         scope: "full",
+        search: null,
+        currencyId: null,
       },
       generatedAt: new Date(),
     };
+  }
+
+  /**
+   * DISBURSED disbursements, optionally capped to `asOf` end-of-day UTC (inclusive).
+   */
+  private static disbursedUpTo(company: any, asOf?: Date): any[] {
+    const raw = company.investmentImplementation?.fundDisbursements || [];
+    const disbursed = raw.filter((d: any) => d.status === "DISBURSED");
+    if (!asOf) return disbursed;
+    const endMs = Date.UTC(
+      asOf.getUTCFullYear(),
+      asOf.getUTCMonth(),
+      asOf.getUTCDate(),
+      23,
+      59,
+      59,
+      999
+    );
+    return disbursed.filter((d: any) => {
+      if (!d.disbursementDate) return true;
+      return new Date(d.disbursementDate).getTime() <= endMs;
+    });
   }
 
   /**
@@ -623,10 +652,13 @@ export class PortfolioDashboardService {
         allPortfolioCompanies = directCompanies;
       }
 
-      if (filterYear) {
-        allPortfolioCompanies = allPortfolioCompanies.filter(company => {
-          const startYear = company.startDate ? new Date(company.startDate).getFullYear() : null;
-          return startYear === filterYear || !startYear; // Include if matches year or no start date
+      const rawSearch = String(params.search || "").trim().toLowerCase();
+      if (rawSearch) {
+        allPortfolioCompanies = allPortfolioCompanies.filter((c) => {
+          const name = String(c.name || "").toLowerCase();
+          const ind = String(c.industry || "").toLowerCase();
+          const id = String(c.id || "").toLowerCase();
+          return name.includes(rawSearch) || ind.includes(rawSearch) || id.includes(rawSearch);
         });
       }
 
@@ -647,8 +679,8 @@ export class PortfolioDashboardService {
         irrByQuarter,
         portfolioSummary,
       ] = await Promise.all([
-        Promise.resolve(this.calculateMetrics(funds, allPortfolioCompanies)),
-        this.calculatePerformanceOverview(funds, allPortfolioCompanies),
+        Promise.resolve(this.calculateMetrics(funds, allPortfolioCompanies, params.asOfDate)),
+        this.calculatePerformanceOverview(funds, allPortfolioCompanies, params.asOfDate),
         Promise.resolve(this.calculateJCurve(funds, allPortfolioCompanies, filterYear)),
         Promise.resolve(
           this.calculateIRRByQuarter(funds, allPortfolioCompanies, filterYear, irrQuarterCap)
@@ -656,6 +688,8 @@ export class PortfolioDashboardService {
         Promise.resolve(
           this.calculatePortfolioSummary(allPortfolioCompanies, {
             skipAnalystFlags: scope === "aum",
+            disbursementAsOf: params.asOfDate,
+            holdingPeriodEnd: params.asOfDate || new Date(),
           })
         ),
       ]);
@@ -775,6 +809,8 @@ export class PortfolioDashboardService {
           fundName,
           year: filterYear || null,
           scope,
+          search: params.search?.trim() || null,
+          currencyId: params.currencyId?.trim() || null,
         },
         generatedAt: new Date(),
       };
@@ -791,7 +827,8 @@ export class PortfolioDashboardService {
    */
   private static calculateMetrics(
     funds: any[],
-    portfolioCompanies: any[]
+    portfolioCompanies: any[],
+    disbursementAsOf?: Date
   ): {
     totalInvested: number;
     availableForDrawdown: number;
@@ -801,13 +838,11 @@ export class PortfolioDashboardService {
   } {
     // Total invested = sum of all disbursed amounts
     const totalInvested = portfolioCompanies.reduce((sum, company) => {
-      const disbursements = company.investmentImplementation?.fundDisbursements || [];
-      const companyTotal = disbursements
-        .filter((d: any) => d.status === 'DISBURSED')
-        .reduce((companySum: number, d: any) => {
-          const amount = d.amount || new Decimal(0);
-          return companySum + parseFloat(amount.toString());
-        }, 0);
+      const disbursements = PortfolioDashboardService.disbursedUpTo(company, disbursementAsOf);
+      const companyTotal = disbursements.reduce((companySum: number, d: any) => {
+        const amount = d.amount || new Decimal(0);
+        return companySum + parseFloat(amount.toString());
+      }, 0);
       return sum + companyTotal;
     }, 0);
     
@@ -863,7 +898,8 @@ export class PortfolioDashboardService {
    */
   private static async calculatePerformanceOverview(
     funds: any[],
-    portfolioCompanies: any[]
+    portfolioCompanies: any[],
+    disbursementAsOf?: Date
   ): Promise<{
     paidIn: number;
     totalInvestment: number;
@@ -880,13 +916,11 @@ export class PortfolioDashboardService {
     
     // Total investment = sum of all disbursed amounts
     const totalInvestment = portfolioCompanies.reduce((sum, company) => {
-      const disbursements = company.investmentImplementation?.fundDisbursements || [];
-      const companyTotal = disbursements
-        .filter((d: any) => d.status === 'DISBURSED')
-        .reduce((companySum: number, d: any) => {
-          const amount = d.amount || new Decimal(0);
-          return companySum + parseFloat(amount.toString());
-        }, 0);
+      const disbursements = PortfolioDashboardService.disbursedUpTo(company, disbursementAsOf);
+      const companyTotal = disbursements.reduce((companySum: number, d: any) => {
+        const amount = d.amount || new Decimal(0);
+        return companySum + parseFloat(amount.toString());
+      }, 0);
       return sum + companyTotal;
     }, 0);
     
@@ -1127,31 +1161,35 @@ export class PortfolioDashboardService {
    */
   private static calculatePortfolioSummary(
     portfolioCompanies: any[],
-    options?: { skipAnalystFlags?: boolean }
+    options?: {
+      skipAnalystFlags?: boolean;
+      /** Only count disbursements on/before this date (UTC EOD). */
+      disbursementAsOf?: Date;
+      /** End date for simplified gross-IRR holding period (defaults to now). */
+      holdingPeriodEnd?: Date;
+    }
   ): PortfolioDashboardData["portfolioSummary"] {
     const skipFlags = options?.skipAnalystFlags === true;
+    const disbursementAsOf = options?.disbursementAsOf;
+    const holdingEnd = options?.holdingPeriodEnd || new Date();
     const summary = portfolioCompanies.map(company => {
-      const disbursements = company.investmentImplementation?.fundDisbursements || [];
-      
-      // Total investment cost = sum of all disbursed amounts
-      const totalInvestmentCost = disbursements
-        .filter((d: any) => d.status === 'DISBURSED')
-        .reduce((sum: number, d: any) => {
-          const amount = d.amount || new Decimal(0);
-          return sum + parseFloat(amount.toString());
-        }, 0);
+      const disbursements = PortfolioDashboardService.disbursedUpTo(company, disbursementAsOf);
+
+      // Total investment cost = sum of all disbursed amounts (as-of when configured)
+      const totalInvestmentCost = disbursements.reduce((sum: number, d: any) => {
+        const amount = d.amount || new Decimal(0);
+        return sum + parseFloat(amount.toString());
+      }, 0);
       
       // Current investment cost = total investment cost (assuming no partial exits)
       const currentInvestmentCost = totalInvestmentCost;
       
       // Get initial investment date (first disbursement date or startDate)
-      const firstDisbursement = disbursements
-        .filter((d: any) => d.status === 'DISBURSED')
-        .sort((a: any, b: any) => {
-          const dateA = a.disbursementDate ? new Date(a.disbursementDate).getTime() : 0;
-          const dateB = b.disbursementDate ? new Date(b.disbursementDate).getTime() : 0;
-          return dateA - dateB;
-        })[0];
+      const firstDisbursement = [...disbursements].sort((a: any, b: any) => {
+        const dateA = a.disbursementDate ? new Date(a.disbursementDate).getTime() : 0;
+        const dateB = b.disbursementDate ? new Date(b.disbursementDate).getTime() : 0;
+        return dateA - dateB;
+      })[0];
       const initialInvestment = firstDisbursement?.disbursementDate 
         ? new Date(firstDisbursement.disbursementDate) 
         : (company.startDate ? new Date(company.startDate) : null);
@@ -1181,7 +1219,7 @@ export class PortfolioDashboardService {
 
       // Gross IRR (simplified calculation). Floor holding period at ~1 day so brand-new positions do not explode.
       const yearsSinceInvestmentRaw = initialInvestment
-        ? (new Date().getTime() - new Date(initialInvestment).getTime()) / (1000 * 60 * 60 * 24 * 365)
+        ? (holdingEnd.getTime() - new Date(initialInvestment).getTime()) / (1000 * 60 * 60 * 24 * 365)
         : 1;
       const yearsSinceInvestment = Math.max(yearsSinceInvestmentRaw, 1 / 365);
       const grossIRR =

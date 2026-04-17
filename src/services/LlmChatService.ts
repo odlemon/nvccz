@@ -11,9 +11,17 @@ export type LlmChatCompletionOptions = {
   responseFormatJsonObject?: boolean;
 };
 
+/** Local/UAT only: DeepSeek OpenAI-compatible API when `LLM_API_KEY` is unset. Remove or rotate before production deploy. */
+const FALLBACK_TEST_LLM_API_KEY = "sk-7304b429a9dc4272bc0ab3a81bff65a0";
+const FALLBACK_TEST_LLM_BASE_URL = "https://api.deepseek.com/v1";
+const FALLBACK_TEST_LLM_MODEL = "deepseek-chat";
+
 /**
  * OpenAI-compatible chat completions client (configurable base URL + API key).
  * Used by portfolio scoring, Suite 06 invoice extraction, and other LLM features.
+ *
+ * If `LLM_API_KEY` is set, defaults target OpenAI unless `LLM_API_BASE_URL` / `LLM_MODEL` override.
+ * If unset, uses embedded DeepSeek test credentials (UAT only).
  */
 export function getLlmConfig(): {
   baseUrl: string;
@@ -22,9 +30,14 @@ export function getLlmConfig(): {
   timeoutMs: number;
   configured: boolean;
 } {
-  const baseUrl = (process.env.LLM_API_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const apiKey = process.env.LLM_API_KEY || "";
-  const model = process.env.LLM_MODEL || "gpt-4o";
+  const envKey = String(process.env.LLM_API_KEY || "").trim();
+  const usingEnvKey = Boolean(envKey);
+  const apiKey = usingEnvKey ? envKey : FALLBACK_TEST_LLM_API_KEY;
+  const baseUrl = (
+    process.env.LLM_API_BASE_URL ||
+    (usingEnvKey ? "https://api.openai.com/v1" : FALLBACK_TEST_LLM_BASE_URL)
+  ).replace(/\/$/, "");
+  const model = process.env.LLM_MODEL || (usingEnvKey ? "gpt-4o" : FALLBACK_TEST_LLM_MODEL);
   const timeoutMs = Math.min(120000, Math.max(5000, Number(process.env.LLM_TIMEOUT_MS) || 60000));
   return {
     baseUrl,

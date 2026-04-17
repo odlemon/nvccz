@@ -461,7 +461,8 @@ export const dashboardsEndpoints = {
           in: 'query',
           name: 'year',
           schema: { type: 'integer' },
-          description: 'Optional year filter for historical data (e.g., 2025). Filters J Curve and IRR by quarter data.'
+          description:
+            'Optional — filters J-curve and IRR-by-quarter only; does not drop rows from portfolioSummary.'
         },
         {
           in: 'query',
@@ -473,7 +474,20 @@ export const dashboardsEndpoints = {
           in: 'query',
           name: 'asOfDate',
           schema: { type: 'string', format: 'date' },
-          description: 'Optional date for snapshot (ISO format: YYYY-MM-DD)'
+          description:
+            'Optional YYYY-MM-DD — disbursed capital counted up to end of that UTC day; IRR holding period ends this date.'
+        },
+        {
+          in: 'query',
+          name: 'search',
+          schema: { type: 'string' },
+          description: 'Substring match on investee name, industry, or id (case-insensitive). Alias: q'
+        },
+        {
+          in: 'query',
+          name: 'q',
+          schema: { type: 'string' },
+          description: 'Same as search'
         },
         {
           in: 'query',

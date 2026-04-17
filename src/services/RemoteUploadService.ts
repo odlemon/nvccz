@@ -6,9 +6,90 @@ import axios from "axios";
 import FormData from "form-data";
 import { logger } from "../utils/logger";
 
-// Configuration - Ubuntu server upload service
-const UPLOAD_SERVICE_URL = "http://31.220.82.129:3050/upload";
-const MEDIA_BASE_URL = "http://31.220.82.129/uploads";
+/** POST target for the upload microservice (may stay HTTP on a private network). */
+const DEFAULT_REMOTE_UPLOAD_SERVICE_URL = "http://31.220.82.129:3050/upload";
+/** Where files actually live — server-side fetch + upload proxy use this (HTTP is fine). */
+const DEFAULT_REMOTE_MEDIA_INTERNAL_BASE = "http://31.220.82.129/uploads";
+/** Fallback public URL if FRONTEND_URL / API_PUBLIC_BASE_URL / REMOTE_MEDIA_BASE_URL are unset (HTTP — may cause mixed content on HTTPS sites). */
+const DEFAULT_REMOTE_MEDIA_BASE_URL = "http://31.220.82.129/uploads";
+
+function resolveUploadServiceUrl(): string {
+  return (
+    process.env.REMOTE_UPLOAD_SERVICE_URL || DEFAULT_REMOTE_UPLOAD_SERVICE_URL
+  ).replace(/\/+$/, "");
+}
+
+/** Direct HTTP base for the file store (used by the API proxy and downloadFile). */
+export function resolveInternalMediaBaseUrl(): string {
+  return (
+    process.env.REMOTE_MEDIA_INTERNAL_BASE || DEFAULT_REMOTE_MEDIA_INTERNAL_BASE
+  ).replace(/\/+$/, "");
+}
+
+/**
+ * Public URLs returned to browsers / stored in DB.
+ * Set FRONTEND_URL=https://dev.arcus.co.zw (origin only, no /api) so links become …/api/public-media/… (proxied).
+ * API_PUBLIC_BASE_URL is an optional alias if the API host differs from the SPA (same value as FRONTEND_URL when same nginx host).
+ * Override fully with REMOTE_MEDIA_BASE_URL for a CDN or custom host.
+ */
+function resolveMediaBaseUrl(): string {
+  const explicit = process.env.REMOTE_MEDIA_BASE_URL?.trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const origin =
+    process.env.FRONTEND_URL?.trim() || process.env.API_PUBLIC_BASE_URL?.trim();
+  if (origin) return `${origin.replace(/\/+$/, "")}/api/public-media`;
+  return DEFAULT_REMOTE_MEDIA_BASE_URL.replace(/\/+$/, "");
+}
+
+/** Path under uploads/ (e.g. term-sheet-signatures/foo.png) from any stored URL shape. */
+export function extractRelativeMediaPath(stored: string): string {
+  const q = stored.split("?")[0];
+  const marker = "/uploads/";
+  let idx = q.indexOf(marker);
+  if (idx >= 0) {
+    return q.slice(idx + marker.length).replace(/^\/+/, "");
+  }
+  const pm = "/api/public-media/";
+  idx = q.indexOf(pm);
+  if (idx >= 0) {
+    return q.slice(idx + pm.length).replace(/^\/+/, "");
+  }
+  return q.replace(/^\/+/, "");
+}
+
+/**
+ * Rebuild our media URLs using resolveMediaBaseUrl() so old http://…/uploads/… rows become
+ * https://…/api/public-media/… when API_PUBLIC_BASE_URL is set.
+ */
+export function rewritePublicMediaUrl(
+  url: string | null | undefined
+): string | null | undefined {
+  if (url == null || url === "") return url;
+  const marker = "/uploads/";
+  const pm = "/api/public-media/";
+  if (url.indexOf(marker) < 0 && url.indexOf(pm) < 0) return url;
+  const relative = extractRelativeMediaPath(url);
+  const base = resolveMediaBaseUrl();
+  return `${base}/${relative}`;
+}
+
+function toPublicMediaUrlFromUploadResponse(
+  uploadResponseUrl: string,
+  fallbackFilename?: string
+): string {
+  const marker = "/uploads/";
+  const idx = uploadResponseUrl.indexOf(marker);
+  if (idx >= 0) {
+    const relative = uploadResponseUrl.slice(idx + marker.length).replace(/^\/+/, "");
+    return `${resolveMediaBaseUrl()}/${relative}`;
+  }
+  const trimmed = uploadResponseUrl.replace(/^https?:\/\/[^/]+\//, "");
+  if (trimmed && trimmed !== uploadResponseUrl) {
+    return `${resolveMediaBaseUrl()}/${trimmed.replace(/^\/+/, "")}`;
+  }
+  const name = fallbackFilename || uploadResponseUrl;
+  return `${resolveMediaBaseUrl()}/${name.replace(/^\/+/, "")}`;
+}
 
 // Upload type mapping - maps our internal types to server directory structure
 const UPLOAD_TYPE_MAP: Record<string, string> = {
@@ -127,7 +208,7 @@ export class RemoteUploadService {
       });
 
       // Upload to Ubuntu server
-      const response = await axios.post(UPLOAD_SERVICE_URL, formData, {
+      const response = await axios.post(resolveUploadServiceUrl(), formData, {
         headers: {
           ...formData.getHeaders(),
         },
@@ -136,9 +217,16 @@ export class RemoteUploadService {
 
       if (response.data.success && response.data.files) {
         logger.info(`Successfully uploaded ${response.data.files.length} file(s) to remote server`);
+        const files = response.data.files.map((f: any) => ({
+          ...f,
+          url: toPublicMediaUrlFromUploadResponse(
+            f.url || "",
+            f.filename || f.originalname
+          ),
+        }));
         return {
           success: true,
-          files: response.data.files,
+          files,
         };
       } else {
         logger.error("Upload failed", { response: response.data });
@@ -189,11 +277,11 @@ export class RemoteUploadService {
         });
         
         if (error.code === 'ECONNREFUSED') {
-          errorMessage = `Cannot connect to upload server at ${UPLOAD_SERVICE_URL} (connection refused). The upload service may be down.`;
+          errorMessage = `Cannot connect to upload server at ${resolveUploadServiceUrl()} (connection refused). The upload service may be down.`;
         } else if (error.code === 'ETIMEDOUT') {
-          errorMessage = `Upload timeout - the server at ${UPLOAD_SERVICE_URL} took too long to respond.`;
+          errorMessage = `Upload timeout - the server at ${resolveUploadServiceUrl()} took too long to respond.`;
         } else if (error.code === 'ENOTFOUND') {
-          errorMessage = `Upload server not found: ${UPLOAD_SERVICE_URL}. Please check the server configuration.`;
+          errorMessage = `Upload server not found: ${resolveUploadServiceUrl()}. Please check the server configuration.`;
         } else {
           errorMessage = `Network error (${error.code}): ${errorMessage}`;
         }
@@ -234,15 +322,21 @@ export class RemoteUploadService {
     }
 
     const uploadedFile = result.files[0];
+    const publicUrl = toPublicMediaUrlFromUploadResponse(
+      uploadedFile.url || "",
+      uploadedFile.filename || uploadedFile.originalname
+    );
 
     // Extract file path from URL for backward compatibility
-    // URL format: http://31.220.82.129/uploads/{type}/{filename}
-    const urlParts = uploadedFile.url.split("/uploads/");
-    const filePath = urlParts.length > 1 ? urlParts[1] : uploadedFile.filename;
+    // URL format: …/uploads/{type}/{filename}
+    const filePath =
+      extractRelativeMediaPath(publicUrl) ||
+      uploadedFile.filename ||
+      uploadedFile.originalname;
 
     return {
       filePath: filePath,
-      downloadURL: uploadedFile.url,
+      downloadURL: publicUrl,
     };
   }
 
@@ -258,7 +352,7 @@ export class RemoteUploadService {
    * Get media base URL
    */
   getMediaBaseUrl(): string {
-    return MEDIA_BASE_URL;
+    return resolveMediaBaseUrl();
   }
 
   /**
@@ -266,14 +360,8 @@ export class RemoteUploadService {
    */
   async downloadFile(filePath: string): Promise<Buffer> {
     try {
-      // If filePath is already a full URL, use it directly
-      let url: string;
-      if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
-        url = filePath;
-      } else {
-        // Construct URL from file path
-        url = `${MEDIA_BASE_URL}/${filePath}`;
-      }
+      const rel = extractRelativeMediaPath(filePath);
+      const url = `${resolveInternalMediaBaseUrl()}/${rel}`;
 
       logger.info(`Downloading file from remote server: ${url}`);
 
