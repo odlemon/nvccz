@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
  * Proxies uploaded files from the internal HTTP file server so browsers can load them over HTTPS
- * (same origin as the API). Avoids mixed-content blocks without TLS on 31.220.82.129.
+ * (same origin as the API). Proxies from REMOTE_MEDIA_INTERNAL_BASE (env).
  */
 import { Router, Request, Response } from "express";
 import axios from "axios";

@@ -8,10 +8,8 @@ import { logger } from "../utils/logger";
 
 /** POST target for the upload microservice (may stay HTTP on a private network). */
 const DEFAULT_REMOTE_UPLOAD_SERVICE_URL = "http://31.220.82.129:3050/upload";
-/** Where files actually live — server-side fetch + upload proxy use this (HTTP is fine). */
+/** Where files actually live — server-side fetch + upload proxy use this (HTTP is fine). Override with REMOTE_MEDIA_INTERNAL_BASE. */
 const DEFAULT_REMOTE_MEDIA_INTERNAL_BASE = "http://31.220.82.129/uploads";
-/** Fallback public URL if FRONTEND_URL / API_PUBLIC_BASE_URL / REMOTE_MEDIA_BASE_URL are unset (HTTP — may cause mixed content on HTTPS sites). */
-const DEFAULT_REMOTE_MEDIA_BASE_URL = "http://31.220.82.129/uploads";
 
 function resolveUploadServiceUrl(): string {
   return (
@@ -27,18 +25,26 @@ export function resolveInternalMediaBaseUrl(): string {
 }
 
 /**
- * Public URLs returned to browsers / stored in DB.
- * Set FRONTEND_URL=https://dev.arcus.co.zw (origin only, no /api) so links become …/api/public-media/… (proxied).
- * API_PUBLIC_BASE_URL is an optional alias if the API host differs from the SPA (same value as FRONTEND_URL when same nginx host).
- * Override fully with REMOTE_MEDIA_BASE_URL for a CDN or custom host.
+ * Public URLs returned to browsers / stored in DB — all from env (no hardcoded API hosts).
+ * REMOTE_MEDIA_BASE_URL (full override) → BASE_URL (API base, often ends with /api) → FRONTEND_URL / API_PUBLIC_BASE_URL.
+ * If none set: path-only "/api/public-media" (same-origin); set BASE_URL for absolute URLs on other hosts.
  */
 function resolveMediaBaseUrl(): string {
   const explicit = process.env.REMOTE_MEDIA_BASE_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
+  const baseUrl = process.env.BASE_URL?.trim();
+  if (baseUrl) {
+    const b = baseUrl.replace(/\/+$/, "");
+    if (/\/api$/i.test(b)) return `${b}/public-media`;
+    return `${b}/api/public-media`;
+  }
   const origin =
     process.env.FRONTEND_URL?.trim() || process.env.API_PUBLIC_BASE_URL?.trim();
   if (origin) return `${origin.replace(/\/+$/, "")}/api/public-media`;
-  return DEFAULT_REMOTE_MEDIA_BASE_URL.replace(/\/+$/, "");
+  logger.warn(
+    "RemoteUploadService: BASE_URL and REMOTE_MEDIA_BASE_URL unset — public media URLs use path-only /api/public-media. Set BASE_URL in env for absolute URLs."
+  );
+  return "/api/public-media";
 }
 
 /** Path under uploads/ (e.g. term-sheet-signatures/foo.png) from any stored URL shape. */
@@ -59,7 +65,7 @@ export function extractRelativeMediaPath(stored: string): string {
 
 /**
  * Rebuild our media URLs using resolveMediaBaseUrl() so old http://…/uploads/… rows become
- * https://…/api/public-media/… when API_PUBLIC_BASE_URL is set.
+ * https://…/api/public-media/… when BASE_URL (or legacy FRONTEND_URL) is set.
  */
 export function rewritePublicMediaUrl(
   url: string | null | undefined
