@@ -46,7 +46,10 @@ router.use(async (req: Request, res: Response) => {
 
     const ct = upstream.headers["content-type"];
     if (ct) res.setHeader("Content-Type", ct);
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    // `private` (not `public`) so shared caches like Cloudflare do not store the response. Edge caches
+    // were serving stale CORP: same-origin with Cf-Cache-Status: HIT even after app redeploy; browsers
+    // may still cache privately per RFC 7234.
+    res.setHeader("Cache-Control", "private, max-age=86400");
     upstream.data.pipe(res);
   } catch (e: any) {
     logger.warn("public media proxy failed", { url, error: e.message });

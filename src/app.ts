@@ -146,11 +146,14 @@ const port = envConfig.get("PORT")
 // Disable automatic ETag generation so successful JSON responses aren't converted to 304s
 app.set("etag", false)
 
-app.use(helmet({
-  contentSecurityPolicy: false,
-  // Default CORP is same-origin and blocks cross-origin <img> from the SPA (different subdomain).
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-}))
+// TODO: tighten CORP/COOP for production once public-media + CDN behavior is settled.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: false,
+    crossOriginOpenerPolicy: false,
+  })
+)
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
