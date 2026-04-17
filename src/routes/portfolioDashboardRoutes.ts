@@ -2,7 +2,6 @@
 import { Router } from "express";
 import { PortfolioDashboardController } from "../controllers/PortfolioDashboardController";
 import { authenticate } from "../middleware/authenticate";
-import { authorize } from "../middleware/permissionAuth";
 
 const router = Router();
 
@@ -19,6 +18,7 @@ const router = Router();
  *   get:
  *     summary: Get portfolio management dashboard data
  *     description: |
+ *       **Auth:** Bearer JWT only (no permission-matrix roles on this route).
  *       Metrics, performance overview, J curve, deal allocation, IRR by quarter, and portfolio summary.
  *       **`data.comparisonChart`** — per-company revenue growth rate, EBITDA margin, and net margin for side-by-side bar charts.
  *       **`data.netProfitWaterfall`** — bridge from prior to current net profit (revenue change + costs & other).
@@ -47,7 +47,7 @@ const router = Router();
  *         name: year
  *         schema:
  *           type: integer
- *         description: Optional year filter for historical data (e.g., 2025). Filters J Curve and IRR by quarter data.
+ *         description: Optional — filters **J Curve** and **IRR by quarter** only. Does **not** remove investees from portfolioSummary (use that for chart/timeline context, e.g. year=2026 with asOfDate in 2025).
  *       - in: query
  *         name: currencyId
  *         schema:
@@ -58,7 +58,17 @@ const router = Router();
  *         schema:
  *           type: string
  *           format: date
- *         description: Optional date for snapshot (ISO format: YYYY-MM-DD)
+ *         description: Optional snapshot date (YYYY-MM-DD). Limits **disbursed** capital to on/before that UTC day; gross-IRR holding period ends on this date. FMV/KPIs still use latest stored snapshots unless separately versioned.
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Optional case-insensitive substring filter on investee **name**, **sector** (industry), or **id**.
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Same as **search** (either may be used).
  *       - in: query
  *         name: scope
  *         schema:
@@ -321,7 +331,6 @@ const router = Router();
 router.get(
   "/kpi-timeseries",
   authenticate,
-  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager"]),
   PortfolioDashboardController.getKpiTimeSeries
 );
 
@@ -337,14 +346,12 @@ router.get(
 router.get(
   "/company/:portfolioCompanyId",
   authenticate,
-  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager"]),
   PortfolioDashboardController.getDashboardForCompany
 );
 
 router.get(
   "/",
   authenticate,
-  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager"]),
   PortfolioDashboardController.getDashboard
 );
 

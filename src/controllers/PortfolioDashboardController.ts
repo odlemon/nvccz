@@ -15,9 +15,12 @@ export class PortfolioDashboardController {
         asOfDate,
         year,
         scope,
+        search,
+        q,
       } = req.query;
 
       const sid = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+      const searchRaw = sid(search) || sid(q);
       const params: PortfolioDashboardParams = {
         fundId: sid(fundId),
         portfolioCompanyId: sid(portfolioCompanyId),
@@ -26,6 +29,7 @@ export class PortfolioDashboardController {
         year: year ? parseInt(year as string, 10) : undefined,
         scope:
           String(scope || "").toLowerCase() === "aum" ? "aum" : "full",
+        search: searchRaw,
       };
 
       const dashboardData = await PortfolioDashboardService.getDashboardData(params);
@@ -83,9 +87,10 @@ export class PortfolioDashboardController {
   static async getDashboardForCompany(req: Request, res: Response): Promise<void> {
     try {
       const { portfolioCompanyId } = req.params;
-      const { fundId, currencyId, asOfDate, year, scope } = req.query;
+      const { fundId, currencyId, asOfDate, year, scope, search, q } = req.query;
 
       const sid = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+      const searchRaw = sid(search) || sid(q);
       const params: PortfolioDashboardParams = {
         fundId: sid(fundId),
         portfolioCompanyId: sid(portfolioCompanyId),
@@ -94,6 +99,7 @@ export class PortfolioDashboardController {
         year: year ? parseInt(year as string, 10) : undefined,
         scope:
           String(scope || "").toLowerCase() === "aum" ? "aum" : "full",
+        search: searchRaw,
       };
 
       const dashboardData = await PortfolioDashboardService.getDashboardData(params);
