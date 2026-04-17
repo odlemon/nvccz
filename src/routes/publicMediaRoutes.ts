@@ -14,6 +14,10 @@ import {
 const router = Router();
 
 router.use(async (req: Request, res: Response) => {
+  // Ensure embedding from the SPA (different origin than the API) is allowed even if a proxy or older
+  // middleware sends CORP: same-origin — Chrome reports ERR_BLOCKED_BY_RESPONSE.NotSameOrigin otherwise.
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
   // req.path is the full URL path (/api/public-media/...), not stripped by mount — strip prefix or upstream 404s.
   const pathname = (req.originalUrl || req.url || "").split("?")[0];
   const prefix = "/api/public-media";
