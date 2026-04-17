@@ -72,6 +72,13 @@ export function normalizeMalformedSignaturePath(rel: string): string {
   return rel.replace(/(investor|applicant)\s+(\d+)\s+(signature-)/gi, "$1_$2_$3");
 }
 
+/** Bust CDN edge caches that still hold old responses (e.g. CORP: same-origin). Strip in extractRelativeMediaPath. */
+function appendPublicMediaCacheBuster(url: string): string {
+  if (!url || url.indexOf("/api/public-media/") < 0) return url;
+  if (/[?&]cb=/.test(url)) return url;
+  return url.includes("?") ? `${url}&cb=1` : `${url}?cb=1`;
+}
+
 /**
  * Rebuild our media URLs using resolveMediaBaseUrl() so old http://…/uploads/… rows become
  * https://…/api/public-media/… when BASE_URL (or legacy FRONTEND_URL) is set.
@@ -85,7 +92,7 @@ export function rewritePublicMediaUrl(
   if (url.indexOf(marker) < 0 && url.indexOf(pm) < 0) return url;
   const relative = extractRelativeMediaPath(url);
   const base = resolveMediaBaseUrl();
-  return `${base}/${relative}`;
+  return appendPublicMediaCacheBuster(`${base}/${relative}`);
 }
 
 function toPublicMediaUrlFromUploadResponse(
@@ -98,14 +105,18 @@ function toPublicMediaUrlFromUploadResponse(
     const relative = normalizeMalformedSignaturePath(
       uploadResponseUrl.slice(idx + marker.length).replace(/^\/+/, "")
     );
-    return `${resolveMediaBaseUrl()}/${relative}`;
+    return appendPublicMediaCacheBuster(`${resolveMediaBaseUrl()}/${relative}`);
   }
   const trimmed = uploadResponseUrl.replace(/^https?:\/\/[^/]+\//, "");
   if (trimmed && trimmed !== uploadResponseUrl) {
-    return `${resolveMediaBaseUrl()}/${normalizeMalformedSignaturePath(trimmed.replace(/^\/+/, ""))}`;
+    return appendPublicMediaCacheBuster(
+      `${resolveMediaBaseUrl()}/${normalizeMalformedSignaturePath(trimmed.replace(/^\/+/, ""))}`
+    );
   }
   const name = fallbackFilename || uploadResponseUrl;
-  return `${resolveMediaBaseUrl()}/${normalizeMalformedSignaturePath(name.replace(/^\/+/, ""))}`;
+  return appendPublicMediaCacheBuster(
+    `${resolveMediaBaseUrl()}/${normalizeMalformedSignaturePath(name.replace(/^\/+/, ""))}`
+  );
 }
 
 // Upload type mapping - maps our internal types to server directory structure

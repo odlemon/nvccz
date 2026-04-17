@@ -5406,9 +5406,13 @@ export class EmailNotificationService {
   }): Promise<void> {
     const subject = capitalCallNoticeEmailSubject(data.fundName, data.subjectDateLabel);
     const from = getFromAddress("investment");
+    const email = String(data.lpEmail ?? "").trim();
+    if (!email) {
+      throw new Error("No recipients defined (LP email empty)");
+    }
     await emailTransport.sendMail({
       from: `"${from.name}" <${from.address}>`,
-      to: `"${data.lpDisplayName}" <${data.lpEmail}>`,
+      to: [{ name: data.lpDisplayName, address: email }],
       subject,
       html: data.html,
       attachments: data.pdfAttachment

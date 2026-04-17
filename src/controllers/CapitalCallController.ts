@@ -92,7 +92,11 @@ export class CapitalCallController {
         data,
       });
     } catch (e: any) {
-      return res.status(400).json({ success: false, message: e?.message || "Error" });
+      return res.status(400).json({
+        success: false,
+        message: e?.message || "Error",
+        details: e?.details || undefined,
+      });
     }
   }
 

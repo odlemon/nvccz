@@ -146,6 +146,9 @@ const port = envConfig.get("PORT")
 // Disable automatic ETag generation so successful JSON responses aren't converted to 304s
 app.set("etag", false)
 
+// Public media must run before Helmet/compression so no middleware adds CORP/COOP and PNGs are not gzip-broken.
+app.use("/api/public-media", publicMediaRoutes)
+
 // TODO: tighten CORP/COOP for production once public-media + CDN behavior is settled.
 app.use(
   helmet({
@@ -224,8 +227,6 @@ app.use(
   })
 )
 
-// Serve uploaded files over HTTPS via this API (proxies from REMOTE_MEDIA_INTERNAL_BASE). Public links: BASE_URL or REMOTE_MEDIA_BASE_URL from env.
-app.use("/api/public-media", publicMediaRoutes)
 const enablePublicMediaTest =
   process.env.ALLOW_PUBLIC_MEDIA_TEST_UPLOAD === "true" ||
   process.env.NODE_ENV === "development" ||

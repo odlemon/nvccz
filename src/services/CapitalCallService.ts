@@ -21,34 +21,37 @@ function capitalCallEmailConcurrency(): number {
 
 /**
  * Bounded concurrent workers for I/O-heavy work (capital call emails).
- * Collects errors and throws once (no DB status update should run after a throw from callers).
+ * Returns per-item failures so callers can build detailed recipient reports.
  */
-async function runPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+async function runPool<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>
+): Promise<Array<{ item: T; error: Error }>> {
   const n = items.length;
-  if (n === 0) return;
+  if (n === 0) return [];
   const limit = Math.max(1, Math.min(concurrency, n));
   let next = 0;
-  const errors: Error[] = [];
+  const failures: Array<{ item: T; error: Error }> = [];
 
   const worker = async () => {
     while (true) {
       const i = next++;
       if (i >= n) break;
+      const item = items[i];
       try {
-        await fn(items[i]);
+        await fn(item);
       } catch (e: any) {
-        errors.push(e instanceof Error ? e : new Error(String(e)));
+        failures.push({
+          item,
+          error: e instanceof Error ? e : new Error(String(e)),
+        });
       }
     }
   };
 
   await Promise.all(Array.from({ length: limit }, () => worker()));
-
-  if (errors.length) {
-    throw new Error(
-      `Capital call notices: ${errors.length} recipient(s) failed (first: ${errors[0].message}).`
-    );
-  }
+  return failures;
 }
 
 function escapeHtml(s: string): string {
@@ -69,6 +72,22 @@ function toNoticeDateLabel(value: unknown): string {
   const d = new Date(s);
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+function normalizeEmail(value: unknown): string | null {
+  const email = String(value ?? "").trim();
+  if (!email) return null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
+}
+
+class CapitalCallNoticeDispatchError extends Error {
+  details: any;
+  constructor(message: string, details: any) {
+    super(message);
+    this.name = "CapitalCallNoticeDispatchError";
+    this.details = details;
+  }
 }
 
 function roundMoney(d: Decimal): Decimal {
@@ -523,19 +542,55 @@ export class CapitalCallService {
 
     const dateLabel = toNoticeDateLabel(call.paymentDueDate);
 
-    const toSend = call.allocations.filter((a) => a.client?.email);
+    const candidates = call.allocations.map((a) => ({
+      allocation: a,
+      rawEmail: String(a.client?.email ?? ""),
+      email: normalizeEmail(a.client?.email),
+    }));
+    const skippedRecipients = candidates
+      .filter((x) => x.email == null)
+      .map((x) => ({
+        allocationId: x.allocation.id,
+        lpName: x.allocation.lpLegalNameSnapshot,
+        rawEmail: x.rawEmail,
+        reason: "Missing or invalid email",
+      }));
+    const toSend = candidates
+      .filter((x) => x.email != null);
+    const attemptedRecipients = toSend.map((x) => ({
+      allocationId: x.allocation.id,
+      lpName: x.allocation.lpLegalNameSnapshot,
+      email: x.email as string,
+    }));
     if (toSend.length === 0) {
-      throw new Error("No allocations with a client email — cannot send notices.");
+      throw new CapitalCallNoticeDispatchError(
+        "No allocations with a valid client email — cannot send notices.",
+        {
+          attemptedCount: 0,
+          sentCount: 0,
+          failedCount: 0,
+          skippedCount: skippedRecipients.length,
+          attemptedRecipients,
+          attemptedEmails: [],
+          sentRecipients: [],
+          sentEmails: [],
+          failedRecipients: [],
+          failedEmails: [],
+          skippedRecipients,
+        }
+      );
     }
 
     const fmt = (n: number) =>
       n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const ccy = call.currency.code;
     const fundNameEsc = escapeHtml(fundName);
+    const sentRecipients: Array<{ allocationId: string; lpName: string; email: string }> = [];
 
     const concurrency = capitalCallEmailConcurrency();
-    await runPool(toSend, concurrency, async (a) => {
-      const email = a.client.email;
+    const failures = await runPool(toSend, concurrency, async (row) => {
+      const a = row.allocation;
+      const email = row.email as string;
       const totalCommitment = Number(a.totalCommitmentSnapshot.toString());
       const uncalled = Number(a.uncalledCapitalBeforeSnapshot.toString());
       const callAmount = Number(a.currentCallAmount.toString());
@@ -577,7 +632,41 @@ export class CapitalCallService {
         html,
         pdfAttachment: { filename: pdfFilename, content: pdfBuffer },
       });
+      sentRecipients.push({
+        allocationId: a.id,
+        lpName: a.lpLegalNameSnapshot,
+        email,
+      });
     });
+
+    const failedRecipients = failures.map((f) => {
+      const row: any = f.item;
+      return {
+        allocationId: row.allocation.id,
+        lpName: row.allocation.lpLegalNameSnapshot,
+        email: row.email as string,
+        error: f.error.message,
+      };
+    });
+    const report = {
+      attemptedCount: attemptedRecipients.length,
+      sentCount: sentRecipients.length,
+      failedCount: failedRecipients.length,
+      skippedCount: skippedRecipients.length,
+      attemptedRecipients,
+      attemptedEmails: attemptedRecipients.map((r) => r.email),
+      sentRecipients,
+      sentEmails: sentRecipients.map((r) => r.email),
+      failedRecipients,
+      failedEmails: failedRecipients.map((r) => r.email),
+      skippedRecipients,
+    };
+    if (failedRecipients.length > 0) {
+      throw new CapitalCallNoticeDispatchError(
+        `Capital call notices: ${failedRecipients.length} recipient(s) failed (first: ${failedRecipients[0].error}).`,
+        report
+      );
+    }
 
     await prisma.capitalCall.update({
       where: { id: capitalCallId },
@@ -587,7 +676,8 @@ export class CapitalCallService {
       },
     });
 
-    return this.getById(fundId, capitalCallId);
+    const data = await this.getById(fundId, capitalCallId);
+    return { ...data, noticeDispatch: report };
   }
 
   static async recordAllocationPayment(params: {
