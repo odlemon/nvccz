@@ -53,14 +53,23 @@ export function extractRelativeMediaPath(stored: string): string {
   const marker = "/uploads/";
   let idx = q.indexOf(marker);
   if (idx >= 0) {
-    return q.slice(idx + marker.length).replace(/^\/+/, "");
+    return normalizeMalformedSignaturePath(q.slice(idx + marker.length).replace(/^\/+/, ""));
   }
   const pm = "/api/public-media/";
   idx = q.indexOf(pm);
   if (idx >= 0) {
-    return q.slice(idx + pm.length).replace(/^\/+/, "");
+    return normalizeMalformedSignaturePath(q.slice(idx + pm.length).replace(/^\/+/, ""));
   }
-  return q.replace(/^\/+/, "");
+  return normalizeMalformedSignaturePath(q.replace(/^\/+/, ""));
+}
+
+/**
+ * Fix paths where underscores in signature filenames became spaces (browser/UI or bad storage),
+ * e.g. investor 177… signature-….png → investor_177…_signature-….png
+ */
+export function normalizeMalformedSignaturePath(rel: string): string {
+  if (!rel) return rel;
+  return rel.replace(/(investor|applicant)\s+(\d+)\s+(signature-)/gi, "$1_$2_$3");
 }
 
 /**
@@ -86,15 +95,17 @@ function toPublicMediaUrlFromUploadResponse(
   const marker = "/uploads/";
   const idx = uploadResponseUrl.indexOf(marker);
   if (idx >= 0) {
-    const relative = uploadResponseUrl.slice(idx + marker.length).replace(/^\/+/, "");
+    const relative = normalizeMalformedSignaturePath(
+      uploadResponseUrl.slice(idx + marker.length).replace(/^\/+/, "")
+    );
     return `${resolveMediaBaseUrl()}/${relative}`;
   }
   const trimmed = uploadResponseUrl.replace(/^https?:\/\/[^/]+\//, "");
   if (trimmed && trimmed !== uploadResponseUrl) {
-    return `${resolveMediaBaseUrl()}/${trimmed.replace(/^\/+/, "")}`;
+    return `${resolveMediaBaseUrl()}/${normalizeMalformedSignaturePath(trimmed.replace(/^\/+/, ""))}`;
   }
   const name = fallbackFilename || uploadResponseUrl;
-  return `${resolveMediaBaseUrl()}/${name.replace(/^\/+/, "")}`;
+  return `${resolveMediaBaseUrl()}/${normalizeMalformedSignaturePath(name.replace(/^\/+/, ""))}`;
 }
 
 // Upload type mapping - maps our internal types to server directory structure
