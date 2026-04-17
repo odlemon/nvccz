@@ -218,7 +218,7 @@ app.use(
   })
 )
 
-// Serve uploaded files over HTTPS via this API (proxies from REMOTE_MEDIA_INTERNAL_BASE). Set FRONTEND_URL (or REMOTE_MEDIA_BASE_URL).
+// Serve uploaded files over HTTPS via this API (proxies from REMOTE_MEDIA_INTERNAL_BASE). Public links: BASE_URL or REMOTE_MEDIA_BASE_URL from env.
 app.use("/api/public-media", publicMediaRoutes)
 const enablePublicMediaTest =
   process.env.ALLOW_PUBLIC_MEDIA_TEST_UPLOAD === "true" ||
