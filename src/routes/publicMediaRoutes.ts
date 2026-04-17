@@ -14,9 +14,13 @@ import {
 const router = Router();
 
 router.use(async (req: Request, res: Response) => {
-  // Ensure embedding from the SPA (different origin than the API) is allowed even if a proxy or older
-  // middleware sends CORP: same-origin — Chrome reports ERR_BLOCKED_BY_RESPONSE.NotSameOrigin otherwise.
+  // Explicit cross-origin embedding (SPA on another host than the API).
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  // Lets COEP/credentialed contexts load the resource when needed; <img> is often no-cors.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  // no-store: shared caches (e.g. Cloudflare) must not keep a stale CORP header on this response.
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
 
   // req.path is the full URL path (/api/public-media/...), not stripped by mount — strip prefix or upstream 404s.
   const pathname = (req.originalUrl || req.url || "").split("?")[0];
@@ -46,10 +50,6 @@ router.use(async (req: Request, res: Response) => {
 
     const ct = upstream.headers["content-type"];
     if (ct) res.setHeader("Content-Type", ct);
-    // `private` (not `public`) so shared caches like Cloudflare do not store the response. Edge caches
-    // were serving stale CORP: same-origin with Cf-Cache-Status: HIT even after app redeploy; browsers
-    // may still cache privately per RFC 7234.
-    res.setHeader("Cache-Control", "private, max-age=86400");
     upstream.data.pipe(res);
   } catch (e: any) {
     logger.warn("public media proxy failed", { url, error: e.message });
