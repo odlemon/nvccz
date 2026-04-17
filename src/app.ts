@@ -147,7 +147,9 @@ const port = envConfig.get("PORT")
 app.set("etag", false)
 
 app.use(helmet({
-  contentSecurityPolicy: false
+  contentSecurityPolicy: false,
+  // Default CORP is same-origin and blocks cross-origin <img> from the SPA (different subdomain).
+  crossOriginResourcePolicy: { policy: "cross-origin" },
 }))
 app.use(cors({
   origin: function (origin, callback) {
@@ -158,6 +160,7 @@ app.use(cors({
       "https://nvcczz.vercel.app",
       "http://app.kyntaro.com",
         "https://dev.arcus.co.zw",
+      "https://dev-api.arcus.co.zw",
       "https://app.arcus.co.zw",
       "https://arcus.co.zw",
       "https://app.kyntaro.com",

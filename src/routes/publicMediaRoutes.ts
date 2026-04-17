@@ -6,7 +6,10 @@
 import { Router, Request, Response } from "express";
 import axios from "axios";
 import { logger } from "../utils/logger";
-import { resolveInternalMediaBaseUrl } from "../services/RemoteUploadService";
+import {
+  normalizeMalformedSignaturePath,
+  resolveInternalMediaBaseUrl,
+} from "../services/RemoteUploadService";
 
 const router = Router();
 
@@ -18,6 +21,7 @@ router.use(async (req: Request, res: Response) => {
     ? pathname.slice(prefix.length)
     : pathname;
   relativePath = relativePath.replace(/^\/+/, "");
+  relativePath = normalizeMalformedSignaturePath(relativePath);
   if (!relativePath || relativePath.includes("..")) {
     return res.status(400).send("Invalid path");
   }

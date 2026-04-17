@@ -112,6 +112,7 @@
     "db:migrate:application-deal-workflow": "ts-node scripts/run-application-deal-workflow-columns-migration.ts",
     "db:migrate:activity-log-application-id": "ts-node scripts/run-activity-log-application-id-migration.ts",
     "db:migrate:board-review-im-columns": "ts-node scripts/run-board-review-im-columns-migration.ts",
+    "db:migrate:remote-media-urls": "ts-node --transpile-only scripts/run-migrate-remote-media-urls.ts",
     "db:migrate:fund-disbursement-fx": "ts-node scripts/run-fund-disbursement-fx-columns-migration.ts",
     "db:backfill:implementation-commitment-currency": "ts-node scripts/backfill-investment-implementation-commitment-currency.ts",
     "db:fix:latest-implementation-usd-currency": "ts-node scripts/fix-latest-investment-implementation-usd-currency.ts",
