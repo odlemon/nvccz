@@ -61,13 +61,13 @@ const KPI_CATALOG_UPDATE_SCHEMA = {
   }
 };
 
-/** OpenAPI path item for POST create (shared by `/performance/kpis` and `/kpis`). */
+/** OpenAPI path item for POST create — path **`/kpis`** (relative to server URL ending in `/api`). */
 const KPI_CATALOG_POST_PATH_ITEM: Record<string, unknown> = {
   post: {
     tags: ['performance-kpis'],
     summary: 'Create a KPI (database catalog)',
     description:
-      'Persists **`kpis`** including catalog metadata aligned with **`hardcodedKPIs.ts`**. **`catalogDepartmentName`** must equal **`departments.name`** exactly; the server sets **`departmentId`** from that row (omit conflicting `departmentId`). When **isFinancial** is true, **accountNumber** is required for GL posting. GET routes on the same path serve reference listings.',
+      'Persists **`kpis`** including catalog metadata aligned with **`hardcodedKPIs.ts`**. **`catalogDepartmentName`** must equal **`departments.name`** exactly; the server sets **`departmentId`** from that row (omit conflicting `departmentId`). When **isFinancial** is true, **accountNumber** is required for GL posting. **GET** list/detail for the DB catalog is on this **`/kpis`** path; hardcoded reference **GET**s are under **`/performance/kpis`** (see **📊 Hardcoded KPIs**).',
     security: [{ bearerAuth: [] }],
     requestBody: {
       required: true,
@@ -150,7 +150,7 @@ const KPI_CATALOG_POST_PATH_ITEM: Record<string, unknown> = {
   }
 };
 
-/** OpenAPI path item for PATCH/PUT/DELETE by id (shared by `/performance/kpis/{id}` and `/kpis/{id}`). */
+/** OpenAPI path item for PATCH/PUT/DELETE by id — path **`/kpis/{id}`**. */
 const KPI_CATALOG_BY_ID_PATH_ITEM: Record<string, unknown> = {
   patch: {
     tags: ['performance-kpis'],
@@ -226,7 +226,7 @@ const KPI_CATALOG_BY_ID_PATH_ITEM: Record<string, unknown> = {
     tags: ['performance-kpis'],
     summary: 'Delete a KPI (database catalog)',
     description:
-      'Deletes the **`kpis`** row. Same as **DELETE** `/kpis/{id}` when the server is mounted at `/api`. Fails if linked data prevents delete (per service).',
+      'Deletes the **`kpis`** row. Same handler as **`DELETE /api/kpis/{id}`** and **`DELETE /api/performance/kpis/{id}`** in the app. Fails if linked data prevents delete (per service).',
     security: [{ bearerAuth: [] }],
     parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
     responses: {
@@ -1076,8 +1076,6 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     }
   },
 
-  '/performance/kpis': KPI_CATALOG_POST_PATH_ITEM,
   '/kpis': KPI_CATALOG_POST_PATH_ITEM,
-  '/performance/kpis/{id}': KPI_CATALOG_BY_ID_PATH_ITEM,
   '/kpis/{id}': KPI_CATALOG_BY_ID_PATH_ITEM
 };
