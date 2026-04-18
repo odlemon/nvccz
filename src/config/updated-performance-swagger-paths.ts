@@ -23,6 +23,221 @@ const JSON_201 = {
     '`{ success: true, data: ... }` or `{ success: true, ... }` per handler. `{ success: false, message }` on error.'
 };
 
+/** Shared partial-update body for KPI catalog (PATCH/PUT). */
+const KPI_CATALOG_UPDATE_SCHEMA = {
+  type: 'object',
+  description:
+    'Partial update — send only fields to change. **catalogDepartmentName** (non-empty) resolves **departmentId** from `departments.name`; null/empty clears department link.',
+  properties: {
+    name: { type: 'string' },
+    type: { type: 'string', enum: ['Metric', 'Percentage'] },
+    departmentId: {
+      type: 'string',
+      nullable: true,
+      description: 'Optional when not updating via catalogDepartmentName; must match resolved id if both sent'
+    },
+    isReverseKpi: { type: 'boolean' },
+    weightValue: { type: 'number' },
+    hasUnit: { type: 'boolean' },
+    unitCategory: { type: 'string' },
+    unit: { type: 'string' },
+    unitSymbol: { type: 'string' },
+    unitPosition: { type: 'string', enum: ['prefix', 'suffix'] },
+    isActive: { type: 'boolean' },
+    code: { type: 'string' },
+    description: { type: 'string', description: 'Maps to catalog_description' },
+    catalogDepartmentName: {
+      type: 'string',
+      nullable: true,
+      description: 'Exact departments.name; sets departmentId when non-empty; null/empty clears'
+    },
+    accountType: {
+      type: 'string',
+      enum: ['Revenue', 'Expense', 'Asset', 'Liability', 'Equity']
+    },
+    accountNumber: { type: 'string', nullable: true },
+    journalEntryType: { type: 'string', enum: ['Debit', 'Credit'] },
+    isFinancial: { type: 'boolean' }
+  }
+};
+
+/** OpenAPI path item for POST create (shared by `/performance/kpis` and `/kpis`). */
+const KPI_CATALOG_POST_PATH_ITEM: Record<string, unknown> = {
+  post: {
+    tags: ['performance-kpis'],
+    summary: 'Create a KPI (database catalog)',
+    description:
+      'Persists **`kpis`** including catalog metadata aligned with **`hardcodedKPIs.ts`**. **`catalogDepartmentName`** must equal **`departments.name`** exactly; the server sets **`departmentId`** from that row (omit conflicting `departmentId`). When **isFinancial** is true, **accountNumber** is required for GL posting. GET routes on the same path serve reference listings.',
+    security: [{ bearerAuth: [] }],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: [
+              'name',
+              'type',
+              'isReverseKpi',
+              'weightValue',
+              'hasUnit',
+              'unitCategory',
+              'unit',
+              'unitSymbol',
+              'unitPosition',
+              'code',
+              'description',
+              'catalogDepartmentName',
+              'accountType',
+              'journalEntryType',
+              'isFinancial'
+            ],
+            properties: {
+              name: { type: 'string' },
+              type: { type: 'string', enum: ['Metric', 'Percentage'] },
+              isReverseKpi: {
+                type: 'boolean',
+                description: 'Lower actual is better — goals linked by kpiName default to reverse scoring'
+              },
+              weightValue: { type: 'number' },
+              hasUnit: { type: 'boolean' },
+              unitCategory: { type: 'string' },
+              unit: { type: 'string' },
+              unitSymbol: { type: 'string' },
+              unitPosition: { type: 'string', enum: ['prefix', 'suffix'] },
+              code: { type: 'string', example: 'TRAINING_EXPENSE' },
+              description: { type: 'string', description: 'Long description (stored as catalog_description)' },
+              catalogDepartmentName: {
+                type: 'string',
+                example: 'Human Resources',
+                description: 'Exact `departments.name`; server sets `departmentId`'
+              },
+              accountType: {
+                type: 'string',
+                enum: ['Revenue', 'Expense', 'Asset', 'Liability', 'Equity']
+              },
+              accountNumber: {
+                type: 'string',
+                nullable: true,
+                description: 'Chart / GL identifier for journal lines; required when isFinancial is true'
+              },
+              journalEntryType: { type: 'string', enum: ['Debit', 'Credit'] },
+              isFinancial: { type: 'boolean' }
+            },
+            example: {
+              name: 'Training Expense',
+              type: 'Metric',
+              isReverseKpi: true,
+              weightValue: 1,
+              hasUnit: true,
+              unitCategory: 'Currency',
+              unit: 'USD',
+              unitSymbol: '$',
+              unitPosition: 'prefix',
+              code: 'TRAINING_EXPENSE',
+              description: 'Employee training and development costs',
+              catalogDepartmentName: 'Human Resources',
+              accountType: 'Expense',
+              accountNumber: '5090',
+              journalEntryType: 'Debit',
+              isFinancial: true
+            }
+          }
+        }
+      }
+    },
+    responses: { 201: JSON_201, 400: JSON_400, 401: JSON_401 }
+  }
+};
+
+/** OpenAPI path item for PATCH/PUT/DELETE by id (shared by `/performance/kpis/{id}` and `/kpis/{id}`). */
+const KPI_CATALOG_BY_ID_PATH_ITEM: Record<string, unknown> = {
+  patch: {
+    tags: ['performance-kpis'],
+    summary: 'Update a KPI (database catalog)',
+    description:
+      '**Edit** catalog KPIs. Same behavior as **PUT** `/kpis/{id}`. If **catalogDepartmentName** is sent (non-empty), **`departmentId`** is set from `departments.name`. Send **catalogDepartmentName** empty or null to clear department.',
+    security: [{ bearerAuth: [] }],
+    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: KPI_CATALOG_UPDATE_SCHEMA,
+          examples: {
+            renameAndDept: {
+              summary: 'Rename + move department',
+              value: {
+                name: 'Training Expense (revised)',
+                catalogDepartmentName: 'Human Resources',
+                isActive: true
+              }
+            },
+            full: {
+              summary: 'Touch all catalog fields',
+              value: {
+                name: 'Training Expense',
+                type: 'Metric',
+                isReverseKpi: true,
+                weightValue: 1,
+                hasUnit: true,
+                unitCategory: 'Currency',
+                unit: 'USD',
+                unitSymbol: '$',
+                unitPosition: 'prefix',
+                code: 'TRAINING_EXPENSE',
+                description: 'Employee training and development costs',
+                catalogDepartmentName: 'Human Resources',
+                accountType: 'Expense',
+                accountNumber: '5090',
+                journalEntryType: 'Debit',
+                isFinancial: true,
+                isActive: true
+              }
+            }
+          }
+        }
+      }
+    },
+    responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+  },
+  put: {
+    tags: ['performance-kpis'],
+    summary: 'Update a KPI (database catalog) — PUT alias',
+    description:
+      'Same handler and body as **PATCH**. Use when your HTTP client prefers **PUT**.',
+    security: [{ bearerAuth: [] }],
+    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: KPI_CATALOG_UPDATE_SCHEMA,
+          examples: {
+            partial: {
+              summary: 'Partial update',
+              value: { name: 'Renamed KPI', isActive: false }
+            }
+          }
+        }
+      }
+    },
+    responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+  },
+  delete: {
+    tags: ['performance-kpis'],
+    summary: 'Delete a KPI (database catalog)',
+    description:
+      'Deletes the **`kpis`** row. Same as **DELETE** `/kpis/{id}` when the server is mounted at `/api`. Fails if linked data prevents delete (per service).',
+    security: [{ bearerAuth: [] }],
+    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+    responses: {
+      200: JSON_200,
+      400: JSON_400,
+      401: JSON_401,
+      404: { description: 'KPI not found' }
+    }
+  }
+};
+
 export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unknown>> = {
   '/performance/bsc-entry/financial-outcome-roi': {
     post: {
@@ -859,5 +1074,10 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
         }
       }
     }
-  }
+  },
+
+  '/performance/kpis': KPI_CATALOG_POST_PATH_ITEM,
+  '/kpis': KPI_CATALOG_POST_PATH_ITEM,
+  '/performance/kpis/{id}': KPI_CATALOG_BY_ID_PATH_ITEM,
+  '/kpis/{id}': KPI_CATALOG_BY_ID_PATH_ITEM
 };

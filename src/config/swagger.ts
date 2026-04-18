@@ -213,6 +213,11 @@ const options = {
         name: 'Updated performance',
         description:
           'BSC **data entry**, **workflow**, and **performance contracts** — see `docs/performance-bsc-data-entry-flow.md` for paths, **example JSON bodies** (incl. contracts), and rules. **Contracts:** `POST /performance/contracts/board|ceo|department|employee` (annual `periodYear` or exact UTC year bounds; CEO may omit `subjectUserId` to resolve from roles). JWT only (no permission matrix on these routes).'
+      },
+      {
+        name: 'performance-kpis',
+        description:
+          '**Database KPI catalog** (`kpis` table): **POST** (create) on **`/kpis`** or **`/performance/kpis`** (OpenAPI paths relative to server URL ending in `/api`). **PATCH** or **PUT** on **`/performance/kpis/{id}`** or **`/kpis/{id}`**; **DELETE** on **`/performance/kpis/{id}`** or **`/kpis/{id}`** — same handlers. **catalogDepartmentName** must match **`departments.name`**; **`departmentId`** is set automatically. Same base path also serves **hardcoded** KPI reference listings (GET).'
       }
     ],
     components: {

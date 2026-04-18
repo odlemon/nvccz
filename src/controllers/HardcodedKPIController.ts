@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { HARDCODED_KPIS, getAllKPIs, getKPIsByDepartment, getKPIByCode, getFinancialKPIs, getKPIsByAccountType } from "../config/hardcodedKPIs";
+import { buildHardcodedDetailsForResponse } from "../utils/kpiCatalogMetadata";
 
 export class HardcodedKPIController {
   /**
@@ -14,19 +15,11 @@ export class HardcodedKPIController {
         orderBy: { name: 'asc' }
       });
 
-      // Enrich with hardcoded KPI details from config
-      const enrichedKPIs = kpis.map(kpi => {
-        const hardcodedKPI = HARDCODED_KPIS.find(h => h.name === kpi.name);
+      const enrichedKPIs = kpis.map((kpi) => {
+        const hardcodedKPI = HARDCODED_KPIS.find((h) => h.name === kpi.name);
         return {
           ...kpi,
-          hardcodedDetails: hardcodedKPI ? {
-            code: hardcodedKPI.code,
-            description: hardcodedKPI.description,
-            accountType: hardcodedKPI.accountType,
-            accountNumber: hardcodedKPI.accountNumber,
-            journalEntryType: hardcodedKPI.journalEntryType,
-            isFinancial: hardcodedKPI.isFinancial
-          } : null
+          hardcodedDetails: buildHardcodedDetailsForResponse(kpi, hardcodedKPI ?? null)
         };
       });
       
@@ -79,19 +72,11 @@ export class HardcodedKPIController {
         orderBy: { name: 'asc' }
       });
 
-      // Enrich with hardcoded KPI details from config
-      const enrichedKPIs = kpis.map(kpi => {
-        const hardcodedKPI = HARDCODED_KPIS.find(h => h.name === kpi.name);
+      const enrichedKPIs = kpis.map((kpi) => {
+        const hardcodedKPI = HARDCODED_KPIS.find((h) => h.name === kpi.name);
         return {
           ...kpi,
-          hardcodedDetails: hardcodedKPI ? {
-            code: hardcodedKPI.code,
-            description: hardcodedKPI.description,
-            accountType: hardcodedKPI.accountType,
-            accountNumber: hardcodedKPI.accountNumber,
-            journalEntryType: hardcodedKPI.journalEntryType,
-            isFinancial: hardcodedKPI.isFinancial
-          } : null
+          hardcodedDetails: buildHardcodedDetailsForResponse(kpi, hardcodedKPI ?? null)
         };
       });
       
@@ -125,23 +110,19 @@ export class HardcodedKPIController {
         });
       }
 
-      // First find the hardcoded KPI by code to get the name
-      const hardcodedKPI = getKPIByCode(code);
-      
-      if (!hardcodedKPI) {
-        return res.status(404).json({
-          success: false,
-          message: "KPI not found"
+      const trimmed = String(code).trim();
+
+      let kpi = await prisma.kPI.findFirst({
+        where: { code: trimmed, isActive: true }
+      });
+
+      let hardcodedKPI = getKPIByCode(trimmed);
+
+      if (!kpi && hardcodedKPI) {
+        kpi = await prisma.kPI.findFirst({
+          where: { name: hardcodedKPI.name, isActive: true }
         });
       }
-
-      // Then find the database KPI by name
-      const kpi = await prisma.kPI.findFirst({
-        where: { 
-          name: hardcodedKPI.name,
-          isActive: true
-        }
-      });
 
       if (!kpi) {
         return res.status(404).json({
@@ -150,17 +131,13 @@ export class HardcodedKPIController {
         });
       }
 
-      // Enrich with hardcoded details
+      if (!hardcodedKPI) {
+        hardcodedKPI = HARDCODED_KPIS.find((h) => h.name === kpi.name || h.code === kpi.code) ?? null;
+      }
+
       const enrichedKPI = {
         ...kpi,
-        hardcodedDetails: {
-          code: hardcodedKPI.code,
-          description: hardcodedKPI.description,
-          accountType: hardcodedKPI.accountType,
-          accountNumber: hardcodedKPI.accountNumber,
-          journalEntryType: hardcodedKPI.journalEntryType,
-          isFinancial: hardcodedKPI.isFinancial
-        }
+        hardcodedDetails: buildHardcodedDetailsForResponse(kpi, hardcodedKPI)
       };
 
       res.status(200).json({
@@ -186,28 +163,18 @@ export class HardcodedKPIController {
       const financialKPINames = getFinancialKPIs().map(kpi => kpi.name);
       
       const kpis = await prisma.kPI.findMany({
-        where: { 
+        where: {
           isActive: true,
-          name: {
-            in: financialKPINames
-          }
+          OR: [{ name: { in: financialKPINames } }, { isFinancial: true }]
         },
         orderBy: { name: 'asc' }
       });
 
-      // Enrich with hardcoded KPI details from config
-      const enrichedKPIs = kpis.map(kpi => {
-        const hardcodedKPI = HARDCODED_KPIS.find(h => h.name === kpi.name);
+      const enrichedKPIs = kpis.map((kpi) => {
+        const hardcodedKPI = HARDCODED_KPIS.find((h) => h.name === kpi.name);
         return {
           ...kpi,
-          hardcodedDetails: hardcodedKPI ? {
-            code: hardcodedKPI.code,
-            description: hardcodedKPI.description,
-            accountType: hardcodedKPI.accountType,
-            accountNumber: hardcodedKPI.accountNumber,
-            journalEntryType: hardcodedKPI.journalEntryType,
-            isFinancial: hardcodedKPI.isFinancial
-          } : null
+          hardcodedDetails: buildHardcodedDetailsForResponse(kpi, hardcodedKPI ?? null)
         };
       });
       
@@ -252,28 +219,18 @@ export class HardcodedKPIController {
       const accountTypeKPINames = getKPIsByAccountType(accountType as 'Revenue' | 'Expense' | 'Asset' | 'Liability' | 'Equity').map(kpi => kpi.name);
       
       const kpis = await prisma.kPI.findMany({
-        where: { 
+        where: {
           isActive: true,
-          name: {
-            in: accountTypeKPINames
-          }
+          OR: [{ name: { in: accountTypeKPINames } }, { accountType }]
         },
         orderBy: { name: 'asc' }
       });
 
-      // Enrich with hardcoded KPI details from config
-      const enrichedKPIs = kpis.map(kpi => {
-        const hardcodedKPI = HARDCODED_KPIS.find(h => h.name === kpi.name);
+      const enrichedKPIs = kpis.map((kpi) => {
+        const hardcodedKPI = HARDCODED_KPIS.find((h) => h.name === kpi.name);
         return {
           ...kpi,
-          hardcodedDetails: hardcodedKPI ? {
-            code: hardcodedKPI.code,
-            description: hardcodedKPI.description,
-            accountType: hardcodedKPI.accountType,
-            accountNumber: hardcodedKPI.accountNumber,
-            journalEntryType: hardcodedKPI.journalEntryType,
-            isFinancial: hardcodedKPI.isFinancial
-          } : null
+          hardcodedDetails: buildHardcodedDetailsForResponse(kpi, hardcodedKPI ?? null)
         };
       });
       

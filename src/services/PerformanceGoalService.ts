@@ -182,8 +182,12 @@ const REVERSE_KPI_NAME_HINTS = [
 
 function inferReverseKpiFromNameOrAccountType(
   kpiName?: string | null,
-  goalTitle?: string | null
+  goalTitle?: string | null,
+  catalogAccountType?: string | null
 ): boolean {
+  if (catalogAccountType === "Expense" || catalogAccountType === "Liability") {
+    return true;
+  }
   const sources = [kpiName, goalTitle];
   for (const src of sources) {
     const n = String(src || "").toLowerCase().trim();
@@ -317,7 +321,7 @@ export class PerformanceGoalService {
           endDate: true,
           preciseTargetValue: true,
           allowableVariance: true,
-          kpi: { select: { name: true } }
+          kpi: { select: { name: true, accountType: true } }
         }
       });
 
@@ -330,7 +334,11 @@ export class PerformanceGoalService {
         throw new Error("value must be a number");
       }
 
-      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(goal.kpi?.name, goal.title);
+      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(
+        goal.kpi?.name,
+        goal.title,
+        goal.kpi?.accountType
+      );
       const effectiveIsReverseKpi =
         Boolean(goal.isReverseKpi) ||
         String(goal.targetOperator || "").trim() === "<=" ||
@@ -388,11 +396,7 @@ export class PerformanceGoalService {
       });
 
       if (isCompleted && goal.kpiId) {
-        await this.triggerAccountingIntegration(goalId, currentValue, updatedById, {
-          title: goal.title,
-          targetUnit: goal.targetUnit,
-          kpi: goal.kpi
-        });
+        await this.triggerAccountingIntegration(goalId, currentValue, updatedById);
       }
 
       if (goal.parentGoalId) {
@@ -434,54 +438,20 @@ export class PerformanceGoalService {
   }
 
   // Trigger accounting integration when KPI goals are completed
-  static async triggerAccountingIntegration(
-    goalId: string,
-    achievedValue: number,
-    updatedById: string,
-    snapshot?: { title: string; targetUnit: string | null; kpi: { name: string } | null }
-  ) {
+  static async triggerAccountingIntegration(goalId: string, achievedValue: number, updatedById: string) {
     try {
-      let goal: {
-        id: string;
-        title: string;
-        targetUnit: string | null;
-        kpi: { name: string };
-      } | null = null;
-
-      if (snapshot?.kpi) {
-        goal = {
-          id: goalId,
-          title: snapshot.title,
-          targetUnit: snapshot.targetUnit,
-          kpi: snapshot.kpi
-        };
-      } else {
-        const loaded = await prisma.performanceGoal.findUnique({
+      const loaded = await prisma.performanceGoal.findUnique({
         where: { id: goalId },
         include: { kpi: true }
       });
-        if (!loaded?.kpi) {
-          return;
-        }
-        goal = {
-          id: loaded.id,
-          title: loaded.title,
-          targetUnit: loaded.targetUnit,
-          kpi: { name: loaded.kpi.name }
-        };
-      }
-
-      if (!goal) {
+      if (!loaded?.kpi) {
         return;
       }
 
-      // Import the hardcoded KPIs to get accounting details
-      const { HARDCODED_KPIS } = await import("../config/hardcodedKPIs");
-      const kpiConfig = HARDCODED_KPIS.find(
-        k => String(k.name || "").toLowerCase().trim() === String(goal.kpi.name || "").toLowerCase().trim()
-      );
+      const { resolveKpiAccountingConfig } = await import("../utils/kpiCatalogMetadata");
+      const kpiConfig = resolveKpiAccountingConfig(loaded.kpi);
 
-      if (kpiConfig && kpiConfig.isFinancial) {
+      if (kpiConfig && kpiConfig.isFinancial && kpiConfig.accountNumber) {
         // Create journal entry based on KPI completion
         // Use a bank-linked GL account as the cash offset (Cash & Cash Equivalents is a reporting bucket).
         const bank = await prisma.bank.findFirst({
@@ -495,8 +465,8 @@ export class PerformanceGoalService {
 
         const journalEntry = await createJournalEntryWithAuditSequence({
           transactionDate: new Date(),
-          referenceNumber: `KPI-${goal.id}-${Date.now()}`,
-          description: `KPI Achievement: ${goal.title} - ${achievedValue} ${goal.targetUnit}`,
+          referenceNumber: `KPI-${loaded.id}-${Date.now()}`,
+          description: `KPI Achievement: ${loaded.title} - ${achievedValue} ${loaded.targetUnit}`,
           totalAmount: achievedValue,
           currencyId: "USD",
           status: "POSTED",
@@ -507,13 +477,13 @@ export class PerformanceGoalService {
                 chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : bank.glAccountId,
                 debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
                 creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-                description: `KPI: ${goal.kpi.name}`,
+                description: `KPI: ${loaded.kpi.name}`,
               },
               {
                 chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : bank.glAccountId,
                 debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
                 creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-                description: `KPI: ${goal.kpi.name}`,
+                description: `KPI: ${loaded.kpi.name}`,
               },
             ],
           },
@@ -531,19 +501,27 @@ export class PerformanceGoalService {
     try {
       let kpiId = null;
       let kpiName: string | null = null;
-      
+      let kpiCatalog: {
+        id: string;
+        name: string;
+        isReverseKpi: boolean;
+        accountType: string | null;
+      } | null = null;
+
       // Validate KPI if provided by name
       if (request.kpiName) {
         const kpi = await prisma.kPI.findFirst({
-          where: { name: request.kpiName }
+          where: { name: request.kpiName },
+          select: { id: true, name: true, isReverseKpi: true, accountType: true },
         });
 
         if (!kpi) {
           throw new Error(`KPI '${request.kpiName}' not found`);
         }
-        
+
         kpiId = kpi.id;
         kpiName = kpi.name;
+        kpiCatalog = kpi;
       }
 
       // Validate department if provided
@@ -566,13 +544,19 @@ export class PerformanceGoalService {
         }
       }
 
-      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(kpiName, request.title);
+      const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(
+        kpiName,
+        request.title,
+        kpiCatalog?.accountType
+      );
       const resolvedIsReverseKpi =
         typeof request.isReverseKpi === "boolean"
           ? request.isReverseKpi
-          : request.targetOperator !== undefined
-            ? String(request.targetOperator).trim() === "<="
-            : inferredReverseFromKpi;
+          : kpiCatalog?.isReverseKpi === true
+            ? true
+            : request.targetOperator !== undefined
+              ? String(request.targetOperator).trim() === "<="
+              : inferredReverseFromKpi;
       const resolvedTargetOperator =
         request.targetOperator !== undefined
           ? request.targetOperator
@@ -1200,30 +1184,32 @@ export class PerformanceGoalService {
       }
 
       let kpiNameForInference: string | null = null;
-      if (request.kpiId) {
+      let linkedKpiIsReverse: boolean | undefined;
+      let linkedKpiAccountType: string | null = null;
+      const effectiveKpiId = request.kpiId ?? existingGoal.kpiId;
+      if (effectiveKpiId) {
         const k = await prisma.kPI.findUnique({
-          where: { id: request.kpiId },
-          select: { name: true }
+          where: { id: effectiveKpiId },
+          select: { name: true, isReverseKpi: true, accountType: true },
         });
         kpiNameForInference = k?.name || null;
-      } else if (existingGoal.kpiId) {
-        const k = await prisma.kPI.findUnique({
-          where: { id: existingGoal.kpiId },
-          select: { name: true }
-        });
-        kpiNameForInference = k?.name || null;
+        linkedKpiAccountType = k?.accountType ?? null;
+        if (k) linkedKpiIsReverse = k.isReverseKpi;
       }
 
       const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(
         kpiNameForInference,
-        request.title ?? existingGoal.title
+        request.title ?? existingGoal.title,
+        linkedKpiAccountType
       );
       const resolvedIsReverseKpi =
         request.isReverseKpi !== undefined
           ? request.isReverseKpi
-          : request.targetOperator !== undefined
-            ? String(request.targetOperator).trim() === "<="
-            : inferredReverseFromKpi;
+          : linkedKpiIsReverse === true
+            ? true
+            : request.targetOperator !== undefined
+              ? String(request.targetOperator).trim() === "<="
+              : inferredReverseFromKpi;
       const reversePatch = { isReverseKpi: resolvedIsReverseKpi };
       const targetOperatorPatch =
         request.targetOperator !== undefined

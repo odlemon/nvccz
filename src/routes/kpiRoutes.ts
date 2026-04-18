@@ -63,7 +63,7 @@ const router = express.Router();
  * /api/kpis:
  *   post:
  *     summary: Create a new KPI
- *     tags: [KPIs]
+ *     tags: [KPIs, performance-kpis]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -75,6 +75,19 @@ const router = express.Router();
  *             required:
  *               - name
  *               - type
+ *               - isReverseKpi
+ *               - weightValue
+ *               - hasUnit
+ *               - unitCategory
+ *               - unit
+ *               - unitSymbol
+ *               - unitPosition
+ *               - code
+ *               - description
+ *               - catalogDepartmentName
+ *               - accountType
+ *               - journalEntryType
+ *               - isFinancial
  *             properties:
  *               name:
  *                 type: string
@@ -83,9 +96,9 @@ const router = express.Router();
  *                 type: string
  *                 enum: [Metric, Percentage]
  *                 description: KPI type
- *               branch:
- *                 type: string
- *                 description: Branch association
+ *               isReverseKpi:
+ *                 type: boolean
+ *                 description: Lower actual is better — goals linked by kpiName default to reverse scoring
  *               weightValue:
  *                 type: number
  *                 description: Weight value for the KPI
@@ -105,6 +118,27 @@ const router = express.Router();
  *                 type: string
  *                 enum: [prefix, suffix]
  *                 description: Unit position
+ *               code:
+ *                 type: string
+ *                 description: Stable catalog code (e.g. TRAINING_EXPENSE)
+ *               description:
+ *                 type: string
+ *                 description: Long description (catalog)
+ *               catalogDepartmentName:
+ *                 type: string
+ *                 description: Exact departments.name — server sets departmentId
+ *               accountType:
+ *                 type: string
+ *                 enum: [Revenue, Expense, Asset, Liability, Equity]
+ *               accountNumber:
+ *                 type: string
+ *                 nullable: true
+ *                 description: GL/chart id for journals; required when isFinancial is true
+ *               journalEntryType:
+ *                 type: string
+ *                 enum: [Debit, Credit]
+ *               isFinancial:
+ *                 type: boolean
  *     responses:
  *       201:
  *         description: KPI created successfully
@@ -408,8 +442,8 @@ router.get("/:id", authenticate, KPIController.getKPIById);
  * @swagger
  * /api/kpis/{id}:
  *   put:
- *     summary: Update KPI
- *     tags: [KPIs]
+ *     summary: Update KPI (same handler as PATCH /api/performance/kpis/{id})
+ *     tags: [KPIs, performance-kpis]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -418,53 +452,36 @@ router.get("/:id", authenticate, KPIController.getKPIById);
  *         required: true
  *         schema:
  *           type: string
- *         description: KPI ID
  *     requestBody:
- *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             description: Partial update — send only fields to change
  *             properties:
- *               name:
- *                 type: string
- *                 description: KPI name
- *               type:
- *                 type: string
- *                 enum: [Metric, Percentage]
- *                 description: KPI type
- *               branch:
- *                 type: string
- *                 description: Branch association
- *               weightValue:
- *                 type: number
- *                 description: Weight value for the KPI
- *               hasUnit:
- *                 type: boolean
- *                 description: Whether the KPI has a unit
- *               unitCategory:
- *                 type: string
- *                 description: Unit category
- *               unit:
- *                 type: string
- *                 description: Unit name
- *               unitSymbol:
- *                 type: string
- *                 description: Unit symbol
- *               unitPosition:
- *                 type: string
- *                 enum: [prefix, suffix]
- *                 description: Unit position
- *               isActive:
- *                 type: boolean
- *                 description: Whether the KPI is active
+ *               name: { type: string }
+ *               type: { type: string, enum: [Metric, Percentage] }
+ *               departmentId: { type: string, nullable: true }
+ *               isReverseKpi: { type: boolean }
+ *               weightValue: { type: number }
+ *               hasUnit: { type: boolean }
+ *               unitCategory: { type: string }
+ *               unit: { type: string }
+ *               unitSymbol: { type: string }
+ *               unitPosition: { type: string, enum: [prefix, suffix] }
+ *               isActive: { type: boolean }
+ *               code: { type: string }
+ *               description: { type: string }
+ *               catalogDepartmentName: { type: string, nullable: true }
+ *               accountType: { type: string, enum: [Revenue, Expense, Asset, Liability, Equity] }
+ *               accountNumber: { type: string, nullable: true }
+ *               journalEntryType: { type: string, enum: [Debit, Credit] }
+ *               isFinancial: { type: boolean }
  *     responses:
  *       200:
  *         description: KPI updated successfully
  *       400:
  *         description: Bad request
- *       404:
- *         description: KPI not found
  *       401:
  *         description: Unauthorized
  */
@@ -474,8 +491,8 @@ router.put("/:id", authenticate, KPIController.updateKPI);
  * @swagger
  * /api/kpis/{id}:
  *   delete:
- *     summary: Delete KPI
- *     tags: [KPIs]
+ *     summary: Delete KPI (same handler as DELETE /api/performance/kpis/{id})
+ *     tags: [KPIs, performance-kpis]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -484,14 +501,11 @@ router.put("/:id", authenticate, KPIController.updateKPI);
  *         required: true
  *         schema:
  *           type: string
- *         description: KPI ID
  *     responses:
  *       200:
- *         description: KPI deleted successfully
+ *         description: Deleted
  *       400:
- *         description: Bad request
- *       404:
- *         description: KPI not found
+ *         description: Validation or cannot delete (e.g. linked goals)
  *       401:
  *         description: Unauthorized
  */

@@ -6,18 +6,35 @@ export interface CreateKPIRequest {
   name: string;
   type: string; // "Metric", "Percentage"
   departmentId?: string;
-  weightValue?: number;
-  hasUnit?: boolean;
-  unitCategory?: string;
-  unit?: string;
-  unitSymbol?: string;
-  unitPosition?: string; // "prefix", "suffix"
+  /** When true, performance goals linked to this KPI default to reverse scoring (lower actual is better). */
+  isReverseKpi: boolean;
+  weightValue: number;
+  hasUnit: boolean;
+  unitCategory: string;
+  unit: string;
+  unitSymbol: string;
+  unitPosition: string; // "prefix", "suffix"
+  /** Stable code, e.g. TRAINING_EXPENSE (maps `kpis.kpi_code`). */
+  code: string;
+  /** Long description (maps `catalog_description`). */
+  description: string;
+  /** Department label, e.g. Human Resources (maps `catalog_department_name`). */
+  catalogDepartmentName: string;
+  /** Revenue | Expense | Asset | Liability | Equity */
+  accountType: string;
+  /** GL / chart identifier for journal lines when `isFinancial` is true. */
+  accountNumber?: string | null;
+  /** Debit | Credit */
+  journalEntryType: string;
+  /** When true, goal completion may post journals if `accountNumber` is set (or legacy hardcoded match). */
+  isFinancial: boolean;
 }
 
 export interface UpdateKPIRequest {
   name?: string;
   type?: string;
   departmentId?: string;
+  isReverseKpi?: boolean;
   weightValue?: number;
   hasUnit?: boolean;
   unitCategory?: string;
@@ -25,9 +42,30 @@ export interface UpdateKPIRequest {
   unitSymbol?: string;
   unitPosition?: string;
   isActive?: boolean;
+  code?: string;
+  description?: string;
+  catalogDepartmentName?: string;
+  accountType?: string;
+  accountNumber?: string | null;
+  journalEntryType?: string;
+  isFinancial?: boolean;
 }
 
 export class KPIService {
+  /**
+   * Resolves `departments.id` from an exact `departments.name` match (must match catalog / HR label).
+   */
+  static async resolveDepartmentIdByCatalogDepartmentName(
+    catalogDepartmentName: string
+  ): Promise<string | null> {
+    const n = String(catalogDepartmentName).trim();
+    if (!n) return null;
+    const dept = await prisma.department.findUnique({
+      where: { name: n }
+    });
+    return dept?.id ?? null;
+  }
+
   /**
    * Sum goal targets/achieved the same way as task-linked goal updates:
    * prefer monetary* fields, else fall back to targetValue / currentValue so KPI % moves when tasks update goals.
@@ -88,19 +126,35 @@ export class KPIService {
         throw new Error("KPI with this name already exists in this department");
       }
 
+      const codeTrim = String(request.code).trim();
+      const codeTaken = await prisma.kPI.findFirst({
+        where: { code: codeTrim }
+      });
+      if (codeTaken) {
+        throw new Error("KPI code already exists");
+      }
+
       // Create the KPI
       const kpi = await prisma.kPI.create({
         data: {
           name: request.name,
           type: request.type,
           departmentId: request.departmentId,
+          isReverseKpi: request.isReverseKpi,
           weightValue: request.weightValue,
-          hasUnit: request.hasUnit || false,
+          hasUnit: request.hasUnit,
           unitCategory: request.unitCategory,
           unit: request.unit,
           unitSymbol: request.unitSymbol,
-          unitPosition: request.unitPosition || "suffix",
-          isActive: true
+          unitPosition: request.unitPosition,
+          isActive: true,
+          code: codeTrim,
+          catalogDescription: request.description,
+          catalogDepartmentName: request.catalogDepartmentName,
+          accountType: request.accountType,
+          accountNumber: request.accountNumber ?? null,
+          journalEntryType: request.journalEntryType,
+          isFinancial: request.isFinancial
         }
       });
 
@@ -135,7 +189,9 @@ export class KPIService {
         where.OR = [
           { name: { contains: filters.search, mode: 'insensitive' } },
           { unitCategory: { contains: filters.search, mode: 'insensitive' } },
-          { unit: { contains: filters.search, mode: 'insensitive' } }
+          { unit: { contains: filters.search, mode: 'insensitive' } },
+          { code: { contains: filters.search } },
+          { catalogDescription: { contains: filters.search } }
         ];
       }
 
@@ -221,17 +277,29 @@ export class KPIService {
       }
 
       // Check if new name conflicts with existing KPI
+      const effectiveDeptIdForUniqueness =
+        request.departmentId !== undefined ? request.departmentId : existingKPI.departmentId;
       if (request.name && request.name !== existingKPI.name) {
         const nameConflict = await prisma.kPI.findFirst({
-          where: { 
+          where: {
             name: request.name,
-            departmentId: request.departmentId || existingKPI.departmentId,
+            departmentId: effectiveDeptIdForUniqueness ?? null,
             id: { not: id }
           }
         });
 
         if (nameConflict) {
           throw new Error("KPI with this name already exists in this department");
+        }
+      }
+
+      if (request.code !== undefined && request.code !== existingKPI.code) {
+        const nextCode = String(request.code).trim();
+        const codeTaken = await prisma.kPI.findFirst({
+          where: { code: nextCode, id: { not: id } }
+        });
+        if (codeTaken) {
+          throw new Error("KPI code already exists");
         }
       }
 
@@ -242,13 +310,23 @@ export class KPIService {
           ...(request.name && { name: request.name }),
           ...(request.type && { type: request.type }),
           ...(request.departmentId !== undefined && { departmentId: request.departmentId }),
+          ...(request.isReverseKpi !== undefined && { isReverseKpi: request.isReverseKpi }),
           ...(request.weightValue !== undefined && { weightValue: request.weightValue }),
           ...(request.hasUnit !== undefined && { hasUnit: request.hasUnit }),
           ...(request.unitCategory !== undefined && { unitCategory: request.unitCategory }),
           ...(request.unit !== undefined && { unit: request.unit }),
           ...(request.unitSymbol !== undefined && { unitSymbol: request.unitSymbol }),
           ...(request.unitPosition !== undefined && { unitPosition: request.unitPosition }),
-          ...(request.isActive !== undefined && { isActive: request.isActive })
+          ...(request.isActive !== undefined && { isActive: request.isActive }),
+          ...(request.code !== undefined && { code: String(request.code).trim() || null }),
+          ...(request.description !== undefined && { catalogDescription: request.description }),
+          ...(request.catalogDepartmentName !== undefined && {
+            catalogDepartmentName: request.catalogDepartmentName
+          }),
+          ...(request.accountType !== undefined && { accountType: request.accountType }),
+          ...(request.accountNumber !== undefined && { accountNumber: request.accountNumber }),
+          ...(request.journalEntryType !== undefined && { journalEntryType: request.journalEntryType }),
+          ...(request.isFinancial !== undefined && { isFinancial: request.isFinancial })
         },
         include: {
           performanceGoals: {

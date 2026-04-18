@@ -1827,12 +1827,8 @@ export class TaskService {
         return;
       }
 
-      const { HARDCODED_KPIS } = await import("../config/hardcodedKPIs");
-      const kpiConfig = HARDCODED_KPIS.find(
-        (k) =>
-          String(k.name || "").toLowerCase().trim() ===
-          String(goal.kpi.name || "").toLowerCase().trim()
-      );
+      const { resolveKpiAccountingConfig } = await import("../utils/kpiCatalogMetadata");
+      const kpiConfig = resolveKpiAccountingConfig(goal.kpi);
 
       if (!kpiConfig?.isFinancial || !kpiConfig.accountNumber) {
         console.log(`⚠️ KPI "${goal.kpi.name}" is not financial or has no GL mapping; skipping journal entry`);
