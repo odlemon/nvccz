@@ -46,7 +46,7 @@ export const shortTermInvestmentsEndpoints = {
     get: {
       summary: "CFO-style STI dashboard",
       description:
-        "Portfolio totals, per-instrument breakdown, dense daily yield in month, maturity buckets (projected at maturity), settlement variance, alerts.",
+        "Portfolio totals, per-instrument breakdown, dense daily yield in month (each row includes accrualDate and dateLabel as YYYY-MM-DD for chart tooltips), maturity buckets (projected at maturity), settlement variance, alerts.",
       tags: [tag],
       security: bearer,
       parameters: [

@@ -5,6 +5,15 @@ import { envConfig } from "../utils/env"
 
 
 export const errorMiddleware = (err: any, req: Request, res: Response, next: NextFunction): void => {
+  if (res.headersSent) {
+    logger.error("Unhandled error (response already sent)", {
+      error: err?.message,
+      stack: err?.stack,
+      path: req.path,
+      method: req.method,
+    })
+    return
+  }
 
   logger.error("Unhandled error", {
     error: err.message,

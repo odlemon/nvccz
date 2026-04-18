@@ -2054,6 +2054,8 @@ model KPI {
   id               String            @id @default(cuid())
   name             String
   type             String
+  /// When true, goals linked to this KPI default to reverse scoring (lower is better), unless overridden on the goal.
+  isReverseKpi     Boolean           @default(false) @map("is_reverse_kpi")
   weightValue      Decimal?          @db.Decimal(5, 2)
   hasUnit          Boolean           @default(false)
   unitCategory     String?
@@ -2064,6 +2066,20 @@ model KPI {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   departmentId     String?
+  /// Stable catalog code (e.g. TRAINING_EXPENSE); unique when set. Mirrors `HardcodedKPI.code`.
+  code             String?           @unique @map("kpi_code") @db.VarChar(80)
+  /// Long description; mirrors `HardcodedKPI.description`.
+  catalogDescription String?         @map("catalog_description") @db.Text
+  /// Department label for reporting / BSC (e.g. Human Resources); mirrors `HardcodedKPI.department`.
+  catalogDepartmentName String?      @map("catalog_department_name") @db.VarChar(120)
+  /// Revenue | Expense | Asset | Liability | Equity
+  accountType      String?           @map("account_type") @db.VarChar(32)
+  /// Chart of accounts identifier used like hardcoded `accountNumber` on journal lines.
+  accountNumber    String?           @map("account_number") @db.VarChar(64)
+  /// Debit | Credit
+  journalEntryType String?           @map("journal_entry_type") @db.VarChar(16)
+  /// When true, completion may post journals if `accountNumber` is set (or legacy hardcoded match exists).
+  isFinancial      Boolean           @default(false) @map("is_financial")
   performanceGoals PerformanceGoal[]
   activityLogs     ActivityLog[]
 

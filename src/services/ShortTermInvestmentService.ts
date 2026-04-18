@@ -1572,6 +1572,13 @@ export class ShortTermInvestmentService {
       message: "string",
       triggeredAt: "ISO-8601 datetime",
     },
+    /** Daily Yield Report series: one row per calendar day in the as-of month through `asOf`. */
+    dailyYieldInMonthEntry: {
+      accrualDate: "YYYY-MM-DD — UTC calendar date for the bucket (same as dateLabel)",
+      dateLabel:
+        "YYYY-MM-DD — use this (or accrualDate) for chart tooltip / category name; do not show only “Day DD”",
+      amountSum: "number — sum of accrual amounts that day (instrument functional mix per query rules)",
+    },
   } as const;
 
   static async getDashboard(params: { asOfIso: string; broker?: string }) {
@@ -1765,7 +1772,12 @@ export class ShortTermInvestmentService {
       amountByDay.set(iso, r._sum.amountInstrumentCcy ? r._sum.amountInstrumentCcy.toNumber() : 0);
     }
 
-    const dailyYieldInMonth: Array<{ accrualDate: string; amountSum: number }> = [];
+    const dailyYieldInMonth: Array<{
+      accrualDate: string;
+      /** Same as accrualDate; explicit field for UIs that need a tooltip/category label. */
+      dateLabel: string;
+      amountSum: number;
+    }> = [];
     for (
       let cursor = monthStartIso;
       compareIsoDate(cursor, asOfIsoStr) <= 0;
@@ -1773,6 +1785,7 @@ export class ShortTermInvestmentService {
     ) {
       dailyYieldInMonth.push({
         accrualDate: cursor,
+        dateLabel: cursor,
         amountSum: amountByDay.get(cursor) ?? 0,
       });
     }

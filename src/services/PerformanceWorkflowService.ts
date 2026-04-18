@@ -312,11 +312,10 @@ export class PerformanceWorkflowService {
         return;
       }
 
-      // Import the hardcoded KPIs to get accounting details
-      const { HARDCODED_KPIS } = await import("../config/hardcodedKPIs");
-      const kpiConfig = HARDCODED_KPIS.find(k => k.code === goal.kpi.code);
+      const { resolveKpiAccountingConfig } = await import("../utils/kpiCatalogMetadata");
+      const kpiConfig = resolveKpiAccountingConfig(goal.kpi);
 
-      if (kpiConfig && kpiConfig.isFinancial) {
+      if (kpiConfig && kpiConfig.isFinancial && kpiConfig.accountNumber) {
         // Create journal entry based on KPI completion
         // Use a bank-linked GL account as the cash offset (Cash & Cash Equivalents is a reporting bucket).
         const bank = await prisma.bank.findFirst({
@@ -356,7 +355,9 @@ export class PerformanceWorkflowService {
 
         console.log(`✅ Accounting integration triggered for goal ${goalId}: Journal Entry ${journalEntry.id} created`);
       } else {
-        console.log(`⚠️ KPI ${goal.kpi.code} is not financial, no journal entry created`);
+        console.log(
+          `⚠️ KPI ${goal.kpi.code || goal.kpi.name} is not financial or has no GL mapping; no journal entry created`
+        );
       }
     } catch (error) {
       console.error('❌ Error triggering accounting integration:', error);

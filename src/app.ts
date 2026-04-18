@@ -84,6 +84,7 @@ import performanceDashboardRoutes from "./routes/performanceDashboardRoutes"
 import taskRoutes from "./routes/taskRoutes"
 import kpiRoutes from "./routes/kpiRoutes"
 import hardcodedKPIRoutes from "./routes/hardcodedKPIRoutes"
+import performanceKpiCatalogRoutes from "./routes/performanceKpiCatalogRoutes"
 import activityLogRoutes from "./routes/activityLogRoutes"
 import ceoDashboardRoutes from "./routes/ceoDashboardRoutes"
 import stakeholderRoutes from "./routes/stakeholderRoutes"
@@ -552,6 +553,7 @@ app.use("/api/tasks", taskRoutes)
 app.use("/api/activities", activityRoutes)
 app.use("/api/kpis", kpiRoutes)
 app.use("/api/performance/kpis", hardcodedKPIRoutes)
+app.use("/api/performance/kpis", performanceKpiCatalogRoutes)
 app.use("/api/activity-logs", activityLogRoutes)
 app.use("/api/performance/rollup", rollupCalculationRoutes)
 app.use("/api/performance/scorecards", performanceScorecardRoutes)
