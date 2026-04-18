@@ -217,7 +217,7 @@ const options = {
       {
         name: 'performance-kpis',
         description:
-          '**Database KPI catalog** (`kpis` table): **POST** (create) on **`/kpis`** or **`/performance/kpis`** (OpenAPI paths relative to server URL ending in `/api`). **PATCH** or **PUT** on **`/performance/kpis/{id}`** or **`/kpis/{id}`**; **DELETE** on **`/performance/kpis/{id}`** or **`/kpis/{id}`** — same handlers. **catalogDepartmentName** must match **`departments.name`**; **`departmentId`** is set automatically. Same base path also serves **hardcoded** KPI reference listings (GET).'
+          '**Database KPI catalog** (`kpis` table): **POST** **`/kpis`**, **PATCH** / **PUT** / **DELETE** **`/kpis/{id}`** (OpenAPI paths relative to server URL ending in `/api` — same handlers are mounted at **`/api/kpis`** and **`/api/performance/kpis`**). **catalogDepartmentName** must match **`departments.name`**; **`departmentId`** is set automatically. Hardcoded KPI **GET** reference listings stay under **`/performance/kpis`** (see **📊 Hardcoded KPIs**).'
       }
     ],
     components: {
