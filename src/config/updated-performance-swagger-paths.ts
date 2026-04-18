@@ -1,6 +1,6 @@
 /**
  * Paths merged into the main OpenAPI spec so **Updated performance** lists BSC data entry,
- * BSC workflow, and performance **contract setup** APIs when swagger-jsdoc omits them.
+ * BSC workflow, performance **contract setup**, and **scorecard generate** (persist draft) APIs when swagger-jsdoc omits them.
  * Server `url` in swagger ends with `/api` — paths here are **without** a second `/api` prefix.
  *
  * Descriptions are written for **frontend** form design: fields, optional aliases, and responses.
@@ -21,6 +21,31 @@ const JSON_401 = { description: 'Missing or invalid JWT' };
 const JSON_201 = {
   description:
     '`{ success: true, data: ... }` or `{ success: true, ... }` per handler. `{ success: false, message }` on error.'
+};
+
+const JSON_403 = { description: 'Forbidden or unauthenticated — viewer cannot perform this action (service layer).' };
+
+/** JSON body for `POST /performance/scorecards/.../generate` (persist draft). Usually `{}`. */
+const SCORECARD_GENERATE_REQUEST_SCHEMA = {
+  type: 'object',
+  description:
+    'Optional period window; omit `{}` or send `{}` to infer from the active performance contract. **sectionBlendMode** applies to **Board** and **CEO** generate only.',
+  properties: {
+    periodStart: { type: 'string', format: 'date-time' },
+    periodEnd: { type: 'string', format: 'date-time' },
+    periodLabel: { type: 'string', example: '2026' },
+    sectionBlendMode: {
+      type: 'string',
+      enum: ['redistribute', 'penalise'],
+      description:
+        '**Board & CEO:** `redistribute` (default) — omit non-scoreable sections from blend and re-normalise; `penalise` — legacy behaviour where zero-weight sections still drag the final score.'
+    },
+    departmentId: {
+      type: 'string',
+      description:
+        '**Department generate only:** when set, resolves the department by id instead of the `{department}` path segment (same as standalone dept-by-id generate route).'
+    }
+  }
 };
 
 /** Shared partial-update body for KPI catalog (PATCH/PUT). */
@@ -1072,6 +1097,174 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
           description:
             '`{ success: false, code: "PERFORMANCE_CONTRACT_DUPLICATE", message, existingContractId, periodYear }` — employee contract already exists for that user and year'
         }
+      }
+    }
+  },
+
+  '/performance/scorecards/board/generate': {
+    post: {
+      tags: ['Updated performance'],
+      summary: 'Generate Board performance scorecard (persist draft)',
+      description:
+        'Upserts a **DRAFT** Board scorecard for the period. Requires an ACTIVE **BOARD** performance contract covering the window (**`POST /performance/contracts/board`**). **201** returns envelope with **`savedRecord`**. Finalise with **`POST /performance/scorecards/{scorecardId}/finalize`**.',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: SCORECARD_GENERATE_REQUEST_SCHEMA,
+            examples: {
+              empty: { summary: 'Infer period from contract', value: {} },
+              explicit2026: {
+                summary: 'Pin full calendar year (UTC)',
+                value: {
+                  periodLabel: '2026',
+                  periodStart: '2026-01-01T00:00:00.000Z',
+                  periodEnd: '2026-12-31T23:59:59.999Z',
+                  sectionBlendMode: 'redistribute'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: JSON_201,
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'No BOARD contract — e.g. **BOARD_CONTRACT_NOT_FOUND**' }
+      }
+    }
+  },
+
+  '/performance/scorecards/ceo/generate': {
+    post: {
+      tags: ['Updated performance'],
+      summary: 'Generate CEO performance scorecard (persist draft)',
+      description:
+        'Upserts a **DRAFT** CEO scorecard. Requires an ACTIVE **CEO** contract for the period with indicators linked. Response shape matches CEO envelope (**sections A1–D**, scores, **`savedRecord`**).',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: SCORECARD_GENERATE_REQUEST_SCHEMA,
+            examples: {
+              empty: { summary: 'Infer period from CEO contract', value: {} },
+              withBlend: {
+                summary: 'Explicit period + blend mode',
+                value: {
+                  periodStart: '2026-01-01T00:00:00.000Z',
+                  periodEnd: '2026-12-31T23:59:59.999Z',
+                  sectionBlendMode: 'redistribute'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: JSON_201,
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'No CEO contract / **CEO_CONTRACT_NOT_FOUND**' }
+      }
+    }
+  },
+
+  '/performance/scorecards/department/{department}/generate': {
+    post: {
+      tags: ['Updated performance'],
+      summary: 'Generate department performance scorecard (persist draft)',
+      description:
+        'Upserts a **DRAFT** department scorecard for **`{department}`** (name from org list, e.g. **Investments**, **Finance**). Caller must be allowed to **generate** (department manager of that dept, HR, CEO, or admin). Optional **`departmentId`** in body resolves by id instead of the path segment.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'department',
+          required: true,
+          schema: { type: 'string', example: 'Investments' },
+          description: 'Department display name (must match contract / org naming)'
+        }
+      ],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: SCORECARD_GENERATE_REQUEST_SCHEMA,
+            examples: {
+              empty: { summary: 'Default period', value: {} },
+              byName: {
+                summary: 'Finance + explicit period',
+                value: { periodLabel: '2026', periodStart: '2026-01-01T00:00:00.000Z', periodEnd: '2026-12-31T23:59:59.999Z' }
+              },
+              byIdInBody: {
+                summary: 'Resolve department by id (path segment ignored when id sent)',
+                value: {
+                  departmentId: 'clxreplaceWithRealDeptId',
+                  periodLabel: '2026',
+                  periodStart: '2026-01-01T00:00:00.000Z',
+                  periodEnd: '2026-12-31T23:59:59.999Z'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: JSON_201,
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'Contract / department context not found' }
+      }
+    }
+  },
+
+  '/performance/scorecards/employee/{employeeId}/generate': {
+    post: {
+      tags: ['Updated performance'],
+      summary: 'Generate employee performance scorecard (persist draft)',
+      description:
+        'Upserts a **DRAFT** employee scorecard for **`{employeeId}`**. **Not** self-service: only **direct line manager** (`lineManagerUserId`), **HR**, **CEO**, or **administrator** may generate. Employee may **preview** via **GET** …/employee/{id} but cannot generate their own draft.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'employeeId',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Subject user id (reviewee)'
+        }
+      ],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              description: 'Optional period; same shape as Board/CEO without **sectionBlendMode** / **departmentId**.',
+              properties: {
+                periodStart: { type: 'string', format: 'date-time' },
+                periodEnd: { type: 'string', format: 'date-time' },
+                periodLabel: { type: 'string', example: '2026' }
+              }
+            },
+            examples: {
+              empty: { summary: 'Default period from employee contract', value: {} }
+            }
+          }
+        }
+      },
+      responses: {
+        201: JSON_201,
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'Employee or contract not found' }
       }
     }
   },
