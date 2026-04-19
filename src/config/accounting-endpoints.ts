@@ -2404,7 +2404,7 @@ export const accountingEndpoints = {
                   }
                 },
                 isTaxable: { type: 'boolean', example: true },
-                invoiceNumber: { type: 'string', example: 'PINV-2025-001' },
+                invoiceNumber: { type: 'string', example: 'INV_20260115_0001' },
                 notes: { type: 'string', example: 'Monthly office supplies order' }
               }
             }
@@ -2421,7 +2421,7 @@ export const accountingEndpoints = {
                 message: 'Purchase invoice created successfully',
                 data: {
                   id: 'invoice-id',
-                  invoiceNumber: 'PINV-2025-001',
+                  invoiceNumber: 'INV_20260115_0001',
                   vendorId: 'vendor-id',
                   subtotal: '1650.00',
                   vatAmount: '247.50',
@@ -2486,7 +2486,7 @@ export const accountingEndpoints = {
                 success: true,
                 data: {
                   id: 'invoice-id',
-                  invoiceNumber: 'PINV-2025-001',
+                  invoiceNumber: 'INV_20260115_0001',
                   vendor: { id: 'vendor-id', name: 'ABC Supplies Ltd' },
                   items: []
                 }
@@ -2548,7 +2548,7 @@ export const accountingEndpoints = {
                 message: 'Purchase invoice updated successfully',
                 data: {
                   id: 'invoice-id',
-                  invoiceNumber: 'PINV-2025-001',
+                  invoiceNumber: 'INV_20260115_0001',
                   status: 'DRAFT',
                   vendor: { id: 'vendor-id', name: 'ABC Supplies Ltd' },
                   items: []
@@ -2667,7 +2667,7 @@ export const accountingEndpoints = {
                   paymentStatus: 'PENDING',
                   journalEntry: {
                     id: 'journal-entry-id',
-                    referenceNumber: 'PINV-CREDIT-PINV-2025-001',
+                    referenceNumber: 'AP-CREDIT-INV_20260115_0001',
                     status: 'POSTED'
                   }
                 }
@@ -2717,7 +2717,7 @@ export const accountingEndpoints = {
                 },
                 paymentReference: { 
                   type: 'string', 
-                  example: 'PAY-PINV-2025-001', 
+                  example: 'AP-PAY-BANK-INV_20260115_0001', 
                   description: 'Payment reference number' 
                 },
                 notes: { 
@@ -2735,7 +2735,7 @@ export const accountingEndpoints = {
                   paymentMethod: 'BANK',
                   bankId: 'bank-id-here',
                   paymentDate: '2025-01-20T00:00:00Z',
-                  paymentReference: 'PAY-PINV-2025-001',
+                  paymentReference: 'AP-PAY-BANK-INV_20260115_0001',
                   notes: 'Payment via bank transfer'
                 }
               },
@@ -2745,7 +2745,7 @@ export const accountingEndpoints = {
                 value: {
                   paymentMethod: 'CASH',
                   paymentDate: '2025-01-20T00:00:00Z',
-                  paymentReference: 'PAY-PINV-2025-001',
+                  paymentReference: 'AP-PAY-BANK-INV_20260115_0001',
                   notes: 'Cash payment'
                 }
               }

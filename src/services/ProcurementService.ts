@@ -8,6 +8,7 @@ import AuditService from "./AuditService";
 import { ApprovalService } from "./ApprovalService";
 import { CashbookService } from "./CashbookService";
 import VATService from "./VATService";
+import { nextUnifiedInvoiceNumber } from "../utils/accountingDocumentNumbers";
 
 // Hardcoded departments
 export enum Department {
@@ -2795,15 +2796,6 @@ export class ProcurementService {
   }
 
   /**
-   * Generate unique invoice number
-   */
-  private static generateInvoiceNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `INV-${timestamp}-${random}`;
-  }
-
-  /**
    * Create a procurement invoice
    */
   static async createProcurementInvoice(params: CreateProcurementInvoiceParams) {
@@ -2855,69 +2847,96 @@ export class ProcurementService {
       const taxAmount = VATService.calculateVAT(subtotal);
       const totalAmount = subtotal + taxAmount;
 
-      // Create procurement invoice
-      const invoice = await prisma.procurementInvoice.create({
-        data: {
-          invoiceNumber: this.generateInvoiceNumber(),
-          purchaseOrderId,
-          vendorId,
-          invoiceDate,
-          dueDate,
-          subtotal: new Decimal(subtotal),
-          taxAmount: new Decimal(taxAmount),
-          totalAmount: new Decimal(totalAmount),
-          currencyId,
-          documentPath,
-          documentType,
-          createdById: finalCreatedById,
-          status: "DRAFT", // Start as DRAFT so it can go through approval workflow
-          items: {
-            create: items.map(item => ({
-              itemName: item.itemName,
-              description: item.description,
-              quantity: new Decimal(item.quantity),
-              unitPrice: new Decimal(item.unitPrice),
-              totalPrice: new Decimal(item.quantity * item.unitPrice),
-              unit: item.unit
-            }))
+      const procurementInvoiceInclude = {
+        vendor: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            address: true
           }
         },
-        include: {
-          vendor: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-              address: true
-            }
-          },
-          purchaseOrder: {
-            select: {
-              id: true,
-              poNumber: true,
-              status: true
-            }
-          },
-          currency: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              symbol: true
-            }
-          },
-          createdBy: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          },
-          items: true
+        purchaseOrder: {
+          select: {
+            id: true,
+            poNumber: true,
+            status: true
+          }
+        },
+        currency: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            symbol: true
+          }
+        },
+        createdBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        items: true
+      };
+
+      let invoice = null;
+      let lastProcInvoiceErr: any = null;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+          const invoiceNumber = await nextUnifiedInvoiceNumber(prisma, new Date(invoiceDate));
+          invoice = await prisma.procurementInvoice.create({
+            data: {
+              invoiceNumber,
+              purchaseOrderId,
+              vendorId,
+              invoiceDate,
+              dueDate,
+              subtotal: new Decimal(subtotal),
+              taxAmount: new Decimal(taxAmount),
+              totalAmount: new Decimal(totalAmount),
+              currencyId,
+              documentPath,
+              documentType,
+              createdById: finalCreatedById,
+              status: "DRAFT", // Start as DRAFT so it can go through approval workflow
+              items: {
+                create: items.map(item => ({
+                  itemName: item.itemName,
+                  description: item.description,
+                  quantity: new Decimal(item.quantity),
+                  unitPrice: new Decimal(item.unitPrice),
+                  totalPrice: new Decimal(item.quantity * item.unitPrice),
+                  unit: item.unit
+                }))
+              }
+            },
+            include: procurementInvoiceInclude
+          });
+          break;
+        } catch (error: any) {
+          lastProcInvoiceErr = error;
+          if (error?.code === "P2002") {
+            const t = error.meta?.target;
+            const fields = Array.isArray(t) ? t : t != null ? [t] : [];
+            const hit = fields.some(
+              (x: string) =>
+                x === "invoiceNumber" || String(x).includes("invoice_number")
+            );
+            if (hit) continue;
+          }
+          throw error;
         }
-      });
+      }
+
+      if (!invoice) {
+        throw lastProcInvoiceErr instanceof Error
+          ? lastProcInvoiceErr
+          : new Error(String(lastProcInvoiceErr));
+      }
 
       // Audit log
       await AuditService.log({

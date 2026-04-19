@@ -8,6 +8,8 @@ import type { NextFunction, Request, Response } from "express";
  * - API_REQUEST_TIMEOUT_MS — default 5000; set 0 to disable this middleware.
  * - API_REQUEST_LONG_TIMEOUT_MS — default 120000 for long-running routes.
  * - API_LONG_TIMEOUT_PATH_PREFIXES — comma-separated extra path prefixes (must match start of URL path after stripping query).
+ *
+ * Built-in long-timeout GETs: multi-currency **reports** (e.g. unrealized FX) and **trial balance** (incl. consolidated / wide periods) — GL aggregation can exceed the default 5s SLA on large datasets.
  */
 function parseMs(name: string, fallback: number): number {
   const v = Number(process.env[name]);
@@ -68,6 +70,15 @@ export function shouldUseLongTimeout(
     return true;
   }
   if (method === "POST" && /\/api\/cashbook\/[^/]+\/post-batch$/i.test(p)) {
+    return true;
+  }
+
+  /** Month-end / GL reports — scans journals & open balances; often >5s on dev-api. */
+  if (method === "GET" && p.startsWith("/api/accounting/multi-currency/reports/")) {
+    return true;
+  }
+  /** Trial balance (single or consolidated UI) — period rollups over many lines. */
+  if (method === "GET" && p.startsWith("/api/accounting/trial-balance")) {
     return true;
   }
 

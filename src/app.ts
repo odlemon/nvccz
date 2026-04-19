@@ -294,7 +294,7 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Default 5s response budget for /api (see API_REQUEST_TIMEOUT_MS); longer for Suite 06 LLM, batch pay, cron, etc.
+// Default 5s response budget for /api (see API_REQUEST_TIMEOUT_MS); longer for Suite 06 LLM, batch pay, cron, trial balance, multi-currency reports, etc. (see apiRequestTimeout.ts).
 app.use(apiRequestTimeout())
 
 // Attach request metadata (ip, user-agent) for audit logging
