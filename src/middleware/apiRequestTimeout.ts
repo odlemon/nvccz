@@ -9,7 +9,7 @@ import type { NextFunction, Request, Response } from "express";
  * - API_REQUEST_LONG_TIMEOUT_MS — default 120000 for long-running routes.
  * - API_LONG_TIMEOUT_PATH_PREFIXES — comma-separated extra path prefixes (must match start of URL path after stripping query).
  *
- * Built-in long-timeout GETs: multi-currency **reports** (e.g. unrealized FX) and **trial balance** (incl. consolidated / wide periods) — GL aggregation can exceed the default 5s SLA on large datasets.
+ * Built-in long-timeout GETs: **`/api/accounting/multi-currency/*`** (exchange-rates list, forex gain/loss, unrealized FX reports, dashboard, etc.) and **trial balance** — can exceed the default 5s on large datasets or cold DB.
  */
 function parseMs(name: string, fallback: number): number {
   const v = Number(process.env[name]);
@@ -73,8 +73,8 @@ export function shouldUseLongTimeout(
     return true;
   }
 
-  /** Month-end / GL reports — scans journals & open balances; often >5s on dev-api. */
-  if (method === "GET" && p.startsWith("/api/accounting/multi-currency/reports/")) {
+  /** Exchange-rate history, FX reports, dashboard — reads can exceed 5s on busy DBs. */
+  if (method === "GET" && p.startsWith("/api/accounting/multi-currency/")) {
     return true;
   }
   /** Trial balance (single or consolidated UI) — period rollups over many lines. */
