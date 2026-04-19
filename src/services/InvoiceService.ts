@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { PrismaClient, Invoice, Customer, Currency } from "@prisma/client";
+import { Prisma, PrismaClient, Invoice, Customer, Currency } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import { prismaJournalEntryRateSelect } from "../config/accountingSnapshotResponseSelect";
@@ -13,6 +13,7 @@ import {
   type InvoiceEquivalentAtCreation
 } from "../utils/invoiceEquivalentAtCreation";
 import PeriodLockService from "./PeriodLockService";
+import { nextUnifiedInvoiceNumber } from "../utils/accountingDocumentNumbers";
 
 export type { InvoiceEquivalentAtCreation };
 
@@ -223,57 +224,6 @@ export class InvoiceService {
   }
 
   /**
-   * Get the next sequential invoice number
-   */
-  private static async getNextInvoiceNumber(): Promise<string> {
-    try {
-      // Get the current year
-      const currentYear = new Date().getFullYear();
-      
-      // Find the highest invoice number for the current year
-      const lastInvoice = await prisma.invoice.findFirst({
-        where: {
-          invoiceNumber: {
-            startsWith: `INV-${currentYear}-`
-          }
-        },
-        orderBy: {
-          invoiceNumber: 'desc'
-        }
-      });
-
-      let nextNumber = 1;
-
-      if (lastInvoice && lastInvoice.invoiceNumber) {
-        // Extract the number from the last invoice (format: INV-YYYY-NNN)
-        const match = lastInvoice.invoiceNumber.match(/INV-\d{4}-(\d+)/);
-        if (match) {
-          nextNumber = parseInt(match[1]) + 1;
-        }
-      }
-
-      // Format with leading zeros (3 digits)
-      const formattedNumber = nextNumber.toString().padStart(3, '0');
-      return `INV-${currentYear}-${formattedNumber}`;
-    } catch (error) {
-      console.error("Error generating invoice number:", error);
-      // Fallback to timestamp-based number if there's an error
-      const timestamp = Date.now();
-      const random = Math.floor(Math.random() * 1000);
-      return `INV-${timestamp}-${random}`;
-    }
-  }
-
-  /**
-   * Generate a unique invoice number (legacy method - now uses sequential numbering)
-   */
-  private static async generateInvoiceNumber(): Promise<string> {
-    return await this.getNextInvoiceNumber();
-  }
-
-
-
-  /**
    * Create a new invoice with automatic VAT calculation and journal entry creation
    */
   static async createInvoice(params: CreateInvoiceParams): Promise<InvoiceWithRelations> {
@@ -313,9 +263,6 @@ export class InvoiceService {
         : 0;
       const totalAmount: number = Number(amount) + Number(vatAmount);
 
-      // Generate invoice number if not provided
-      const finalInvoiceNumber = invoiceNumber || (await this.generateInvoiceNumber());
-
       // Omit exchangeRateAtCreation unless client supplied a finite number; otherwise middleware fills from Zimrate/DB snapshot.
       const manualExRate =
         params.exchangeRateAtCreation != null && Number.isFinite(Number(params.exchangeRateAtCreation))
@@ -336,6 +283,10 @@ export class InvoiceService {
 
       const { updatedInvoice, journalEntryResult } = await prisma.$transaction(
         async (tx) => {
+          const finalInvoiceNumber =
+            invoiceNumber ||
+            (await nextUnifiedInvoiceNumber(tx, new Date(transactionDate)));
+
           const invoice = await tx.invoice.create({
             data: {
               customerId,
@@ -384,7 +335,11 @@ export class InvoiceService {
 
           return { updatedInvoice: updated, journalEntryResult };
         },
-        { maxWait: 10000, timeout: 30000 }
+        {
+          maxWait: 10000,
+          timeout: 30000,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        }
       );
 
       await AuditService.log({

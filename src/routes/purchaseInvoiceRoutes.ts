@@ -87,7 +87,7 @@ const router = express.Router();
  *                       type: string
  *                     invoiceNumber:
  *                       type: string
- *                       example: PINV-2025-001
+ *                       example: INV_20260115_0001
  *                     vendorId:
  *                       type: string
  *                     subtotal:
@@ -748,7 +748,7 @@ router.post(
  *               paymentReference:
  *                 type: string
  *                 description: Payment reference number
- *                 example: "PAY-PINV-2025-001"
+ *                 example: "AP-PAY-BANK-INV_20260115_0001"
  *               notes:
  *                 type: string
  *                 description: Payment notes
@@ -761,7 +761,7 @@ router.post(
  *                 paymentMethod: BANK
  *                 bankId: bank-id-here
  *                 paymentDate: "2025-01-20T00:00:00Z"
- *                 paymentReference: "PAY-PINV-2025-001"
+ *                 paymentReference: "AP-PAY-BANK-INV_20260115_0001"
  *                 notes: "Payment via bank transfer"
  *             cashPayment:
  *               summary: Cash Payment Example
@@ -769,7 +769,7 @@ router.post(
  *               value:
  *                 paymentMethod: CASH
  *                 paymentDate: "2025-01-20T00:00:00Z"
- *                 paymentReference: "PAY-PINV-2025-001"
+ *                 paymentReference: "AP-PAY-BANK-INV_20260115_0001"
  *                 notes: "Cash payment"
  *     responses:
  *       200:

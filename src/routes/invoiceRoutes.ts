@@ -53,7 +53,7 @@ router.use(authenticate);
  *               invoiceNumber:
  *                 type: string
  *                 description: Custom invoice number (optional, auto-generated if not provided)
- *                 example: "INV-2024-001"
+ *                 example: "INV_20260115_0001"
  *               isTaxable:
  *                 type: boolean
  *                 description: Whether the invoice is taxable (15.5% VAT in Zimbabwe)

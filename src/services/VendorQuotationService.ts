@@ -4,6 +4,7 @@ import AuditService from "./AuditService";
 import { EmailNotificationService } from "./EmailNotificationService";
 
 import { prisma } from '../utils/database';
+import { nextQuotationNumber } from "../utils/accountingDocumentNumbers";
 
 export interface CreateVendorQuotationParams {
   rfqNumber?: string;
@@ -48,15 +49,6 @@ export interface ReviewQuotationParams {
 }
 
 export class VendorQuotationService {
-  /**
-   * Generate unique quotation number
-   */
-  private static generateQuotationNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000);
-    return `QUOTE-${timestamp}-${random}`;
-  }
-
   /**
    * Create a vendor quotation (no authentication required)
    * This is called when a vendor submits their quote through the public form
@@ -124,54 +116,80 @@ export class VendorQuotationService {
       console.log(`   Total: $${totalAmount.toFixed(2)}`);
       console.log("");
 
-      // Generate quotation number
-      const quotationNumber = this.generateQuotationNumber();
-
-      // Create quotation
-      const quotation = await prisma.vendorQuotation.create({
-        data: {
-          quotationNumber,
-          rfqNumber,
-          requisitionId,
-          vendorName,
-          vendorEmail,
-          companyName,
-          taxEIN,
-          contactPerson,
-          phoneNumber,
-          address,
-          validUntil,
-          currencyCode,
-          paymentTerms,
-          deliveryTerms,
-          deliveryTime,
-          notes,
-          attachments,
-          procurementRfqId,
-          technicalScoreJson: technicalScoreJson ?? undefined,
-          subtotal: new Decimal(subtotal),
-          taxAmount: new Decimal(taxAmount),
-          totalAmount: new Decimal(totalAmount),
-          status: "SUBMITTED",
-          items: {
-            create: processedItems.map(item => ({
-              itemName: item.itemName,
-              description: item.description,
-              quantity: new Decimal(item.quantity),
-              unit: item.unit,
-              unitPrice: new Decimal(item.unitPrice),
-              totalPrice: new Decimal(item.totalPrice),
-              specifications: item.specifications,
-              brand: item.brand,
-              model: item.model,
-              warranty: item.warranty
-            }))
-          }
-        },
-        include: {
-          items: true
+      const quotationDataBase = {
+        rfqNumber,
+        requisitionId,
+        vendorName,
+        vendorEmail,
+        companyName,
+        taxEIN,
+        contactPerson,
+        phoneNumber,
+        address,
+        validUntil,
+        currencyCode,
+        paymentTerms,
+        deliveryTerms,
+        deliveryTime,
+        notes,
+        attachments,
+        procurementRfqId,
+        technicalScoreJson: technicalScoreJson ?? undefined,
+        subtotal: new Decimal(subtotal),
+        taxAmount: new Decimal(taxAmount),
+        totalAmount: new Decimal(totalAmount),
+        status: "SUBMITTED" as const,
+        items: {
+          create: processedItems.map(item => ({
+            itemName: item.itemName,
+            description: item.description,
+            quantity: new Decimal(item.quantity),
+            unit: item.unit,
+            unitPrice: new Decimal(item.unitPrice),
+            totalPrice: new Decimal(item.totalPrice),
+            specifications: item.specifications,
+            brand: item.brand,
+            model: item.model,
+            warranty: item.warranty
+          }))
         }
-      });
+      };
+
+      let quotation = null;
+      let lastQuotationErr: any = null;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const quotationNumber = await nextQuotationNumber(prisma, new Date());
+        try {
+          quotation = await prisma.vendorQuotation.create({
+            data: {
+              quotationNumber,
+              ...quotationDataBase
+            },
+            include: {
+              items: true
+            }
+          });
+          break;
+        } catch (error: any) {
+          lastQuotationErr = error;
+          if (error?.code === "P2002") {
+            const t = error.meta?.target;
+            const fields = Array.isArray(t) ? t : t != null ? [t] : [];
+            const hit = fields.some(
+              (x: string) =>
+                x === "quotationNumber" || String(x).includes("quotation_number")
+            );
+            if (hit) continue;
+          }
+          throw error;
+        }
+      }
+
+      if (!quotation) {
+        throw lastQuotationErr instanceof Error
+          ? lastQuotationErr
+          : new Error(String(lastQuotationErr));
+      }
 
       console.log("✅ Quotation Created Successfully!");
       console.log(`   Quotation Number: ${quotation.quotationNumber}`);

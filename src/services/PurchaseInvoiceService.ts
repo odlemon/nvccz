@@ -11,6 +11,10 @@ import { assignNextAuditIdAndCreateJournal, createJournalEntryWithAuditSequence 
 import { parseDate } from "../utils/dateHelper";
 import { assertPurchaseInvoicePaymentAllowedForSuite06 } from "../utils/suite06PaymentGuard";
 import PeriodLockService from "./PeriodLockService";
+import {
+  isUnifiedInvoiceNumberInUse,
+  nextUnifiedInvoiceNumber,
+} from "../utils/accountingDocumentNumbers";
 
 /** User-facing duplicate vendor bill reference (vendor invoice number) message. */
 export const DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE =
@@ -94,44 +98,10 @@ export interface PurchaseInvoiceWithRelations extends PurchaseInvoice {
 
 export class PurchaseInvoiceService {
   /**
-   * Generate a unique invoice number
-   * Uses sequential numbering with year prefix: PINV-YYYY-NNN
+   * Internal vendor bill number: unified `INV_YYYYMMDD_NNNN` (same sequence as AR and procurement invoices).
    */
-  private static async generateInvoiceNumber(): Promise<string> {
-    try {
-      const currentYear = new Date().getFullYear();
-      
-      // Find the highest invoice number for the current year
-      const lastInvoice = await prisma.purchaseInvoice.findFirst({
-        where: {
-          invoiceNumber: {
-            startsWith: `PINV-${currentYear}-`
-          }
-        },
-        orderBy: {
-          invoiceNumber: 'desc'
-        }
-      });
-
-      let nextNumber = 1;
-      if (lastInvoice && lastInvoice.invoiceNumber) {
-        // Extract the number from the last invoice (format: PINV-YYYY-NNN)
-        const match = lastInvoice.invoiceNumber.match(/PINV-\d{4}-(\d+)/);
-        if (match) {
-          nextNumber = parseInt(match[1], 10) + 1;
-        }
-      }
-
-      // Format with leading zeros (3 digits minimum, but can expand if needed)
-      const formattedNumber = nextNumber.toString().padStart(3, '0');
-      return `PINV-${currentYear}-${formattedNumber}`;
-    } catch (error) {
-      console.error("Error generating invoice number:", error);
-      // Fallback to timestamp-based number if there's an error
-      const timestamp = Date.now();
-      const random = Math.floor(Math.random() * 1000);
-      return `PINV-${timestamp}-${random}`;
-    }
+  private static async generateInvoiceNumber(invoiceDate: Date): Promise<string> {
+    return nextUnifiedInvoiceNumber(prisma, invoiceDate);
   }
 
   /**
@@ -296,7 +266,7 @@ export class PurchaseInvoiceService {
 
       const totalAmount = subtotal.add(totalVAT);
 
-      // Internal document number (PINV-…); always generated here — supplier reference is `vendorInvoiceReference`.
+      // Internal document number (`INV_YYYYMMDD_NNNN`); always generated here — supplier reference is `vendorInvoiceReference`.
       let finalInvoiceNumber: string | null = null;
       let invoice = null;
       let attempts = 0;
@@ -304,18 +274,11 @@ export class PurchaseInvoiceService {
 
       while (!invoice && attempts < maxAttempts) {
         try {
-          finalInvoiceNumber = await this.generateInvoiceNumber();
+          finalInvoiceNumber = await this.generateInvoiceNumber(invoiceDate);
 
-          // Check if invoice number already exists
-          const existingInvoice = await prisma.purchaseInvoice.findUnique({
-            where: { invoiceNumber: finalInvoiceNumber }
-          });
-
-          if (existingInvoice) {
-            // Number already exists, generate a new one
+          if (await isUnifiedInvoiceNumberInUse(prisma, finalInvoiceNumber)) {
             attempts++;
-            // Small delay to reduce race condition collisions
-            await new Promise(resolve => setTimeout(resolve, 10 * attempts));
+            await new Promise((resolve) => setTimeout(resolve, 10 * attempts));
             continue;
           }
 
@@ -1085,7 +1048,7 @@ export class PurchaseInvoiceService {
         // Create journal entry
         journalEntry = await createJournalEntryWithAuditSequence({
           transactionDate: invoice.invoiceDate,
-          referenceNumber: `PINV-CREDIT-${invoice.invoiceNumber}`,
+          referenceNumber: `AP-CREDIT-${invoice.invoiceNumber}`,
           description: `Purchase Invoice - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
           totalAmount: invoice.totalAmount,
           currencyId: invoice.currencyId,
@@ -1153,7 +1116,7 @@ export class PurchaseInvoiceService {
           transactionDate: bankCashPaymentDate!,
           description: `Purchase Invoice Payment - ${invoice.vendor.name} - ${invoice.invoiceNumber}`,
           amount: Number(invoice.totalAmount),
-          reference: `PINV-${submitData.paymentMethod}-${invoice.invoiceNumber}`,
+          reference: `AP-PAY-${submitData.paymentMethod}-${invoice.invoiceNumber}`,
           counterpartyType: 'GL',
           glAccountId: submitData.expenseAccountId, // This will be used but we'll override journal entry lines
           vatCode: vatCode,

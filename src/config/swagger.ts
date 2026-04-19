@@ -1106,7 +1106,7 @@ const options = {
             currencyId: { type: 'string', example: 'clx1234567890abcdef' },
             transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
             description: { type: 'string', example: 'Management Fees Q4 2024' },
-            invoiceNumber: { type: 'string', example: 'INV-1754391778855-504' },
+            invoiceNumber: { type: 'string', example: 'INV_20260115_0001' },
             items: {
               type: 'array',
               items: {
@@ -1172,7 +1172,7 @@ const options = {
             currencyId: { type: 'string', example: 'clx1234567890abcdef' },
             transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
             description: { type: 'string', example: 'Management Fees Q4 2024' },
-            invoiceNumber: { type: 'string', example: 'INV-2024-001' },
+            invoiceNumber: { type: 'string', example: 'INV_20260115_0001' },
             isTaxable: { type: 'boolean', example: true },
             items: {
               type: 'array',
@@ -1195,7 +1195,7 @@ const options = {
             currencyId: { type: 'string', example: 'clx1234567890abcdef' },
             transactionDate: { type: 'string', format: 'date', example: '2025-08-05' },
             description: { type: 'string', example: 'Management Fees Q4 2024 Updated' },
-            invoiceNumber: { type: 'string', example: 'INV-2024-001' },
+            invoiceNumber: { type: 'string', example: 'INV_20260115_0001' },
             isTaxable: { type: 'boolean', example: true },
             items: {
               type: 'array',
