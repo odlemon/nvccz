@@ -3305,6 +3305,111 @@ const fallbackSpec = {
             }
           }
         },
+        '/newsletters/recipients/config': {
+          get: {
+            summary: 'Get newsletter audience config',
+            description:
+              'Load eligible internal users and current include/exclude overrides for newsletter recipients.',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            responses: {
+              200: {
+                description: 'Newsletter recipient config loaded successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: true },
+                        data: { type: 'object' },
+                      },
+                    },
+                  },
+                },
+              },
+              401: {
+                description: 'Unauthorized',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+              403: {
+                description: 'Forbidden - admin only',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+            },
+          },
+          put: {
+            summary: 'Save newsletter audience config',
+            description:
+              'Save include/exclude user IDs and extra include/exclude email addresses used for newsletter delivery.',
+            tags: ['Newsletters'],
+            security: [{ bearerAuth: [] }],
+            requestBody: {
+              required: false,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      includeUserIds: { type: 'array', items: { type: 'string' } },
+                      excludeUserIds: { type: 'array', items: { type: 'string' } },
+                      includeEmails: { type: 'array', items: { type: 'string', format: 'email' } },
+                      excludeEmails: { type: 'array', items: { type: 'string', format: 'email' } },
+                    },
+                  },
+                },
+              },
+            },
+            responses: {
+              200: {
+                description: 'Newsletter recipient config saved successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: true },
+                        message: { type: 'string' },
+                        data: { type: 'object' },
+                      },
+                    },
+                  },
+                },
+              },
+              400: {
+                description: 'Validation error',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+              401: {
+                description: 'Unauthorized',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+              403: {
+                description: 'Forbidden - admin only',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' },
+                  },
+                },
+              },
+            },
+          },
+        },
         '/newsletters/{id}': {
           get: {
             summary: 'Get newsletter by ID',
