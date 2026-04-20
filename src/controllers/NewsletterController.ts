@@ -74,12 +74,27 @@ export const newsletterController = {
       }
 
       const authorDisplayName = `${req.user.firstName ?? ""} ${req.user.lastName ?? ""}`.trim();
-      const emailResult = await EmailNotificationService.broadcastInternalNewsletterEmails({
-        recipients: recipientUsers,
-        title,
-        content,
-        imageUrl: newsletter.imageUrl ?? undefined,
-        authorDisplayName: authorDisplayName || "Author",
+
+      // SMTP per recipient can exceed API SLA (e.g. 5s); send after response returns.
+      setImmediate(() => {
+        void EmailNotificationService.broadcastInternalNewsletterEmails({
+          recipients: recipientUsers,
+          title,
+          content,
+          imageUrl: newsletter.imageUrl ?? undefined,
+          authorDisplayName: authorDisplayName || "Author",
+        })
+          .then((emailResult) => {
+            console.log(
+              `[newsletter ${newsletter.id}] emails: ${emailResult.succeeded}/${emailResult.attempted} sent`
+            );
+            if (emailResult.failed.length > 0) {
+              console.warn(`[newsletter ${newsletter.id}] email failures:`, emailResult.failed);
+            }
+          })
+          .catch((err) => {
+            console.error(`[newsletter ${newsletter.id}] broadcastInternalNewsletterEmails:`, err);
+          });
       });
 
       res.status(201).json({
@@ -89,9 +104,8 @@ export const newsletterController = {
         distribution: {
           recipientUserCount: recipientUsers.length,
           notificationsCreated: notifications.length,
-          emailsAttempted: emailResult.attempted,
-          emailsSent: emailResult.succeeded,
-          emailFailures: emailResult.failed,
+          emailsQueued: recipientUsers.length,
+          emailDispatch: "background",
         },
       });
     } catch (error: any) {
