@@ -5452,6 +5452,43 @@ export class EmailNotificationService {
     const company = process.env.COMPANY_NAME_SHORT || "NVCCZ";
     const base = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
     const readMoreUrl = base ? `${base}/` : "#";
+    const imgUrl = data.imageUrl?.trim();
+
+    // Download once, embed as inline attachment (CID) for all recipients.
+    let inlineImage:
+      | { filename: string; content: Buffer; cid: string; contentType?: string; disposition: "inline" }
+      | null = null;
+    if (imgUrl && /^https?:\/\//i.test(imgUrl)) {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 15_000);
+      try {
+        const resp = await fetch(imgUrl, { signal: ac.signal, redirect: "follow" });
+        if (resp.ok) {
+          const contentType = resp.headers.get("content-type") || undefined;
+          const raw = Buffer.from(await resp.arrayBuffer());
+          if (raw.length > 0 && raw.length <= 8 * 1024 * 1024) {
+            const ext = contentType?.includes("png")
+              ? "png"
+              : contentType?.includes("gif")
+                ? "gif"
+                : contentType?.includes("webp")
+                  ? "webp"
+                  : "jpg";
+            inlineImage = {
+              filename: `newsletter-image.${ext}`,
+              content: raw,
+              cid: `newsletter-image-${Date.now()}@nvccz`,
+              contentType,
+              disposition: "inline",
+            };
+          }
+        }
+      } catch (e: any) {
+        console.warn("broadcastInternalNewsletterEmails: image download failed:", e?.message || e);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
 
     const failed: Array<{ email: string; message: string }> = [];
     let succeeded = 0;
@@ -5470,11 +5507,9 @@ export class EmailNotificationService {
         const titleEsc = esc(data.title);
         const authorEsc = esc(data.authorDisplayName);
         const bodyHtml = stripScripts(data.content);
-        const imgUrl = data.imageUrl?.trim();
-        const imgBlock =
-          imgUrl && /^https?:\/\//i.test(imgUrl)
-            ? `<div style="margin:16px 0;"><img src="${esc(imgUrl)}" alt="" style="max-width:100%;max-height:280px;border-radius:6px;" /></div>`
-            : "";
+        const imgBlock = inlineImage
+          ? `<div style="margin:16px 0;"><img src="cid:${inlineImage.cid}" alt="" style="max-width:100%;max-height:280px;border-radius:6px;" /></div>`
+          : "";
 
         const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="font-family:Arial,sans-serif;line-height:1.6;color:#222;">
@@ -5493,6 +5528,7 @@ export class EmailNotificationService {
           to: { name: displayName, address: to },
           subject: `${data.title} — ${company}`,
           html,
+          attachments: inlineImage ? [inlineImage] : undefined,
         });
         succeeded++;
       } catch (e: any) {
