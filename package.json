@@ -97,6 +97,7 @@
     "db:migrate:procurement-suite06": "ts-node scripts/run-procurement-suite06-migration.ts",
     "db:migrate:purchase-requisition-investee-portfolio": "ts-node scripts/run-purchase-requisition-investee-portfolio-migration.ts",
     "db:migrate:portfolio-company-letterhead": "ts-node scripts/run-portfolio-company-letterhead-migration.ts",
+    "db:migrate:newsletter-audience-config": "ts-node scripts/run-newsletter-audience-config-migration.ts",
     "db:migrate:cashbook-reconciliation-sessions": "ts-node scripts/run-cashbook-reconciliation-session-migration.ts",
     "db:migrate:performance-scorecards": "ts-node scripts/run-performance-scorecards-migration.ts",
     "db:migrate:performance-goals-indexes": "ts-node scripts/run-performance-goals-indexes-migration.ts",

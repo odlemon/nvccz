@@ -2,7 +2,7 @@
 import express from "express";
 import multer from "multer";
 import { newsletterController } from "../controllers/NewsletterController";
-import { authenticate } from "../middleware/authenticate";
+import { authenticate, authorize } from "../middleware/authenticate";
 
 // Configure multer for memory storage
 const upload = multer({
@@ -86,6 +86,65 @@ router.use(authenticate);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post("/", upload.single('image'), newsletterController.createNewsletter);
+
+/**
+ * @swagger
+ * /newsletters/recipients/config:
+ *   get:
+ *     summary: Get newsletter audience config
+ *     description: Returns default eligible internal users (non-investee, non-LP, non-applicant) plus saved include/exclude overrides.
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Newsletter audience config loaded
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - admin only
+ */
+router.get("/recipients/config", authorize(["admin"]), newsletterController.getRecipientConfig);
+
+/**
+ * @swagger
+ * /newsletters/recipients/config:
+ *   put:
+ *     summary: Save newsletter audience config
+ *     description: Save include/exclude user IDs and extra include/exclude email addresses for newsletter delivery.
+ *     tags: [Newsletters]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               includeUserIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               excludeUserIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               includeEmails:
+ *                 type: array
+ *                 items: { type: string, format: email }
+ *               excludeEmails:
+ *                 type: array
+ *                 items: { type: string, format: email }
+ *     responses:
+ *       200:
+ *         description: Newsletter audience config saved
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - admin only
+ */
+router.put("/recipients/config", authorize(["admin"]), newsletterController.saveRecipientConfig);
 
 /**
  * @swagger

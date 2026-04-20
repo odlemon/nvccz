@@ -3,7 +3,12 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { uploadToS3 } from "../utils/awsS3";
-import { findNewsletterInternalRecipientUsers } from "../utils/newsletterInternalRecipients";
+import {
+  getNewsletterRecipientConfig,
+  listNewsletterBaseAudienceUsers,
+  resolveNewsletterRecipients,
+  saveNewsletterRecipientConfig,
+} from "../utils/newsletterInternalRecipients";
 import { EmailNotificationService } from "../services/EmailNotificationService";
 
 export const newsletterController = {
@@ -58,8 +63,10 @@ export const newsletterController = {
         }
       });
 
-      // Staff / internal users only — not investees (portfolio portal) or LPs / applicant role
-      const recipientUsers = await findNewsletterInternalRecipientUsers(authorId);
+      // Staff / internal users only — not investees (portfolio portal) or LPs / applicant role.
+      // Apply newsletter include/exclude overrides from saved config.
+      const resolved = await resolveNewsletterRecipients(authorId);
+      const recipientUsers = resolved.userRecipients;
 
       const notifications = recipientUsers.map((user) => ({
         title: `New Newsletter: ${title}`,
@@ -78,7 +85,14 @@ export const newsletterController = {
       // SMTP per recipient can exceed API SLA (e.g. 5s); send after response returns.
       setImmediate(() => {
         void EmailNotificationService.broadcastInternalNewsletterEmails({
-          recipients: recipientUsers,
+          recipients: [
+            ...recipientUsers,
+            ...resolved.extraEmailRecipients.map((email) => ({
+              email,
+              firstName: null,
+              lastName: null,
+            })),
+          ],
           title,
           content,
           imageUrl: newsletter.imageUrl ?? undefined,
@@ -103,8 +117,9 @@ export const newsletterController = {
         data: newsletter,
         distribution: {
           recipientUserCount: recipientUsers.length,
+          extraEmailRecipientCount: resolved.extraEmailRecipients.length,
           notificationsCreated: notifications.length,
-          emailsQueued: recipientUsers.length,
+          emailsQueued: recipientUsers.length + resolved.extraEmailRecipients.length,
           emailDispatch: "background",
         },
       });
@@ -113,6 +128,90 @@ export const newsletterController = {
       res.status(500).json({
         success: false,
         message: "Internal server error"
+      });
+    }
+  },
+
+  // Get newsletter audience config (eligible users + include/exclude settings)
+  async getRecipientConfig(req: AuthRequest, res: Response) {
+    try {
+      const [users, config] = await Promise.all([
+        listNewsletterBaseAudienceUsers(),
+        getNewsletterRecipientConfig(),
+      ]);
+      const hasWhitelist = config.includeUserIds.length > 0;
+      const selectedUserIds = new Set(
+        users
+          .map((u) => u.id)
+          .filter((id) => (hasWhitelist ? config.includeUserIds.includes(id) : true))
+          .filter((id) => !config.excludeUserIds.includes(id))
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          users: users.map((u) => ({
+            id: u.id,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            email: u.email,
+            roleName: u.role?.name ?? null,
+            selected: selectedUserIds.has(u.id),
+            excluded: config.excludeUserIds.includes(u.id),
+          })),
+          config,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error getting newsletter recipient config:", error);
+      res.status(500).json({
+        success: false,
+        message: error?.message || "Internal server error",
+      });
+    }
+  },
+
+  // Save newsletter audience include/exclude settings
+  async saveRecipientConfig(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      const { includeUserIds, excludeUserIds, includeEmails, excludeEmails } = req.body || {};
+      const config = await saveNewsletterRecipientConfig(userId, {
+        includeUserIds,
+        excludeUserIds,
+        includeEmails,
+        excludeEmails,
+      });
+      const users = await listNewsletterBaseAudienceUsers();
+      const hasWhitelist = config.includeUserIds.length > 0;
+      const selectedInternalUsers = users.filter((u) =>
+        (hasWhitelist ? config.includeUserIds.includes(u.id) : true) &&
+        !config.excludeUserIds.includes(u.id)
+      );
+      const totalEmailsSelected = selectedInternalUsers.length + config.includeEmails.length;
+
+      res.status(200).json({
+        success: true,
+        message: "Newsletter recipient config saved successfully",
+        data: {
+          config,
+          summary: {
+            eligibleInternalUsers: users.length,
+            selectedInternalUsers: selectedInternalUsers.length,
+            excludedUsers: config.excludeUserIds.length,
+            extraIncludedEmails: config.includeEmails.length,
+            totalEmailsSelected,
+          },
+        },
+      });
+    } catch (error: any) {
+      console.error("Error saving newsletter recipient config:", error);
+      res.status(400).json({
+        success: false,
+        message: error?.message || "Failed to save newsletter recipient config",
       });
     }
   },

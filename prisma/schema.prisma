@@ -170,6 +170,7 @@ model User {
   bscBudgetVarianceReportsSubmitted    BscBudgetVarianceReport[]
   bscStatutorySubmissionsSubmitted     BscStatutorySubmission[]        @relation("BscStatutorySubmitter")
   bscStatutorySubmissionsManagerSigned BscStatutorySubmission[]        @relation("BscStatutoryManagerSigner")
+  newsletterAudienceConfigsUpdated     NewsletterAudienceConfig[]
 
   @@map("users")
 }
@@ -248,6 +249,25 @@ model Newsletter {
   author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@map("newsletters")
+}
+
+/// Global audience filters for newsletter delivery.
+/// Start from internal users (exclude investees + LP + applicant), then apply include/exclude overrides.
+model NewsletterAudienceConfig {
+  id             String   @id @default(cuid())
+  scope          String   @unique @default("GLOBAL")
+  includeUserIds Json?    @map("include_user_ids")
+  excludeUserIds Json?    @map("exclude_user_ids")
+  includeEmails  Json?    @map("include_emails")
+  excludeEmails  Json?    @map("exclude_emails")
+  updatedById    String?  @map("updated_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  updatedBy      User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById], map: "newsletter_audience_configs_updated_by_idx")
+  @@map("newsletter_audience_configs")
 }
 
 model Event {
