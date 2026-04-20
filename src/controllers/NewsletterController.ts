@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { uploadToS3 } from "../utils/awsS3";
+import { normalizeNewsletterContent } from "../utils/newsletterContent";
 import {
   getNewsletterRecipientConfig,
   listNewsletterBaseAudienceUsers,
@@ -17,6 +18,7 @@ export const newsletterController = {
     try {
       const { title, content } = req.body;
       const authorId = req.user.id;
+      const normalizedTitle = String(title ?? "").trim();
       let imageUrl: string | undefined;
 
       // Update user's last seen
@@ -26,12 +28,19 @@ export const newsletterController = {
       });
 
       // Validation
-      if (!title || !content) {
+      if (!normalizedTitle || !content) {
         res.status(400).json({
           success: false,
           message: "Title and content are required"
         });
         return;
+      }
+      const normalized = normalizeNewsletterContent(content);
+      if (!normalized.text) {
+        return res.status(400).json({
+          success: false,
+          message: "Newsletter content cannot be empty"
+        });
       }
 
       // Handle image upload if present
@@ -50,7 +59,7 @@ export const newsletterController = {
       }
 
       const newsletter = await prisma.newsletter.create({
-        data: { title, content, authorId, imageUrl },
+        data: { title: normalizedTitle, content: normalized.html, authorId, imageUrl },
         include: {
           author: {
             select: {
@@ -93,8 +102,8 @@ export const newsletterController = {
               lastName: null,
             })),
           ],
-          title,
-          content,
+          title: normalizedTitle,
+          content: normalized.html,
           imageUrl: newsletter.imageUrl ?? undefined,
           authorDisplayName: authorDisplayName || "Author",
         })
@@ -293,6 +302,7 @@ export const newsletterController = {
       const { id } = req.params;
       const { title, content } = req.body;
       const userId = req.user.id;
+      const normalizedTitle = String(title ?? "").trim();
       let imageUrl: string | undefined;
 
       const existingNewsletter = await prisma.newsletter.findUnique({
@@ -315,12 +325,19 @@ export const newsletterController = {
         return;
       }
 
-      if (!title || !content) {
+      if (!normalizedTitle || !content) {
         res.status(400).json({
           success: false,
           message: "Title and content are required"
         });
         return;
+      }
+      const normalized = normalizeNewsletterContent(content);
+      if (!normalized.text) {
+        return res.status(400).json({
+          success: false,
+          message: "Newsletter content cannot be empty"
+        });
       }
 
       // Handle image upload if present
@@ -338,7 +355,7 @@ export const newsletterController = {
         }
       }
 
-      const updateData: any = { title, content };
+      const updateData: any = { title: normalizedTitle, content: normalized.html };
       if (imageUrl) {
         updateData.imageUrl = imageUrl;
       }
