@@ -30,7 +30,7 @@ router.use(authenticate);
  * /newsletters:
  *   post:
  *     summary: Create a new newsletter
- *     description: Create a new company newsletter and notify all users
+ *     description: Create a company newsletter, notify internal staff (in-app), and email users who can access the platform — excludes investees (portfolio company users), Limited Partners, and applicant-role users. Response includes `distribution` counts.
  *     tags: [Newsletters]
  *     security:
  *       - bearerAuth: []
