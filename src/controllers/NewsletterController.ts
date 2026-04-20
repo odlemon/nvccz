@@ -3,6 +3,8 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { uploadToS3 } from "../utils/awsS3";
+import { findNewsletterInternalRecipientUsers } from "../utils/newsletterInternalRecipients";
+import { EmailNotificationService } from "../services/EmailNotificationService";
 
 export const newsletterController = {
   // Create a new newsletter
@@ -56,25 +58,41 @@ export const newsletterController = {
         }
       });
 
-      // Create notifications for all users
-      const allUsers = await prisma.user.findMany({
-        where: { id: { not: authorId } }
-      });
+      // Staff / internal users only — not investees (portfolio portal) or LPs / applicant role
+      const recipientUsers = await findNewsletterInternalRecipientUsers(authorId);
 
-      const notifications = allUsers.map(user => ({
+      const notifications = recipientUsers.map((user) => ({
         title: `New Newsletter: ${title}`,
         message: `A new newsletter has been published by ${req.user.firstName} ${req.user.lastName}`,
-        type: 'newsletter',
+        type: "newsletter",
         userId: user.id,
-        data: { newsletterId: newsletter.id, authorId }
+        data: { newsletterId: newsletter.id, authorId },
       }));
 
-      await prisma.notification.createMany({ data: notifications });
+      if (notifications.length > 0) {
+        await prisma.notification.createMany({ data: notifications });
+      }
+
+      const authorDisplayName = `${req.user.firstName ?? ""} ${req.user.lastName ?? ""}`.trim();
+      const emailResult = await EmailNotificationService.broadcastInternalNewsletterEmails({
+        recipients: recipientUsers,
+        title,
+        content,
+        imageUrl: newsletter.imageUrl ?? undefined,
+        authorDisplayName: authorDisplayName || "Author",
+      });
 
       res.status(201).json({
         success: true,
         message: "Newsletter created successfully",
-        data: newsletter
+        data: newsletter,
+        distribution: {
+          recipientUserCount: recipientUsers.length,
+          notificationsCreated: notifications.length,
+          emailsAttempted: emailResult.attempted,
+          emailsSent: emailResult.succeeded,
+          emailFailures: emailResult.failed,
+        },
       });
     } catch (error: any) {
       console.error("Error creating newsletter:", error);

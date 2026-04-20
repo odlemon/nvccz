@@ -5425,4 +5425,81 @@ export class EmailNotificationService {
         : undefined,
     });
   }
+
+  /**
+   * Broadcast a new internal company newsletter by email (staff only — callers should pre-filter recipients).
+   */
+  static async broadcastInternalNewsletterEmails(data: {
+    recipients: Array<{ email: string; firstName?: string | null; lastName?: string | null }>;
+    title: string;
+    content: string;
+    imageUrl?: string | null;
+    authorDisplayName: string;
+  }): Promise<{
+    attempted: number;
+    succeeded: number;
+    failed: Array<{ email: string; message: string }>;
+  }> {
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const stripScripts = (html: string) =>
+      String(html).replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
+    const from = getFromAddress("platform");
+    const company = process.env.COMPANY_NAME_SHORT || "NVCCZ";
+    const base = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
+    const readMoreUrl = base ? `${base}/` : "#";
+
+    const failed: Array<{ email: string; message: string }> = [];
+    let succeeded = 0;
+
+    for (const r of data.recipients) {
+      const to = String(r.email ?? "")
+        .trim()
+        .toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        failed.push({ email: r.email || "(empty)", message: "Invalid email" });
+        continue;
+      }
+      try {
+        const displayName = [r.firstName, r.lastName].filter(Boolean).join(" ").trim() || r.firstName || "User";
+        const greeting = esc(r.firstName || "there");
+        const titleEsc = esc(data.title);
+        const authorEsc = esc(data.authorDisplayName);
+        const bodyHtml = stripScripts(data.content);
+        const imgUrl = data.imageUrl?.trim();
+        const imgBlock =
+          imgUrl && /^https?:\/\//i.test(imgUrl)
+            ? `<div style="margin:16px 0;"><img src="${esc(imgUrl)}" alt="" style="max-width:100%;max-height:280px;border-radius:6px;" /></div>`
+            : "";
+
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;line-height:1.6;color:#222;">
+  <p>Hi ${greeting},</p>
+  <p><strong>${titleEsc}</strong> — ${authorEsc} posted a new company newsletter.</p>
+  ${imgBlock}
+  <div style="margin:16px 0;padding:12px;border:1px solid #eee;border-radius:8px;background:#fafafa;">
+    ${bodyHtml}
+  </div>
+  <p><a href="${esc(readMoreUrl)}">Open the platform</a> to see announcements and past newsletters.</p>
+  <p style="color:#888;font-size:12px;">${esc(company)}</p>
+</body></html>`;
+
+        await emailTransport.sendMail({
+          from: `"${from.name}" <${from.address}>`,
+          to: { name: displayName, address: to },
+          subject: `${data.title} — ${company}`,
+          html,
+        });
+        succeeded++;
+      } catch (e: any) {
+        failed.push({ email: r.email, message: e?.message || String(e) });
+      }
+    }
+
+    return { attempted: data.recipients.length, succeeded, failed };
+  }
 }

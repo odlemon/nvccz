@@ -4,6 +4,10 @@ import { prisma } from "../utils/database";
 import { assignNextAuditIdAndCreateJournal } from "./AuditTrailSequenceService";
 import { EmailNotificationService } from "./EmailNotificationService";
 import { capitalCallNoticeEmailSubject } from "../utils/capitalCallNoticeSubject";
+import {
+  loadCapitalCallAccountingLetterhead,
+  type CapitalCallAccountingLetterhead,
+} from "../utils/capitalCallAccountingLetterhead";
 import { buildCapitalCallNoticePdfBuffer, safePdfFileBaseName } from "../utils/capitalCallNoticePdf";
 
 const COMMITMENT_STATUSES_ELIGIBLE = ["ACTIVE", "PENDING"];
@@ -60,6 +64,26 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** Accounting letterhead block for capital call HTML emails (matches PDF identity). */
+function capitalCallEmailLetterheadBlockHtml(lh: CapitalCallAccountingLetterhead): string {
+  const logoUrl = lh.logoUrlForEmail?.trim() ?? "";
+  const logo =
+    logoUrl && /^https:\/\//i.test(logoUrl)
+      ? `<div style="text-align:right;margin-bottom:10px;"><img src="${escapeHtml(logoUrl)}" alt="" width="80" height="80" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:1px solid #e8e8e8;display:inline-block;" /></div>`
+      : "";
+  const detail = lh.detailLines
+    .map(
+      (line) =>
+        `<div style="font-size:11px;color:#444;line-height:1.4;text-align:right;">${escapeHtml(line)}</div>`
+    )
+    .join("");
+  return `<div style="border-bottom:1px solid #ddd;padding-bottom:14px;margin-bottom:18px;text-align:right;">
+    ${logo}
+    <div style="font-weight:bold;font-size:14px;color:#111;margin-bottom:6px;">${escapeHtml(lh.displayName)}</div>
+    ${detail}
+  </div>`;
 }
 
 /** YYYY-MM-DD for email subject and notices (handles Date, ISO string, MySQL date string). */
@@ -639,6 +663,9 @@ export class CapitalCallService {
     const fundNameEsc = escapeHtml(fundName);
     const sentRecipients: Array<{ allocationId: string; lpName: string; email: string }> = [];
 
+    const letterhead = await loadCapitalCallAccountingLetterhead();
+    const letterheadHtml = capitalCallEmailLetterheadBlockHtml(letterhead);
+
     const concurrency = capitalCallEmailConcurrency();
     const failures = await runPool(toSend, concurrency, async (row) => {
       const a = row.allocation;
@@ -649,6 +676,7 @@ export class CapitalCallService {
       const lpEsc = escapeHtml(a.lpLegalNameSnapshot);
 
       const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;line-height:1.5;color:#222;">
+        ${letterheadHtml}
         <p>Dear ${lpEsc},</p>
         <p>This is your <strong>capital call notice</strong> for <strong>${fundNameEsc}</strong> (${escapeHtml(ccy)}).</p>
         <table style="border-collapse:collapse;margin:16px 0;" cellpadding="8">
@@ -659,7 +687,7 @@ export class CapitalCallService {
           <tr><td style="border:1px solid #ccc;"><strong>Payment due date</strong></td><td style="border:1px solid #ccc;">${escapeHtml(dateLabel)}</td></tr>
           <tr><td style="border:1px solid #ccc;vertical-align:top;"><strong>Bank instructions</strong></td><td style="border:1px solid #ccc;white-space:pre-wrap;">${escapeHtml(String(call.bankInstructions))}</td></tr>
         </table>
-        <p>${escapeHtml(process.env.COMPANY_NAME_SHORT || "NVCCZ")}</p>
+        <p style="color:#666;font-size:12px;text-align:right;">${escapeHtml(letterhead.displayName)}</p>
       </body></html>`;
 
       const callPercentNum = Number(call.callPercent.toString());
@@ -673,6 +701,7 @@ export class CapitalCallService {
         currentCallAmount: callAmount,
         paymentDueDate: dateLabel,
         bankInstructions: String(call.bankInstructions),
+        letterhead,
       });
       const pdfFilename = `Capital-Call-Notice-${safePdfFileBaseName(fundName)}-${dateLabel}.pdf`;
 
