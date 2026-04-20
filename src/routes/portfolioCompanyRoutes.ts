@@ -1,11 +1,13 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import { PortfolioCompanyController } from "../controllers/PortfolioCompanyController";
 import { ReportingScheduleConfigController } from "../controllers/ReportingScheduleConfigController";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/permissionAuth";
 
 const router = express.Router();
+const letterheadUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 /**
  * @swagger
@@ -1212,6 +1214,100 @@ router.post(
  *                         format: date-time
  */
 router.get("/with-investments", authenticate, authorize(["admin", "fund_manager"]), PortfolioCompanyController.getAllPortfolioCompaniesWithInvestments);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/letterhead:
+ *   get:
+ *     summary: Get investee letterhead for a portfolio company
+ *     description: Any authenticated user (no role restriction).
+ *     tags: ['Portfolio Letterheads']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Letterhead row or null if unset
+ */
+router.get(
+  "/:id/letterhead",
+  authenticate,
+  PortfolioCompanyController.getPortfolioCompanyLetterhead
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/letterhead:
+ *   put:
+ *     summary: Create or update investee letterhead (partial JSON body)
+ *     description: Any authenticated user (no role restriction).
+ *     tags: ['Portfolio Letterheads']
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               legalName: { type: string, nullable: true }
+ *               line1: { type: string, nullable: true }
+ *               line2: { type: string, nullable: true }
+ *               city: { type: string, nullable: true }
+ *               logoUrl: { type: string, nullable: true }
+ *     responses:
+ *       200:
+ *         description: Saved letterhead
+ */
+router.put(
+  "/:id/letterhead",
+  authenticate,
+  PortfolioCompanyController.upsertPortfolioCompanyLetterhead
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/letterhead:
+ *   delete:
+ *     summary: Delete investee letterhead for a portfolio company
+ *     description: Any authenticated user (no role restriction).
+ *     tags: ['Portfolio Letterheads']
+ *     security:
+ *       - bearerAuth: []
+ */
+router.delete(
+  "/:id/letterhead",
+  authenticate,
+  PortfolioCompanyController.deletePortfolioCompanyLetterhead
+);
+
+/**
+ * @swagger
+ * /api/portfolio-companies/{id}/letterhead/logo:
+ *   post:
+ *     summary: Upload letterhead logo (multipart field `logo`)
+ *     description: Any authenticated user (no role restriction).
+ *     tags: ['Portfolio Letterheads']
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/:id/letterhead/logo",
+  authenticate,
+  letterheadUpload.single("logo"),
+  PortfolioCompanyController.uploadPortfolioCompanyLetterheadLogo
+);
 
 /**
  * @swagger

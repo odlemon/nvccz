@@ -32,8 +32,8 @@ const router = express.Router();
  *             properties:
  *               investor_id:
  *                 type: string
- *                 description: Optional external reference. If omitted, the server sets `inv-{uuid}`.
- *                 example: "EXT-LP-2026-0042"
+ *                 description: Optional external reference. If omitted, the server assigns the next partner number **`EXT_PAR_0001`**, **`EXT_PAR_0002`**, … (zero-padded, unique).
+ *                 example: "EXT_PAR_0042"
  *               type:
  *                 type: string
  *                 enum: [individual, institutional]
@@ -399,7 +399,8 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
  *             properties:
  *               investor_id:
  *                 type: string
- *                 example: "EXT-LP-2026-0042"
+ *                 description: Optional — change external partner id (normally leave unset; created clients already have `EXT_PAR_*`).
+ *                 example: "EXT_PAR_0042"
  *               type:
  *                 type: string
  *                 enum: [individual, institutional]

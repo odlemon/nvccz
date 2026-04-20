@@ -1134,8 +1134,38 @@ model PortfolioCompany {
   investmentImplementation InvestmentImplementation?
   investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteePortfolioRequisition")
   reportingPeriodOperationalKpis ReportingPeriodOperationalKpi[]
+  letterhead                   PortfolioCompanyLetterhead?
 
   @@map("portfolio_companies")
+}
+
+/// Investee letterhead (name, address, logo) for printed/PDF identity — scoped to one portfolio company; not tied to a specific report.
+model PortfolioCompanyLetterhead {
+  id                 String           @id @default(cuid())
+  portfolioCompanyId String           @unique @map("portfolio_company_id")
+  legalName          String?          @map("legal_name") @db.VarChar(512)
+  registrationNumber String?        @map("registration_number") @db.VarChar(255)
+  taxNumber          String?          @map("tax_number") @db.VarChar(255)
+  email              String?          @db.VarChar(255)
+  phone              String?          @db.VarChar(64)
+  website            String?          @db.VarChar(512)
+  logoUrl            String?          @map("logo_url") @db.VarChar(1024)
+  line1              String?          @db.VarChar(512)
+  line2              String?          @db.VarChar(512)
+  city               String?          @db.VarChar(255)
+  state              String?          @db.VarChar(255)
+  postalCode         String?          @map("postal_code") @db.VarChar(64)
+  country            String?          @db.VarChar(255)
+  addressLabel       String?          @map("address_label") @db.VarChar(255)
+  twitter            String?          @db.VarChar(255)
+  facebook           String?          @db.VarChar(255)
+  linkedin           String?          @db.VarChar(255)
+  instagram          String?          @db.VarChar(255)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  portfolioCompany   PortfolioCompany @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
+
+  @@map("portfolio_company_letterheads")
 }
 
 /// Investee-entered operational / unit-economics KPIs for one reporting period (non-financial-statement metrics).

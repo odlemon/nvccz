@@ -20,6 +20,7 @@ import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-pa
 import { vendorMasterSuite01Endpoints } from './vendor-master-suite01-endpoints';
 import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-sections-fallback-endpoints';
 import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
+import { fundManagementEndpoints } from './fund-management-endpoints';
 
 const options = {
   definition: {
@@ -56,8 +57,18 @@ const options = {
           '**Start here:** add the LP (**`POST /clients`** — full URL with default server: `/api/clients`) and fund **investment commitment** (same call or **`PUT /clients/{id}`**). Then **`/funds/.../capital-calls`**: list/initiate (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice**, **send-notices** (HTML + **PDF**), **GET/POST …/payments**. **Docs:** **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**. **IDs:** **`npm run db:print:capital-call-postman`**.'
       },
       {
+        name: 'Fund Management',
+        description:
+          'Create and configure **funds** (`totalAmount`, `remainingAmount`, **`minInvestment` / `maxInvestment`** per LP ticket, windows, status). **Admin** for create/update/close; **admin** or **fund_manager** for list/get/statistics. Paths are under **`/funds`** (server base URL already includes `/api`). Capital-call routes under `/funds/{fundId}/capital-calls` are documented under **Capital Calls (LP drawdowns)**.'
+      },
+      {
         name: 'Company Profile',
         description: 'Company letterhead profile, addresses (one active at a time), and logo upload'
+      },
+      {
+        name: 'Portfolio Letterheads',
+        description:
+          'Investee letterhead CRUD per portfolio company — legal name, address lines, contact, social links, logo (`GET/PUT/DELETE /portfolio-companies/{id}/letterhead`, `POST …/letterhead/logo`). Authenticated users only; not tied to a specific financial report.'
       },
       {
         name: 'VAT Rates',
@@ -1555,6 +1566,85 @@ const options = {
               }
             }
           }
+        },
+        Fund: {
+          type: 'object',
+          description: 'Fund vehicle; `remainingAmount` is callable capital left; LP commitments validate against `minInvestment`/`maxInvestment` and `remainingAmount`.',
+          properties: {
+            id: { type: 'string', example: 'cmfund01example0001nvcczabcd' },
+            name: { type: 'string', example: 'Sports Growth Fund I' },
+            description: { type: 'string', example: 'Early-stage sports and media investments.' },
+            totalAmount: { type: 'number', example: 50000000, description: 'Total fund size (committed capital ceiling).' },
+            remainingAmount: { type: 'number', example: 32000000, description: 'Capital not yet called/deployed.' },
+            minInvestment: { type: 'number', example: 10000, description: 'Minimum single LP commitment amount.' },
+            maxInvestment: { type: 'number', example: 10000000, description: 'Maximum single LP commitment amount (enforced when adding clients/commitments).' },
+            focusIndustries: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['Sports', 'Media', 'Technology'],
+            },
+            applicationStart: { type: 'string', format: 'date-time', example: '2025-01-01T00:00:00.000Z' },
+            applicationEnd: { type: 'string', format: 'date-time', example: '2027-12-31T23:59:59.999Z' },
+            status: { type: 'string', enum: ['OPEN', 'CLOSED', 'COMING_SOON'], example: 'OPEN' },
+            createdById: { type: 'string', example: 'cmuser01example0001nvcczabcd' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        CreateFundRequest: {
+          type: 'object',
+          required: ['name', 'description', 'totalAmount', 'minInvestment', 'maxInvestment', 'focusIndustries', 'applicationStart', 'applicationEnd'],
+          description: '`createdById` is taken from the JWT; do not send it in the body.',
+          properties: {
+            name: { type: 'string', example: 'Sports Growth Fund I' },
+            description: { type: 'string', example: 'Early-stage sports and media investments.' },
+            totalAmount: { type: 'number', example: 50000000, description: 'Initial fund size; `remainingAmount` is set equal on create.' },
+            minInvestment: { type: 'number', example: 10000 },
+            maxInvestment: { type: 'number', example: 10000000 },
+            focusIndustries: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['Sports', 'Media', 'Technology'],
+            },
+            applicationStart: { type: 'string', format: 'date-time', example: '2025-01-01T00:00:00.000Z' },
+            applicationEnd: { type: 'string', format: 'date-time', example: '2027-12-31T23:59:59.999Z' },
+            status: { type: 'string', enum: ['OPEN', 'CLOSED', 'COMING_SOON'], example: 'OPEN' },
+          },
+          example: {
+            name: 'Sports Growth Fund I',
+            description: 'Early-stage sports and media investments.',
+            totalAmount: 50000000,
+            minInvestment: 10000,
+            maxInvestment: 10000000,
+            focusIndustries: ['Sports', 'Media', 'Technology'],
+            applicationStart: '2025-01-01T00:00:00.000Z',
+            applicationEnd: '2027-12-31T23:59:59.999Z',
+            status: 'OPEN',
+          },
+        },
+        UpdateFundRequest: {
+          type: 'object',
+          description:
+            'Partial update. Increasing `totalAmount` scales `remainingAmount` proportionally to the previous total vs remaining (see API implementation).',
+          properties: {
+            name: { type: 'string', example: 'Sports Growth Fund I (Updated)' },
+            description: { type: 'string', example: 'Expanded mandate to include fitness tech.' },
+            totalAmount: { type: 'number', example: 75000000 },
+            minInvestment: { type: 'number', example: 25000 },
+            maxInvestment: { type: 'number', example: 15000000 },
+            focusIndustries: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['Sports', 'Media', 'Technology', 'Fitness'],
+            },
+            applicationStart: { type: 'string', format: 'date-time', example: '2025-01-01T00:00:00.000Z' },
+            applicationEnd: { type: 'string', format: 'date-time', example: '2028-12-31T23:59:59.999Z' },
+            status: { type: 'string', enum: ['OPEN', 'CLOSED', 'COMING_SOON'], example: 'OPEN' },
+          },
+          example: {
+            maxInvestment: 15000000,
+            totalAmount: 75000000,
+          },
         },
         // Portfolio Company schemas
         PortfolioCompany: {
@@ -8715,7 +8805,8 @@ try {
 specs.paths = {
   ...specs.paths,
   ...updatedInvestmentFlowExtraPaths,
-  ...updatedPerformanceSwaggerPaths
+  ...updatedPerformanceSwaggerPaths,
+  ...fundManagementEndpoints,
 };
 
 specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);

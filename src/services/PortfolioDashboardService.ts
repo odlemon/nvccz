@@ -2,7 +2,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
-import { DataIntegrationService } from "./DataIntegrationService";
 import { asNumber, roundTo } from "./performanceBackendSupport";
 import {
   cashFlowRag,
@@ -23,6 +22,17 @@ import {
   computeAnalystFlagsForCompany,
   rollupAnalystFlags,
 } from "../utils/portfolioDashboardAnalystFlags";
+
+/**
+ * Portfolio companies must load `financialKpis` (approved-report KPIs, valuation snapshots, monitoring EQUITY).
+ * Omitting it caused FMV/TVPI/headline IRR to ignore post-approval data and fall back to stale `annualRevenue` only.
+ */
+const PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD = {
+  investmentImplementation: {
+    include: { fundDisbursements: true },
+  },
+  financialKpis: true,
+} as const;
 
 /** Default cap on quarter IRR rows (full dashboard) — avoids O(years×companies) blowup on old funds. */
 const IRR_BY_QUARTER_CAP_FULL = 56;
@@ -493,6 +503,64 @@ export class PortfolioDashboardService {
     });
   }
 
+  /** Years from earliest DISBURSED date to as-of (or now); bounded for stability. */
+  private static estimateFundHoldingYears(companies: any[], disbursementAsOf?: Date): number {
+    let earliest: number | null = null;
+    for (const company of companies) {
+      const disb = PortfolioDashboardService.disbursedUpTo(company, disbursementAsOf);
+      for (const d of disb) {
+        if (!d.disbursementDate) continue;
+        const t = new Date(d.disbursementDate).getTime();
+        if (!Number.isNaN(t)) {
+          earliest = earliest == null ? t : Math.min(earliest, t);
+        }
+      }
+    }
+    if (earliest == null) return 1;
+    const end = disbursementAsOf
+      ? Date.UTC(
+          disbursementAsOf.getUTCFullYear(),
+          disbursementAsOf.getUTCMonth(),
+          disbursementAsOf.getUTCDate(),
+          23,
+          59,
+          59,
+          999
+        )
+      : Date.now();
+    const years = (end - earliest) / (365.25 * 24 * 3600 * 1000);
+    return Math.max(0.25, Math.min(30, years || 1));
+  }
+
+  /**
+   * Fund-level gross return proxy: MOIC (total value / deployed) annualized over the holding period.
+   * Replaces `DataIntegrationService.fundGrossIrrFromLoadedFund`, which compared disbursements to LP commitment
+   * and clamped to 0% whenever deployed &lt; committed — unrelated to approved financials / FMV.
+   */
+  private static fundGrossIrrProxy(
+    fundCompanies: any[],
+    disbursementAsOf?: Date
+  ): number {
+    const deployed = fundCompanies.reduce((sum, company) => {
+      const disbursements = PortfolioDashboardService.disbursedUpTo(company, disbursementAsOf);
+      return (
+        sum +
+        disbursements.reduce((s: number, d: any) => {
+          return s + parseFloat((d.amount || new Decimal(0)).toString());
+        }, 0)
+      );
+    }, 0);
+    if (deployed <= 0) return 0;
+    const totalValue = fundCompanies.reduce(
+      (sum, c) => sum + PortfolioDashboardService.getFairMarketValue(c) + PortfolioDashboardService.getRealizedValue(c),
+      0
+    );
+    const moic = totalValue / deployed;
+    const years = PortfolioDashboardService.estimateFundHoldingYears(fundCompanies, disbursementAsOf);
+    const rate = Math.pow(moic, 1 / years) - 1;
+    return Math.round(Math.max(0, rate * 100) * 100) / 100;
+  }
+
   /**
    * Weighted aggregate fund gross IRR (same engine as dashboard `metrics.fundGrossIRR`),
    * rounded to 6 decimal places for PE ↔ performance manual sync (`fieldPath` e.g. `data.metrics.irr`).
@@ -502,7 +570,7 @@ export class PortfolioDashboardService {
   ): Promise<{ irr: number; precisionDigits: number; fundCount: number }> {
     const include = {
       portfolioCompanies: {
-        include: { investmentImplementation: { include: { fundDisbursements: true } } },
+        include: PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD,
       },
     };
     let funds: any[];
@@ -520,7 +588,8 @@ export class PortfolioDashboardService {
     let totalWeight = 0;
     for (const fund of funds) {
       try {
-        const irr = DataIntegrationService.fundGrossIrrFromLoadedFund(fund);
+        const fundCompanies = (fund.portfolioCompanies || []) as any[];
+        const irr = PortfolioDashboardService.fundGrossIrrProxy(fundCompanies, undefined);
         const fundPaidIn = parseFloat((fund.totalAmount || new Decimal(0)).toString());
         totalWeightedIRR += irr * fundPaidIn;
         totalWeight += fundPaidIn;
@@ -587,13 +656,7 @@ export class PortfolioDashboardService {
           where: { id: effectiveFundId },
           include: {
             portfolioCompanies: {
-              include: {
-                investmentImplementation: {
-                  include: {
-                    fundDisbursements: true
-                  }
-                }
-              }
+              include: PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD,
             },
             investmentCommitments: true
           }
@@ -611,13 +674,7 @@ export class PortfolioDashboardService {
         funds = await prisma.fund.findMany({
           include: {
             portfolioCompanies: {
-              include: {
-                investmentImplementation: {
-                  include: {
-                    fundDisbursements: true
-                  }
-                }
-              }
+              include: PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD,
             },
             investmentCommitments: true
           }
@@ -641,13 +698,7 @@ export class PortfolioDashboardService {
           where: {
             fundId: effectiveFundId
           },
-          include: {
-            investmentImplementation: {
-              include: {
-                fundDisbursements: true
-              }
-            }
-          }
+          include: PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD,
         });
         allPortfolioCompanies = directCompanies;
       }
@@ -870,7 +921,8 @@ export class PortfolioDashboardService {
     let totalWeight = 0;
     for (const fund of funds) {
       try {
-        const irr = DataIntegrationService.fundGrossIrrFromLoadedFund(fund);
+        const fundCompanies = portfolioCompanies.filter((c) => c.fundId === fund.id);
+        const irr = PortfolioDashboardService.fundGrossIrrProxy(fundCompanies, disbursementAsOf);
         const fundPaidIn = parseFloat((fund.totalAmount || new Decimal(0)).toString());
         totalWeightedIRR += irr * fundPaidIn;
         totalWeight += fundPaidIn;
@@ -1655,12 +1707,12 @@ export class PortfolioDashboardService {
     if (effectiveFundId) {
       companies = await prisma.portfolioCompany.findMany({
         where: { fundId: effectiveFundId },
-        include: { investmentImplementation: { include: { fundDisbursements: true } } },
+        include: PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD,
       });
     } else {
       companies = await prisma.portfolioCompany.findMany({
         where: { fundId: { not: null } },
-        include: { investmentImplementation: { include: { fundDisbursements: true } } },
+        include: PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD,
       });
     }
 
@@ -1924,6 +1976,10 @@ export class PortfolioDashboardService {
     if (financialKpis?.latestValuation?.amount) {
       const valuationAmount = financialKpis.latestValuation.amount || new Decimal(0);
       return parseFloat(valuationAmount.toString());
+    }
+    const monEq = financialKpis?.monitoringKpis?.EQUITY;
+    if (typeof monEq === "number" && Number.isFinite(monEq) && monEq > 0) {
+      return monEq;
     }
     // Fallback to annual revenue as proxy
     return parseFloat(company.annualRevenue?.toString() || '0');

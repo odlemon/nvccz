@@ -28,7 +28,7 @@ This document describes the full lifecycle: data prerequisites, REST calls in re
 1. **Fund** exists and is **`OPEN`** if you create commitments through **`POST /api/clients`** with a **`fundId`** (validation in `ClientService`).
 2. **Investment commitments:** at least one **`investment_commitments`** row for that fund with status **`ACTIVE`** or **`PENDING`**, and **all eligible commitments on that fund share one currency** (e.g. all USD).
 3. **LP (client):** each commitment links to **`clients`**. For notices, the client should have a non-empty **`email`**.  
-   - Create LP + commitment: **`POST /api/clients`** with `fundId`, `amount`, `currency`, `effectiveDate` (and optional fields — `investorId` is optional; server can generate `inv-{uuid}`).  
+   - Create LP + commitment: **`POST /api/clients`** with `fundId`, `amount`, `currency`, `effectiveDate` (and optional fields — omit **`investorId`** / **`investor_id`** to auto-assign the next partner number **`EXT_PAR_0001`**, **`EXT_PAR_0002`**, …; optional only when importing a fixed external id).  
    - Add commitment to an existing client: **`PUT /api/clients/:clientId`** with `fundId`, `amount`, `currency`, `effectiveDate`.
 4. **Print IDs for Postman:** `npm run db:print:capital-call-postman` — lists **`fundId`**, commitment ids, and whether the fund is ready for initiate.
 

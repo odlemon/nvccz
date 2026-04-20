@@ -1955,7 +1955,30 @@ export class ShortTermInvestmentService {
       userAgent: ctx.userAgent ?? undefined,
     });
 
-    return row;
+    // Backfill from instrument `startDate` through fiscal "today" immediately so backdated
+    // instruments do not appear to accrue only from `createdAt` (which happens if nothing
+    // runs catch-up until the first login / daily job).
+    let initialAccrualCatchUpWarning: string | undefined;
+    try {
+      const tz = await resolveStiFiscalIanaTimezone();
+      const fiscalToday = formatYyyyMmDdInTimeZone(new Date(), tz);
+      await this.catchUpAccruals({
+        instrumentId: row.id,
+        throughIso: fiscalToday,
+        actorId: ctx.userId,
+      });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      logger.warn("STI createInstrument initial catch-up failed", {
+        instrumentId: row.id,
+        message,
+      });
+      initialAccrualCatchUpWarning = message;
+    }
+
+    return initialAccrualCatchUpWarning
+      ? ({ ...row, initialAccrualCatchUpWarning } as typeof row & { initialAccrualCatchUpWarning: string })
+      : row;
   }
 
   static async appendApyRate(params: {
