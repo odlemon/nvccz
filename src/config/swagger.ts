@@ -21,6 +21,7 @@ import { vendorMasterSuite01Endpoints } from './vendor-master-suite01-endpoints'
 import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-sections-fallback-endpoints';
 import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
 import { fundManagementEndpoints } from './fund-management-endpoints';
+import { portfolioLetterheadsEndpoints } from './portfolio-letterheads-endpoints';
 
 const options = {
   definition: {
@@ -8807,6 +8808,7 @@ specs.paths = {
   ...updatedInvestmentFlowExtraPaths,
   ...updatedPerformanceSwaggerPaths,
   ...fundManagementEndpoints,
+  ...portfolioLetterheadsEndpoints,
 };
 
 specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);
