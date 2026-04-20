@@ -1217,7 +1217,7 @@ router.get("/with-investments", authenticate, authorize(["admin", "fund_manager"
 
 /**
  * @swagger
- * /api/portfolio-companies/{id}/letterhead:
+ * /portfolio-companies/{id}/letterhead:
  *   get:
  *     summary: Get investee letterhead for a portfolio company
  *     description: Any authenticated user (no role restriction).
@@ -1242,7 +1242,7 @@ router.get(
 
 /**
  * @swagger
- * /api/portfolio-companies/{id}/letterhead:
+ * /portfolio-companies/{id}/letterhead:
  *   put:
  *     summary: Create or update investee letterhead (partial JSON body)
  *     description: Any authenticated user (no role restriction).
@@ -1278,7 +1278,7 @@ router.put(
 
 /**
  * @swagger
- * /api/portfolio-companies/{id}/letterhead:
+ * /portfolio-companies/{id}/letterhead:
  *   delete:
  *     summary: Delete investee letterhead for a portfolio company
  *     description: Any authenticated user (no role restriction).
@@ -1294,7 +1294,7 @@ router.delete(
 
 /**
  * @swagger
- * /api/portfolio-companies/{id}/letterhead/logo:
+ * /portfolio-companies/{id}/letterhead/logo:
  *   post:
  *     summary: Upload letterhead logo (multipart field `logo`)
  *     description: Any authenticated user (no role restriction).
