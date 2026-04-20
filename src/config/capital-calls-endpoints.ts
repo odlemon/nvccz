@@ -65,7 +65,12 @@ export const capitalCallClientPrerequisitePathOps: Record<string, Record<string,
               type: 'object',
               required: ['type', 'legal_name', 'email', 'country'],
               properties: {
-                investor_id: { type: 'string', example: 'EXT-LP-2026-0042' },
+                investor_id: {
+                  type: 'string',
+                  description:
+                    'Optional. Omit to auto-assign next **`EXT_PAR_0001`**-style partner number. Only send when importing a fixed external id.',
+                  example: 'EXT_PAR_0042',
+                },
                 type: { type: 'string', enum: ['individual', 'institutional'] },
                 legal_name: { type: 'string', example: 'Jamie Patel' },
                 email: { type: 'string', format: 'email' },
@@ -288,7 +293,7 @@ export const capitalCallsEndpoints = {
       summary: '7a. Record payment (partial or full) on allocation',
       description:
         AUD +
-        'Inserts **`capital_call_allocation_payments`**, updates **`amount_paid`**, allocation **`PARTIALLY_PAID`** / **`PAID`**, header **`PARTIALLY_PAID`** / **`FULLY_PAID`**.',
+        'Inserts **`capital_call_allocation_payments`**, updates **`amount_paid`**, allocation **`PARTIALLY_PAID`** / **`PAID`**, header **`PARTIALLY_PAID`** / **`FULLY_PAID`**. Posts a **POSTED** journal **Dr** cash/bank (see optional body / env) **Cr** **`1210`** to clear capital contributions receivable from call initiation.',
       security: [{ bearerAuth: [] }],
       parameters: [fundIdParam, capitalCallIdParam, allocationIdParam],
       requestBody: {
@@ -304,6 +309,17 @@ export const capitalCallsEndpoints = {
                   format: 'double',
                   description: 'Receipt amount in call currency; must be ≤ remaining (currentCallAmount − amountPaid)',
                   example: 2500,
+                },
+                transactionDate: {
+                  type: 'string',
+                  format: 'date',
+                  description:
+                    'Optional GL date for the receipt JE (YYYY-MM-DD). Defaults to today (UTC date).',
+                },
+                cashChartOfAccountId: {
+                  type: 'string',
+                  description:
+                    'Optional chart_of_accounts id to debit (fund operating cash/bank). If omitted: **CAPITAL_CALL_RECEIPT_CASH_ACCOUNT_NO**, else first active bank GL, else **1100** / name match.',
                 },
               },
             },

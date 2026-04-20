@@ -15,6 +15,8 @@ import {
   resolveMandatoryAttachmentsFromOptionIds,
   type ReportingMandatoryAttachment,
 } from "../utils/reportingEmail";
+import { PortfolioCompanyLetterheadService } from "../services/PortfolioCompanyLetterheadService";
+import { RemoteUploadService } from "../services/RemoteUploadService";
 export class PortfolioCompanyController {
   // Create portfolio company with user
   static async createPortfolioCompany(req: Request, res: Response, next: NextFunction) {
@@ -720,6 +722,85 @@ export class PortfolioCompanyController {
         message: result.message
       });
     } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Letterhead CRUD for one portfolio company (not report-scoped); any authenticated user. */
+  static async getPortfolioCompanyLetterhead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      await PortfolioCompanyLetterheadService.ensurePortfolioCompanyExists(id);
+      const data = await PortfolioCompanyLetterheadService.getByPortfolioCompanyId(id);
+      return res.status(200).json({ success: true, data: data ?? null });
+    } catch (error: any) {
+      if (error?.statusCode) {
+        return res.status(error.statusCode).json({ success: false, message: error.message });
+      }
+      next(error);
+    }
+  }
+
+  static async upsertPortfolioCompanyLetterhead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      await PortfolioCompanyLetterheadService.ensurePortfolioCompanyExists(id);
+      const payload = PortfolioCompanyLetterheadService.pickUpsertPayload(req.body || {});
+      const data = await PortfolioCompanyLetterheadService.upsert(id, payload);
+      return res.status(200).json({
+        success: true,
+        message: "Portfolio company letterhead saved",
+        data,
+      });
+    } catch (error: any) {
+      if (error?.statusCode) {
+        return res.status(error.statusCode).json({ success: false, message: error.message });
+      }
+      next(error);
+    }
+  }
+
+  static async deletePortfolioCompanyLetterhead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      await PortfolioCompanyLetterheadService.ensurePortfolioCompanyExists(id);
+      const deleted = await PortfolioCompanyLetterheadService.deleteForPortfolioCompany(id);
+      return res.status(200).json({
+        success: true,
+        message: deleted ? "Letterhead removed" : "No letterhead record existed",
+        deleted: deleted > 0,
+      });
+    } catch (error: any) {
+      if (error?.statusCode) {
+        return res.status(error.statusCode).json({ success: false, message: error.message });
+      }
+      next(error);
+    }
+  }
+
+  static async uploadPortfolioCompanyLetterheadLogo(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      await PortfolioCompanyLetterheadService.ensurePortfolioCompanyExists(id);
+      const file = (req as any).file;
+      if (!file?.buffer?.length) {
+        return res.status(400).json({ success: false, message: "logo file is required (multipart field: logo)" });
+      }
+      const upload = await new RemoteUploadService().uploadFiles(file, "portfolio-company-letterhead-logos");
+      if (!upload?.success || !upload.files?.length) {
+        return res.status(400).json({ success: false, message: upload?.error || "Logo upload failed" });
+      }
+      const logoUrl = upload.files[0].url;
+      const data = await PortfolioCompanyLetterheadService.setLogoUrl(id, logoUrl);
+      return res.status(200).json({
+        success: true,
+        message: "Logo uploaded",
+        data: { logoUrl, letterhead: data },
+      });
+    } catch (error: any) {
+      if (error?.statusCode) {
+        return res.status(error.statusCode).json({ success: false, message: error.message });
+      }
       next(error);
     }
   }

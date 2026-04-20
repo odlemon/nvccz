@@ -126,6 +126,58 @@ async function requireChartAccounts(): Promise<{ drId: string; crId: string }> {
   return { drId: dr.id, crId: cr.id };
 }
 
+/**
+ * GL to debit when LPs pay a capital call (cash hitting the fund). Override per request with `cashChartOfAccountId`,
+ * or set env **CAPITAL_CALL_RECEIPT_CASH_ACCOUNT_NO** (e.g. `1100`), else first active bank GL, else 1100 / Bank / Cash name match.
+ */
+async function resolveReceiptCashGlAccountId(explicitId?: string | null): Promise<string> {
+  if (explicitId) {
+    const row = await prisma.chartOfAccounts.findFirst({
+      where: { id: explicitId, isActive: true },
+      select: { id: true },
+    });
+    if (!row) {
+      throw new Error("cashChartOfAccountId is not a valid active chart of accounts id");
+    }
+    return row.id;
+  }
+  const envNo = process.env.CAPITAL_CALL_RECEIPT_CASH_ACCOUNT_NO?.trim();
+  if (envNo) {
+    const coa = await prisma.chartOfAccounts.findFirst({
+      where: { accountNo: envNo, isActive: true },
+      select: { id: true },
+    });
+    if (!coa) {
+      throw new Error(
+        `CAPITAL_CALL_RECEIPT_CASH_ACCOUNT_NO=${envNo}: no active chart of accounts row with that accountNo`
+      );
+    }
+    return coa.id;
+  }
+  const firstBank = await prisma.bank.findFirst({
+    where: { isActive: true, glAccountId: { not: null } },
+    orderBy: { createdAt: "asc" },
+    select: { glAccountId: true },
+  });
+  if (firstBank?.glAccountId) {
+    return firstBank.glAccountId;
+  }
+  const fallback = await prisma.chartOfAccounts.findFirst({
+    where: {
+      OR: [{ accountNo: "1100" }, { accountName: { contains: "Bank" } }, { accountName: { contains: "Cash" } }],
+      isActive: true,
+    },
+    orderBy: { accountNo: "asc" },
+    select: { id: true },
+  });
+  if (!fallback) {
+    throw new Error(
+      "No cash/bank GL for capital call receipts. Pass cashChartOfAccountId on the payment request, set CAPITAL_CALL_RECEIPT_CASH_ACCOUNT_NO, or link an active bank to a GL account."
+    );
+  }
+  return fallback.id;
+}
+
 async function resolveCurrencyId(currencyCode: string): Promise<{ id: string; code: string }> {
   const row = await prisma.currency.findFirst({
     where: { code: currencyCode.toUpperCase(), isActive: true },
@@ -685,6 +737,11 @@ export class CapitalCallService {
     capitalCallId: string;
     allocationId: string;
     amount: number | string;
+    createdById: string;
+    /** GL posting date; defaults to UTC start of today. */
+    transactionDate?: Date;
+    /** Debit this GL (cash/bank). If omitted, uses env / first bank GL / 1100 fallback. */
+    cashChartOfAccountId?: string;
   }) {
     const amt = new Decimal(typeof params.amount === "string" ? params.amount : String(params.amount));
     if (!amt.isFinite() || amt.lte(0)) {
@@ -697,7 +754,17 @@ export class CapitalCallService {
         capitalCallId: params.capitalCallId,
         capitalCall: { fundId: params.fundId },
       },
-      include: { capitalCall: { select: { id: true, status: true, noticesSentAt: true } } },
+      include: {
+        capitalCall: {
+          select: {
+            id: true,
+            status: true,
+            noticesSentAt: true,
+            currencyId: true,
+            fund: { select: { name: true } },
+          },
+        },
+      },
     });
     if (!allocation) throw new Error("Allocation not found");
 
@@ -713,13 +780,25 @@ export class CapitalCallService {
     const st = allocationStatus(callAmount, newPaid);
 
     const noticesSent = allocation.capitalCall?.noticesSentAt != null;
+    const amtPosted = roundMoney(amt);
+    const currencyId = allocation.capitalCall.currencyId;
+    const fundName = allocation.capitalCall.fund.name;
+    const txDate = params.transactionDate ?? new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
+
+    const [{ drId: receivableId }, cashGlId] = await Promise.all([
+      requireChartAccounts(),
+      resolveReceiptCashGlAccountId(params.cashChartOfAccountId ?? null),
+    ]);
+
+    const referenceNumber = `CCALLPAY-${params.allocationId.slice(0, 8)}-${Date.now()}`;
+    const desc = `LP capital call receipt — ${fundName} — ${allocation.lpLegalNameSnapshot}`;
 
     await prisma.$transaction(
       async (tx) => {
         await tx.capitalCallAllocationPayment.create({
           data: {
             capitalCallAllocationId: params.allocationId,
-            amount: amt,
+            amount: amtPosted,
           },
         });
         await tx.capitalCallAllocation.update({
@@ -741,8 +820,37 @@ export class CapitalCallService {
           where: { id: params.capitalCallId },
           data: { status: hdr },
         });
+
+        const journalEntry = await assignNextAuditIdAndCreateJournal(tx, {
+          transactionDate: txDate,
+          referenceNumber,
+          description: desc,
+          totalAmount: amtPosted,
+          currencyId,
+          status: "POSTED",
+          createdById: params.createdById,
+        });
+
+        await tx.journalEntryLine.createMany({
+          data: [
+            {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: cashGlId,
+              debitAmount: amtPosted,
+              creditAmount: new Decimal(0),
+              description: `Cash/bank — capital call receipt (${fundName})`,
+            },
+            {
+              journalEntryId: journalEntry.id,
+              chartOfAccountId: receivableId,
+              debitAmount: new Decimal(0),
+              creditAmount: amtPosted,
+              description: `${DR_ACCOUNT_NO} — Clear capital contributions receivable (${fundName})`,
+            },
+          ],
+        });
       },
-      { maxWait: 4000, timeout: 8000 }
+      { maxWait: 8000, timeout: 20_000 }
     );
 
     return this.getById(params.fundId, params.capitalCallId);

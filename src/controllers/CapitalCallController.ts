@@ -103,20 +103,36 @@ export class CapitalCallController {
   static async recordPayment(req: Request, res: Response) {
     try {
       const { fundId, capitalCallId, allocationId } = req.params;
-      const { amount } = req.body || {};
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      const b = req.body || {};
+      const { amount } = b;
       if (amount == null) {
         return res.status(400).json({ success: false, message: "amount is required" });
       }
+      const transactionDate =
+        b.transactionDate != null && b.transactionDate !== ""
+          ? parseDateOnly(b.transactionDate, "transactionDate")
+          : undefined;
+      const cashChartOfAccountId =
+        b.cashChartOfAccountId != null && String(b.cashChartOfAccountId).trim() !== ""
+          ? String(b.cashChartOfAccountId).trim()
+          : undefined;
       const data = await CapitalCallService.recordAllocationPayment({
         fundId,
         capitalCallId,
         allocationId,
         amount,
+        createdById: userId,
+        transactionDate,
+        cashChartOfAccountId,
       });
       return res.json({
         success: true,
         message:
-          "Payment recorded. Use GET .../allocations/:allocationId/payments for this allocation's ledger, GET .../lp-summary for fund dashboard.",
+          "Payment recorded and posted to the GL (Dr cash/bank, Cr 1210). Use GET .../allocations/:allocationId/payments for this allocation's ledger, GET .../lp-summary for fund dashboard.",
         data,
       });
     } catch (e: any) {

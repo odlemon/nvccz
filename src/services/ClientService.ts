@@ -1,10 +1,12 @@
 // @ts-nocheck
-import { randomUUID } from "crypto";
-import { PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../utils/database";
 
+/** Partner / LP external reference: `EXT_PAR_0001`, `EXT_PAR_0002`, … (zero-padded, min width 4). */
+const PARTNER_ID_PREFIX = "EXT_PAR_";
+
 export interface CreateClientRequest {
-  /** Optional. When omitted, a unique value is generated (`inv-{uuid}`). */
+  /** Optional override. When omitted, the server assigns the next `EXT_PAR_####` partner number (capital-call LPs). */
   investorId?: string;
   type: string; // "individual" or "institutional"
   legalName: string;
@@ -44,6 +46,27 @@ export interface UpdateClientRequest {
 
 
 export class ClientService {
+  /**
+   * Next sequential partner investor id (`EXT_PAR_0001` …) scoped to existing `EXT_PAR_*` rows.
+   * Call only inside a transaction so allocation stays near the insert (reduces race window).
+   */
+  static async allocateNextPartnerInvestorId(tx: Prisma.TransactionClient): Promise<string> {
+    const rows = await tx.client.findMany({
+      where: { investorId: { startsWith: PARTNER_ID_PREFIX } },
+      select: { investorId: true }
+    });
+    let maxNum = 0;
+    for (const { investorId } of rows) {
+      const m = new RegExp(`^${PARTNER_ID_PREFIX}(\\d+)$`).exec(String(investorId).trim());
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (!Number.isNaN(n)) maxNum = Math.max(maxNum, n);
+      }
+    }
+    const next = maxNum + 1;
+    return `${PARTNER_ID_PREFIX}${String(next).padStart(4, "0")}`;
+  }
+
   // Create a new client with optional investment commitment
   static async createClient(request: CreateClientRequest) {
     try {
@@ -51,7 +74,6 @@ export class ClientService {
         request.investorId != null && String(request.investorId).trim() !== ""
           ? String(request.investorId).trim()
           : null;
-      const investorId = providedInvestorId ?? `inv-${randomUUID()}`;
 
       if (providedInvestorId) {
         const existingClient = await prisma.client.findUnique({
@@ -108,6 +130,9 @@ export class ClientService {
 
       // Create client and investment commitment in a transaction with timeout
       const result = await prisma.$transaction(async (tx) => {
+        const investorId =
+          providedInvestorId ?? (await ClientService.allocateNextPartnerInvestorId(tx));
+
         // Determine client status: if creating with commitments, must be ACTIVE
         const clientStatus = request.fundId ? "ACTIVE" : (request.status || "ACTIVE");
         
