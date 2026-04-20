@@ -30,7 +30,7 @@ router.use(authenticate);
  * /newsletters:
  *   post:
  *     summary: Create a new newsletter
- *     description: Create a company newsletter, notify internal staff (in-app), and email users who can access the platform — excludes investees (portfolio company users), Limited Partners, and applicant-role users. Response includes `distribution` counts.
+ *     description: Create a company newsletter, notify internal staff (in-app), and queue emails to eligible users (investees, LPs, and applicant-role excluded). Emails send in the background so the HTTP response stays within SLA; see `distribution.emailDispatch`.
  *     tags: [Newsletters]
  *     security:
  *       - bearerAuth: []
