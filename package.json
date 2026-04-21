@@ -65,6 +65,7 @@
     "verify:sti-create-start-date": "ts-node --transpile-only -r dotenv/config scripts/sti-verify-create-then-cleanup.ts",
     "verify:je-sort-sample": "ts-node --transpile-only scripts/fetch-je-sort-sample.ts",
     "db:ensure:employee-performance-contracts": "ts-node scripts/ensure-employee-performance-contracts.ts",
+    "db:ensure:employee-performance-contract-email": "ts-node scripts/ensure-employee-performance-contract-for-email.ts",
     "db:cleanup:performance-contracts": "ts-node scripts/delete-all-performance-contracts.ts",
     "db:dedupe:performance-contracts": "ts-node scripts/dedupe-performance-contracts.ts",
     "db:seed:ceo-performance-contract": "ts-node scripts/seed-ceo-performance-contract.ts",

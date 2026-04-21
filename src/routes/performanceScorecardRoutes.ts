@@ -243,6 +243,34 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
+/**
+ * @swagger
+ * /api/performance/scorecards/employees-for-generation:
+ *   get:
+ *     summary: List employees who have an EMPLOYEE performance contract for the period (excludes CEO)
+ *     description: Use when choosing who can receive an individual/employee scorecard. Same period query as other scorecard endpoints.
+ *     tags: [Updated performance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: periodStart
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: periodEnd
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: periodLabel
+ *         schema: { type: string, example: "2026" }
+ *     responses:
+ *       200:
+ *         description: OK — data.period and data.employees[]
+ */
+router.get(
+  "/employees-for-generation",
+  PerformanceScorecardController.listEmployeesForScorecardGeneration
+);
+
 router.get("/user", PerformanceScorecardController.getUserScorecard);
 
 /**

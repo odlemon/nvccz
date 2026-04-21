@@ -4207,4 +4207,77 @@ export class PerformanceScorecardService {
 
     return updated;
   }
+
+  /**
+   * For scorecard UI: users with an overlapping **EMPLOYEE** performance contract for the period
+   * (same window as `getEmployeeScorecard`). Excludes **CEO** — they use the CEO contract scorecard.
+   */
+  static async listEmployeesWithContractForScorecardPeriod(params: {
+    periodStart?: string;
+    periodEnd?: string;
+    periodLabel?: string;
+  }) {
+    const period = this.buildPeriod(params);
+    const contractPeriodWhere = this.buildContractPeriodWhere(period);
+
+    const groups = await prisma.performanceContract.groupBy({
+      by: ["subjectUserId"],
+      where: {
+        contractType: "EMPLOYEE",
+        subjectUserId: { not: null },
+        status: { notIn: ["ARCHIVED", "CANCELLED"] },
+        ...contractPeriodWhere
+      },
+      _count: { _all: true }
+    });
+
+    const ids = groups.map((g) => g.subjectUserId).filter((x): x is string => Boolean(x));
+    if (ids.length === 0) {
+      return {
+        period: {
+          periodStart: period.periodStart,
+          periodEnd: period.periodEnd,
+          periodLabel: period.periodLabel ?? null
+        },
+        employees: []
+      };
+    }
+
+    const users = await prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        userDepartment: true,
+        departmentRole: true,
+        roleCode: true,
+        role: { select: { id: true, name: true } }
+      },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }]
+    });
+
+    const employees = users
+      .filter((u) => !isCEO({ ...u, role: u.role }))
+      .map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        userDepartment: u.userDepartment,
+        departmentRole: u.departmentRole,
+        roleCode: u.roleCode,
+        roleName: u.role?.name ?? null
+      }));
+
+    return {
+      period: {
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd,
+        periodLabel: period.periodLabel ?? null
+      },
+      employees
+    };
+  }
 }

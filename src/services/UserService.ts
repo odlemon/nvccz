@@ -11,6 +11,25 @@ export class UserService {
     return !!roleCode && BOARD_VOTING_ROLE_CODES.includes(roleCode);
   }
 
+  /**
+   * System role "CEO" (hardcoded role code / DB role name) — at most one user may hold it.
+   */
+  private static async assertAtMostOneCeoInSystem(params: { excludeUserId?: string; assigningCeo: boolean }) {
+    if (!params.assigningCeo) return;
+    const existing = await prisma.user.findFirst({
+      where: {
+        ...(params.excludeUserId ? { id: { not: params.excludeUserId } } : {}),
+        OR: [{ roleCode: "CEO" }, { roleCode: "ceo" }, { role: { name: "CEO" } }]
+      },
+      select: { id: true, email: true, firstName: true, lastName: true }
+    });
+    if (existing) {
+      throw new Error(
+        `Only one CEO is allowed in the system. Current CEO: ${existing.firstName} ${existing.lastName} (${existing.email}). Reassign that user before assigning another CEO.`
+      );
+    }
+  }
+
   private static validateVotingPowerValue(value: number) {
     if (Number.isNaN(value)) {
       throw new Error("Voting power must be a valid number");
@@ -317,6 +336,9 @@ This is an automated message. Please do not reply to this email.
         throw new Error(`Role "${hardcodedRole.name}" not found in database. Please ensure roles are synced by running: npx ts-node scripts/sync-hardcoded-roles.ts`);
       }
 
+      const assigningCeo = hardcodedRole.code === "CEO" || String(role.name || "").trim().toUpperCase() === "CEO";
+      await this.assertAtMostOneCeoInSystem({ assigningCeo });
+
       const isBoardRole = this.isBoardVotingRole(userData.roleCode);
 
       if (isBoardRole) {
@@ -537,6 +559,15 @@ This is an automated message. Please do not reply to this email.
 
       const targetRoleCode = userData.roleCode ?? existingUser.roleCode;
       const isBoardRole = this.isBoardVotingRole(targetRoleCode);
+
+      let assigningCeo = false;
+      if (userData.roleCode !== undefined && userData.roleCode !== null) {
+        assigningCeo = String(userData.roleCode).trim().toUpperCase() === "CEO";
+      } else if (userData.roleId !== undefined && userData.roleId !== null) {
+        const r = await prisma.role.findUnique({ where: { id: userData.roleId } });
+        assigningCeo = String(r?.name || "").trim().toUpperCase() === "CEO";
+      }
+      await this.assertAtMostOneCeoInSystem({ excludeUserId: id, assigningCeo });
 
       if (isBoardRole) {
         const departmentToSet = userData.department ?? existingUser.userDepartment;

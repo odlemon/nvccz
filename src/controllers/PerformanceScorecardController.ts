@@ -112,6 +112,31 @@ function statusForCEOScorecardError(message: string): number {
 }
 
 export class PerformanceScorecardController {
+  /**
+   * Employees with an EMPLOYEE performance contract for the period (excludes CEO).
+   * Query: periodStart, periodEnd, periodLabel — same as other scorecard routes.
+   */
+  static async listEmployeesForScorecardGeneration(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.listEmployeesWithContractForScorecardPeriod(
+        getPeriodParams(req)
+      );
+      return ResponseHelper.success(
+        res,
+        "Employees with a performance contract for this period (CEO excluded)",
+        data
+      );
+    } catch (error: any) {
+      console.error("Error listing employees for scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to list employees",
+        undefined,
+        500
+      );
+    }
+  }
+
   static async getUserScorecard(req: Request, res: Response) {
     try {
       const scorecard = await PerformanceScorecardService.getEmployeeScorecard({
