@@ -1860,6 +1860,137 @@ export class ShortTermInvestmentService {
     };
   }
 
+  /**
+   * Validate that each GL account referenced by an STI instrument is active AND of the
+   * accounting family the settlement journal entry expects. Prevents mis-configured
+   * instruments from posting nonsensical entries (e.g. crediting "Allowance for Doubtful
+   * Debts" as accrued interest, or crediting "Event Budget Allocation" as principal).
+   *
+   * Hard rules:
+   *   • principalGlAccountId, accruedInterestGlAccountId → must be an Asset-family type
+   *     (Asset / Current Asset / Non-Current Asset / Fixed Asset / Long-Term Asset).
+   *     Must NOT be Contra-Asset (e.g. Allowance / Accumulated Depreciation).
+   *   • interestIncomeGlAccountId → must be Revenue / Other Income.
+   *   • negativeYieldExpenseGlAccountId → must be Expense / Other Expense / Cost of Sales.
+   *   • unrealized / realized FX accounts (when provided) → must be Revenue- or
+   *     Expense-family (to accept either gain or loss postings).
+   *
+   * Soft rule:
+   *   • Account name must not contain obviously-disqualifying keywords
+   *     (allowance, doubtful, accumulated depreciation, budget, allocation, write[- ]?off,
+   *     provision, reserve). These never belong on an STI instrument.
+   */
+  static async validateStiGlAccounts(params: {
+    principalGlAccountId: string;
+    accruedInterestGlAccountId: string;
+    interestIncomeGlAccountId: string;
+    negativeYieldExpenseGlAccountId: string;
+    unrealizedFxGlAccountId?: string | null;
+    realizedFxGlAccountId?: string | null;
+  }): Promise<void> {
+    const ids = [
+      params.principalGlAccountId,
+      params.accruedInterestGlAccountId,
+      params.interestIncomeGlAccountId,
+      params.negativeYieldExpenseGlAccountId,
+      params.unrealizedFxGlAccountId || null,
+      params.realizedFxGlAccountId || null,
+    ].filter((x): x is string => !!x);
+
+    if (ids.length === 0) {
+      throw new Error("STI instrument must have GL accounts configured");
+    }
+
+    const rows = await prisma.chartOfAccounts.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, accountNo: true, accountName: true, accountType: true, isActive: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    const ASSET_FAMILY = new Set([
+      "asset",
+      "current asset",
+      "non-current asset",
+      "fixed asset",
+      "long-term asset",
+    ]);
+    const REVENUE_FAMILY = new Set(["revenue", "income", "other income"]);
+    const EXPENSE_FAMILY = new Set(["expense", "other expense", "cost of sales", "cost of goods sold"]);
+    const REVENUE_OR_EXPENSE = new Set([...REVENUE_FAMILY, ...EXPENSE_FAMILY]);
+    const FORBIDDEN_NAME_PATTERNS = [
+      /allowance/i,
+      /doubtful/i,
+      /accumulated\s*depreciation/i,
+      /budget/i,
+      /allocation/i,
+      /write[- ]?off/i,
+      /provision/i,
+      /\breserve\b/i,
+    ];
+
+    const check = (
+      role: string,
+      id: string | null | undefined,
+      allowed: Set<string>,
+      roleHint: string
+    ) => {
+      if (!id) return; // optional account — skip
+      const row = byId.get(id);
+      if (!row) {
+        throw new Error(
+          `STI ${role} GL account not found (id=${id})`
+        );
+      }
+      if (!row.isActive) {
+        throw new Error(
+          `STI ${role} GL account "${row.accountNo} ${row.accountName}" is inactive`
+        );
+      }
+      const typeNorm = String(row.accountType || "").trim().toLowerCase();
+      if (!allowed.has(typeNorm)) {
+        throw new Error(
+          `STI ${role} must be a ${roleHint} account; ` +
+            `"${row.accountNo} ${row.accountName}" is of type "${row.accountType}"`
+        );
+      }
+      for (const rx of FORBIDDEN_NAME_PATTERNS) {
+        if (rx.test(row.accountName)) {
+          throw new Error(
+            `STI ${role} account "${row.accountNo} ${row.accountName}" has a disqualifying name (matches ${rx}). ` +
+              `Pick a dedicated short-term-investment GL account instead.`
+          );
+        }
+      }
+    };
+
+    check("principalGlAccountId", params.principalGlAccountId, ASSET_FAMILY, "Short-Term Investments / Asset-family");
+    check("accruedInterestGlAccountId", params.accruedInterestGlAccountId, ASSET_FAMILY, "Accrued Interest Receivable / Asset-family");
+    check("interestIncomeGlAccountId", params.interestIncomeGlAccountId, REVENUE_FAMILY, "Interest Income / Revenue-family");
+    check("negativeYieldExpenseGlAccountId", params.negativeYieldExpenseGlAccountId, EXPENSE_FAMILY, "Negative-Yield Expense / Expense-family");
+    check("unrealizedFxGlAccountId", params.unrealizedFxGlAccountId, REVENUE_OR_EXPENSE, "Unrealized FX Gain/Loss — Revenue- or Expense-family");
+    check("realizedFxGlAccountId", params.realizedFxGlAccountId, REVENUE_OR_EXPENSE, "Realized FX Gain/Loss — Revenue- or Expense-family");
+
+    // Additional cross-check: the three primary accounts must all be distinct.
+    // Using the same account for principal AND accrued OR principal AND interest-income
+    // leads to collapsed postings that obscure economics.
+    const triad: Array<[string, string]> = [
+      ["principalGlAccountId", params.principalGlAccountId],
+      ["accruedInterestGlAccountId", params.accruedInterestGlAccountId],
+      ["interestIncomeGlAccountId", params.interestIncomeGlAccountId],
+    ];
+    for (let i = 0; i < triad.length; i++) {
+      for (let j = i + 1; j < triad.length; j++) {
+        if (triad[i][1] === triad[j][1]) {
+          const row = byId.get(triad[i][1]);
+          throw new Error(
+            `STI ${triad[i][0]} and ${triad[j][0]} cannot be the same GL account ` +
+              `("${row?.accountNo} ${row?.accountName}"). Use distinct accounts.`
+          );
+        }
+      }
+    }
+  }
+
   static async createInstrument(
     payload: {
       name: string;
@@ -1911,6 +2042,19 @@ export class ShortTermInvestmentService {
     if (!settlementBank.glAccountId) {
       throw new Error("Settlement bank must have a linked GL account (Cash / CACE)");
     }
+
+    // Strict validation of the GL accounts the JE posting logic will use. Without this,
+    // callers were attaching unrelated accounts (e.g. "Allowance for Doubtful Debts",
+    // "Event Budget Allocation") which produced misleading journal entries and cash-flow
+    // line items at settlement time.
+    await ShortTermInvestmentService.validateStiGlAccounts({
+      principalGlAccountId: payload.principalGlAccountId,
+      accruedInterestGlAccountId: payload.accruedInterestGlAccountId,
+      interestIncomeGlAccountId: payload.interestIncomeGlAccountId,
+      negativeYieldExpenseGlAccountId: payload.negativeYieldExpenseGlAccountId,
+      unrealizedFxGlAccountId: payload.unrealizedFxGlAccountId ?? null,
+      realizedFxGlAccountId: payload.realizedFxGlAccountId ?? null,
+    });
 
     const row = await prisma.shortTermInvestmentInstrument.create({
       data: {

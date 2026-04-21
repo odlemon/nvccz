@@ -7,7 +7,6 @@ import dotenv from "dotenv"
 import compression from "compression"
 
 import { errorMiddleware } from "./middleware/error"
-import { apiRequestTimeout } from "./middleware/apiRequestTimeout"
 import { prisma, checkDatabaseConnection } from "./utils/database"
 import { envConfig } from "./utils/env"
 import { logger } from "./utils/logger"
@@ -293,9 +292,6 @@ app.use(async (req, res, next) => {
     });
   }
 });
-
-// Default 5s response budget for /api (see API_REQUEST_TIMEOUT_MS); longer for Suite 06 LLM, batch pay, cron, trial balance, multi-currency GETs, etc. (see apiRequestTimeout.ts).
-app.use(apiRequestTimeout())
 
 // Attach request metadata (ip, user-agent) for audit logging
 import { attachRequestMeta } from "./middleware/requestMeta"
