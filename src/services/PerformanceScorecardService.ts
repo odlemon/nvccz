@@ -70,11 +70,24 @@ type AccessContext = {
   meta?: any;
 };
 
+/**
+ * Default period when the client sends no periodLabel / dates.
+ * Used by **all** scorecard entry points: employee, department, CEO, board, org BSC dashboard
+ * (`buildPeriod` → contract overlap via `buildContractPeriodWhere`).
+ *
+ * Must overlap {@link PerformanceContract} rows, which are stored as **UTC calendar years**
+ * (Jan 1 00:00:00.000Z – Dec 31 23:59:59.999Z) per PerformanceContractSetupService.
+ *
+ * The previous implementation used the **current local calendar month** only, which broke
+ * contract lookup whenever contracts existed for another year (e.g. 2025 contracts while
+ * generating scorecards in 2026 — no date overlap → missing contract errors for every type).
+ */
 function currentPeriodBounds() {
-  const now = new Date();
+  const year = new Date().getUTCFullYear();
   return {
-    periodStart: new Date(now.getFullYear(), now.getMonth(), 1),
-    periodEnd: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+    periodStart: new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0)),
+    periodEnd: new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999)),
+    periodLabel: String(year)
   };
 }
 

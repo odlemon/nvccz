@@ -80,6 +80,7 @@
     "db:migrate:fiscal-period-lock": "ts-node scripts/run-fiscal-period-lock-migration.ts",
     "db:seed:period-lock-permissions": "ts-node scripts/seed-period-lock-permissions.ts",
     "db:print:sti-postman-seed": "ts-node --transpile-only scripts/print-sti-postman-seed-data.ts",
+    "db:diagnose:performance-contracts": "ts-node scripts/diagnose-performance-contracts.ts",
     "db:audit:sti-gl-mappings": "ts-node scripts/audit-sti-gl-mappings.ts",
     "db:remap:sti-gl-mappings": "ts-node scripts/remap-sti-gl-mappings.ts",
     "db:fix:sti-journal-line-accounts": "ts-node scripts/retarget-sti-journal-line-accounts.ts",
