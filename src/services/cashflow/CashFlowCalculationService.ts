@@ -411,6 +411,7 @@ export class CashFlowCalculationService {
       const lineItems = picked.map((agg) => {
         totalDecimal = totalDecimal.plus(agg.amount);
         return {
+          accountId: agg.accountId,
           accountNo: agg.accountNo,
           accountName: agg.accountName,
           accountType: agg.accountType,
@@ -426,7 +427,9 @@ export class CashFlowCalculationService {
         total: totalDecimal.toNumber(),
         accountCount: lineItems.length,
         description: sectionDescription(kind),
-        lineItems
+        lineItems,
+        // Legacy UI compatibility: same data as lineItems (many clients still read `accounts`).
+        accounts: lineItems
       };
     };
 
