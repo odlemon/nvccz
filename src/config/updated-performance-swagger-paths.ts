@@ -1101,6 +1101,29 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     }
   },
 
+  '/performance/scorecards/employees-for-generation': {
+    get: {
+      tags: ['Updated performance'],
+      summary: 'List employees eligible for employee scorecard generation',
+      description:
+        'Returns **`users`** who have an **ACTIVE** **EMPLOYEE** performance contract overlapping the requested period (same resolution as other scorecards). **CEO** users are **excluded**. Use the returned **`id`** values as **`{employeeId}`** on **`POST /performance/scorecards/employee/{employeeId}/generate`**. ' +
+        PERIOD_FIELDS,
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'periodStart', schema: { type: 'string', format: 'date-time' } },
+        { in: 'query', name: 'periodEnd', schema: { type: 'string', format: 'date-time' } },
+        { in: 'query', name: 'periodLabel', schema: { type: 'string', example: '2026' } }
+      ],
+      responses: {
+        200: {
+          description:
+            '`{ success: true, message, data: { period: { periodStart, periodEnd, periodLabel }, employees: [{ id, firstName, lastName, email, userDepartment, departmentRole, roleCode, roleName }] } }`'
+        },
+        401: JSON_401
+      }
+    }
+  },
+
   '/performance/scorecards/board/generate': {
     post: {
       tags: ['Updated performance'],

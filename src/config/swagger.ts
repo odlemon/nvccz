@@ -224,7 +224,7 @@ const options = {
       {
         name: 'Updated performance',
         description:
-          'BSC **data entry**, **workflow**, **performance contracts**, and **scorecard generate** (persist draft) — see `docs/performance-bsc-data-entry-flow.md` for paths, **example JSON bodies** (incl. contracts), and rules. **Contracts:** `POST /performance/contracts/board|ceo|department|employee` (annual `periodYear` or exact UTC year bounds; CEO may omit `subjectUserId` to resolve from roles). **Scorecards (generate):** `POST /performance/scorecards/board/generate`, `…/ceo/generate`, `…/department/{department}/generate`, `…/employee/{employeeId}/generate` — optional period + **sectionBlendMode** (Board/CEO). JWT only on these routes.'
+          'BSC **data entry**, **workflow**, **performance contracts**, and **scorecard generate** (persist draft) — see `docs/performance-bsc-data-entry-flow.md` for paths, **example JSON bodies** (incl. contracts), and rules. **Contracts:** `POST /performance/contracts/board|ceo|department|employee` (annual `periodYear` or exact UTC year bounds; CEO may omit `subjectUserId` to resolve from roles). **Scorecards:** `GET /performance/scorecards/employees-for-generation` (EMPLOYEE contract holders for the period, CEO excluded) and **`POST /performance/scorecards/board/generate`, `…/ceo/generate`, `…/department/{department}/generate`, `…/employee/{employeeId}/generate`** — optional period + **sectionBlendMode** (Board/CEO). JWT only on these routes.'
       },
       {
         name: 'performance-kpis',
