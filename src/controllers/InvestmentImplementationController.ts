@@ -43,7 +43,8 @@ export class InvestmentImplementationController {
         notes,
         disbursementMode,
         totalCommittedAmount,
-        commitmentCurrencyId
+        commitmentCurrencyId,
+        disbursementPeriods
       } = req.body;
       const initiatedById = (req as any).user.id;
 
@@ -56,7 +57,8 @@ export class InvestmentImplementationController {
         notes,
         disbursementMode, // ONE_TIME or MILESTONE_BASED
         totalCommittedAmount, // Required if MILESTONE_BASED
-        commitmentCurrencyId
+        commitmentCurrencyId,
+        disbursementPeriods
       });
 
       // Send investment implementation started email notification

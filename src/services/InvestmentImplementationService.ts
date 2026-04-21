@@ -25,6 +25,14 @@ export interface CreateInvestmentImplementationRequest {
   notes?: string;
   disbursementMode?: 'ONE_TIME' | 'MILESTONE_BASED'; // Optional: defaults to ONE_TIME
   totalCommittedAmount?: number; // Required if MILESTONE_BASED
+  /** Optional setup for milestone-based disbursement periods (no extra endpoint needed). */
+  disbursementPeriods?: Array<{
+    label?: string;
+    dueDate: Date | string;
+    /** Optional. When omitted, backend auto-allocates from totalCommittedAmount. */
+    amount?: number;
+    notes?: string;
+  }>;
   /** IC cap / commitment currency (defaults to system default currency or USD). */
   commitmentCurrencyId?: string;
 }
@@ -103,6 +111,25 @@ export interface InvestmentImplementationWithRelations extends InvestmentImpleme
 }
 
 export class InvestmentImplementationService {
+  private static asDate(value: Date | string): Date {
+    const d = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(d.getTime())) {
+      throw new Error(`Invalid period dueDate: ${value}`);
+    }
+    return d;
+  }
+
+  /** Split `total` into `count` 2-decimal parts, preserving exact total by remainder on last part. */
+  private static splitAmount(total: Decimal, count: number): Decimal[] {
+    if (count <= 0) return [];
+    const base = total.div(count).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const parts = Array.from({ length: count }, () => new Decimal(base));
+    const allocated = parts.reduce((s, p) => s.plus(p), new Decimal(0));
+    const diff = total.minus(allocated);
+    parts[count - 1] = parts[count - 1].plus(diff);
+    return parts;
+  }
+
   /** Amount in commitment / IC cap currency for a disbursement row (legacy rows: amount only). */
   private static commitmentEquivalent(d: { amount: unknown; amountCommitmentCurrency?: unknown }): Decimal {
     if (d.amountCommitmentCurrency != null && d.amountCommitmentCurrency !== undefined) {
@@ -262,6 +289,35 @@ export class InvestmentImplementationService {
    */
   static async initiateInvestmentImplementation(params: CreateInvestmentImplementationRequest): Promise<InvestmentImplementationWithRelations> {
     try {
+             // If implementation already exists for this portfolio company, return it (idempotent initiate).
+      const existingImplementation = await prisma.investmentImplementation.findUnique({
+        where: { portfolioCompanyId: params.portfolioCompanyId },
+        include: {
+          portfolioCompany: {
+            select: { id: true, name: true, industry: true, status: true }
+          },
+          application: {
+            select: {
+              id: true,
+              businessName: true,
+              applicantName: true,
+              applicantEmail: true,
+              currentStage: true
+            }
+          },
+          fund: { select: { id: true, name: true, totalAmount: true } },
+          initiatedBy: {
+            select: { id: true, firstName: true, lastName: true, email: true }
+          },
+          milestones: { orderBy: { dueDate: 'asc' } },
+          fundDisbursements: { orderBy: { createdAt: 'desc' } }
+        }
+      });
+
+      if (existingImplementation) {
+        return existingImplementation as any;
+      }
+
              // Validate that application exists and has signed term sheet
        const application = await prisma.application.findUnique({
          where: { id: params.applicationId },
@@ -278,23 +334,21 @@ export class InvestmentImplementationService {
         throw new Error("Application must have a signed term sheet to initiate investment implementation");
       }
 
-      if (application.currentStage !== "INVESTMENT_IMPLEMENTATION") {
-        throw new Error("Application must be in INVESTMENT_IMPLEMENTATION stage. Current stage: " + application.currentStage);
-      }
-
-      // Check if investment implementation already exists
-      const existingImplementation = await prisma.investmentImplementation.findUnique({
-        where: { portfolioCompanyId: params.portfolioCompanyId }
-      });
-
-      if (existingImplementation) {
-        throw new Error("Investment implementation already exists for this portfolio company");
+      if (!["INVESTMENT_IMPLEMENTATION", "DISBURSED"].includes(application.currentStage)) {
+        throw new Error(
+          "Application must be in INVESTMENT_IMPLEMENTATION or DISBURSED stage. Current stage: " +
+            application.currentStage
+        );
       }
 
       // Validate milestone-based disbursement requirements
-      if (params.disbursementMode === 'MILESTONE_BASED') {
+      const disbursementMode = params.disbursementMode || "ONE_TIME";
+      if (disbursementMode === "MILESTONE_BASED") {
         if (!params.totalCommittedAmount || params.totalCommittedAmount <= 0) {
           throw new Error("totalCommittedAmount is required when disbursementMode is MILESTONE_BASED");
+        }
+        if (!Array.isArray(params.disbursementPeriods) || params.disbursementPeriods.length === 0) {
+          throw new Error("disbursementPeriods is required when disbursementMode is MILESTONE_BASED");
         }
       }
 
@@ -314,8 +368,14 @@ export class InvestmentImplementationService {
           });
       }
 
-                           // Create investment implementation
-        const implementation = await prisma.investmentImplementation.create({
+      // Normalize optional disbursement periods (milestone setup in same payload).
+      const periods = Array.isArray(params.disbursementPeriods)
+        ? params.disbursementPeriods.filter((p) => p && p.dueDate)
+        : [];
+
+      const implementation = await prisma.$transaction(async (tx) => {
+        // Create investment implementation
+        const implementation = await tx.investmentImplementation.create({
           data: {
             portfolioCompanyId: params.portfolioCompanyId,
             applicationId: params.applicationId,
@@ -323,11 +383,73 @@ export class InvestmentImplementationService {
             initiatedById: params.initiatedById,
             implementationPlan: params.implementationPlan,
             notes: params.notes,
-            disbursementMode: params.disbursementMode || 'ONE_TIME',
+            disbursementMode: disbursementMode,
             totalCommittedAmount: params.totalCommittedAmount ? new Decimal(params.totalCommittedAmount) : null,
             commitmentCurrencyId,
             status: "IN_PROGRESS"
           },
+        });
+
+        if (disbursementMode === 'MILESTONE_BASED') {
+          if (periods.length === 0) {
+            throw new Error("disbursementPeriods must contain at least one period for MILESTONE_BASED");
+          }
+          const total = new Decimal(params.totalCommittedAmount || 0);
+          const explicitAmounts = periods.map((p, i) => {
+            if (p.amount == null || p.amount === "") return null;
+            const d = new Decimal(p.amount as any);
+            if (!d.isFinite() || d.lte(0)) {
+              throw new Error(`disbursementPeriods[${i}].amount must be a positive number`);
+            }
+            return d;
+          });
+          const explicitTotal = explicitAmounts.reduce(
+            (s, a) => (a ? s.plus(a) : s),
+            new Decimal(0)
+          );
+          if (explicitTotal.greaterThan(total)) {
+            throw new Error(
+              `Sum of disbursementPeriods.amount (${explicitTotal.toFixed(2)}) cannot exceed totalCommittedAmount (${total.toFixed(2)}).`
+            );
+          }
+
+          const missingIdx = explicitAmounts
+            .map((a, i) => (a ? -1 : i))
+            .filter((i) => i >= 0);
+          const remaining = total.minus(explicitTotal);
+          if (missingIdx.length === 0 && !explicitTotal.equals(total)) {
+            throw new Error(
+              `When all period amounts are provided, their sum must equal totalCommittedAmount (${total.toFixed(2)}). Current sum: ${explicitTotal.toFixed(2)}`
+            );
+          }
+          if (missingIdx.length > 0 && remaining.lessThanOrEqualTo(0)) {
+            throw new Error(
+              "Some disbursementPeriods.amount values are missing, but no remaining totalCommittedAmount is available to auto-allocate."
+            );
+          }
+          const autoParts = InvestmentImplementationService.splitAmount(remaining, missingIdx.length);
+
+          let autoPos = 0;
+          for (let i = 0; i < periods.length; i++) {
+            const p = periods[i];
+            const amount = explicitAmounts[i] || autoParts[autoPos++] || new Decimal(0);
+            await tx.investmentMilestone.create({
+              data: {
+                investmentImplementationId: implementation.id,
+                title: (p.label && String(p.label).trim()) || `Disbursement Period ${i + 1}`,
+                description: (p.notes && String(p.notes).trim()) || "Planned disbursement period",
+                amount,
+                dueDate: InvestmentImplementationService.asDate(p.dueDate),
+              }
+            });
+          }
+        }
+
+        return implementation;
+      });
+
+      const implementationWithRelations = await prisma.investmentImplementation.findUnique({
+        where: { id: implementation.id },
         include: {
           portfolioCompany: {
             select: {
@@ -361,8 +483,8 @@ export class InvestmentImplementationService {
               email: true
             }
           },
-          milestones: true,
-          fundDisbursements: true
+          milestones: { orderBy: { dueDate: 'asc' } },
+          fundDisbursements: { orderBy: { createdAt: 'desc' } }
         }
       });
 
@@ -378,7 +500,7 @@ export class InvestmentImplementationService {
         }
       });
 
-      return implementation;
+      return implementationWithRelations as any;
     } catch (error: any) {
       throw new Error(`Failed to initiate investment implementation: ${error.message}`);
     }
@@ -669,6 +791,15 @@ export class InvestmentImplementationService {
         where: { id: params.investmentImplementationId },
         include: {
           fund: true,
+          milestones: {
+            select: {
+              id: true,
+              title: true,
+              amount: true,
+              dueDate: true,
+              isCompleted: true
+            }
+          },
           application: {
             select: {
               id: true,
@@ -729,6 +860,30 @@ export class InvestmentImplementationService {
 
       if (disbursementMode === "MILESTONE_BASED" && !implementation.totalCommittedAmount) {
         throw new Error("Total committed amount must be set for milestone-based disbursements");
+      }
+      if (disbursementMode === "MILESTONE_BASED") {
+        if (!params.milestoneId) {
+          throw new Error(
+            "milestoneId is required when disbursementMode is MILESTONE_BASED. Select the disbursement period milestone."
+          );
+        }
+        const selectedMilestone = implementation.milestones.find((m) => m.id === params.milestoneId);
+        if (!selectedMilestone) {
+          throw new Error("Selected milestoneId does not belong to this investment implementation");
+        }
+
+        const reservedForMilestone = implementation.fundDisbursements
+          .filter((d) => d.milestoneId === params.milestoneId)
+          .reduce((sum, d) => sum.plus(InvestmentImplementationService.commitmentEquivalent(d)), new Decimal(0));
+        const milestoneCap = new Decimal(selectedMilestone.amount as any);
+        const milestoneRemaining = milestoneCap.minus(reservedForMilestone);
+        if (milestoneRemaining.lessThan(amountCommitmentCurrency)) {
+          throw new Error(
+            `Selected period "${selectedMilestone.title}" has insufficient remaining amount. Remaining: ${milestoneRemaining.toFixed(2)}, requested (commitment CCY): ${amountCommitmentCurrency.toFixed(2)}`
+          );
+        }
+      } else if (params.milestoneId) {
+        throw new Error("milestoneId is only allowed when disbursementMode is MILESTONE_BASED");
       }
 
       if (implementation.totalCommittedAmount) {

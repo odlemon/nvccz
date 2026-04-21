@@ -7889,7 +7889,8 @@ const fallbackSpec = {
         post: {
           tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Initiate investment implementation (Investor)',
-          description: 'Start the investment implementation process for an approved application',
+          description:
+            'Start the investment implementation process. If an implementation already exists for the portfolio company, returns existing record (idempotent). When disbursementMode is MILESTONE_BASED, disbursementPeriods is required and milestones are auto-created in the same call.',
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -7905,7 +7906,21 @@ const fallbackSpec = {
                     implementationPlan: { type: 'string', example: 'Phase 1: Product development, Phase 2: Market launch', description: 'Implementation plan summary' },
                     notes: { type: 'string', example: 'Investment implementation for LY company', description: 'Additional notes' },
                     disbursementMode: { type: 'string', enum: ['ONE_TIME', 'MILESTONE_BASED'], example: 'MILESTONE_BASED', description: 'Disbursement mode. Defaults to ONE_TIME.' },
-                    totalCommittedAmount: { type: 'number', example: 30000, description: 'Total amount committed when milestone based' }
+                    totalCommittedAmount: { type: 'number', example: 30000, description: 'Total amount committed when milestone based' },
+                    disbursementPeriods: {
+                      type: 'array',
+                      description: 'Required for MILESTONE_BASED mode. Backend auto-creates milestones from this array.',
+                      items: {
+                        type: 'object',
+                        required: ['dueDate'],
+                        properties: {
+                          label: { type: 'string', example: 'Tranche 1 - Q2 2026' },
+                          dueDate: { type: 'string', format: 'date', example: '2026-06-30' },
+                          amount: { type: 'number', example: 10000, description: 'Optional. If omitted, backend auto-splits remaining committed amount.' },
+                          notes: { type: 'string', example: 'Subject to milestone completion' }
+                        }
+                      }
+                    }
                   }
                 },
                 examples: {
@@ -7918,7 +7933,12 @@ const fallbackSpec = {
                       implementationPlan: 'Phase 1: Product development, Phase 2: Market launch',
                       notes: 'Investment implementation for LY company',
                       disbursementMode: 'MILESTONE_BASED',
-                      totalCommittedAmount: 30000
+                      totalCommittedAmount: 30000,
+                      disbursementPeriods: [
+                        { label: 'Tranche 1', dueDate: '2026-06-30', amount: 10000 },
+                        { label: 'Tranche 2', dueDate: '2026-09-30' },
+                        { label: 'Tranche 3', dueDate: '2026-12-31' }
+                      ]
                     }
                   },
                   oneTime: {
@@ -8022,7 +8042,7 @@ const fallbackSpec = {
           tags: ['💼 Stage 5: Investment Implementation', 'Updated investment flow'],
           summary: 'Create fund disbursement (Investor)',
           description:
-            'Create a fund disbursement (initial status PENDING). Response includes trancheIndex (1-based order for this implementation) and cfoApprovalStatusLabel PENDING_CFO_APPROVAL while pending.',
+            'Create a fund disbursement (initial status PENDING). For MILESTONE_BASED implementations, milestoneId is required (selected disbursement period) and amount cannot exceed that period remaining amount. Response includes trancheIndex (1-based order for this implementation) and cfoApprovalStatusLabel PENDING_CFO_APPROVAL while pending.',
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -8033,7 +8053,7 @@ const fallbackSpec = {
                   required: ['investmentImplementationId', 'amount', 'disbursementDate', 'disbursementType'],
                   properties: {
                     investmentImplementationId: { type: 'string' },
-                    milestoneId: { type: 'string', description: 'Optional milestone link for MILESTONE_BASED mode' },
+                    milestoneId: { type: 'string', description: 'Required when implementation disbursementMode is MILESTONE_BASED (selected period milestone).' },
                     amount: { type: 'number' },
                     disbursementDate: { type: 'string', format: 'date-time' },
                     disbursementType: { type: 'string', enum: ['INITIAL', 'MILESTONE', 'FINAL'] },
@@ -8049,6 +8069,17 @@ const fallbackSpec = {
                       disbursementDate: '2024-01-15T00:00:00Z',
                       disbursementType: 'MILESTONE',
                       notes: 'First milestone payment'
+                    }
+                  },
+                  milestonePeriodTranche: {
+                    summary: 'Milestone-based period draw (milestoneId required)',
+                    value: {
+                      investmentImplementationId: 'cmi78trsi0000jx048i72bb7m',
+                      milestoneId: 'cmnvms000001ktwmperiod001',
+                      amount: 10000,
+                      disbursementDate: '2026-06-30T00:00:00Z',
+                      disbursementType: 'MILESTONE',
+                      notes: 'Disbursement for Period 1 milestone'
                     }
                   }
                 }

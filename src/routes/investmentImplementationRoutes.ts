@@ -246,6 +246,27 @@ router.get('/signed-term-sheets',
  *                 type: number
  *                 example: 30000
  *                 description: Required if disbursementMode is MILESTONE_BASED. Total amount committed for this investment.
+ *               disbursementPeriods:
+ *                 type: array
+ *                 description: Required when disbursementMode is MILESTONE_BASED. Milestone-period setup in the same request (no extra endpoint). Backend auto-creates milestones.
+ *                 items:
+ *                   type: object
+ *                   required: [dueDate]
+ *                   properties:
+ *                     label:
+ *                       type: string
+ *                       example: "Tranche 1 - Q2 2026"
+ *                     dueDate:
+ *                       type: string
+ *                       format: date
+ *                       example: "2026-06-30"
+ *                     amount:
+ *                       type: number
+ *                       example: 10000
+ *                       description: Optional. If omitted, backend auto-allocates from totalCommittedAmount.
+ *                     notes:
+ *                       type: string
+ *                       example: "Subject to milestone completion"
  *               commitmentCurrencyId:
  *                 type: string
  *                 description: Optional. Currency of IC cap / totalCommittedAmount (currencies.id). Defaults to system default or USD when omitted.
@@ -260,6 +281,14 @@ router.get('/signed-term-sheets',
  *                 notes: "Investment implementation for LY company"
  *                 disbursementMode: "MILESTONE_BASED"
  *                 totalCommittedAmount: 30000
+ *                 disbursementPeriods:
+ *                   - label: "Tranche 1"
+ *                     dueDate: "2026-06-30"
+ *                     amount: 10000
+ *                   - label: "Tranche 2"
+ *                     dueDate: "2026-09-30"
+ *                   - label: "Tranche 3"
+ *                     dueDate: "2026-12-31"
  *                 commitmentCurrencyId: "cmh3bymy70000una4yk8leusu"
  *             oneTime:
  *               summary: One-time disbursement
@@ -584,7 +613,7 @@ router.post('/milestones/:milestoneId/complete',
  *                 example: "INITIAL"
  *               milestoneId:
  *                 type: string
- *                 description: Optional; for MILESTONE_BASED implementations
+ *                 description: Required when implementation disbursementMode is MILESTONE_BASED (select disbursement period milestone).
  *               notes:
  *                 type: string
  *                 example: "Tranche 1 — first draw"
@@ -602,6 +631,15 @@ router.post('/milestones/:milestoneId/complete',
  *                 disbursementType: "INITIAL"
  *                 notes: "Tranche 1 — first draw"
  *                 paymentCurrencyId: "cmh3bymy70000una4yk8leusu"
+ *             milestonePeriodTranche:
+ *               summary: Milestone-based period draw (milestoneId required)
+ *               value:
+ *                 investmentImplementationId: "cmnvimpl0001ktwm9abcde01"
+ *                 milestoneId: "cmnvms000001ktwmperiod001"
+ *                 amount: 10000
+ *                 disbursementDate: "2026-06-30T00:00:00.000Z"
+ *                 disbursementType: "MILESTONE"
+ *                 notes: "Disbursement for Period 1 milestone"
  *     responses:
  *       201:
  *         description: Fund disbursement created (status PENDING); data includes trancheIndex and cfoApprovalStatusLabel
