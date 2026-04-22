@@ -33,7 +33,7 @@ async function fetchLogoBuffer(url: string): Promise<Buffer | null> {
 
 /**
  * Loads company identity from accounting settings for capital call notices (PDF + email).
- * Always returns a display name (falls back to COMPANY_NAME_SHORT / "NVCCZ").
+ * Source of truth: the **active Company Profile Address** (label/logo/lines/etc.). Falls back to Company Profile `legalName`.
  */
 export async function loadCapitalCallAccountingLetterhead(): Promise<CapitalCallAccountingLetterhead> {
   const [profile, activeAddr] = await Promise.all([
@@ -42,8 +42,8 @@ export async function loadCapitalCallAccountingLetterhead(): Promise<CapitalCall
   ]);
 
   const displayName =
+    (activeAddr?.label && String(activeAddr.label).trim()) ||
     (profile?.legalName && String(profile.legalName).trim()) ||
-    process.env.COMPANY_NAME_SHORT?.trim() ||
     "NVCCZ";
 
   const detailLines: string[] = [];

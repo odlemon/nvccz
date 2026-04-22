@@ -5410,7 +5410,7 @@ export class EmailNotificationService {
     if (!email) {
       throw new Error("No recipients defined (LP email empty)");
     }
-    await emailTransport.sendMail({
+    const result = await emailTransport.sendMail({
       from: `"${from.name}" <${from.address}>`,
       to: [{ name: data.lpDisplayName, address: email }],
       subject,
@@ -5423,6 +5423,15 @@ export class EmailNotificationService {
             },
           ]
         : undefined,
+    });
+    // Helpful ops log for tracing delivery attempts (does not guarantee inbox delivery).
+    console.log("sendCapitalCallNoticeEmail: queued", {
+      to: email,
+      subject,
+      messageId: (result as any)?.messageId,
+      accepted: (result as any)?.accepted,
+      rejected: (result as any)?.rejected,
+      response: (result as any)?.response
     });
   }
 
