@@ -38,7 +38,7 @@ async function testRollupCalculation() {
     console.log(`✅ Found goal: "${goal.title}" (${goal.id})`);
     console.log(`\n📊 Goal Details:`);
     console.log(`   - Type: ${goal.type}`);
-    console.log(`   - Category: ${goal.category}`);
+    console.log(`   - Scorecard pillar: ${goal.scorecardPillar}`);
     console.log(`   - Target Value: ${goal.targetValue || 0}`);
     console.log(`   - Current Value: ${goal.currentValue || 0}`);
     console.log(`   - Progress Percentage: ${goal.progressPercentage || 0}%`);

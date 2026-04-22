@@ -11,7 +11,6 @@ export class PerformanceGoalController {
         title,
         description,
         type,
-        category,
         parentGoalId,
         departmentName,
         targetValue,
@@ -35,10 +34,10 @@ export class PerformanceGoalController {
       } = req.body;
       const userId = req.user.id;
 
-      if (!title || !type || !category || !startDate || !endDate || !targetValue || !targetUnit) {
+      if (!title || !type || !startDate || !endDate || !targetValue || !targetUnit) {
         return res.status(400).json({
           success: false,
-          message: "Title, type, category, start date, end date, target value, and target unit are required"
+          message: "Title, type, start date, end date, target value, and target unit are required"
         });
       }
 
@@ -46,7 +45,6 @@ export class PerformanceGoalController {
         title,
         description,
         type,
-        category,
         parentGoalId,
         departmentName,
         targetValue,
@@ -87,7 +85,6 @@ export class PerformanceGoalController {
     try {
       const {
         type,
-        category,
         status,
         department,
         assignedToId,
@@ -100,7 +97,6 @@ export class PerformanceGoalController {
 
       const filters: any = {};
       if (type) filters.type = type as string;
-      if (category) filters.category = category as string;
       if (status) filters.status = status as string;
       if (department) filters.departmentName = department as string;
       if (assignedToId) filters.assignedToId = assignedToId as string;
@@ -152,7 +148,6 @@ export class PerformanceGoalController {
         title,
         description,
         type,
-        category,
         monetaryValue,
         percentValue,
         monetaryValueAchieved,
@@ -181,7 +176,6 @@ export class PerformanceGoalController {
         title,
         description,
         type,
-        category,
         monetaryValue,
         percentValue,
         monetaryValueAchieved,

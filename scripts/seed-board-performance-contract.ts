@@ -11,6 +11,9 @@
  *   COMPANY_NAME_SHORT — optional; used in seeded contract title (default NVCCZ)
  *
  * Usage: npm run db:seed:board-performance-contract
+ *
+ * After seeding, read-only check (same service as GET /api/performance/scorecards/board):
+ *   npm run db:verify:board-scorecard
  */
 // @ts-nocheck
 import "dotenv/config";
@@ -42,6 +45,17 @@ async function resolveUserIdByEmailOptional(envKey: string): Promise<string | nu
   if (!u) throw new Error(`${envKey} user not found: ${email}`);
   return u.id;
 }
+
+const BOARD_PILLAR_BY_SECTION: Record<
+  string,
+  { scorecardPillar: string; pillarId: string }
+> = {
+  A1: { scorecardPillar: "Financial", pillarId: "bsc_financial" },
+  A2: { scorecardPillar: "Internal Operations", pillarId: "bsc_internal_operations" },
+  B: { scorecardPillar: "Learning, Growth & HR", pillarId: "bsc_learning_growth_hr" },
+  C: { scorecardPillar: "Financial", pillarId: "bsc_financial" },
+  D: { scorecardPillar: "Customer & Market", pillarId: "bsc_customer_market" }
+};
 
 type SeedGoal = {
   title: string;
@@ -182,12 +196,14 @@ async function main() {
 
   const rows = buildSeedGoals();
   for (const row of rows) {
+    const ph = BOARD_PILLAR_BY_SECTION[row.section] || BOARD_PILLAR_BY_SECTION.A1;
     await prisma.performanceGoal.create({
       data: {
         title: row.title,
         description: `Seeded governance indicator for Board scorecard (${row.section}).`,
         type: "company",
-        category: "governance",
+        scorecardPillar: ph.scorecardPillar,
+        pillarId: ph.pillarId,
         performanceContractId: contract.id,
         startDate: periodStart,
         endDate: periodEnd,

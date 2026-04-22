@@ -342,13 +342,14 @@ router.get('/:applicationId/investment-memorandum', authenticate, BoardReviewCon
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}:
+ * /board-reviews/{applicationId}:
  *   post:
  *     summary: Create board review and upload final Investment Memorandum
  *     description: |
  *       **multipart/form-data** only. Required file field **`document`**. Optional text fields use string values; booleans as `"true"` / `"false"`.
  *       After success: IM stored, status READY_FOR_VOTE, IC members notified (no separate call-to-vote required).
- *     tags: [Voting Process, Updated investment flow]
+ *       **OpenAPI base URL already includes `/api`** — path is `/board-reviews/...`, not `/api/board-reviews/...`.
+ *     tags: [Voting Process, Updated investment flow, 🏢 Portfolio Management]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -441,7 +442,7 @@ router.post(
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}:
+ * /board-reviews/{applicationId}:
  *   get:
  *     summary: Get board review by application ID
  *     description: Retrieve board review details for a specific application
@@ -480,7 +481,7 @@ router.get('/:applicationId', authenticate, BoardReviewController.getBoardReview
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}:
+ * /board-reviews/{applicationId}:
  *   put:
  *     summary: Update board review
  *     description: Update an existing board review
@@ -529,7 +530,7 @@ router.put('/:applicationId', authenticate, BoardReviewController.updateBoardRev
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}/votes:
+ * /board-reviews/{applicationId}/votes:
  *   post:
  *     summary: Cast a board review vote
  *     description: |
@@ -586,7 +587,7 @@ router.post('/:applicationId/votes', authenticate, BoardReviewController.submitB
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}/votes/summary:
+ * /board-reviews/{applicationId}/votes/summary:
  *   get:
  *     summary: Get board vote summary
  *     description: |
@@ -618,7 +619,7 @@ router.get('/:applicationId/votes/summary', authenticate, BoardReviewController.
 
 /**
  * @swagger
- * /api/board-reviews/{applicationId}/complete:
+ * /board-reviews/{applicationId}/complete:
  *   post:
  *     summary: Complete board review
  *     description: |

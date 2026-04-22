@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
+import { inferKpiScorecardPillar } from "../utils/inferKpiScorecardPillar";
+import { normalizeOrgBscScorecardPillar } from "./performanceScorecardSupport";
 
 export interface CreateKPIRequest {
   name: string;
@@ -28,6 +30,8 @@ export interface CreateKPIRequest {
   journalEntryType: string;
   /** When true, goal completion may post journals if `accountNumber` is set (or legacy hardcoded match). */
   isFinancial: boolean;
+  /** BSC org pillar; if omitted, inferred from name/department/financial flags. */
+  scorecardPillar?: string;
 }
 
 export interface UpdateKPIRequest {
@@ -49,6 +53,7 @@ export interface UpdateKPIRequest {
   accountNumber?: string | null;
   journalEntryType?: string;
   isFinancial?: boolean;
+  scorecardPillar?: string | null;
 }
 
 export class KPIService {
@@ -134,6 +139,22 @@ export class KPIService {
         throw new Error("KPI code already exists");
       }
 
+      const fromRequest =
+        request.scorecardPillar && String(request.scorecardPillar).trim()
+          ? normalizeOrgBscScorecardPillar(request.scorecardPillar)
+          : null;
+      const resolvedPillar =
+        fromRequest ||
+        inferKpiScorecardPillar({
+          name: request.name,
+          code: codeTrim,
+          catalogDescription: request.description,
+          accountType: request.accountType,
+          catalogDepartmentName: request.catalogDepartmentName,
+          isFinancial: request.isFinancial,
+          unitCategory: request.unitCategory
+        });
+
       // Create the KPI
       const kpi = await prisma.kPI.create({
         data: {
@@ -154,7 +175,8 @@ export class KPIService {
           accountType: request.accountType,
           accountNumber: request.accountNumber ?? null,
           journalEntryType: request.journalEntryType,
-          isFinancial: request.isFinancial
+          isFinancial: request.isFinancial,
+          scorecardPillar: resolvedPillar
         }
       });
 
@@ -193,6 +215,13 @@ export class KPIService {
           { code: { contains: filters.search } },
           { catalogDescription: { contains: filters.search } }
         ];
+      }
+
+      if (filters.scorecardPillar) {
+        const p = String(filters.scorecardPillar).trim();
+        if (p) {
+          where.scorecardPillar = p;
+        }
       }
 
       const kpis = await prisma.kPI.findMany({
@@ -326,7 +355,15 @@ export class KPIService {
           ...(request.accountType !== undefined && { accountType: request.accountType }),
           ...(request.accountNumber !== undefined && { accountNumber: request.accountNumber }),
           ...(request.journalEntryType !== undefined && { journalEntryType: request.journalEntryType }),
-          ...(request.isFinancial !== undefined && { isFinancial: request.isFinancial })
+          ...(request.isFinancial !== undefined && { isFinancial: request.isFinancial }),
+          ...(request.scorecardPillar !== undefined && {
+            scorecardPillar:
+              request.scorecardPillar == null
+                ? null
+                : normalizeOrgBscScorecardPillar(String(request.scorecardPillar)) ||
+                  String(request.scorecardPillar).trim() ||
+                  null
+          })
         },
         include: {
           performanceGoals: {
@@ -420,6 +457,13 @@ export class KPIService {
         }
       });
 
+      const kpisByScorecardPillar = await prisma.kPI.groupBy({
+        by: ['scorecardPillar'],
+        _count: {
+          id: true
+        }
+      });
+
       return {
         totalKPIs,
         metricKPIs,
@@ -427,7 +471,8 @@ export class KPIService {
         activeKPIs,
         kpisWithUnits,
         kpisByDepartment,
-        kpisByType
+        kpisByType,
+        kpisByScorecardPillar
       };
     } catch (error) {
       throw error;
@@ -451,6 +496,12 @@ export class KPIService {
       }
       if (filters.isActive !== undefined) {
         where.isActive = filters.isActive;
+      }
+      if (filters.scorecardPillar) {
+        const p = String(filters.scorecardPillar).trim();
+        if (p) {
+          where.scorecardPillar = p;
+        }
       }
 
       // Get KPIs with comprehensive tracking data
@@ -613,6 +664,12 @@ export class KPIService {
       if (filters.isActive !== undefined) {
         where.isActive = filters.isActive;
       }
+      if (filters.scorecardPillar) {
+        const p = String(filters.scorecardPillar).trim();
+        if (p) {
+          where.scorecardPillar = p;
+        }
+      }
 
       // Get all KPIs with their performance goals and activity logs
       const kpis = await prisma.kPI.findMany({
@@ -665,6 +722,7 @@ export class KPIService {
           id: kpi.id,
           name: kpi.name,
           type: kpi.type,
+          scorecardPillar: kpi.scorecardPillar,
           departmentId: kpi.departmentId,
           progress: overallProgress,
           isOnTrack: overallProgress >= 80,
@@ -722,6 +780,7 @@ export class KPIService {
         .map(kpi => ({
           id: kpi.id,
           name: kpi.name,
+          scorecardPillar: kpi.scorecardPillar,
           progress: kpi.progress
         }));
 
@@ -732,6 +791,7 @@ export class KPIService {
         .map(kpi => ({
           id: kpi.id,
           name: kpi.name,
+          scorecardPillar: kpi.scorecardPillar,
           progress: kpi.progress
         }));
 

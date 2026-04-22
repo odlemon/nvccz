@@ -82,7 +82,7 @@ async function ensureTurnoverGoal(goalIdEnv: string | undefined, actorUserId: st
         title: UAT_GOAL_TITLE,
         description: "B.15 UAT — turnover from Payroll Employee isActive headcount.",
         type: "company",
-        category: "Financial",
+        scorecardPillar: "Financial",
         scorecardPillar: "Learning, Growth & HR",
         startDate: new Date("2026-01-01T00:00:00.000Z"),
         endDate: new Date("2026-12-31T23:59:59.999Z"),

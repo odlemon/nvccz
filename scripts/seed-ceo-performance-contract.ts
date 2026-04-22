@@ -14,6 +14,33 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+const CEO_PILLAR = {
+  Financial: { scorecardPillar: "Financial", pillarId: "bsc_financial" },
+  Customer: { scorecardPillar: "Customer & Market", pillarId: "bsc_customer_market" },
+  Internal: { scorecardPillar: "Internal Operations", pillarId: "bsc_internal_operations" },
+  Learning: { scorecardPillar: "Learning, Growth & HR", pillarId: "bsc_learning_growth_hr" }
+} as const;
+
+function ceoPillarFor(row: { title: string; formulaType: string }) {
+  const t = row.title.toLowerCase();
+  if (/satisfaction|customer service charter|customer /.test(t)) return CEO_PILLAR.Customer;
+  if (
+    /statutory|ease of doing|e-government|governance|planning review|performance levels evaluated|reports produced|projects funded|capital disbursed|resources mobilised|innovation/.test(
+      t
+    )
+  ) {
+    return CEO_PILLAR.Internal;
+  }
+  if (
+    /wellness|inclusive|integrity|retention|training|staff|environment|clean|health|programming|anti-corruption|csr|skills/.test(
+      t
+    )
+  ) {
+    return CEO_PILLAR.Learning;
+  }
+  return CEO_PILLAR.Financial;
+}
+
 function utcYearBounds(year: number) {
   return {
     periodStart: new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0)),
@@ -427,12 +454,14 @@ async function main() {
 
   const rows = buildSeedGoals();
   for (const row of rows) {
+    const ph = ceoPillarFor(row);
     await prisma.performanceGoal.create({
       data: {
         title: row.title,
         description: `Seeded organisational indicator for CEO scorecard (${row.section}).`,
         type: "company",
-        category: "strategic",
+        scorecardPillar: ph.scorecardPillar,
+        pillarId: ph.pillarId,
         performanceContractId: contract.id,
         startDate: periodStart,
         endDate: periodEnd,

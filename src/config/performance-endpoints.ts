@@ -21,11 +21,14 @@ export const performanceEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['title', 'type', 'category', 'targetValue', 'targetUnit'],
+              required: ['title', 'type', 'targetValue', 'targetUnit'],
               properties: {
                 title: { type: 'string', example: 'Achieve $5M Fund I AUM by Q4' },
                 type: { type: 'string', enum: ['company'], example: 'company' },
-                category: { type: 'string', enum: ['financial', 'operational', 'strategic'], example: 'financial' },
+                scorecardPillar: {
+                  type: 'string',
+                  description: 'Required for company goals (BSC pillar). Optional for other types; can be inherited from backing KPI.'
+                },
                 targetValue: { type: 'number', example: 5000000 },
                 targetUnit: { type: 'string', example: 'USD' },
                 kpiName: { 
@@ -643,7 +646,7 @@ export const performanceEndpoints = {
                             id: { type: 'string' },
                             title: { type: 'string' },
                             type: { type: 'string' },
-                            category: { type: 'string' },
+                            scorecardPillar: { type: 'string' },
                             parentGoal: {
                               type: 'object',
                               properties: {
@@ -966,7 +969,7 @@ export const performanceEndpoints = {
                         title: { type: 'string' },
                         description: { type: 'string' },
                         type: { type: 'string', example: 'department' },
-                        category: { type: 'string' },
+                        scorecardPillar: { type: 'string' },
                         targetValue: { type: 'string' },
                         currentValue: { type: 'string' },
                         stage: { type: 'string' },
@@ -1040,7 +1043,7 @@ export const performanceEndpoints = {
                             id: { type: 'string' },
                             title: { type: 'string' },
                             type: { type: 'string' },
-                            category: { type: 'string' }
+                            scorecardPillar: { type: 'string' }
                           }
                         }
                       }
@@ -1354,7 +1357,7 @@ export const performanceEndpoints = {
                           id: { type: 'string' },
                           title: { type: 'string' },
                           type: { type: 'string' },
-                          category: { type: 'string' },
+                          scorecardPillar: { type: 'string' },
                           targetValue: { type: 'string' },
                           currentValue: { type: 'string' },
                           progressPercentage: { type: 'string' },

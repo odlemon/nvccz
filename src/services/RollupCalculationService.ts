@@ -48,7 +48,7 @@ export class RollupCalculationService {
           id: goal.id,
           title: goal.title,
           type: goal.type,
-          category: goal.category,
+          scorecardPillar: goal.scorecardPillar,
           targetValue: goal.targetValue ? goal.targetValue.toString() : "0",
           currentValue: goal.currentValue ? goal.currentValue.toString() : "0",
           progressPercentage: progressPercentage,

@@ -50,6 +50,10 @@ const router = express.Router();
  *         isActive:
  *           type: boolean
  *           description: Whether the KPI is active
+ *         scorecardPillar:
+ *           type: string
+ *           nullable: true
+ *           description: BSC org pillar (e.g. Financial, Customer & Market)
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -139,6 +143,9 @@ const router = express.Router();
  *                 enum: [Debit, Credit]
  *               isFinancial:
  *                 type: boolean
+ *               scorecardPillar:
+ *                 type: string
+ *                 description: Optional. BSC org pillar; if omitted, inferred from name/accounts
  *     responses:
  *       201:
  *         description: KPI created successfully
@@ -184,6 +191,11 @@ router.post("/", authenticate, KPIController.createKPI);
  *         schema:
  *           type: string
  *         description: Search in name, unit category, and unit
+ *       - in: query
+ *         name: scorecardPillar
+ *         schema:
+ *           type: string
+ *         description: Filter by BSC org pillar (exact match to stored value, e.g. Financial)
  *     responses:
  *       200:
  *         description: List of KPIs
@@ -238,6 +250,11 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
  *         schema:
  *           type: boolean
  *         description: Filter by active status
+ *       - in: query
+ *         name: scorecardPillar
+ *         schema:
+ *           type: string
+ *         description: Filter by BSC org pillar (exact match)
  *     responses:
  *       200:
  *         description: Comprehensive KPI tracking data with progress metrics
@@ -264,6 +281,9 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
  *                             type: string
  *                           type:
  *                             type: string
+ *                           scorecardPillar:
+ *                             type: string
+ *                             nullable: true
  *                           departmentId:
  *                             type: string
  *                           tracking:
@@ -322,6 +342,11 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *         schema:
  *           type: string
  *         description: Filter by department ID
+ *       - in: query
+ *         name: scorecardPillar
+ *         schema:
+ *           type: string
+ *         description: Filter by BSC org pillar (exact match)
  *       - in: query
  *         name: period
  *         schema:
@@ -382,6 +407,9 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *                                 type: string
  *                               name:
  *                                 type: string
+ *                               scorecardPillar:
+ *                                 type: string
+ *                                 nullable: true
  *                               progress:
  *                                 type: number
  *                         needsAttentionKPIs:
@@ -393,6 +421,9 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *                                 type: string
  *                               name:
  *                                 type: string
+ *                               scorecardPillar:
+ *                                 type: string
+ *                                 nullable: true
  *                               progress:
  *                                 type: number
  *                     trends:
@@ -477,6 +508,10 @@ router.get("/:id", authenticate, KPIController.getKPIById);
  *               accountNumber: { type: string, nullable: true }
  *               journalEntryType: { type: string, enum: [Debit, Credit] }
  *               isFinancial: { type: boolean }
+ *               scorecardPillar:
+ *                 type: string
+ *                 nullable: true
+ *                 description: BSC org pillar; omit to leave unchanged
  *     responses:
  *       200:
  *         description: KPI updated successfully
