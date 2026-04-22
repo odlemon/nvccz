@@ -24,14 +24,13 @@ import {
 } from "../utils/portfolioDashboardAnalystFlags";
 
 /**
- * Portfolio companies must load `financialKpis` (approved-report KPIs, valuation snapshots, monitoring EQUITY).
- * Omitting it caused FMV/TVPI/headline IRR to ignore post-approval data and fall back to stale `annualRevenue` only.
+ * Portfolio company relations needed for the dashboard. `financialKpis` is a Json column on
+ * `PortfolioCompany` (not a relation) — it is always returned with each row; do not add it to `include`.
  */
 const PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD = {
   investmentImplementation: {
     include: { fundDisbursements: true },
   },
-  financialKpis: true,
 } as const;
 
 /** Default cap on quarter IRR rows (full dashboard) — avoids O(years×companies) blowup on old funds. */
