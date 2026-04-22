@@ -63,20 +63,11 @@ interface PublicBoardVoteSummary {
   } | null;
 }
 
+/** Create board review + first IM upload — only IDs and file; narrative/decision fields use `PUT` after. */
 export interface CreateBoardReviewRequest {
   applicationId: string;
   reviewerId: string;
-  investmentApproved?: boolean;
-  investmentRejected?: boolean;
-  conditionalApproval?: boolean;
-  recommendationReport?: string;
-  additionalInformation?: string;
-  decisionReason?: string;
-  conditions?: string;
-  nextSteps?: string;
-  overallScore?: number;
-  finalComments?: string;
-  /** Final IM file — required on POST create (multipart field `document`). */
+  /** Final IM file — required (multipart field `document`). */
   memorandumFile: { buffer: Buffer; originalname: string };
 }
 
@@ -91,22 +82,6 @@ export interface UpdateBoardReviewRequest {
   nextSteps?: string;
   overallScore?: number;
   finalComments?: string;
-}
-
-/** Multipart text/decision fields on IM upload (same shape as create, plus optional resend). */
-export interface ImSubmitBoardReviewFields {
-  investmentApproved?: boolean;
-  investmentRejected?: boolean;
-  conditionalApproval?: boolean;
-  recommendationReport?: string;
-  additionalInformation?: string;
-  decisionReason?: string;
-  conditions?: string;
-  nextSteps?: string;
-  overallScore?: number;
-  finalComments?: string;
-  /** If true, behaves like standalone call-to-vote resend after upload. */
-  resendNotifications?: boolean;
 }
 
 export interface BoardReviewWithRelations {
@@ -619,19 +594,6 @@ export class BoardReviewService {
         );
       }
 
-      const decisionOptions = [
-        params.investmentApproved || false,
-        params.investmentRejected || false,
-        params.conditionalApproval || false
-      ];
-
-      const selectedOptions = decisionOptions.filter((option) => option);
-      if (selectedOptions.length > 1) {
-        throw new Error(
-          "Only one decision option can be selected: Investment Approved, Investment Rejected, or Conditional Approval"
-        );
-      }
-
       const existingReview = await prisma.boardReview.findUnique({
         where: { applicationId: params.applicationId }
       });
@@ -669,16 +631,9 @@ export class BoardReviewService {
           data: {
             applicationId: params.applicationId,
             reviewerId: params.reviewerId,
-            investmentApproved: params.investmentApproved || false,
-            investmentRejected: params.investmentRejected || false,
-            conditionalApproval: params.conditionalApproval || false,
-            recommendationReport: params.recommendationReport,
-            additionalInformation: params.additionalInformation,
-            decisionReason: params.decisionReason,
-            conditions: params.conditions,
-            nextSteps: params.nextSteps,
-            overallScore: params.overallScore,
-            finalComments: params.finalComments,
+            investmentApproved: false,
+            investmentRejected: false,
+            conditionalApproval: false,
             status: "IN_PROGRESS",
             requiresExplicitVoteOpen: true,
             voteInviteSentAt: null
@@ -894,166 +849,25 @@ export class BoardReviewService {
     return updated as BoardReviewWithRelations;
   }
 
-  private static async patchBoardReviewFieldsForImSubmit(
-    applicationId: string,
-    existing: {
-      investmentApproved: boolean;
-      investmentRejected: boolean;
-      conditionalApproval: boolean;
-    },
-    fields: ImSubmitBoardReviewFields
-  ): Promise<void> {
-    const hasDecisionPatch =
-      fields.investmentApproved !== undefined ||
-      fields.investmentRejected !== undefined ||
-      fields.conditionalApproval !== undefined;
-
-    const data: Record<string, unknown> = {};
-
-    if (fields.recommendationReport !== undefined) {
-      data.recommendationReport = fields.recommendationReport;
-    }
-    if (fields.additionalInformation !== undefined) {
-      data.additionalInformation = fields.additionalInformation;
-    }
-    if (fields.decisionReason !== undefined) {
-      data.decisionReason = fields.decisionReason;
-    }
-    if (fields.conditions !== undefined) {
-      data.conditions = fields.conditions;
-    }
-    if (fields.nextSteps !== undefined) {
-      data.nextSteps = fields.nextSteps;
-    }
-    if (fields.overallScore !== undefined) {
-      data.overallScore = fields.overallScore;
-    }
-    if (fields.finalComments !== undefined) {
-      data.finalComments = fields.finalComments;
-    }
-
-    if (hasDecisionPatch) {
-      const ia =
-        fields.investmentApproved !== undefined ? fields.investmentApproved : existing.investmentApproved;
-      const ir =
-        fields.investmentRejected !== undefined ? fields.investmentRejected : existing.investmentRejected;
-      const ca =
-        fields.conditionalApproval !== undefined ? fields.conditionalApproval : existing.conditionalApproval;
-      const selected = [ia, ir, ca].filter(Boolean);
-      if (selected.length > 1) {
-        throw new Error(
-          "Only one decision option can be selected: Investment Approved, Investment Rejected, or Conditional Approval"
-        );
-      }
-      data.investmentApproved = ia;
-      data.investmentRejected = ir;
-      data.conditionalApproval = ca;
-    }
-
-    if (Object.keys(data).length === 0) {
-      return;
-    }
-
-    await prisma.boardReview.update({
-      where: { applicationId },
-      data: { ...data, updatedAt: new Date() } as any
-    });
-  }
-
-  private static multipartBool(v: unknown): boolean {
-    if (v === true || v === false) {
-      return v;
-    }
-    if (v === undefined || v === null || v === "") {
-      return false;
-    }
-    const s = String(v).toLowerCase();
-    return s === "true" || s === "1" || s === "yes";
-  }
-
-  private static optionalOverallScoreFromMultipart(v: unknown): number | undefined {
-    if (v === undefined || v === null || v === "") {
-      return undefined;
-    }
-    const n = Number(v);
-    return Number.isFinite(n) ? n : undefined;
-  }
-
   /**
-   * Which board-review fields to patch when IM is uploaded on an **existing** row (only keys present in multipart).
-   * String handling matches create-board-review: empty string → undefined (no value stored).
-   */
-  private static imSubmitPatchFieldsFromRawMultipart(body: Record<string, unknown>): ImSubmitBoardReviewFields {
-    const b = body || {};
-    const form: ImSubmitBoardReviewFields = {};
-
-    if (b.investmentApproved !== undefined) {
-      form.investmentApproved = BoardReviewService.multipartBool(b.investmentApproved);
-    }
-    if (b.investmentRejected !== undefined) {
-      form.investmentRejected = BoardReviewService.multipartBool(b.investmentRejected);
-    }
-    if (b.conditionalApproval !== undefined) {
-      form.conditionalApproval = BoardReviewService.multipartBool(b.conditionalApproval);
-    }
-    if (b.recommendationReport !== undefined) {
-      form.recommendationReport = b.recommendationReport ? String(b.recommendationReport) : undefined;
-    }
-    if (b.additionalInformation !== undefined) {
-      form.additionalInformation = b.additionalInformation ? String(b.additionalInformation) : undefined;
-    }
-    if (b.decisionReason !== undefined) {
-      form.decisionReason = b.decisionReason ? String(b.decisionReason) : undefined;
-    }
-    if (b.conditions !== undefined) {
-      form.conditions = b.conditions ? String(b.conditions) : undefined;
-    }
-    if (b.nextSteps !== undefined) {
-      form.nextSteps = b.nextSteps ? String(b.nextSteps) : undefined;
-    }
-    if (b.finalComments !== undefined) {
-      form.finalComments = b.finalComments ? String(b.finalComments) : undefined;
-    }
-    if (b.overallScore !== undefined) {
-      const s = BoardReviewService.optionalOverallScoreFromMultipart(b.overallScore);
-      if (s !== undefined) {
-        form.overallScore = s;
-      }
-    }
-
-    return form;
-  }
-
-  /**
-   * One step: optional form fields, upload final IM, then Call to Vote (READY_FOR_VOTE + IC emails).
-   * If no board review row exists, creates it (same rules as createBoardReview) and finishes in one sweep.
+   * IM upload + call to vote. **No narrative/decision fields** — use `updateBoardReview` (PUT) after the IM is stored.
+   * Optional `resendNotifications` to re-email IC when repeating call-to-vote.
    */
   static async uploadInvestmentMemorandumAndCallToVote(
     applicationId: string,
     file: { buffer: Buffer; originalname: string },
     actorUserId: string,
-    input: {
-      /** Same parsing as POST create board review (booleans default false when omitted). */
-      createFields: Omit<CreateBoardReviewRequest, "applicationId" | "reviewerId" | "memorandumFile">;
-      /** Original multipart body: used to detect which fields to patch when a review already exists. */
-      rawBody: Record<string, unknown>;
-    }
+    options: { resendNotifications?: boolean } = {}
   ): Promise<{ boardReview: BoardReviewWithRelations; createdNew: boolean }> {
-    const { createFields, rawBody } = input;
-    const resendNotifications =
-      rawBody.resendNotifications !== undefined &&
-      BoardReviewService.multipartBool(rawBody.resendNotifications);
-
+    const { resendNotifications } = options;
     const existingBr = await prisma.boardReview.findUnique({ where: { applicationId } });
 
     if (!existingBr) {
-      const createParams: CreateBoardReviewRequest = {
+      const boardReview = await BoardReviewService.createBoardReview({
         applicationId,
         reviewerId: actorUserId,
-        memorandumFile: file,
-        ...createFields
-      };
-      const boardReview = await BoardReviewService.createBoardReview(createParams);
+        memorandumFile: file
+      });
       return { boardReview, createdNew: true };
     }
 
@@ -1061,25 +875,8 @@ export class BoardReviewService {
       throw new Error("Cannot upload IM — board review is not in progress");
     }
 
-    const reviewOnly = BoardReviewService.imSubmitPatchFieldsFromRawMultipart(rawBody);
-
-    await BoardReviewService.patchBoardReviewFieldsForImSubmit(
-      applicationId,
-      {
-        investmentApproved: existingBr.investmentApproved,
-        investmentRejected: existingBr.investmentRejected,
-        conditionalApproval: existingBr.conditionalApproval
-      },
-      reviewOnly
-    );
-
-    const brAfterPatch = await prisma.boardReview.findUnique({ where: { applicationId } });
-    if (!brAfterPatch) {
-      throw new Error("Board review not found for this application");
-    }
-
     await BoardReviewService.writeInvestmentMemorandumToReview(
-      brAfterPatch,
+      existingBr,
       applicationId,
       file,
       actorUserId

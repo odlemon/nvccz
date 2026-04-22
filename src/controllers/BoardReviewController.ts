@@ -11,25 +11,6 @@ import { UserService } from '../services/UserService';
 import { ResponseHelper } from '../utils/responseHelper';
 import { logger } from '../utils/logger';
 
-function parseMultipartBool(v: unknown, defaultFalse = false): boolean {
-  if (v === true || v === false) {
-    return v;
-  }
-  if (v === undefined || v === null || v === "") {
-    return defaultFalse;
-  }
-  const s = String(v).toLowerCase();
-  return s === "true" || s === "1" || s === "yes";
-}
-
-function parseOptionalOverallScore(v: unknown): number | undefined {
-  if (v === undefined || v === null || v === "") {
-    return undefined;
-  }
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
-
 function dispatchApplicantEmailsAfterBoardReviewCreate(
   boardReview: BoardReviewWithRelations,
   p: { investmentApproved: boolean; investmentRejected: boolean; conditionalApproval: boolean }
@@ -73,28 +54,9 @@ function dispatchApplicantEmailsAfterBoardReviewCreate(
     });
 }
 
-/** Same field rules as {@link BoardReviewController.createBoardReview} (multipart). */
-function parseCreateBoardReviewMultipartBody(
-  body: Record<string, unknown>
-): Omit<CreateBoardReviewRequest, "applicationId" | "reviewerId" | "memorandumFile"> {
-  const b = body || {};
-  return {
-    investmentApproved: parseMultipartBool(b.investmentApproved),
-    investmentRejected: parseMultipartBool(b.investmentRejected),
-    conditionalApproval: parseMultipartBool(b.conditionalApproval),
-    recommendationReport: b.recommendationReport ? String(b.recommendationReport) : undefined,
-    additionalInformation: b.additionalInformation ? String(b.additionalInformation) : undefined,
-    decisionReason: b.decisionReason ? String(b.decisionReason) : undefined,
-    conditions: b.conditions ? String(b.conditions) : undefined,
-    nextSteps: b.nextSteps ? String(b.nextSteps) : undefined,
-    overallScore: parseOptionalOverallScore(b.overallScore),
-    finalComments: b.finalComments ? String(b.finalComments) : undefined
-  };
-}
-
 export class BoardReviewController {
   /**
-   * Create board review + upload final IM (multipart). Field `document` = file; other fields as text form fields.
+   * Create board review + upload final IM. **Multipart:** required field `document` only. Recommendation, scores, and decision flags are updated later via **PUT** `/board-reviews/:applicationId`.
    */
     static async createBoardReview(req: Request, res: Response): Promise<void> {
     try {
@@ -117,12 +79,10 @@ export class BoardReviewController {
       }
 
       const userId = (req as any).user.id;
-      const b = req.body || {};
 
       const boardReviewParams: CreateBoardReviewRequest = {
         applicationId,
         reviewerId: userId,
-        ...parseCreateBoardReviewMultipartBody(b as Record<string, unknown>),
         memorandumFile: {
           buffer: file.buffer,
           originalname: file.originalname || "investment-memorandum.pdf"
@@ -132,9 +92,9 @@ export class BoardReviewController {
       const boardReview = await BoardReviewService.createBoardReview(boardReviewParams);
 
       dispatchApplicantEmailsAfterBoardReviewCreate(boardReview, {
-        investmentApproved: boardReviewParams.investmentApproved,
-        investmentRejected: boardReviewParams.investmentRejected,
-        conditionalApproval: boardReviewParams.conditionalApproval
+        investmentApproved: boardReview.investmentApproved,
+        investmentRejected: boardReview.investmentRejected,
+        conditionalApproval: boardReview.conditionalApproval
       });
 
       logger.info("Board review created successfully", {
@@ -530,13 +490,16 @@ export class BoardReviewController {
       }
 
       const rawBody = (req.body || {}) as Record<string, unknown>;
-      const createFields = parseCreateBoardReviewMultipartBody(rawBody);
+      const resendNotifications =
+        rawBody.resendNotifications === true ||
+        String(rawBody.resendNotifications ?? "").toLowerCase() === "true" ||
+        String(rawBody.resendNotifications ?? "").toLowerCase() === "1";
 
       const { boardReview, createdNew } = await BoardReviewService.uploadInvestmentMemorandumAndCallToVote(
         applicationId,
         { buffer: file.buffer, originalname: file.originalname || "investment-memorandum.pdf" },
         actorId,
-        { createFields, rawBody }
+        { resendNotifications }
       );
 
       if (createdNew) {

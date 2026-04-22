@@ -7565,7 +7565,7 @@ const fallbackSpec = {
           tags: ['🏢 Portfolio Management', '🗳️ Voting Process', 'Updated investment flow'],
           summary: 'Create board review — upload final Investment Memorandum (multipart)',
           description:
-            '**multipart/form-data** only. Required part **document** (IM file: PDF, Word, or Excel, max 50MB). Optional text fields; booleans as strings `true`/`false`. Application must be `UNDER_BOARD_REVIEW`.',
+            '**multipart/form-data** — **document** (IM file) only. Recommendation and decision fields: **PUT** same path. Application must be `UNDER_BOARD_REVIEW`.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: {
@@ -7576,17 +7576,7 @@ const fallbackSpec = {
                   type: 'object',
                   required: ['document'],
                   properties: {
-                    document: { type: 'string', format: 'binary', description: 'Final Investment Memorandum' },
-                    recommendationReport: { type: 'string' },
-                    additionalInformation: { type: 'string' },
-                    decisionReason: { type: 'string' },
-                    conditions: { type: 'string' },
-                    nextSteps: { type: 'string' },
-                    overallScore: { type: 'string', description: 'Score as form text' },
-                    finalComments: { type: 'string' },
-                    investmentApproved: { type: 'string' },
-                    investmentRejected: { type: 'string' },
-                    conditionalApproval: { type: 'string' }
+                    document: { type: 'string', format: 'binary', description: 'Final Investment Memorandum' }
                   }
                 }
               }
