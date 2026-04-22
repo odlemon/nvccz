@@ -99,40 +99,9 @@ const imUpload = multer({
  *     
  *     CreateBoardReviewRequest:
  *       type: object
- *       properties:
- *         investmentApproved:
- *           type: boolean
- *           description: Whether to approve the investment
- *         investmentRejected:
- *           type: boolean
- *           description: Whether to reject the investment
- *         conditionalApproval:
- *           type: boolean
- *           description: Whether to grant conditional approval
- *         recommendationReport:
- *           type: string
- *           description: Condensed proposal/recommendation report
- *         additionalInformation:
- *           type: string
- *           description: Additional information requested
- *         decisionReason:
- *           type: string
- *           description: Reason for the board decision
- *         conditions:
- *           type: string
- *           description: Conditions for conditional approval
- *         nextSteps:
- *           type: string
- *           description: Next steps after board decision
- *         overallScore:
- *           type: number
- *           format: float
- *           minimum: 0
- *           maximum: 100
- *           description: Overall score (0-100%)
- *         finalComments:
- *           type: string
- *           description: Final comments and assessment
+ *       description: |
+ *         Multipart create uses **document** (file) only at **POST** `/board-reviews/{applicationId}`.
+ *         Narrative, scores, and decision fields — **UpdateBoardReviewRequest** at **PUT** `/board-reviews/{applicationId}`.
  *     
  *     UpdateBoardReviewRequest:
  *       type: object
@@ -256,10 +225,9 @@ router.put('/voting-members/:userId/voting-power', authenticate, BoardReviewCont
  *   post:
  *     summary: Upload Investment Memorandum and open vote (same multipart body as create board review)
  *     description: |
- *       **multipart/form-data** only. Same optional text/boolean fields as `POST /board-reviews/{applicationId}`.
- *       Required file field **`document`**. Booleans as strings `true` / `false`. Omitted booleans default to false when **creating** a new board review; when a review already exists, only fields you include in the form are patched.
- *       Extra field **`resendNotifications`** (optional): `true` to resend IC vote emails if already READY_FOR_VOTE.
- *       If no board review row exists: creates it, uploads IM, call-to-vote + IC emails. If it exists: patch (optional), upload IM, call-to-vote.
+ *       **multipart/form-data** — required **`document`**; optional **`resendNotifications`** (`true`/`false` as text) to re-email IC.
+ *       **No** recommendation or decision fields — use **PUT** `/board-reviews/{applicationId}` for those.
+ *       If no board review exists, creates it and runs call-to-vote; else replaces IM and runs call-to-vote.
  *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
@@ -281,31 +249,9 @@ router.put('/voting-members/:userId/voting-power', authenticate, BoardReviewCont
  *               document:
  *                 type: string
  *                 format: binary
- *               recommendationReport:
- *                 type: string
- *               additionalInformation:
- *                 type: string
- *               decisionReason:
- *                 type: string
- *               conditions:
- *                 type: string
- *               nextSteps:
- *                 type: string
- *               overallScore:
- *                 type: string
- *                 description: Numeric score as text (e.g. 85.5)
- *               finalComments:
- *                 type: string
- *               investmentApproved:
- *                 type: string
- *                 description: "true" or "false"
- *               investmentRejected:
- *                 type: string
- *               conditionalApproval:
- *                 type: string
  *               resendNotifications:
  *                 type: string
- *                 description: Optional. "true" to force resending vote invite emails.
+ *                 description: Optional. "true" to resend IC vote emails.
  *     responses:
  *       200:
  *         description: Existing board review — IM uploaded and call to vote completed
@@ -346,9 +292,9 @@ router.get('/:applicationId/investment-memorandum', authenticate, BoardReviewCon
  *   post:
  *     summary: Create board review and upload final Investment Memorandum
  *     description: |
- *       **multipart/form-data** only. Required file field **`document`**. Optional text fields use string values; booleans as `"true"` / `"false"`.
- *       After success: IM stored, status READY_FOR_VOTE, IC members notified (no separate call-to-vote required).
- *       **OpenAPI base URL already includes `/api`** — path is `/board-reviews/...`, not `/api/board-reviews/...`.
+ *       **multipart/form-data** — **only** file field **`document`** (final IM). No recommendation or decision fields on this request; use **PUT** to add them later.
+ *       After success: IM stored, READY_FOR_VOTE, IC notified.
+ *       **OpenAPI base URL already includes `/api`** — path here is `/board-reviews/...`.
  *     tags: [Voting Process, Updated investment flow, 🏢 Portfolio Management]
  *     security:
  *       - bearerAuth: []
@@ -372,39 +318,7 @@ router.get('/:applicationId/investment-memorandum', authenticate, BoardReviewCon
  *               document:
  *                 type: string
  *                 format: binary
- *                 description: Final IM file (e.g. Acme_IM_Final_v3.pdf)
- *               recommendationReport:
- *                 type: string
- *                 example: "Recommend approval subject to conditions below."
- *               additionalInformation:
- *                 type: string
- *                 example: "Management meeting held 2026-04-01."
- *               decisionReason:
- *                 type: string
- *                 example: "Strong unit economics and clear exit path."
- *               conditions:
- *                 type: string
- *                 example: "Quarterly reporting within 30 days of quarter end."
- *               nextSteps:
- *                 type: string
- *                 example: "Legal to finalize SHA within 14 days."
- *               overallScore:
- *                 type: string
- *                 description: Numeric score as text
- *                 example: "82.5"
- *               finalComments:
- *                 type: string
- *                 example: "IC to note currency hedging discussion."
- *               investmentApproved:
- *                 type: string
- *                 example: "true"
- *                 description: '"true" or "false"'
- *               investmentRejected:
- *                 type: string
- *                 example: "false"
- *               conditionalApproval:
- *                 type: string
- *                 example: "true"
+ *                 description: Final IM file only (e.g. Acme_IM_Final_v3.pdf)
  *     responses:
  *       201:
  *         description: Board review created successfully
