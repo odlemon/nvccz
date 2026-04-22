@@ -81,7 +81,7 @@ function capitalCallEmailLetterheadBlockHtml(lh: CapitalCallAccountingLetterhead
     .join("");
   return `<div style="border-bottom:1px solid #ddd;padding-bottom:14px;margin-bottom:18px;text-align:right;">
     ${logo}
-    <div style="font-weight:bold;font-size:14px;color:#111;margin-bottom:6px;">${escapeHtml(lh.displayName)}</div>
+    <div style="font-weight:500;font-size:14px;color:#111;margin-bottom:6px;letter-spacing:0.01em;">${escapeHtml(lh.displayName)}</div>
     ${detail}
   </div>`;
 }
@@ -675,19 +675,23 @@ export class CapitalCallService {
       const callAmount = Number(a.currentCallAmount.toString());
       const lpEsc = escapeHtml(a.lpLegalNameSnapshot);
 
+      // Keep body typography plain (no bold) — users can scan via table layout.
+      const th = "border:1px solid #ccc;font-weight:400;color:#333;width:36%;";
+      const td = "border:1px solid #ccc;font-weight:400;";
+
       const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;line-height:1.5;color:#222;">
         ${letterheadHtml}
         <p>Dear ${lpEsc},</p>
-        <p>This is your <strong>capital call notice</strong> for <strong>${fundNameEsc}</strong> (${escapeHtml(ccy)}).</p>
-        <table style="border-collapse:collapse;margin:16px 0;" cellpadding="8">
-          <tr><td style="border:1px solid #ccc;"><strong>LP name</strong></td><td style="border:1px solid #ccc;">${lpEsc}</td></tr>
-          <tr><td style="border:1px solid #ccc;"><strong>Total commitment</strong></td><td style="border:1px solid #ccc;">${escapeHtml(ccy)} ${fmt(totalCommitment)}</td></tr>
-          <tr><td style="border:1px solid #ccc;"><strong>Uncalled capital (before this call)</strong></td><td style="border:1px solid #ccc;">${escapeHtml(ccy)} ${fmt(uncalled)}</td></tr>
-          <tr><td style="border:1px solid #ccc;"><strong>Current call amount</strong></td><td style="border:1px solid #ccc;">${escapeHtml(ccy)} ${fmt(callAmount)}</td></tr>
-          <tr><td style="border:1px solid #ccc;"><strong>Payment due date</strong></td><td style="border:1px solid #ccc;">${escapeHtml(dateLabel)}</td></tr>
-          <tr><td style="border:1px solid #ccc;vertical-align:top;"><strong>Bank instructions</strong></td><td style="border:1px solid #ccc;white-space:pre-wrap;">${escapeHtml(String(call.bankInstructions))}</td></tr>
+        <p>The following capital call notice applies to ${fundNameEsc} (${escapeHtml(ccy)}).</p>
+        <table style="border-collapse:collapse;margin:16px 0;width:100%;" cellpadding="8">
+          <tr><td style="${th}">LP name</td><td style="${td}">${lpEsc}</td></tr>
+          <tr><td style="${th}">Total commitment</td><td style="${td}">${escapeHtml(ccy)} ${fmt(totalCommitment)}</td></tr>
+          <tr><td style="${th}">Uncalled capital (before this call)</td><td style="${td}">${escapeHtml(ccy)} ${fmt(uncalled)}</td></tr>
+          <tr><td style="${th}">Current call amount</td><td style="${td}">${escapeHtml(ccy)} ${fmt(callAmount)}</td></tr>
+          <tr><td style="${th}">Payment due date</td><td style="${td}">${escapeHtml(dateLabel)}</td></tr>
+          <tr><td style="${th}vertical-align:top;">Bank instructions</td><td style="${td}white-space:pre-wrap;">${escapeHtml(String(call.bankInstructions))}</td></tr>
         </table>
-        <p style="color:#666;font-size:12px;text-align:right;">${escapeHtml(letterhead.displayName)}</p>
+        <p style="color:#666;font-size:12px;text-align:right;font-weight:400;">${escapeHtml(letterhead.displayName)}</p>
       </body></html>`;
 
       const callPercentNum = Number(call.callPercent.toString());

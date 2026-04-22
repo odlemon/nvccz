@@ -75,7 +75,8 @@ export function buildCapitalCallNoticePdfBuffer(params: {
         }
       }
 
-      doc.font("Helvetica-Bold").fontSize(12).fillColor("#111111");
+      // Letterhead name should be visible but not overly bold.
+      doc.font("Helvetica").fontSize(12).fillColor("#111111");
       doc.text(lh.displayName, margin, doc.y, { width: contentW, align: "right" });
       doc.font("Helvetica").fontSize(9).fillColor("#444444");
       for (const line of lh.detailLines) {
@@ -93,9 +94,14 @@ export function buildCapitalCallNoticePdfBuffer(params: {
       doc.fillColor("#000000");
     }
 
-    doc.font("Helvetica-Bold").fontSize(18).fillColor("#000000").text("Capital Call Notice", { align: "center" });
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(18)
+      .fillColor("#000000")
+      .text("Capital Call Notice", { align: "center" });
     doc.moveDown(1.2);
-    doc.fontSize(11).fillColor("#000000");
+    // Reset font after the title so the body is not bold.
+    doc.font("Helvetica").fontSize(11).fillColor("#000000");
     doc.text(`Fund: ${params.fundName}`);
     doc.text(`Limited partner: ${params.lpLegalName}`);
     doc.moveDown(0.5);

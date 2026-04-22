@@ -50,3 +50,17 @@ export function chiefExecutiveOrganisationLine(): string {
 export function boardDirectorsWithOrganisationShort(): string {
   return `Board of Directors — ${companyNameShortFromEnv()}`;
 }
+
+/**
+ * Capital call / LP notices: prefer **env** (`COMPANY_NAME_SHORT`, then `COMPANY_NAME_FULL`) so the
+ * letter shows the same active brand (e.g. "Akas AI") even when Company Profile `legalName` lags.
+ */
+export function companyNoticeDisplayName(companyProfileLegalName?: string | null): string {
+  const short = trimEnv("COMPANY_NAME_SHORT");
+  if (short) return short;
+  const full = trimEnv("COMPANY_NAME_FULL");
+  if (full) return full;
+  const fromProfile = companyProfileLegalName != null ? String(companyProfileLegalName).trim() : "";
+  if (fromProfile) return fromProfile;
+  return "NVCCZ";
+}
