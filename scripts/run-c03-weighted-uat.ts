@@ -28,7 +28,7 @@ async function main() {
         title: `C03 UAT Dept ${idx}`,
         description: "C.03 weighted math validation sibling",
         type: "department",
-        category: base.category,
+        scorecardPillar: base.scorecardPillar,
         parentGoalId: base.parentGoalId,
         priority: base.priority,
         startDate: base.startDate,

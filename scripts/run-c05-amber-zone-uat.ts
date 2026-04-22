@@ -24,7 +24,7 @@ async function main() {
       title: "C05 Amber Zone UAT (disposable)",
       description: "C.05 automated UAT",
       type: "department",
-      category: template.category,
+      scorecardPillar: template.scorecardPillar,
       departmentName: template.departmentName,
       parentGoalId: null,
       startDate: template.startDate,

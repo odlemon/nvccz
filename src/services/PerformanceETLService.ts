@@ -174,7 +174,7 @@ export class PerformanceETLService {
           title: goal.title,
           description: goal.description,
           type: goal.type,
-          category: goal.category,
+          scorecardPillar: goal.scorecardPillar,
           targetValue: goal.targetValue,
           targetUnit: goal.targetUnit,
           currentValue: goal.currentValue,
@@ -234,7 +234,7 @@ export class PerformanceETLService {
             id: task.goal.id,
             title: task.goal.title,
             type: task.goal.type,
-            category: task.goal.category
+            scorecardPillar: task.goal.scorecardPillar
           } : null,
           creator: {
             id: task.creator.id,

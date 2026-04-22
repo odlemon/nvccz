@@ -82,7 +82,12 @@ const KPI_CATALOG_UPDATE_SCHEMA = {
     },
     accountNumber: { type: 'string', nullable: true },
     journalEntryType: { type: 'string', enum: ['Debit', 'Credit'] },
-    isFinancial: { type: 'boolean' }
+    isFinancial: { type: 'boolean' },
+    scorecardPillar: {
+      type: 'string',
+      nullable: true,
+      description: 'BSC org pillar; omit to leave unchanged'
+    }
   }
 };
 
@@ -147,7 +152,11 @@ const KPI_CATALOG_POST_PATH_ITEM: Record<string, unknown> = {
                 description: 'Chart / GL identifier for journal lines; required when isFinancial is true'
               },
               journalEntryType: { type: 'string', enum: ['Debit', 'Credit'] },
-              isFinancial: { type: 'boolean' }
+              isFinancial: { type: 'boolean' },
+              scorecardPillar: {
+                type: 'string',
+                description: 'Optional; if omitted, inferred from name/accounts'
+              }
             },
             example: {
               name: 'Training Expense',

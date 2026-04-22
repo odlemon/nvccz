@@ -1331,11 +1331,21 @@ export class PerformanceScorecardService {
         );
       }
       case "REVENUE_GROWTH": {
+        const scRg = goal.syncConfig && typeof goal.syncConfig === "object" ? goal.syncConfig : {};
+        const bscRg = String((scRg as any).bscEntryKind || "").trim();
         const prev = toNumber(inputs.previousRevenue ?? inputs.previous_revenue, 0);
+        const cur = toNumber(inputs.currentRevenue ?? inputs.current_revenue, 0);
+        if (bscRg === "ACCOUNTING_GL_REVENUE_PERIOD") {
+          if (prev > 0) {
+            return ok(((cur - prev) / prev) * 100);
+          }
+          if (prev <= 0 && cur > 0) {
+            return ok(100);
+          }
+          return storedResolved.hasExplicitStored ? ok(storedActual) : miss();
+        }
         if (prev <= 0) return miss();
-        return ok(
-          ((toNumber(inputs.currentRevenue ?? inputs.current_revenue, 0) - prev) / prev) * 100
-        );
+        return ok(((cur - prev) / prev) * 100);
       }
       case "RATIO": {
         const eq = toNumber(inputs.totalShareholdersEquity ?? inputs.total_shareholders_equity, 0);

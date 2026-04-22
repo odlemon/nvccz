@@ -21,7 +21,6 @@ const upload = multer({
  *       required:
  *         - title
  *         - type
- *         - category
  *         - startDate
  *         - endDate
  *       properties:
@@ -38,10 +37,9 @@ const upload = multer({
  *           type: string
  *           enum: [company, department, individual]
  *           description: Goal type
- *         category:
+ *         scorecardPillar:
  *           type: string
- *           enum: [financial, operational, strategic]
- *           description: Goal category
+ *           description: BSC org pillar (Financial, Customer & Market, etc.); company goals require a pillar or a KPI that has one
  *         parentGoalId:
  *           type: string
  *           description: Parent goal ID for hierarchy
@@ -109,7 +107,6 @@ const upload = multer({
  *             required:
  *               - title
  *               - type
- *               - category
  *               - startDate
  *               - endDate
  *             properties:
@@ -123,10 +120,9 @@ const upload = multer({
  *                 type: string
  *                 enum: [company, department, individual]
  *                 description: Goal type
- *               category:
+ *               scorecardPillar:
  *                 type: string
- *                 enum: [financial, operational, strategic]
- *                 description: Goal category
+ *                 description: BSC pillar for company goals; optional for department/individual (can follow backing KPI)
  *               parentGoalId:
  *                 type: string
  *                 description: Parent goal ID for hierarchy
@@ -187,11 +183,10 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *           enum: [company, department, individual]
  *         description: Filter by goal type
  *       - in: query
- *         name: category
+ *         name: scorecardPillar
  *         schema:
  *           type: string
- *           enum: [financial, operational, strategic]
- *         description: Filter by goal category
+ *         description: Filter by BSC org pillar (same canonical names as org goals)
  *       - in: query
  *         name: status
  *         schema:
@@ -347,10 +342,9 @@ router.get("/:id", authenticate, PerformanceGoalController.getPerformanceGoalByI
  *                 type: string
  *                 enum: [company, department, individual]
  *                 description: Goal type
- *               category:
+ *               scorecardPillar:
  *                 type: string
- *                 enum: [financial, operational, strategic]
- *                 description: Goal category
+ *                 description: BSC org pillar
  *               monetaryValue:
  *                 type: number
  *                 description: Target monetary value

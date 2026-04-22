@@ -136,7 +136,7 @@ async function ensureAumGoal(goalIdEnv: string | undefined, actorUserId: string)
         title: UAT_GOAL_TITLE,
         description: "Disposable goal for B.12 AUM in-process sync UAT (auto-created).",
         type: "company",
-        category: "Financial",
+        scorecardPillar: "Financial",
         startDate: new Date("2026-01-01T00:00:00.000Z"),
         endDate: new Date("2026-12-31T23:59:59.999Z"),
         createdById: actorUserId,

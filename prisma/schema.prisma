@@ -1824,7 +1824,6 @@ model PerformanceGoal {
   title                 String
   description           String?           @db.Text
   type                  String
-  category              String
   parentGoalId          String?
   performanceContractId String?
   strategyId            String?
@@ -2130,6 +2129,8 @@ model KPI {
   journalEntryType String?           @map("journal_entry_type") @db.VarChar(16)
   /// When true, completion may post journals if `accountNumber` is set (or legacy hardcoded match exists).
   isFinancial      Boolean           @default(false) @map("is_financial")
+  /// BSC org pillar: Financial | Customer & Market | Internal Operations | Learning, Growth & HR
+  scorecardPillar  String?           @map("scorecard_pillar") @db.VarChar(64)
   performanceGoals PerformanceGoal[]
   activityLogs     ActivityLog[]
 

@@ -17,10 +17,38 @@ import {
   parseProgressBaseline,
   PerformanceGoalService
 } from "./PerformanceGoalService";
-import { resolveGoalEscalationStatus, toNumber } from "./performanceScorecardSupport";
+import { resolveGoalEscalationStatus, round, toNumber } from "./performanceScorecardSupport";
 import { getPostedPeriodRevenueExpenseNetProfit } from "./AccountingGlPeriodTotalsService";
 
 const BSC_FREQ = new Set(["MONTHLY", "QUARTERLY", "ANNUAL", "YEARLY", "ANNUALLY"]);
+
+/** Same calendar window one year earlier (for YoY revenue growth %). */
+function priorYearSameWindow(periodStart: Date, periodEnd: Date): { priorStart: Date; priorEnd: Date } {
+  return {
+    priorStart: new Date(
+      Date.UTC(
+        periodStart.getUTCFullYear() - 1,
+        periodStart.getUTCMonth(),
+        periodStart.getUTCDate(),
+        periodStart.getUTCHours(),
+        periodStart.getUTCMinutes(),
+        periodStart.getUTCSeconds(),
+        periodStart.getUTCMilliseconds()
+      )
+    ),
+    priorEnd: new Date(
+      Date.UTC(
+        periodEnd.getUTCFullYear() - 1,
+        periodEnd.getUTCMonth(),
+        periodEnd.getUTCDate(),
+        periodEnd.getUTCHours(),
+        periodEnd.getUTCMinutes(),
+        periodEnd.getUTCSeconds(),
+        periodEnd.getUTCMilliseconds()
+      )
+    )
+  };
+}
 
 /** Columns needed for BSC apply path (avoids loading full goal rows). */
 const GOAL_APPLY_SELECT = {
@@ -111,7 +139,8 @@ const ENTRY_VALIDATION_RULES: Record<string, EntryValidationRule> = {
   },
   INCLUSION_DIVERSITY_REPORTING: {
     expectedLabel: "inclusion / diversity KPI",
-    textHints: ["inclusion", "diversity", "equity"]
+    /** Avoid matching **Debt–equity ratio** (contains "equity" but is a financial ratio, not D&I). */
+    textHints: ["inclusion", "diversity", "inclusive", "inclusivity", "gender"]
   },
   ACCOUNTING_GL_REVENUE_PERIOD: {
     expectedLabel: "revenue KPI",
@@ -357,6 +386,21 @@ async function applyNumericActualToGoal(params: {
         ...existingActs,
         participantsCompleted: done,
         participantsEligible: elig
+      };
+    }
+  } else if (params.entryKind === "ACCOUNTING_GL_REVENUE_PERIOD") {
+    const ex = params.syncExtra || {};
+    const currR = toNumber(ex.glCurrentPeriodRevenue, NaN);
+    const prevR = toNumber(ex.glPriorPeriodRevenue, NaN);
+    if (Number.isFinite(currR) && Number.isFinite(prevR)) {
+      const existingActs =
+        goal.activities && typeof goal.activities === "object" && !Array.isArray(goal.activities)
+          ? { ...(goal.activities as Record<string, unknown>) }
+          : {};
+      activitiesPatch = {
+        ...existingActs,
+        currentRevenue: currR,
+        previousRevenue: prevR
       };
     }
   }
@@ -1022,9 +1066,30 @@ export class BscDigitalEntryService {
 
     if (input.revenueGoalId != null && String(input.revenueGoalId).trim() !== "") {
       const gid = String(input.revenueGoalId).trim();
+      const revGoal = await prisma.performanceGoal.findUnique({
+        where: { id: gid },
+        select: { formulaType: true }
+      });
+      const revFormula = normaliseFormulaType(revGoal?.formulaType);
+      const { priorStart, priorEnd } = priorYearSameWindow(ps, pe);
+      const priorGl = await getPostedPeriodRevenueExpenseNetProfit(priorStart, priorEnd);
+      const currRev = glTotals.revenue;
+      const prevRev = priorGl.revenue;
+      let revenueActualValue: number;
+      if (revFormula === "REVENUE_GROWTH") {
+        if (prevRev > 0) {
+          revenueActualValue = round(((currRev - prevRev) / prevRev) * 100, 4);
+        } else if (prevRev <= 0 && currRev > 0) {
+          revenueActualValue = 100;
+        } else {
+          revenueActualValue = 0;
+        }
+      } else {
+        revenueActualValue = currRev;
+      }
       await applyNumericActualToGoal({
         goalId: gid,
-        currentValue: glTotals.revenue,
+        currentValue: revenueActualValue,
         responsibleUserId: input.responsibleUserId,
         entryKind: "ACCOUNTING_GL_REVENUE_PERIOD",
         frequency: freq,
@@ -1034,11 +1099,16 @@ export class BscDigitalEntryService {
         currencyCode: input.currencyCode,
         monetaryFieldsForAudit: {
           glRevenue: glTotals.revenue,
+          glPriorYearRevenue: priorGl.revenue,
+          glRevenueYoYPercent: revFormula === "REVENUE_GROWTH" ? revenueActualValue : undefined,
           currencyCode: input.currencyCode
         },
         syncExtra: {
           source: "posted_journal_lines",
-          totalExpense: glTotals.totalExpense
+          totalExpense: glTotals.totalExpense,
+          glCurrentPeriodRevenue: currRev,
+          glPriorPeriodRevenue: prevRev,
+          ...(revFormula === "REVENUE_GROWTH" ? { glRevenueYearOnYearPercent: revenueActualValue } : {})
         }
       });
       goalUpdates.push({ role: "revenue", goalId: gid });

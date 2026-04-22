@@ -26,7 +26,7 @@ async function main() {
         title,
         description: "C.10 disposable reverse KPI goal (lower cost is better)",
         type: "department",
-        category: template.category,
+        scorecardPillar: template.scorecardPillar,
         parentGoalId: null,
         departmentName: "Finance",
         startDate: template.startDate,

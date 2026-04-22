@@ -58,7 +58,7 @@ export class IndividualGoalToTaskService {
         priority: individualGoal.priority || "medium",
         department: individualGoal.departmentName, // Use hardcoded department name
         goalId: individualGoal.id, // Link to individual goal
-        performanceCategory: individualGoal.category,
+        performanceCategory: individualGoal.scorecardPillar,
         isPerformanceTask: true,
         targetValue: individualGoal.targetValue
           ? parseFloat(individualGoal.targetValue.toString())

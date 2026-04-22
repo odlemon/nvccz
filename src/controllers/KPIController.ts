@@ -80,7 +80,8 @@ export class KPIController {
         accountType,
         accountNumber,
         journalEntryType,
-        isFinancial
+        isFinancial,
+        scorecardPillar
       } = req.body;
 
       if (!name || !type) {
@@ -222,7 +223,10 @@ export class KPIController {
         accountType: atP.value,
         accountNumber: accountNumberNorm,
         journalEntryType: jtP.value,
-        isFinancial: fin.value
+        isFinancial: fin.value,
+        ...(scorecardPillar != null && String(scorecardPillar).trim() !== ""
+          ? { scorecardPillar: String(scorecardPillar).trim() }
+          : {})
       });
 
       return res.status(201).json({
@@ -249,7 +253,8 @@ export class KPIController {
         departmentId,
         isActive,
         hasUnit,
-        search
+        search,
+        scorecardPillar
       } = req.query;
 
       const filters: any = {};
@@ -258,6 +263,7 @@ export class KPIController {
       if (isActive !== undefined) filters.isActive = isActive === 'true';
       if (hasUnit !== undefined) filters.hasUnit = hasUnit === 'true';
       if (search) filters.search = search as string;
+      if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
 
       const kpis = await KPIService.getAllKPIs(filters);
 
@@ -315,7 +321,8 @@ export class KPIController {
         accountType,
         accountNumber,
         journalEntryType,
-        isFinancial
+        isFinancial,
+        scorecardPillar
       } = req.body;
 
       if (type && !["Metric", "Percentage"].includes(type)) {
@@ -362,7 +369,8 @@ export class KPIController {
         ...(isFinancial !== undefined && {
           isFinancial:
             typeof isFinancial === "boolean" ? isFinancial : isFinancial === "true"
-        })
+        }),
+        ...(scorecardPillar !== undefined && { scorecardPillar })
       };
 
       if (catalogDepartmentName !== undefined) {
@@ -459,7 +467,8 @@ export class KPIController {
         kpiId,
         type,
         departmentId,
-        isActive
+        isActive,
+        scorecardPillar
       } = req.query;
 
       const filters: any = {};
@@ -467,6 +476,7 @@ export class KPIController {
       if (type) filters.type = type as string;
       if (departmentId) filters.departmentId = departmentId as string;
       if (isActive !== undefined) filters.isActive = isActive === 'true';
+      if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
 
       const trackingData = await KPIService.getKPITracking(filters);
 
@@ -488,11 +498,13 @@ export class KPIController {
     try {
       const {
         departmentId,
+        scorecardPillar,
         period = 'month'
       } = req.query;
 
       const filters: any = {};
       if (departmentId) filters.departmentId = departmentId as string;
+      if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
 
       const analyticsData = await KPIService.getKPIAnalyticsSummary(filters, period as string);
 

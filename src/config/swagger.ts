@@ -22,6 +22,7 @@ import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-s
 import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
 import { fundManagementEndpoints } from './fund-management-endpoints';
 import { portfolioLetterheadsEndpoints } from './portfolio-letterheads-endpoints';
+import { boardReviewOpenApiOverridePaths } from './board-review-openapi';
 
 const options = {
   definition: {
@@ -7561,25 +7562,31 @@ const fallbackSpec = {
       },
       '/board-reviews/{applicationId}': {
         post: {
-          tags: ['🗳️ Voting Process', 'Updated investment flow'],
-          summary: 'Create board review (Investor)',
-          description: 'Create a board review for an application that has completed due diligence',
+          tags: ['🏢 Portfolio Management', '🗳️ Voting Process', 'Updated investment flow'],
+          summary: 'Create board review — upload final Investment Memorandum (multipart)',
+          description:
+            '**multipart/form-data** only. Required part **document** (IM file: PDF, Word, or Excel, max 50MB). Optional text fields; booleans as strings `true`/`false`. Application must be `UNDER_BOARD_REVIEW`.',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'applicationId', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: {
             required: true,
             content: {
-              'application/json': {
+              'multipart/form-data': {
                 schema: {
                   type: 'object',
+                  required: ['document'],
                   properties: {
-                    investmentApproved: { type: 'boolean' },
-                    investmentRejected: { type: 'boolean' },
-                    conditionalApproval: { type: 'boolean' },
+                    document: { type: 'string', format: 'binary', description: 'Final Investment Memorandum' },
                     recommendationReport: { type: 'string' },
+                    additionalInformation: { type: 'string' },
                     decisionReason: { type: 'string' },
-                    overallScore: { type: 'number' },
-                    finalComments: { type: 'string' }
+                    conditions: { type: 'string' },
+                    nextSteps: { type: 'string' },
+                    overallScore: { type: 'string', description: 'Score as form text' },
+                    finalComments: { type: 'string' },
+                    investmentApproved: { type: 'string' },
+                    investmentRejected: { type: 'string' },
+                    conditionalApproval: { type: 'string' }
                   }
                 }
               }
@@ -8945,6 +8952,7 @@ specs.paths = {
   ...updatedPerformanceSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
+  ...boardReviewOpenApiOverridePaths
 };
 
 specs.paths = mergeCapitalCallClientPrerequisitePaths(specs.paths);

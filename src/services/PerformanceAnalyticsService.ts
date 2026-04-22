@@ -421,7 +421,7 @@ export class PerformanceAnalyticsService {
         id: goal.id,
         title: goal.title,
         type: goal.type,
-        category: goal.category,
+        scorecardPillar: goal.scorecardPillar,
         department: goal.departmentName,
         targetValue: goal.targetValue,
         currentValue: goal.currentValue,

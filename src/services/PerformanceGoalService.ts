@@ -209,7 +209,6 @@ export interface CreatePerformanceGoalRequest {
   title: string;
   description?: string;
   type: string; // "company", "department", "individual"
-  category: string; // "financial", "operational", "strategic"
   parentGoalId?: string;
   departmentName?: string; // Use hardcoded department names
   // Absolute value targets (replacing percentage-based)
@@ -244,7 +243,6 @@ export interface UpdatePerformanceGoalRequest {
   title?: string;
   description?: string;
   type?: string;
-  category?: string;
   // Absolute value targets (replacing percentage-based)
   targetValue?: number; // Updated target value
   targetUnit?: string; // Updated target unit
@@ -506,13 +504,14 @@ export class PerformanceGoalService {
         name: string;
         isReverseKpi: boolean;
         accountType: string | null;
+        scorecardPillar: string | null;
       } | null = null;
 
       // Validate KPI if provided by name
       if (request.kpiName) {
         const kpi = await prisma.kPI.findFirst({
           where: { name: request.kpiName },
-          select: { id: true, name: true, isReverseKpi: true, accountType: true },
+          select: { id: true, name: true, isReverseKpi: true, accountType: true, scorecardPillar: true },
         });
 
         if (!kpi) {
@@ -569,12 +568,28 @@ export class PerformanceGoalService {
       let scorecardPillarDb: string | undefined;
       let pillarIdDb: string | null | undefined;
       if (request.type === "company") {
-        const p = normalizeOrgBscScorecardPillar(request.scorecardPillar);
+        const fromReq = normalizeOrgBscScorecardPillar(request.scorecardPillar);
+        const fromKpi = kpiCatalog?.scorecardPillar
+          ? normalizeOrgBscScorecardPillar(kpiCatalog.scorecardPillar)
+          : null;
+        const p = fromReq || fromKpi;
         if (!p) {
           throw new Error(companyPillarMsg);
         }
         scorecardPillarDb = p;
         pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
+      } else {
+        const fromReq = request.scorecardPillar
+          ? normalizeOrgBscScorecardPillar(request.scorecardPillar)
+          : null;
+        const fromKpi = kpiCatalog?.scorecardPillar
+          ? normalizeOrgBscScorecardPillar(kpiCatalog.scorecardPillar)
+          : null;
+        const p = fromReq || fromKpi;
+        if (p) {
+          scorecardPillarDb = p;
+          pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
+        }
       }
 
       let performanceContractId: string | undefined =
@@ -621,7 +636,6 @@ export class PerformanceGoalService {
           title: request.title,
           description: request.description,
           type: request.type,
-          category: request.category,
           parentGoalId: request.parentGoalId,
           departmentName: request.departmentName,
           ...(performanceContractId ? { performanceContractId } : {}),
@@ -659,7 +673,8 @@ export class PerformanceGoalService {
               name: true,
               type: true,
               unitSymbol: true,
-              unitPosition: true
+              unitPosition: true,
+              scorecardPillar: true
             }
           },
           assignedTo: {
@@ -763,7 +778,8 @@ export class PerformanceGoalService {
             title: departmentData.title || `${departmentName} Goal: ${parentGoal.title}`,
             description: departmentData.description || `Department goal for ${departmentName} based on: ${parentGoal.title}`,
             type: "department",
-            category: parentGoal.category,
+            scorecardPillar: parentGoal.scorecardPillar,
+            pillarId: parentGoal.pillarId,
             parentGoalId: parentGoalId,
             departmentName: departmentName, // Use hardcoded department name
             performanceContractId,
@@ -793,7 +809,8 @@ export class PerformanceGoalService {
             title: true,
             description: true,
             type: true,
-            category: true,
+            scorecardPillar: true,
+            pillarId: true,
             parentGoalId: true,
             departmentName: true,
             targetValue: true,
@@ -874,7 +891,8 @@ export class PerformanceGoalService {
             title: userData.title || `Individual Goal: ${departmentGoal.title}`,
             description: userData.description || `Individual goal based on: ${departmentGoal.title}`,
             type: "individual",
-            category: departmentGoal.category,
+            scorecardPillar: departmentGoal.scorecardPillar,
+            pillarId: departmentGoal.pillarId,
             parentGoalId: departmentGoalId,
             departmentName: departmentGoal.departmentName, // Use same department name
             targetValue: userData.targetValue,
@@ -928,10 +946,6 @@ export class PerformanceGoalService {
 
       if (filters.type) {
         where.type = filters.type;
-      }
-
-      if (filters.category) {
-        where.category = filters.category;
       }
 
       if (filters.status) {
@@ -1226,7 +1240,6 @@ export class PerformanceGoalService {
           ...(request.title && { title: request.title }),
           ...(request.description !== undefined && { description: request.description }),
           ...(request.type && { type: request.type }),
-          ...(request.category && { category: request.category }),
           ...(request.monetaryValue !== undefined && { monetaryValue: request.monetaryValue }),
           ...(request.percentValue !== undefined && { percentValue: request.percentValue }),
           ...(request.monetaryValueAchieved !== undefined && { monetaryValueAchieved: request.monetaryValueAchieved }),
@@ -1565,9 +1578,9 @@ export class PerformanceGoalService {
         prisma.performanceGoal.count({ where: { status: "completed" } })
       ]);
 
-      // Get goals by category
-      const goalsByCategory = await prisma.performanceGoal.groupBy({
-        by: ['category'],
+      // Get goals by scorecard pillar (BSC)
+      const goalsByScorecardPillar = await prisma.performanceGoal.groupBy({
+        by: ["scorecardPillar"],
         _count: {
           id: true
         }
@@ -1591,7 +1604,7 @@ export class PerformanceGoalService {
         individualGoals,
         activeGoals,
         completedGoals,
-        goalsByCategory,
+        goalsByScorecardPillar,
         goalsByDepartment
       };
     } catch (error) {

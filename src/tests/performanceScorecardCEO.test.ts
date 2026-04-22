@@ -47,6 +47,30 @@ describe("PerformanceScorecardService CEO helpers", () => {
     expect(r.value).toBe(0);
   });
 
+  test("extractCEOFormulaActual: GL revenue period YoY percent", () => {
+    const r = Svc.extractCEOFormulaActual({
+      formulaType: "REVENUE_GROWTH",
+      activities: { currentRevenue: 110, previousRevenue: 100 },
+      preciseCurrentValue: null,
+      currentValue: null,
+      syncConfig: { bscEntryKind: "ACCOUNTING_GL_REVENUE_PERIOD" }
+    });
+    expect(r.missingValue).toBe(false);
+    expect(r.value).toBeCloseTo(10, 4);
+  });
+
+  test("extractCEOFormulaActual: GL revenue period 100% when prior year zero and current positive", () => {
+    const r = Svc.extractCEOFormulaActual({
+      formulaType: "REVENUE_GROWTH",
+      activities: { currentRevenue: 50, previousRevenue: 0 },
+      preciseCurrentValue: null,
+      currentValue: null,
+      syncConfig: { bscEntryKind: "ACCOUNTING_GL_REVENUE_PERIOD" }
+    });
+    expect(r.missingValue).toBe(false);
+    expect(r.value).toBeCloseTo(100, 4);
+  });
+
   test("extractCEOFormulaActual: debt–equity ratio and missing when equity is zero", () => {
     expect(
       Svc.extractCEOFormulaActual({
