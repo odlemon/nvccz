@@ -131,11 +131,11 @@ export class EventService {
         throw new Error('Event not found');
       }
 
-      const guestRecords = await Promise.all(
-        guests.map(async (guest) => {
-          const invitationToken = crypto.randomBytes(32).toString('hex');
-          
-          return prisma.eventGuest.create({
+      const guestRecords: any[] = [];
+      for (const guest of guests) {
+        const invitationToken = crypto.randomBytes(32).toString('hex');
+        try {
+          const created = await prisma.eventGuest.create({
             data: {
               eventId,
               email: guest.email,
@@ -150,8 +150,13 @@ export class EventService {
               emergencyPhone: guest.emergencyPhone,
             },
           });
-        })
-      );
+          guestRecords.push(created);
+        } catch (e: any) {
+          // Skip duplicates (unique: eventId+email) instead of failing whole request.
+          if (e?.code === "P2002") continue;
+          throw e;
+        }
+      }
 
       // Send invitation emails
       for (const guest of guestRecords) {

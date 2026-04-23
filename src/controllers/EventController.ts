@@ -6,6 +6,9 @@ import { EventService } from "../services/EventService";
 import { GoogleCalendarService } from "../services/GoogleCalendarService";
 import { Decimal } from "@prisma/client/runtime/library";
 import { parseDate } from "../utils/dateHelper";
+import * as XLSX from "xlsx";
+import csvParser from "csv-parser";
+import { Readable } from "stream";
 const googleCalendarService = new GoogleCalendarService();
 
 export const eventController = {
@@ -354,6 +357,240 @@ export const eventController = {
       res.status(500).json({
         success: false,
         message: error.message || "Internal server error"
+      });
+    }
+  },
+
+  // Bulk guest upload (CSV/XLSX) + invite send
+  async bulkUploadGuests(req: AuthRequest, res: Response) {
+    try {
+      const { eventId } = req.params;
+      const file = req.file as Express.Multer.File | undefined;
+      const text = String((req.body as any)?.text || "").trim();
+
+      if (!file && !text) {
+        res.status(400).json({
+          success: false,
+          message: "Provide either a file upload (`file`) or multi-line text (`text`).",
+        });
+        return;
+      }
+
+      const rows: any[] = [];
+
+      const normalizeHeader = (h: string) =>
+        String(h || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .replace(/[_-]+/g, " ");
+
+      const asString = (v: any) => String(v ?? "").trim();
+
+      const mapRowToGuest = (r: any) => {
+        const email =
+          asString(r.email || r["e-mail"] || r["email address"] || r["emailaddress"]).toLowerCase();
+        const phone = asString(r.phone || r["phone number"] || r.mobile || r.msisdn);
+        const name =
+          asString(r.name) ||
+          [asString(r.firstName || r.firstname || r["first name"]), asString(r.lastName || r.lastname || r["last name"])]
+            .filter(Boolean)
+            .join(" ")
+            .trim();
+        return {
+          email,
+          phone,
+          name,
+          company: asString(r.company || r.organization || r.org),
+          title: asString(r.title || r.role || r.position),
+        };
+      };
+
+      const parseCsvBuffer = async (buf: Buffer) => {
+        await new Promise<void>((resolve, reject) => {
+          const stream = Readable.from(buf);
+          stream
+            .pipe(
+              csvParser({
+                mapHeaders: ({ header }) => normalizeHeader(header),
+              })
+            )
+            .on("data", (data) => rows.push(data))
+            .on("end", () => resolve())
+            .on("error", (err) => reject(err));
+        });
+      };
+
+      const parseXlsxBuffer = (buf: Buffer) => {
+        const workbook = XLSX.read(buf, { type: "buffer" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[];
+        for (const r of json) {
+          const normalized: any = {};
+          for (const [k, v] of Object.entries(r || {})) {
+            normalized[normalizeHeader(k)] = v;
+          }
+          rows.push(normalized);
+        }
+      };
+
+      if (file) {
+        const original = String(file.originalname || "").toLowerCase();
+        const mime = String(file.mimetype || "").toLowerCase();
+        if (original.endsWith(".csv") || mime.includes("csv")) {
+          await parseCsvBuffer(file.buffer);
+        } else if (original.endsWith(".xlsx") || original.endsWith(".xls") || mime.includes("spreadsheet")) {
+          parseXlsxBuffer(file.buffer);
+        } else {
+          res.status(400).json({
+            success: false,
+            message: "Unsupported file type. Upload a .csv or .xlsx file.",
+          });
+          return;
+        }
+      } else if (text) {
+        // Multi-line text: supports "name, email, phone" or "email, phone, name"
+        const lines = text
+          .split(/\r?\n/g)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        for (const line of lines) {
+          const parts = line.split(",").map((p) => p.trim());
+          if (parts.length === 1) {
+            rows.push({ email: parts[0] });
+          } else if (parts.length === 2) {
+            rows.push({ email: parts[0], phone: parts[1] });
+          } else {
+            rows.push({ name: parts[0], email: parts[1], phone: parts[2] });
+          }
+        }
+      }
+
+      const guestsRaw = rows.map(mapRowToGuest);
+
+      // Validate + dedupe within payload
+      const createdCandidates: any[] = [];
+      const errors: Array<{ row: number; message: string; raw?: any }> = [];
+      const seenEmails = new Set<string>();
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+
+      guestsRaw.forEach((g, idx) => {
+        const rowNo = idx + 1;
+        if (!g.email || !emailRegex.test(g.email)) {
+          errors.push({ row: rowNo, message: "Missing/invalid email", raw: g });
+          return;
+        }
+        if (!g.phone) {
+          errors.push({ row: rowNo, message: "Missing phone number", raw: g });
+          return;
+        }
+        if (!g.name) {
+          errors.push({ row: rowNo, message: "Missing name", raw: g });
+          return;
+        }
+        if (seenEmails.has(g.email)) return;
+        seenEmails.add(g.email);
+        createdCandidates.push(g);
+      });
+
+      if (createdCandidates.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "No valid guest rows found to upload.",
+          errors,
+        });
+        return;
+      }
+
+      // Filter out guests already on event (unique eventId+email)
+      const existing = await prisma.eventGuest.findMany({
+        where: { eventId, email: { in: createdCandidates.map((g) => g.email) } },
+        select: { email: true },
+      });
+      const existingEmails = new Set(existing.map((e) => String(e.email).toLowerCase()));
+      const guestsToCreate = createdCandidates.filter((g) => !existingEmails.has(g.email));
+
+      const created = await EventService.addGuests(eventId, guestsToCreate);
+
+      res.status(201).json({
+        success: true,
+        message: "Bulk guests uploaded successfully",
+        data: {
+          requested: createdCandidates.length,
+          skippedExisting: createdCandidates.length - guestsToCreate.length,
+          created: created.length,
+          errors,
+          guests: created,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error bulk uploading guests:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Internal server error",
+      });
+    }
+  },
+
+  // Download example guest upload template (CSV/XLSX)
+  async downloadGuestUploadTemplate(req: AuthRequest, res: Response) {
+    try {
+      const format = String((req.query as any)?.format || "xlsx").toLowerCase();
+
+      const headers = ["name", "email", "phone", "company", "title"];
+      const exampleRows = [
+        {
+          name: "Jane Doe",
+          email: "jane.doe@example.com",
+          phone: "+263771234567",
+          company: "Arcus AI Pvt Ltd",
+          title: "CFO",
+        },
+        {
+          name: "John Smith",
+          email: "john.smith@example.com",
+          phone: "+263774567890",
+          company: "Example Co",
+          title: "CEO",
+        },
+      ];
+
+      if (format === "csv") {
+        const escapeCsv = (v: any) => {
+          const s = String(v ?? "");
+          if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+          return s;
+        };
+        const lines = [
+          headers.join(","),
+          ...exampleRows.map((r) => headers.map((h) => escapeCsv((r as any)[h])).join(",")),
+        ];
+        const buf = Buffer.from(lines.join("\n"), "utf8");
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", 'attachment; filename="event-guests-template.csv"');
+        res.status(200).send(buf);
+        return;
+      }
+
+      // default: xlsx
+      const worksheet = XLSX.utils.json_to_sheet(exampleRows, { header: headers });
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Guests");
+      const buf = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader("Content-Disposition", 'attachment; filename="event-guests-template.xlsx"');
+      res.status(200).send(buf);
+    } catch (error: any) {
+      console.error("Error generating guest upload template:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Internal server error",
       });
     }
   },
