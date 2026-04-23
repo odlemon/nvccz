@@ -215,6 +215,22 @@ export const eventsEndpoints = {
   },
 
   // ========== EVENTS MANAGEMENT - GUEST MANAGEMENT ==========
+  '/events/guests/bulk-upload/template': {
+    get: {
+      summary: 'Download bulk guest upload template (CSV/XLSX)',
+      description:
+        '**Required Role:** Any authenticated user. Download an example template showing the expected columns for bulk guest upload. Use `format=csv` for CSV; default is XLSX.',
+      tags: ['Events — Guests & RSVP (EventSync)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'query', name: 'format', required: false, schema: { type: 'string', enum: ['xlsx', 'csv'], default: 'xlsx' }, description: 'File format to download' }
+      ],
+      responses: {
+        200: { description: 'Template file download' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
   '/events/{eventId}/guests': {
     post: {
       summary: 'Add guests to an event',
@@ -306,6 +322,45 @@ export const eventsEndpoints = {
           }
         },
         401: { description: 'Unauthorized' }
+      }
+    }
+  },
+  '/events/{eventId}/guests/bulk-upload': {
+    post: {
+      summary: 'Bulk upload guests (CSV/XLSX or multi-line text) and send invitations',
+      description:
+        '**Required Role:** Event Organizer (Any authenticated user). Upload a CSV/XLSX file (or provide multi-line text) to create guests for an event and automatically send invitation emails with unique RSVP links. Validates presence of **email** and **phone** per row. Duplicate emails within the payload are deduped; guests already on the event are skipped.',
+      tags: ['Events — Guests & RSVP (EventSync)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'eventId', required: true, schema: { type: 'string' }, description: 'Event ID', example: 'clx1234567890abcdef' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              properties: {
+                file: {
+                  type: 'string',
+                  format: 'binary',
+                  description: 'CSV or XLSX file containing guest rows. Expected columns: name, email, phone (company/title optional).'
+                },
+                text: {
+                  type: 'string',
+                  description: 'Multi-line text input; each line can be `name, email, phone` (comma-separated).'
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        201: { description: 'Guests uploaded successfully; invitations sent' },
+        400: { description: 'Bad request - missing file/text or validation errors' },
+        401: { description: 'Unauthorized' },
+        404: { description: 'Event not found' }
       }
     }
   },
