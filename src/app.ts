@@ -101,6 +101,7 @@ import enhancedETLRoutes from "./routes/enhancedETLRoutes"
 import performanceReviewCycleRoutes from "./routes/performanceReviewCycleRoutes"
 import performanceBreakdownRoutes from "./routes/performanceBreakdownRoutes"
 import individualGoalToTaskRoutes from "./routes/individualGoalToTaskRoutes"
+import scorecardPillarRoutes from "./routes/scorecardPillarRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
 import payrollDashboardRoutes from "./routes/payrollDashboardRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
@@ -550,6 +551,7 @@ app.use("/api/activities", activityRoutes)
 app.use("/api/kpis", kpiRoutes)
 app.use("/api/performance/kpis", hardcodedKPIRoutes)
 app.use("/api/performance/kpis", performanceKpiCatalogRoutes)
+app.use("/api/performance/scorecard-pillars", scorecardPillarRoutes)
 app.use("/api/activity-logs", activityLogRoutes)
 app.use("/api/performance/rollup", rollupCalculationRoutes)
 app.use("/api/performance/scorecards", performanceScorecardRoutes)

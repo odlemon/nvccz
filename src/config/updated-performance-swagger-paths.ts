@@ -1302,5 +1302,73 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   },
 
   '/kpis': KPI_CATALOG_POST_PATH_ITEM,
-  '/kpis/{id}': KPI_CATALOG_BY_ID_PATH_ITEM
+  '/kpis/{id}': KPI_CATALOG_BY_ID_PATH_ITEM,
+
+  '/performance/scorecard-pillars': {
+    get: {
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'List scorecard pillars',
+      description:
+        'Returns the configured Balanced Scorecard pillars (displayName + description) for KPI configuration. Run `npm run db:migrate:scorecard-pillars` to seed system pillars.',
+      security: [{ bearerAuth: [] }],
+      responses: { 200: JSON_200, 401: JSON_401 }
+    },
+    post: {
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Create/seed a scorecard pillar',
+      description:
+        'Upserts one of the 4 organisational pillars by canonicalName. Intended for admin seeding flows; normal workflow uses the migration script.',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['canonicalName'],
+              properties: {
+                canonicalName: { type: 'string', example: 'Financial' },
+                displayName: { type: 'string', example: 'Financial' },
+                description: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 201: JSON_201, 400: JSON_400, 401: JSON_401 }
+    }
+  },
+  '/performance/scorecard-pillars/{id}': {
+    put: {
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Update a scorecard pillar',
+      description:
+        'Updates displayName/description for a pillar. If `canonicalName` is provided, performs a canonical rename (cascades to KPIs/goals and stores the old name as an alias).',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                displayName: { type: 'string' },
+                description: { type: 'string' },
+                canonicalName: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+    },
+    delete: {
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Delete a scorecard pillar',
+      description: 'System pillars cannot be deleted; non-system pillars can be deleted only when not referenced by KPIs/goals.',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+    }
+  }
 };

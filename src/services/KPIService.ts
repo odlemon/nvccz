@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { inferKpiScorecardPillar } from "../utils/inferKpiScorecardPillar";
 import { normalizeOrgBscScorecardPillar } from "./performanceScorecardSupport";
+import { ScorecardPillarService } from "./ScorecardPillarService";
 
 export interface CreateKPIRequest {
   name: string;
@@ -154,6 +155,9 @@ export class KPIService {
           isFinancial: request.isFinancial,
           unitCategory: request.unitCategory
         });
+
+      // Ensure pillar is configured in DB (UAT pillar management).
+      await ScorecardPillarService.assertCanonicalExists(resolvedPillar);
 
       // Create the KPI
       const kpi = await prisma.kPI.create({
@@ -329,6 +333,16 @@ export class KPIService {
         });
         if (codeTaken) {
           throw new Error("KPI code already exists");
+        }
+      }
+
+      if (request.scorecardPillar !== undefined && request.scorecardPillar != null) {
+        const normalized =
+          normalizeOrgBscScorecardPillar(String(request.scorecardPillar)) ||
+          String(request.scorecardPillar).trim() ||
+          null;
+        if (normalized) {
+          await ScorecardPillarService.assertCanonicalExists(normalized);
         }
       }
 
