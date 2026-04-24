@@ -228,6 +228,11 @@ const options = {
           'BSC **data entry**, **workflow**, **performance contracts**, and **scorecard generate** (persist draft) — see `docs/performance-bsc-data-entry-flow.md` for paths, **example JSON bodies** (incl. contracts), and rules. **Contracts:** `POST /performance/contracts/board|ceo|department|employee` (annual `periodYear` or exact UTC year bounds; CEO may omit `subjectUserId` to resolve from roles). **Scorecards:** `GET /performance/scorecards/employees-for-generation` (EMPLOYEE contract holders for the period, CEO excluded) and **`POST /performance/scorecards/board/generate`, `…/ceo/generate`, `…/department/{department}/generate`, `…/employee/{employeeId}/generate`** — optional period + **sectionBlendMode** (Board/CEO). JWT only on these routes.'
       },
       {
+        name: 'Performance UAT (Balanced Scorecard)',
+        description:
+          'UAT utilities for Balanced Scorecard configuration. Includes DB-backed **scorecard pillars** CRUD for KPI configuration screens: `GET/POST /performance/scorecard-pillars`, `PUT/DELETE /performance/scorecard-pillars/{id}`. System pillars are seeded via `npm run db:migrate:scorecard-pillars`.'
+      },
+      {
         name: 'performance-kpis',
         description:
           '**Database KPI catalog** (`kpis` table): **POST** **`/kpis`**, **PATCH** / **PUT** / **DELETE** **`/kpis/{id}`** (OpenAPI paths relative to server URL ending in `/api` — same handlers are mounted at **`/api/kpis`** and **`/api/performance/kpis`**). **catalogDepartmentName** must match **`departments.name`**; **`departmentId`** is set automatically. Hardcoded KPI **GET** reference listings stay under **`/performance/kpis`** (see **📊 Hardcoded KPIs**).'

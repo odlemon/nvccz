@@ -2137,6 +2137,34 @@ model KPI {
   @@map("kpis")
 }
 
+/// Balanced Scorecard pillar configuration (DB-backed, editable labels/descriptions).
+/// System pillars are seeded with stable ids aligned to `ORG_BSC_CANONICAL_TO_PILLAR_ID`.
+model ScorecardPillar {
+  id            String   @id @db.VarChar(80)
+  canonicalName String   @unique @map("canonical_name") @db.VarChar(128)
+  displayName   String   @map("display_name") @db.VarChar(128)
+  description   String?  @db.Text
+  isSystem      Boolean  @default(false) @map("is_system")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  aliases       ScorecardPillarAlias[]
+
+  @@map("scorecard_pillars")
+}
+
+/// Aliases for scorecard pillars (supports canonical renames without breaking existing data/inference).
+model ScorecardPillarAlias {
+  id        String         @id @default(cuid())
+  pillarId  String         @map("pillar_id") @db.VarChar(80)
+  alias     String         @unique @db.VarChar(128)
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  pillar    ScorecardPillar @relation(fields: [pillarId], references: [id], onDelete: Cascade)
+
+  @@index([pillarId], map: "scorecard_pillar_aliases_pillar_idx")
+  @@map("scorecard_pillar_aliases")
+}
+
 model PurchaseRequisition {
   id                String                    @id @default(cuid())
   requisitionNumber String                    @unique

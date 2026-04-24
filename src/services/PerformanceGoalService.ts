@@ -16,6 +16,7 @@ import {
   ORG_BSC_CANONICAL_TO_PILLAR_ID,
   resolveGoalEscalationStatus
 } from "./performanceScorecardSupport";
+import { ScorecardPillarService } from "./ScorecardPillarService";
 import { ensureDepartmentPerformanceContractForGoal } from "./DepartmentPerformanceContractService";
 import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
 import { FirebaseStorageService } from "./FirebaseStorageService";
@@ -576,6 +577,7 @@ export class PerformanceGoalService {
         if (!p) {
           throw new Error(companyPillarMsg);
         }
+        await ScorecardPillarService.assertCanonicalExists(p);
         scorecardPillarDb = p;
         pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
       } else {
@@ -587,6 +589,7 @@ export class PerformanceGoalService {
           : null;
         const p = fromReq || fromKpi;
         if (p) {
+          await ScorecardPillarService.assertCanonicalExists(p);
           scorecardPillarDb = p;
           pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
         }
@@ -1164,6 +1167,7 @@ export class PerformanceGoalService {
         if (!normalized) {
           throw new Error(companyPillarMsg);
         }
+        await ScorecardPillarService.assertCanonicalExists(normalized);
         pillarData.scorecardPillar = normalized;
         pillarData.pillarId = ORG_BSC_CANONICAL_TO_PILLAR_ID[normalized] ?? null;
       } else if (existingGoal.type === "company" && nextType !== "company") {
@@ -1171,6 +1175,9 @@ export class PerformanceGoalService {
         pillarData.pillarId = null;
       } else if (request.scorecardPillar !== undefined) {
         const normalized = normalizeOrgBscScorecardPillar(request.scorecardPillar);
+        if (normalized) {
+          await ScorecardPillarService.assertCanonicalExists(normalized);
+        }
         pillarData.scorecardPillar = normalized;
         pillarData.pillarId = normalized ? ORG_BSC_CANONICAL_TO_PILLAR_ID[normalized] ?? null : null;
       }
