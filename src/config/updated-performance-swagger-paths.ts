@@ -1316,6 +1316,227 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     }
   },
 
+  // ----------------------------------------------------------
+  // Performance Config (UAT themes + strategies) — ensure visible
+  // even when swagger-jsdoc falls back to the static spec.
+  // ----------------------------------------------------------
+
+  '/performance/config/themes': {
+    get: {
+      operationId: 'getPerformanceConfigThemes',
+      tags: ['Performance Config'],
+      summary: 'List strategic themes',
+      description:
+        'Returns active strategic themes for goal tagging and dashboard filtering.',
+      security: [{ bearerAuth: [] }],
+      responses: { 200: JSON_200, 401: JSON_401 }
+    },
+    post: {
+      operationId: 'postPerformanceConfigThemes',
+      tags: ['Performance Config'],
+      summary: 'Create a strategic theme',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['name'],
+              properties: {
+                name: { type: 'string', example: 'Digitalization' },
+                description: { type: 'string', nullable: true },
+                color: { type: 'string', nullable: true, example: '#0A7C86' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+    }
+  },
+
+  '/performance/config/themes/{id}/goals': {
+    get: {
+      operationId: 'getPerformanceConfigThemeGoals',
+      tags: ['Performance Config'],
+      summary: 'Get goals mapped to a strategic theme',
+      description:
+        'Returns the same goal shape as **GET /performance/goals?strategicThemeId=...** so the frontend can reuse the same table components.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } }
+      ],
+      responses: { 200: JSON_200, 401: JSON_401, 404: { description: 'Theme not found' } }
+    },
+    post: {
+      operationId: 'postPerformanceConfigThemeGoals',
+      tags: ['Performance Config'],
+      summary: 'Tag goals with a strategic theme',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['goalIds'],
+              properties: {
+                goalIds: { type: 'array', items: { type: 'string' } }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401, 404: { description: 'Theme not found' } }
+    }
+  },
+
+  '/performance/config/strategies': {
+    get: {
+      operationId: 'getPerformanceConfigStrategies',
+      tags: ['Performance Config'],
+      summary: 'List performance strategies',
+      description:
+        'Use **includeArchived=false** to hide archived cycles from active dashboards/pickers.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'includeArchived',
+          in: 'query',
+          schema: { type: 'boolean', default: true },
+          description: 'false = active only; true = include archived'
+        }
+      ],
+      responses: { 200: JSON_200, 401: JSON_401 }
+    },
+    post: {
+      operationId: 'postPerformanceConfigStrategies',
+      tags: ['Performance Config'],
+      summary: 'Create a performance strategy',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['title', 'periodStart', 'periodEnd', 'pillarWeights'],
+              properties: {
+                title: { type: 'string', example: '2023 Strategy Cycle' },
+                periodStart: { type: 'string', format: 'date-time' },
+                periodEnd: { type: 'string', format: 'date-time' },
+                visionStatement: { type: 'string', nullable: true },
+                pillarWeights: { type: 'object', additionalProperties: { type: 'number' } },
+                metadata: { type: 'object', nullable: true, additionalProperties: true }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+    }
+  },
+
+  '/performance/config/strategies/archives': {
+    get: {
+      operationId: 'getPerformanceConfigStrategyArchives',
+      tags: ['Performance Config'],
+      summary: 'List historical (archived) strategies only',
+      security: [{ bearerAuth: [] }],
+      responses: { 200: JSON_200, 401: JSON_401 }
+    }
+  },
+
+  '/performance/config/strategies/{id}': {
+    get: {
+      operationId: 'getPerformanceConfigStrategyById',
+      tags: ['Performance Config'],
+      summary: 'Get one performance strategy',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: JSON_200, 401: JSON_401, 404: { description: 'Strategy not found' } }
+    },
+    put: {
+      operationId: 'putPerformanceConfigStrategyById',
+      tags: ['Performance Config'],
+      summary: 'Update a performance strategy',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401, 403: JSON_403, 404: { description: 'Strategy not found' } }
+    }
+  },
+
+  '/performance/config/strategies/{id}/archive': {
+    post: {
+      operationId: 'postPerformanceConfigStrategyArchive',
+      tags: ['Performance Config'],
+      summary: 'Archive a strategy (read-only afterwards)',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: JSON_200, 401: JSON_401, 404: { description: 'Strategy not found' } }
+    }
+  },
+
+  '/performance/config/goals/{goalId}': {
+    put: {
+      operationId: 'putPerformanceConfigGoalById',
+      tags: ['Performance Config'],
+      summary: 'Update goal scorecard + strategy metadata',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ name: 'goalId', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401, 403: JSON_403 }
+    }
+  },
+
+  // ----------------------------------------------------------
+  // Performance Goals — ensure goal list shows under the tag.
+  // ----------------------------------------------------------
+  '/performance/goals': {
+    get: {
+      operationId: 'getPerformanceGoals',
+      tags: ['Performance Goals'],
+      summary: 'List performance goals',
+      description:
+        'Supports filtering by strategic theme and pillar for UAT dashboards.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { name: 'type', in: 'query', schema: { type: 'string' } },
+        { name: 'status', in: 'query', schema: { type: 'string' } },
+        { name: 'department', in: 'query', schema: { type: 'string' }, description: 'Department name' },
+        { name: 'assignedToId', in: 'query', schema: { type: 'string' } },
+        { name: 'parentGoalId', in: 'query', schema: { type: 'string' } },
+        { name: 'strategicThemeId', in: 'query', schema: { type: 'string' } },
+        { name: 'scorecardPillar', in: 'query', schema: { type: 'string' } },
+        { name: 'pillarId', in: 'query', schema: { type: 'string' } },
+        { name: 'search', in: 'query', schema: { type: 'string' } }
+      ],
+      responses: { 200: JSON_200, 401: JSON_401 }
+    },
+    post: {
+      operationId: 'postPerformanceGoals',
+      tags: ['Performance Goals'],
+      summary: 'Create a performance goal',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } }
+      },
+      responses: { 201: JSON_201, 400: JSON_400, 401: JSON_401 }
+    }
+  },
+
   '/performance/scorecard-pillars': {
     get: {
       tags: ['Performance UAT (Balanced Scorecard)'],
