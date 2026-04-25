@@ -8,10 +8,12 @@ import {
   HARD_CODED_BSC_PILLARS,
   asNumber,
   pillarSlugForScorecardPillar,
+  roundTo,
   toSafeFileName,
   validateFixedPillarSet,
   validateWeightTotal
 } from "./performanceBackendSupport";
+import { ORG_BSC_CANONICAL_TO_PILLAR_ID } from "./performanceScorecardSupport";
 
 type AuditMeta = {
   ipAddress?: string | null;
@@ -26,6 +28,41 @@ function metaToAudit(meta?: AuditMeta) {
 }
 
 export class PerformanceConfigService {
+  /**
+   * Resolved BSC pillar weights %: prefer `scorecard_pillars.weight` when set, else
+   * `activeStrategy.pillarWeights` JSON, else 25 per pillar.
+   */
+  static async resolvePillarWeightRecord(
+    activeStrategy: { pillarWeights?: unknown } | null
+  ): Promise<Record<string, number>> {
+    const ids = Object.values(ORG_BSC_CANONICAL_TO_PILLAR_ID);
+    const rows = await prisma.scorecardPillar.findMany({
+      where: { id: { in: ids } },
+      select: { canonicalName: true, weight: true }
+    });
+    const byName = new Map<string, unknown>();
+    for (const r of rows) {
+      byName.set(r.canonicalName, r.weight);
+    }
+    const j = (activeStrategy?.pillarWeights as Record<string, number> | null) || {};
+    const weights: Record<string, number> = {};
+    for (const pillar of HARD_CODED_BSC_PILLARS) {
+      const col = byName.get(pillar);
+      weights[pillar] =
+        col != null && col !== undefined && col !== "" ? asNumber(col, 25) : asNumber(j[pillar], 25);
+    }
+    return weights;
+  }
+
+  static async syncPillarTableWeightsToDatabase(pillarWeights: Record<string, number>) {
+    for (const name of HARD_CODED_BSC_PILLARS) {
+      const id = ORG_BSC_CANONICAL_TO_PILLAR_ID[name];
+      if (!id) continue;
+      const w = asNumber(pillarWeights[name], 25);
+      await prisma.scorecardPillar.updateMany({ where: { id }, data: { weight: w } });
+    }
+  }
+
   static async getPillarConfig() {
     const activeStrategy = await prisma.performanceStrategy.findFirst({
       where: {
@@ -37,12 +74,7 @@ export class PerformanceConfigService {
       }
     });
 
-    const configuredWeights = activeStrategy?.pillarWeights || {};
-    const weights: Record<string, number> = {};
-
-    for (const pillar of HARD_CODED_BSC_PILLARS) {
-      weights[pillar] = asNumber(configuredWeights?.[pillar], 25);
-    }
+    const weights = await this.resolvePillarWeightRecord(activeStrategy);
 
     return {
       strategyId: activeStrategy?.id || null,
@@ -60,6 +92,22 @@ export class PerformanceConfigService {
     };
   }
 
+  /** Active strategy’s vision only (minimal read for dashboards / “line of sight”). */
+  static async getVisionStatement() {
+    const activeStrategy = await prisma.performanceStrategy.findFirst({
+      where: {
+        status: "ACTIVE",
+        archivedAt: null
+      },
+      orderBy: { periodStart: "desc" },
+      select: { id: true, visionStatement: true }
+    });
+    return {
+      strategyId: activeStrategy?.id ?? null,
+      visionStatement: activeStrategy?.visionStatement ?? null
+    };
+  }
+
   static async listStrategies(includeArchived = true) {
     return prisma.performanceStrategy.findMany({
       where: includeArchived
@@ -73,6 +121,16 @@ export class PerformanceConfigService {
       orderBy: {
         periodStart: "desc"
       }
+    });
+  }
+
+  /** Archived / historical strategies only (read-only records for “Historical Archives” UAT; newest period first). */
+  static async listArchivedStrategies() {
+    return prisma.performanceStrategy.findMany({
+      where: {
+        OR: [{ status: "ARCHIVED" }, { archivedAt: { not: null } }]
+      },
+      orderBy: { periodStart: "desc" }
     });
   }
 
@@ -162,7 +220,7 @@ export class PerformanceConfigService {
     const pillarValidation = validateFixedPillarSet(pillarWeights);
     if (!pillarValidation.valid) {
       throw new Error(
-        `Pillar weights must match the fixed BSC pillars and total exactly 100%. Missing: ${pillarValidation.missing.join(", ") || "none"}, unexpected: ${pillarValidation.unexpected.join(", ") || "none"}, total: ${pillarValidation.total}.`
+        `Balance Required: pillar weights must use all four BSC pillars and total exactly 100% (got ${pillarValidation.total}%). Missing: ${pillarValidation.missing.join(", ") || "none"}; unexpected: ${pillarValidation.unexpected.join(", ") || "none"}.`
       );
     }
 
@@ -226,6 +284,8 @@ export class PerformanceConfigService {
       newValues: strategy,
       ...metaToAudit(params.meta)
     });
+
+    await this.syncPillarTableWeightsToDatabase(pillarWeights as Record<string, number>);
 
     return strategy;
   }
@@ -436,29 +496,6 @@ export class PerformanceConfigService {
       },
       ...metaToAudit(params.meta)
     });
-
-    return prisma.performanceGoal.findMany({
-      where: {
-        id: {
-          in: params.goalIds
-        }
-      },
-      orderBy: {
-        title: "asc"
-      }
-    });
-  }
-
-  static async getGoalsByTheme(themeId: string) {
-    return prisma.performanceGoal.findMany({
-      where: {
-        strategicThemeId: themeId
-      },
-      orderBy: [
-        { departmentName: "asc" },
-        { title: "asc" }
-      ]
-    });
   }
 
   static async updateGoalScorecardConfig(params: {
@@ -629,6 +666,181 @@ export class PerformanceConfigService {
       });
     }
 
+    return updated;
+  }
+
+  /**
+   * Set **`scorecardWeight` on every `company` goal in this pillar** for one sibling group
+   * (same `strategyId` and `departmentName` as the goals you send). The provided weights
+   * must list **all** such goals and **sum to exactly 100%** (same rule as
+   * {@link updateGoalScorecardConfig} for a single row).
+   */
+  static async setCompanyGoalWeightsInPillarBatch(params: {
+    pillarId: string;
+    goalWeights: Record<string, number>;
+    weightChangeReason: string;
+    actor: any;
+    meta?: AuditMeta;
+  }) {
+    const reason = String(params.weightChangeReason || "").trim();
+    if (!reason) {
+      throw new Error("A weight change reason is required when updating goal weights.");
+    }
+    if (!params.goalWeights || typeof params.goalWeights !== "object" || Array.isArray(params.goalWeights)) {
+      throw new Error("goalWeights is required: an object of { [goalId]: number }");
+    }
+    const inputIds = Object.keys(params.goalWeights);
+    if (inputIds.length === 0) {
+      throw new Error("goalWeights must include at least one goal id");
+    }
+
+    const pillarRow = await prisma.scorecardPillar.findUnique({ where: { id: params.pillarId } });
+    if (!pillarRow) {
+      throw new Error("Scorecard pillar not found");
+    }
+    const canonical = pillarRow.canonicalName;
+    if (!HARD_CODED_BSC_PILLARS.includes(canonical)) {
+      throw new Error("Pillar is not a BSC system pillar");
+    }
+
+    const aliasRows = await prisma.scorecardPillarAlias.findMany({
+      where: { pillarId: params.pillarId },
+      select: { alias: true }
+    });
+    const aliasValues = (aliasRows.map((r) => r.alias).filter(Boolean) as string[]);
+    const orPillar: Array<{ pillarId?: string; scorecardPillar?: string }> = [
+      { pillarId: params.pillarId },
+      { scorecardPillar: canonical }
+    ];
+    for (const a of aliasValues) {
+      orPillar.push({ scorecardPillar: a });
+    }
+
+    const weights = inputIds.map((id) => roundTo(asNumber(params.goalWeights[id], NaN), 4));
+    for (let i = 0; i < weights.length; i++) {
+      if (!Number.isFinite(weights[i]!) || weights[i]! < 0 || weights[i]! > 100) {
+        throw new Error(`Invalid weight for goal ${inputIds[i]} (use 0–100)`);
+      }
+    }
+    const validation = validateWeightTotal(weights, 100);
+    if (!validation.valid) {
+      throw new Error(
+        `Goal weights in this pillar must total exactly 100% (proposed total ${validation.total}%).`
+      );
+    }
+
+    const goals = await prisma.performanceGoal.findMany({
+      where: { id: { in: inputIds } }
+    });
+    if (goals.length !== inputIds.length) {
+      throw new Error("One or more goal ids were not found");
+    }
+
+    for (const g of goals) {
+      if (g.type !== "company") {
+        throw new Error(`Goal ${g.id} is not a company goal; pillar line weights apply to company goals only.`);
+      }
+    }
+
+    for (const g of goals) {
+      const inPillar =
+        g.pillarId === params.pillarId ||
+        g.scorecardPillar === canonical ||
+        (g.scorecardPillar && aliasValues.includes(g.scorecardPillar));
+      if (!inPillar) {
+        throw new Error(`Goal ${g.id} is not mapped to this scorecard pillar`);
+      }
+    }
+
+    const sStrat = goals[0]!.strategyId ?? null;
+    const sDept =
+      goals[0]!.departmentName != null && String(goals[0]!.departmentName).trim() !== ""
+        ? goals[0]!.departmentName
+        : null;
+    for (const g of goals) {
+      const gStrat = g.strategyId ?? null;
+      const gDept = g.departmentName != null && String(g.departmentName).trim() !== "" ? g.departmentName : null;
+      if (gStrat !== sStrat || (gDept || null) !== (sDept || null)) {
+        throw new Error(
+          "All goals in goalWeights must share the same strategy and department (including all org-level: strategy null, department null)."
+        );
+      }
+    }
+
+    if (sStrat) {
+      const st = await prisma.performanceStrategy.findUnique({ where: { id: sStrat } });
+      if (st && (st.archivedAt != null || st.status === "ARCHIVED")) {
+        throw new Error("Cannot update goals tied to an archived strategy.");
+      }
+    }
+
+    const siblingWhere: any = {
+      type: "company",
+      OR: orPillar
+    };
+    if (sStrat) {
+      siblingWhere.strategyId = sStrat;
+    } else {
+      siblingWhere.strategyId = null;
+    }
+    if (sDept != null) {
+      siblingWhere.departmentName = sDept;
+    } else {
+      siblingWhere.departmentName = null;
+    }
+
+    const allSiblings = await prisma.performanceGoal.findMany({
+      where: siblingWhere,
+      select: { id: true }
+    });
+    const expected = new Set(allSiblings.map((r) => r.id));
+    const got = new Set(inputIds);
+    if (expected.size !== got.size || [...expected].some((id) => !got.has(id))) {
+      const missing = [...expected].filter((id) => !got.has(id));
+      const extra = [...got].filter((id) => !expected.has(id));
+      throw new Error(
+        `goalWeights must include every company goal in this pillar for the same strategy/department. ` +
+          (missing.length ? `Missing: ${missing.join(", ")}. ` : "") +
+          (extra.length ? `Unexpected: ${extra.join(", ")}.` : "")
+      );
+    }
+
+    const updated: any[] = [];
+    for (const id of inputIds) {
+      const w = roundTo(asNumber(params.goalWeights[id], 0), 4);
+      const gBefore = goals.find((x) => x.id === id)!;
+      const u = await prisma.performanceGoal.update({
+        where: { id },
+        data: {
+          scorecardWeight: w,
+          weightChangeReason: reason,
+          pillarId: pillarSlugForScorecardPillar(canonical)
+        }
+      });
+      await AuditService.log({
+        userId: params.actor.id,
+        action: "GOAL_SCORECARD_CONFIG_UPDATE",
+        entityType: "PerformanceGoal",
+        entityId: id,
+        oldValues: {
+          scorecardPillar: gBefore.scorecardPillar,
+          pillarId: gBefore.pillarId,
+          scorecardWeight: asNumber(gBefore.scorecardWeight, 0),
+          strategyId: gBefore.strategyId,
+          strategicThemeId: gBefore.strategicThemeId
+        },
+        newValues: {
+          scorecardPillar: u.scorecardPillar,
+          pillarId: u.pillarId,
+          scorecardWeight: asNumber(u.scorecardWeight, 0),
+          strategyId: u.strategyId,
+          strategicThemeId: u.strategicThemeId,
+          weightChangeReason: reason
+        },
+        ...metaToAudit(params.meta)
+      });
+      updated.push(u);
+    }
     return updated;
   }
 }

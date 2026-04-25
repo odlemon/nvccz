@@ -154,7 +154,45 @@ const upload = multer({
 
 /**
  * @swagger
- * /api/performance/config/pillars:
+ * /performance/config/vision-statement:
+ *   get:
+ *     operationId: getPerformanceConfigVisionStatement
+ *     summary: Get CEO / organisational vision text only
+ *     description: Returns `visionStatement` and `strategyId` from the **active** performance strategy (same source as UAT “line of sight”). Lighter than GET /performance/config/pillars.
+ *     tags: [Performance UAT (Balanced Scorecard)]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Success
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/StandardSuccessEnvelope'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         strategyId:
+ *                           type: string
+ *                           nullable: true
+ *                         visionStatement:
+ *                           type: string
+ *                           nullable: true
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StandardErrorEnvelope'
+ */
+router.get("/vision-statement", authenticate, PerformanceConfigController.getVisionStatement);
+
+/**
+ * @swagger
+ * /performance/config/pillars:
  *   get:
  *     summary: Get the fixed Balanced Scorecard pillar configuration
  *     tags: [Performance Config]
@@ -183,7 +221,7 @@ router.get("/pillars", authenticate, PerformanceConfigController.getPillars);
 
 /**
  * @swagger
- * /api/performance/config/strategies:
+ * /performance/config/strategies:
  *   get:
  *     summary: List performance strategies
  *     description: Each item includes strategyDocumentUrl when a strategy PDF was uploaded (same remote URL as portfolio documents; use GET on that URL in a browser or client to download).
@@ -196,7 +234,12 @@ router.get("/pillars", authenticate, PerformanceConfigController.getPillars);
  *         schema:
  *           type: boolean
  *           default: true
- *         description: Set to false to return only active strategies
+ *         description: |
+ *           **false** — only strategies used for **active** performance tracking and strategy pickers
+ *           (excludes `ARCHIVED` / any row with `archivedAt` set). UAT: after archiving “2023 Strategy Cycle”,
+ *           it must **not** appear when this is false.
+ *           **true** (default) — all strategies, active and archived.
+ *           For **archived-only** lists, prefer **GET /performance/config/strategies/archives** (historical read-only section).
  *     responses:
  *       200:
  *         description: Strategies retrieved successfully
@@ -296,7 +339,42 @@ router.post("/strategies", authenticate, PerformanceConfigController.upsertStrat
 
 /**
  * @swagger
- * /api/performance/config/strategies/{id}:
+ * /performance/config/strategies/archives:
+ *   get:
+ *     summary: List historical (archived) strategies only
+ *     description: |
+ *       Read-only **PerformanceStrategy** rows where the cycle was archived (`status: ARCHIVED` or `archivedAt` set).
+ *       For the UAT “Historical Archives” area; does not drive active pillars / dashboards (those use the current **ACTIVE** strategy only).
+ *       For mixed lists, use **GET /performance/config/strategies**; for **active-only** pickers, use that with **includeArchived=false**.
+ *     tags: [Performance Config]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Archived strategies retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/StandardSuccessEnvelope'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/PerformanceStrategy'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StandardErrorEnvelope'
+ */
+router.get("/strategies/archives", authenticate, PerformanceConfigController.listArchivedStrategies);
+
+/**
+ * @swagger
+ * /performance/config/strategies/{id}:
  *   get:
  *     summary: Get one performance strategy by id
  *     description: Returns full strategy including strategyDocumentUrl (remote URL for PDF download when set).
@@ -330,7 +408,7 @@ router.get("/strategies/:id", authenticate, PerformanceConfigController.getStrat
 
 /**
  * @swagger
- * /api/performance/config/strategies/{id}:
+ * /performance/config/strategies/{id}:
  *   put:
  *     summary: Update a performance strategy
  *     tags: [Performance Config]
@@ -406,9 +484,13 @@ router.put("/strategies/:id", authenticate, PerformanceConfigController.upsertSt
 
 /**
  * @swagger
- * /api/performance/config/strategies/{id}/archive:
+ * /performance/config/strategies/{id}/archive:
  *   post:
  *     summary: Archive a strategy and make it read-only
+ *     description: |
+ *       UAT **Archive** action: sets `status` to **ARCHIVED** and `archivedAt`. The strategy drops out of
+ *       **GET /performance/config/strategies?includeArchived=false** (active pickers) and **pillar / vision** resolution,
+ *       which only use a current **ACTIVE** non-archived strategy. View archived cycles under **GET …/strategies/archives**.
  *     tags: [Performance Config]
  *     security:
  *       - bearerAuth: []
@@ -441,7 +523,7 @@ router.post("/strategies/:id/archive", authenticate, PerformanceConfigController
 
 /**
  * @swagger
- * /api/performance/config/strategies/{id}/document:
+ * /performance/config/strategies/{id}/document:
  *   post:
  *     summary: Upload a strategy document PDF
  *     tags: [Performance Config]
@@ -488,7 +570,7 @@ router.post("/strategies/:id/document", authenticate, upload.single("file"), Per
 
 /**
  * @swagger
- * /api/performance/config/themes:
+ * /performance/config/themes:
  *   get:
  *     summary: List active strategic themes
  *     tags: [Performance Config]
@@ -560,9 +642,13 @@ router.post("/themes", authenticate, PerformanceConfigController.createTheme);
 
 /**
  * @swagger
- * /api/performance/config/themes/{id}/goals:
+ * /performance/config/themes/{id}/goals:
  *   get:
  *     summary: Get goals currently mapped to a strategic theme
+ *     description: |
+ *       Returns the **same goal shape** as **GET /performance/goals?strategicThemeId=** (includes `strategicTheme`
+ *       with name/color/description, `scorecardPillar`, `pillarId`, `departmentName`, `type`, KPI, parent, subGoals, etc.)
+ *       so org vs department views can filter consistently.
  *     tags: [Performance Config]
  *     security:
  *       - bearerAuth: []
@@ -594,6 +680,7 @@ router.post("/themes", authenticate, PerformanceConfigController.createTheme);
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  *   post:
  *     summary: Tag one or more goals with a strategic theme
+ *     description: Response `data` lists the tagged goals with the **same full includes** as GET (KPI, pillar, theme, etc.).
  *     tags: [Performance Config]
  *     security:
  *       - bearerAuth: []
@@ -642,7 +729,7 @@ router.post("/themes/:id/goals", authenticate, PerformanceConfigController.tagGo
 
 /**
  * @swagger
- * /api/performance/config/goals/{goalId}:
+ * /performance/config/goals/{goalId}:
  *   put:
  *     summary: Update goal scorecard and strategy metadata
  *     tags: [Performance Config]

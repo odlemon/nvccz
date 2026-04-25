@@ -1,5 +1,12 @@
 import { prisma } from "../utils/database";
+import {
+  HARD_CODED_BSC_PILLARS,
+  asNumber,
+  roundTo,
+  validateFixedPillarSet
+} from "./performanceBackendSupport";
 import { normalizeOrgBscScorecardPillar, ORG_BSC_CANONICAL_TO_PILLAR_ID } from "./performanceScorecardSupport";
+import { PerformanceConfigService } from "./PerformanceConfigService";
 
 export type ScorecardPillarRow = {
   id: string;
@@ -11,9 +18,42 @@ export type ScorecardPillarRow = {
   updatedAt: Date;
 };
 
+/** Weight %: `scorecard_pillars.weight` when set, else active strategy `pillar_weights` (via `getPillarConfig`). */
+export type ScorecardPillarWithWeight = ScorecardPillarRow & {
+  weight: number | null;
+  strategyId: string | null;
+};
+
 export class ScorecardPillarService {
-  static async list(): Promise<ScorecardPillarRow[]> {
-    return prisma.scorecardPillar.findMany({ orderBy: { createdAt: "asc" } }) as any;
+  private static async weightByCanonicalName(): Promise<{
+    map: Record<string, number | null>;
+    strategyId: string | null;
+  }> {
+    const cfg = await PerformanceConfigService.getPillarConfig();
+    const map: Record<string, number | null> = {};
+    for (const p of cfg.pillars || []) {
+      if (p?.name) {
+        map[String(p.name)] = typeof p.weight === "number" ? p.weight : null;
+      }
+    }
+    return { map, strategyId: cfg.strategyId ?? null };
+  }
+
+  static async list(): Promise<ScorecardPillarWithWeight[]> {
+    const [rows, weights] = await Promise.all([
+      prisma.scorecardPillar.findMany({ orderBy: { createdAt: "asc" } }) as any,
+      this.weightByCanonicalName(),
+    ]);
+    return rows.map((r: ScorecardPillarRow & { weight?: unknown }) => {
+      const fromRow = (r as any).weight;
+      const resolved =
+        fromRow != null && fromRow !== "" ? asNumber(fromRow) : (weights.map[r.canonicalName] ?? null);
+      return {
+        ...r,
+        weight: resolved,
+        strategyId: weights.strategyId,
+      };
+    });
   }
 
   private static normalizeLoose(input: unknown): string | null {
@@ -118,6 +158,106 @@ export class ScorecardPillarService {
     }) as any;
   }
 
+  private static get bscPillarIdSet(): Set<string> {
+    return new Set(Object.values(ORG_BSC_CANONICAL_TO_PILLAR_ID));
+  }
+
+  /** Build `pillarId` → `weight` from `pillarWeights` and/or `weights: [{ id, weight }]` (array overrides same id). */
+  static parsePillarWeightsFromBody(body: any): Record<string, number> {
+    const byId: Record<string, number> = {};
+    const fromObj = body?.pillarWeights ?? body?.pillar_weights;
+    if (fromObj !== undefined && fromObj !== null) {
+      if (typeof fromObj !== "object" || Array.isArray(fromObj)) {
+        throw new Error("pillarWeights must be an object keyed by pillar id");
+      }
+      for (const [k, v] of Object.entries(fromObj)) {
+        byId[k] = roundTo(asNumber(v, NaN), 2);
+      }
+    }
+    if (body?.weights !== undefined) {
+      if (!Array.isArray(body.weights)) {
+        throw new Error("weights must be an array of { id, weight }");
+      }
+      for (const row of body.weights) {
+        const id = String(row?.id ?? "").trim();
+        if (!id) {
+          throw new Error("Each weights[] entry must include a non-empty id");
+        }
+        byId[id] = roundTo(asNumber(row?.weight, NaN), 2);
+      }
+    }
+    if (Object.keys(byId).length === 0) {
+      throw new Error("Send weights: [{ id, weight }, ...] and/or pillarWeights: { bsc_financial: 25, ... } (all four ids required)");
+    }
+    return byId;
+  }
+
+  /**
+   * Persists the **four** BSC system pillar weights (slugs like `bsc_financial`). The four must sum to **exactly 100%**.
+   * (Frontend should pre-validate; server enforces the same rules as strategy `pillarWeights`.)
+   * Writes `scorecard_pillars` and, when an active strategy exists, `performance_strategies.pillar_weights`.
+   */
+  static async setPillarWeightsBsc(body: any): Promise<ScorecardPillarWithWeight[]> {
+    const byId = this.parsePillarWeightsFromBody(body);
+    const expected = this.bscPillarIdSet;
+    const got = new Set(Object.keys(byId));
+    for (const id of expected) {
+      if (!got.has(id)) {
+        throw new Error(
+          `Each of the four BSC pillar ids is required. Missing: ${id}. ` +
+            `Expected: ${Array.from(expected).join(", ")}`
+        );
+      }
+    }
+    for (const id of got) {
+      if (!expected.has(id)) {
+        throw new Error(
+          `Unknown or non-BSC pillar id: ${id}. ` + `Use only: ${Array.from(expected).join(", ")}`
+        );
+      }
+    }
+    for (const [id, w] of Object.entries(byId)) {
+      if (!Number.isFinite(w) || w < 0 || w > 100) {
+        throw new Error(`Invalid weight for ${id} (use 0–100)`);
+      }
+    }
+    const byCanonical: Record<string, number> = {} as Record<string, number>;
+    for (const [pillarId, w] of Object.entries(byId)) {
+      const canonical = Object.entries(ORG_BSC_CANONICAL_TO_PILLAR_ID).find(([, v]) => v === pillarId)?.[0];
+      if (!canonical) throw new Error(`Invalid pillar id: ${pillarId}`);
+      byCanonical[canonical] = w;
+    }
+    const v = validateFixedPillarSet(byCanonical);
+    if (!v.valid) {
+      throw new Error(
+        `Balance Required: all four BSC pillars are required and weights must total exactly 100% (total ${v.total}%). ` +
+          `Missing: ${v.missing.join(", ") || "none"}; unexpected: ${v.unexpected.join(", ") || "none"}.`
+      );
+    }
+
+    const activeStrategy = await prisma.performanceStrategy.findFirst({
+      where: { status: "ACTIVE", archivedAt: null },
+      orderBy: { periodStart: "desc" },
+    });
+    await prisma.$transaction(async (tx) => {
+      if (activeStrategy) {
+        await tx.performanceStrategy.update({
+          where: { id: activeStrategy.id },
+          data: { pillarWeights: byCanonical as any },
+        });
+      }
+      for (const name of HARD_CODED_BSC_PILLARS) {
+        const pid = ORG_BSC_CANONICAL_TO_PILLAR_ID[name];
+        if (!pid) continue;
+        await tx.scorecardPillar.updateMany({
+          where: { id: pid },
+          data: { weight: byCanonical[name] },
+        });
+      }
+    });
+    return this.list();
+  }
+
   static async renameCanonical(id: string, nextCanonicalName: string) {
     const existing = await prisma.scorecardPillar.findUnique({ where: { id } });
     if (!existing) throw new Error("Scorecard pillar not found");
@@ -181,6 +321,89 @@ export class ScorecardPillarService {
     }
     await prisma.scorecardPillar.delete({ where: { id } });
     return { success: true };
+  }
+
+  /**
+   * Pillar row plus performance goals mapped to this pillar via `pillar_id` and/or `scorecard_pillar`
+   * (includes legacy alias values stored on goals after renames).
+   */
+  static async getByIdWithGoals(
+    id: string,
+    opts?: { type?: string; status?: string; limit?: number; offset?: number }
+  ): Promise<ScorecardPillarWithWeight & { goals: any[]; goalsTotal: number }> {
+    const pillar = (await prisma.scorecardPillar.findUnique({ where: { id } })) as any;
+    if (!pillar) {
+      throw new Error("Scorecard pillar not found");
+    }
+
+    const { map: wmap, strategyId } = await this.weightByCanonicalName();
+
+    const aliasRows = await prisma.scorecardPillarAlias.findMany({
+      where: { pillarId: id },
+      select: { alias: true },
+    });
+    const aliasValues = aliasRows.map((r) => r.alias).filter(Boolean) as string[];
+
+    const orClause: Array<{ pillarId?: string; scorecardPillar?: string }> = [
+      { pillarId: id },
+      { scorecardPillar: pillar.canonicalName },
+    ];
+    for (const a of aliasValues) {
+      orClause.push({ scorecardPillar: a });
+    }
+
+    const whereBase: any = { OR: orClause };
+    if (opts?.type) whereBase.type = opts.type;
+    if (opts?.status) whereBase.status = opts.status;
+
+    const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 500);
+    const offset = Math.max(opts?.offset ?? 0, 0);
+
+    const [goalsTotal, goals] = await Promise.all([
+      prisma.performanceGoal.count({ where: whereBase }),
+      prisma.performanceGoal.findMany({
+        where: whereBase,
+        orderBy: [{ updatedAt: "desc" }, { title: "asc" }],
+        take: limit,
+        skip: offset,
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          stage: true,
+          scorecardPillar: true,
+          pillarId: true,
+          scorecardWeight: true,
+          strategyId: true,
+          startDate: true,
+          endDate: true,
+          kpiId: true,
+          departmentName: true,
+          parentGoalId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    const goalsWithWeight = (goals as any[]).map((g) => {
+      const w =
+        g.scorecardWeight != null && g.scorecardWeight !== "" ? asNumber(g.scorecardWeight) : null;
+      return { ...g, weight: w };
+    });
+
+    const fromRow = (pillar as any).weight;
+    const weight =
+      fromRow != null && fromRow !== "" ? asNumber(fromRow) : (wmap[pillar.canonicalName] ?? null);
+
+    return {
+      ...pillar,
+      weight,
+      strategyId,
+      goals: goalsWithWeight,
+      goalsTotal,
+    };
   }
 }
 

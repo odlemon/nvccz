@@ -221,6 +221,10 @@ async function main() {
 
   const originalTotal = new Decimal(fund.totalAmount.toString());
   const bumped = originalTotal.plus(new Decimal(delta));
+  const beforeSync = await prisma.performanceGoal.findUnique({
+    where: { id: goal.id },
+    select: { lastSyncedAt: true }
+  });
 
   await prisma.fund.update({
     where: { id: fund.id },
@@ -255,6 +259,17 @@ async function main() {
       responsePayloadHasAum: (() => {
         const v = Number((job?.responsePayload as any)?.data?.metrics?.totalAum);
         return Number.isFinite(v) && Math.abs(v - expectedTotal) < 0.01;
+      })(),
+      /** UAT: sync timestamp on the goal is set to a fresh server time. */
+      lastSyncedAtUpdated: (() => {
+        const t = after?.lastSyncedAt;
+        if (!t) return false;
+        const tMs = new Date(t).getTime();
+        if (!Number.isFinite(tMs)) return false;
+        if (beforeSync?.lastSyncedAt) {
+          return tMs > new Date(beforeSync.lastSyncedAt).getTime();
+        }
+        return true;
       })()
     };
 
@@ -288,6 +303,7 @@ async function main() {
           after: {
             preciseCurrentValue: after?.preciseCurrentValue,
             lastSyncedValue: after?.lastSyncedValue,
+            lastSyncedAt: after?.lastSyncedAt,
             isPendingApproval: after?.isPendingApproval,
             currentValue: after?.currentValue
           },

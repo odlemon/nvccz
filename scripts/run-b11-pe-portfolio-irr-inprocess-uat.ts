@@ -8,7 +8,10 @@
 import { prisma } from "../src/utils/database";
 import { PerformanceIntegrationService } from "../src/services/PerformanceIntegrationService";
 import { PortfolioDashboardService } from "../src/services/PortfolioDashboardService";
-import { normaliseSyncedDecimal } from "../src/services/performanceBackendSupport";
+import {
+  normaliseSyncedDecimal,
+  PORTFOLIO_IRR_PE_SYNC_DECIMALS
+} from "../src/services/performanceBackendSupport";
 
 async function main() {
   const goalIdEnv = process.env.B11_GOAL_ID?.trim();
@@ -57,8 +60,8 @@ async function main() {
   };
 
   const before = await prisma.performanceGoal.findUnique({ where: { id: goal.id } });
-  const pe = await PortfolioDashboardService.getWeightedFundGrossIrrSixDecimals({});
-  const expectedPrecise = normaliseSyncedDecimal(pe.irr, 6);
+  const pe = await PortfolioDashboardService.getWeightedFundGrossIrrForPeSync({});
+  const expectedPrecise = normaliseSyncedDecimal(pe.irr, PORTFOLIO_IRR_PE_SYNC_DECIMALS);
   const asStoredNumber = (v: unknown) => Number(v ?? 0);
 
   const result = await PerformanceIntegrationService.runPePortfolioIrrSync({
@@ -80,8 +83,10 @@ async function main() {
     preciseMatchesPe:
       Math.abs(asStoredNumber(after?.preciseCurrentValue) - pe.irr) < 1e-9 ||
       Math.abs(asStoredNumber(after?.lastSyncedValue) - pe.irr) < 1e-9 ||
-      normaliseSyncedDecimal(asStoredNumber(after?.preciseCurrentValue), 6) === expectedPrecise ||
-      normaliseSyncedDecimal(asStoredNumber(after?.lastSyncedValue), 6) === expectedPrecise,
+      normaliseSyncedDecimal(asStoredNumber(after?.preciseCurrentValue), PORTFOLIO_IRR_PE_SYNC_DECIMALS) ===
+        expectedPrecise ||
+      normaliseSyncedDecimal(asStoredNumber(after?.lastSyncedValue), PORTFOLIO_IRR_PE_SYNC_DECIMALS) ===
+        expectedPrecise,
     responsePayloadHasIrr: (() => {
       const v = Number((job?.responsePayload as any)?.data?.metrics?.irr);
       return Number.isFinite(v) && Math.abs(v - pe.irr) < 1e-9;

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import AuditService from "./AuditService";
+import { PerformanceConfigService } from "./PerformanceConfigService";
 import { RollupCalculationService } from "./RollupCalculationService";
 import {
   BOARD_SECTION_LABELS,
@@ -3756,8 +3757,9 @@ export class PerformanceScorecardService {
       getCachedBranding()
     ]);
 
+    const pillarWeightsFromDb = await PerformanceConfigService.resolvePillarWeightRecord(activeStrategy);
     let pillarWeightsResolved = resolveSectionWeights(
-      contract?.sectionWeights || activeStrategy?.pillarWeights,
+      contract?.sectionWeights || pillarWeightsFromDb,
       DEFAULT_ORG_PILLAR_WEIGHTS
     );
     const { normalised: pillarWeightsNormalised, didNormalise } =

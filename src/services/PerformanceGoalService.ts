@@ -971,6 +971,10 @@ export class PerformanceGoalService {
         where.strategicThemeId = filters.strategicThemeId;
       }
 
+      if (Array.isArray(filters.goalIds) && filters.goalIds.length) {
+        where.id = { in: filters.goalIds };
+      }
+
       if (filters.scorecardPillar) {
         where.scorecardPillar = filters.scorecardPillar;
       }
@@ -1027,6 +1031,8 @@ export class PerformanceGoalService {
             select: {
               id: true,
               name: true,
+              description: true,
+              color: true,
               status: true
             }
           },
@@ -1055,6 +1061,28 @@ export class PerformanceGoalService {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Same response shape as **GET /api/performance/goals?strategicThemeId=…** (KPI, parent, `strategicTheme` with
+   * name/color, `scorecardPillar`, `departmentName`, `type`, subGoals counts, etc.) for org + dept + individual.
+   */
+  static async getGoalsByStrategicTheme(themeId: string) {
+    const theme = await prisma.performanceTheme.findUnique({ where: { id: themeId } });
+    if (!theme) {
+      throw new Error("Theme not found.");
+    }
+    return this.getAllPerformanceGoals({ strategicThemeId: themeId });
+  }
+
+  /**
+   * Full list rows for a set of goal ids (e.g. after tag response) — same include as `getAllPerformanceGoals`.
+   */
+  static async getPerformanceGoalsByIds(goalIds: string[]) {
+    if (!goalIds || goalIds.length === 0) {
+      return [];
+    }
+    return this.getAllPerformanceGoals({ goalIds });
   }
 
   // Get performance goal by ID
@@ -1093,6 +1121,15 @@ export class PerformanceGoalService {
               id: true,
               title: true,
               type: true
+            }
+          },
+          strategicTheme: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              color: true,
+              status: true
             }
           },
           subGoals: {

@@ -451,7 +451,6 @@ export class ActivityService {
               id: true,
               title: true,
               type: true,
-              category: true
             }
           }
         },

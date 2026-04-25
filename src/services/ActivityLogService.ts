@@ -71,8 +71,7 @@ export class ActivityLogService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           },
           task: {
@@ -154,8 +153,7 @@ export class ActivityLogService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           },
           task: {
@@ -204,8 +202,7 @@ export class ActivityLogService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           },
           task: {
