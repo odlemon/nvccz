@@ -13,6 +13,40 @@ export class ScorecardPillarController {
     }
   }
 
+  /**
+   * GET /:id/company-goal-line-weights — company goals only, optional strategy + department line filter;
+   * small payload for weight sliders (see also GET /:id?type=company).
+   */
+  static async getCompanyGoalLineWeights(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const strategyIdRaw = req.query.strategyId;
+      const departmentNameRaw = req.query.departmentName;
+      const opts: { strategyId?: string | null; departmentName?: string | null } = {};
+      if (strategyIdRaw !== undefined) {
+        opts.strategyId =
+          strategyIdRaw === null || String(strategyIdRaw).trim() === ""
+            ? null
+            : String(strategyIdRaw).trim();
+      }
+      if (departmentNameRaw !== undefined) {
+        opts.departmentName =
+          departmentNameRaw === null || String(departmentNameRaw).trim() === ""
+            ? null
+            : String(departmentNameRaw).trim();
+      }
+      const data = await ScorecardPillarService.listCompanyGoalLineWeights(id, opts);
+      res.json({ success: true, data });
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      if (msg.includes("not found")) {
+        res.status(404).json({ success: false, message: msg });
+        return;
+      }
+      res.status(400).json({ success: false, message: msg });
+    }
+  }
+
   /** GET /:id — pillar details + goals for sidebar / UAT goal-to-pillar mapping. */
   static async getByIdWithGoals(req: AuthRequest, res: Response) {
     try {
@@ -108,7 +142,7 @@ export class ScorecardPillarController {
       const data = await PerformanceConfigService.setCompanyGoalWeightsInPillarBatch({
         pillarId: id,
         goalWeights: goalWeights || {},
-        weightChangeReason: String(weightChangeReason || ""),
+        weightChangeReason,
         actor: req.user,
         meta: { ipAddress: req.ip, userAgent: req.get("user-agent") || undefined },
       });

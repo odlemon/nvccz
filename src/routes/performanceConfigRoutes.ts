@@ -121,8 +121,6 @@ const upload = multer({
  *           type: number
  *         targetChangeReason:
  *           type: string
- *         weightChangeReason:
- *           type: string
  *     StandardSuccessEnvelope:
  *       type: object
  *       properties:

@@ -76,6 +76,10 @@
     "bench:department-scorecard-generate": "ts-node scripts/bench-department-scorecard-generate.ts",
     "db:fix:employee-scorecard-goals-sample": "ts-node scripts/fix-employee-scorecard-goals-nyasha.ts",
     "db:fix:performance-goal-revenue-sync-path": "ts-node scripts/fix-performance-goal-revenue-irr-fieldpath.ts",
+    "db:clear:performance-goal-weight-reasons": "ts-node scripts/clear-performance-goal-weight-change-reasons.ts",
+    
+    "db:delete:unmapped-performance-goals": "ts-node scripts/delete-unmapped-performance-goals.ts",
+    "db:migrate:drop-scorecard-weight-active-column": "ts-node scripts/run-performance-goal-drop-scorecard-weight-active-column.ts",
     "db:fix:bsc-inclusion-false-positive-goals": "ts-node scripts/fix-bsc-inclusion-false-positive-goals.ts",
     "db:migrate:employee-reimbursement-vendor": "ts-node scripts/run-employee-reimbursement-vendor-migration.ts",
     "db:migrate:purchase-invoice-source-po": "ts-node scripts/run-purchase-invoice-source-po-migration.ts",

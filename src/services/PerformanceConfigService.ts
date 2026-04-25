@@ -543,19 +543,12 @@ export class PerformanceConfigService {
       throw new Error("A target change reason is required when updating a KPI target.");
     }
 
-    if (
-      params.scorecardWeight !== undefined &&
-      asNumber(params.scorecardWeight, 0) !== asNumber(goal.scorecardWeight, 0) &&
-      !String(params.weightChangeReason || "").trim()
-    ) {
-      throw new Error("A weight change reason is required when updating goal weighting.");
-    }
-
     if (params.scorecardWeight !== undefined && nextPillar) {
       const siblingStrategyId = params.strategyId ?? goal.strategyId ?? null;
       const siblingWhere: any = {
         scorecardPillar: nextPillar,
-        id: { not: goal.id }
+        id: { not: goal.id },
+        status: "active"
       };
       if (siblingStrategyId) {
         siblingWhere.strategyId = siblingStrategyId;
@@ -575,10 +568,16 @@ export class PerformanceConfigService {
         }
       });
 
-      const validation = validateWeightTotal([
-        ...siblingGoals.map((item) => asNumber(item.scorecardWeight, 0)),
-        asNumber(params.scorecardWeight, 0)
-      ]);
+      // When setting a goal inactive (scorecardWeight null), enforce that remaining active siblings
+      // already sum to 100% (i.e. redistribute first via the batch endpoint).
+      const settingInactive = params.scorecardWeight === null;
+      const proposedWeights = settingInactive
+        ? siblingGoals.map((item) => asNumber(item.scorecardWeight, 0))
+        : [
+            ...siblingGoals.map((item) => asNumber(item.scorecardWeight, 0)),
+            asNumber(params.scorecardWeight, 0)
+          ];
+      const validation = validateWeightTotal(proposedWeights);
 
       if (!validation.valid) {
         throw new Error(`Goal weights within ${nextPillar} must total exactly 100%. Proposed total is ${validation.total}.`);
@@ -592,7 +591,14 @@ export class PerformanceConfigService {
       where: { id: goal.id },
       data: {
         ...(params.scorecardPillar !== undefined ? { scorecardPillar: params.scorecardPillar } : {}),
-        ...(params.scorecardWeight !== undefined ? { scorecardWeight: params.scorecardWeight } : {}),
+        ...(params.scorecardWeight !== undefined
+          ? {
+              scorecardWeight: params.scorecardWeight,
+              ...(goal.type === "company"
+                ? { status: params.scorecardWeight === null ? "inactive" : "active" }
+                : {})
+            }
+          : {}),
         ...(params.strategyId !== undefined ? { strategyId: params.strategyId } : {}),
         ...(params.strategicThemeId !== undefined ? { strategicThemeId: params.strategicThemeId } : {}),
         ...(params.targetValue !== undefined ? { targetValue: params.targetValue } : {}),
@@ -656,11 +662,7 @@ export class PerformanceConfigService {
           strategyId: updated.strategyId,
           strategicThemeId: updated.strategicThemeId,
           preciseTargetValue:
-            updated.preciseTargetValue != null ? Number(updated.preciseTargetValue) : null,
-          ...(params.scorecardWeight !== undefined &&
-          asNumber(params.scorecardWeight, 0) !== asNumber(goal.scorecardWeight, 0)
-            ? { weightChangeReason: params.weightChangeReason }
-            : {})
+            updated.preciseTargetValue != null ? Number(updated.preciseTargetValue) : null
         },
         ...metaToAudit(params.meta)
       });
@@ -678,14 +680,12 @@ export class PerformanceConfigService {
   static async setCompanyGoalWeightsInPillarBatch(params: {
     pillarId: string;
     goalWeights: Record<string, number>;
-    weightChangeReason: string;
+    weightChangeReason?: string;
     actor: any;
     meta?: AuditMeta;
   }) {
-    const reason = String(params.weightChangeReason || "").trim();
-    if (!reason) {
-      throw new Error("A weight change reason is required when updating goal weights.");
-    }
+    const reasonRaw = String(params.weightChangeReason || "").trim();
+    const reasonForStore = reasonRaw ? reasonRaw : null;
     if (!params.goalWeights || typeof params.goalWeights !== "object" || Array.isArray(params.goalWeights)) {
       throw new Error("goalWeights is required: an object of { [goalId]: number }");
     }
@@ -789,21 +789,11 @@ export class PerformanceConfigService {
       siblingWhere.departmentName = null;
     }
 
-    const allSiblings = await prisma.performanceGoal.findMany({
+    const allLineGoals = await prisma.performanceGoal.findMany({
       where: siblingWhere,
       select: { id: true }
     });
-    const expected = new Set(allSiblings.map((r) => r.id));
     const got = new Set(inputIds);
-    if (expected.size !== got.size || [...expected].some((id) => !got.has(id))) {
-      const missing = [...expected].filter((id) => !got.has(id));
-      const extra = [...got].filter((id) => !expected.has(id));
-      throw new Error(
-        `goalWeights must include every company goal in this pillar for the same strategy/department. ` +
-          (missing.length ? `Missing: ${missing.join(", ")}. ` : "") +
-          (extra.length ? `Unexpected: ${extra.join(", ")}.` : "")
-      );
-    }
 
     const updated: any[] = [];
     for (const id of inputIds) {
@@ -813,7 +803,8 @@ export class PerformanceConfigService {
         where: { id },
         data: {
           scorecardWeight: w,
-          weightChangeReason: reason,
+          weightChangeReason: reasonForStore,
+          status: "active",
           pillarId: pillarSlugForScorecardPillar(canonical)
         }
       });
@@ -835,11 +826,19 @@ export class PerformanceConfigService {
           scorecardWeight: asNumber(u.scorecardWeight, 0),
           strategyId: u.strategyId,
           strategicThemeId: u.strategicThemeId,
-          weightChangeReason: reason
+          weightChangeReason: reasonForStore
         },
         ...metaToAudit(params.meta)
       });
       updated.push(u);
+    }
+    // Any other company goals in this pillar line are marked inactive for scorecard weighting and cleared.
+    const deactivateIds = allLineGoals.map((g) => g.id).filter((id) => !got.has(id));
+    if (deactivateIds.length) {
+      await prisma.performanceGoal.updateMany({
+        where: { id: { in: deactivateIds } },
+        data: { scorecardWeight: null, status: "inactive" }
+      });
     }
     return updated;
   }

@@ -66,34 +66,29 @@ export class ScorecardPillarService {
     const loose = this.normalizeLoose(raw);
     if (!loose) return null;
 
-    // 1) Exact / case-insensitive canonical match in DB.
-    const direct = await prisma.scorecardPillar.findFirst({
-      where: { canonicalName: { equals: loose, mode: "insensitive" } as any },
-      select: { canonicalName: true },
-    });
-    if (direct?.canonicalName) return direct.canonicalName as any;
+    // 1) Known BSC pillars: normalize codes / case to canonical.
+    const legacy = normalizeOrgBscScorecardPillar(loose);
+    if (legacy) {
+      const mapped = await prisma.scorecardPillar.findFirst({
+        where: { canonicalName: legacy },
+        select: { canonicalName: true }
+      });
+      if (mapped?.canonicalName) return mapped.canonicalName as any;
+    }
 
     // 2) Alias match (supports canonical renames).
     const aliasRow = await prisma.scorecardPillarAlias.findFirst({
-      where: { alias: { equals: loose, mode: "insensitive" } as any },
+      where: { alias: loose },
       select: { pillar: { select: { canonicalName: true } } },
     });
     if ((aliasRow as any)?.pillar?.canonicalName) return (aliasRow as any).pillar.canonicalName;
 
-    // 3) Legacy hardcoded normalization (codes/variants) -> then re-resolve via DB/aliases.
-    const legacy = normalizeOrgBscScorecardPillar(loose);
-    if (legacy) {
-      const mapped = await prisma.scorecardPillar.findFirst({
-        where: { canonicalName: { equals: legacy, mode: "insensitive" } as any },
-        select: { canonicalName: true },
-      });
-      if (mapped?.canonicalName) return mapped.canonicalName as any;
-      const legacyAlias = await prisma.scorecardPillarAlias.findFirst({
-        where: { alias: { equals: legacy, mode: "insensitive" } as any },
-        select: { pillar: { select: { canonicalName: true } } },
-      });
-      if ((legacyAlias as any)?.pillar?.canonicalName) return (legacyAlias as any).pillar.canonicalName;
-    }
+    // 3) Exact canonical match (non-BSC custom pillars).
+    const direct = await prisma.scorecardPillar.findFirst({
+      where: { canonicalName: loose },
+      select: { canonicalName: true }
+    });
+    if (direct?.canonicalName) return direct.canonicalName as any;
 
     return null;
   }
@@ -270,7 +265,7 @@ export class ScorecardPillarService {
 
     // Do not allow collisions on canonicalName.
     const taken = await prisma.scorecardPillar.findFirst({
-      where: { canonicalName: { equals: next, mode: "insensitive" } as any },
+      where: { canonicalName: next },
       select: { id: true },
     });
     if (taken?.id && taken.id !== id) {
@@ -389,7 +384,11 @@ export class ScorecardPillarService {
 
     const goalsWithWeight = (goals as any[]).map((g) => {
       const w =
-        g.scorecardWeight != null && g.scorecardWeight !== "" ? asNumber(g.scorecardWeight) : null;
+        String(g.status).toLowerCase() === "active" &&
+        g.scorecardWeight != null &&
+        g.scorecardWeight !== ""
+          ? asNumber(g.scorecardWeight)
+          : null;
       return { ...g, weight: w };
     });
 
@@ -404,6 +403,93 @@ export class ScorecardPillarService {
       goals: goalsWithWeight,
       goalsTotal,
     };
+  }
+
+  /**
+   * Minimal list of company goals in a pillar for one **line** (`strategyId` + `departmentName`),
+   * for weight visualization and batch redistribute. Query: optional `strategyId`, `departmentName`
+   * (use `__null__` to match SQL NULL for org-level line when you need to disambiguate).
+   */
+  static async listCompanyGoalLineWeights(
+    id: string,
+    opts?: { strategyId?: string | null; departmentName?: string | null }
+  ): Promise<{
+    goals: Array<{
+      id: string;
+      title: string;
+      scorecardWeight: unknown;
+      weight: number | null;
+      strategyId: string | null;
+      departmentName: string | null;
+      status: string | null;
+    }>;
+  }> {
+    const pillar = (await prisma.scorecardPillar.findUnique({ where: { id } })) as any;
+    if (!pillar) {
+      throw new Error("Scorecard pillar not found");
+    }
+
+    const aliasRows = await prisma.scorecardPillarAlias.findMany({
+      where: { pillarId: id },
+      select: { alias: true }
+    });
+    const aliasValues = aliasRows.map((r) => r.alias).filter(Boolean) as string[];
+
+    const orClause: Array<{ pillarId?: string; scorecardPillar?: string }> = [
+      { pillarId: id },
+      { scorecardPillar: pillar.canonicalName }
+    ];
+    for (const a of aliasValues) {
+      orClause.push({ scorecardPillar: a });
+    }
+
+    const where: any = {
+      OR: orClause,
+      type: "company"
+    };
+
+    if (opts && Object.prototype.hasOwnProperty.call(opts, "strategyId")) {
+      const s = opts.strategyId;
+      if (s != null && String(s).trim() !== "" && String(s).trim() !== "__null__") {
+        where.strategyId = String(s).trim();
+      } else {
+        where.strategyId = null;
+      }
+    }
+
+    if (opts && Object.prototype.hasOwnProperty.call(opts, "departmentName")) {
+      const d = opts.departmentName;
+      if (d != null && String(d).trim() !== "" && String(d).trim() !== "__null__") {
+        where.departmentName = String(d).trim();
+      } else {
+        where.departmentName = null;
+      }
+    }
+
+    const goals = await prisma.performanceGoal.findMany({
+      where,
+      orderBy: [{ title: "asc" }],
+      select: {
+        id: true,
+        title: true,
+        scorecardWeight: true,
+        strategyId: true,
+        departmentName: true,
+        status: true
+      }
+    });
+
+    const withWeight = goals.map((g) => {
+      const w =
+        String(g.status).toLowerCase() === "active" &&
+        g.scorecardWeight != null &&
+        String(g.scorecardWeight).trim() !== ""
+          ? asNumber(g.scorecardWeight)
+          : null;
+      return { ...g, weight: w };
+    });
+
+    return { goals: withWeight as any };
   }
 }
 

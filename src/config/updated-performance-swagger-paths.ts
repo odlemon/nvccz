@@ -1574,10 +1574,51 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
       operationId: 'postPerformanceGoals',
       tags: ['Performance UAT (Balanced Scorecard)', 'Performance Goals'],
       summary: 'Create a performance goal',
+      description:
+        '**Company** BSC: optional **`strategyId`**. New goals are created **inactive for scorecard weighting**; do **not** send `scorecardWeight` on create. Set/activate weights using **PUT /performance/scorecard-pillars/{id}/company-goal-weights** (batch) or `PUT /performance/config/goals/{goalId}` (single). Active-weight goals within a pillar line must total **100%**.',
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
-        content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } }
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['title', 'type', 'startDate', 'endDate', 'targetValue', 'targetUnit'],
+              additionalProperties: true,
+              properties: {
+                title: { type: 'string' },
+                description: { type: 'string' },
+                type: { type: 'string', example: 'company', description: 'company | department | individual' },
+                parentGoalId: { type: 'string' },
+                departmentName: { type: 'string' },
+                targetValue: { type: 'number' },
+                targetUnit: { type: 'string' },
+                currentValue: { type: 'number' },
+                kpiName: { type: 'string' },
+                priority: { type: 'string' },
+                startDate: { type: 'string', format: 'date-time' },
+                endDate: { type: 'string', format: 'date-time' },
+                assignedToId: { type: 'string' },
+                targetOperator: { type: 'string' },
+                dataSourceModule: { type: 'string' },
+                dataSourceField: { type: 'string' },
+                trackingFrequency: { type: 'string' },
+                scorecardPillar: {
+                  type: 'string',
+                  description: 'Required when type is company (BSC pillar canonical name or alias).'
+                },
+                performanceContractId: { type: 'string' },
+                strategyId: {
+                  type: 'string',
+                  nullable: true,
+                  description: 'Optional for company goals; null/omit = org line with no strategy id.'
+                },
+                contributionWeightPercent: { type: 'number' },
+                isReverseKpi: { type: 'boolean' }
+              }
+            }
+          }
+        }
       },
       responses: { 201: JSON_201, 400: JSON_400, 401: JSON_401 }
     }
@@ -1691,7 +1732,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
       tags: ['Performance UAT (Balanced Scorecard)'],
       summary: 'Set company-goal line weights in this pillar (100% total)',
       description:
-        'Body: **`goalWeights`** — map of `goalId` → % for **every** `company` goal in that pillar that shares the same `strategyId` and `departmentName` (must list the full set; they must **sum to 100%**). **`weightChangeReason`** (required). Roll-up: org BSC uses `scorecardWeight` × goal progress. Alternative: `PUT /performance/config/goals/{goalId}` for one goal at a time (same 100% check vs siblings).',
+        '**Required body:** `goalWeights` — map of `goalId` → % for **company** goals in this pillar **line** (same `strategyId` + `departmentName`). Values must **sum to 100%**. Any other company goals in this same pillar line that are **not included** are automatically set to `status=inactive` and `scorecardWeight=null`.',
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, example: 'bsc_internal_operations' }
@@ -1702,14 +1743,23 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
           'application/json': {
             schema: {
               type: 'object',
-              required: ['goalWeights', 'weightChangeReason'],
+              required: ['goalWeights'],
               properties: {
                 goalWeights: {
                   type: 'object',
                   additionalProperties: { type: 'number' },
                   description: 'All company goal ids in this pillar+strategy+dept line; values sum to 100'
-                },
-                weightChangeReason: { type: 'string' }
+                }
+              }
+            },
+            examples: {
+              activateSingleGoal: {
+                summary: 'First goal in a pillar line (100%)',
+                value: { goalWeights: { 'GOAL_ID': 100 } }
+              },
+              redistributeThreeGoals: {
+                summary: 'Redistribute across three goals',
+                value: { goalWeights: { 'GOAL_A': 40, 'GOAL_B': 30, 'GOAL_C': 30 } }
               }
             }
           }
@@ -1718,12 +1768,96 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
       responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
     }
   },
+  '/performance/scorecard-pillars/{id}/company-goal-line-weights': {
+    get: {
+      operationId: 'getScorecardPillarCompanyGoalLineWeights',
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'List company-goal line weights in a pillar (lightweight)',
+      description:
+        '**Company** goals only. Optional `strategyId` and `departmentName` match the same sibling line as **PUT .../company-goal-weights** (omit both to list all company goals in the pillar). Weights are `null` when the goal `status` is not `active` (new/unweighted goals). Use `strategyId=__null__` for NULL `strategyId`.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, example: 'bsc_internal_operations' },
+        { in: 'query', name: 'strategyId', required: false, schema: { type: 'string' } },
+        { in: 'query', name: 'departmentName', required: false, schema: { type: 'string' } }
+      ],
+      responses: {
+        200: {
+          description:
+            '{ success: true, data: { goals: [ { id, title, scorecardWeight, weight, strategyId, departmentName } ] } }',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      goals: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            title: { type: 'string' },
+                            scorecardWeight: { type: 'number', nullable: true },
+                            weight: { type: 'number', nullable: true },
+                            strategyId: { type: 'string', nullable: true },
+                            departmentName: { type: 'string', nullable: true },
+                            status: { type: 'string', nullable: true }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              ,
+              examples: {
+                mixedActiveInactive: {
+                  summary: 'Active + inactive goals',
+                  value: {
+                    success: true,
+                    data: {
+                      goals: [
+                        {
+                          id: 'GOAL_ACTIVE',
+                          title: 'Improve cycle time',
+                          scorecardWeight: 60,
+                          weight: 60,
+                          strategyId: null,
+                          departmentName: null,
+                          status: 'active'
+                        },
+                        {
+                          id: 'GOAL_INACTIVE',
+                          title: 'New unweighted goal',
+                          scorecardWeight: null,
+                          weight: null,
+                          strategyId: null,
+                          departmentName: null,
+                          status: 'inactive'
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        404: { description: 'Pillar not found' },
+        401: JSON_401
+      }
+    }
+  },
   '/performance/scorecard-pillars/{id}': {
     get: {
       tags: ['Performance UAT (Balanced Scorecard)'],
       summary: 'Get scorecard pillar by id (includes mapped goals)',
       description:
-        'Pillar + **goals** (each goal includes **`weight`** from `scorecardWeight`, and **`strategyId`** on the goal). Filter: `type`, `status`, `limit`, `offset`. `PUT /performance/scorecard-pillars/{id}/company-goal-weights` sets company line weights to 100% in one call.',
+        'Pillar + **goals** (each goal includes **`weight`** from `scorecardWeight`, and **`strategyId`** on the goal). Filter: `type`, `status`, `limit`, `offset`. **`GET /performance/scorecard-pillars/{id}/company-goal-line-weights`** is a slimmer list for UAT line weights. `PUT /performance/scorecard-pillars/{id}/company-goal-weights` sets company line weights to 100% in one call.',
       security: [{ bearerAuth: [] }],
       parameters: [
         { in: 'path', name: 'id', required: true, schema: { type: 'string' }, example: 'bsc_financial' },

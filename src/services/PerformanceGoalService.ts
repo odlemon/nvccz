@@ -20,6 +20,7 @@ import { ScorecardPillarService } from "./ScorecardPillarService";
 import { ensureDepartmentPerformanceContractForGoal } from "./DepartmentPerformanceContractService";
 import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
 import { FirebaseStorageService } from "./FirebaseStorageService";
+import { asNumber, roundTo } from "./performanceBackendSupport";
 
 /** Prisma DateTime requires full ISO; breakdown JSON often sends "YYYY-MM-DD" only. */
 function isDateOnlyString(s: string): boolean {
@@ -233,6 +234,16 @@ export interface CreatePerformanceGoalRequest {
   isReverseKpi?: boolean;
   /** Required when `type` is `company` (organisational BSC pillar). */
   scorecardPillar?: string;
+  /**
+   * Optional. When set, the goal is tied to this strategy; must not be archived.
+   * Sibling `scorecardWeight` groups use the same `strategyId` and `departmentName` (org line: both null).
+   */
+  strategyId?: string | null;
+  /**
+   * BSC line weight within the pillar (0–100). With existing siblings, new + existing weights must total **exactly 100%**.
+   * Omit to leave unset and set weights later via `PUT .../company-goal-weights` or the config goal route.
+   */
+  scorecardWeight?: number;
   /**
    * Links the goal to a performance contract. Use for CEO/Board indicators (required for those scorecards)
    * and optional for `company` org lines; for `department`, if omitted the system ensures a department PC.
@@ -633,6 +644,37 @@ export class PerformanceGoalService {
         });
       }
 
+      let companyStrategyId: string | null = null;
+      if (request.type === "company") {
+        if (request.strategyId != null && String(request.strategyId).trim() !== "") {
+          const sid = String(request.strategyId).trim();
+          const st = await prisma.performanceStrategy.findUnique({ where: { id: sid } });
+          if (!st) {
+            throw new Error("strategyId not found");
+          }
+          if (st.archivedAt != null || st.status === "ARCHIVED") {
+            throw new Error("Cannot link a new goal to an archived strategy.");
+          }
+          companyStrategyId = sid;
+        }
+      } else if (request.scorecardWeight !== undefined && request.scorecardWeight !== null) {
+        throw new Error(
+          "Do not set scorecardWeight on goal create. New goals are created inactive for scorecard weighting; " +
+            "set weights using PUT /api/performance/scorecard-pillars/{pillarId}/company-goal-weights (batch) " +
+            "or PUT /api/performance/config/goals/{goalId} (single)."
+        );
+      } else if (request.strategyId != null && String(request.strategyId).trim() !== "") {
+        throw new Error("strategyId on create is only supported for organisational (company) goals.");
+      }
+
+      if (request.scorecardWeight !== undefined && request.scorecardWeight !== null) {
+        throw new Error(
+          "Do not set scorecardWeight on goal create. New goals are created inactive for scorecard weighting; " +
+            "set weights using PUT /api/performance/scorecard-pillars/{pillarId}/company-goal-weights (batch) " +
+            "or PUT /api/performance/config/goals/{goalId} (single)."
+        );
+      }
+
       // Create the performance goal with absolute value targets
       const goal = await prisma.performanceGoal.create({
         data: {
@@ -642,6 +684,9 @@ export class PerformanceGoalService {
           parentGoalId: request.parentGoalId,
           departmentName: request.departmentName,
           ...(performanceContractId ? { performanceContractId } : {}),
+          ...(request.type === "company"
+            ? { strategyId: companyStrategyId, scorecardWeight: null }
+            : {}),
           // Store absolute value targets
           targetValue: request.targetValue,
           targetUnit: request.targetUnit,
@@ -652,7 +697,8 @@ export class PerformanceGoalService {
           endDate: request.endDate,
           assignedToId: request.assignedToId,
           createdById: createdById,
-          status: "active", // Goals are active by default
+          // Company goals participate in BSC scoring only after weights are set.
+          status: request.type === "company" ? "inactive" : "active",
           stage: "planning",
           // NEW: Enhanced Goal Definition Form Fields
           targetOperator: resolvedTargetOperator,

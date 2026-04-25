@@ -30,7 +30,9 @@ export class PerformanceGoalController {
         scorecardPillar,
         performanceContractId,
         contributionWeightPercent,
-        isReverseKpi
+        isReverseKpi,
+        strategyId,
+        scorecardWeight
       } = req.body;
       const userId = req.user.id;
 
@@ -64,7 +66,9 @@ export class PerformanceGoalController {
         scorecardPillar,
         performanceContractId,
         contributionWeightPercent,
-        isReverseKpi
+        isReverseKpi,
+        strategyId,
+        scorecardWeight
       }, userId);
 
       res.status(201).json({
