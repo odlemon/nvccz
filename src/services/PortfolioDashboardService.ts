@@ -2,7 +2,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
-import { asNumber, roundTo } from "./performanceBackendSupport";
+import { asNumber, PORTFOLIO_IRR_PE_SYNC_DECIMALS, roundTo } from "./performanceBackendSupport";
 import {
   cashFlowRag,
   computePortfolioAumHistoryCagr,
@@ -562,9 +562,9 @@ export class PortfolioDashboardService {
 
   /**
    * Weighted aggregate fund gross IRR (same engine as dashboard `metrics.fundGrossIRR`),
-   * rounded to 6 decimal places for PE ↔ performance manual sync (`fieldPath` e.g. `data.metrics.irr`).
+   * rounded to **4** decimal places for PE ↔ performance sync (`data.metrics.irr` UAT).
    */
-  static async getWeightedFundGrossIrrSixDecimals(
+  static async getWeightedFundGrossIrrForPeSync(
     params: Pick<PortfolioDashboardParams, "fundId"> = {}
   ): Promise<{ irr: number; precisionDigits: number; fundCount: number }> {
     const include = {
@@ -597,8 +597,9 @@ export class PortfolioDashboardService {
       }
     }
     const raw = totalWeight > 0 ? totalWeightedIRR / totalWeight : 0;
-    const irr = roundTo(asNumber(raw, 0), 6);
-    return { irr, precisionDigits: 6, fundCount: funds.length };
+    const d = PORTFOLIO_IRR_PE_SYNC_DECIMALS;
+    const irr = roundTo(asNumber(raw, 0), d);
+    return { irr, precisionDigits: d, fundCount: funds.length };
   }
 
   /**

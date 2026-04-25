@@ -92,7 +92,7 @@ const upload = multer({
 
 /**
  * @swagger
- * /api/performance/goals:
+ * /performance/goals:
  *   post:
  *     summary: Create a new performance goal
  *     tags: [Performance Goals]
@@ -169,7 +169,7 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
 
 /**
  * @swagger
- * /api/performance/goals:
+ * /performance/goals:
  *   get:
  *     summary: Get all performance goals
  *     tags: [Performance Goals]
@@ -194,10 +194,20 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *           enum: [active, completed, paused, cancelled]
  *         description: Filter by goal status
  *       - in: query
- *         name: departmentId
+ *         name: department
  *         schema:
  *           type: string
- *         description: Filter by department ID
+ *         description: Filter by **department name** (matches `departments.name` / display name; same as `departmentName` in responses)
+ *       - in: query
+ *         name: strategicThemeId
+ *         schema:
+ *           type: string
+ *         description: Filter goals linked to this strategic theme (`performance_strategic_themes.id`)
+ *       - in: query
+ *         name: pillarId
+ *         schema:
+ *           type: string
+ *         description: Filter by scorecard pillar row id (joins to org pillar / weight line)
  *       - in: query
  *         name: assignedToId
  *         schema:
@@ -223,7 +233,7 @@ router.get("/", authenticate, PerformanceGoalController.getAllPerformanceGoals);
 
 /**
  * @swagger
- * /api/performance/goals/statistics:
+ * /performance/goals/statistics:
  *   get:
  *     summary: Get performance goal statistics
  *     tags: [Performance Goals]
@@ -239,7 +249,7 @@ router.get("/statistics", authenticate, PerformanceGoalController.getPerformance
 
 /**
  * @swagger
- * /api/performance/goals/{id}/progress:
+ * /performance/goals/{id}/progress:
  *   put:
  *     summary: Add progress toward a goal (increment)
  *     description: |
@@ -287,7 +297,7 @@ router.post("/:id/attachments", authenticate, upload.array("attachments", 10), P
 
 /**
  * @swagger
- * /api/performance/goals/{id}:
+ * /performance/goals/{id}:
  *   get:
  *     summary: Get performance goal by ID
  *     tags: [Performance Goals]
@@ -312,7 +322,7 @@ router.get("/:id", authenticate, PerformanceGoalController.getPerformanceGoalByI
 
 /**
  * @swagger
- * /api/performance/goals/{id}:
+ * /performance/goals/{id}:
  *   put:
  *     summary: Update performance goal
  *     tags: [Performance Goals]
@@ -397,7 +407,7 @@ router.put("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal
 
 /**
  * @swagger
- * /api/performance/goals/{id}:
+ * /performance/goals/{id}:
  *   delete:
  *     summary: Delete performance goal
  *     tags: [Performance Goals]

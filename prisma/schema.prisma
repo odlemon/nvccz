@@ -2144,6 +2144,8 @@ model ScorecardPillar {
   canonicalName String   @unique @map("canonical_name") @db.VarChar(128)
   displayName   String   @map("display_name") @db.VarChar(128)
   description   String?  @db.Text
+  /// BSC pillar weight % (0–100); kept in sync with `performance_strategies.pillar_weights` on strategy save.
+  weight        Decimal? @db.Decimal(5, 2)
   isSystem      Boolean  @default(false) @map("is_system")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")

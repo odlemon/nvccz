@@ -2,6 +2,7 @@
 
 import { Request, Response } from "express";
 import { PerformanceConfigService } from "../services/PerformanceConfigService";
+import { PerformanceGoalService } from "../services/PerformanceGoalService";
 import { responseHelper } from "../utils/responseHelper";
 
 function requestMeta(req: Request) {
@@ -29,11 +30,33 @@ export class PerformanceConfigController {
     }
   }
 
+  static async getVisionStatement(_req: Request, res: Response) {
+    try {
+      const data = await PerformanceConfigService.getVisionStatement();
+      return responseHelper.success(res, data, "Vision statement retrieved successfully");
+    } catch (error) {
+      return responseHelper.error(res, error.message);
+    }
+  }
+
   static async listStrategies(req: Request, res: Response) {
     try {
       const includeArchived = req.query.includeArchived !== "false";
       const data = await PerformanceConfigService.listStrategies(includeArchived);
       return responseHelper.success(res, data, "Performance strategies retrieved successfully");
+    } catch (error) {
+      return responseHelper.error(res, error.message);
+    }
+  }
+
+  static async listArchivedStrategies(_req: Request, res: Response) {
+    try {
+      const data = await PerformanceConfigService.listArchivedStrategies();
+      return responseHelper.success(
+        res,
+        data,
+        "Archived performance strategies (historical) retrieved successfully"
+      );
     } catch (error) {
       return responseHelper.error(res, error.message);
     }
@@ -124,12 +147,14 @@ export class PerformanceConfigController {
 
   static async tagGoalsWithTheme(req: Request, res: Response) {
     try {
-      const data = await PerformanceConfigService.tagGoalsWithTheme({
+      const goalIds = Array.isArray(req.body.goalIds) ? req.body.goalIds : [];
+      await PerformanceConfigService.tagGoalsWithTheme({
         themeId: req.params.id,
-        goalIds: req.body.goalIds || [],
+        goalIds,
         actor: req.user,
         meta: requestMeta(req)
       });
+      const data = await PerformanceGoalService.getPerformanceGoalsByIds(goalIds);
       return responseHelper.success(res, data, "Goals tagged successfully");
     } catch (error) {
       return responseHelper.error(res, error.message);
@@ -138,10 +163,14 @@ export class PerformanceConfigController {
 
   static async getGoalsByTheme(req: Request, res: Response) {
     try {
-      const data = await PerformanceConfigService.getGoalsByTheme(req.params.id);
+      const data = await PerformanceGoalService.getGoalsByStrategicTheme(req.params.id);
       return responseHelper.success(res, data, "Theme goal mapping retrieved successfully");
-    } catch (error) {
-      return responseHelper.error(res, error.message);
+    } catch (error: any) {
+      const msg = error?.message || "Error";
+      if (msg === "Theme not found.") {
+        return responseHelper.error(res, msg, undefined, 404);
+      }
+      return responseHelper.error(res, msg);
     }
   }
 

@@ -26,6 +26,12 @@ export const BSC_PILLAR_UAT_LABEL: Record<string, string> = {
   "Learning, Growth & HR": "Learning & Growth"
 };
 
+/**
+ * PE ↔ Performance UAT: **Portfolio IRR** is stored and synced with **4** decimal places (e.g. 0.1878)
+ * through the pending-approval path. AUM and other high-precision integration metrics use **6**.
+ */
+export const PORTFOLIO_IRR_PE_SYNC_DECIMALS = 4;
+
 export function pillarSlugForScorecardPillar(
   scorecardPillar: string | null | undefined
 ): string | null {
@@ -173,7 +179,8 @@ export function isPortfolioTotalRevenueCompatibleGoal(goal: {
 }
 
 /**
- * Use 6-decimal sync + pending-approval path when formula/KPI/fieldPath indicates IRR, AUM, etc.
+ * Use high-precision sync + pending-approval path when formula/KPI/fieldPath indicates IRR, AUM, etc.
+ * Portfolio IRR values use `PORTFOLIO_IRR_PE_SYNC_DECIMALS` (4) on write; AUM/others use 6.
  * (Goals created via API often have null formulaType — infer from linked KPI name or fieldPath.)
  */
 export function isHighPrecisionPerformanceSync(
@@ -187,6 +194,26 @@ export function isHighPrecisionPerformanceSync(
   if (/\birr\b|internal rate|portfolio irr/.test(kn)) return true;
   if (/\baum\b|assets under management|fair value|unrealized/.test(kn)) return true;
   return false;
+}
+
+type GoalLike = { formulaType?: string | null; kpi?: { name?: string | null } | null };
+
+/** Digits for `normaliseSyncedDecimal` on a multi-goal sync batch (PE IRR → 4 dp; AUM/IRR-high-precision → 6; else 2). */
+export function syncDecimalPlacesForIntegrationBatch(
+  goals: GoalLike[],
+  effectiveFieldPath?: string | null
+): number {
+  if (
+    goals.some(
+      (g) => isPortfolioIrrCompatibleGoal(g) && isHighPrecisionPerformanceSync(g, effectiveFieldPath)
+    )
+  ) {
+    return PORTFOLIO_IRR_PE_SYNC_DECIMALS;
+  }
+  if (goals.some((g) => isHighPrecisionPerformanceSync(g, effectiveFieldPath))) {
+    return 6;
+  }
+  return 2;
 }
 
 export function shouldRaiseDataQualityAlert(params: {

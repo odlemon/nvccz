@@ -1304,12 +1304,24 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/kpis': KPI_CATALOG_POST_PATH_ITEM,
   '/kpis/{id}': KPI_CATALOG_BY_ID_PATH_ITEM,
 
+  '/performance/config/vision-statement': {
+    get: {
+      operationId: 'getPerformanceConfigVisionStatement',
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Get CEO / organisational vision only',
+      description:
+        'Returns **`data.visionStatement`** and **`data.strategyId`** for the **active** performance strategy (UAT “line of sight” / employee dashboard). Auth required. Edit vision via `POST/PUT /performance/config/strategies` (`visionStatement` on the body). Lighter than **GET /performance/config/pillars**.',
+      security: [{ bearerAuth: [] }],
+      responses: { 200: JSON_200, 401: JSON_401 }
+    }
+  },
+
   '/performance/scorecard-pillars': {
     get: {
       tags: ['Performance UAT (Balanced Scorecard)'],
       summary: 'List scorecard pillars',
       description:
-        'Returns the configured Balanced Scorecard pillars (displayName + description) for KPI configuration. Run `npm run db:migrate:scorecard-pillars` to seed system pillars.',
+        'Returns DB pillars (displayName, description, …) plus **weight** (%) and **strategyId** (same resolution as **GET /performance/config/pillars**). Set all four BSC weights (sum 100%) via **PUT /performance/scorecard-pillars/weights** or **POST/PUT /performance/config/strategies**.',
       security: [{ bearerAuth: [] }],
       responses: { 200: JSON_200, 401: JSON_401 }
     },
@@ -1338,12 +1350,132 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
       responses: { 201: JSON_201, 400: JSON_400, 401: JSON_401 }
     }
   },
+  '/performance/scorecard-pillars/weights': {
+    put: {
+      operationId: 'putPerformanceScorecardPillarWeights',
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Set all four BSC pillar weights',
+      description:
+        'Body must include all four system pillar ids (`bsc_financial`, `bsc_customer_market`, `bsc_internal_operations`, `bsc_learning_growth_hr`) with values that **total exactly 100%**. Use `weights: [{ id, weight }]` and/or `pillarWeights: { bsc_financial: 25, ... }` (merges; array values override the same id). Not supported on `PUT /scorecard-pillars/{id}`.',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                weights: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['id', 'weight'],
+                    properties: {
+                      id: { type: 'string', example: 'bsc_financial' },
+                      weight: { type: 'number', example: 25 }
+                    }
+                  }
+                },
+                pillarWeights: {
+                  type: 'object',
+                  additionalProperties: { type: 'number' },
+                  example: {
+                    bsc_financial: 25,
+                    bsc_customer_market: 25,
+                    bsc_internal_operations: 25,
+                    bsc_learning_growth_hr: 25
+                  }
+                }
+              }
+            },
+            examples: {
+              pillarWeightsObject: {
+                summary: 'All four ids as one object (sums to 100)',
+                value: {
+                  pillarWeights: {
+                    bsc_financial: 25,
+                    bsc_customer_market: 25,
+                    bsc_internal_operations: 25,
+                    bsc_learning_growth_hr: 25
+                  }
+                }
+              },
+              weightsArray: {
+                summary: 'Array of { id, weight }',
+                value: {
+                  weights: [
+                    { id: 'bsc_financial', weight: 25 },
+                    { id: 'bsc_customer_market', weight: 25 },
+                    { id: 'bsc_internal_operations', weight: 25 },
+                    { id: 'bsc_learning_growth_hr', weight: 25 }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+    }
+  },
+  '/performance/scorecard-pillars/{id}/company-goal-weights': {
+    put: {
+      operationId: 'putScorecardPillarCompanyGoalWeights',
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Set company-goal line weights in this pillar (100% total)',
+      description:
+        'Body: **`goalWeights`** — map of `goalId` → % for **every** `company` goal in that pillar that shares the same `strategyId` and `departmentName` (must list the full set; they must **sum to 100%**). **`weightChangeReason`** (required). Roll-up: org BSC uses `scorecardWeight` × goal progress. Alternative: `PUT /performance/config/goals/{goalId}` for one goal at a time (same 100% check vs siblings).',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, example: 'bsc_internal_operations' }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['goalWeights', 'weightChangeReason'],
+              properties: {
+                goalWeights: {
+                  type: 'object',
+                  additionalProperties: { type: 'number' },
+                  description: 'All company goal ids in this pillar+strategy+dept line; values sum to 100'
+                },
+                weightChangeReason: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+    }
+  },
   '/performance/scorecard-pillars/{id}': {
+    get: {
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Get scorecard pillar by id (includes mapped goals)',
+      description:
+        'Pillar + **goals** (each goal includes **`weight`** from `scorecardWeight`, and **`strategyId`** on the goal). Filter: `type`, `status`, `limit`, `offset`. `PUT /performance/scorecard-pillars/{id}/company-goal-weights` sets company line weights to 100% in one call.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, example: 'bsc_financial' },
+        { in: 'query', name: 'type', required: false, schema: { type: 'string' } },
+        { in: 'query', name: 'status', required: false, schema: { type: 'string' } },
+        { in: 'query', name: 'limit', required: false, schema: { type: 'integer', default: 200 } },
+        { in: 'query', name: 'offset', required: false, schema: { type: 'integer', default: 0 } }
+      ],
+      responses: {
+        200: JSON_200,
+        404: { description: 'Pillar not found' },
+        401: JSON_401
+      }
+    },
     put: {
       tags: ['Performance UAT (Balanced Scorecard)'],
-      summary: 'Update a scorecard pillar',
+      summary: 'Update a scorecard pillar (display; not weights)',
       description:
-        'Updates displayName/description for a pillar. If `canonicalName` is provided, performs a canonical rename (cascades to KPIs/goals and stores the old name as an alias).',
+        '**Weight** is not updated here; use **PUT /performance/scorecard-pillars/weights** for all four pillars (100% total). This route updates `displayName` and/or `description`, or renames the canonical via `canonicalName` (cascades to KPIs/goals; old name as alias).',
       security: [{ bearerAuth: [] }],
       parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
       requestBody: {

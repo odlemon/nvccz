@@ -9,7 +9,9 @@ import {
   isPortfolioIrrCompatibleGoal,
   isPortfolioTotalRevenueCompatibleGoal,
   normaliseSyncedDecimal,
+  PORTFOLIO_IRR_PE_SYNC_DECIMALS,
   resolveReviewWorkflowStatus,
+  syncDecimalPlacesForIntegrationBatch,
   shouldRaiseDataQualityAlert,
   uniqueGoalIdsForTaskBatch,
   validateFixedPillarSet,
@@ -43,6 +45,22 @@ describe("performanceBackendSupport", () => {
   it("preserves decimal sync precision for AUM and IRR values", () => {
     expect(normaliseSyncedDecimal("123.4567891", 6)).toBe("123.456789");
     expect(normaliseSyncedDecimal(0.1234567, 6)).toBe("0.123457");
+    expect(normaliseSyncedDecimal(0.18781234, 4)).toBe("0.1878");
+  });
+
+  it("resolves 4dp for portfolio IRR batch and 6dp for AUM (not 4)", () => {
+    expect(
+      syncDecimalPlacesForIntegrationBatch(
+        [{ formulaType: null, kpi: { name: "Portfolio IRR" } }],
+        "data.metrics.irr"
+      )
+    ).toBe(PORTFOLIO_IRR_PE_SYNC_DECIMALS);
+    expect(
+      syncDecimalPlacesForIntegrationBatch(
+        [{ formulaType: "AUM_TOTAL", kpi: { name: "Assets Under Management" } }],
+        "data.metrics.totalAum"
+      )
+    ).toBe(6);
   });
 
   it("detects high-precision sync from KPI name or fieldPath when formulaType is unset", () => {

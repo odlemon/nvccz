@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { asNumber, HARD_CODED_BSC_PILLARS } from "../src/services/performanceBackendSupport";
 import { ORG_BSC_CANONICAL_TO_PILLAR_ID, ORG_BSC_PILLAR_META } from "../src/services/performanceScorecardSupport";
 
 const prisma = new PrismaClient();
@@ -30,6 +31,7 @@ CREATE TABLE \`scorecard_pillars\` (
   \`canonical_name\` VARCHAR(128) NOT NULL,
   \`display_name\` VARCHAR(128) NOT NULL,
   \`description\` TEXT NULL,
+  \`weight\` DECIMAL(5,2) NULL,
   \`is_system\` TINYINT(1) NOT NULL DEFAULT 0,
   \`created_at\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   \`updated_at\` DATETIME(3) NOT NULL,
@@ -43,6 +45,12 @@ CREATE TABLE \`scorecard_pillars\` (
     if (!(await columnExists("scorecard_pillars", "is_system"))) {
       await prisma.$executeRawUnsafe(`ALTER TABLE \`scorecard_pillars\` ADD COLUMN \`is_system\` TINYINT(1) NOT NULL DEFAULT 0`);
       console.log("[ok] added scorecard_pillars.is_system");
+    }
+    if (!(await columnExists("scorecard_pillars", "weight"))) {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE \`scorecard_pillars\` ADD COLUMN \`weight\` DECIMAL(5,2) NULL AFTER \`description\``
+      );
+      console.log("[ok] added scorecard_pillars.weight");
     }
   }
 
@@ -128,6 +136,24 @@ CREATE TABLE \`scorecard_pillar_aliases\` (
     } as any);
   }
   console.log("[ok] ensured 4 system pillars seeded");
+
+  // Sync weight column from active strategy (or 25%) when `weight` exists.
+  if (await columnExists("scorecard_pillars", "weight")) {
+    const strategy = await prisma.performanceStrategy.findFirst({
+      where: { status: "ACTIVE", archivedAt: null },
+      orderBy: { periodStart: "desc" },
+    });
+    const j = (strategy?.pillarWeights as Record<string, number> | null) || {};
+    for (const name of HARD_CODED_BSC_PILLARS) {
+      const pid = ORG_BSC_CANONICAL_TO_PILLAR_ID[name];
+      if (!pid) continue;
+      const w = asNumber(j[name], 25);
+      await prisma.scorecardPillar
+        .update({ where: { id: pid }, data: { weight: w } as any })
+        .catch(() => {});
+    }
+    console.log("[ok] synced scorecard_pillars.weight from active strategy (or 25 default)");
+  }
 
   // Backfill missing goal pillarId when scorecardPillar matches canonical.
   for (const [canonical, id] of Object.entries(ORG_BSC_CANONICAL_TO_PILLAR_ID)) {

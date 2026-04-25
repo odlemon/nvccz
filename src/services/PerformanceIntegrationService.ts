@@ -14,6 +14,7 @@ import {
   isPortfolioIrrCompatibleGoal,
   isPortfolioTotalRevenueCompatibleGoal,
   normaliseSyncedDecimal,
+  syncDecimalPlacesForIntegrationBatch,
   pillarSlugForScorecardPillar,
   shouldRaiseDataQualityAlert
 } from "./performanceBackendSupport";
@@ -134,7 +135,8 @@ export class PerformanceIntegrationService {
     const anyHighPrecision = goals.some((g) =>
       isHighPrecisionPerformanceSync(g, effectiveFieldPath)
     );
-    const normalizedValue = normaliseSyncedDecimal(extracted, anyHighPrecision ? 6 : 2);
+    const syncDecimalPlaces = syncDecimalPlacesForIntegrationBatch(goals, effectiveFieldPath);
+    const normalizedValue = normaliseSyncedDecimal(extracted, syncDecimalPlaces);
     const numericValue = Number(normalizedValue);
 
     const updatedGoals: any[] = [];
@@ -322,7 +324,7 @@ export class PerformanceIntegrationService {
 
     try {
       const { irr, fundCount, precisionDigits } =
-        await PortfolioDashboardService.getWeightedFundGrossIrrSixDecimals({
+        await PortfolioDashboardService.getWeightedFundGrossIrrForPeSync({
           fundId: params.fundId
         });
 
@@ -994,8 +996,8 @@ export class PerformanceIntegrationService {
       throw new Error("A manager override comment is required.");
     }
 
-    const overridePrecision = isHighPrecisionPerformanceSync(goal, goal.syncConfig?.fieldPath);
-    const normalizedValue = normaliseSyncedDecimal(params.value, overridePrecision ? 6 : 2);
+    const overrideDigits = syncDecimalPlacesForIntegrationBatch([goal], (goal as any).syncConfig?.fieldPath);
+    const normalizedValue = normaliseSyncedDecimal(params.value, overrideDigits);
     const updatedGoal = await prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {

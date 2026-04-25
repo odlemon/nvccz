@@ -13,7 +13,7 @@ const router = Router();
  *     summary: Portfolio gross IRR (PE / accounting feed for performance sync)
  *     description: |
  *       Weighted aggregate fund gross IRR from the same PE data path as the portfolio dashboard,
- *       with **6 decimal places** for manual performance sync (`endpointPath` must include `/v1/`).
+ *       with **4 decimal places** for performance sync (Portfolio IRR UAT) (`endpointPath` must include `/v1/`).
  *     tags: [Accounting]
  *     security:
  *       - bearerAuth: []
@@ -41,10 +41,10 @@ const router = Router();
  *                       properties:
  *                         irr:
  *                           type: number
- *                           example: 16.324567
+ *                           example: 0.1878
  *                         precisionDigits:
  *                           type: integer
- *                           example: 6
+ *                           example: 4
  */
 router.get(
   "/pe/portfolio-irr",

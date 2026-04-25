@@ -504,8 +504,7 @@ export class TaskService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           }
         }
@@ -684,8 +683,7 @@ export class TaskService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           }
         }
@@ -807,8 +805,7 @@ export class TaskService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           }
         }
@@ -929,8 +926,7 @@ export class TaskService {
           select: {
             id: true,
             title: true,
-            type: true,
-            category: true
+            type: true
           }
         }
       }
@@ -1047,8 +1043,7 @@ export class TaskService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           }
         }
@@ -1135,8 +1130,7 @@ export class TaskService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           }
         },
@@ -1284,7 +1278,6 @@ export class TaskService {
               id: true,
               title: true,
               type: true,
-              category: true,
               targetValue: true,
               currentValue: true,
               stage: true,
@@ -1387,8 +1380,7 @@ export class TaskService {
             select: {
               id: true,
               title: true,
-              type: true,
-              category: true
+              type: true
             }
           }
         }

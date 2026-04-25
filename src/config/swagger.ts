@@ -230,7 +230,17 @@ const options = {
       {
         name: 'Performance UAT (Balanced Scorecard)',
         description:
-          'UAT utilities for Balanced Scorecard configuration. Includes DB-backed **scorecard pillars** CRUD for KPI configuration screens: `GET/POST /performance/scorecard-pillars`, `PUT/DELETE /performance/scorecard-pillars/{id}`. System pillars are seeded via `npm run db:migrate:scorecard-pillars`.'
+          'UAT utilities for Balanced Scorecard configuration. **Vision (line of sight):** **`GET /performance/config/vision-statement`** (active strategy `visionStatement` only). **Pillars:** `GET/POST /performance/scorecard-pillars`, **`PUT /performance/scorecard-pillars/weights`** (four BSC pillar %, total **100%**), **`PUT /performance/scorecard-pillars/{id}/company-goal-weights`**, `PUT/DELETE /performance/scorecard-pillars/{id}`. Single-goal line weight: `PUT /performance/config/goals/{goalId}`. System pillars: `npm run db:migrate:scorecard-pillars`.'
+      },
+      {
+        name: 'Performance Config',
+        description:
+          'Strategic **themes** (`GET/POST /performance/config/themes`), **theme–goal** mapping (`GET/POST /performance/config/themes/{id}/goals`), BSC **pillars** / **strategies**, **`POST /performance/config/strategies/{id}/archive`** (UAT: archive old cycle; read-only afterward), **`GET /performance/config/strategies/archives`** (historical list), **`GET /performance/config/strategies?includeArchived=false`** (active cycles only for dashboards), and **`PUT /performance/config/goals/{goalId}`** (scorecard line + theme on goals). OpenAPI paths are relative to the server URL that ends in `/api`.'
+      },
+      {
+        name: 'Performance Goals',
+        description:
+          'List and manage performance goals. **GET /performance/goals** supports **`strategicThemeId`**, **`pillarId`**, **`department`** (name), **`type`**, **`scorecardPillar`**, **`search`**, and related filters. OpenAPI paths are relative to the server URL that ends in `/api`.'
       },
       {
         name: 'performance-kpis',

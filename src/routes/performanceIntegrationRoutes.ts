@@ -201,7 +201,7 @@ router.post("/sync", authenticate, PerformanceIntegrationController.runManualSyn
  *   post:
  *     summary: Sync portfolio IRR from PE/accounting (in-process)
  *     description: |
- *       Calculates weighted fund gross IRR via the same engine as the portfolio dashboard (6 decimal places)
+ *       Calculates weighted fund gross IRR via the same engine as the portfolio dashboard (**4 decimal places** for UAT)
  *       and updates performance goals—**no** `endpointPath`, **no** `PERFORMANCE_INTERNAL_BASE_URL`, and **no** HTTP self-call.
  *       Body requires `goalId` or `kpiId`; optional `fundId` scopes IRR to one fund.
  *       **Each affected goal** must have an IRR-linked KPI (`formulaType` `IRR` or `PORTFOLIO_IRR_PCT`, or KPI name indicating IRR); otherwise the request fails and nothing is updated.

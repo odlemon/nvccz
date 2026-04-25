@@ -4,13 +4,13 @@ import { PortfolioDashboardService } from "../services/PortfolioDashboardService
 
 export class AccountingPeIntegrationController {
   /**
-   * GET /api/accounting/v1/pe/portfolio-irr — weighted fund gross IRR for performance sync (6 dp).
+   * GET /api/accounting/v1/pe/portfolio-irr — weighted fund gross IRR for performance sync (4 dp per UAT).
    */
   static async getPortfolioIrr(req: Request, res: Response): Promise<void> {
     try {
       const fundId = req.query.fundId as string | undefined;
       const { irr, precisionDigits, fundCount } =
-        await PortfolioDashboardService.getWeightedFundGrossIrrSixDecimals({
+        await PortfolioDashboardService.getWeightedFundGrossIrrForPeSync({
           fundId: fundId || undefined
         });
 
