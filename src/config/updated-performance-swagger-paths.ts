@@ -1316,6 +1316,18 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     }
   },
 
+  '/performance/config/pillars': {
+    get: {
+      operationId: 'getPerformanceConfigPillars',
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Get BSC pillar configuration and active strategy context',
+      description:
+        'Heavier than **GET /performance/config/vision-statement** — returns pillar list with weights, `visionStatement`, `strategyId`, and related BSC line-of-sight data used on UAT configuration screens.',
+      security: [{ bearerAuth: [] }],
+      responses: { 200: JSON_200, 401: JSON_401 }
+    }
+  },
+
   // ----------------------------------------------------------
   // Performance Config (UAT themes + strategies) — ensure visible
   // even when swagger-jsdoc falls back to the static spec.
@@ -1324,7 +1336,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/performance/config/themes': {
     get: {
       operationId: 'getPerformanceConfigThemes',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'List strategic themes',
       description:
         'Returns active strategic themes for goal tagging and dashboard filtering.',
@@ -1333,7 +1345,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     },
     post: {
       operationId: 'postPerformanceConfigThemes',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'Create a strategic theme',
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -1359,7 +1371,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/performance/config/themes/{id}/goals': {
     get: {
       operationId: 'getPerformanceConfigThemeGoals',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'Get goals mapped to a strategic theme',
       description:
         'Returns the same goal shape as **GET /performance/goals?strategicThemeId=...** so the frontend can reuse the same table components.',
@@ -1371,7 +1383,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     },
     post: {
       operationId: 'postPerformanceConfigThemeGoals',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'Tag goals with a strategic theme',
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -1398,7 +1410,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/performance/config/strategies': {
     get: {
       operationId: 'getPerformanceConfigStrategies',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'List performance strategies',
       description:
         'Use **includeArchived=false** to hide archived cycles from active dashboards/pickers.',
@@ -1415,7 +1427,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     },
     post: {
       operationId: 'postPerformanceConfigStrategies',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'Create a performance strategy',
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -1444,7 +1456,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/performance/config/strategies/archives': {
     get: {
       operationId: 'getPerformanceConfigStrategyArchives',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'List historical (archived) strategies only',
       security: [{ bearerAuth: [] }],
       responses: { 200: JSON_200, 401: JSON_401 }
@@ -1454,7 +1466,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/performance/config/strategies/{id}': {
     get: {
       operationId: 'getPerformanceConfigStrategyById',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'Get one performance strategy',
       security: [{ bearerAuth: [] }],
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
@@ -1462,7 +1474,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     },
     put: {
       operationId: 'putPerformanceConfigStrategyById',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'Update a performance strategy',
       security: [{ bearerAuth: [] }],
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
@@ -1477,7 +1489,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/performance/config/strategies/{id}/archive': {
     post: {
       operationId: 'postPerformanceConfigStrategyArchive',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'Archive a strategy (read-only afterwards)',
       security: [{ bearerAuth: [] }],
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
@@ -1485,10 +1497,44 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     }
   },
 
+  '/performance/config/strategies/{id}/document': {
+    post: {
+      operationId: 'postPerformanceConfigStrategyDocument',
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
+      summary: 'Upload a strategy document PDF',
+      description:
+        '**multipart/form-data** — field **`file`** (required) is the PDF. Optional **`strategicGoalId`** (text) links upload metadata to a parent/ strategic performance goal (UAT A.02). ' +
+        'On success, `data` includes the strategy with **`strategyDocumentUrl`** for download.',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['file'],
+              properties: {
+                file: { type: 'string', format: 'binary', description: 'Strategy PDF' },
+                strategicGoalId: { type: 'string', description: 'Optional link to a strategic performance goal' }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: JSON_200,
+        400: JSON_400,
+        401: JSON_401,
+        404: { description: 'Strategy not found' }
+      }
+    }
+  },
+
   '/performance/config/goals/{goalId}': {
     put: {
       operationId: 'putPerformanceConfigGoalById',
-      tags: ['Performance Config'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Config'],
       summary: 'Update goal scorecard + strategy metadata',
       security: [{ bearerAuth: [] }],
       parameters: [{ name: 'goalId', in: 'path', required: true, schema: { type: 'string' } }],
@@ -1506,7 +1552,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/performance/goals': {
     get: {
       operationId: 'getPerformanceGoals',
-      tags: ['Performance Goals'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Goals'],
       summary: 'List performance goals',
       description:
         'Supports filtering by strategic theme and pillar for UAT dashboards.',
@@ -1526,7 +1572,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     },
     post: {
       operationId: 'postPerformanceGoals',
-      tags: ['Performance Goals'],
+      tags: ['Performance UAT (Balanced Scorecard)', 'Performance Goals'],
       summary: 'Create a performance goal',
       security: [{ bearerAuth: [] }],
       requestBody: {
