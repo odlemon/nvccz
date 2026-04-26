@@ -9,6 +9,7 @@ import {
 } from "../config/accountingSnapshotResponseSelect";
 import { ResponseHelper } from "../utils/responseHelper";
 import { logger } from "../utils/logger";
+import { VcCacSyncService } from "../services/VcCacSyncService";
 
 const decimalToNumber = (value: any) => {
   if (value === null || value === undefined) return 0;
@@ -266,6 +267,12 @@ export class CustomerController {
       logger.info("Customer created successfully", {
         customerId: customer.id,
         name: customer.name
+      });
+
+      await VcCacSyncService.recomputeAndPersist({ source: "customers" }).catch((err: any) => {
+        logger.error("VcCacSyncService.recomputeAndPersist failed after customer create", {
+          error: err?.message
+        });
       });
 
       ResponseHelper.success(res, "Customer created successfully", customer, 201);

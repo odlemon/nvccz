@@ -2871,6 +2871,21 @@ model AssetDisposalRecord {
   @@map("asset_disposal_records")
 }
 
+/// Cached computed metrics for fast dashboards / KPIs (no reliance on goals existing).
+model PerformanceMetricSnapshot {
+  id         String   @id @default(cuid())
+  /// Stable code, e.g. `AUM_TOTAL`
+  code       String   @unique @db.VarChar(64)
+  /// Numeric value stored as high precision decimal string.
+  value      Decimal  @db.Decimal(18, 6)
+  computedAt DateTime @map("computed_at")
+  source     String?  @db.VarChar(128)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("performance_metric_snapshots")
+}
+
 model CreditNote {
   id               String        @id @default(cuid())
   customerId       String
@@ -3611,6 +3626,11 @@ model Employee {
   nextOfKin               String?
   pictureUrl              String?
   nextOfKinContact        Json?
+  /** When true, the person has left the company: excluded from payroll & BSC generation; contracts ended. */
+  terminated              Boolean             @default(false)
+  terminatedAt            DateTime?
+  /** Optional note (e.g. reason for leaving) for HR. */
+  terminationReason       String?             @db.Text
   /** Vendor used for staff reimbursement / creditor tracking (cashbook SUPPLIER payments). */
   reimbursementVendorId   String?             @unique @map("reimbursement_vendor_id")
   user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)

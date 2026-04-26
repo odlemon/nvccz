@@ -333,6 +333,18 @@ export const HARDCODED_KPIS: HardcodedKPI[] = [
     accountNumber: "5090", // Other Operating Expenses
     journalEntryType: "Debit",
     isFinancial: true
+  },
+
+  // ===== MARKETING DEPARTMENT (VC company — accounting-driven metrics) =====
+  {
+    code: "VC_CUSTOMER_ACQUISITION_COST",
+    name: "Customer Acquisition Cost",
+    department: "Marketing",
+    description:
+      "Blended all-time VC company CAC: cumulative marketing-classified expense (USD) divided by active customer count. Synced from Customers + Expenses.",
+    accountType: "Expense",
+    journalEntryType: "Debit",
+    isFinancial: false
   }
 ];
 

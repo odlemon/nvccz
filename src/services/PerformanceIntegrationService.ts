@@ -578,8 +578,9 @@ export class PerformanceIntegrationService {
   }
 
   /**
-   * In-process employee turnover rate from Payroll `Employee` table (`isActive` vs not).
-   * Synced value is `turnoverRatePct` (0–100). Inactive rows count as terminations for this metric.
+   * In-process employee turnover from Payroll `Employee` (`terminated` + active roster).
+   * Synced value is `turnoverRatePct` (0–100). Formula: (terminations / avg headcount) × 100
+   * with the same headcount source as the payroll run list (`isActive` + not `terminated` vs `terminated`).
    */
   static async runPayrollTurnoverRateSync(params: {
     goalId?: string;
@@ -631,7 +632,8 @@ export class PerformanceIntegrationService {
             activeHeadcount: m.activeHeadcount,
             inactiveHeadcount: m.inactiveHeadcount,
             terminatedCount: m.terminatedCount,
-            totalHeadcount: m.totalHeadcount
+            totalHeadcount: m.totalHeadcount,
+            avgHeadcount: m.avgHeadcount
           }
         },
         generatedAt: new Date().toISOString()

@@ -3,6 +3,7 @@ import { PrismaClient, Fund } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import { prisma } from '../utils/database';
+import { AumRealtimeSyncService } from './AumRealtimeSyncService';
 
 export interface CreateFundRequest {
   name: string;
@@ -74,6 +75,8 @@ export class FundService {
         }
       });
 
+      await AumRealtimeSyncService.recomputeAndPersist({ source: "funds" });
+
       return fund;
     } catch (error: any) {
       throw new Error(`Failed to create fund: ${error.message}`);
@@ -123,6 +126,8 @@ export class FundService {
         data: updateData
       });
 
+      await AumRealtimeSyncService.recomputeAndPersist({ source: "funds" });
+
       return updatedFund;
     } catch (error: any) {
       throw new Error(`Failed to update fund: ${error.message}`);
@@ -153,6 +158,8 @@ export class FundService {
           updatedAt: new Date()
         }
       });
+
+      await AumRealtimeSyncService.recomputeAndPersist({ source: "funds" });
 
       return updatedFund;
     } catch (error: any) {

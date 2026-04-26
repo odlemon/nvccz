@@ -4,6 +4,10 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { HARDCODED_KPIS, HardcodedKPI } from "../config/hardcodedKPIs";
 import { IncomeStatementService } from "./IncomeStatementService";
 import { BalanceSheetService } from "./BalanceSheetService";
+import {
+  computeKpiLineProgressPercent,
+  parseGoalCurrentAndTarget
+} from "./performanceGoalRollupUtils";
 
 export class PerformanceAnalyticsService {
   /**
@@ -37,7 +41,8 @@ export class PerformanceAnalyticsService {
               name: true,
               type: true,
               unitSymbol: true,
-              unitPosition: true
+              unitPosition: true,
+              isReverseKpi: true
             }
           },
           subGoals: {
@@ -71,8 +76,11 @@ export class PerformanceAnalyticsService {
         }
         
         acc[kpiId].goals.push(goal);
-        acc[kpiId].totalTargetValue += parseFloat(goal.targetValue?.toString() || '0');
-        acc[kpiId].totalCurrentValue += parseFloat(goal.currentValue?.toString() || '0');
+        {
+          const { current: c, target: t } = parseGoalCurrentAndTarget(goal);
+          acc[kpiId].totalTargetValue += t;
+          acc[kpiId].totalCurrentValue += c;
+        }
         acc[kpiId].goalCount += 1;
         
         return acc;
@@ -170,16 +178,23 @@ export class PerformanceAnalyticsService {
           }
         }
 
-        // For non-financial KPIs, use the goal's currentValue (not affected by currency)
+        // For non-financial KPIs, use summed goal currents (precise* aware). Financial KPIs may override from statements.
         const totalCurrentValue = accountingValue !== null ? accountingValue : group.totalCurrentValue;
 
-        const progressRatio = group.totalTargetValue > 0
-          ? totalCurrentValue / group.totalTargetValue
-          : 0;
-
-        const progressPercentage = group.totalTargetValue > 0
-          ? (progressRatio * 100).toFixed(2)
-          : "0";
+        let progressPercentage: string;
+        let progressRatio: number;
+        if (accountingValue !== null) {
+          if (group.totalTargetValue > 0) {
+            progressRatio = totalCurrentValue / group.totalTargetValue;
+          } else {
+            progressRatio = totalCurrentValue > 0 ? 1 : 0;
+          }
+          progressPercentage = (progressRatio * 100).toFixed(2);
+        } else {
+          const p = computeKpiLineProgressPercent(group.goals, group.kpi);
+          progressPercentage = p.toFixed(2);
+          progressRatio = p / 100;
+        }
         
         let completedGoals = group.goals.filter((g: any) => g.stage === 'completed').length;
         let inProgressGoals = group.goals.filter((g: any) => g.stage === 'in_progress').length;
@@ -254,7 +269,8 @@ export class PerformanceAnalyticsService {
               name: true,
               type: true,
               unitSymbol: true,
-              unitPosition: true
+              unitPosition: true,
+              isReverseKpi: true
             }
           },
           subGoals: {
@@ -392,7 +408,8 @@ export class PerformanceAnalyticsService {
               name: true,
               type: true,
               unitSymbol: true,
-              unitPosition: true
+              unitPosition: true,
+              isReverseKpi: true
             }
           },
           assignedTo: {

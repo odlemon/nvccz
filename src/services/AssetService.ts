@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../utils/database';
 import { JournalEntryService } from './JournalEntryService';
 import AuditService from './AuditService';
+import { AumRealtimeSyncService } from './AumRealtimeSyncService';
 import {
   assignNextAuditIdAndCreateJournal,
   createJournalEntryWithAuditSequence,
@@ -320,6 +321,9 @@ export class AssetService {
         entityId: asset.id,
         newValues: asset,
       });
+
+      // Recompute AUM snapshots / linked goals after asset change
+      await AumRealtimeSyncService.recomputeAndPersist({ source: "assets" });
 
       return asset;
     } catch (error) {
@@ -799,6 +803,8 @@ export class AssetService {
         entityId: assetId,
         newValues: { status: 'DISPOSED', disposalDate, disposalValue },
       });
+
+      await AumRealtimeSyncService.recomputeAndPersist({ source: "assets" });
     } catch (error) {
       console.error('Error disposing asset:', error);
       throw error;
@@ -1331,6 +1337,8 @@ export class AssetService {
         oldValues: asset,
         newValues: updatedAsset,
       });
+
+      await AumRealtimeSyncService.recomputeAndPersist({ source: "assets" });
 
       return updatedAsset;
     } catch (error) {
@@ -1877,6 +1885,8 @@ export class AssetService {
         newValues: { currentBookValue: newValue }
       });
 
+      await AumRealtimeSyncService.recomputeAndPersist({ source: "assets" });
+
       return updatedAsset;
     } catch (error) {
       console.error('Error revaluing asset:', error);
@@ -2017,11 +2027,22 @@ export class AssetService {
     createdById: string
   ): Promise<void> {
     try {
+      const ref = `REV-${Date.now()}`;
+      const currencyId =
+        asset.recordedCurrencyId ||
+        (await prisma.currency.findFirst({ where: { isActive: true }, orderBy: { isDefault: "desc" } }))?.id;
+      if (!currencyId) {
+        throw new Error("No active currency found for asset revaluation journal.");
+      }
+      const total = new Decimal(Math.abs(revaluationGainLoss || 0));
+
       const journalEntry = await prisma.journalEntry.create({
         data: {
-          entryNumber: `REV-${Date.now()}`,
+          transactionDate: new Date(),
+          referenceNumber: ref,
           description: `Asset revaluation - ${asset.assetName}`,
-          entryDate: new Date(),
+          totalAmount: total,
+          currencyId,
           status: 'POSTED',
           createdById
         }
@@ -2032,7 +2053,7 @@ export class AssetService {
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            accountId: asset.assetAccountId,
+            chartOfAccountId: asset.assetAccountId,
             debitAmount: new Decimal(revaluationGainLoss),
             creditAmount: new Decimal(0),
             description: 'Asset revaluation gain'
@@ -2043,7 +2064,7 @@ export class AssetService {
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            accountId: asset.assetAccountId, // This should be a revaluation reserve account
+            chartOfAccountId: asset.assetAccountId, // TODO: revaluation reserve account
             debitAmount: new Decimal(0),
             creditAmount: new Decimal(revaluationGainLoss),
             description: 'Revaluation reserve'
@@ -2054,7 +2075,7 @@ export class AssetService {
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            accountId: asset.assetAccountId, // This should be a revaluation loss account
+            chartOfAccountId: asset.assetAccountId, // TODO: revaluation loss account
             debitAmount: new Decimal(Math.abs(revaluationGainLoss)),
             creditAmount: new Decimal(0),
             description: 'Asset revaluation loss'
@@ -2064,7 +2085,7 @@ export class AssetService {
         await prisma.journalEntryLine.create({
           data: {
             journalEntryId: journalEntry.id,
-            accountId: asset.assetAccountId,
+            chartOfAccountId: asset.assetAccountId,
             debitAmount: new Decimal(0),
             creditAmount: new Decimal(Math.abs(revaluationGainLoss)),
             description: 'Asset revaluation'

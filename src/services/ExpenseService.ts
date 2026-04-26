@@ -6,6 +6,7 @@ import { prismaJournalEntryRateSelect } from "../config/accountingSnapshotRespon
 import VATService from "./VATService";
 import JournalEntryService, { CreateExpenseJournalEntryParams } from "./JournalEntryService";
 import AuditService from "./AuditService";
+import { VcCacSyncService } from "./VcCacSyncService";
 
 export interface CreateExpenseParams {
   vendorId: string;
@@ -155,6 +156,10 @@ export class ExpenseService {
         entityType: "Expense",
         entityId: updatedExpense.id,
         newValues: updatedExpense,
+      });
+
+      await VcCacSyncService.recomputeAndPersist({ source: "expenses" }).catch((err: any) => {
+        console.error("VcCacSyncService.recomputeAndPersist failed after expense create", err?.message ?? err);
       });
 
       return updatedExpense;
@@ -522,6 +527,10 @@ export class ExpenseService {
         newValues: finalExpense,
       });
 
+      await VcCacSyncService.recomputeAndPersist({ source: "expenses" }).catch((err: any) => {
+        console.error("VcCacSyncService.recomputeAndPersist failed after expense update", err?.message ?? err);
+      });
+
       return finalExpense;
     }
 
@@ -594,6 +603,10 @@ export class ExpenseService {
         entityType: "Expense",
         entityId: id,
         oldValues: before,
+      });
+
+      await VcCacSyncService.recomputeAndPersist({ source: "expenses" }).catch((err: any) => {
+        console.error("VcCacSyncService.recomputeAndPersist failed after expense delete", err?.message ?? err);
       });
       return;
     }

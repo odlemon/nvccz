@@ -234,44 +234,7 @@ router.post(
   PerformanceIntegrationController.syncPePortfolioIrr
 );
 
-/**
- * @swagger
- * /api/performance/integration/sync-pe-portfolio-aum:
- *   post:
- *     summary: Sync Assets Under Management from accounting funds (in-process)
- *     description: |
- *       Reads total AUM as the sum of `Fund.totalAmount` for OPEN and CLOSED funds (same as CEO / portfolio accounting),
- *       or a single fund's `totalAmount` when `fundId` is supplied. Updates AUM-linked performance goals with no HTTP self-call.
- *       Body requires `goalId` or `kpiId`. Each affected goal must have an AUM-linked KPI (`formulaType` `AUM` or `AUM_TOTAL`,
- *       or KPI name indicating assets under management); IRR-only goals are rejected.
- *     tags: [Performance Integration]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               goalId:
- *                 type: string
- *               kpiId:
- *                 type: string
- *               fundId:
- *                 type: string
- *                 description: Omit to use aggregate AUM across all OPEN/CLOSED funds; set to sync one fund's total only.
- *     responses:
- *       200:
- *         description: Sync completed (may be pending manager approval for high-precision KPIs)
- *       400:
- *         description: Invalid request
- */
-router.post(
-  "/sync-pe-portfolio-aum",
-  authenticate,
-  PerformanceIntegrationController.syncPePortfolioAum
-);
+// NOTE: AUM is now synced automatically on Asset/Fund mutations (no manual sync endpoint).
 
 /**
  * @swagger

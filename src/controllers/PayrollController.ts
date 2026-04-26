@@ -8,6 +8,7 @@ import { StaffReimbursementVendorService } from '../services/StaffReimbursementV
 import { companyNameFullFromEnv } from '../config/companyDisplay';
 import { prisma } from '../utils/database';
 import { PerformancePayrollBscHookService } from '../services/PerformancePayrollBscHookService';
+import { EmployeeTerminationService } from '../services/EmployeeTerminationService';
 import { parseDate } from '../utils/dateHelper';
 export class PayrollController {
   /**
@@ -125,7 +126,7 @@ export class PayrollController {
   static async getEmployees(req: Request, res: Response) {
     try {
       const employees = await prisma.employee.findMany({
-        where: { isActive: true },
+        where: { isActive: true, terminated: false },
         include: {
           user: {
             select: { firstName: true, lastName: true, email: true }
@@ -659,6 +660,8 @@ export class PayrollController {
                 select: {
                   id: true,
                   employeeNumber: true,
+                  isActive: true,
+                  terminated: true,
                   user: {
                     select: {
                       firstName: true,
@@ -738,6 +741,8 @@ export class PayrollController {
                 select: {
                   id: true,
                   employeeNumber: true,
+                  isActive: true,
+                  terminated: true,
                   user: {
                     select: {
                       firstName: true,
@@ -819,6 +824,22 @@ export class PayrollController {
           success: false,
           message: 'Cannot assign employees to statutory deductions. Statutory deductions apply to all employees automatically.'
         });
+      }
+
+      for (const employeeId of employeeIds) {
+        const row = await prisma.employee.findUnique({
+          where: { id: employeeId },
+          select: { id: true, employeeNumber: true, terminated: true }
+        });
+        if (!row) {
+          return res.status(400).json({ success: false, message: `Employee not found: ${employeeId}` });
+        }
+        if (row.terminated) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot assign deductions to a terminated employee (${row.employeeNumber || row.id}).`
+          });
+        }
       }
 
       // Create employee deductions
@@ -1044,6 +1065,12 @@ export class PayrollController {
           message: 'Employee record not found'
         });
       }
+      if (employee.terminated) {
+        return res.status(403).json({
+          success: false,
+          message: 'This employment has been terminated. Payroll self-service is not available.'
+        });
+      }
 
       res.json({
         success: true,
@@ -1076,6 +1103,12 @@ export class PayrollController {
         return res.status(404).json({
           success: false,
           message: 'Employee record not found'
+        });
+      }
+      if (employee.terminated) {
+        return res.status(403).json({
+          success: false,
+          message: 'This employment has been terminated. Payslip self-service is not available.'
         });
       }
 
@@ -1191,6 +1224,12 @@ export class PayrollController {
         return res.status(404).json({
           success: false,
           message: 'Employee record not found'
+        });
+      }
+      if (employee.terminated) {
+        return res.status(403).json({
+          success: false,
+          message: 'This employment has been terminated. Leave self-service is not available.'
         });
       }
 
@@ -1892,6 +1931,35 @@ export class PayrollController {
         isActive
       } = req.body;
 
+      const existing = await prisma.employee.findUnique({ where: { id } });
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Employee not found' });
+      }
+      if (existing.terminated) {
+        return res.status(400).json({
+          success: false,
+          message: 'This employee is terminated. Updates are not allowed except through a formal reinstatement process.'
+        });
+      }
+      if (isActive === true) {
+        /* allow */
+      } else if (isActive === false) {
+        const performedBy = (req as any).user;
+        if (!performedBy?.id) {
+          return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        const out = await EmployeeTerminationService.terminateEmployee({
+          employeeId: id,
+          performedBy,
+          reason: 'Deactivated via employee update (isActive set to false)'
+        });
+        return res.json({
+          success: true,
+          message: 'Employee deactivated; treated as termination (payroll, scorecards, contracts, turnover KPI).',
+          data: out.employee
+        });
+      }
+
       const employee = await prisma.employee.update({
         where: { id },
         data: {
@@ -1899,8 +1967,7 @@ export class PayrollController {
           branchCode,
           accountNumber,
           basicSalary: basicSalary ? parseFloat(basicSalary) : undefined,
-          currencyId,
-          isActive: isActive !== undefined ? isActive : undefined
+          currencyId
         },
         include: {
           user: {
@@ -1926,39 +1993,77 @@ export class PayrollController {
   }
 
   /**
-   * Delete employee (soft delete - sets isActive to false)
+   * Delete employee (soft delete — same as terminate: off payroll, contracts cancelled, turnover sync)
    */
   static async deleteEmployee(req: Request, res: Response) {
     try {
       const { id } = req.params;
-
-      // Check if employee exists
-      const employee = await prisma.employee.findUnique({
-        where: { id }
-      });
-
-      if (!employee) {
-        return res.status(404).json({
-          success: false,
-          message: 'Employee not found'
-        });
+      const performedBy = (req as any).user;
+      if (!performedBy?.id) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
       }
-
-      // Soft delete by setting isActive to false
-      await prisma.employee.update({
-        where: { id },
-        data: { isActive: false }
+      const out = await EmployeeTerminationService.terminateEmployee({
+        employeeId: id,
+        performedBy,
+        reason: 'Soft delete (legacy DELETE /employees/:id)'
       });
-
       res.json({
         success: true,
-        message: 'Employee deleted successfully (deactivated)'
+        message: 'Employee terminated and removed from active roster',
+        data: { employee: out.employee, performanceContractsCancelled: out.performanceContractsCancelled }
       });
-    } catch (error) {
+    } catch (error: any) {
+      if (String(error?.message || '').includes('not found')) {
+        return res.status(404).json({ success: false, message: 'Employee not found' });
+      }
+      if (String(error?.message || '').includes('already terminated')) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
       console.error('Error deleting employee:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to delete employee',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Terminate employment (FHA / HR). Excludes employee from payroll & scorecard lists; cancels open EMPLOYEE performance contracts; syncs turnover KPIs.
+   */
+  static async terminateEmployee(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body || {};
+      const performedBy = (req as any).user;
+      if (!performedBy?.id) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const out = await EmployeeTerminationService.terminateEmployee({
+        employeeId: id,
+        performedBy,
+        reason: reason != null ? String(reason) : null
+      });
+      res.json({
+        success: true,
+        message: 'Employee terminated successfully',
+        data: {
+          employee: out.employee,
+          performanceContractsCancelled: out.performanceContractsCancelled,
+          turnoverKpiSyncAttempts: out.turnoverKpiSyncAttempts
+        }
+      });
+    } catch (error: any) {
+      if (String(error?.message || '').includes('not found')) {
+        return res.status(404).json({ success: false, message: 'Employee not found' });
+      }
+      if (String(error?.message || '').includes('already terminated')) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      console.error('Error terminating employee:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to terminate employee',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
