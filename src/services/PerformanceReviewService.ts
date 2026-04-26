@@ -1104,7 +1104,7 @@ export class PerformanceReviewService {
       const activeEmployeeUserIds = new Set(
         (
           await prisma.employee.findMany({
-            where: { isActive: true },
+            where: { isActive: true, terminated: false },
             select: { userId: true }
           })
         ).map((e) => e.userId)

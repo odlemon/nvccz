@@ -2165,6 +2165,11 @@ export class PerformanceScorecardService {
     if (!employeeUser) {
       throw new Error("Employee not found");
     }
+    if (employeeUser.employee?.terminated) {
+      throw new Error(
+        "This employee has been terminated and is not included in individual balance scorecard generation."
+      );
+    }
     if (!contract) {
       throw new Error("No active performance contract found for this employee in the selected period.");
     }
@@ -4270,8 +4275,14 @@ export class PerformanceScorecardService {
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }]
     });
 
+    const terminatedUserIds = await prisma.employee.findMany({
+      where: { userId: { in: ids }, terminated: true },
+      select: { userId: true }
+    });
+    const terminatedSet = new Set(terminatedUserIds.map((e) => e.userId).filter(Boolean));
+
     const employees = users
-      .filter((u) => !isCEO({ ...u, role: u.role }))
+      .filter((u) => !terminatedSet.has(u.id) && !isCEO({ ...u, role: u.role }))
       .map((u) => ({
         id: u.id,
         firstName: u.firstName,

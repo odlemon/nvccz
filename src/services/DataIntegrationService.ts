@@ -287,31 +287,39 @@ export class DataIntegrationService {
   }
 
   /**
-   * Payroll / HR headcount turnover: `Employee.isActive === false` = inactive (terminated / off active roster).
-   * Turnover % = inactive / (active + inactive) × 100 (0 if no employees).
+   * Payroll / **Learning, Growth & HR** turnover KPI: same `Employee` rows as the payroll run (active roster).
+   * Point-in-time formula aligned with UAT: **(Terminations ÷ Avg headcount) × 100** where
+   * **Avg headcount** = `activeHeadcount + terminatedCount` (full roster on file), **Terminations** = `Employee.terminated === true`.
+   * So: **terminations / (active + terminations) × 100** (0 if no employees). Synced via B.15 / `sync-payroll-turnover-rate`.
    */
   static async calculatePayrollEmployeeTurnoverMetrics(): Promise<{
     activeHeadcount: number;
+    /** @deprecated use terminatedCount; kept for B.15 / sync payloads */
     inactiveHeadcount: number;
     totalHeadcount: number;
-    /** Same as inactiveHeadcount — separations reflected as inactive flags on Employee. */
+    /** Roster in denominator for the rate: active + terminations (matches “avg headcount” in UAT). */
+    avgHeadcount: number;
+    /** Explicit leavers; `Employee.terminated` (synced with inactive roster on terminate). */
     terminatedCount: number;
     turnoverRatePct: number;
   }> {
-    const [activeHeadcount, inactiveHeadcount] = await Promise.all([
-      prisma.employee.count({ where: { isActive: true } }),
-      prisma.employee.count({ where: { isActive: false } })
+    const [activeHeadcount, terminatedCount] = await Promise.all([
+      prisma.employee.count({ where: { terminated: false, isActive: true } }),
+      prisma.employee.count({ where: { terminated: true } })
     ]);
-    const totalHeadcount = activeHeadcount + inactiveHeadcount;
+    const inactiveHeadcount = terminatedCount;
+    const totalHeadcount = activeHeadcount + terminatedCount;
+    const avgHeadcount = totalHeadcount;
     const turnoverRatePct =
-      totalHeadcount > 0
-        ? Math.round((inactiveHeadcount / totalHeadcount) * 10000) / 100
+      avgHeadcount > 0
+        ? Math.round((terminatedCount / avgHeadcount) * 10000) / 100
         : 0;
     return {
       activeHeadcount,
       inactiveHeadcount,
       totalHeadcount,
-      terminatedCount: inactiveHeadcount,
+      avgHeadcount,
+      terminatedCount,
       turnoverRatePct
     };
   }

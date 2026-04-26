@@ -19,6 +19,9 @@ export class StaffReimbursementVendorService {
     if (!employee) {
       throw new Error('Employee not found');
     }
+    if (employee.terminated) {
+      throw new Error('Employee has been terminated; reimbursement vendor is not available.');
+    }
 
     if (employee.reimbursementVendorId && employee.reimbursementVendor) {
       let v = employee.reimbursementVendor;
@@ -70,6 +73,9 @@ export class StaffReimbursementVendorService {
 
     if (!employee) {
       throw new Error('Employee not found');
+    }
+    if (employee.terminated) {
+      throw new Error('Employee has been terminated; reimbursement vendor is not available.');
     }
 
     return {

@@ -148,9 +148,7 @@ router.put("/:id/company-goal-weights", ScorecardPillarController.setCompanyGoal
  *     operationId: getScorecardPillarCompanyGoalLineWeights
  *     summary: List company-goal line weights in a pillar (lightweight)
  *     description: |
- *       **Company** goals only, optional filter by `strategyId` and `departmentName` (same sibling group as
- *       **PUT /company-goal-weights**). Omit both query params to return every company goal in the pillar
- *       (all lines). Use `strategyId=__null__` to mean SQL NULL. Response is a small list for UAT weight UX.
+ *       **Company** goals only for this pillar. Response is a small list for UAT weight UX.
  *     tags: ['Performance UAT (Balanced Scorecard)']
  *     security:
  *       - bearerAuth: []
@@ -159,14 +157,6 @@ router.put("/:id/company-goal-weights", ScorecardPillarController.setCompanyGoal
  *         name: id
  *         required: true
  *         schema: { type: string }
- *       - in: query
- *         name: strategyId
- *         schema: { type: string }
- *         description: Filter by goal.strategyId, or `__null__` for null
- *       - in: query
- *         name: departmentName
- *         schema: { type: string }
- *         description: Filter by goal.departmentName, or `__null__` for org line (null)
  *     responses:
  *       200:
  *         description: id, title, scorecardWeight, weight, strategyId, departmentName per goal

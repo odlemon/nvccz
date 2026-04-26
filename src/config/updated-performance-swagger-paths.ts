@@ -1115,7 +1115,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
       tags: ['Updated performance'],
       summary: 'List employees eligible for employee scorecard generation',
       description:
-        'Returns **`users`** who have an **ACTIVE** **EMPLOYEE** performance contract overlapping the requested period (same resolution as other scorecards). **CEO** users are **excluded**. Use the returned **`id`** values as **`{employeeId}`** on **`POST /performance/scorecards/employee/{employeeId}/generate`**. ' +
+        'Returns **`users`** who have an **ACTIVE** **EMPLOYEE** performance contract overlapping the requested period (same resolution as other scorecards). **CEO** users are **excluded**. **Payroll** rows with **`employees.terminated = true`** are **excluded** (leavers are not in the BSC generate list). Use the returned **`id`** values as **`{employeeId}`** on **`POST /performance/scorecards/employee/{employeeId}/generate`**. ' +
         PERIOD_FIELDS,
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -1774,12 +1774,10 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
       tags: ['Performance UAT (Balanced Scorecard)'],
       summary: 'List company-goal line weights in a pillar (lightweight)',
       description:
-        '**Company** goals only. Optional `strategyId` and `departmentName` match the same sibling line as **PUT .../company-goal-weights** (omit both to list all company goals in the pillar). Weights are `null` when the goal `status` is not `active` (new/unweighted goals). Use `strategyId=__null__` for NULL `strategyId`.',
+        '**Company** goals only for this pillar. Weights are `null` when the goal `status` is not `active` (new/unweighted goals).',
       security: [{ bearerAuth: [] }],
       parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, example: 'bsc_internal_operations' },
-        { in: 'query', name: 'strategyId', required: false, schema: { type: 'string' } },
-        { in: 'query', name: 'departmentName', required: false, schema: { type: 'string' } }
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, example: 'bsc_internal_operations' }
       ],
       responses: {
         200: {
@@ -1902,6 +1900,56 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
       security: [{ bearerAuth: [] }],
       parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
       responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401 }
+    }
+  },
+
+  '/payroll/employees/{id}/terminate': {
+    post: {
+      tags: ['Performance UAT (Balanced Scorecard)'],
+      summary: 'Terminate employee (HR — payroll roster, BSC, turnover KPI)',
+      description:
+        '**HR / Paramour (FHA) — end employment.** Sets **`employees.terminated`**, **`terminatedAt`**, optional **`terminationReason`**, and **`isActive: false`**. ' +
+        'Cancels open **EMPLOYEE** performance contracts (status **CANCELLED**), then runs **in-process** payroll **employee turnover** sync for every eligible performance goal (same payload as **`POST /performance/integration/sync-payroll-turnover-rate`** — **Learning, Growth & HR** / B.15). ' +
+        '**Roster rules:** terminated staff are **skipped** in payroll run processing, **omitted** from **`GET /performance/scorecards/employees-for-generation`**, and **cannot** receive a new **`POST /performance/contracts/employee`**. ' +
+        '**Turnover %** (payroll source data): **(terminations ÷ (active + terminations)) × 100** — i.e. terminations as a share of full **`Employee`** roster. ' +
+        'Same end-to-end effect: **`DELETE /payroll/employees/{id}`** or **`PUT /payroll/employees/{id}`** with **`isActive: false`**. ' +
+        'Self-service portal: **`GET /payroll/employee/portal`** returns **403** after termination.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'id',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Employee id (`employees.id` CUID).'
+        }
+      ],
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                reason: { type: 'string', description: 'Optional; persisted as `terminationReason` (exit / HR note).' }
+              }
+            },
+            examples: {
+              withReason: { summary: 'With reason', value: { reason: 'Resignation — last day effective immediately' } },
+              empty: { summary: 'No body', value: {} }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description:
+            '`{ success: true, message, data: { employee, performanceContractsCancelled, turnoverKpiSyncAttempts } }`'
+        },
+        400: { description: 'Already terminated' },
+        401: JSON_401,
+        404: { description: 'Employee not found' }
+      }
     }
   }
 };

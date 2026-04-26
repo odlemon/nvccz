@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
+import { VC_CAC_MARKETING_EXPENSE_CATEGORY_NAMES } from "../src/config/vcCacMarketingExpenseCategories";
 
 const prisma = new PrismaClient();
 
@@ -28,6 +29,7 @@ async function seedExpenseCategories() {
     }
 
     // Create the 5 hardcoded expense categories
+    // Core 5; "Branding and Marketing" is also listed in `vcCacMarketingExpenseCategories.ts` for VC CAC.
     const categories = [
       {
         name: "Salaries and Wages",
@@ -56,9 +58,22 @@ async function seedExpenseCategories() {
       }
     ];
 
+    const extraFromVcCac = VC_CAC_MARKETING_EXPENSE_CATEGORY_NAMES.filter(
+      (n) => !categories.some((c) => c.name === n)
+    ).map((name) => ({
+      name,
+      description:
+        name === "Marketing"
+          ? "General marketing (VC CAC; same allowlist as Branding and Marketing)"
+          : `Marketing-related (VC CAC) — ${name}`,
+      isActive: true
+    }));
+
+    const allToCreate = [...categories, ...extraFromVcCac];
+
     console.log("📊 Creating expense categories...");
-    
-    for (const category of categories) {
+
+    for (const category of allToCreate) {
       const created = await prisma.expenseCategory.create({
         data: category
       });

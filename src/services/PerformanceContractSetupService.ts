@@ -176,6 +176,16 @@ export async function createEmployeePerformanceContractInTransaction(
     periodEnd: params.periodEnd
   });
 
+  const empRow = await db.employee.findUnique({
+    where: { userId: params.subjectUserId },
+    select: { terminated: true, isActive: true }
+  });
+  if (empRow && (empRow.terminated === true || empRow.isActive === false)) {
+    throw new Error(
+      "Cannot create an employee performance contract for a terminated or inactive payroll employee. Reinstate the payroll employee record before creating a contract."
+    );
+  }
+
   const existing = await db.performanceContract.findFirst({
     where: {
       contractType: "EMPLOYEE",

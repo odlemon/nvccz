@@ -11,6 +11,7 @@ router.get('/employees', authenticate, PayrollController.getEmployees);
 router.get('/employees/:id/reimbursement-vendor', authenticate, PayrollController.getEmployeeReimbursementVendor);
 router.post('/employees/:id/reimbursement-vendor', authenticate, PayrollController.ensureEmployeeReimbursementVendor);
 router.put('/employees/:id', authenticate, PayrollController.updateEmployee);
+router.post('/employees/:id/terminate', authenticate, PayrollController.terminateEmployee);
 router.delete('/employees/:id', authenticate, PayrollController.deleteEmployee);
 router.delete('/employees/:id/permanent', authenticate, PayrollController.permanentlyDeleteEmployee);
 

@@ -83,6 +83,9 @@ export class PayrollService {
       if (!employee) {
         throw new Error('Employee not found');
       }
+      if (employee.terminated || !employee.isActive) {
+        throw new Error('Employee has been terminated and is excluded from payroll');
+      }
 
       // Get active tax rules for the currency and effective date
       const taxRules = await prisma.taxRules.findMany({
@@ -373,9 +376,9 @@ export class PayrollService {
         data: { status: 'PROCESSING' }
       });
 
-      // Get all active employees
+      // Active roster: not terminated (terminations also set isActive false)
       const employees = await prisma.employee.findMany({
-        where: { isActive: true },
+        where: { isActive: true, terminated: false },
         include: { user: true }
       });
 

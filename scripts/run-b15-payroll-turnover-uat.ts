@@ -167,7 +167,9 @@ async function main() {
         data: {
           userId: u.id,
           employeeNumber: terminatedEmployeeNumber,
-          isActive: false
+          isActive: false,
+          terminated: true,
+          terminatedAt: new Date()
         }
       });
     }
