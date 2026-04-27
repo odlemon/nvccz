@@ -698,6 +698,7 @@ router.get("/:id", authenticate, TaskController.getTaskById);
 router.put("/bulk/stage", authenticate, TaskController.bulkUpdateTaskStage);
 router.put("/bulk/status-update", authenticate, TaskController.bulkStatusUpdate);
 router.delete("/bulk", authenticate, TaskController.bulkTrashTasks);
+router.delete("/:id", authenticate, TaskController.deleteTask);
 
 /**
  * @swagger

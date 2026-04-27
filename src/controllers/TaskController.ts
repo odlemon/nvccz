@@ -698,6 +698,24 @@ export class TaskController {
     }
   }
 
+  /** UAT: delete one task card (soft-delete/isTrashed). */
+  static async deleteTask(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await TaskService.trashTask(id, req.user.id);
+      return res.status(200).json({
+        success: true,
+        message: "Task deleted successfully",
+        data: result
+      });
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
   static async recordHistoricalEntry(req: Request, res: Response) {
     try {
       const { id } = req.params;
