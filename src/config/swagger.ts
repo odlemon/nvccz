@@ -19,6 +19,7 @@ import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagg
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
+import { reviewsUatReviewCyclesIndependentEvalEndpoints } from './reviews-uat-review-cycles-independent-eval-endpoints';
 import { vendorMasterSuite01Endpoints } from './vendor-master-suite01-endpoints';
 import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-sections-fallback-endpoints';
 import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
@@ -238,6 +239,11 @@ const options = {
         name: 'Performance collaboration and notifications',
         description:
           'UAT E.01–E.10: task chat collaboration (mentions, realtime chat, comment deletion, system messages) and user notifications (list, mark read). Realtime uses Socket.IO rooms `task:{taskId}` and emits `task_message`, `task_comment_created`, `task_comment_deleted`. Notification toasts use `notification_created`.'
+      },
+      {
+        name: 'Reviews UAT (Review cycles & independent evaluation)',
+        description:
+          'Review cycle configuration + independent evaluation workflows: self review, external evaluator access (role-based), HR moderation, manager 1–5 validation, quantitative auto-populate, status progression, finalize (locks + generates PDF), rating distribution reports.'
       },
       {
         name: 'Performance UAT (Tasks & board)',
@@ -1854,6 +1860,7 @@ const fallbackSpec = {
     ...performanceEndpoints,
     ...performanceUatTasksBoardEndpoints,
     ...performanceCollaborationNotificationsEndpoints,
+    ...reviewsUatReviewCyclesIndependentEvalEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
     ...capitalCallsEndpoints,
@@ -8918,6 +8925,7 @@ try {
       ...performanceEndpoints,
       ...performanceUatTasksBoardEndpoints,
       ...performanceCollaborationNotificationsEndpoints,
+      ...reviewsUatReviewCyclesIndependentEvalEndpoints,
       ...taskAssignmentEndpoints,
       ...financialReportingEndpoints,
       ...capitalCallsEndpoints,
@@ -8939,6 +8947,7 @@ try {
       ...performanceEndpoints,
       ...performanceUatTasksBoardEndpoints,
       ...performanceCollaborationNotificationsEndpoints,
+      ...reviewsUatReviewCyclesIndependentEvalEndpoints,
       ...taskAssignmentEndpoints,
       ...financialReportingEndpoints,
       ...capitalCallsEndpoints,
@@ -8964,6 +8973,7 @@ try {
     ...performanceEndpoints,
     ...performanceUatTasksBoardEndpoints,
     ...performanceCollaborationNotificationsEndpoints,
+    ...reviewsUatReviewCyclesIndependentEvalEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
     ...capitalCallsEndpoints,

@@ -10,6 +10,7 @@ import {
 } from "./performanceBackendSupport";
 import { isCEO, isHRLeader, isSysAdmin } from "./performanceScorecardSupport";
 import { EmailNotificationService } from "./EmailNotificationService";
+import { renderPerformanceReviewPdf } from "./performanceDocumentRenderer";
 
 /** HR / exec / admin may manage reviews across departments. */
 function canBypassPerformanceDepartmentGate(user: any): boolean {
@@ -1342,12 +1343,19 @@ export class PerformanceReviewService {
         finalize: true
       });
 
+      const pdfPath = await renderPerformanceReviewPdf({
+        documentTitle: documentPayload.documentTitle,
+        subjectName: documentPayload.subjectName,
+        reviewPeriod: documentPayload.reviewPeriod,
+        sections: documentPayload.sections
+      });
+
       const updated = await prisma.performanceReview.update({
         where: { id: review.id },
         data: {
           status: workflow.status,
           stage: workflow.stage,
-          documentPath: null,
+          documentPath: pdfPath,
           documentStatus: "FINAL",
           documentPayload,
           isLocked: true,

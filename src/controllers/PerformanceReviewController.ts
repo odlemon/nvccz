@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { PerformanceReviewService } from "../services/PerformanceReviewService";
 import { responseHelper } from "../utils/responseHelper";
+import fs from "fs";
 
 function performanceReviewErrorStatus(message: unknown): number {
   const m = String(message || "");
@@ -372,6 +373,28 @@ export class PerformanceReviewController {
       const data = await PerformanceReviewService.getPerformanceReviewDocument(req.params.id, req.user);
       return responseHelper.success(res, data, "Performance review document retrieved successfully");
     } catch (error) {
+      return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
+    }
+  }
+
+  static async downloadPerformanceReviewPdf(req: Request, res: Response) {
+    try {
+      const data = await PerformanceReviewService.getPerformanceReviewDocument(req.params.id, req.user);
+      if (!data?.documentPath) {
+        return responseHelper.error(
+          res,
+          "PDF is not available for this review. Finalize the review first.",
+          undefined,
+          400
+        );
+      }
+      if (!fs.existsSync(String(data.documentPath))) {
+        return responseHelper.error(res, "PDF file not found on server storage.", undefined, 404);
+      }
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename=\"performance-review-${req.params.id}.pdf\"`);
+      return fs.createReadStream(String(data.documentPath)).pipe(res);
+    } catch (error: any) {
       return responseHelper.error(res, error.message, undefined, performanceReviewErrorStatus(error.message));
     }
   }

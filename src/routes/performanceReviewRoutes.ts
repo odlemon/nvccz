@@ -1098,5 +1098,39 @@ router.post("/:id/finalize", authenticate, PerformanceReviewController.finalizeP
  */
 router.get("/:id/document", authenticate, PerformanceReviewController.getPerformanceReviewDocument);
 
+/**
+ * @swagger
+ * /api/performance-reviews/{id}/document.pdf:
+ *   get:
+ *     summary: Download the finalized performance review PDF
+ *     description: Returns the generated PDF after the review has been finalized/locked.
+ *     tags: [Performance Reviews]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: PDF stream
+ *         content:
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: PDF not available (finalize first)
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ */
+router.get("/:id/document.pdf", authenticate, PerformanceReviewController.downloadPerformanceReviewPdf);
+
 export default router;
 
