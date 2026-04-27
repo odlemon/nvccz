@@ -17,6 +17,7 @@ import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
 import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from './capital-calls-endpoints';
 import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
+import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { vendorMasterSuite01Endpoints } from './vendor-master-suite01-endpoints';
 import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-sections-fallback-endpoints';
 import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
@@ -1840,6 +1841,7 @@ const fallbackSpec = {
     ...companyProfileEndpoints,
     ...consolidatedAccountingReportEndpoints,
     ...performanceEndpoints,
+    ...performanceUatTasksBoardEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
     ...capitalCallsEndpoints,
@@ -8902,6 +8904,7 @@ try {
       ...shortTermInvestmentsEndpoints,
       ...fiscalCalendarEndpoints,
       ...performanceEndpoints,
+      ...performanceUatTasksBoardEndpoints,
       ...taskAssignmentEndpoints,
       ...financialReportingEndpoints,
       ...capitalCallsEndpoints,
@@ -8921,6 +8924,7 @@ try {
       ...shortTermInvestmentsEndpoints,
       ...fiscalCalendarEndpoints,
       ...performanceEndpoints,
+      ...performanceUatTasksBoardEndpoints,
       ...taskAssignmentEndpoints,
       ...financialReportingEndpoints,
       ...capitalCallsEndpoints,
@@ -8944,6 +8948,7 @@ try {
     ...shortTermInvestmentsEndpoints,
     ...fiscalCalendarEndpoints,
     ...performanceEndpoints,
+    ...performanceUatTasksBoardEndpoints,
     ...taskAssignmentEndpoints,
     ...financialReportingEndpoints,
     ...capitalCallsEndpoints,

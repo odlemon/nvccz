@@ -1229,6 +1229,9 @@ export class TaskService {
           id: true,
           title: true,
           description: true,
+          // Needed so `attachments` (derived field) can be built reliably.
+          assets: true,
+          activities: true,
           team: true,
           stage: true,
           date: true,
@@ -1790,6 +1793,47 @@ export class TaskService {
 
     return {
       trashedTaskIds: taskIds,
+      affectedGoalIds: goalIds,
+      updatedByUserId: updatedByUserId || null
+    };
+  }
+
+  /** Soft-delete a task (UAT: remove card) and recompute linked goal rollups. */
+  static async trashTask(taskId: string, updatedByUserId?: string) {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { id: true, goalId: true, isTrashed: true }
+    });
+    if (!task) {
+      throw new Error("Task not found");
+    }
+    if (task.isTrashed) {
+      return {
+        trashedTaskIds: [taskId],
+        affectedGoalIds: task.goalId ? [task.goalId] : [],
+        updatedByUserId: updatedByUserId || null,
+        alreadyTrashed: true
+      };
+    }
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { isTrashed: true, updatedAt: new Date() }
+    });
+
+    const goalIds = task.goalId ? [task.goalId] : [];
+    for (const goalId of goalIds) {
+      await this.recalculateGoalProgressFromTasks(goalId);
+      try {
+        const { RollupCalculationService } = await import("./RollupCalculationService");
+        await RollupCalculationService.recalculateAllRollups(goalId);
+      } catch (error) {
+        console.error(`Failed to recalculate rollups for trashed-task goal ${goalId}:`, error);
+      }
+    }
+
+    return {
+      trashedTaskIds: [taskId],
       affectedGoalIds: goalIds,
       updatedByUserId: updatedByUserId || null
     };
