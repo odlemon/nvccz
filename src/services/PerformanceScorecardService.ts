@@ -52,6 +52,7 @@ import {
   resolveWeight,
   resolveStoredGoalActual,
   periodLabelMatches,
+  BSC_WEIGHTED_AGGREGATION_DECIMALS,
   round,
   summariseEmployeeResultsDelivery,
   toNumber
@@ -2752,7 +2753,7 @@ export class PerformanceScorecardService {
         );
         const rollupProgressPct =
           totalContributionWeight > 0
-            ? round(weightedContributionTotal / totalContributionWeight, 2)
+            ? round(weightedContributionTotal / totalContributionWeight, BSC_WEIGHTED_AGGREGATION_DECIMALS)
             : 0;
 
         const selectedProgressPct = Math.max(directProgress.progressPct, rollupProgressPct);
@@ -3946,7 +3947,7 @@ export class PerformanceScorecardService {
             0
           );
           const rollupProgressPct = totalContributionWeight > 0
-            ? round(weightedContributionTotal / totalContributionWeight, 2)
+            ? round(weightedContributionTotal / totalContributionWeight, BSC_WEIGHTED_AGGREGATION_DECIMALS)
             : 0;
 
           const directPct = toNumber(directProgress.progressPct, 0);
@@ -4069,7 +4070,7 @@ export class PerformanceScorecardService {
         (sum, row) => sum + (row.effectiveWeight * row.progressPct) / 100,
         0
       );
-      const pillarScoreRounded = round(pillarScore, 2);
+      const pillarScoreRounded = round(pillarScore, BSC_WEIGHTED_AGGREGATION_DECIMALS);
       const pillarStatus = departmentProgressTrafficStatus(pillarScoreRounded, 0.1);
 
       return {
@@ -4089,7 +4090,7 @@ export class PerformanceScorecardService {
       (sum, pillar) => sum + (pillar.pillarWeight * pillar.pillarScore) / 100,
       0
     );
-    const orgBscScoreRounded = round(orgBscScore, 2);
+    const orgBscScoreRounded = round(orgBscScore, BSC_WEIGHTED_AGGREGATION_DECIMALS);
     const orgBscStatus = departmentProgressTrafficStatus(orgBscScoreRounded, 0.1);
 
     if (unresolvedDeptLabels.size > 0) {

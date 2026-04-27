@@ -16,6 +16,7 @@ import {
   resolveTaskPerformanceZone,
   taskStageChatLabel
 } from "./TaskCollaborationService";
+import { emitToUsers } from "./RealtimeSocketService";
 
 /** Recompute overdue / red-zone flags from due date and stage (C.06: past due updates immediately). */
 function computeOverdueFieldsForTaskUpdate(
@@ -119,24 +120,37 @@ const TASK_APPLICATION_FULL_INCLUDE = {
   }
 };
 
-async function notifyTaskAssignments(taskId: string, taskTitle: string, assigneeIds: string[] = []) {
+async function notifyTaskAssignments(
+  taskId: string,
+  taskTitle: string,
+  assigneeIds: string[] = [],
+  applicationId?: string | null
+) {
   const uniqueAssignees = Array.from(new Set((assigneeIds || []).filter(Boolean)));
+  if (uniqueAssignees.length === 0) return;
+
+  const deepLink = buildTaskDeepLink(taskId, undefined, applicationId);
 
   await Promise.all(
     uniqueAssignees.map((userId) =>
       prisma.notification.create({
         data: {
-          title: "Task Assigned",
+          title: "New task assigned",
           message: `Task "${taskTitle}" has been assigned to you.`,
           type: "TASK_ASSIGNED",
           userId,
-          data: buildTaskDeepLink(taskId),
+          data: deepLink,
           relatedEntity: "Task",
           relatedEntityId: taskId
         }
       })
     )
   );
+
+  emitToUsers(uniqueAssignees, "notification_created", {
+    type: "TASK_ASSIGNED",
+    ...deepLink
+  });
 }
 
 function stageSystemMessage(stage: string) {
@@ -510,7 +524,12 @@ export class TaskService {
         }
       });
 
-      await notifyTaskAssignments(task.id, task.title, Array.isArray(request.team) ? request.team : []);
+      await notifyTaskAssignments(
+        task.id,
+        task.title,
+        Array.isArray(request.team) ? request.team : [],
+        task.applicationId
+      );
       await TaskCollaborationService.createSystemMessage({
         taskId: task.id,
         actorId: createdBy,
@@ -698,7 +717,7 @@ export class TaskService {
       const updatedTeam = Array.isArray(request.team) ? request.team : existingTeam;
       const newAssignees = updatedTeam.filter((userId: string) => !existingTeam.includes(userId));
       if (newAssignees.length > 0) {
-        await notifyTaskAssignments(updatedTask.id, updatedTask.title, newAssignees);
+        await notifyTaskAssignments(updatedTask.id, updatedTask.title, newAssignees, updatedTask.applicationId);
       }
 
       if (
@@ -1388,6 +1407,52 @@ export class TaskService {
 
       if (!task) {
         throw new Error("Task not found");
+      }
+
+      const wasPersistedRed =
+        Boolean(task.isOverdue) ||
+        normaliseTaskStage(task.stage) === "red" ||
+        normaliseTaskStage(task.stage) === "overdue";
+      if (isRedZoneTask(task) && !wasPersistedRed && !task.isTrashed) {
+        const st = normaliseTaskStage(task.stage);
+        const overdueFields =
+          st === "completed"
+            ? { isOverdue: false, overdueStatus: null, originalStage: null }
+            : {
+                isOverdue: true,
+                originalStage: task.stage,
+                overdueStatus: `overdue_${st}`
+              };
+        const updatedTask = await prisma.task.update({
+          where: { id },
+          data: {
+            ...overdueFields,
+            updatedAt: new Date()
+          },
+          include: {
+            creator: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true
+              }
+            },
+            goal: {
+              select: {
+                id: true,
+                title: true,
+                type: true
+              }
+            }
+          }
+        });
+        await TaskCollaborationService.notifyTaskRedZone({
+          task: updatedTask,
+          reason: "The due date has passed and the task now requires immediate attention."
+        });
+        const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask]);
+        return taskWithApplication;
       }
 
       const [taskWithApplication] = await attachApplicationDataToTasks([task]);

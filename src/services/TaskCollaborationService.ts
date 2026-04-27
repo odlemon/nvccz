@@ -116,9 +116,25 @@ export function taskStageChatLabel(stage: string) {
   return map[normalized] || normalized;
 }
 
+/**
+ * C.06 — Past clock time vs due `date` (e.g. 10:01 after 10:00) without waiting for a separate write
+ * to flip `isOverdue` in the DB. Excludes trashed and completed work.
+ */
+export function isTaskPastDueByClock(task: any): boolean {
+  if (!task || task.isTrashed) return false;
+  const stage = normaliseTaskStage(task?.stage);
+  if (stage === "completed") return false;
+  const d = task.date != null ? new Date(task.date) : null;
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getTime() < Date.now();
+}
+
 export function isRedZoneTask(task: any) {
   const stage = normaliseTaskStage(task?.stage);
-  return stage === "red" || stage === "overdue" || Boolean(task?.isOverdue);
+  if (stage === "red" || stage === "overdue" || Boolean(task?.isOverdue)) {
+    return true;
+  }
+  return isTaskPastDueByClock(task);
 }
 
 /** API-facing zone label (C.06 RED ZONE, delayed → AMBER ZONE, etc.). */
