@@ -129,6 +129,11 @@ const options = {
         description: 'Procurement dashboard - Get summary statistics and overview data'
       },
       {
+        name: 'Procurement — UAT',
+        description:
+          'Umbrella tag that groups **Procurement UAT** flows across Suites 01–06 (vendor self-registration + KYC, investee drawdown PR workflow, RFQ/bidding, PO sign-off, GRN/QC, and Suite 06 invoice intake + 3-way match). See **`docs/procurement-uat.md`** for Postman order, request body examples, and acceptance notes.'
+      },
+      {
         name: 'Vendor Master, Compliance & KYC (Suite 01)',
         description:
           'Suite 01: Vendor master data, self-registration and KYC upload (token), staff approval, blacklist / RFQ eligibility, and related accounting vendor APIs where tagged.'
@@ -9009,6 +9014,37 @@ specs.paths = {
   ...specs.paths,
   ...vendorMasterSuite01Endpoints,
 };
+
+function addTagToOps(
+  paths: Record<string, any>,
+  shouldTagPath: (pathKey: string) => boolean,
+  tagName: string
+) {
+  for (const [pathKey, pathItem] of Object.entries(paths ?? {})) {
+    if (!shouldTagPath(pathKey)) continue;
+    for (const [method, op] of Object.entries(pathItem ?? {})) {
+      // Skip non-operation keys in PathItem (OpenAPI: parameters, summary, etc.)
+      if (!['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].includes(String(method))) continue;
+      if (!op || typeof op !== 'object') continue;
+      const tags = Array.isArray((op as any).tags) ? (op as any).tags : [];
+      if (!tags.includes(tagName)) {
+        (op as any).tags = [...tags, tagName];
+      }
+    }
+  }
+}
+
+// Procurement UAT umbrella tag — make all procurement-suite paths discoverable under one filter.
+addTagToOps(
+  specs.paths as any,
+  (pathKey) =>
+    pathKey.startsWith('/procurement/') ||
+    pathKey.startsWith('/applicant/procurement/') ||
+    pathKey.startsWith('/public/vendor-registration') ||
+    pathKey.startsWith('/accounting/vendors/pending-review') ||
+    pathKey.includes('/accounting/vendors/') && pathKey.includes('/approve-registration'),
+  'Procurement — UAT'
+);
 
 export { specs }; 
 
