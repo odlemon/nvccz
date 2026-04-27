@@ -149,6 +149,12 @@ export function round(value: number, digits = 2): number {
   return Math.round((value + Number.EPSILON) * factor) / factor;
 }
 
+/**
+ * Weighted BSC / roll-up layers (dept sub-goals, org pillar, org score, parent–child goals)
+ * use this precision so totals align with manual Excel to several decimal places.
+ */
+export const BSC_WEIGHTED_AGGREGATION_DECIMALS = 4;
+
 export function normaliseVariance(value: any): number {
   const numeric = toNumber(value, DEFAULT_ALLOWABLE_VARIANCE);
   if (numeric <= 0) return DEFAULT_ALLOWABLE_VARIANCE;

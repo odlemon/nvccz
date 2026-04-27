@@ -16,6 +16,7 @@ import {
   ceoPerformanceLabelForSection,
   ceoPerformanceLabelOverall,
   redistributeWeights,
+  getContributionWeight,
   resolveGoalEscalationStatus,
   resolveSectionWeights,
   resolveStoredGoalActual,
@@ -97,6 +98,34 @@ describe("performanceScorecardSupport", () => {
         stretchScoringEnabled: false
       }).progressPct
     ).toBe(0);
+  });
+
+  test("Operating Expenses (reverse): $10k cap — actual $20k => 50% (target/actual), at/below $10k => 100%", () => {
+    const t = 10_000;
+    expect(
+      computeGoalProgress({
+        actualValue: 20_000,
+        targetValue: t,
+        isReverseKpi: true,
+        stretchScoringEnabled: false
+      }).progressPct
+    ).toBe(50);
+    expect(
+      computeGoalProgress({
+        actualValue: t,
+        targetValue: t,
+        isReverseKpi: true,
+        stretchScoringEnabled: false
+      }).progressPct
+    ).toBe(100);
+    expect(
+      computeGoalProgress({
+        actualValue: 8_000,
+        targetValue: t,
+        isReverseKpi: true,
+        stretchScoringEnabled: false
+      }).progressPct
+    ).toBe(100);
   });
 
   test("rates reverse KPI using flipped thresholds", () => {
@@ -318,6 +347,30 @@ describe("performanceScorecardSupport", () => {
         stretchTargetValue: 100
       }).progressPct
     ).toBe(80);
+  });
+
+  test("UAT: Org BSC pillar — two company goal lines, 50% weight each, 100% and 0% progress → pillar 50%", () => {
+    const rows = redistributeWeights([
+      { id: "fin", weight: 50, progressPct: 100, isPendingApproval: false, excludedFromScoring: false },
+      { id: "hr", weight: 50, progressPct: 0, isPendingApproval: false, excludedFromScoring: false }
+    ]);
+    const activeRows = rows.filter((r) => !r.isPendingApproval && !r.excludedFromScoring);
+    const pillarScore = activeRows.reduce(
+      (sum, row) => sum + (row.effectiveWeight * (row as { progressPct: number }).progressPct) / 100,
+      0
+    );
+    expect(round(pillarScore, 2)).toBe(50);
+  });
+
+  test("UAT: Org BSC — weighted dept sub-goal rollup (same formula as getOrgBSCDashboard children)", () => {
+    const finProg = 100;
+    const hrProg = 0;
+    const finW = getContributionWeight({ activities: { contributionWeightPercent: 50 } }, 0);
+    const hrW = getContributionWeight({ activities: { contributionWeightPercent: 50 } }, 0);
+    const totalW = finW + hrW;
+    const weightedSum = finProg * finW + hrProg * hrW;
+    const rollupProgressPct = totalW > 0 ? round(weightedSum / totalW, 2) : 0;
+    expect(rollupProgressPct).toBe(50);
   });
 
   test("department v2: weighted aggregate score = sum(effWeight*rawRating/100)*100/sum(effWeight)", () => {

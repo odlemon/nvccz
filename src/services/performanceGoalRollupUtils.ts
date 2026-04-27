@@ -1,3 +1,5 @@
+import { BSC_WEIGHTED_AGGREGATION_DECIMALS, round } from "./performanceScorecardSupport";
+
 /**
  * Goal roll-up without schema changes:
  * - contributionWeightPercent lives in goal.activities JSON (object form).
@@ -299,17 +301,20 @@ export function computeParentRollupFromChildren(
     parentTargetValue != null && parentTargetValue !== ""
       ? parseFloat(String(parentTargetValue))
       : 0;
-  const progressPercentage = Math.min(
+  const rawProgress = Math.min(
     100,
     Math.max(0, Number.isFinite(weighted) ? weighted : 0)
   );
+  const progressPercentage = round(rawProgress, BSC_WEIGHTED_AGGREGATION_DECIMALS);
   const sumChildCurrent = subGoals.reduce((sum, s) => {
     const x = parseFloat(String(s.currentValue ?? 0));
     return sum + (Number.isFinite(x) ? x : 0);
   }, 0);
   const scaledFromParent =
     pt > 0 && Number.isFinite(pt) ? (progressPercentage / 100) * pt : sumChildCurrent;
-  const suggestedCurrentValue = Number.isFinite(scaledFromParent) ? scaledFromParent : sumChildCurrent;
+  const suggestedCurrentValue = Number.isFinite(scaledFromParent)
+    ? round(scaledFromParent, BSC_WEIGHTED_AGGREGATION_DECIMALS)
+    : round(sumChildCurrent, BSC_WEIGHTED_AGGREGATION_DECIMALS);
 
   return {
     progressPercentage,

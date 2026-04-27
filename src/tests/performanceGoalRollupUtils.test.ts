@@ -1,5 +1,6 @@
 import {
   computeAchievementPercent,
+  computeKpiLineProgressPercent,
   computeParentRollupFromChildren,
   normalizedSiblingWeights,
   parseContributionWeightPercentFromActivities,
@@ -21,6 +22,25 @@ describe('performanceGoalRollupUtils', () => {
         currentValue: 120,
         targetValue: 100,
         targetOperator: '>='
+      })
+    ).toBe(100);
+  });
+
+  test('reverse KPI (Operating Expenses style): $10k target, $20k actual => 50% achievement', () => {
+    expect(
+      computeAchievementPercent({
+        currentValue: 20_000,
+        targetValue: 10_000,
+        targetOperator: '<=',
+        isReverseKpi: true
+      })
+    ).toBe(50);
+    expect(
+      computeAchievementPercent({
+        currentValue: 10_000,
+        targetValue: 10_000,
+        targetOperator: '<=',
+        isReverseKpi: true
       })
     ).toBe(100);
   });
@@ -103,6 +123,42 @@ describe('performanceGoalRollupUtils', () => {
     expect(Number.isFinite(rollup.suggestedCurrentValue)).toBe(true);
   });
 
+  test('UAT: Individual → Dept — 3 children at 50% with ~33.3% weight each → parent 50%', () => {
+    const w = 100 / 3;
+    const subGoals = [
+      {
+        id: 'i1',
+        activities: { contributionWeightPercent: w },
+        currentValue: 50,
+        targetValue: 100,
+        targetOperator: '>=',
+        stage: 'in_progress',
+        status: 'active'
+      },
+      {
+        id: 'i2',
+        activities: { contributionWeightPercent: w },
+        currentValue: 50,
+        targetValue: 100,
+        targetOperator: '>=',
+        stage: 'in_progress',
+        status: 'active'
+      },
+      {
+        id: 'i3',
+        activities: { contributionWeightPercent: w },
+        currentValue: 50,
+        targetValue: 100,
+        targetOperator: '>=',
+        stage: 'in_progress',
+        status: 'active'
+      }
+    ];
+    const rollup = computeParentRollupFromChildren(subGoals, 100);
+    expect(rollup.progressPercentage).toBeCloseTo(50, 5);
+    expect(rollup.suggestedCurrentValue).toBeCloseTo(50, 5);
+  });
+
   test('C.07: one child at 0% achievement does not produce NaN in roll-up', () => {
     const subGoals = [
       {
@@ -129,6 +185,18 @@ describe('performanceGoalRollupUtils', () => {
     expect(Number.isNaN(rollup.progressPercentage)).toBe(false);
     expect(Number.isNaN(rollup.suggestedCurrentValue)).toBe(false);
     expect(rollup.suggestedCurrentValue).toBeCloseTo(250, 5);
+  });
+
+  test('null/empty roll-up: no sub-goals → 0% and finite (no NaN)', () => {
+    const rollup = computeParentRollupFromChildren([], 1000);
+    expect(rollup.progressPercentage).toBe(0);
+    expect(rollup.suggestedCurrentValue).toBe(0);
+    expect(Number.isNaN(rollup.progressPercentage)).toBe(false);
+    expect(Number.isNaN(rollup.suggestedCurrentValue)).toBe(false);
+  });
+
+  test('KPI line analytics: empty goal list → 0 (not NaN)', () => {
+    expect(computeKpiLineProgressPercent([], null)).toBe(0);
   });
 
   test('parseContributionWeightPercentFromActivities', () => {
