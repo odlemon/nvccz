@@ -470,6 +470,32 @@ export class BoardReviewController {
     }
   }
 
+  static async setVotingDisabled(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req.params;
+      const disabledRaw = (req.body || {}).disabled;
+      const disabled =
+        disabledRaw === true ||
+        String(disabledRaw ?? "").toLowerCase() === "true" ||
+        String(disabledRaw ?? "") === "1";
+
+      if (!userId) {
+        ResponseHelper.error(res, "User ID is required", undefined, 400);
+        return;
+      }
+
+      const updated = await UserService.setBoardVotingDisabled(userId, disabled);
+      ResponseHelper.success(
+        res,
+        disabled ? "User removed from board voting successfully" : "User restored to board voting successfully",
+        updated
+      );
+    } catch (error: any) {
+      logger.error("Error updating board voting disabled flag", { error: error.message });
+      ResponseHelper.error(res, `Failed to update board voting membership: ${error.message}`, undefined, 400);
+    }
+  }
+
   static async uploadInvestmentMemorandum(req: Request, res: Response): Promise<void> {
     try {
       const { applicationId } = req.params;
