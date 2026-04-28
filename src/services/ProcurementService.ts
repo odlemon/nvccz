@@ -868,8 +868,7 @@ export class ProcurementService {
                 submittedByEmail: requisition.requestedBy.email,
                 totalAmount: Number(updatedRequisition.totalAmount),
                 itemCount: requisition.items.length,
-                status: updatedRequisition.status,
-                companyName: 'NVCCZ'
+                status: updatedRequisition.status
               });
             }
           }
@@ -1677,8 +1676,7 @@ export class ProcurementService {
           deliveryAddress,
           expectedDeliveryDate,
           rfqDeadline,
-          specialRequirements,
-          companyName: 'NVCCZ'
+          specialRequirements
         });
         
         console.log(`   ✅ Sent to ${vendor.name}`);
@@ -2025,7 +2023,6 @@ export class ProcurementService {
         expectedDeliveryDate: purchaseOrder.expectedDeliveryDate || undefined,
         paymentTerms: purchaseOrder.paymentTerms || undefined,
         notes: undefined,
-        companyName: "NVCCZ",
         vendorAckUrl,
         verificationUrl: `${apiBase}/procurement/purchase-orders/verify?token=${poPdfVerificationToken}`,
       });

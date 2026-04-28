@@ -9,6 +9,13 @@ import {
   type ReportingMandatoryAttachment,
 } from "../utils/reportingEmail";
 import { capitalCallNoticeEmailSubject } from "../utils/capitalCallNoticeSubject";
+import {
+  getEmailBrandingCached,
+  renderEmailFooter,
+  renderEmailHeader,
+  renderEmailSignature,
+  type EmailBranding,
+} from "../utils/emailBranding";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -719,8 +726,9 @@ export class EmailNotificationService {
     notes?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `Quotation submitted for ${data.rfqNumber}`;
-      const htmlContent = this.getQuotationSubmittedNotificationTemplate(data);
+      const htmlContent = this.getQuotationSubmittedNotificationTemplate(data, branding);
 
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
@@ -3141,8 +3149,9 @@ export class EmailNotificationService {
    */
   static async sendEventInvitationEmail(data: any): Promise<void> {
     try {
-      const subject = `You're Invited: ${data.eventTitle} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getEventInvitationTemplate(data);
+      const branding = await getEmailBrandingCached();
+      const subject = `You're Invited: ${data.eventTitle} - ${branding.companyName}`;
+      const htmlContent = this.getEventInvitationTemplate(data, branding);
       
       const from = getFromAddress('events');
       await emailTransport.sendMail({
@@ -3164,8 +3173,9 @@ export class EmailNotificationService {
    */
   static async sendRSVPNotificationEmail(data: any): Promise<void> {
     try {
-      const subject = `RSVP Update: ${data.eventTitle} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getRSVPNotificationTemplate(data);
+      const branding = await getEmailBrandingCached();
+      const subject = `RSVP Update: ${data.eventTitle} - ${branding.companyName}`;
+      const htmlContent = this.getRSVPNotificationTemplate(data, branding);
       
       const from = getFromAddress('events');
       await emailTransport.sendMail({
@@ -3187,8 +3197,9 @@ export class EmailNotificationService {
    */
   static async sendBudgetApprovalEmail(data: any): Promise<void> {
     try {
-      const subject = `Budget Approved: ${data.eventTitle} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getBudgetApprovalTemplate(data);
+      const branding = await getEmailBrandingCached();
+      const subject = `Budget Approved: ${data.eventTitle} - ${branding.companyName}`;
+      const htmlContent = this.getBudgetApprovalTemplate(data, branding);
       
       const from = getFromAddress('finance');
       await emailTransport.sendMail({
@@ -3208,7 +3219,7 @@ export class EmailNotificationService {
   /**
    * Get event invitation email template
    */
-  private static getEventInvitationTemplate(data: any): string {
+  private static getEventInvitationTemplate(data: any, branding: EmailBranding): string {
     const eventDate = new Date(data.eventDate).toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
@@ -3217,6 +3228,10 @@ export class EmailNotificationService {
       hour: '2-digit',
       minute: '2-digit'
     });
+
+    const headerHtml = renderEmailHeader(branding, { title: "Event invitation" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Events Team", branding);
 
     return `
       <!DOCTYPE html>
@@ -3240,21 +3255,6 @@ export class EmailNotificationService {
             border-radius: 10px;
             box-shadow: 0 0 20px rgba(0,0,0,0.1);
             overflow: hidden;
-          }
-          .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #ffffff;
-            padding: 30px;
-            text-align: center;
-          }
-          .header h1 {
-            margin: 0;
-            font-size: 28px;
-          }
-          .header h2 {
-            margin: 10px 0 0 0;
-            font-size: 18px;
-            font-weight: normal;
           }
           .content {
             padding: 30px;
@@ -3293,25 +3293,15 @@ export class EmailNotificationService {
             background-color: #ffc107;
             color: #333;
           }
-          .footer {
-            background-color: #f8f9fa;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-          }
         </style>
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1>🎉 You're Invited!</h1>
-            <h2>NVCCZ Event Invitation</h2>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.guestName},</p>
             
-            <p>You have been invited to attend an exciting event organized by NVCCZ!</p>
+            <p>You have been invited to attend an event organized by ${branding.companyName}.</p>
             
             <div class="event-details">
               <h3>📅 Event Details</h3>
@@ -3333,13 +3323,9 @@ export class EmailNotificationService {
             
             <p>We look forward to seeing you at the event!</p>
             
-            <p>Best regards,<br>
-            <strong>NVCCZ Events Team</strong></p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -3349,7 +3335,7 @@ export class EmailNotificationService {
   /**
    * Get RSVP notification email template
    */
-  private static getRSVPNotificationTemplate(data: any): string {
+  private static getRSVPNotificationTemplate(data: any, branding: EmailBranding): string {
     const statusEmoji = {
       'ACCEPTED': '✅',
       'DECLINED': '❌',
@@ -3361,6 +3347,10 @@ export class EmailNotificationService {
       'DECLINED': '#dc3545',
       'MAYBE': '#ffc107'
     };
+
+    const headerHtml = renderEmailHeader(branding, { title: "RSVP update" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Events Team", branding);
 
     return `
       <!DOCTYPE html>
@@ -3385,12 +3375,6 @@ export class EmailNotificationService {
             box-shadow: 0 0 20px rgba(0,0,0,0.1);
             overflow: hidden;
           }
-          .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #ffffff;
-            padding: 30px;
-            text-align: center;
-          }
           .content {
             padding: 30px;
           }
@@ -3401,21 +3385,11 @@ export class EmailNotificationService {
             margin: 20px 0;
             border-left: 4px solid ${statusColor[data.rsvpStatus]};
           }
-          .footer {
-            background-color: #f8f9fa;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-          }
         </style>
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1>📝 RSVP Update</h1>
-            <h2>NVCCZ Event Management</h2>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.organizerName},</p>
             
@@ -3429,15 +3403,11 @@ export class EmailNotificationService {
               ${data.rsvpNotes ? `<p><strong>Notes:</strong> ${data.rsvpNotes}</p>` : ''}
             </div>
             
-            <p>You can view all RSVP responses and manage your event through the ${process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} platform.</p>
+            <p>You can view all RSVP responses and manage your event through the ${branding.companyName} platform.</p>
             
-            <p>Best regards,<br>
-            <strong>NVCCZ Events Team</strong></p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -3447,7 +3417,11 @@ export class EmailNotificationService {
   /**
    * Get budget approval email template
    */
-  private static getBudgetApprovalTemplate(data: any): string {
+  private static getBudgetApprovalTemplate(data: any, branding: EmailBranding): string {
+    const headerHtml = renderEmailHeader(branding, { title: "Budget approved" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Finance Team", branding);
+
     return `
       <!DOCTYPE html>
       <html lang="en">
@@ -3471,12 +3445,6 @@ export class EmailNotificationService {
             box-shadow: 0 0 20px rgba(0,0,0,0.1);
             overflow: hidden;
           }
-          .header {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-            color: #ffffff;
-            padding: 30px;
-            text-align: center;
-          }
           .content {
             padding: 30px;
           }
@@ -3487,21 +3455,11 @@ export class EmailNotificationService {
             margin: 20px 0;
             border-left: 4px solid #28a745;
           }
-          .footer {
-            background-color: #f8f9fa;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-          }
         </style>
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1>✅ Budget Approved</h1>
-            <h2>NVCCZ Finance Team</h2>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.organizerName},</p>
             
@@ -3518,13 +3476,9 @@ export class EmailNotificationService {
             
             <p>If you have any questions about the approved budget or need assistance with event planning, please don't hesitate to contact the finance team.</p>
             
-            <p>Best regards,<br>
-            <strong>NVCCZ Finance Team</strong></p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
-            <p>© 2026 ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -3555,13 +3509,13 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
-      const subject = `Request for Quote ${data.rfqNumber} - ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getRFQTemplate(data);
+      const branding = await getEmailBrandingCached();
+      const subject = `Request for Quote ${data.rfqNumber} - ${branding.companyName}`;
+      const htmlContent = this.getRFQTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('procurement').name;
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
         html: htmlContent
@@ -3663,13 +3617,13 @@ export class EmailNotificationService {
     rfqNumber?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `Quotation Accepted - ${data.quotationNumber}`;
-      const htmlContent = this.getQuotationAcceptedTemplate(data);
+      const htmlContent = this.getQuotationAcceptedTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('procurement').name;
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
         html: htmlContent
@@ -3695,13 +3649,13 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `Quotation Status Update - ${data.quotationNumber}`;
-      const htmlContent = this.getQuotationRejectedTemplate(data);
+      const htmlContent = this.getQuotationRejectedTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('procurement').name;
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
         html: htmlContent
@@ -3728,13 +3682,13 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `Invoice Approved - ${data.invoiceNumber}`;
-      const htmlContent = this.getInvoiceApprovedTemplate(data);
+      const htmlContent = this.getInvoiceApprovedTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('finance').name;
       const from = getFromAddress('finance');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
         html: htmlContent
@@ -3764,13 +3718,13 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `Payment Confirmation - Invoice ${data.invoiceNumber}`;
-      const htmlContent = this.getInvoicePaidTemplate(data);
+      const htmlContent = this.getInvoicePaidTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('finance').name;
       const from = getFromAddress('finance');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
         html: htmlContent
@@ -3800,13 +3754,13 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `New Requisition Requires Approval - ${data.requisitionNumber}`;
-      const htmlContent = this.getRequisitionSubmittedToHeadTemplate(data);
+      const htmlContent = this.getRequisitionSubmittedToHeadTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('procurement').name;
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.headName}" <${data.headEmail}>`,
         subject: subject,
         html: htmlContent
@@ -3898,13 +3852,13 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `Requisition Approved - ${data.requisitionNumber}`;
-      const htmlContent = this.getRequisitionApprovedTemplate(data);
+      const htmlContent = this.getRequisitionApprovedTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('procurement').name;
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.submitterName}" <${data.submitterEmail}>`,
         subject: subject,
         html: htmlContent
@@ -3932,13 +3886,13 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `Requisition Rejected - ${data.requisitionNumber}`;
-      const htmlContent = this.getRequisitionRejectedTemplate(data);
+      const htmlContent = this.getRequisitionRejectedTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('procurement').name;
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.submitterName}" <${data.submitterEmail}>`,
         subject: subject,
         html: htmlContent
@@ -3969,13 +3923,13 @@ export class EmailNotificationService {
     companyName?: string;
   }): Promise<void> {
     try {
+      const branding = await getEmailBrandingCached();
       const subject = `Approval Required - ${data.entityType}: ${data.entityNumber}`;
-      const htmlContent = this.getApprovalStepNotificationTemplate(data);
+      const htmlContent = this.getApprovalStepNotificationTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('procurement').name;
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.approverName}" <${data.approverEmail}>`,
         subject: subject,
         html: htmlContent
@@ -4015,13 +3969,13 @@ export class EmailNotificationService {
     verificationUrl?: string;
   }): Promise<void> {
     try {
-      const subject = `Purchase Order ${data.poNumber} - ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getPurchaseOrderTemplate(data);
+      const branding = await getEmailBrandingCached();
+      const subject = `Purchase Order ${data.poNumber} - ${branding.companyName}`;
+      const htmlContent = this.getPurchaseOrderTemplate(data, branding);
       
-      const fromName = data.companyName || getFromAddress('procurement').name;
       const from = getFromAddress('procurement');
       await emailTransport.sendMail({
-        from: `"${fromName}" <${from.address}>`,
+        from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
         html: htmlContent
@@ -4039,6 +3993,7 @@ export class EmailNotificationService {
    */
   private static getRFQTemplate(data: {
     vendorName: string;
+    vendorEmail: string;
     rfqNumber: string;
     rfqDate: Date;
     title: string;
@@ -4055,7 +4010,7 @@ export class EmailNotificationService {
     rfqDeadline?: Date;
     specialRequirements?: string;
     companyName?: string;
-  }): string {
+  }, branding: EmailBranding): string {
     const formattedDate = data.rfqDate.toLocaleDateString('en-US', { 
       year: 'numeric', 
       month: 'long', 
@@ -4098,6 +4053,10 @@ export class EmailNotificationService {
     };
     const payloadExample = JSON.stringify(apiPayload, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+    const headerHtml = renderEmailHeader(branding, { title: `RFQ ${data.rfqNumber}` });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
+
     return `
       <!DOCTYPE html>
       <html>
@@ -4118,16 +4077,6 @@ export class EmailNotificationService {
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             overflow: hidden;
-          }
-          .header {
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-          }
-          .header h1 {
-            margin: 0;
-            font-size: 28px;
           }
           .content {
             padding: 30px;
@@ -4239,10 +4188,7 @@ export class EmailNotificationService {
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1>📋 REQUEST FOR QUOTE</h1>
-            <h2>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</h2>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.vendorName},</p>
             
@@ -4375,16 +4321,9 @@ export class EmailNotificationService {
 
             <p>We appreciate your prompt response and look forward to receiving your competitive quote. If you have any questions about this RFQ, please don't hesitate to contact our procurement team.</p>
             
-            <p>Best regards,<br>
-            <strong>Procurement Team</strong><br>
-            ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an official Request for Quote from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
-            <p>RFQ Reference: ${data.rfqNumber}</p>
-            <p>For any inquiries, please reply to this email or contact ${process.env.EMAIL_CONTACT_PROCUREMENT || 'procurement@nvccz.com'}</p>
-            <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -4412,8 +4351,11 @@ export class EmailNotificationService {
       totalPrice: number;
     }>;
     notes?: string;
-  }): string {
+  }, branding: EmailBranding): string {
     const currencySymbol = data.currencyCode === 'USD' ? '$' : data.currencyCode === 'ZWL' ? 'ZWL' : data.currencyCode;
+    const headerHtml = renderEmailHeader(branding, { title: "New quotation received" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
     return `
       <!DOCTYPE html>
       <html>
@@ -4471,8 +4413,10 @@ export class EmailNotificationService {
         </style>
       </head>
       <body>
-        <div class="card">
-          <h1>New quotation received</h1>
+        <div style="max-width: 700px; margin: 0 auto;">
+          ${headerHtml}
+          <div class="card">
+            <h1>New quotation received</h1>
           <p>Dear ${data.requesterName},</p>
           <p><strong>${data.vendorName}</strong> has submitted a quotation for RFQ <strong>${data.rfqNumber}</strong>.</p>
           ${data.requisitionNumber ? `<p><strong>Requisition:</strong> ${data.requisitionNumber}${data.requisitionTitle ? ` – ${data.requisitionTitle}` : ''}</p>` : ''}
@@ -4520,7 +4464,9 @@ export class EmailNotificationService {
           </table>
           ${data.notes ? `<div class="note"><strong>Vendor notes:</strong> ${data.notes}</div>` : ''}
           <p style="margin-top: 20px;">You can review the submitted quotation in the Procurement → Vendor Quotations panel.</p>
-          <p>Best regards,<br><strong>NVCCZ Procurement Team</strong></p>
+          ${signatureHtml}
+          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -4550,7 +4496,7 @@ export class EmailNotificationService {
     companyName?: string;
     vendorAckUrl?: string;
     verificationUrl?: string;
-  }): string {
+  }, branding: EmailBranding): string {
     const currencySymbol = data.currency === 'USD' ? '$' : data.currency === 'ZWL' ? 'ZWL' : data.currency;
     const formattedDate = data.poDate.toLocaleDateString('en-US', { 
       year: 'numeric', 
@@ -4564,6 +4510,10 @@ export class EmailNotificationService {
           day: 'numeric' 
         })
       : 'To be confirmed';
+
+    const headerHtml = renderEmailHeader(branding, { title: `Purchase Order ${data.poNumber}` });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
 
     return `
       <!DOCTYPE html>
@@ -4680,10 +4630,7 @@ export class EmailNotificationService {
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1>📦 Purchase Order</h1>
-            <h2>${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</h2>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.vendorName},</p>
             
@@ -4776,15 +4723,9 @@ export class EmailNotificationService {
 
             <p>If you have any questions or need clarification on any items, please don't hesitate to contact our procurement team.</p>
             
-            <p>Best regards,<br>
-            <strong>Procurement Team</strong><br>
-            ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an official purchase order from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
-            <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_PROCUREMENT || 'procurement@nvccz.com'}</p>
-            <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -4796,17 +4737,23 @@ export class EmailNotificationService {
    */
   private static getQuotationAcceptedTemplate(data: {
     vendorName: string;
+    vendorEmail: string;
     quotationNumber: string;
     quotationAmount: number;
     currencyCode: string;
     reviewNotes?: string;
     companyName?: string;
     rfqNumber?: string;
-  }): string {
+  }, branding: EmailBranding): string {
     const frontendBase = (process.env.PROCUREMENT_PORTAL_URL || 'http://app.kyntaro.com').replace(/\/$/, '');
     const invoiceUrl = `${frontendBase}/vendor/invoice/submit?quotationNumber=${encodeURIComponent(
       data.quotationNumber
     )}&vendorEmail=${encodeURIComponent(data.vendorEmail)}${data.rfqNumber ? `&rfqNumber=${encodeURIComponent(data.rfqNumber)}` : ''}`;
+
+    const headerHtml = renderEmailHeader(branding, { title: "Quotation accepted" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
+
     return `
       <!DOCTYPE html>
       <html>
@@ -4824,10 +4771,7 @@ export class EmailNotificationService {
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1 style="margin: 0; font-size: 28px;">✅ Quotation Accepted!</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
-        </div>
+        ${headerHtml}
         <div class="content">
           <p>Dear ${data.vendorName},</p>
           
@@ -4859,15 +4803,9 @@ export class EmailNotificationService {
           
           <p>If you have any questions, please don't hesitate to contact our procurement team.</p>
           
-          <p>Best regards,<br>
-          <strong>Procurement Team</strong><br>
-          ${data.companyName || 'NVCCZ'}</p>
+          ${signatureHtml}
         </div>
-        <div class="footer">
-          <p>This is an official notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
-          <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_PROCUREMENT || 'procurement@nvccz.com'}</p>
-          <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-        </div>
+        ${footerHtml}
       </body>
       </html>
     `;
@@ -4883,7 +4821,11 @@ export class EmailNotificationService {
     currencyCode: string;
     rejectionReason?: string;
     companyName?: string;
-  }): string {
+  }, branding: EmailBranding): string {
+    const headerHtml = renderEmailHeader(branding, { title: "Quotation status update" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
+
     return `
       <!DOCTYPE html>
       <html>
@@ -4899,10 +4841,7 @@ export class EmailNotificationService {
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1 style="margin: 0; font-size: 28px;">📋 Quotation Status Update</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
-        </div>
+        ${headerHtml}
         <div class="content">
           <p>Dear ${data.vendorName},</p>
           
@@ -4933,15 +4872,9 @@ export class EmailNotificationService {
           
           <p>Thank you for your time and effort in preparing the quotation.</p>
           
-          <p>Best regards,<br>
-          <strong>Procurement Team</strong><br>
-          ${data.companyName || 'NVCCZ'}</p>
+          ${signatureHtml}
         </div>
-        <div class="footer">
-          <p>This is an official notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
-          <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_PROCUREMENT || 'procurement@nvccz.com'}</p>
-          <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-        </div>
+        ${footerHtml}
       </body>
       </html>
     `;
@@ -4958,7 +4891,7 @@ export class EmailNotificationService {
     approvedDate: Date;
     dueDate?: Date;
     companyName?: string;
-  }): string {
+  }, branding: EmailBranding): string {
     const formattedDate = data.approvedDate.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
@@ -4969,6 +4902,10 @@ export class EmailNotificationService {
       month: 'long',
       day: 'numeric'
     }) : null;
+
+    const headerHtml = renderEmailHeader(branding, { title: "Invoice approved" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Finance Team", branding);
 
     return `
       <!DOCTYPE html>
@@ -4986,10 +4923,7 @@ export class EmailNotificationService {
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1 style="margin: 0; font-size: 28px;">✅ Invoice Approved</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
-        </div>
+        ${headerHtml}
         <div class="content">
           <p>Dear ${data.vendorName},</p>
           
@@ -5028,15 +4962,9 @@ export class EmailNotificationService {
 
           <p>Thank you for your business. We appreciate your patience during the approval process.</p>
           
-          <p>Best regards,<br>
-          <strong>Finance Team</strong><br>
-          ${data.companyName || 'NVCCZ'}</p>
+          ${signatureHtml}
         </div>
-        <div class="footer">
-          <p>This is an official notification from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
-          <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_FINANCE || 'finance@nvccz.com'}</p>
-          <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-        </div>
+        ${footerHtml}
       </body>
       </html>
     `;
@@ -5056,12 +4984,16 @@ export class EmailNotificationService {
     isPartialPayment?: boolean;
     remainingBalance?: number;
     companyName?: string;
-  }): string {
+  }, branding: EmailBranding): string {
     const formattedDate = data.paymentDate.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric'
     });
+
+    const headerHtml = renderEmailHeader(branding, { title: "Payment confirmation" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Finance Team", branding);
 
     return `
       <!DOCTYPE html>
@@ -5079,10 +5011,7 @@ export class EmailNotificationService {
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1 style="margin: 0; font-size: 28px;">💰 Payment Confirmation</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}</p>
-        </div>
+        ${headerHtml}
         <div class="content">
           <p>Dear ${data.vendorName},</p>
           
@@ -5145,15 +5074,9 @@ export class EmailNotificationService {
 
           <p>Thank you for your excellent service and cooperation. We look forward to continuing our business relationship.</p>
           
-          <p>Best regards,<br>
-          <strong>Finance Team</strong><br>
-          ${data.companyName || 'NVCCZ'}</p>
+          ${signatureHtml}
         </div>
-        <div class="footer">
-          <p>This is an official payment confirmation from ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}.</p>
-          <p>For any inquiries, please contact ${process.env.EMAIL_CONTACT_FINANCE || 'finance@nvccz.com'}</p>
-          <p>© 2026 ${data.companyName || process.env.COMPANY_NAME_SHORT || 'NVCCZ'}. All rights reserved.</p>
-        </div>
+        ${footerHtml}
       </body>
       </html>
     `;
@@ -5173,7 +5096,10 @@ export class EmailNotificationService {
     itemCount: number;
     status: string;
     companyName?: string;
-  }): string {
+  }, branding: EmailBranding): string {
+    const headerHtml = renderEmailHeader(branding, { title: "Requisition approval required" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
     return `
       <!DOCTYPE html>
       <html>
@@ -5191,9 +5117,7 @@ export class EmailNotificationService {
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1 style="margin: 0;">📋 New Requisition Requires Your Approval</h1>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.headName},</p>
             
@@ -5211,12 +5135,9 @@ export class EmailNotificationService {
 
             <p>Please review and approve or reject this requisition in the procurement system.</p>
             
-            <p>Best regards,<br>
-            <strong>${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System</strong></p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -5235,7 +5156,10 @@ export class EmailNotificationService {
     approvedByEmail: string;
     approvalComments?: string;
     companyName?: string;
-  }): string {
+  }, branding: EmailBranding): string {
+    const headerHtml = renderEmailHeader(branding, { title: "Requisition approved" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
     return `
       <!DOCTYPE html>
       <html>
@@ -5253,9 +5177,7 @@ export class EmailNotificationService {
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1 style="margin: 0;">✅ Requisition Approved</h1>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.submitterName},</p>
             
@@ -5277,12 +5199,9 @@ export class EmailNotificationService {
 
             <p>You can now proceed with the next steps in the procurement process.</p>
             
-            <p>Best regards,<br>
-            <strong>${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System</strong></p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -5301,7 +5220,10 @@ export class EmailNotificationService {
     rejectedByEmail: string;
     rejectionReason?: string;
     companyName?: string;
-  }): string {
+  }, branding: EmailBranding): string {
+    const headerHtml = renderEmailHeader(branding, { title: "Requisition rejected" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
     return `
       <!DOCTYPE html>
       <html>
@@ -5319,9 +5241,7 @@ export class EmailNotificationService {
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1 style="margin: 0;">❌ Requisition Rejected</h1>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.submitterName},</p>
             
@@ -5343,12 +5263,9 @@ export class EmailNotificationService {
 
             <p>Please review the rejection reason and make necessary changes before resubmitting.</p>
             
-            <p>Best regards,<br>
-            <strong>${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System</strong></p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
@@ -5370,7 +5287,10 @@ export class EmailNotificationService {
     submittedByEmail: string;
     department: string;
     companyName?: string;
-  }): string {
+  }, branding: EmailBranding): string {
+    const headerHtml = renderEmailHeader(branding, { title: "Approval required" });
+    const footerHtml = renderEmailFooter(branding);
+    const signatureHtml = renderEmailSignature("Procurement Team", branding);
     return `
       <!DOCTYPE html>
       <html>
@@ -5388,9 +5308,7 @@ export class EmailNotificationService {
       </head>
       <body>
         <div class="container">
-          <div class="header">
-            <h1 style="margin: 0;">📋 Approval Required</h1>
-          </div>
+          ${headerHtml}
           <div class="content">
             <p>Dear ${data.approverName},</p>
             
@@ -5407,12 +5325,9 @@ export class EmailNotificationService {
 
             <p>Please review and approve or reject this request in the procurement system.</p>
             
-            <p>Best regards,<br>
-            <strong>${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System</strong></p>
+            ${signatureHtml}
           </div>
-          <div class="footer">
-            <p>This is an automated notification from ${data.companyName || process.env.COMPANY_NAME_FULL || 'National Venture Capital Company of Zimbabwe'} Procurement System.</p>
-          </div>
+          ${footerHtml}
         </div>
       </body>
       </html>
