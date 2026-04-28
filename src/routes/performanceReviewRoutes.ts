@@ -34,7 +34,7 @@ const router = express.Router();
  *           enum: [DRAFT, IN_PROGRESS, COMPLETED, APPROVED, REJECTED]
  *         stage:
  *           type: string
- *           enum: [SELF_ASSESSMENT, MANAGER_REVIEW, PEER_REVIEW, FINAL_REVIEW]
+ *           enum: [SELF_ASSESSMENT, SELF_REVIEW, PEER_REVIEW, HR_REVIEW, MANAGER_REVIEW, FINAL_REVIEW, FINALIZED]
  *         reviewStartDate:
  *           type: string
  *           format: date-time
@@ -473,9 +473,16 @@ router.get("/completion-rates", authenticate, PerformanceReviewController.getPer
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: organizationWide
+ *         required: false
+ *         description: If true or 1, aggregate all departments (departmentName not required)
+ *         schema:
+ *           type: string
+ *           enum: ["true", "false", "1", "0"]
+ *       - in: query
  *         name: departmentName
- *         required: true
- *         description: Match reviewee linked department name OR reviewee userDepartment (e.g. Finance)
+ *         required: false
+ *         description: Match reviewee linked department name OR reviewee userDepartment (e.g. Finance). Required when organizationWide is not set.
  *         schema:
  *           type: string
  *       - in: query
@@ -908,7 +915,9 @@ router.delete("/feedback/:id", authenticate, PerformanceReviewController.deleteP
  *       Does not bulk-create reviews or tasks. Emails active employees who already
  *       have a manager-assigned review overlapping this cycle, still at self-assessment
  *       stage, not locked, and who have not started self-assessment (no self feedback / ratings yet).
- *       Reviews with no cycleId are linked to this cycle after a successful email.
+ *       After each successful reviewee email, sends optional awareness emails to the assigned
+ *       reviewer (manager) and to the linked stakeholder (external contact) when addresses exist.
+ *       Reviews with no cycleId are linked to this cycle after a successful reviewee email.
  *     tags: [Performance Reviews]
  *     security:
  *       - bearerAuth: []
@@ -939,6 +948,10 @@ router.delete("/feedback/:id", authenticate, PerformanceReviewController.deleteP
  *                     emailsSent:
  *                       type: integer
  *                     emailsFailed:
+ *                       type: integer
+ *                     reviewerEmailsSent:
+ *                       type: integer
+ *                     stakeholderEmailsSent:
  *                       type: integer
  *                     skippedIneligible:
  *                       type: integer

@@ -8,6 +8,7 @@ function performanceReviewErrorStatus(message: unknown): number {
   const m = String(message || "");
   if (/access denied/i.test(m)) return 403;
   if (/must be in the same department/i.test(m)) return 403;
+  if (/line manager or HR leadership may finalize/i.test(m)) return 403;
   return 500;
 }
 
@@ -119,7 +120,7 @@ export class PerformanceReviewController {
         filters.search = req.query.search as string;
       }
 
-      const result = await PerformanceReviewService.getAllPerformanceReviews(page, limit, filters);
+      const result = await PerformanceReviewService.getAllPerformanceReviews(page, limit, filters, req.user);
       
       return responseHelper.success(res, result, "Performance reviews retrieved successfully");
     } catch (error) {
@@ -401,9 +402,17 @@ export class PerformanceReviewController {
 
   static async getDepartmentRatingDistribution(req: Request, res: Response) {
     try {
+      const organizationWide =
+        String(req.query.organizationWide ?? "").toLowerCase() === "true" ||
+        String(req.query.organizationWide ?? "") === "1";
       const departmentName = String(req.query.departmentName ?? "").trim();
-      if (!departmentName) {
-        return responseHelper.error(res, "departmentName query parameter is required.", undefined, 400);
+      if (!organizationWide && !departmentName) {
+        return responseHelper.error(
+          res,
+          "Provide departmentName, or set organizationWide=true for an organisation-wide aggregate.",
+          undefined,
+          400
+        );
       }
       const reviewPeriodRaw = req.query.reviewPeriod as string | undefined;
       const reviewPeriod =
@@ -411,12 +420,17 @@ export class PerformanceReviewController {
           ? String(reviewPeriodRaw).trim()
           : undefined;
       const data = await PerformanceReviewService.getDepartmentRatingDistribution(
-        departmentName,
-        reviewPeriod
+        organizationWide ? null : departmentName,
+        reviewPeriod,
+        { organizationWide, actor: req.user }
       );
       return responseHelper.success(res, data, "Department rating distribution retrieved successfully");
-    } catch (error) {
-      return responseHelper.error(res, error.message);
+    } catch (error: any) {
+      const msg = String(error?.message || "");
+      let status = 500;
+      if (/restricted to HR leadership or administrators/i.test(msg)) status = 403;
+      else if (/Authentication required for organization-wide/i.test(msg)) status = 401;
+      return responseHelper.error(res, msg, undefined, status);
     }
   }
 }

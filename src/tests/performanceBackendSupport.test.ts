@@ -160,6 +160,32 @@ describe("performanceBackendSupport", () => {
       stage: "MANAGER_REVIEW"
     });
 
+    expect(
+      resolveReviewWorkflowStatus({ currentStage: "SELF_REVIEW", hasExternalStakeholder: true })
+    ).toEqual({
+      status: "PEER_REVIEW",
+      stage: "PEER_REVIEW"
+    });
+
+    expect(
+      resolveReviewWorkflowStatus({ currentStage: "PEER_REVIEW", hasExternalStakeholder: true })
+    ).toEqual({
+      status: "HR_REVIEW",
+      stage: "HR_REVIEW"
+    });
+
+    expect(
+      resolveReviewWorkflowStatus({ currentStage: "HR_REVIEW", hasExternalStakeholder: true })
+    ).toEqual({
+      status: "MANAGER_REVIEW",
+      stage: "MANAGER_REVIEW"
+    });
+
+    expect(resolveReviewWorkflowStatus({ currentStage: "PEER_REVIEW" })).toEqual({
+      status: "MANAGER_REVIEW",
+      stage: "MANAGER_REVIEW"
+    });
+
     expect(resolveReviewWorkflowStatus({ finalize: true })).toEqual({
       status: "FINALIZED",
       stage: "FINALIZED"

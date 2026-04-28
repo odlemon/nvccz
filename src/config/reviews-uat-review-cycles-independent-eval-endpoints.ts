@@ -152,6 +152,8 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
   '/performance-reviews/cycles/{cycleId}/initiate': {
     post: {
       summary: 'Trigger review cycle reminders / initiation',
+      description:
+        'Emails eligible reviewees (existing reviews only; does not bulk-create). On success, may email the assigned reviewer and linked stakeholder for awareness. Response includes emailsSent, reviewerEmailsSent, stakeholderEmailsSent.',
       tags: ['Reviews UAT (Review cycles & independent evaluation)'],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: 'path', name: 'cycleId', required: true, schema: { type: 'string' } }],
@@ -172,6 +174,8 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
   '/performance-reviews/{id}/complete-stage': {
     post: {
       summary: 'Complete current stage and advance workflow',
+      description:
+        'When stakeholderId is set on the review: SELF_REVIEW → PEER_REVIEW → HR_REVIEW → MANAGER_REVIEW → FINAL_REVIEW. Without stakeholder: SELF_REVIEW → MANAGER_REVIEW → FINAL_REVIEW. Use finalize after FINAL_REVIEW.',
       tags: ['Reviews UAT (Review cycles & independent evaluation)'],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
@@ -183,7 +187,7 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
     post: {
       summary: 'Finalize review (lock + generate PDF)',
       description:
-        'Locks the review and generates a PDF (server-local storage). After this, use GET /performance-reviews/{id}/document.pdf to download the PDF.',
+        'Locks the review and generates a PDF (server-side storage). Allowed for the reviewee line manager or HR/exec/admin bypass roles. After this, use GET /performance-reviews/{id}/document.pdf to download the PDF.',
       tags: ['Reviews UAT (Review cycles & independent evaluation)'],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
@@ -220,10 +224,18 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
   '/performance-reviews/reports/rating-distribution': {
     get: {
       summary: 'Rating distribution report',
+      description:
+        'Per-department: pass departmentName. Organisation-wide: pass organizationWide=true or 1 (departmentName optional; HR/exec/admin bypass only). Buckets use ratingValue 1–5.',
       tags: ['Reviews UAT (Review cycles & independent evaluation)'],
       security: [{ bearerAuth: [] }],
       parameters: [
-        { in: 'query', name: 'departmentName', required: true, schema: { type: 'string' } },
+        {
+          in: 'query',
+          name: 'organizationWide',
+          required: false,
+          schema: { type: 'string', enum: ['true', 'false', '1', '0'] }
+        },
+        { in: 'query', name: 'departmentName', required: false, schema: { type: 'string' } },
         { in: 'query', name: 'reviewPeriod', required: false, schema: { type: 'string' } }
       ],
       responses: { 200: { description: 'OK' }, 400: JSON_400, 401: JSON_401 }
