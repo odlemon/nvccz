@@ -186,6 +186,91 @@ export class EmailNotificationService {
     }
   }
 
+  /** Optional cycle awareness for the assigned reviewer (manager). Returns false if skipped (no email). */
+  static async sendPerformanceReviewCycleReviewerAwarenessEmail(data: {
+    reviewerName: string;
+    reviewerEmail: string;
+    revieweeName: string;
+    reviewTitle: string;
+    reviewPeriod: string;
+    cycleTitle: string;
+    reviewId: string;
+  }): Promise<boolean> {
+    const to = String(data.reviewerEmail || "").trim();
+    if (!to) {
+      return false;
+    }
+    try {
+      const esc = (s: string) =>
+        String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      const subject = `Review cycle — ${esc(data.cycleTitle)} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
+      const htmlContent = `<p>Hello ${esc(data.reviewerName)},</p>
+<p>The performance review cycle <strong>${esc(data.cycleTitle)}</strong> is active.
+<strong>${esc(data.revieweeName)}</strong> has been notified to complete their self-assessment for
+<strong>${esc(data.reviewTitle)}</strong> (${esc(data.reviewPeriod)}).</p>
+<p>Review reference: <code>${esc(data.reviewId)}</code></p>`;
+      const from = getFromAddress("platform");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.reviewerName}" <${to}>`,
+        subject,
+        html: htmlContent
+      });
+      console.log(`Performance review cycle reviewer notice sent to ${to} (review ${data.reviewId})`);
+      return true;
+    } catch (error) {
+      console.error("Error sending performance review cycle reviewer notice:", error);
+      throw error;
+    }
+  }
+
+  /** Optional cycle awareness for linked external stakeholder. Returns false if skipped (no email). */
+  static async sendPerformanceReviewCycleStakeholderAwarenessEmail(data: {
+    stakeholderName: string;
+    stakeholderEmail: string;
+    revieweeName: string;
+    reviewTitle: string;
+    reviewPeriod: string;
+    cycleTitle: string;
+    reviewId: string;
+  }): Promise<boolean> {
+    const to = String(data.stakeholderEmail || "").trim();
+    if (!to) {
+      return false;
+    }
+    try {
+      const esc = (s: string) =>
+        String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      const subject = `Performance review cycle — independent evaluation may be required — ${esc(
+        data.cycleTitle
+      )}`;
+      const htmlContent = `<p>Hello ${esc(data.stakeholderName)},</p>
+<p>A performance review cycle (<strong>${esc(data.cycleTitle)}</strong>) has started for
+<strong>${esc(data.revieweeName)}</strong> — <strong>${esc(data.reviewTitle)}</strong> (${esc(
+        data.reviewPeriod
+      )}). You may be asked to provide independent evaluation in the system.</p>
+<p>Review reference: <code>${esc(data.reviewId)}</code></p>`;
+      const from = getFromAddress("platform");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.stakeholderName}" <${to}>`,
+        subject,
+        html: htmlContent
+      });
+      console.log(`Performance review cycle stakeholder notice sent to ${to} (review ${data.reviewId})`);
+      return true;
+    } catch (error) {
+      console.error("Error sending performance review cycle stakeholder notice:", error);
+      throw error;
+    }
+  }
+
   /**
    * Send due diligence activity update email (to CIO)
    */

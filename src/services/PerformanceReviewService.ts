@@ -217,7 +217,8 @@ export class PerformanceReviewService {
   }
 
   /**
-   * Reviewee always sees their review. Reviewer / line manager only if same department as reviewee.
+   * Reviewee always sees their review. Assigned reviewer always sees their review (cross-department external evaluators).
+   * Line manager only if same department as reviewee.
    * CEO, HR lead, sysadmin, and role `admin` may access any review.
    */
   private static async assertPerformanceReviewAccess(review: any, actorRef: { id: string }) {
@@ -238,10 +239,13 @@ export class PerformanceReviewService {
       return;
     }
 
-    const isReviewer = review.reviewerId === actor.id;
+    if (review.reviewerId === actor.id) {
+      return;
+    }
+
     const isDirectManager = review.reviewee?.employee?.lineManagerUserId === actor.id;
 
-    if (isReviewer || isDirectManager) {
+    if (isDirectManager) {
       if (usersSharePerformanceDepartment(review.reviewee, actor)) {
         return;
       }
@@ -265,6 +269,27 @@ export class PerformanceReviewService {
       throw new Error(`Performance review with ID ${reviewId} not found`);
     }
     await this.assertPerformanceReviewAccess(review, actorRef);
+  }
+
+  /** After general access checks: finalize only for line manager or HR/exec/admin bypass. */
+  private static async assertFinalizePerformanceReviewPermission(review: any, actorRef: { id: string }) {
+    const actor = await prisma.user.findUnique({
+      where: { id: actorRef.id },
+      include: { department: true, role: true, employee: true }
+    });
+    if (!actor) {
+      throw new Error("Access denied: user not found.");
+    }
+    if (canBypassPerformanceDepartmentGate(actor)) {
+      return;
+    }
+    const lineManagerId = review.reviewee?.employee?.lineManagerUserId;
+    if (lineManagerId && actor.id === lineManagerId) {
+      return;
+    }
+    throw new Error(
+      "Access denied: only the reviewee's line manager or HR leadership may finalize this performance review."
+    );
   }
 
   static async createPerformanceReview(request: CreatePerformanceReviewRequest, actor?: { id: string }) {
@@ -406,7 +431,7 @@ export class PerformanceReviewService {
     }
   }
 
-  static async getAllPerformanceReviews(page: number = 1, limit: number = 10, filters?: any) {
+  static async getAllPerformanceReviews(page: number = 1, limit: number = 10, filters?: any, actor?: { id: string }) {
     try {
       const skip = (page - 1) * limit;
       
@@ -441,6 +466,25 @@ export class PerformanceReviewService {
           { title: { contains: filters.search, mode: 'insensitive' } },
           { description: { contains: filters.search, mode: 'insensitive' } }
         ];
+      }
+
+      if (actor?.id) {
+        const gateUser = await prisma.user.findUnique({
+          where: { id: actor.id },
+          include: { role: true, department: true, employee: true }
+        });
+        if (gateUser && !canBypassPerformanceDepartmentGate(gateUser)) {
+          const accessClause = {
+            OR: [
+              { revieweeId: actor.id },
+              { reviewerId: actor.id },
+              { reviewee: { employee: { lineManagerUserId: actor.id } } }
+            ]
+          };
+          const previous = { ...where };
+          Object.keys(where).forEach((k) => delete (where as any)[k]);
+          where.AND = [previous, accessClause];
+        }
       }
 
       const [reviews, total] = await Promise.all([
@@ -625,7 +669,8 @@ export class PerformanceReviewService {
       if (request.stage || request.status) {
         const workflow = resolveReviewWorkflowStatus({
           currentStatus: request.status || existingReview.status,
-          currentStage: request.stage || existingReview.stage
+          currentStage: request.stage || existingReview.stage,
+          hasExternalStakeholder: Boolean(existingReview.stakeholderId)
         });
         updateData.status = workflow.status;
         updateData.stage = workflow.stage;
@@ -704,7 +749,8 @@ export class PerformanceReviewService {
 
       const workflow = resolveReviewWorkflowStatus({
         currentStatus: existing.status,
-        currentStage: existing.stage
+        currentStage: existing.stage,
+        hasExternalStakeholder: Boolean(existing.stakeholderId)
       });
 
       const nextStage = String(workflow.stage || "").toUpperCase();
@@ -1068,6 +1114,7 @@ export class PerformanceReviewService {
    * reviewee is an **active Employee**, the review **overlaps the cycle window**,
    * is still at **self-assessment stage**, **not locked**, and the reviewee has
    * **not started** self-assessment — then sends **email** to those reviewees.
+   * On success, optionally emails the **assigned reviewer** (manager) and linked **stakeholder** (external contact) for awareness.
    * Reviews with `cycleId` null are linked to this cycle after a successful email
    * (and `dueDate` set from the cycle if missing).
    */
@@ -1097,7 +1144,19 @@ export class PerformanceReviewService {
             }
           },
           reviewer: {
-            select: { id: true }
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
+          },
+          stakeholder: {
+            select: {
+              id: true,
+              legalName: true,
+              email: true
+            }
           }
         }
       });
@@ -1113,6 +1172,8 @@ export class PerformanceReviewService {
 
       let emailsSent = 0;
       let emailsFailed = 0;
+      let reviewerEmailsSent = 0;
+      let stakeholderEmailsSent = 0;
       let skippedIneligible = 0;
       const errors: string[] = [];
 
@@ -1175,6 +1236,37 @@ export class PerformanceReviewService {
               }
             });
           }
+
+          try {
+            const sentRv = await EmailNotificationService.sendPerformanceReviewCycleReviewerAwarenessEmail({
+              reviewerName:
+                `${review.reviewer?.firstName || ""} ${review.reviewer?.lastName || ""}`.trim() || "Reviewer",
+              reviewerEmail: String(review.reviewer?.email || "").trim(),
+              revieweeName: name,
+              reviewTitle: review.title,
+              reviewPeriod: review.reviewPeriod,
+              cycleTitle: cycle.title,
+              reviewId: review.id
+            });
+            if (sentRv) reviewerEmailsSent += 1;
+          } catch (e: any) {
+            errors.push(`Review ${review.id} reviewer notice: ${e?.message || String(e)}`);
+          }
+
+          try {
+            const sentSh = await EmailNotificationService.sendPerformanceReviewCycleStakeholderAwarenessEmail({
+              stakeholderName: String(review.stakeholder?.legalName || "").trim() || "Stakeholder",
+              stakeholderEmail: String(review.stakeholder?.email || "").trim(),
+              revieweeName: name,
+              reviewTitle: review.title,
+              reviewPeriod: review.reviewPeriod,
+              cycleTitle: cycle.title,
+              reviewId: review.id
+            });
+            if (sentSh) stakeholderEmailsSent += 1;
+          } catch (e: any) {
+            errors.push(`Review ${review.id} stakeholder notice: ${e?.message || String(e)}`);
+          }
         } catch (e: any) {
           emailsFailed += 1;
           errors.push(`Review ${review.id}: ${e?.message || String(e)}`);
@@ -1185,6 +1277,8 @@ export class PerformanceReviewService {
         cycleId,
         emailsSent,
         emailsFailed,
+        reviewerEmailsSent,
+        stakeholderEmailsSent,
         skippedIneligible,
         candidatesConsidered: candidates.length,
         activeEmployeesWithLogin: activeEmployeeUserIds.size,
@@ -1199,6 +1293,8 @@ export class PerformanceReviewService {
         newValues: {
           emailsSent,
           emailsFailed,
+          reviewerEmailsSent,
+          stakeholderEmailsSent,
           skippedIneligible,
           candidatesConsidered: candidates.length
         }
@@ -1302,6 +1398,7 @@ export class PerformanceReviewService {
       }
 
       await this.assertPerformanceReviewAccess(review, actor);
+      await this.assertFinalizePerformanceReviewPermission(review, actor);
       this.validateReviewPayload(review);
 
       const sections = [
@@ -1318,7 +1415,8 @@ export class PerformanceReviewService {
           lines: [
             `Self Feedback: ${review.selfFeedback || "N/A"}`,
             `Manager Feedback: ${review.managerFeedback || "N/A"}`,
-            `Peer Feedback: ${review.peerFeedback || "N/A"}`
+            `Peer Feedback: ${review.peerFeedback || "N/A"}`,
+            `Stakeholder / External Feedback: ${review.stakeholderFeedback || "N/A"}`
           ]
         },
         {
@@ -1340,7 +1438,8 @@ export class PerformanceReviewService {
       const workflow = resolveReviewWorkflowStatus({
         currentStatus: review.status,
         currentStage: review.stage,
-        finalize: true
+        finalize: true,
+        hasExternalStakeholder: Boolean(review.stakeholderId)
       });
 
       const pdfPath = await renderPerformanceReviewPdf({
@@ -1419,19 +1518,44 @@ export class PerformanceReviewService {
     }
   }
 
-  static async getDepartmentRatingDistribution(departmentName: string, reviewPeriod?: string) {
+  static async getDepartmentRatingDistribution(
+    departmentName: string | null | undefined,
+    reviewPeriod?: string,
+    options?: { organizationWide?: boolean; actor?: { id: string } }
+  ) {
     try {
+      const orgWide = Boolean(options?.organizationWide);
       const dept = String(departmentName || "").trim();
-      if (!dept) {
-        throw new Error("departmentName is required");
+      if (!orgWide && !dept) {
+        throw new Error("departmentName is required unless organizationWide is true");
+      }
+
+      if (orgWide) {
+        const actor = options?.actor;
+        if (!actor?.id) {
+          throw new Error("Authentication required for organization-wide rating distribution.");
+        }
+        const gateUser = await prisma.user.findUnique({
+          where: { id: actor.id },
+          include: { role: true, department: true, employee: true }
+        });
+        if (!gateUser || !canBypassPerformanceDepartmentGate(gateUser)) {
+          throw new Error(
+            "Organization-wide rating distribution is restricted to HR leadership or administrators."
+          );
+        }
       }
 
       const reviews = await prisma.performanceReview.findMany({
         where: {
           ...(reviewPeriod ? { reviewPeriod } : {}),
-          reviewee: {
-            OR: [{ department: { name: dept } }, { userDepartment: dept }]
-          }
+          ...(orgWide
+            ? {}
+            : {
+                reviewee: {
+                  OR: [{ department: { name: dept } }, { userDepartment: dept }]
+                }
+              })
         },
         include: {
           reviewee: {
@@ -1456,7 +1580,8 @@ export class PerformanceReviewService {
       }
 
       return {
-        departmentName: dept,
+        organizationWide: orgWide,
+        departmentName: orgWide ? null : dept,
         reviewPeriod: reviewPeriod || null,
         totalReviews: reviews.length,
         distribution: buckets

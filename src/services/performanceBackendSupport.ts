@@ -277,6 +277,12 @@ export function resolveReviewWorkflowStatus(input: {
   currentStatus?: string;
   currentStage?: string;
   finalize?: boolean;
+  /**
+   * When the review has an external stakeholder, progression is:
+   * SELF_REVIEW → PEER_REVIEW (external) → HR_REVIEW → MANAGER_REVIEW → FINAL_REVIEW → finalize → FINALIZED.
+   * Without this flag, SELF_REVIEW → MANAGER_REVIEW (legacy path).
+   */
+  hasExternalStakeholder?: boolean;
 }) {
   if (input.finalize) {
     return {
@@ -286,6 +292,7 @@ export function resolveReviewWorkflowStatus(input: {
   }
 
   const currentStage = String(input.currentStage || "").toUpperCase();
+  const extended = Boolean(input.hasExternalStakeholder);
 
   if (!currentStage || currentStage === "SELF_ASSESSMENT") {
     return {
@@ -295,15 +302,30 @@ export function resolveReviewWorkflowStatus(input: {
   }
 
   if (currentStage === "SELF_REVIEW") {
-    return {
-      status: "MANAGER_REVIEW",
-      stage: "MANAGER_REVIEW"
-    };
+    if (extended) {
+      return { status: "PEER_REVIEW", stage: "PEER_REVIEW" };
+    }
+    return { status: "MANAGER_REVIEW", stage: "MANAGER_REVIEW" };
+  }
+
+  if (currentStage === "PEER_REVIEW") {
+    if (extended) {
+      return { status: "HR_REVIEW", stage: "HR_REVIEW" };
+    }
+    return { status: "MANAGER_REVIEW", stage: "MANAGER_REVIEW" };
+  }
+
+  if (currentStage === "HR_REVIEW") {
+    return { status: "MANAGER_REVIEW", stage: "MANAGER_REVIEW" };
   }
 
   if (currentStage === "MANAGER_REVIEW") {
+    return { status: "FINAL_REVIEW", stage: "FINAL_REVIEW" };
+  }
+
+  if (currentStage === "FINAL_REVIEW") {
     return {
-      status: "FINAL_REVIEW",
+      status: String(input.currentStatus || "PENDING").toUpperCase(),
       stage: "FINAL_REVIEW"
     };
   }

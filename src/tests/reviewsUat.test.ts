@@ -135,6 +135,43 @@ describe("Reviews UAT — validation + finalize PDF", () => {
     expect(updated.documentPath).toBeTruthy();
   });
 
+  test("Finalize rejects assigned reviewer who is not the reviewee line manager (no HR bypass)", async () => {
+    const review = buildReview();
+    ((prisma as any).performanceReview.findUnique as any).mockResolvedValue(review);
+    (prisma.user.findUnique as any).mockResolvedValue({
+      id: "user_reviewer",
+      role: { name: "employee" },
+      departmentId: "dept_1",
+      department: { name: "HR" },
+      employee: null
+    });
+
+    await expect(
+      PerformanceReviewService.finalizePerformanceReview("review_1", { id: "user_reviewer" })
+    ).rejects.toThrow(/line manager|HR leadership/i);
+  });
+
+  test("Finalize allowed for reviewee line manager", async () => {
+    const review = buildReview();
+    ((prisma as any).performanceReview.findUnique as any).mockResolvedValue(review);
+    (prisma.user.findUnique as any).mockResolvedValue({
+      id: "user_manager",
+      role: { name: "employee" },
+      departmentId: "dept_1",
+      department: { name: "HR" },
+      employee: null
+    });
+
+    ((prisma as any).performanceReview.update as any).mockImplementation(async ({ data }: any) => ({
+      ...review,
+      ...data,
+      documentPath: data.documentPath
+    }));
+
+    const updated = await PerformanceReviewService.finalizePerformanceReview("review_1", { id: "user_manager" });
+    expect(updated.isLocked).toBe(true);
+  });
+
   test("PDF download endpoint streams PDF for authorized user", async () => {
     ((prisma as any).performanceReview.findUnique as any).mockResolvedValue(
       buildReview({ documentPath: "C:\\\\tmp\\\\performance-review.pdf" })
