@@ -413,16 +413,18 @@ export class AuthController {
         });
       }
 
-      // Accept either raw token (32 bytes hex => 64 chars) or already-hashed token (sha256 hex => 64 chars).
-      // If the client mistakenly sends the already-hashed value, we should match it directly instead of hashing again.
-      const looksLikeSha256Hex = /^[a-f0-9]{64}$/i.test(normalizedToken);
-      const tokenHash = looksLikeSha256Hex
-        ? normalizedToken.toLowerCase()
-        : crypto.createHash("sha256").update(normalizedToken).digest("hex");
+      // Both the raw token we generate (32 random bytes encoded as hex) and its SHA256 hash are 64-hex strings.
+      // So we cannot reliably tell which one we received. Support both:
+      // - tokenHash stored in DB equals sha256(rawToken)
+      // - some clients may mistakenly send tokenHash directly
+      const normalizedTokenLower = normalizedToken.toLowerCase();
+      const sha256OfIncoming = crypto.createHash("sha256").update(normalizedTokenLower).digest("hex");
 
       const resetRecord = await prisma.passwordResetToken.findFirst({
         where: {
-          tokenHash,
+          tokenHash: {
+            in: [sha256OfIncoming, normalizedTokenLower]
+          },
           usedAt: null,
           expiresAt: {
             gt: new Date()
