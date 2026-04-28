@@ -376,7 +376,49 @@ export class AuthController {
         });
       }
 
-      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+      const normalizeIncomingToken = (value: unknown): string => {
+        let t = String(value ?? "").trim();
+        if (!t) return "";
+
+        // Handle clients that paste the full reset URL into the token field.
+        // Example: https://app.example.com/reset-password?token=abc123
+        try {
+          if (/^https?:\/\//i.test(t)) {
+            const u = new URL(t);
+            const fromUrl = u.searchParams.get("token");
+            if (fromUrl) {
+              t = fromUrl.trim();
+            }
+          }
+        } catch {
+          // ignore URL parse failures
+        }
+
+        // Handle clients that paste "token=abc123" or "?token=abc123"
+        const match = t.match(/(?:^|\?|&|\s)token=([a-f0-9]+)/i);
+        if (match?.[1]) {
+          t = match[1].trim();
+        }
+
+        // Handle accidental "Bearer ..." prefix
+        t = t.replace(/^bearer\s+/i, "").trim();
+        return t;
+      };
+
+      const normalizedToken = normalizeIncomingToken(token);
+      if (!normalizedToken) {
+        return res.status(400).json({
+          success: false,
+          message: "Token and new password are required"
+        });
+      }
+
+      // Accept either raw token (32 bytes hex => 64 chars) or already-hashed token (sha256 hex => 64 chars).
+      // If the client mistakenly sends the already-hashed value, we should match it directly instead of hashing again.
+      const looksLikeSha256Hex = /^[a-f0-9]{64}$/i.test(normalizedToken);
+      const tokenHash = looksLikeSha256Hex
+        ? normalizedToken.toLowerCase()
+        : crypto.createHash("sha256").update(normalizedToken).digest("hex");
 
       const resetRecord = await prisma.passwordResetToken.findFirst({
         where: {
