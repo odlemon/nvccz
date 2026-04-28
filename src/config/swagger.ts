@@ -2840,6 +2840,114 @@ const fallbackSpec = {
             }
           }
         },
+        '/auth/forgot-password': {
+          post: {
+            summary: 'Request password reset',
+            description:
+              'Public endpoint. Always returns success to avoid account enumeration. If the email exists, a reset link is sent.',
+            tags: ['Authentication'],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ForgotPasswordRequest' },
+                  examples: {
+                    example: {
+                      value: {
+                        email: 'user@example.com'
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'If an account with that email exists, a reset link has been sent',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: true },
+                        message: {
+                          type: 'string',
+                          example: 'If an account with that email exists, a password reset link has been sent'
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - missing email',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' }
+                  }
+                }
+              },
+              500: { description: 'Internal server error' }
+            }
+          }
+        },
+        '/auth/reset-password': {
+          post: {
+            summary: 'Reset password using token',
+            description:
+              'Public endpoint. Resets password using a token from email. Accepts the raw token string, or the full reset URL (token extracted from query string).',
+            tags: ['Authentication'],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/ResetPasswordRequest' },
+                  examples: {
+                    rawToken: {
+                      value: {
+                        token: 'f47ac10b58cc4372a5670e02b2c3d479f47ac10b58cc4372a5670e02b2c3d479',
+                        newPassword: 'newPassword123'
+                      }
+                    },
+                    fullUrl: {
+                      value: {
+                        token:
+                          'https://app.example.com/reset-password?token=f47ac10b58cc4372a5670e02b2c3d479f47ac10b58cc4372a5670e02b2c3d479',
+                        newPassword: 'newPassword123'
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: 'Password has been reset successfully',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        success: { type: 'boolean', example: true },
+                        message: { type: 'string', example: 'Password has been reset successfully' }
+                      }
+                    }
+                  }
+                }
+              },
+              400: {
+                description: 'Bad request - invalid/expired token or weak password',
+                content: {
+                  'application/json': {
+                    schema: { $ref: '#/components/schemas/ErrorResponse' }
+                  }
+                }
+              },
+              404: { description: 'User not found' },
+              500: { description: 'Internal server error' }
+            }
+          }
+        },
         // User Management
         '/users': {
           get: {
