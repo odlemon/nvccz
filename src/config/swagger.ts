@@ -7657,7 +7657,7 @@ const fallbackSpec = {
           tags: ['🗳️ Voting Process'],
           summary: 'List board voting members',
           description:
-            'Users with role codes BOARD_CHAIR, BOARD_MEMBER, INV_COMM_MEM, or CIO. When NVCCZ_STRICT_BOARD_VOTE=true, only Investments department; otherwise all departments (UAT).',
+            'Users with role codes BOARD_CHAIR, BOARD_MEMBER, INV_COMM_MEM, or CIO. When NVCCZ_STRICT_BOARD_VOTE=true, only Investments department; otherwise all departments (UAT). Response includes `boardVotingDisabled` (true/false). Disabled users cannot be assigned votingPower and are excluded from vote-invite emails.',
           security: [{ bearerAuth: [] }],
           responses: {
             200: { description: 'Board voting members retrieved successfully' },
@@ -7697,6 +7697,39 @@ const fallbackSpec = {
           },
           responses: {
             200: { description: 'Voting power updated successfully' },
+            400: { description: 'Validation error' },
+            401: { description: 'Unauthorized' },
+            403: { description: 'Forbidden' },
+            404: { description: 'User not found' }
+          }
+        }
+      },
+      '/board-reviews/voting-members/{userId}/disable': {
+        put: {
+          tags: ['🗳️ Voting Process'],
+          summary: 'Remove/restore a user from board voting',
+          description:
+            'Set disabled=true to remove from voting (excluded from voting members list and vote-invite emails). Set disabled=false to restore. Disabling also clears votingPower.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'userId', in: 'path', required: true, schema: { type: 'string' } }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['disabled'],
+                  properties: {
+                    disabled: { type: 'boolean', example: true }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Updated board voting membership' },
             400: { description: 'Validation error' },
             401: { description: 'Unauthorized' },
             403: { description: 'Forbidden' },

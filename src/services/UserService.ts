@@ -39,10 +39,12 @@ export class UserService {
     }
   }
 
-  private static async fetchBoardVotingMembers() {
+  private static async fetchBoardVotingMembers(params?: { includeDisabled?: boolean }) {
     const strict = process.env.NVCCZ_STRICT_BOARD_VOTE === "true";
+    const includeDisabled = Boolean(params?.includeDisabled);
     return prisma.user.findMany({
       where: {
+        ...(includeDisabled ? {} : { boardVotingDisabled: false }),
         ...(strict ? { userDepartment: "Investments" } : {}),
         roleCode: {
           in: BOARD_VOTING_ROLE_CODES
@@ -55,13 +57,26 @@ export class UserService {
         email: true,
         roleCode: true,
         departmentRole: true,
-        votingPower: true
+        votingPower: true,
+        boardVotingDisabled: true
       }
     });
   }
 
   static async getBoardVotingMembers() {
-    const members = await this.fetchBoardVotingMembers();
+    // Returns all board voting-role users, including those removed from voting.
+    const members = await this.fetchBoardVotingMembers({ includeDisabled: true });
+    return members.map(member => ({
+      ...member,
+      votingPower: member.votingPower !== null && member.votingPower !== undefined
+        ? Number(member.votingPower)
+        : null
+    }));
+  }
+
+  /** Only members currently allowed to vote (and receive vote-invite emails). */
+  static async getActiveBoardVotingMembers() {
+    const members = await this.fetchBoardVotingMembers({ includeDisabled: false });
     return members.map(member => ({
       ...member,
       votingPower: member.votingPower !== null && member.votingPower !== undefined
@@ -71,7 +86,7 @@ export class UserService {
   }
 
   private static async getTotalBoardVotingPower(): Promise<number> {
-    const voters = await this.fetchBoardVotingMembers();
+    const voters = await this.fetchBoardVotingMembers({ includeDisabled: false });
 
     return voters.reduce((sum, voter) => {
       const value = voter.votingPower ? Number(voter.votingPower) : 0;
@@ -727,6 +742,10 @@ This is an automated message. Please do not reply to this email.
         throw new Error("User not found");
       }
 
+      if (user.boardVotingDisabled) {
+        throw new Error("This user has been removed from board voting and cannot be assigned voting power.");
+      }
+
       if (!this.isBoardVotingRole(user.roleCode)) {
         throw new Error("Voting power can only be configured for board roles");
       }
@@ -774,6 +793,43 @@ This is an automated message. Please do not reply to this email.
       console.error("Error setting voting power:", error);
       throw error;
     }
+  }
+
+  /**
+   * Remove or restore a user from board voting member lists and vote-invite emails.
+   * When disabled, they are excluded from board voting members and cannot be assigned voting power.
+   */
+  static async setBoardVotingDisabled(userId: string, disabled: boolean) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new Error("User not found");
+    }
+    if (!this.isBoardVotingRole(user.roleCode)) {
+      throw new Error("Only board voting roles can be removed from voting.");
+    }
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        boardVotingDisabled: Boolean(disabled),
+        ...(disabled ? { votingPower: null } : {})
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        userDepartment: true,
+        departmentRole: true,
+        roleCode: true,
+        votingPower: true,
+        boardVotingDisabled: true
+      }
+    });
+    return {
+      ...updated,
+      votingPower:
+        updated.votingPower !== null && updated.votingPower !== undefined ? Number(updated.votingPower) : null
+    };
   }
 }
 

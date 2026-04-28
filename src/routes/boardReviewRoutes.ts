@@ -159,6 +159,7 @@ const imUpload = multer({
  *     summary: List board voting members
  *     description: |
  *       Role codes BOARD_CHAIR, BOARD_MEMBER, INV_COMM_MEM, CIO. Investments-only filter when NVCCZ_STRICT_BOARD_VOTE=true.
+ *       Response includes `boardVotingDisabled` (true/false). When true, member is excluded from vote-invite emails and cannot be assigned votingPower.
  *     tags: [Voting Process]
  *     security:
  *       - bearerAuth: []
@@ -218,6 +219,47 @@ router.get('/voting-members', authenticate, BoardReviewController.getBoardVoting
  *         description: User not found
  */
 router.put('/voting-members/:userId/voting-power', authenticate, BoardReviewController.updateVotingPower);
+
+/**
+ * @swagger
+ * /board-reviews/voting-members/{userId}/disable:
+ *   put:
+ *     summary: Remove/restore a user from board voting
+ *     description: |
+ *       Toggles whether a user can participate in board voting (and receive call-to-vote emails).\n
+ *       When disabled, the user is excluded from the voting members list and vote-invite notifications.\n
+ *       Setting disabled=true also clears votingPower.\n
+ *     tags: [Voting Process]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [disabled]
+ *             properties:
+ *               disabled:
+ *                 type: boolean
+ *                 example: true
+ *     responses:
+ *       200:
+ *         description: Updated board voting membership
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.put('/voting-members/:userId/disable', authenticate, BoardReviewController.setVotingDisabled);
 
 /**
  * @swagger

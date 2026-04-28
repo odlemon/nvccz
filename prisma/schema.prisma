@@ -24,6 +24,8 @@ model User {
   userDepartment                    String?
   roleCode                          String?
   votingPower                       Decimal?                     @db.Decimal(5, 2)
+  /// When true, user is excluded from board voting member lists and vote-invite emails.
+  boardVotingDisabled               Boolean                      @default(false) @map("board_voting_disabled")
   role                              Role                         @relation(fields: [roleId], references: [id])
   posts                             Post[]
   replies                           Reply[]

@@ -710,7 +710,7 @@ export class BoardReviewService {
 
       const snapshot = boardReviewWithRelations;
       const voteUrl = BoardReviewService.boardVoteListingsUrl();
-      void UserService.getBoardVotingMembers()
+      void UserService.getActiveBoardVotingMembers()
         .then((boardMembers) => {
           return Promise.all(
             boardMembers.map((member) =>
@@ -1013,7 +1013,7 @@ export class BoardReviewService {
         dealReference: updated.application?.dealReference ?? null
       };
       const voteUrl = BoardReviewService.boardVoteListingsUrl();
-      void UserService.getBoardVotingMembers()
+      void UserService.getActiveBoardVotingMembers()
         .then((boardMembers) => {
           return Promise.all(
             boardMembers.map((member) =>
@@ -1374,7 +1374,7 @@ export class BoardReviewService {
         comment: vote.comment,
         votingPower: vote.votingPower
       }));
-      void UserService.getBoardVotingMembers()
+      void UserService.getActiveBoardVotingMembers()
         .then((boardMembers) =>
           Promise.all(
             boardMembers.map((member) =>
