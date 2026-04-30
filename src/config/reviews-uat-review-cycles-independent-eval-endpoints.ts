@@ -107,7 +107,51 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
       summary: 'Create performance review',
       tags: ['Reviews UAT (Review cycles & independent evaluation)'],
       security: [{ bearerAuth: [] }],
-      requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['reviewType', 'reviewPeriod', 'title', 'revieweeId'],
+              properties: {
+                reviewType: { type: 'string', example: 'ANNUAL' },
+                reviewPeriod: { type: 'string', example: '2026' },
+                title: { type: 'string', example: 'Year End 2026 Performance Review' },
+                description: { type: 'string', nullable: true },
+                revieweeId: { type: 'string', description: 'User id of the employee being reviewed' },
+                reviewerId: {
+                  type: 'string',
+                  nullable: true,
+                  description: 'Optional. Omit to use the logged-in user as reviewer.'
+                },
+                stakeholderId: {
+                  type: 'string',
+                  nullable: true,
+                  description: 'Optional external stakeholder record id for independent evaluation'
+                },
+                reviewStartDate: { type: 'string', format: 'date-time', nullable: true },
+                reviewEndDate: { type: 'string', format: 'date-time', nullable: true },
+                dueDate: { type: 'string', format: 'date-time', nullable: true },
+                criteria: { type: 'array', items: { type: 'object' }, nullable: true },
+                scores: { type: 'array', items: { type: 'object' }, nullable: true },
+                strengths: { type: 'string', nullable: true },
+                areasForImprovement: { type: 'string', nullable: true },
+                achievements: { type: 'string', nullable: true },
+                goals: { type: 'string', nullable: true },
+                developmentPlan: { type: 'string', nullable: true },
+                managerFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                selfFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                peerFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                stakeholderFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                actionItems: { type: 'array', items: { type: 'object' }, nullable: true },
+                nextReviewDate: { type: 'string', format: 'date-time', nullable: true },
+                cycleId: { type: 'string', nullable: true }
+              }
+            }
+          }
+        }
+      },
       responses: { 201: { description: 'Created' }, 400: JSON_400, 401: JSON_401 }
     },
     get: {
@@ -137,7 +181,47 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
       tags: ['Reviews UAT (Review cycles & independent evaluation)'],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
-      requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              minProperties: 1,
+              properties: {
+                reviewType: { type: 'string' },
+                reviewPeriod: { type: 'string' },
+                title: { type: 'string' },
+                description: { type: 'string', nullable: true },
+                reviewerId: { type: 'string', nullable: true },
+                stakeholderId: { type: 'string', nullable: true },
+                status: { type: 'string', nullable: true },
+                stage: { type: 'string', nullable: true },
+                reviewStartDate: { type: 'string', format: 'date-time', nullable: true },
+                reviewEndDate: { type: 'string', format: 'date-time', nullable: true },
+                dueDate: { type: 'string', format: 'date-time', nullable: true },
+                completedDate: { type: 'string', format: 'date-time', nullable: true },
+                criteria: { type: 'array', items: { type: 'object' }, nullable: true },
+                scores: { type: 'array', items: { type: 'object' }, nullable: true },
+                overallScore: { type: 'number', nullable: true },
+                ratingValue: { type: 'integer', minimum: 1, maximum: 5, nullable: true },
+                rating: { type: 'string', nullable: true },
+                strengths: { type: 'string', nullable: true },
+                areasForImprovement: { type: 'string', nullable: true },
+                achievements: { type: 'string', nullable: true },
+                goals: { type: 'string', nullable: true },
+                developmentPlan: { type: 'string', nullable: true },
+                managerFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                selfFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                peerFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                stakeholderFeedback: { type: 'string', nullable: true, description: 'Min 50 chars when provided' },
+                actionItems: { type: 'array', items: { type: 'object' }, nullable: true },
+                nextReviewDate: { type: 'string', format: 'date-time', nullable: true }
+              }
+            }
+          }
+        }
+      },
       responses: { 200: { description: 'OK' }, 400: JSON_400, 401: JSON_401, 403: JSON_403, 404: JSON_404 }
     },
     delete: {
