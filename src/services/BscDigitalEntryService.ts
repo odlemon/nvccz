@@ -1053,10 +1053,36 @@ export class BscDigitalEntryService {
     periodLabel?: string;
     currencyCode?: string | null;
   }) {
-    const ps = new Date(input.periodStart);
-    const pe = new Date(input.periodEnd);
+    const coercePeriodBoundary = (value: string | Date, mode: "start" | "end") => {
+      if (value instanceof Date) {
+        return value;
+      }
+      const raw = String(value || "").trim();
+      // When callers send YYYY-MM-DD, JS parses as midnight at the start of that UTC day.
+      // For period windows, treat start as 00:00:00.000Z and end as 23:59:59.999Z.
+      const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+      if (dateOnly) {
+        const y = Number(dateOnly[1]);
+        const m = Number(dateOnly[2]);
+        const d = Number(dateOnly[3]);
+        if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+          return new Date(raw);
+        }
+        if (mode === "start") {
+          return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
+        }
+        return new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999));
+      }
+      return new Date(raw);
+    };
+
+    const ps = coercePeriodBoundary(input.periodStart, "start");
+    const pe = coercePeriodBoundary(input.periodEnd, "end");
     if (Number.isNaN(ps.getTime()) || Number.isNaN(pe.getTime())) {
       throw new Error("periodStart and periodEnd must be valid dates");
+    }
+    if (ps.getTime() > pe.getTime()) {
+      throw new Error("periodStart must be before periodEnd");
     }
     const glTotals = await getPostedPeriodRevenueExpenseNetProfit(ps, pe);
     const goalUpdates: Array<{ role: string; goalId: string }> = [];
