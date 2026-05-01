@@ -1326,6 +1326,141 @@ export class ProcurementController {
     }
   }
 
+  /** Shared include shape for GRN API responses (matches create payload). */
+  private static readonly grnDetailInclude = {
+    purchaseOrder: {
+      include: {
+        vendor: true,
+        items: true,
+      },
+    },
+    receivedBy: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+      },
+    },
+    approvedBy: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+      },
+    },
+    items: {
+      include: {
+        purchaseOrderItem: true,
+      },
+    },
+    returnToVendors: {
+      include: {
+        createdBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
+    },
+  } as const;
+
+  /**
+   * List goods received notes (procurement staff).
+   */
+  static async getGoodsReceivedNotes(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const {
+        purchaseOrderId,
+        status,
+        qualityStatus,
+        vendorId,
+        submittedByInvestee,
+        grnNumber,
+        limit = 50,
+        offset = 0,
+      } = req.query;
+
+      const where: any = {};
+      if (purchaseOrderId) where.purchaseOrderId = String(purchaseOrderId);
+      if (status) where.status = String(status);
+      if (qualityStatus) where.qualityStatus = String(qualityStatus);
+      if (grnNumber != null && String(grnNumber).trim() !== "") {
+        where.grnNumber = { contains: String(grnNumber).trim() };
+      }
+      if (vendorId) {
+        where.purchaseOrder = { ...(where.purchaseOrder || {}), vendorId: String(vendorId) };
+      }
+      if (submittedByInvestee !== undefined && submittedByInvestee !== "") {
+        const v = String(submittedByInvestee).toLowerCase();
+        if (v === "true" || v === "1") where.submittedByInvestee = true;
+        else if (v === "false" || v === "0") where.submittedByInvestee = false;
+      }
+
+      const take = Math.min(Math.max(parseInt(String(limit), 10) || 50, 1), 200);
+      const skip = Math.max(parseInt(String(offset), 10) || 0, 0);
+
+      const [rows, total] = await Promise.all([
+        prisma.goodsReceivedNote.findMany({
+          where,
+          include: ProcurementController.grnDetailInclude as any,
+          orderBy: { createdAt: "desc" },
+          take,
+          skip,
+        }),
+        prisma.goodsReceivedNote.count({ where }),
+      ]);
+
+      res.status(200).json({
+        success: true,
+        data: rows,
+        total,
+        limit: take,
+        offset: skip,
+      });
+    } catch (error: any) {
+      console.error("Error listing goods received notes:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to list goods received notes",
+      });
+    }
+  }
+
+  /**
+   * Get one goods received note by id.
+   */
+  static async getGoodsReceivedNoteById(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const { id } = req.params;
+      const grn = await prisma.goodsReceivedNote.findUnique({
+        where: { id },
+        include: ProcurementController.grnDetailInclude as any,
+      });
+
+      if (!grn) {
+        return res.status(404).json({ success: false, message: "Goods received note not found" });
+      }
+
+      res.status(200).json({ success: true, data: grn });
+    } catch (error: any) {
+      console.error("Error getting goods received note:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to get goods received note",
+      });
+    }
+  }
+
   /**
    * Get procurement dashboard data
    */
@@ -1638,6 +1773,12 @@ export class ProcurementController {
       if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
       const { ProcurementService } = await import("../services/ProcurementService");
       const { goodsReceivedNoteId, purchaseOrderItemId, quantity, reason } = req.body;
+      if (!goodsReceivedNoteId || !purchaseOrderItemId) {
+        return res.status(400).json({
+          success: false,
+          message: "goodsReceivedNoteId and purchaseOrderItemId are required",
+        });
+      }
       const data = await ProcurementService.createGrnReturnToVendor({
         goodsReceivedNoteId,
         purchaseOrderItemId,

@@ -3170,11 +3170,50 @@ export class ProcurementService {
     reason?: string;
     createdById: string;
   }) {
+    const qty = Number(params.quantity);
+    if (!(qty > 0) || Number.isNaN(qty)) {
+      throw new Error("quantity must be a positive number");
+    }
+
+    const grn = await prisma.goodsReceivedNote.findUnique({
+      where: { id: params.goodsReceivedNoteId },
+      include: {
+        items: {
+          where: { purchaseOrderItemId: params.purchaseOrderItemId },
+        },
+      },
+    });
+
+    if (!grn) {
+      throw new Error("Goods received note not found");
+    }
+
+    const line = grn.items[0];
+    if (!line) {
+      throw new Error("Purchase order line is not on this GRN");
+    }
+
+    const received = Number(line.quantityReceived);
+    const agg = await prisma.grnReturnToVendor.aggregate({
+      where: {
+        goodsReceivedNoteId: params.goodsReceivedNoteId,
+        purchaseOrderItemId: params.purchaseOrderItemId,
+      },
+      _sum: { quantity: true },
+    });
+    const alreadyReturned = Number(agg._sum.quantity ?? 0);
+    const remaining = received - alreadyReturned;
+    if (qty > remaining + 1e-9) {
+      throw new Error(
+        `Return quantity exceeds remaining receivable on this GRN line (${remaining.toFixed(2)} remaining vs ${received.toFixed(2)} received, ${alreadyReturned.toFixed(2)} already marked for RTV)`
+      );
+    }
+
     return prisma.grnReturnToVendor.create({
       data: {
         goodsReceivedNoteId: params.goodsReceivedNoteId,
         purchaseOrderItemId: params.purchaseOrderItemId,
-        quantity: new Decimal(params.quantity),
+        quantity: new Decimal(qty),
         reason: params.reason,
         status: "SUBMITTED",
         createdById: params.createdById,

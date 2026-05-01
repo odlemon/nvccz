@@ -419,6 +419,73 @@ export class EventService {
   }
 
   /**
+   * One-way sync: pull RSVP responses from Google Calendar and update EventGuest.rsvpStatus.
+   * This is what makes "clicked Yes/No in Google invite email" reflect in the Arcus event guest list.
+   */
+  static async syncRsvpsFromGoogle(eventId: string): Promise<{
+    updated: number;
+    skippedNoGoogleLink: boolean;
+    unmatched: number;
+  }> {
+    const ev = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, googleCalendarEventId: true },
+    });
+    if (!ev) throw new Error("Event not found");
+
+    if (!process.env.GOOGLE_CALENDAR_ENABLED || process.env.GOOGLE_CALENDAR_ENABLED !== "true") {
+      return { updated: 0, skippedNoGoogleLink: true, unmatched: 0 };
+    }
+    if (!ev.googleCalendarEventId) {
+      return { updated: 0, skippedNoGoogleLink: true, unmatched: 0 };
+    }
+
+    console.log(`[GoogleCalendar] Pull RSVP statuses (eventId=${eventId}, googleEventId=${ev.googleCalendarEventId})`);
+    const rsvps = await googleCalendarService.getEventRSVPs(ev.googleCalendarEventId);
+    if (!Array.isArray(rsvps) || rsvps.length === 0) {
+      return { updated: 0, skippedNoGoogleLink: false, unmatched: 0 };
+    }
+
+    const mapToLocal: Record<string, 'ACCEPTED' | 'DECLINED' | 'MAYBE'> = {
+      accepted: "ACCEPTED",
+      declined: "DECLINED",
+      tentative: "MAYBE",
+      needsAction: "MAYBE",
+    };
+
+    let updated = 0;
+    let unmatched = 0;
+
+    for (const r of rsvps) {
+      const email = String(r?.attendeeEmail || "").trim().toLowerCase();
+      const status = mapToLocal[String(r?.responseStatus || "").trim()] || null;
+      if (!email || !status) continue;
+
+      const exists = await prisma.eventGuest.findFirst({
+        where: { eventId, email },
+        select: { id: true, rsvpStatus: true },
+      });
+      if (!exists) {
+        unmatched += 1;
+        continue;
+      }
+      if (exists.rsvpStatus === status) continue;
+
+      await prisma.eventGuest.update({
+        where: { id: exists.id },
+        data: {
+          rsvpStatus: status,
+          rsvpRespondedAt: new Date(),
+        },
+      });
+      updated += 1;
+    }
+
+    console.log(`[GoogleCalendar] Pull RSVP sync complete: updated=${updated} unmatched=${unmatched}`);
+    return { updated, skippedNoGoogleLink: false, unmatched };
+  }
+
+  /**
    * Add budget items to an event
    */
   static async addBudgetItems(eventId: string, budgetItems: BudgetItemData[]): Promise<any> {
