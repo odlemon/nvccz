@@ -866,6 +866,18 @@ export const eventController = {
     }
   },
 
+  // Pull RSVP statuses from Google Calendar into Arcus guest list
+  async syncRsvpsFromGoogle(req: AuthRequest, res: Response) {
+    try {
+      const { eventId } = req.params;
+      const result = await EventService.syncRsvpsFromGoogle(eventId);
+      res.status(200).json({ success: true, message: "Google RSVP sync complete", data: result });
+    } catch (error: any) {
+      console.error("Error syncing RSVPs from Google:", error);
+      res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    }
+  },
+
   // Get event budget items
   async getEventBudgetItems(req: AuthRequest, res: Response) {
     try {

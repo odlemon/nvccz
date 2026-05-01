@@ -848,12 +848,55 @@ router.post(
 /**
  * @swagger
  * /applicant/procurement/goods-received-notes:
+ *   get:
+ *     summary: List investee GRNs (Suite 05)
+ *     description: GRNs whose PO is linked to a purchase requisition for this applicant’s portfolio company only.
+ *     tags:
+ *       - Applicant Portal
+ *       - Investee Portal — Investment Drawdown
+ *       - Procurement — GRN & QC (Suite 05)
+ *       - Procurement - GRN
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: purchaseOrderId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: qualityStatus
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: grnNumber
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: Paginated list (`data.items`, `data.total`, `data.limit`, `data.offset`)
+ *       403:
+ *         description: Not an applicant
  *   post:
  *     summary: Create investee GRN (Suite 05) — PO must tie to this portfolio company’s PR
  *     tags:
  *       - Applicant Portal
  *       - Investee Portal — Investment Drawdown
  *       - Procurement — GRN & QC (Suite 05)
+ *       - Procurement - GRN
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -862,12 +905,88 @@ router.post(
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - purchaseOrderId
+ *               - items
+ *             properties:
+ *               purchaseOrderId:
+ *                 type: string
+ *               receivedDate:
+ *                 type: string
+ *                 format: date-time
+ *               attachmentUrls:
+ *                 description: Delivery note / waybill URLs (JSON array or object — stored as JSON)
+ *               latitude:
+ *                 type: number
+ *               longitude:
+ *                 type: number
+ *               geoCapturedAt:
+ *                 type: string
+ *                 format: date-time
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - purchaseOrderItemId
+ *                     - quantityReceived
+ *                     - quantityAccepted
+ *                     - quantityRejected
+ *                     - qualityStatus
+ *                   properties:
+ *                     purchaseOrderItemId:
+ *                       type: string
+ *                     quantityReceived:
+ *                       type: number
+ *                     quantityAccepted:
+ *                       type: number
+ *                     quantityRejected:
+ *                       type: number
+ *                     qualityStatus:
+ *                       type: string
+ *                       enum: [PENDING, PASSED, FAILED, CONDITIONAL]
+ *                     qualityNotes:
+ *                       type: string
  *     responses:
  *       201:
  *         description: GRN created (may be PENDING_GP_REVIEW per workflow)
  *       400:
  *         description: Validation / over-delivery / PO scope
  */
+router.get(
+  "/procurement/goods-received-notes",
+  authenticate,
+  applicantPortalController.listInvesteeGoodsReceivedNotes
+);
+/**
+ * @swagger
+ * /applicant/procurement/goods-received-notes/{id}:
+ *   get:
+ *     summary: Get investee GRN by id (Suite 05)
+ *     tags:
+ *       - Applicant Portal
+ *       - Investee Portal — Investment Drawdown
+ *       - Procurement — GRN & QC (Suite 05)
+ *       - Procurement - GRN
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: GRN detail
+ *       404:
+ *         description: Not found or not in portfolio scope
+ */
+router.get(
+  "/procurement/goods-received-notes/:id",
+  authenticate,
+  applicantPortalController.getInvesteeGoodsReceivedNoteById
+);
 router.post(
   "/procurement/goods-received-notes",
   authenticate,

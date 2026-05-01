@@ -40,6 +40,37 @@ function stripUploadedFilenameBase(file: Express.Multer.File): string {
   return n.replace(/\.[^./\\]+$/, "") || "Document";
 }
 
+/** GRN detail shape for investee procurement APIs (PO includes linked PR for portfolio checks). */
+const investeeGrnApiInclude = {
+  purchaseOrder: {
+    include: {
+      vendor: true,
+      items: true,
+      requisition: {
+        select: {
+          id: true,
+          requisitionNumber: true,
+          portfolioCompanyId: true,
+        },
+      },
+    },
+  },
+  receivedBy: {
+    select: { id: true, firstName: true, lastName: true, email: true },
+  },
+  approvedBy: {
+    select: { id: true, firstName: true, lastName: true, email: true },
+  },
+  items: { include: { purchaseOrderItem: true } },
+  returnToVendors: {
+    include: {
+      createdBy: {
+        select: { id: true, firstName: true, lastName: true, email: true },
+      },
+    },
+  },
+};
+
 /** Multer `.fields([{ name: 'file' }, { name: 'files' }])` → flat list (order: `file` first, then `files`). */
 function collectFinancialReportUploadFiles(req: Request): Express.Multer.File[] {
   const buckets = req.files;
@@ -1518,6 +1549,109 @@ export class ApplicantPortalController {
         }
       );
       return ResponseHelper.success(res, "Goods received note created (pending GP review if applicable)", grn);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Suite 05 — list GRNs for POs tied to this portfolio company’s PRs only. */
+  async listInvesteeGoodsReceivedNotes(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied.", undefined, 403);
+      }
+      const userId = user.id || user.userId;
+      const pc = await prisma.portfolioCompany.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!pc) {
+        return ResponseHelper.error(res, "No portfolio company for this applicant", undefined, 404);
+      }
+
+      const {
+        purchaseOrderId,
+        status,
+        qualityStatus,
+        grnNumber,
+        limit = 50,
+        offset = 0,
+      } = req.query;
+
+      const where: any = {
+        purchaseOrder: {
+          requisition: { portfolioCompanyId: pc.id },
+          ...(purchaseOrderId ? { id: String(purchaseOrderId) } : {}),
+        },
+      };
+      if (status) where.status = String(status);
+      if (qualityStatus) where.qualityStatus = String(qualityStatus);
+      if (grnNumber != null && String(grnNumber).trim() !== "") {
+        where.grnNumber = { contains: String(grnNumber).trim() };
+      }
+
+      const take = Math.min(Math.max(parseInt(String(limit), 10) || 50, 1), 200);
+      const skip = Math.max(parseInt(String(offset), 10) || 0, 0);
+
+      const [rows, total] = await Promise.all([
+        prisma.goodsReceivedNote.findMany({
+          where,
+          include: investeeGrnApiInclude as any,
+          orderBy: { createdAt: "desc" },
+          take,
+          skip,
+        }),
+        prisma.goodsReceivedNote.count({ where }),
+      ]);
+
+      return ResponseHelper.success(res, "Goods received notes retrieved successfully", {
+        items: rows,
+        total,
+        limit: take,
+        offset: skip,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /** Suite 05 — GRN detail if it belongs to this portfolio company’s PR chain. */
+  async getInvesteeGoodsReceivedNoteById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied.", undefined, 403);
+      }
+      const userId = user.id || user.userId;
+      const pc = await prisma.portfolioCompany.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!pc) {
+        return ResponseHelper.error(res, "No portfolio company for this applicant", undefined, 404);
+      }
+
+      const { id } = req.params;
+      const grn = await prisma.goodsReceivedNote.findUnique({
+        where: { id },
+        include: investeeGrnApiInclude as any,
+      });
+      if (!grn) {
+        return ResponseHelper.error(res, "Goods received note not found", undefined, 404);
+      }
+      const pid = grn.purchaseOrder?.requisition?.portfolioCompanyId;
+      if (!pid || pid !== pc.id) {
+        return ResponseHelper.error(res, "Goods received note not found", undefined, 404);
+      }
+
+      return ResponseHelper.success(res, "Goods received note retrieved successfully", grn);
     } catch (error: any) {
       next(error);
     }

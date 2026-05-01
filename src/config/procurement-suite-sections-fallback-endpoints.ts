@@ -302,8 +302,10 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
   },
   "/procurement/grn-return-to-vendor": {
     post: {
-      summary: "Create GRN return-to-vendor record (stub / workflow)",
-      tags: [S04, TAG_PO],
+      summary: "Create GRN return-to-vendor (RTV) — one PO line per call (Suite 05.9)",
+      description:
+        "Quantity must not exceed remaining received on that GRN line (minus prior RTVs on same GRN + PO line).",
+      tags: [S05, "Procurement - GRN"],
       security: bearer,
       requestBody: {
         required: true,
@@ -311,34 +313,24 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
           "application/json": {
             schema: {
               type: "object",
-              required: ["goodsReceivedNoteId", "reason", "items"],
+              required: ["goodsReceivedNoteId", "purchaseOrderItemId", "quantity"],
               properties: {
                 goodsReceivedNoteId: { type: "string", example: "grn_cuid_123" },
+                purchaseOrderItemId: { type: "string", example: "po_line_cuid_123" },
+                quantity: { type: "number", example: 2 },
                 reason: { type: "string", example: "Damaged goods on delivery" },
-                notes: { type: "string", example: "Return scheduled for pickup tomorrow" },
-                items: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    required: ["goodsReceivedNoteItemId", "quantityReturn"],
-                    properties: {
-                      goodsReceivedNoteItemId: { type: "string", example: "grn_line_cuid_123" },
-                      quantityReturn: { type: "number", example: 1 },
-                    },
-                  },
-                },
               },
             },
             example: {
               goodsReceivedNoteId: "grn_cuid_123",
+              purchaseOrderItemId: "po_line_cuid_123",
+              quantity: 2,
               reason: "Damaged packaging; failed QC",
-              notes: "Vendor agreed to replace within 7 days",
-              items: [{ goodsReceivedNoteItemId: "grn_line_cuid_123", quantityReturn: 1 }],
             },
           },
         },
       },
-      responses: { 201: { description: "Created" } },
+      responses: { 201: { description: "Created" }, 400: { description: "Validation" } },
     },
   },
   "/public/purchase-orders/{token}/acknowledge": {
@@ -373,6 +365,22 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
 
   // --- Suite 05: goods receipt ---
   "/procurement/goods-received-notes": {
+    get: {
+      summary: "List GRNs (filters: PO, vendor, status, etc.)",
+      tags: [S05, "Procurement - GRN"],
+      security: bearer,
+      parameters: [
+        { in: "query", name: "purchaseOrderId", schema: { type: "string" } },
+        { in: "query", name: "vendorId", schema: { type: "string" } },
+        { in: "query", name: "status", schema: { type: "string" } },
+        { in: "query", name: "qualityStatus", schema: { type: "string" } },
+        { in: "query", name: "submittedByInvestee", schema: { type: "boolean" } },
+        { in: "query", name: "grnNumber", schema: { type: "string" } },
+        { in: "query", name: "limit", schema: { type: "integer", default: 50 } },
+        { in: "query", name: "offset", schema: { type: "integer", default: 0 } },
+      ],
+      responses: { 200: { description: "Paginated list" } },
+    },
     post: {
       summary: "Create GRN (over-delivery tolerance, vendor rating from lead time)",
       description:
@@ -431,7 +439,28 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
       responses: { 201: { description: "Created" }, 400: { description: "Bad request" } },
     },
   },
+  "/procurement/goods-received-notes/{id}": {
+    get: {
+      summary: "Get GRN by id",
+      tags: [S05, "Procurement - GRN"],
+      security: bearer,
+      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
+      responses: { 200: { description: "OK" }, 404: { description: "Not found" } },
+    },
+  },
   "/applicant/procurement/goods-received-notes": {
+    get: {
+      summary: "List investee GRNs (portfolio-scoped)",
+      tags: [S05, "Procurement - GRN"],
+      security: bearer,
+      parameters: [
+        { in: "query", name: "purchaseOrderId", schema: { type: "string" } },
+        { in: "query", name: "status", schema: { type: "string" } },
+        { in: "query", name: "limit", schema: { type: "integer", default: 50 } },
+        { in: "query", name: "offset", schema: { type: "integer", default: 0 } },
+      ],
+      responses: { 200: { description: "OK" } },
+    },
     post: {
       summary: "Create investee GRN (Suite 05) — PO must belong to applicant portfolio PR",
       tags: [
@@ -485,6 +514,15 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
         },
       },
       responses: { 201: { description: "Created" }, 400: { description: "Bad request" } },
+    },
+  },
+  "/applicant/procurement/goods-received-notes/{id}": {
+    get: {
+      summary: "Get investee GRN by id (portfolio-scoped)",
+      tags: [S05, "Procurement - GRN"],
+      security: bearer,
+      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
+      responses: { 200: { description: "OK" }, 404: { description: "Not found" } },
     },
   },
 
