@@ -346,6 +346,8 @@ export class GoogleCalendarService {
 
     return this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
+      prompt: 'consent',
+      include_granted_scopes: true,
       scope: scopes,
     });
   }
