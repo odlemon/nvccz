@@ -4,8 +4,64 @@
 import express from "express";
 import { authController } from "../controllers/AuthController";
 import { authenticate } from "../middleware/authenticate";
+import { GoogleCalendarService } from "../services/GoogleCalendarService";
 
 const router = express.Router();
+
+/**
+ * Google OAuth entrypoint for Calendar integration.
+ * This is used to obtain a refresh token for server-side Google Calendar sync.
+ */
+router.get("/google", async (_req, res) => {
+  try {
+    const g = new GoogleCalendarService();
+    const url = g.getAuthUrl();
+    return res.redirect(url);
+  } catch (e: any) {
+    console.error("Google OAuth start failed:", e);
+    return res.status(500).json({ success: false, message: e?.message || "Failed to start Google OAuth" });
+  }
+});
+
+/**
+ * Google OAuth callback for Calendar integration.
+ * Configure this exact URL in Google Cloud as an authorized redirect URI.
+ *
+ * Example:
+ *  - https://dev-api.arcus.co.zw/auth/google/callback
+ */
+router.get("/google/callback", async (req, res) => {
+  try {
+    const code = String(req.query.code || "").trim();
+    if (!code) {
+      return res.status(400).send("Missing ?code= from Google callback.");
+    }
+    const g = new GoogleCalendarService();
+    const tokens = await g.getTokens(code);
+
+    // Show tokens in browser for copy/paste into env. Avoid logging tokens to server logs.
+    return res
+      .status(200)
+      .send(
+        `<pre>${JSON.stringify(
+          {
+            receivedAt: new Date().toISOString(),
+            tokens,
+            envHints: {
+              GOOGLE_CLIENT_ID: "set in server env",
+              GOOGLE_CLIENT_SECRET: "set in server env",
+              GOOGLE_REFRESH_TOKEN: tokens?.refresh_token || "(no refresh_token returned)",
+            },
+          },
+          null,
+          2
+        )}</pre>`
+      );
+  } catch (e: any) {
+    console.error("Google OAuth callback failed:", e);
+    return res.status(500).send(`Google OAuth callback failed: ${e?.message || String(e)}`);
+  }
+});
 
 /**
  * @swagger
