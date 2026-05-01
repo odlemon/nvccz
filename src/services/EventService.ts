@@ -118,6 +118,109 @@ export class EventService {
     }
   }
 
+  static async updateEvent(eventId: string, updateData: any): Promise<any> {
+    const updatedEvent = await prisma.event.update({
+      where: { id: eventId },
+      data: updateData,
+      include: { author: { select: { id: true, firstName: true, lastName: true, email: true } } },
+    });
+
+    if (process.env.GOOGLE_CALENDAR_ENABLED === 'true') {
+      try {
+        console.log(
+          `[GoogleCalendar] Update event (eventId=${updatedEvent.id}, googleEventId=${updatedEvent.googleCalendarEventId || "null"})`
+        );
+        const googleEvent: any = {
+          summary: updatedEvent.title,
+          description: updatedEvent.description,
+          start: { dateTime: updatedEvent.startDate, timeZone: undefined },
+          end: { dateTime: updatedEvent.endDate, timeZone: undefined },
+          location: updatedEvent.location,
+        };
+
+        if (updatedEvent.googleCalendarEventId) {
+          await googleCalendarService.updateEvent(updatedEvent.googleCalendarEventId, googleEvent);
+          console.log(`[GoogleCalendar] Update event OK (sendUpdates=all)`);
+        } else {
+          const googleData = await googleCalendarService.syncEventWithGoogle(updatedEvent);
+          await prisma.event.update({
+            where: { id: updatedEvent.id },
+            data: {
+              googleCalendarEventId: googleData.googleEventId,
+              googleCalendarLink: googleData.googleCalendarLink,
+            },
+          });
+          updatedEvent.googleCalendarEventId = googleData.googleEventId;
+          updatedEvent.googleCalendarLink = googleData.googleCalendarLink;
+          console.log(`[GoogleCalendar] Created + linked Google event OK (sendUpdates=all)`);
+        }
+      } catch (e) {
+        console.error("Failed to update Google Calendar event:", e);
+      }
+    }
+
+    return updatedEvent;
+  }
+
+  static async deleteEvent(eventId: string): Promise<void> {
+    const existing = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, googleCalendarEventId: true } });
+    if (!existing) return;
+
+    if (process.env.GOOGLE_CALENDAR_ENABLED === 'true' && existing.googleCalendarEventId) {
+      try {
+        console.log(
+          `[GoogleCalendar] Delete event (eventId=${existing.id}, googleEventId=${existing.googleCalendarEventId})`
+        );
+        await googleCalendarService.deleteEvent(existing.googleCalendarEventId);
+        console.log(`[GoogleCalendar] Delete event OK (sendUpdates=all)`);
+      } catch (e) {
+        console.error("Failed to delete Google Calendar event:", e);
+      }
+    }
+
+    await prisma.event.update({ where: { id: eventId }, data: { isActive: false } });
+  }
+
+  static async removeGuests(eventId: string, emails: string[]): Promise<{ deletedCount: number }> {
+    const norm = (e: any) => String(e || "").trim().toLowerCase();
+    const list = Array.from(new Set((emails || []).map(norm).filter(Boolean)));
+    if (!list.length) return { deletedCount: 0 };
+
+    const ev = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, googleCalendarEventId: true },
+    });
+    if (!ev) throw new Error("Event not found");
+
+    const del = await prisma.eventGuest.deleteMany({
+      where: { eventId, email: { in: list } },
+    });
+
+    // Re-sync attendees after deletion
+    if (process.env.GOOGLE_CALENDAR_ENABLED === "true" && ev.googleCalendarEventId) {
+      try {
+        console.log(
+          `[GoogleCalendar] Re-sync attendees after delete (eventId=${eventId}, googleEventId=${ev.googleCalendarEventId})`
+        );
+        const allGuests = await prisma.eventGuest.findMany({
+          where: { eventId },
+          select: { email: true, name: true },
+          orderBy: { createdAt: "asc" },
+        });
+        console.log(`[GoogleCalendar] Attendees count=${allGuests.length}`);
+        await googleCalendarService.updateEventAttendees(
+          ev.googleCalendarEventId,
+          allGuests.map((g) => ({ email: g.email, name: g.name }))
+        );
+        console.log(`[GoogleCalendar] Attendees sync OK`);
+      } catch (e) {
+        console.error("Failed to sync Google Calendar attendees after delete:", e);
+      }
+    }
+
+    return { deletedCount: del.count };
+  }
+
   /**
    * Add guests to an event
    */
@@ -131,8 +234,32 @@ export class EventService {
         throw new Error('Event not found');
       }
 
+      const normEmail = (e: any) => String(e || "").trim().toLowerCase();
+      const incoming = (guests || [])
+        .map((g) => ({ ...g, email: normEmail(g.email) }))
+        .filter((g) => g.email && g.name);
+      const deduped: GuestData[] = [];
+      const seen = new Set<string>();
+      for (const g of incoming) {
+        if (seen.has(g.email)) continue;
+        seen.add(g.email);
+        deduped.push(g);
+      }
+
+      const existing = await prisma.eventGuest.findMany({
+        where: { eventId, email: { in: deduped.map((g) => g.email) } },
+        select: { email: true },
+      });
+      const existingSet = new Set(existing.map((r) => normEmail(r.email)));
+      const toCreate = deduped.filter((g) => !existingSet.has(g.email));
+
+      const skippedExisting = deduped.length - toCreate.length;
+      if (skippedExisting > 0) {
+        console.log(`[EventGuests] Skipping existing guests: ${skippedExisting}`);
+      }
+
       const guestRecords: any[] = [];
-      for (const guest of guests) {
+      for (const guest of toCreate) {
         const invitationToken = crypto.randomBytes(32).toString('hex');
         try {
           const created = await prisma.eventGuest.create({
@@ -152,8 +279,11 @@ export class EventService {
           });
           guestRecords.push(created);
         } catch (e: any) {
-          // Skip duplicates (unique: eventId+email) instead of failing whole request.
-          if (e?.code === "P2002") continue;
+          // Defensive: still skip duplicates if a race happens.
+          if (e?.code === "P2002") {
+            console.log(`[EventGuests] Duplicate skipped at create: ${guest.email}`);
+            continue;
+          }
           throw e;
         }
       }
@@ -175,6 +305,29 @@ export class EventService {
         }
       }
 
+      // Sync attendees to Google Calendar (if event is already linked)
+      if (process.env.GOOGLE_CALENDAR_ENABLED === 'true' && event.googleCalendarEventId) {
+        try {
+          console.log(
+            `[GoogleCalendar] Sync attendees (eventId=${eventId}, googleEventId=${event.googleCalendarEventId})`
+          );
+          const allGuests = await prisma.eventGuest.findMany({
+            where: { eventId },
+            select: { email: true, name: true },
+            orderBy: { createdAt: 'asc' },
+          });
+          console.log(`[GoogleCalendar] Attendees count=${allGuests.length}`);
+          await googleCalendarService.updateEventAttendees(
+            event.googleCalendarEventId,
+            allGuests.map((g) => ({ email: g.email, name: g.name }))
+          );
+          console.log(`[GoogleCalendar] Attendees sync OK`);
+        } catch (e) {
+          console.error("Failed to sync Google Calendar attendees:", e);
+        }
+      }
+
+      // Return created records (callers can compute effective/skipped from request vs result if needed)
       return guestRecords;
     } catch (error) {
       console.error('Error adding guests:', error);
@@ -238,6 +391,24 @@ export class EventService {
         });
       } catch (emailError) {
         console.error('Failed to send RSVP notification:', emailError);
+      }
+
+      // Sync RSVP to Google Calendar attendee (if linked)
+      if (process.env.GOOGLE_CALENDAR_ENABLED === 'true' && guest.event.googleCalendarEventId) {
+        try {
+          console.log(
+            `[GoogleCalendar] Sync RSVP (googleEventId=${guest.event.googleCalendarEventId}, email=${guest.email}, status=${rsvpStatus})`
+          );
+          const map: any = { ACCEPTED: 'accepted', DECLINED: 'declined', MAYBE: 'tentative' };
+          await googleCalendarService.updateAttendeeResponse(
+            guest.event.googleCalendarEventId,
+            guest.email,
+            map[rsvpStatus] || 'needsAction'
+          );
+          console.log(`[GoogleCalendar] RSVP sync OK`);
+        } catch (e) {
+          console.error("Failed to sync RSVP to Google Calendar:", e);
+        }
       }
 
       return updatedGuest;

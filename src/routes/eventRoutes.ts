@@ -537,6 +537,7 @@ router.delete("/:id", eventController.deleteEvent);
  *         description: Unauthorized
  */
 router.post("/:eventId/guests", eventController.addGuests);
+router.delete("/:eventId/guests", eventController.removeGuests);
 
 /**
  * @swagger
