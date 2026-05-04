@@ -527,6 +527,49 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
   },
 
   // --- Suite 06: AI intake + 3-way match + CFO dashboard (see procurementSuite06Routes) ---
+  "/procurement/suite06/intakes/upload-document": {
+    post: {
+      summary: "Upload vendor invoice PDF (multipart) — returns documentUrl for POST …/intakes",
+      tags: [S06_INTAKE],
+      security: bearer,
+      requestBody: {
+        required: true,
+        content: {
+          "multipart/form-data": {
+            schema: {
+              type: "object",
+              required: ["document"],
+              properties: { document: { type: "string", format: "binary" } },
+            },
+          },
+        },
+      },
+      responses: { 201: { description: "Created" }, 400: { description: "Validation" } },
+    },
+  },
+  "/procurement/invoices/upload-document": {
+    post: {
+      summary: "PUBLIC — upload vendor invoice PDF for legacy procurement invoice flow",
+      tags: ["Procurement - Invoices"],
+      security: [],
+      requestBody: {
+        required: true,
+        content: {
+          "multipart/form-data": {
+            schema: {
+              type: "object",
+              required: ["document"],
+              properties: {
+                document: { type: "string", format: "binary" },
+                vendorId: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+      responses: { 201: { description: "Created" }, 400: { description: "Validation" } },
+    },
+  },
   "/procurement/suite06/intakes": {
     post: {
       summary: "Create vendor invoice intake (document URL)",

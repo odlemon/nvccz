@@ -127,9 +127,10 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   "cashbook-receipts": "cashbook-imports",
   "cashbook-receipt": "cashbook-imports",
   
-  // Financial reports
+  // Financial reports + procurement vendor invoice PDFs (same remote folder tree)
   "financial-reports": "financial-reports",
   "financial-report": "financial-reports",
+  "procurement-vendor-invoices": "financial-reports",
   
   // Application documents
   "application-documents": "application-documents",

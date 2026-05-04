@@ -4,7 +4,7 @@ import { ExtractedDocumentContent } from './DocumentTextExtractionService';
 import { LlmChatService } from './LlmChatService';
 
 /**
- * Application scoring via configurable LLM (see LlmChatService / LLM_* env vars).
+ * Application scoring via configurable LLM (see LlmChatService; defaults in src/config/llmGlobals.ts, optional LLM_* env overrides).
  */
 export class ChatGPTService {
 
