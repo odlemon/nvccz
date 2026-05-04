@@ -42,6 +42,32 @@ export class FirebaseStorageService {
   }
 
   /**
+   * Vendor invoice PDF for Suite 06 intake or public procurement invoice attachment.
+   * Uses correct MIME type (unlike uploadImportFile which forces CSV).
+   */
+  static async uploadProcurementVendorInvoice(
+    file: Buffer,
+    fileName: string,
+    userId: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    const sanitizedName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    const safeUser = (userId || "anonymous").replace(/[^a-zA-Z0-9.\-_]/g, "_").slice(0, 32);
+    const timestamp = Date.now();
+    const result = await remoteUploadService.uploadSingleFile(
+      {
+        buffer: file,
+        originalname: `${timestamp}-${sanitizedName}`,
+        mimetype: this.getMimeType(fileName),
+      },
+      "procurement-vendor-invoices"
+    );
+    return {
+      filePath: `procurement-vendor-invoices/${safeUser}/${timestamp}-${sanitizedName}`,
+      downloadURL: result.downloadURL,
+    };
+  }
+
+  /**
    * Upload a financial report document for a portfolio company (replaces Firebase)
    */
   static async uploadFinancialReport(

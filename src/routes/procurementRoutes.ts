@@ -30,6 +30,52 @@ const uploadProofOfPayment = multer({
   }
 });
 
+const uploadPublicVendorInvoicePdf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok =
+      file.mimetype === "application/pdf" || /\.pdf$/i.test(String(file.originalname || ""));
+    cb(ok ? null : new Error("Only PDF files are allowed"), ok);
+  },
+});
+
+/**
+ * @swagger
+ * /procurement/invoices/upload-document:
+ *   post:
+ *     summary: Upload invoice PDF (PUBLIC — vendors, no JWT)
+ *     description: |
+ *       Multipart field **`document`** (PDF, max 15MB). Optional form field **`vendorId`** scopes storage paths.
+ *       Returns **`documentUrl`** — use that value as **`documentPath`** (or URL) when calling **`POST /procurement/invoices`**.
+ *     tags: [Procurement - Invoices]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - document
+ *             properties:
+ *               document:
+ *                 type: string
+ *                 format: binary
+ *               vendorId:
+ *                 type: string
+ *                 description: Optional vendor id for upload path grouping
+ *     responses:
+ *       201:
+ *         description: Upload succeeded — use data.documentUrl on invoice create
+ *       400:
+ *         description: Missing file or invalid type
+ */
+router.post(
+  "/invoices/upload-document",
+  uploadPublicVendorInvoicePdf.single("document"),
+  ProcurementController.uploadVendorInvoiceDocument
+);
+
 /**
  * @swagger
  * /procurement/invoices:

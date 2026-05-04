@@ -1,5 +1,6 @@
 //@ts-nocheck
 import axios from "axios";
+import { LLM_GLOBAL_DEFAULTS } from "../config/llmGlobals";
 import { logger } from "../utils/logger";
 
 export type LlmChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -11,17 +12,12 @@ export type LlmChatCompletionOptions = {
   responseFormatJsonObject?: boolean;
 };
 
-/** Local/UAT only: DeepSeek OpenAI-compatible API when `LLM_API_KEY` is unset. Remove or rotate before production deploy. */
-const FALLBACK_TEST_LLM_API_KEY = "sk-7304b429a9dc4272bc0ab3a81bff65a0";
-const FALLBACK_TEST_LLM_BASE_URL = "https://api.deepseek.com/v1";
-const FALLBACK_TEST_LLM_MODEL = "deepseek-chat";
-
 /**
  * OpenAI-compatible chat completions client (configurable base URL + API key).
  * Used by portfolio scoring, Suite 06 invoice extraction, and other LLM features.
  *
- * If `LLM_API_KEY` is set, defaults target OpenAI unless `LLM_API_BASE_URL` / `LLM_MODEL` override.
- * If unset, uses embedded DeepSeek test credentials (UAT only).
+ * **Defaults:** `src/config/llmGlobals.ts` (`LLM_GLOBAL_DEFAULTS`) — DeepSeek test key + base URL.
+ * **Overrides:** `LLM_API_KEY` / `LLM_API_BASE_URL` / `LLM_MODEL` when set (e.g. production OpenAI).
  */
 export function getLlmConfig(): {
   baseUrl: string;
@@ -32,12 +28,12 @@ export function getLlmConfig(): {
 } {
   const envKey = String(process.env.LLM_API_KEY || "").trim();
   const usingEnvKey = Boolean(envKey);
-  const apiKey = usingEnvKey ? envKey : FALLBACK_TEST_LLM_API_KEY;
+  const apiKey = usingEnvKey ? envKey : LLM_GLOBAL_DEFAULTS.apiKey;
   const baseUrl = (
     process.env.LLM_API_BASE_URL ||
-    (usingEnvKey ? "https://api.openai.com/v1" : FALLBACK_TEST_LLM_BASE_URL)
+    (usingEnvKey ? "https://api.openai.com/v1" : LLM_GLOBAL_DEFAULTS.apiBaseUrl)
   ).replace(/\/$/, "");
-  const model = process.env.LLM_MODEL || (usingEnvKey ? "gpt-4o" : FALLBACK_TEST_LLM_MODEL);
+  const model = process.env.LLM_MODEL || (usingEnvKey ? "gpt-4o" : LLM_GLOBAL_DEFAULTS.model);
   const timeoutMs = Math.min(120000, Math.max(5000, Number(process.env.LLM_TIMEOUT_MS) || 60000));
   return {
     baseUrl,
@@ -60,7 +56,7 @@ export class LlmChatService {
     const cfg = getLlmConfig();
     if (!cfg.configured) {
       throw new Error(
-        "LLM is not configured: set LLM_API_KEY (and optionally LLM_API_BASE_URL, LLM_MODEL) in the environment."
+        "LLM is not configured: set apiKey in src/config/llmGlobals.ts or LLM_API_KEY in the environment."
       );
     }
 

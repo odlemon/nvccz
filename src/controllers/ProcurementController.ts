@@ -873,6 +873,48 @@ export class ProcurementController {
   }
 
   /**
+   * PUBLIC — upload invoice PDF; returns a URL to pass as documentPath on `POST /procurement/invoices`.
+   * Multipart field name: `document`. Optional `vendorId` form field for storage path grouping.
+   */
+  static async uploadVendorInvoiceDocument(req: Request, res: Response) {
+    try {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file?.buffer?.length) {
+        return res.status(400).json({
+          success: false,
+          message: "PDF file required (multipart field name: document)",
+        });
+      }
+      const vendorKey = String(req.body?.vendorId || "public-vendor")
+        .trim()
+        .replace(/[^a-zA-Z0-9.\-_]/g, "_")
+        .slice(0, 64);
+      const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
+      const { filePath, downloadURL } = await FirebaseStorageService.uploadProcurementVendorInvoice(
+        file.buffer,
+        file.originalname || "invoice.pdf",
+        vendorKey
+      );
+      res.status(201).json({
+        success: true,
+        message: "Document uploaded. Use documentUrl as documentPath when creating the invoice.",
+        data: {
+          documentUrl: downloadURL,
+          documentPath: downloadURL,
+          filePath,
+          documentType: "PDF",
+        },
+      });
+    } catch (error: any) {
+      console.error("Error uploading vendor invoice document:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to upload document",
+      });
+    }
+  }
+
+  /**
    * Create a procurement invoice (PUBLIC - vendors submit invoices)
    * Vendors are not logged in, so no authentication required
    */

@@ -1,10 +1,54 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
 import { ProcurementSuite06Controller } from "../controllers/ProcurementSuite06Controller";
 
 const router = express.Router();
 router.use(authenticate);
+
+const uploadVendorInvoicePdf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok =
+      file.mimetype === "application/pdf" || /\.pdf$/i.test(String(file.originalname || ""));
+    cb(ok ? null : new Error("Only PDF files are allowed"), ok);
+  },
+});
+
+/**
+ * @swagger
+ * /procurement/suite06/intakes/upload-document:
+ *   post:
+ *     summary: Upload vendor invoice PDF (returns documentUrl for intake creation)
+ *     description: Multipart field **`document`** (PDF, max 15MB). Same storage pipeline as portfolio uploads.
+ *     tags: [Procurement — AI invoice intake (Suite 06)]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - document
+ *             properties:
+ *               document:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Returns documentUrl and documentPath
+ *       400:
+ *         description: Missing file or not PDF
+ */
+router.post(
+  "/intakes/upload-document",
+  uploadVendorInvoicePdf.single("document"),
+  ProcurementSuite06Controller.uploadIntakeDocument
+);
 
 /**
  * @swagger
