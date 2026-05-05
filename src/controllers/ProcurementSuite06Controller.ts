@@ -4,6 +4,37 @@ import { VendorInvoiceIntakeService } from "../services/VendorInvoiceIntakeServi
 import { ThreeWayMatchService } from "../services/ThreeWayMatchService";
 
 export class ProcurementSuite06Controller {
+  /**
+   * Multipart PDF upload → public documentUrl for POST /intakes (same remote store as other modules).
+   * Field name: `document` (PDF only, max 15MB).
+   */
+  static async uploadIntakeDocument(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file?.buffer?.length) {
+        return res.status(400).json({ success: false, message: "PDF file required (field name: document)" });
+      }
+      const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
+      const { filePath, downloadURL } = await FirebaseStorageService.uploadProcurementVendorInvoice(
+        file.buffer,
+        file.originalname || "invoice.pdf",
+        userId
+      );
+      res.status(201).json({
+        success: true,
+        data: {
+          documentUrl: downloadURL,
+          documentPath: filePath,
+          documentType: "PDF",
+        },
+      });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message || "Upload failed" });
+    }
+  }
+
   static async createIntake(req: Request, res: Response) {
     try {
       const userId = req.user?.id;

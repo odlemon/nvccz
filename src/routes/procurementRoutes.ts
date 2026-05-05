@@ -30,6 +30,52 @@ const uploadProofOfPayment = multer({
   }
 });
 
+const uploadPublicVendorInvoicePdf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok =
+      file.mimetype === "application/pdf" || /\.pdf$/i.test(String(file.originalname || ""));
+    cb(ok ? null : new Error("Only PDF files are allowed"), ok);
+  },
+});
+
+/**
+ * @swagger
+ * /procurement/invoices/upload-document:
+ *   post:
+ *     summary: Upload invoice PDF (PUBLIC — vendors, no JWT)
+ *     description: |
+ *       Multipart field **`document`** (PDF, max 15MB). Optional form field **`vendorId`** scopes storage paths.
+ *       Returns **`documentUrl`** — use that value as **`documentPath`** (or URL) when calling **`POST /procurement/invoices`**.
+ *     tags: [Procurement - Invoices]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - document
+ *             properties:
+ *               document:
+ *                 type: string
+ *                 format: binary
+ *               vendorId:
+ *                 type: string
+ *                 description: Optional vendor id for upload path grouping
+ *     responses:
+ *       201:
+ *         description: Upload succeeded — use data.documentUrl on invoice create
+ *       400:
+ *         description: Missing file or invalid type
+ */
+router.post(
+  "/invoices/upload-document",
+  uploadPublicVendorInvoicePdf.single("document"),
+  ProcurementController.uploadVendorInvoiceDocument
+);
+
 /**
  * @swagger
  * /procurement/invoices:
@@ -541,6 +587,54 @@ router.patch(
   "/purchase-orders/:poId/lines/:lineId/cancel",
   ProcurementController.cancelPurchaseOrderLine
 );
+
+/**
+ * @swagger
+ * /procurement/grn-return-to-vendor:
+ *   post:
+ *     summary: Record a return-to-vendor (RTV) against a GRN line (Suite 05.9)
+ *     description: |
+ *       **Required Role:** PROCUREMENT staff (same as GRN creation). Creates a `GrnReturnToVendor` row.
+ *       Quantity cannot exceed remaining received on that GRN line (received minus prior RTVs on the same GRN + PO line).
+ *     tags: [Procurement - GRN]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - goodsReceivedNoteId
+ *               - purchaseOrderItemId
+ *               - quantity
+ *             properties:
+ *               goodsReceivedNoteId:
+ *                 type: string
+ *                 description: GRN id
+ *               purchaseOrderItemId:
+ *                 type: string
+ *                 description: PO line id (must appear on the GRN)
+ *               quantity:
+ *                 type: number
+ *                 description: Units to return (positive; capped by remaining received on line)
+ *               reason:
+ *                 type: string
+ *                 description: Optional RTV reason
+ *           example:
+ *             goodsReceivedNoteId: clxxxxxxxxxxxxxxxxxxxxxxxx
+ *             purchaseOrderItemId: clyyyyyyyyyyyyyyyyyyyyyyyy
+ *             quantity: 2
+ *             reason: Damaged in transit — vendor collection arranged
+ *     responses:
+ *       201:
+ *         description: RTV record created
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ */
 router.post("/grn-return-to-vendor", ProcurementController.createGrnReturnToVendor);
 
 /**
@@ -770,6 +864,61 @@ router.get("/invoices", ProcurementController.getAllProcurementInvoices);
 /**
  * @swagger
  * /procurement/goods-received-notes:
+ *   get:
+ *     summary: List goods received notes
+ *     description: |
+ *       **Required Role:** Authenticated procurement user. Filter by PO, vendor, status, etc.
+ *       Returns GRNs with PO, vendor, lines, and RTV records (same shape as create response).
+ *     tags: [Procurement - GRN]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: purchaseOrderId
+ *         schema:
+ *           type: string
+ *         description: Filter by purchase order id
+ *       - in: query
+ *         name: vendorId
+ *         schema:
+ *           type: string
+ *         description: Filter by PO vendor id
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: GRN header status (e.g. RECEIVED, PENDING_GP_REVIEW)
+ *       - in: query
+ *         name: qualityStatus
+ *         schema:
+ *           type: string
+ *         description: GRN quality rollup (e.g. PENDING, PASSED)
+ *       - in: query
+ *         name: submittedByInvestee
+ *         schema:
+ *           type: boolean
+ *         description: When true, only investee-submitted GRNs
+ *       - in: query
+ *         name: grnNumber
+ *         schema:
+ *           type: string
+ *         description: Partial match on GRN number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Page size (max 200)
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: Paginated list
+ *       401:
+ *         description: Unauthorized
  *   post:
  *     summary: Create a goods received note
  *     description: **Required Role:** PROC_MGR, PROC_OFF, BUYER, or WAREHOUSE_MANAGER. Records received quantities, accepted quantities, and rejected quantities. Updates PO item quantities.
@@ -793,6 +942,15 @@ router.get("/invoices", ProcurementController.getAllProcurementInvoices);
  *                 type: string
  *                 format: date-time
  *                 description: Optional. Actual receipt time for lead-time vs PO expectedDeliveryDate (vendor rating). Defaults to now if omitted.
+ *               attachmentUrls:
+ *                 description: Optional JSON array of delivery note / waybill URLs (Suite 05)
+ *               latitude:
+ *                 type: number
+ *               longitude:
+ *                 type: number
+ *               geoCapturedAt:
+ *                 type: string
+ *                 format: date-time
  *               items:
  *                 type: array
  *                 items:
@@ -825,6 +983,31 @@ router.get("/invoices", ProcurementController.getAllProcurementInvoices);
  *       401:
  *         description: Unauthorized
  */
+router.get("/goods-received-notes", ProcurementController.getGoodsReceivedNotes);
+/**
+ * @swagger
+ * /procurement/goods-received-notes/{id}:
+ *   get:
+ *     summary: Get goods received note by id
+ *     description: **Required Role:** Authenticated procurement user. Full detail including PO, items, RTVs.
+ *     tags: [Procurement - GRN]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: GRN detail
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+router.get("/goods-received-notes/:id", ProcurementController.getGoodsReceivedNoteById);
 router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNote);
 
 /**

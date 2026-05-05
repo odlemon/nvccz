@@ -201,6 +201,7 @@ Staff may also **`POST /api/procurement/requisitions`** with optional `portfolio
 }
 ```
 
+
 ### Configuration
 
 - **`PROCUREMENT_INVESTEE_NOTIFY_EMAILS`** (optional, comma-separated): override recipients for “procurement desk” email on investee submit. If unset, users in **Procurement** department or roles **PROC_MGR**, **PROC_OFF**, **BUYER**, **PROC_COORD** are notified.

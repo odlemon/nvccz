@@ -256,20 +256,7 @@ export const eventController = {
       if (feedbackRequired !== undefined) updateData.feedbackRequired = feedbackRequired;
 
       // Update event
-      const updatedEvent = await prisma.event.update({
-        where: { id },
-        data: updateData,
-        include: {
-          author: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          }
-        }
-      });
+      const updatedEvent = await EventService.updateEvent(id, updateData);
 
       res.status(200).json({
         success: true,
@@ -313,10 +300,7 @@ export const eventController = {
       }
 
       // Soft delete by setting isActive to false
-      await prisma.event.update({
-        where: { id },
-        data: { isActive: false }
-      });
+      await EventService.deleteEvent(id);
 
       res.status(200).json({
         success: true,
@@ -358,6 +342,23 @@ export const eventController = {
         success: false,
         message: error.message || "Internal server error"
       });
+    }
+  },
+
+  // Remove guests by email (and resync Google attendees)
+  async removeGuests(req: AuthRequest, res: Response) {
+    try {
+      const { eventId } = req.params;
+      const emails = (req.body as any)?.emails;
+      if (!emails || !Array.isArray(emails) || emails.length === 0) {
+        res.status(400).json({ success: false, message: "emails[] is required" });
+        return;
+      }
+      const result = await EventService.removeGuests(eventId, emails);
+      res.status(200).json({ success: true, message: "Guests removed", data: result });
+    } catch (error: any) {
+      console.error("Error removing guests:", error);
+      res.status(500).json({ success: false, message: error.message || "Internal server error" });
     }
   },
 
@@ -862,6 +863,18 @@ export const eventController = {
         success: false,
         message: "Internal server error"
       });
+    }
+  },
+
+  // Pull RSVP statuses from Google Calendar into Arcus guest list
+  async syncRsvpsFromGoogle(req: AuthRequest, res: Response) {
+    try {
+      const { eventId } = req.params;
+      const result = await EventService.syncRsvpsFromGoogle(eventId);
+      res.status(200).json({ success: true, message: "Google RSVP sync complete", data: result });
+    } catch (error: any) {
+      console.error("Error syncing RSVPs from Google:", error);
+      res.status(500).json({ success: false, message: error.message || "Internal server error" });
     }
   },
 

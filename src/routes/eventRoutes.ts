@@ -537,6 +537,7 @@ router.delete("/:id", eventController.deleteEvent);
  *         description: Unauthorized
  */
 router.post("/:eventId/guests", eventController.addGuests);
+router.delete("/:eventId/guests", eventController.removeGuests);
 
 /**
  * @swagger
@@ -619,6 +620,7 @@ router.post("/:eventId/guests/bulk-upload", upload.single("file"), eventControll
  *         description: Unauthorized
  */
 router.get("/:eventId/guests", eventController.getEventGuests);
+router.post("/:eventId/google/sync-rsvps", eventController.syncRsvpsFromGoogle);
 
 // RSVP Management - Route moved above authentication middleware (see top of file)
 
