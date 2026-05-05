@@ -67,6 +67,7 @@
     "db:ensure:employee-performance-contracts": "ts-node scripts/ensure-employee-performance-contracts.ts",
     "db:ensure:employee-performance-contract-email": "ts-node scripts/ensure-employee-performance-contract-for-email.ts",
     "db:cleanup:performance-contracts": "ts-node scripts/delete-all-performance-contracts.ts",
+    "db:cleanup:performance-module": "ts-node scripts/cleanup-performance-module-data.ts",
     "db:dedupe:performance-contracts": "ts-node scripts/dedupe-performance-contracts.ts",
     "db:seed:ceo-performance-contract": "ts-node scripts/seed-ceo-performance-contract.ts",
     "uat:ceo-bsc-e2e": "ts-node scripts/run-ceo-bsc-e2e-2026.ts",
