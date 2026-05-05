@@ -1128,7 +1128,26 @@ export class TaskService {
       }
 
       if (filters.isOverdue !== undefined) {
-        where.isOverdue = filters.isOverdue;
+        // `isOverdue` can be stored or derived from due date (some environments don't run overdue flagging).
+        // When filtering for overdue=true, include tasks whose due date has passed (and are not completed),
+        // in addition to tasks explicitly marked isOverdue=true.
+        if (filters.isOverdue === true) {
+          const now = new Date();
+          where.AND = where.AND || [];
+          where.AND.push({
+            OR: [
+              { isOverdue: true },
+              {
+                AND: [
+                  { date: { lt: now } },
+                  { stage: { notIn: ["completed"] } }
+                ]
+              }
+            ]
+          });
+        } else {
+          where.isOverdue = filters.isOverdue;
+        }
       }
 
       if (filters.fromDueDiligence !== undefined) {
@@ -1144,11 +1163,14 @@ export class TaskService {
       }
 
       if (filters.search) {
-        where.OR = [
-          { title: { contains: filters.search, mode: 'insensitive' } },
-          { stage: { contains: filters.search, mode: 'insensitive' } },
-          { priority: { contains: filters.search, mode: 'insensitive' } }
-        ];
+        where.AND = where.AND || [];
+        where.AND.push({
+          OR: [
+            { title: { contains: filters.search, mode: 'insensitive' } },
+            { stage: { contains: filters.search, mode: 'insensitive' } },
+            { priority: { contains: filters.search, mode: 'insensitive' } }
+          ]
+        });
       }
 
       const tasks = await prisma.task.findMany({
@@ -1217,7 +1239,26 @@ export class TaskService {
       }
 
       if (filters.isOverdue !== undefined) {
-        where.isOverdue = filters.isOverdue;
+        // `isOverdue` can be stored or derived from due date (some environments don't run overdue flagging).
+        // When filtering for overdue=true, include tasks whose due date has passed (and are not completed),
+        // in addition to tasks explicitly marked isOverdue=true.
+        if (filters.isOverdue === true) {
+          const now = new Date();
+          where.AND = where.AND || [];
+          where.AND.push({
+            OR: [
+              { isOverdue: true },
+              {
+                AND: [
+                  { date: { lt: now } },
+                  { stage: { notIn: ["completed"] } }
+                ]
+              }
+            ]
+          });
+        } else {
+          where.isOverdue = filters.isOverdue;
+        }
       }
 
       if (filters.fromDueDiligence !== undefined) {
@@ -1233,11 +1274,14 @@ export class TaskService {
       }
 
       if (filters.search) {
-        where.OR = [
-          { title: { contains: filters.search, mode: 'insensitive' } },
-          { stage: { contains: filters.search, mode: 'insensitive' } },
-          { priority: { contains: filters.search, mode: 'insensitive' } }
-        ];
+        where.AND = where.AND || [];
+        where.AND.push({
+          OR: [
+            { title: { contains: filters.search, mode: 'insensitive' } },
+            { stage: { contains: filters.search, mode: 'insensitive' } },
+            { priority: { contains: filters.search, mode: 'insensitive' } }
+          ]
+        });
       }
 
       const tasks = await prisma.task.findMany({
