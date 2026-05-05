@@ -1,6 +1,7 @@
 // @ts-nocheck
 import express from "express";
 import { PerformanceBreakdownController } from "../controllers/PerformanceBreakdownController";
+import { authenticate } from "../middleware/authenticate";
 
 const router = express.Router();
 
@@ -90,7 +91,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/departments", PerformanceBreakdownController.createDepartmentBreakdown);
+router.post("/departments", authenticate, PerformanceBreakdownController.createDepartmentBreakdown);
 
 /**
  * @swagger
@@ -177,7 +178,7 @@ router.post("/departments", PerformanceBreakdownController.createDepartmentBreak
  *       500:
  *         description: Internal server error
  */
-router.post("/individuals", PerformanceBreakdownController.createIndividualBreakdown);
+router.post("/individuals", authenticate, PerformanceBreakdownController.createIndividualBreakdown);
 
 /**
  * @swagger

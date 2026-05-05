@@ -244,10 +244,11 @@ export class ActivityService {
       console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue} (${progressPercentage.toFixed(1)}%)`);
 
       if (goal.parentGoalId) {
-        const pid = goal.parentGoalId;
-        void PerformanceGoalService.updateParentGoalProgress(pid).catch((err: Error) =>
-          console.error(`Failed parent roll-up after activity on goal ${goalId}:`, err)
-        );
+        try {
+          await PerformanceGoalService.updateParentGoalProgress(goal.parentGoalId);
+        } catch (err) {
+          console.error(`Failed parent roll-up after activity on goal ${goalId}:`, err);
+        }
       }
     } catch (error) {
       console.error('Error updating goal progress:', error);

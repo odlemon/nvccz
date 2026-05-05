@@ -17,7 +17,7 @@ export class IndividualGoalToTaskController {
         });
       }
 
-      await IndividualGoalToTaskService.convertIndividualGoalsToTasks(individualGoalId);
+      await IndividualGoalToTaskService.convertIndividualGoalsToTasks(individualGoalId, req.user?.id);
 
       res.json({
         success: true,

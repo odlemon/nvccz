@@ -784,17 +784,8 @@ export class PerformanceGoalService {
       if (goal.type === "individual" && goal.parentGoal?.type === "department") {
         try {
           const { IndividualGoalToTaskService } = await import("./IndividualGoalToTaskService");
-          await IndividualGoalToTaskService.convertIndividualGoalsToTasks(goal.id);
+          await IndividualGoalToTaskService.convertIndividualGoalsToTasks(goal.id, createdById);
         } catch (taskError: any) {
-          // Keep the system consistent: do not leave a department->individual goal without a task.
-          try {
-            await prisma.performanceGoal.delete({ where: { id: goal.id } });
-          } catch (cleanupErr) {
-            console.error(
-              `❌ Failed to cleanup individual goal ${goal.id} after task creation failure:`,
-              cleanupErr
-            );
-          }
           throw new Error(
             `Failed to create task for individual goal: ${taskError?.message ?? String(taskError)}`
           );
@@ -941,7 +932,12 @@ export class PerformanceGoalService {
   }
 
   // Create individual goals for selected users in a department
-  static async createIndividualGoals(departmentGoalId: string, selectedUsers: string[], individualData: any[]) {
+  static async createIndividualGoals(
+    departmentGoalId: string,
+    selectedUsers: string[],
+    individualData: any[],
+    options?: { actingUserId?: string | null }
+  ) {
     try {
       const departmentGoal = await prisma.performanceGoal.findUnique({
         where: { id: departmentGoalId }
@@ -1013,21 +1009,23 @@ export class PerformanceGoalService {
           }
         });
 
-        createdGoals.push(individualGoal);
         console.log(`✅ Created individual goal for user ${userId}: ${individualGoal.id}`);
 
         if (departmentGoal.kpiId) {
           await KPIService.syncKpiActiveFromLinkedGoals(departmentGoal.kpiId);
         }
 
-        // Automatically create task for the individual goal
+        // Automatically create task for the individual goal (manager/caller as task creator when provided)
         try {
           const { IndividualGoalToTaskService } = await import('./IndividualGoalToTaskService');
-          await IndividualGoalToTaskService.convertIndividualGoalsToTasks(individualGoal.id);
+          await IndividualGoalToTaskService.convertIndividualGoalsToTasks(
+            individualGoal.id,
+            options?.actingUserId
+          );
           console.log(`✅ Automatically created task for individual goal: ${individualGoal.id}`);
+          createdGoals.push(individualGoal);
         } catch (taskError: any) {
           console.error(`❌ Failed to create task for individual goal ${individualGoal.id}:`, taskError);
-          // Do not leave an orphan individual goal during breakdown (goal must have its task).
           try {
             await prisma.performanceGoal.delete({ where: { id: individualGoal.id } });
           } catch (cleanupErr) {
