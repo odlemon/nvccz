@@ -22,12 +22,41 @@ export class IndividualGoalToTaskService {
   private static async resolveTaskCreatorUserId(
     candidates: Array<string | null | undefined>
   ): Promise<string> {
-    for (const raw of candidates) {
+    const breakdownLogTag = "[performance-breakdown:individuals]";
+    for (let i = 0; i < candidates.length; i++) {
+      const raw = candidates[i];
       const id = raw != null ? String(raw).trim() : "";
-      if (!id) continue;
+      if (!id) {
+        console.log(
+          breakdownLogTag,
+          "resolveTaskCreator: skip empty candidate",
+          JSON.stringify({ index: i, totalCandidates: candidates.length })
+        );
+        continue;
+      }
       const u = await prisma.user.findUnique({ where: { id }, select: { id: true } });
-      if (u) return u.id;
+      if (u) {
+        console.log(
+          breakdownLogTag,
+          "resolveTaskCreator: using candidate",
+          JSON.stringify({ index: i, creatorUserId: u.id })
+        );
+        return u.id;
+      }
+      console.warn(
+        breakdownLogTag,
+        "resolveTaskCreator: candidate not found in DB (wrong id or deactivated?)",
+        JSON.stringify({ index: i, candidateIdPrefix: `${id.slice(0, 8)}…` })
+      );
     }
+    console.error(
+      breakdownLogTag,
+      "resolveTaskCreator: FAILED — no valid creator",
+      JSON.stringify({
+        attemptedSlots: candidates.length,
+        hint: "Ensure breakdown is called with authenticate + valid session, or department goal.createdById is an active user"
+      })
+    );
     throw new Error(
       "Cannot create performance task: no valid creator user. The department goal's creator may have been deactivated; retry breakdown while logged in as an active manager."
     );
@@ -41,8 +70,17 @@ export class IndividualGoalToTaskService {
     individualGoalId: string,
     taskCreatorUserId?: string | null
   ): Promise<void> {
+    const breakdownLogTag = "[performance-breakdown:individuals]";
     try {
       console.log(`🔄 Converting individual goal to tasks: ${individualGoalId}`);
+      console.log(
+        breakdownLogTag,
+        "convertIndividualGoalsToTasks:start",
+        JSON.stringify({
+          individualGoalId,
+          taskCreatorUserIdArg: taskCreatorUserId ?? null
+        })
+      );
 
       const individualGoal = await prisma.performanceGoal.findUnique({
         where: { id: individualGoalId },
@@ -71,6 +109,15 @@ export class IndividualGoalToTaskService {
         taskCreatorUserId,
         individualGoal.createdById,
       ]);
+      console.log(
+        breakdownLogTag,
+        "resolved task creator",
+        JSON.stringify({
+          createdBy,
+          assignedToId: individualGoal.assignedToId,
+          departmentName: individualGoal.departmentName
+        })
+      );
 
       let kpiPayload: { id: string } | null = null;
       if (individualGoal.kpiId) {
@@ -108,9 +155,28 @@ export class IndividualGoalToTaskService {
         kpi: kpiPayload
       };
 
+      console.log(
+        breakdownLogTag,
+        "calling TaskService.createTask",
+        JSON.stringify({
+          title: taskData.title?.slice?.(0, 120),
+          department: taskData.department ?? null,
+          goalId: taskData.goalId,
+          isPerformanceTask: taskData.isPerformanceTask,
+          teamLength: Array.isArray(taskData.team) ? taskData.team.length : null,
+          hasKpi: Boolean(kpiPayload?.id),
+          monetaryTarget: taskData.targetValue ?? null
+        })
+      );
+
       const task = await TaskService.createTask(taskData, createdBy);
 
       console.log(`✅ Created task ${task.id} for user ${individualGoal.assignedToId} from goal ${individualGoalId}`);
+      console.log(
+        breakdownLogTag,
+        "TaskService.createTask OK",
+        JSON.stringify({ taskId: task.id, goalId: individualGoalId })
+      );
 
       try {
         const assignee = await prisma.user.findUnique({
@@ -151,6 +217,7 @@ export class IndividualGoalToTaskService {
       });
 
     } catch (error) {
+      console.error(breakdownLogTag, "convertIndividualGoalsToTasks FAILED:", error);
       console.error('❌ Error converting individual goal to task:', error);
       throw error;
     }

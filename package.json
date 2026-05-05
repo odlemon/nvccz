@@ -74,6 +74,7 @@
     "db:seed:board-performance-contract": "ts-node scripts/seed-board-performance-contract.ts",
     "db:verify:board-scorecard": "ts-node --transpile-only scripts/verify-board-scorecard-flow.ts",
     "db:backfill:department-goal-performance-contracts": "ts-node scripts/backfill-department-goal-performance-contracts.ts",
+    "db:backfill:performance-goal-assignees": "ts-node --transpile-only -r dotenv/config scripts/backfill-performance-goal-assignees.ts",
     "bench:department-scorecard-generate": "ts-node scripts/bench-department-scorecard-generate.ts",
     "db:fix:employee-scorecard-goals-sample": "ts-node scripts/fix-employee-scorecard-goals-nyasha.ts",
     "db:fix:performance-goal-revenue-sync-path": "ts-node scripts/fix-performance-goal-revenue-irr-fieldpath.ts",

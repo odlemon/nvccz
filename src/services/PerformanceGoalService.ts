@@ -17,6 +17,10 @@ import {
   resolveGoalEscalationStatus
 } from "./performanceScorecardSupport";
 import { ScorecardPillarService } from "./ScorecardPillarService";
+import {
+  resolveDefaultCompanyGoalAssigneeId,
+  resolveDefaultDepartmentGoalAssigneeId
+} from "./performanceGoalDefaultAssignee";
 import { ensureDepartmentPerformanceContractForGoal } from "./DepartmentPerformanceContractService";
 import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
 import { FirebaseStorageService } from "./FirebaseStorageService";
@@ -683,6 +687,17 @@ export class PerformanceGoalService {
         );
       }
 
+      let assignedToId: string | null =
+        request.assignedToId != null && String(request.assignedToId).trim() !== ""
+          ? String(request.assignedToId).trim()
+          : null;
+      if (!assignedToId && request.type === "company") {
+        assignedToId = await resolveDefaultCompanyGoalAssigneeId();
+      }
+      if (!assignedToId && request.type === "department" && request.departmentName) {
+        assignedToId = await resolveDefaultDepartmentGoalAssigneeId(request.departmentName);
+      }
+
       // Create the performance goal with absolute value targets
       const goal = await prisma.performanceGoal.create({
         data: {
@@ -703,7 +718,7 @@ export class PerformanceGoalService {
           priority: request.priority || "medium",
           startDate: request.startDate,
           endDate: request.endDate,
-          assignedToId: request.assignedToId,
+          assignedToId,
           createdById: createdById,
           // Company goals participate in BSC scoring only after weights are set.
           status: request.type === "company" ? "inactive" : "active",
@@ -850,6 +865,8 @@ export class PerformanceGoalService {
           createdById: parentGoal.createdById
         });
 
+        const departmentAssigneeId = await resolveDefaultDepartmentGoalAssigneeId(departmentName);
+
         // Create department goal with specified target and fields
         const departmentGoal = await prisma.performanceGoal.create({
           data: {
@@ -868,6 +885,7 @@ export class PerformanceGoalService {
             priority: departmentData.priority || parentGoal.priority,
             startDate: deptGoalStart,
             endDate: coerceGoalDateTime(departmentData.endDate, parentGoal.endDate, true),
+            assignedToId: departmentAssigneeId,
             createdById: parentGoal.createdById,
             status: "active",
             stage: "planning",
@@ -938,28 +956,73 @@ export class PerformanceGoalService {
     individualData: any[],
     options?: { actingUserId?: string | null }
   ) {
+    const breakdownLogTag = "[performance-breakdown:individuals]";
     try {
+      console.log(
+        breakdownLogTag,
+        "createIndividualGoals:start",
+        JSON.stringify({
+          departmentGoalId,
+          userCount: selectedUsers.length,
+          rowCount: individualData.length,
+          actingUserId: options?.actingUserId ?? null
+        })
+      );
+
       const departmentGoal = await prisma.performanceGoal.findUnique({
         where: { id: departmentGoalId }
       });
 
       if (!departmentGoal) {
+        console.warn(breakdownLogTag, "abort: department goal not found", departmentGoalId);
         throw new Error("Department goal not found");
       }
 
       if (departmentGoal.type !== "department") {
+        console.warn(
+          breakdownLogTag,
+          "abort: parent goal type is not department",
+          JSON.stringify({ id: departmentGoal.id, type: departmentGoal.type })
+        );
         throw new Error("Only department goals can be broken down to individuals");
       }
 
       if (String(departmentGoal.status).toLowerCase() !== "active") {
+        console.warn(
+          breakdownLogTag,
+          "abort: department goal not active",
+          JSON.stringify({ id: departmentGoal.id, status: departmentGoal.status })
+        );
         throw new Error("Department goal must be active before creating individual goals.");
       }
+
+      console.log(
+        breakdownLogTag,
+        "department goal OK",
+        JSON.stringify({
+          id: departmentGoal.id,
+          title: departmentGoal.title,
+          departmentName: departmentGoal.departmentName,
+          createdById: departmentGoal.createdById,
+          kpiId: departmentGoal.kpiId ?? null
+        })
+      );
 
       const createdGoals = [];
 
       for (let i = 0; i < selectedUsers.length; i++) {
         const userId = selectedUsers[i];
         const userData = individualData[i];
+        console.log(
+          breakdownLogTag,
+          `loop i=${i}`,
+          JSON.stringify({
+            assignedUserId: userId,
+            rowTitle: userData?.title ?? null,
+            targetValue: userData?.targetValue ?? null,
+            targetUnit: userData?.targetUnit ?? null
+          })
+        );
 
         const hasUserOperator =
           userData.targetOperator !== undefined &&
@@ -1010,6 +1073,11 @@ export class PerformanceGoalService {
         });
 
         console.log(`✅ Created individual goal for user ${userId}: ${individualGoal.id}`);
+        console.log(
+          breakdownLogTag,
+          "individual goal persisted; starting task conversion",
+          JSON.stringify({ individualGoalId: individualGoal.id, assignedToId: individualGoal.assignedToId })
+        );
 
         if (departmentGoal.kpiId) {
           await KPIService.syncKpiActiveFromLinkedGoals(departmentGoal.kpiId);
@@ -1025,6 +1093,12 @@ export class PerformanceGoalService {
           console.log(`✅ Automatically created task for individual goal: ${individualGoal.id}`);
           createdGoals.push(individualGoal);
         } catch (taskError: any) {
+          console.error(
+            breakdownLogTag,
+            "task conversion failed for individual goal",
+            individualGoal.id,
+            taskError?.message ?? taskError
+          );
           console.error(`❌ Failed to create task for individual goal ${individualGoal.id}:`, taskError);
           try {
             await prisma.performanceGoal.delete({ where: { id: individualGoal.id } });
