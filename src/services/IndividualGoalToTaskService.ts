@@ -18,10 +18,29 @@ function formatTargetValueDisplay(value: unknown): string {
 }
 
 export class IndividualGoalToTaskService {
+  /** First existing user wins — avoids "Creator user not found" when goal.createdById is stale. */
+  private static async resolveTaskCreatorUserId(
+    candidates: Array<string | null | undefined>
+  ): Promise<string> {
+    for (const raw of candidates) {
+      const id = raw != null ? String(raw).trim() : "";
+      if (!id) continue;
+      const u = await prisma.user.findUnique({ where: { id }, select: { id: true } });
+      if (u) return u.id;
+    }
+    throw new Error(
+      "Cannot create performance task: no valid creator user. The department goal's creator may have been deactivated; retry breakdown while logged in as an active manager."
+    );
+  }
+
   /**
    * Convert individual goals to tasks for users
+   * @param taskCreatorUserId - Prefer caller (manager doing breakdown); falls back to goal.createdById.
    */
-  static async convertIndividualGoalsToTasks(individualGoalId: string): Promise<void> {
+  static async convertIndividualGoalsToTasks(
+    individualGoalId: string,
+    taskCreatorUserId?: string | null
+  ): Promise<void> {
     try {
       console.log(`🔄 Converting individual goal to tasks: ${individualGoalId}`);
 
@@ -48,6 +67,26 @@ export class IndividualGoalToTaskService {
         throw new Error("Individual goal must be assigned to a user");
       }
 
+      const createdBy = await this.resolveTaskCreatorUserId([
+        taskCreatorUserId,
+        individualGoal.createdById,
+      ]);
+
+      let kpiPayload: { id: string } | null = null;
+      if (individualGoal.kpiId) {
+        const kpiRow = await prisma.kPI.findUnique({
+          where: { id: individualGoal.kpiId },
+          select: { id: true },
+        });
+        if (kpiRow) {
+          kpiPayload = { id: kpiRow.id };
+        } else {
+          console.warn(
+            `⚠️ Individual goal ${individualGoalId} has kpiId ${individualGoal.kpiId} but KPI row is missing — creating task without KPI`
+          );
+        }
+      }
+
       // Create task from individual goal
       const taskData = {
         title: individualGoal.title,
@@ -66,10 +105,10 @@ export class IndividualGoalToTaskService {
         targetValue: individualGoal.targetValue
           ? parseFloat(individualGoal.targetValue.toString())
           : undefined,
-        kpi: individualGoal.kpiId ? { id: individualGoal.kpiId } : null
+        kpi: kpiPayload
       };
 
-      const task = await TaskService.createTask(taskData, individualGoal.createdById);
+      const task = await TaskService.createTask(taskData, createdBy);
 
       console.log(`✅ Created task ${task.id} for user ${individualGoal.assignedToId} from goal ${individualGoalId}`);
 

@@ -87,10 +87,12 @@ export class PerformanceBreakdownController {
         });
       }
 
+      const actingUserId = req.user?.id;
       const createdGoals = await PerformanceGoalService.createIndividualGoals(
         departmentGoalId,
         selectedUsers,
-        rows
+        rows,
+        { actingUserId }
       );
 
       res.status(201).json({

@@ -469,10 +469,11 @@ export class TaskService {
         };
       }
 
+      const teamCount = Array.isArray(request.team) ? request.team.length : 0;
       // Create activity log
       const activity = {
         type: "todo",
-        activity: `New task has been assigned to you${request.team.length > 1 ? ` and ${request.team.length - 1} others` : ''}. The task priority is set as ${request.priority || 'medium'} priority, so check and act accordingly. The task date is ${new Date(request.date).toDateString()}. Thank you!!!`,
+        activity: `New task has been assigned to you${teamCount > 1 ? ` and ${teamCount - 1} others` : ''}. The task priority is set as ${request.priority || 'medium'} priority, so check and act accordingly. The task date is ${new Date(request.date).toDateString()}. Thank you!!!`,
         date: new Date(),
         by: createdBy
       };
@@ -1843,7 +1844,18 @@ export class TaskService {
 
     const goalIds = uniqueGoalIdsForTaskBatch(tasks);
     for (const goalId of goalIds) {
-      await this.recalculateGoalProgressFromTasks(goalId);
+      const goalAfter = await this.recalculateGoalProgressFromTasks(goalId);
+      if (goalAfter.kpiId) {
+        try {
+          const { PerformanceGoalService } = await import("./PerformanceGoalService");
+          await PerformanceGoalService.recalculateKPIProgress(goalAfter.kpiId);
+        } catch (kpiErr) {
+          console.error(`⚠️ KPI recalc after trash failed for kpi ${goalAfter.kpiId}:`, kpiErr);
+        }
+      }
+      if (goalAfter.parentGoalId) {
+        await this.updateParentGoalProgress(goalAfter.parentGoalId);
+      }
       try {
         const { RollupCalculationService } = await import("./RollupCalculationService");
         await RollupCalculationService.recalculateAllRollups(goalId);
@@ -1884,7 +1896,18 @@ export class TaskService {
 
     const goalIds = task.goalId ? [task.goalId] : [];
     for (const goalId of goalIds) {
-      await this.recalculateGoalProgressFromTasks(goalId);
+      const goalAfter = await this.recalculateGoalProgressFromTasks(goalId);
+      if (goalAfter.kpiId) {
+        try {
+          const { PerformanceGoalService } = await import("./PerformanceGoalService");
+          await PerformanceGoalService.recalculateKPIProgress(goalAfter.kpiId);
+        } catch (kpiErr) {
+          console.error(`⚠️ KPI recalc after trash failed for kpi ${goalAfter.kpiId}:`, kpiErr);
+        }
+      }
+      if (goalAfter.parentGoalId) {
+        await this.updateParentGoalProgress(goalAfter.parentGoalId);
+      }
       try {
         const { RollupCalculationService } = await import("./RollupCalculationService");
         await RollupCalculationService.recalculateAllRollups(goalId);
