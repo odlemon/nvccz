@@ -582,6 +582,8 @@ export class PerformanceGoalService {
 
       const companyPillarMsg =
         'Organisational (company) goals require scorecardPillar: Financial, Customer & Market, Internal Operations, or Learning, Growth & HR (or FINANCIAL, CUSTOMER, INTERNAL_OPS, LEARNING_GROWTH).';
+      const pillarRequiredMsg =
+        "scorecardPillar is required for performance goals (or provide a KPI that has scorecardPillar set).";
       let scorecardPillarDb: string | undefined;
       let pillarIdDb: string | null | undefined;
       if (request.type === "company") {
@@ -604,11 +606,12 @@ export class PerformanceGoalService {
           ? normalizeOrgBscScorecardPillar(kpiCatalog.scorecardPillar)
           : null;
         const p = fromReq || fromKpi;
-        if (p) {
-          await ScorecardPillarService.assertCanonicalExists(p);
-          scorecardPillarDb = p;
-          pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
+        if (!p) {
+          throw new Error(pillarRequiredMsg);
         }
+        await ScorecardPillarService.assertCanonicalExists(p);
+        scorecardPillarDb = p;
+        pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
       }
 
       let performanceContractId: string | undefined =
