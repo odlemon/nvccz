@@ -65,11 +65,11 @@ export class HardcodedKPIController {
       }
 
       const kpis = await prisma.kPI.findMany({
-        where: { 
+        where: {
           isActive: true,
-          departmentId: departmentRecord.id
+          catalogDepartmentName: departmentRecord.name
         },
-        orderBy: { name: 'asc' }
+        orderBy: { name: "asc" }
       });
 
       const enrichedKPIs = kpis.map((kpi) => {

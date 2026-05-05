@@ -54,7 +54,10 @@ export class IndividualGoalToTaskService {
         description: individualGoal.description || `Task based on goal: ${individualGoal.title}`,
         team: [individualGoal.assignedToId], // Assign to the user
         stage: "todo",
-        date: new Date(),
+        date:
+          individualGoal.endDate != null && !Number.isNaN(new Date(individualGoal.endDate).getTime())
+            ? new Date(individualGoal.endDate)
+            : new Date(),
         priority: individualGoal.priority || "medium",
         department: individualGoal.departmentName, // Use hardcoded department name
         goalId: individualGoal.id, // Link to individual goal

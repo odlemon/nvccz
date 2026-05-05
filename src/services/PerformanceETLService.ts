@@ -75,11 +75,7 @@ export class PerformanceETLService {
       });
 
       // Extract KPIs
-      const kpis = await prisma.kPI.findMany({
-        include: {
-          department: true
-        }
-      });
+      const kpis = await prisma.kPI.findMany();
 
       // Extract scorecards
       const scorecards = await prisma.performanceScorecard.findMany({
@@ -195,7 +191,7 @@ export class PerformanceETLService {
             id: goal.kpi.id,
             name: goal.kpi.name,
             code: goal.kpi.code,
-            type: goal.kpi.type
+            unitCategory: goal.kpi.unitCategory
           } : null,
           parentGoal: goal.parentGoal ? {
             id: goal.parentGoal.id,
@@ -262,10 +258,10 @@ export class PerformanceETLService {
           id: kpi.id,
           name: kpi.name,
           code: kpi.code,
-          type: kpi.type,
+          unitCategory: kpi.unitCategory,
           unitSymbol: kpi.unitSymbol,
           unitPosition: kpi.unitPosition,
-          department: kpi.department?.name,
+          catalogDepartmentName: kpi.catalogDepartmentName,
           createdAt: kpi.createdAt,
           updatedAt: kpi.updatedAt
         };

@@ -5,7 +5,11 @@ import {
   roundTo,
   validateFixedPillarSet
 } from "./performanceBackendSupport";
-import { normalizeOrgBscScorecardPillar, ORG_BSC_CANONICAL_TO_PILLAR_ID } from "./performanceScorecardSupport";
+import {
+  normalizeOrgBscScorecardPillar,
+  ORG_BSC_CANONICAL_TO_PILLAR_ID,
+  ORG_BSC_PILLAR_META
+} from "./performanceScorecardSupport";
 import { PerformanceConfigService } from "./PerformanceConfigService";
 
 export type ScorecardPillarRow = {
@@ -23,6 +27,47 @@ export type ScorecardPillarWithWeight = ScorecardPillarRow & {
   weight: number | null;
   strategyId: string | null;
 };
+
+/**
+ * `performance_goals.scorecard_pillar` may hold pillar codes (`FINANCIAL`), canonical names, drift labels, or alias strings.
+ */
+function collectScorecardPillarStringVariants(canonicalName: string, aliasValues: string[]): string[] {
+  const scoreStrings = new Set<string>();
+  const c = String(canonicalName || "").trim();
+  if (c) scoreStrings.add(c);
+  const meta = ORG_BSC_PILLAR_META[c as keyof typeof ORG_BSC_PILLAR_META];
+  if (meta) {
+    scoreStrings.add(meta.pillarCode);
+    scoreStrings.add(meta.pillarLabel);
+  }
+  for (const a of aliasValues) {
+    const raw = String(a || "").trim();
+    if (!raw) continue;
+    scoreStrings.add(raw);
+    const n = normalizeOrgBscScorecardPillar(raw);
+    if (n) {
+      scoreStrings.add(n);
+      const m2 = ORG_BSC_PILLAR_META[n as keyof typeof ORG_BSC_PILLAR_META];
+      if (m2) {
+        scoreStrings.add(m2.pillarCode);
+        scoreStrings.add(m2.pillarLabel);
+      }
+    }
+  }
+  return Array.from(scoreStrings).filter(Boolean);
+}
+
+function expandStoredGoalTypes(values: string[]): string[] {
+  const out = new Set<string>();
+  for (const t of values) {
+    const lc = String(t || "").trim().toLowerCase();
+    if (!lc) continue;
+    out.add(lc);
+    out.add(lc.charAt(0).toUpperCase() + lc.slice(1));
+    out.add(lc.toUpperCase());
+  }
+  return Array.from(out);
+}
 
 export class ScorecardPillarService {
   private static async weightByCanonicalName(): Promise<{
@@ -339,16 +384,15 @@ export class ScorecardPillarService {
     });
     const aliasValues = aliasRows.map((r) => r.alias).filter(Boolean) as string[];
 
-    const orClause: Array<{ pillarId?: string; scorecardPillar?: string }> = [
+    const variants = collectScorecardPillarStringVariants(pillar.canonicalName, aliasValues);
+    const pillarGoalOrKpiClause = [
       { pillarId: id },
-      { scorecardPillar: pillar.canonicalName },
+      { scorecardPillar: { in: variants } },
+      { kpi: { is: { scorecardPillar: { in: variants } } } }
     ];
-    for (const a of aliasValues) {
-      orClause.push({ scorecardPillar: a });
-    }
 
-    const whereBase: any = { OR: orClause };
-    if (opts?.type) whereBase.type = opts.type;
+    const whereBase: any = { OR: pillarGoalOrKpiClause };
+    if (opts?.type) whereBase.type = { in: expandStoredGoalTypes([opts.type]) };
     if (opts?.status) whereBase.status = opts.status;
 
     const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 500);
@@ -412,7 +456,12 @@ export class ScorecardPillarService {
    */
   static async listCompanyGoalLineWeights(
     id: string,
-    opts?: { strategyId?: string | null; departmentName?: string | null }
+    opts?: {
+      strategyId?: string | null;
+      departmentName?: string | null;
+      /** Default: company + department (UAT line weights often use department goals in a pillar). Pass ["company"] for legacy-only. */
+      includeTypes?: string[];
+    }
   ): Promise<{
     goals: Array<{
       id: string;
@@ -435,17 +484,21 @@ export class ScorecardPillarService {
     });
     const aliasValues = aliasRows.map((r) => r.alias).filter(Boolean) as string[];
 
-    const orClause: Array<{ pillarId?: string; scorecardPillar?: string }> = [
-      { pillarId: id },
-      { scorecardPillar: pillar.canonicalName }
-    ];
-    for (const a of aliasValues) {
-      orClause.push({ scorecardPillar: a });
-    }
+    const variants = collectScorecardPillarStringVariants(pillar.canonicalName, aliasValues);
+
+    const rawTypes =
+      opts?.includeTypes && opts.includeTypes.length
+        ? opts.includeTypes.map((t) => String(t).trim().toLowerCase()).filter(Boolean)
+        : ["company", "department"];
+    const allowedBase = Array.from(new Set(rawTypes.length ? rawTypes : ["company", "department"]));
 
     const where: any = {
-      OR: orClause,
-      type: "company"
+      OR: [
+        { pillarId: id },
+        { scorecardPillar: { in: variants } },
+        { kpi: { is: { scorecardPillar: { in: variants } } } }
+      ],
+      type: { in: expandStoredGoalTypes(allowedBase) }
     };
 
     if (opts && Object.prototype.hasOwnProperty.call(opts, "strategyId")) {

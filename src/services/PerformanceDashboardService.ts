@@ -108,6 +108,19 @@ export interface PerformanceDashboardData {
 }
 
 export class PerformanceDashboardService {
+  /** Productivity: performance tasks and any task linked to a performance goal — completed in period by `updatedAt`. */
+  private static completedPerfLinkedTasksWhere(monthStart: Date, monthEnd: Date) {
+    return {
+      isTrashed: false,
+      stage: "completed",
+      updatedAt: {
+        gte: monthStart,
+        lte: monthEnd
+      },
+      OR: [{ isPerformanceTask: true }, { goalId: { not: null } }]
+    };
+  }
+
   /**
    * Get comprehensive performance dashboard data
    */
@@ -188,7 +201,7 @@ export class PerformanceDashboardService {
       const workerPerformance = await this.getWorkerPerformance(allTasks);
       
       // Get budget tracker
-      const budgetTracker = await this.getBudgetTracker();
+      const budgetTracker = await this.getBudgetTracker(currentMonthStart, currentMonthEnd);
       
       // Get employee of the month
       const employeeOfTheMonth = await this.getEmployeeOfTheMonth(allTasks, currentMonthStart, currentMonthEnd);
@@ -259,76 +272,49 @@ export class PerformanceDashboardService {
       taskCompletedRate: number;
     }>;
   }> {
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const productivity: Array<{
       month: string;
       monthNumber: number;
       year: number;
       taskCompletedRate: number;
     }> = [];
-    
-    for (let i = 11; i >= 0; i--) {
-      let month = currentMonth - i;
-      let year = currentYear;
-      
-      if (month <= 0) {
-        month += 12;
-        year -= 1;
-      } else if (month > 12) {
-        month -= 12;
-        year += 1;
-      }
-      
-      const monthStart = new Date(year, month - 1, 1);
-      const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-      
-      const tasks = await prisma.task.findMany({
-        where: {
-          isTrashed: false,
-          createdAt: {
-            gte: monthStart,
-            lte: monthEnd
-          }
-        },
-        select: {
-          stage: true
-        }
+
+    let rollingSumCurrent = 0;
+    let rollingSumPriorYear = 0;
+
+    for (let offset = 11; offset >= 0; offset--) {
+      const d = new Date(currentYear, currentMonth - 1 - offset, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+
+      const monthStart = new Date(y, m - 1, 1);
+      const monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
+
+      const completedCount = await prisma.task.count({
+        where: PerformanceDashboardService.completedPerfLinkedTasksWhere(monthStart, monthEnd)
       });
-      
-      const completedCount = tasks.filter(t => t.stage === 'completed').length;
-      
+
       productivity.push({
-        month: monthNames[month - 1],
-        monthNumber: month,
-        year,
+        month: monthNames[m - 1],
+        monthNumber: m,
+        year: y,
         taskCompletedRate: completedCount
       });
+      rollingSumCurrent += completedCount;
+
+      const prevYearStart = new Date(y - 1, m - 1, 1);
+      const prevYearEnd = new Date(y - 1, m, 0, 23, 59, 59, 999);
+      const completedPriorYear = await prisma.task.count({
+        where: PerformanceDashboardService.completedPerfLinkedTasksWhere(prevYearStart, prevYearEnd)
+      });
+      rollingSumPriorYear += completedPriorYear;
     }
-    
-    // Calculate current value (sum of last 12 months)
-    const currentValue = productivity.reduce((sum, p) => sum + p.taskCompletedRate, 0);
-    
-    // Calculate same period last year (12 months ago, same month range)
-    const lastYearStart = new Date(currentYear - 1, currentMonth - 12, 1);
-    const lastYearEnd = new Date(currentYear - 1, currentMonth - 1, 0, 23, 59, 59, 999);
-    
-    const lastYearTasks = await prisma.task.findMany({
-      where: {
-        isTrashed: false,
-        createdAt: {
-          gte: lastYearStart,
-          lte: lastYearEnd
-        }
-      },
-      select: {
-        stage: true
-      }
-    });
-    
-    const lastYearCompleted = lastYearTasks.filter(t => t.stage === 'completed').length;
-    const changeFromLastYear = currentValue - lastYearCompleted;
-    const changePercent = lastYearCompleted > 0 ? (changeFromLastYear / lastYearCompleted) * 100 : 0;
-    
+
+    const currentValue = rollingSumCurrent;
+    const changeFromLastYear = rollingSumCurrent - rollingSumPriorYear;
+    const changePercent = rollingSumPriorYear > 0 ? (changeFromLastYear / rollingSumPriorYear) * 100 : 0;
+
     return {
       currentValue,
       changeFromLastYear,
@@ -495,40 +481,84 @@ export class PerformanceDashboardService {
   /**
    * Get budget tracker
    */
-  private static async getBudgetTracker(): Promise<{
+  private static async getBudgetTracker(
+    windowStart: Date,
+    windowEnd: Date
+  ): Promise<{
     totalBudget: number;
     totalSpend: number;
     remaining: number;
     percentageUsed: number;
   }> {
     try {
-      // Get active budget
-      const activeBudget = await prisma.budget.findFirst({
-        where: { isActive: true },
-        include: {
-          budgetItems: true
+      const notArchived = ["ARCHIVED", "CANCELLED", "archived", "cancelled"] as const;
+
+      let contracts = await prisma.performanceContract.findMany({
+        where: {
+          status: { notIn: notArchived as unknown as string[] },
+          periodStart: { lte: windowEnd },
+          periodEnd: { gte: windowStart }
+        },
+        select: {
+          allocatedBudget: true,
+          actualSpend: true
         }
       });
-      
-      if (!activeBudget) {
+
+      // Broader fallback: some tenants only set contract dates loosely — still surface portfolio budgets.
+      if (contracts.length === 0) {
+        contracts = await prisma.performanceContract.findMany({
+          where: {
+            status: { notIn: notArchived as unknown as string[] }
+          },
+          select: {
+            allocatedBudget: true,
+            actualSpend: true
+          }
+        });
+      }
+
+      if (contracts.length === 0) {
+        const activeBudget = await prisma.budget.findFirst({
+          where: { isActive: true },
+          include: {
+            budgetItems: true
+          }
+        });
+        if (!activeBudget) {
+          return {
+            totalBudget: 0,
+            totalSpend: 0,
+            remaining: 0,
+            percentageUsed: 0
+          };
+        }
+        const totalBudget = parseFloat(activeBudget.totalBudgeted.toString());
+        const totalSpend = parseFloat(activeBudget.totalActual.toString());
+        const remaining = totalBudget - totalSpend;
+        const percentageUsed = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0;
         return {
-          totalBudget: 0,
-          totalSpend: 0,
-          remaining: 0,
-          percentageUsed: 0
+          totalBudget,
+          totalSpend,
+          remaining,
+          percentageUsed
         };
       }
-      
-      const totalBudget = parseFloat(activeBudget.totalBudgeted.toString());
-      const totalSpend = parseFloat(activeBudget.totalActual.toString());
+
+      let totalBudget = 0;
+      let totalSpend = 0;
+      for (const c of contracts) {
+        totalBudget += c.allocatedBudget != null ? Number(c.allocatedBudget) : 0;
+        totalSpend += c.actualSpend != null ? Number(c.actualSpend) : 0;
+      }
       const remaining = totalBudget - totalSpend;
       const percentageUsed = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0;
-      
+
       return {
         totalBudget,
         totalSpend,
         remaining,
-        percentageUsed
+        percentageUsed: Math.round(percentageUsed * 100) / 100
       };
     } catch (error) {
       console.error("Error getting budget tracker:", error);

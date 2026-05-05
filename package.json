@@ -149,6 +149,8 @@
     "db:migrate:kpi-is-reverse": "ts-node scripts/run-kpi-is-reverse-column-migration.ts",
     "db:migrate:kpi-catalog-metadata": "ts-node scripts/run-kpi-catalog-metadata-columns-migration.ts",
     "db:migrate:kpi-scorecard-pillar": "ts-node scripts/run-kpi-scorecard-pillar-migration.ts",
+    "db:migrate:kpi-catalog-column-cleanup": "ts-node scripts/run-kpi-catalog-column-cleanup-migration.ts",
+    "db:migrate:performance-review-cycle-created-by": "ts-node scripts/run-performance-review-cycle-created-by-migration.ts",
     "db:cleanup:test-kpis": "ts-node scripts/delete-test-catalog-kpis.ts",
     "db:migrate:performance-goal-pillar-id": "ts-node scripts/run-performance-goal-pillar-id-migration.ts",
     "db:migrate:org-bsc-pillar-by-title": "ts-node scripts/reassign-org-bsc-pillar-by-title.ts",

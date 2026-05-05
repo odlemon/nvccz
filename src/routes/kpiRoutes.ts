@@ -13,7 +13,6 @@ const router = express.Router();
  *       type: object
  *       required:
  *         - name
- *         - type
  *       properties:
  *         id:
  *           type: string
@@ -21,22 +20,15 @@ const router = express.Router();
  *         name:
  *           type: string
  *           description: KPI name
- *         type:
+ *         unitCategory:
  *           type: string
- *           enum: [Metric, Percentage]
- *           description: KPI type
+ *           description: Drives Metric vs Percent style semantics with unit field (replaces legacy type)
  *         branch:
  *           type: string
  *           description: Branch association
- *         weightValue:
- *           type: number
- *           description: Weight value for the KPI
  *         hasUnit:
  *           type: boolean
  *           description: Whether the KPI has a unit
- *         unitCategory:
- *           type: string
- *           description: Unit category
  *         unit:
  *           type: string
  *           description: Unit name
@@ -49,11 +41,13 @@ const router = express.Router();
  *           description: Unit position
  *         isActive:
  *           type: boolean
- *           description: Whether the KPI is active
+ *           description: Synced with goal links (inactive until linked unless overridden)
  *         scorecardPillar:
  *           type: string
  *           nullable: true
  *           description: BSC org pillar (e.g. Financial, Customer & Market)
+ *         isFinancial:
+ *           type: boolean
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -78,62 +72,45 @@ const router = express.Router();
  *             type: object
  *             required:
  *               - name
- *               - type
  *               - isReverseKpi
- *               - weightValue
  *               - hasUnit
  *               - unitCategory
- *               - unit
- *               - unitSymbol
- *               - unitPosition
  *               - code
  *               - description
- *               - catalogDepartmentName
- *               - accountType
- *               - journalEntryType
  *               - isFinancial
  *             properties:
  *               name:
  *                 type: string
  *                 description: KPI name
- *               type:
- *                 type: string
- *                 enum: [Metric, Percentage]
- *                 description: KPI type
  *               isReverseKpi:
  *                 type: boolean
  *                 description: Lower actual is better — goals linked by kpiName default to reverse scoring
- *               weightValue:
- *                 type: number
- *                 description: Weight value for the KPI
  *               hasUnit:
  *                 type: boolean
  *                 description: Whether the KPI has a unit
  *               unitCategory:
  *                 type: string
- *                 description: Unit category
+ *                 description: Unit category (e.g. Currency, Percentage)
  *               unit:
  *                 type: string
- *                 description: Unit name
+ *                 description: Unit name; required only when hasUnit is true
  *               unitSymbol:
  *                 type: string
- *                 description: Unit symbol
+ *                 description: Unit symbol; required only when hasUnit is true
  *               unitPosition:
  *                 type: string
  *                 enum: [prefix, suffix]
- *                 description: Unit position
+ *                 description: Unit position; required only when hasUnit is true
  *               code:
  *                 type: string
  *                 description: Stable catalog code (e.g. TRAINING_EXPENSE)
  *               description:
  *                 type: string
  *                 description: Long description (catalog)
- *               catalogDepartmentName:
- *                 type: string
- *                 description: Exact departments.name — server sets departmentId
  *               accountType:
  *                 type: string
  *                 enum: [Revenue, Expense, Asset, Liability, Equity]
+ *                 description: Required when isFinancial is true
  *               accountNumber:
  *                 type: string
  *                 nullable: true
@@ -141,6 +118,7 @@ const router = express.Router();
  *               journalEntryType:
  *                 type: string
  *                 enum: [Debit, Credit]
+ *                 description: Required when isFinancial is true
  *               isFinancial:
  *                 type: boolean
  *               scorecardPillar:
@@ -165,17 +143,6 @@ router.post("/", authenticate, KPIController.createKPI);
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [Metric, Percentage]
- *         description: Filter by KPI type
- *       - in: query
- *         name: branch
- *         schema:
- *           type: string
- *         description: Filter by branch
  *       - in: query
  *         name: isActive
  *         schema:
@@ -235,17 +202,6 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
  *           type: string
  *         description: Filter by specific KPI ID
  *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [Metric, Percentage]
- *         description: Filter by KPI type
- *       - in: query
- *         name: departmentId
- *         schema:
- *           type: string
- *         description: Filter by department ID
- *       - in: query
  *         name: isActive
  *         schema:
  *           type: boolean
@@ -279,13 +235,12 @@ router.get("/statistics", authenticate, KPIController.getKPIStatistics);
  *                             type: string
  *                           name:
  *                             type: string
- *                           type:
+ *                           unitCategory:
  *                             type: string
+ *                             nullable: true
  *                           scorecardPillar:
  *                             type: string
  *                             nullable: true
- *                           departmentId:
- *                             type: string
  *                           tracking:
  *                             type: object
  *                             properties:
@@ -338,11 +293,6 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: departmentId
- *         schema:
- *           type: string
- *         description: Filter by department ID
- *       - in: query
  *         name: scorecardPillar
  *         schema:
  *           type: string
@@ -382,19 +332,6 @@ router.get("/tracking", authenticate, KPIController.getKPITracking);
  *                           type: number
  *                         onTrackPercentage:
  *                           type: number
- *                     departmentBreakdown:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           departmentId:
- *                             type: string
- *                           departmentName:
- *                             type: string
- *                           kpiCount:
- *                             type: number
- *                           averageProgress:
- *                             type: number
  *                     performanceMetrics:
  *                       type: object
  *                       properties:
@@ -491,10 +428,7 @@ router.get("/:id", authenticate, KPIController.getKPIById);
  *             description: Partial update — send only fields to change
  *             properties:
  *               name: { type: string }
- *               type: { type: string, enum: [Metric, Percentage] }
- *               departmentId: { type: string, nullable: true }
  *               isReverseKpi: { type: boolean }
- *               weightValue: { type: number }
  *               hasUnit: { type: boolean }
  *               unitCategory: { type: string }
  *               unit: { type: string }
@@ -503,7 +437,6 @@ router.get("/:id", authenticate, KPIController.getKPIById);
  *               isActive: { type: boolean }
  *               code: { type: string }
  *               description: { type: string }
- *               catalogDepartmentName: { type: string, nullable: true }
  *               accountType: { type: string, enum: [Revenue, Expense, Asset, Liability, Equity] }
  *               accountNumber: { type: string, nullable: true }
  *               journalEntryType: { type: string, enum: [Debit, Credit] }

@@ -56,6 +56,11 @@ export interface BalanceSheetData {
       accounts: BalanceSheetAccount[];
       total: number;
     };
+    /** Recoverable/input VAT broken out so it does not appear as a normal liquid or core asset line. Amounts remain in Total Assets for balancing. */
+    expensePresentationRecoverableVat: {
+      accounts: BalanceSheetAccount[];
+      total: number;
+    };
     totalAssets: number;
   };
   liabilities: {
@@ -84,6 +89,25 @@ const BS_ZERO_EPS = 0.01;
 /** UAT / COA: cash & bank GL bucket — 1100 through 1199 (string order, fixed width). */
 const CASH_EQUIV_ACCOUNT_NO_MIN = "1100";
 const CASH_EQUIV_ACCOUNT_NO_MAX = "1199";
+
+/** Presentation: recoverable / input VAT is tax posture — group with expense-style disclosures, not with liquid current assets or generic other assets. */
+function isRecoverableVatInputByName(accountName: string): boolean {
+  const n = String(accountName || "").toLowerCase();
+  if (n.includes("vat output") || n.includes("output vat")) return false;
+  return (
+    n.includes("vat input") ||
+    n.includes("input vat") ||
+    n.includes("vat recoverable") ||
+    n.includes("recoverable vat") ||
+    (n.includes("vat") && (n.includes("receivable") || n.includes("recover")))
+  );
+}
+
+/** Presentation-only: do not show VAT input/recoverable under Current Assets (policy / UAT clarity). */
+function isVatInputRecoverableCurrentAssetForBsPresentation(accountName: string, accountType: string): boolean {
+  if (accountType !== "Current Asset") return false;
+  return isRecoverableVatInputByName(accountName);
+}
 
 export class BalanceSheetService {
   /** Current Asset GL accounts in 1100–1199 are treated as cash & cash equivalents (dashboard + BS line). */
@@ -619,6 +643,7 @@ export class BalanceSheetService {
       const currentAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const fixedAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const otherAssets: Array<{ accountNo: string; accountName: string; balance: number }> = [];
+      const expensePresentationRecoverableVat: BalanceSheetAccount[] = [];
       const currentLiabilities: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const longTermLiabilities: Array<{ accountNo: string; accountName: string; balance: number }> = [];
       const equityAccounts: Array<{ accountNo: string; accountName: string; balance: number }> = [];
@@ -793,7 +818,14 @@ export class BalanceSheetService {
         }
         
         if (accountType === 'Current Asset') {
-          currentAssets.push(accountData);
+          if (isVatInputRecoverableCurrentAssetForBsPresentation(account.accountName, accountType)) {
+            expensePresentationRecoverableVat.push({
+              ...accountData,
+              accountName: `${accountData.accountName} (recoverable/input VAT — expense-style disclosure)`
+            });
+          } else {
+            currentAssets.push(accountData);
+          }
           if (account.accountNo === '1100') {
             console.log(`   [DEBUG] Added account 1100 to currentAssets (WRONG - should be Fixed Asset!)`);
           }
@@ -805,7 +837,14 @@ export class BalanceSheetService {
             console.log(`      - Transactions: ${accountData.transactions.length}`);
           }
         } else if (accountType.includes('Asset')) {
-          otherAssets.push(accountData);
+          if (isRecoverableVatInputByName(account.accountName)) {
+            expensePresentationRecoverableVat.push({
+              ...accountData,
+              accountName: `${accountData.accountName} (recoverable/input VAT — expense-style disclosure)`
+            });
+          } else {
+            otherAssets.push(accountData);
+          }
           if (account.accountNo === '1100') {
             console.log(`   [DEBUG] Added account 1100 to otherAssets`);
           }
@@ -932,7 +971,12 @@ export class BalanceSheetService {
       // But accounting-wise, net is correct: grossFixedAssets - accumulatedDepreciation
       
       const totalOtherAssets = otherAssets.reduce((sum, acc) => sum + acc.balance, 0);
-      const totalAssets = totalCurrentAssets + totalFixedAssets + totalOtherAssets;
+      const totalExpensePresentationRecoverableVat = expensePresentationRecoverableVat.reduce(
+        (sum, acc) => sum + acc.balance,
+        0
+      );
+      const totalAssets =
+        totalCurrentAssets + totalFixedAssets + totalOtherAssets + totalExpensePresentationRecoverableVat;
 
       const totalCurrentLiabilities = currentLiabilities.reduce((sum, acc) => sum + acc.balance, 0);
       const totalLongTermLiabilities = longTermLiabilities.reduce((sum, acc) => sum + acc.balance, 0);
@@ -986,6 +1030,7 @@ export class BalanceSheetService {
       const displayCurrentAssets = filterRows(currentAssets);
       const displayFixedAssets = filterRows(fixedAssets);
       const displayOtherAssets = filterRows(otherAssets);
+      const displayExpensePresentationRecoverableVat = filterRows(expensePresentationRecoverableVat);
       const displayCurrentLiabilities = filterRows(currentLiabilities);
       const displayLongTermLiabilities = filterRows(longTermLiabilities);
       const displayEquity = filterRows(equityAccounts);
@@ -1009,6 +1054,10 @@ export class BalanceSheetService {
           otherAssets: {
             accounts: displayOtherAssets,
             total: totalOtherAssets
+          },
+          expensePresentationRecoverableVat: {
+            accounts: displayExpensePresentationRecoverableVat,
+            total: totalExpensePresentationRecoverableVat
           },
           totalAssets
         },

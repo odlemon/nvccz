@@ -22,7 +22,12 @@ export class ScorecardPillarController {
       const { id } = req.params;
       const strategyIdRaw = req.query.strategyId;
       const departmentNameRaw = req.query.departmentName;
-      const opts: { strategyId?: string | null; departmentName?: string | null } = {};
+      const includeTypesRaw = req.query.includeTypes;
+      const opts: {
+        strategyId?: string | null;
+        departmentName?: string | null;
+        includeTypes?: string[];
+      } = {};
       if (strategyIdRaw !== undefined) {
         opts.strategyId =
           strategyIdRaw === null || String(strategyIdRaw).trim() === ""
@@ -34,6 +39,12 @@ export class ScorecardPillarController {
           departmentNameRaw === null || String(departmentNameRaw).trim() === ""
             ? null
             : String(departmentNameRaw).trim();
+      }
+      if (includeTypesRaw !== undefined && String(includeTypesRaw).trim() !== "") {
+        opts.includeTypes = String(includeTypesRaw)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
       }
       const data = await ScorecardPillarService.listCompanyGoalLineWeights(id, opts);
       res.json({ success: true, data });

@@ -553,6 +553,11 @@ export class PerformanceGoalService {
         if (!parentGoal) {
           throw new Error("Parent goal not found");
         }
+        if (String(parentGoal.status).toLowerCase() !== "active") {
+          throw new Error(
+            "Parent goal must be active before you can add sub-goals, split work, or link downstream goals."
+          );
+        }
       }
 
       const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(
@@ -720,7 +725,7 @@ export class PerformanceGoalService {
             select: {
               id: true,
               name: true,
-              type: true,
+              unitCategory: true,
               unitSymbol: true,
               unitPosition: true,
               scorecardPillar: true
@@ -767,6 +772,10 @@ export class PerformanceGoalService {
         }
       });
 
+      if (kpiId) {
+        await KPIService.syncKpiActiveFromLinkedGoals(kpiId);
+      }
+
       // Note: Cascading is now manual - use createBreakdownGoals() method separately
 
       return goal;
@@ -788,6 +797,10 @@ export class PerformanceGoalService {
 
       if (parentGoal.type !== "company") {
         throw new Error("Only company goals can be broken down to departments");
+      }
+
+      if (String(parentGoal.status).toLowerCase() !== "active") {
+        throw new Error("Company goal must be active before breakdown into department goals.");
       }
 
       const createdGoals = [];
@@ -891,6 +904,9 @@ export class PerformanceGoalService {
 
         createdGoals.push(departmentGoal);
         console.log(`✅ Created department goal for ${departmentName}: ${departmentGoal.id}`);
+        if (parentGoal.kpiId) {
+          await KPIService.syncKpiActiveFromLinkedGoals(parentGoal.kpiId);
+        }
       }
 
       return createdGoals;
@@ -912,6 +928,10 @@ export class PerformanceGoalService {
 
       if (departmentGoal.type !== "department") {
         throw new Error("Only department goals can be broken down to individuals");
+      }
+
+      if (String(departmentGoal.status).toLowerCase() !== "active") {
+        throw new Error("Department goal must be active before creating individual goals.");
       }
 
       const createdGoals = [];
@@ -971,14 +991,20 @@ export class PerformanceGoalService {
         createdGoals.push(individualGoal);
         console.log(`✅ Created individual goal for user ${userId}: ${individualGoal.id}`);
 
+        if (departmentGoal.kpiId) {
+          await KPIService.syncKpiActiveFromLinkedGoals(departmentGoal.kpiId);
+        }
+
         // Automatically create task for the individual goal
         try {
           const { IndividualGoalToTaskService } = await import('./IndividualGoalToTaskService');
           await IndividualGoalToTaskService.convertIndividualGoalsToTasks(individualGoal.id);
           console.log(`✅ Automatically created task for individual goal: ${individualGoal.id}`);
-        } catch (taskError) {
+        } catch (taskError: any) {
           console.error(`❌ Failed to create task for individual goal ${individualGoal.id}:`, taskError);
-          // Don't throw error - goal creation should still succeed even if task creation fails
+          throw new Error(
+            `Individual goal was created but linked task failed: ${taskError?.message ?? String(taskError)}`
+          );
         }
       }
 
@@ -1045,7 +1071,7 @@ export class PerformanceGoalService {
             select: {
               id: true,
               name: true,
-              type: true,
+              unitCategory: true,
               unitSymbol: true,
               unitPosition: true
             }
@@ -1141,7 +1167,7 @@ export class PerformanceGoalService {
             select: {
               id: true,
               name: true,
-              type: true,
+              unitCategory: true,
               unitSymbol: true,
               unitPosition: true
             }
@@ -1359,7 +1385,7 @@ export class PerformanceGoalService {
             select: {
               id: true,
               name: true,
-              type: true,
+              unitCategory: true,
               unitSymbol: true,
               unitPosition: true
             }
@@ -1405,6 +1431,11 @@ export class PerformanceGoalService {
         }
       });
 
+      if (existingGoal.kpiId !== updatedGoal.kpiId) {
+        if (existingGoal.kpiId) await KPIService.syncKpiActiveFromLinkedGoals(existingGoal.kpiId);
+        if (updatedGoal.kpiId) await KPIService.syncKpiActiveFromLinkedGoals(updatedGoal.kpiId);
+      }
+
       await this.refreshPerformanceRiskZoneOnGoal(id);
       if (updatedGoal.parentGoalId) {
         await this.updateParentGoalProgress(updatedGoal.parentGoalId);
@@ -1418,7 +1449,7 @@ export class PerformanceGoalService {
               select: {
                 id: true,
                 name: true,
-                type: true,
+                unitCategory: true,
                 unitSymbol: true,
                 unitPosition: true
               }
@@ -1500,6 +1531,10 @@ export class PerformanceGoalService {
       await prisma.performanceGoal.delete({
         where: { id }
       });
+
+      if (existingGoal.kpiId) {
+        await KPIService.syncKpiActiveFromLinkedGoals(existingGoal.kpiId);
+      }
 
       if (existingGoal.parentGoalId) {
         await this.updateParentGoalProgress(existingGoal.parentGoalId);

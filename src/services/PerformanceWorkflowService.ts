@@ -2,6 +2,7 @@
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
 import { createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
+import { KPIService } from "./KPIService";
 import {
   computeAchievementPercent,
   computeParentRollupFromChildren,
@@ -20,7 +21,6 @@ export class PerformanceWorkflowService {
       const organizationalGoal = await prisma.performanceGoal.findUnique({
         where: { id: organizationalGoalId },
         include: {
-          department: true,
           createdBy: true
         }
       });
@@ -31,6 +31,10 @@ export class PerformanceWorkflowService {
 
       if (organizationalGoal.type !== "company") {
         throw new Error("Goal must be a company-level goal for auto-assignment");
+      }
+
+      if (String(organizationalGoal.status).toLowerCase() !== "active") {
+        throw new Error("Company goal must be active before auto-assigning department goals.");
       }
 
       // Get all active departments
@@ -48,10 +52,11 @@ export class PerformanceWorkflowService {
             scorecardPillar: organizationalGoal.scorecardPillar,
             pillarId: organizationalGoal.pillarId,
             parentGoalId: organizationalGoalId,
-            departmentId: department.id,
+            departmentName: department.name,
             targetValue: Math.round(organizationalGoal.targetValue / departments.length),
             targetUnit: organizationalGoal.targetUnit,
             currentValue: 0,
+            kpiId: organizationalGoal.kpiId,
             priority: organizationalGoal.priority,
             startDate: organizationalGoal.startDate,
             endDate: organizationalGoal.endDate,
@@ -60,6 +65,10 @@ export class PerformanceWorkflowService {
             stage: "planning"
           }
         });
+
+        if (organizationalGoal.kpiId) {
+          await KPIService.syncKpiActiveFromLinkedGoals(organizationalGoal.kpiId);
+        }
 
         console.log(`✅ Created department goal for ${department.name}: ${departmentGoal.id}`);
       }
@@ -81,7 +90,6 @@ export class PerformanceWorkflowService {
       const departmentGoal = await prisma.performanceGoal.findUnique({
         where: { id: departmentGoalId },
         include: {
-          department: true,
           createdBy: true
         }
       });
@@ -94,21 +102,51 @@ export class PerformanceWorkflowService {
         throw new Error("Goal must be a department-level goal for auto-assignment");
       }
 
-      // Get all users in the department
-      const departmentUsers = await prisma.user.findMany({
+      if (String(departmentGoal.status).toLowerCase() !== "active") {
+        throw new Error("Department goal must be active before assigning individual goals.");
+      }
+
+      const deptName = departmentGoal.departmentName != null ? String(departmentGoal.departmentName).trim() : "";
+      const departmentRow = deptName
+        ? await prisma.department.findFirst({
+            where: { name: deptName, isActive: true }
+          })
+        : null;
+
+      if (!deptName && !departmentRow?.id) {
+        console.log(
+          `⚠️ Department goal ${departmentGoalId} has no departmentName — cannot resolve users for auto-assign.`
+        );
+        return;
+      }
+
+      const orClause: Array<{ departmentId?: string; userDepartment?: string }> = [];
+      if (departmentRow?.id) orClause.push({ departmentId: departmentRow.id });
+      if (deptName) orClause.push({ userDepartment: deptName });
+
+      const departmentUsersRaw = await prisma.user.findMany({
         where: {
-          departmentId: departmentGoal.departmentId,
-          isActive: true
+          isActive: true,
+          OR: orClause
         },
         include: {
           role: true
         }
       });
 
+      const uniqueById = new Map();
+      for (const u of departmentUsersRaw) uniqueById.set(u.id, u);
+      const departmentUsers = Array.from(uniqueById.values());
+
       if (departmentUsers.length === 0) {
-        console.log(`⚠️ No users found in department ${departmentGoal.department?.name}`);
+        console.log(
+          `⚠️ No users found for department goal ${departmentGoalId}` +
+            (deptName ? ` (departmentName: ${deptName})` : " (missing departmentName on goal)")
+        );
         return;
       }
+
+      const { IndividualGoalToTaskService } = await import("./IndividualGoalToTaskService");
 
       // Create individual goals for each user
       for (const user of departmentUsers) {
@@ -121,9 +159,10 @@ export class PerformanceWorkflowService {
             pillarId: departmentGoal.pillarId,
             parentGoalId: departmentGoalId,
             departmentName: departmentGoal.departmentName,
-            targetValue: Math.round(departmentGoal.targetValue / departmentUsers.length),
+            targetValue: Math.round(Number(departmentGoal.targetValue || 0) / departmentUsers.length),
             targetUnit: departmentGoal.targetUnit,
             currentValue: 0,
+            kpiId: departmentGoal.kpiId,
             priority: departmentGoal.priority,
             startDate: departmentGoal.startDate,
             endDate: departmentGoal.endDate,
@@ -134,7 +173,19 @@ export class PerformanceWorkflowService {
           }
         });
 
+        if (departmentGoal.kpiId) {
+          await KPIService.syncKpiActiveFromLinkedGoals(departmentGoal.kpiId);
+        }
+
         console.log(`✅ Created individual goal for ${user.firstName} ${user.lastName}: ${individualGoal.id}`);
+
+        try {
+          await IndividualGoalToTaskService.convertIndividualGoalsToTasks(individualGoal.id);
+          console.log(`✅ Created task from individual goal ${individualGoal.id}`);
+        } catch (e: any) {
+          console.error(`❌ Failed to create task for individual goal ${individualGoal.id}:`, e);
+          throw new Error(`Task could not be created from individual goal: ${e?.message ?? String(e)}`);
+        }
       }
 
       console.log(`✅ Auto-assigned department goal to ${departmentUsers.length} team members`);

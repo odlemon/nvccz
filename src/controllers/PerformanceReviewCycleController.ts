@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { Request, Response } from "express";
+import { prisma } from "../utils/database";
 import { PerformanceReviewCycleService } from "../services/PerformanceReviewCycleService";
+import { isCEO, isHRLeader, isSysAdmin } from "../services/performanceScorecardSupport";
 
 export class PerformanceReviewCycleController {
   /**
@@ -20,6 +22,18 @@ export class PerformanceReviewCycleController {
       } = req.body;
 
       const userId = req.user.id;
+
+      const actor = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true }
+      });
+      if (!actor || !(isCEO(actor) || isHRLeader(actor) || isSysAdmin(actor))) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only HR leadership, CEO, or system administrators may create performance review cycles. Someone in HR must create the cycle on behalf of managers and employees."
+        });
+      }
 
       if (!title || !reviewPeriodStart || !reviewPeriodEnd || !selfAssessmentDeadline || 
           !peerReviewDeadline || !managerReviewDeadline || !availableReviewTypes || !reviewRatingScale) {

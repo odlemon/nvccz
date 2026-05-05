@@ -56,7 +56,8 @@ export class PerformanceReviewCycleService {
           managerReviewDeadline: request.managerReviewDeadline,
           availableReviewTypes: request.availableReviewTypes,
           reviewRatingScale: request.reviewRatingScale,
-          isActive: true
+          isActive: true,
+          createdById: createdById
         }
       });
 
