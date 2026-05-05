@@ -76,6 +76,7 @@ model User {
   engagementInitiated               StakeholderEngagement[]      @relation("EngagementInitiator")
   performanceReviewsAsReviewee      PerformanceReview[]          @relation("PerformanceReviewReviewee")
   performanceReviewsAsReviewer      PerformanceReview[]          @relation("PerformanceReviewReviewer")
+  performanceReviewCyclesCreated    PerformanceReviewCycle[]     @relation("PerformanceReviewCycleCreatedBy")
   performanceReviewFeedback         PerformanceReviewFeedback[]  @relation("PerformanceReviewFeedbackProvider")
   reportTemplatesCreated            ReportTemplate[]             @relation("ReportTemplateCreator")
   varianceReportsPrepared           VarianceReport[]             @relation("VarianceReportPreparer")
@@ -2104,19 +2105,16 @@ model ActivityLog {
 model KPI {
   id               String            @id @default(cuid())
   name             String
-  type             String
   /// When true, goals linked to this KPI default to reverse scoring (lower is better), unless overridden on the goal.
   isReverseKpi     Boolean           @default(false) @map("is_reverse_kpi")
-  weightValue      Decimal?          @db.Decimal(5, 2)
   hasUnit          Boolean           @default(false)
   unitCategory     String?
   unit             String?
   unitSymbol       String?
   unitPosition     String?           @default("suffix")
-  isActive         Boolean           @default(true)
+  isActive         Boolean           @default(false)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-  departmentId     String?
   /// Stable catalog code (e.g. TRAINING_EXPENSE); unique when set. Mirrors `HardcodedKPI.code`.
   code             String?           @unique @map("kpi_code") @db.VarChar(80)
   /// Long description; mirrors `HardcodedKPI.description`.
@@ -3157,8 +3155,10 @@ model PerformanceReviewCycle {
   availableReviewTypes   Json
   reviewRatingScale      String
   isActive               Boolean             @default(true)
+  createdById            String?             @map("created_by_id")
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
+  createdBy              User?               @relation("PerformanceReviewCycleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   reviews                PerformanceReview[]
 
   @@map("performance_review_cycles")

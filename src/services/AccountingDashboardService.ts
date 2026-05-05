@@ -245,9 +245,34 @@ export class AccountingDashboardService {
         currencyId: currency.id
       });
 
-      // Format assets breakdown
-      const assetsSummary = this.formatAssetsSummary(balanceSheet.assets);
-      const assetsDetailed = this.formatAssetsDetailed(balanceSheet.assets);
+      let assetsSummary = this.formatAssetsSummary(balanceSheet.assets);
+      let assetsDetailed = this.formatAssetsDetailed(balanceSheet.assets);
+      let assetsTotal = balanceSheet.assets.totalAssets;
+
+      const supplemental = await AccountingDashboardService.getSupplementalAssetAddon(
+        periodEnd,
+        currency.id,
+        balanceSheet
+      );
+      for (const row of supplemental) {
+        assetsTotal += row.amount;
+        assetsSummary.push({
+          category: row.label,
+          amount: row.amount,
+          percent: 0
+        });
+        assetsDetailed.push({
+          category: row.label,
+          amount: row.amount,
+          percent: 0
+        });
+      }
+      for (const row of assetsSummary) {
+        row.percent = assetsTotal !== 0 ? (row.amount / assetsTotal) * 100 : 0;
+      }
+      for (const row of assetsDetailed) {
+        row.percent = assetsTotal !== 0 ? (row.amount / assetsTotal) * 100 : 0;
+      }
 
       // Format liabilities & equity breakdown
       const liabilitiesEquitySummary = this.formatLiabilitiesEquitySummary(
@@ -289,7 +314,7 @@ export class AccountingDashboardService {
         assets: {
           summary: assetsSummary,
           detailed: assetsDetailed,
-          total: balanceSheet.assets.totalAssets
+          total: assetsTotal
         },
         liabilitiesEquity: {
           summary: liabilitiesEquitySummary,
@@ -532,6 +557,15 @@ export class AccountingDashboardService {
       });
     }
 
+    const vatPresentationTotal = assets.expensePresentationRecoverableVat?.total ?? 0;
+    if (vatPresentationTotal > 0) {
+      summary.push({
+        category: 'Recoverable / input VAT (expense-oriented disclosure)',
+        amount: vatPresentationTotal,
+        percent: total !== 0 ? (vatPresentationTotal / total) * 100 : 0
+      });
+    }
+
     return summary;
   }
 
@@ -571,6 +605,14 @@ export class AccountingDashboardService {
 
     // Other assets breakdown
     for (const account of assets.otherAssets.accounts || []) {
+      detailed.push({
+        category: account.accountName,
+        amount: account.balance,
+        percent: total !== 0 ? (account.balance / total) * 100 : 0
+      });
+    }
+
+    for (const account of assets.expensePresentationRecoverableVat?.accounts || []) {
       detailed.push({
         category: account.accountName,
         amount: account.balance,
@@ -656,5 +698,104 @@ export class AccountingDashboardService {
     }
 
     return detailed;
+  }
+
+  /**
+   * Subledger lines merged into the dashboard asset breakdown (same response shape).
+   * Amounts are net of overlapping GL balances already present on the balance sheet to reduce double-counting.
+   */
+  private static async getSupplementalAssetAddon(
+    asOf: Date,
+    currencyId: string,
+    balanceSheet: any
+  ): Promise<Array<{ label: string; amount: number }>> {
+    const out: Array<{ label: string; amount: number }> = [];
+
+    const assets = await prisma.asset.findMany({
+      where: {
+        isActive: true,
+        status: "IN_USE",
+        OR: [{ recordedCurrencyId: currencyId }, { recordedCurrencyId: null }]
+      },
+      select: {
+        currentBookValue: true,
+        assetAccount: { select: { accountNo: true } }
+      }
+    });
+
+    let registerTotal = 0;
+    const registerNos = new Set();
+    for (const a of assets) {
+      registerTotal += Number(a.currentBookValue);
+      const no = a.assetAccount?.accountNo;
+      if (no) registerNos.add(no);
+    }
+
+    let overlapFixed = 0;
+    for (const acc of balanceSheet.assets?.fixedAssets?.accounts || []) {
+      if (registerNos.has(acc.accountNo)) overlapFixed += Number(acc.balance || 0);
+    }
+
+    const netFixed = Math.max(0, registerTotal - overlapFixed);
+    if (registerTotal > 0.01) {
+      const useNet = netFixed > 0.01;
+      out.push({
+        label: useNet
+          ? "Fixed assets (register, net of GL overlap)"
+          : "Fixed assets (register — assets module)",
+        amount: useNet ? netFixed : registerTotal
+      });
+    }
+
+    let stiCarrying = 0;
+    try {
+      const { ShortTermInvestmentService } = await import("./ShortTermInvestmentService");
+      const dash = await ShortTermInvestmentService.getDashboard({
+        asOfIso: asOf.toISOString().slice(0, 10)
+      });
+      stiCarrying = Number(dash.portfolio?.carryingTotal || 0);
+    } catch {
+      stiCarrying = 0;
+    }
+
+    const stiRows = await prisma.shortTermInvestmentInstrument.findMany({
+      where: { status: "ACTIVE" },
+      select: {
+        principalGlAccount: { select: { accountNo: true } }
+      }
+    });
+    const stiNos = new Set(
+      stiRows.map((r) => r.principalGlAccount?.accountNo).filter(Boolean) as string[]
+    );
+
+    const scanOverlappingSti = (): number => {
+      let sum = 0;
+      const walk = (list: any[]) => {
+        for (const acc of list || []) {
+          if (acc?.accountNo && stiNos.has(acc.accountNo)) {
+            sum += Number(acc.balance || 0);
+          }
+        }
+      };
+      walk(balanceSheet.assets?.cashAndCashEquivalents?.breakdown || []);
+      walk(balanceSheet.assets?.currentAssets?.accounts || []);
+      walk(balanceSheet.assets?.fixedAssets?.accounts || []);
+      walk(balanceSheet.assets?.otherAssets?.accounts || []);
+      return sum;
+    };
+
+    const stiOverlap = scanOverlappingSti();
+    const netSti = Math.max(0, stiCarrying - stiOverlap);
+    if (stiCarrying > 0.01) {
+      const useNet = netSti > 0.01;
+      out.push({
+        label: useNet
+          ? "Short-term investments (portfolio, net of GL overlap)"
+          : "Short-term investments (portfolio)",
+        amount: useNet ? netSti : stiCarrying
+      });
+    }
+
+    return out;
   }
 }

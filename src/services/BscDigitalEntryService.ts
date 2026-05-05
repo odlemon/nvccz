@@ -209,7 +209,7 @@ async function assertGoalMatchesEntryKind(goalId: string, entryKind: string): Pr
       id: true,
       title: true,
       formulaType: true,
-      kpi: { select: { name: true, type: true } }
+      kpi: { select: { name: true, unitCategory: true } }
     }
   });
   if (!goal) throw new Error("Performance goal not found");
@@ -218,7 +218,7 @@ async function assertGoalMatchesEntryKind(goalId: string, entryKind: string): Pr
   const formulas = (rule.formulaTypes || []).map((f) => normaliseFormulaType(f));
   const hasFormulaMatch = formulas.length > 0 && formulas.includes(goalFormula);
 
-  const haystack = [goal.title, goal.kpi?.name, goal.kpi?.type]
+  const haystack = [goal.title, goal.kpi?.name, goal.kpi?.unitCategory]
     .filter(Boolean)
     .map((s) => String(s).toLowerCase())
     .join(" | ");
@@ -226,11 +226,11 @@ async function assertGoalMatchesEntryKind(goalId: string, entryKind: string): Pr
   const hasTextHintMatch = hints.length > 0 && hints.some((h) => haystack.includes(h));
 
   const kpiName = String(goal.kpi?.name || "").toLowerCase();
-  const kpiType = String(goal.kpi?.type || "").toLowerCase();
+  const kpiUnitCat = String(goal.kpi?.unitCategory || "").toLowerCase();
   const kpiNameHints = (rule.kpiNameHints || []).map((h) => String(h).toLowerCase());
   const kpiTypeHints = (rule.kpiTypeHints || []).map((h) => String(h).toLowerCase());
   const hasKpiNameMatch = kpiNameHints.length > 0 && kpiNameHints.some((h) => kpiName.includes(h));
-  const hasKpiTypeMatch = kpiTypeHints.length > 0 && kpiTypeHints.some((h) => kpiType.includes(h));
+  const hasKpiTypeMatch = kpiTypeHints.length > 0 && kpiTypeHints.some((h) => kpiUnitCat.includes(h));
 
   const formulaOrKpi = hasFormulaMatch || hasKpiNameMatch || hasKpiTypeMatch;
   const passes = formulas.length > 0 ? formulaOrKpi || hasTextHintMatch : hasKpiNameMatch || hasTextHintMatch;

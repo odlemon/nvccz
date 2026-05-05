@@ -48,6 +48,15 @@ function computeOverdueFieldsForTaskUpdate(
   };
 }
 
+/** Legacy tasks stored `kpi.type` (Metric | Percentage); catalog KPIs use `unitCategory`. */
+function kpiTracksPercentAchievement(kpi: { unitCategory?: string | null; type?: string | null } | null | undefined): boolean {
+  if (!kpi) return false;
+  const legacy = String((kpi as any).type || "").toLowerCase();
+  if (legacy === "percentage") return true;
+  const c = String(kpi.unitCategory ?? "").toLowerCase();
+  return c.includes("percent");
+}
+
 const TASK_APPLICATION_FULL_INCLUDE = {
   fund: {
     select: {
@@ -401,10 +410,16 @@ export class TaskService {
 
       const teamUserIds = normalizeTeamToIds(request.team);
 
-      // Enforce: non-admin/non-ceo cannot assign outside their department
+      const normalizedGoalId =
+        request.goalId !== undefined && request.goalId !== null && String(request.goalId).trim() !== ""
+          ? String(request.goalId).trim()
+          : null;
+
+      // Enforce: non-admin/non-ceo cannot assign outside their department — except org performance tasks
+      // mechanically linked to a goal (department breakdown often creates tasks from goals whose creator sits in another dept).
       const creatorRoleName = creator.role?.name?.toLowerCase?.() || '';
       const isPrivileged = creatorRoleName === 'admin' || creatorRoleName === 'ceo';
-      if (!isPrivileged && teamUserIds.length > 0) {
+      if (!isPrivileged && teamUserIds.length > 0 && !normalizedGoalId) {
         const assignees = await prisma.user.findMany({
           where: { id: { in: teamUserIds } },
           select: { id: true, departmentId: true }
@@ -416,10 +431,6 @@ export class TaskService {
           throw new Error("You can only assign tasks to users within your department");
         }
       }
-      const normalizedGoalId =
-        request.goalId !== undefined && request.goalId !== null && String(request.goalId).trim() !== ""
-          ? String(request.goalId)
-          : null;
       const hasLinkedGoal = Boolean(normalizedGoalId);
       // Linked project tasks should roll up to the goal by default (B.17 / Project Velocity); opt out with isPerformanceTask: false.
       const normalizedIsPerformanceTask = hasLinkedGoal ? request.isPerformanceTask !== false : false;
@@ -432,6 +443,9 @@ export class TaskService {
 
         if (!goal) {
           throw new Error("Performance goal not found");
+        }
+        if (String(goal.status).toLowerCase() !== "active") {
+          throw new Error("Cannot link tasks to a goal until the goal is active.");
         }
       }
 
@@ -449,7 +463,7 @@ export class TaskService {
         kpiData = {
           id: request.kpi.id,
           name: request.kpi.name || kpiRecord.name,
-          type: request.kpi.type || kpiRecord.type,
+          unitCategory: request.kpi.unitCategory || kpiRecord.unitCategory,
           unitSymbol: request.kpi.unitSymbol || kpiRecord.unitSymbol,
           unitPosition: request.kpi.unitPosition || kpiRecord.unitPosition
         };
@@ -557,17 +571,6 @@ export class TaskService {
 
       const beforeRedZone = isRedZoneTask(existingTask);
 
-      // Validate goal if provided
-      if (request.goalId) {
-        const goal = await prisma.performanceGoal.findUnique({
-          where: { id: request.goalId }
-        });
-
-        if (!goal) {
-          throw new Error("Performance goal not found");
-        }
-      }
-
       // Validate KPI if provided
       let kpiData = existingTask.kpi;
       if (request.kpi && request.kpi.id) {
@@ -582,11 +585,18 @@ export class TaskService {
         kpiData = {
           id: request.kpi.id,
           name: request.kpi.name || kpiRecord.name,
-          type: request.kpi.type || kpiRecord.type,
+          unitCategory: request.kpi.unitCategory || kpiRecord.unitCategory,
           unitSymbol: request.kpi.unitSymbol || kpiRecord.unitSymbol,
           unitPosition: request.kpi.unitPosition || kpiRecord.unitPosition
         };
       }
+
+      const nextGoalId =
+        request.goalId === undefined
+          ? existingTask.goalId
+          : request.goalId === null || String(request.goalId).trim() === ""
+            ? null
+            : String(request.goalId).trim();
 
       // Validate assignment boundaries on team change
       if (request.team && updatedByUserId) {
@@ -616,7 +626,8 @@ export class TaskService {
         const teamUserIds = normalizeTeamToIds(request.team);
         const updaterRoleName = updater.role?.name?.toLowerCase?.() || '';
         const isPrivileged = updaterRoleName === 'admin' || updaterRoleName === 'ceo';
-        if (!isPrivileged && teamUserIds.length > 0) {
+        const bypassDeptForPerfGoal = Boolean(nextGoalId);
+        if (!isPrivileged && teamUserIds.length > 0 && !bypassDeptForPerfGoal) {
           const assignees = await prisma.user.findMany({
             where: { id: { in: teamUserIds } },
             select: { id: true, departmentId: true }
@@ -636,12 +647,6 @@ export class TaskService {
         : normaliseTaskStage(existingTask.stage);
 
       const overdueFields = computeOverdueFieldsForTaskUpdate(existingTask, effectiveDueDate, effectiveStageNorm);
-      const nextGoalId =
-        request.goalId === undefined
-          ? existingTask.goalId
-          : request.goalId === null || String(request.goalId).trim() === ""
-            ? null
-            : String(request.goalId);
       const hasLinkedGoal = Boolean(nextGoalId);
       const nextIsPerformanceTask =
         request.isPerformanceTask !== undefined
@@ -650,6 +655,18 @@ export class TaskService {
             ? existingTask.isPerformanceTask
             : true;
       const normalizedIsPerformanceTask = hasLinkedGoal ? Boolean(nextIsPerformanceTask) : false;
+
+      if (nextGoalId) {
+        const linkedGoal = await prisma.performanceGoal.findUnique({
+          where: { id: nextGoalId }
+        });
+        if (!linkedGoal) {
+          throw new Error("Performance goal not found");
+        }
+        if (String(linkedGoal.status).toLowerCase() !== "active") {
+          throw new Error("Cannot link tasks to a goal until the goal is active.");
+        }
+      }
 
       // Update the task
       const updatedTask = await prisma.task.update({
@@ -1011,14 +1028,14 @@ export class TaskService {
       };
 
       // Handle KPI-based achievements
-      if (task.kpi?.type === "Metric" && activity.monetaryValueAchieved) {
+      if (!kpiTracksPercentAchievement(task.kpi) && activity.monetaryValueAchieved) {
         activityData.collectedMonetary = activity.monetaryValueAchieved;
         updateData.monetaryValueAchieved = (task.monetaryValueAchieved || 0) + activity.monetaryValueAchieved;
         
         if (updateData.monetaryValueAchieved >= (task.monetaryValue || 0)) {
           updateData.stage = "completed";
         }
-      } else if (task.kpi?.type === "Percentage" && activity.percentValueAchieved) {
+      } else if (kpiTracksPercentAchievement(task.kpi) && activity.percentValueAchieved) {
         activityData.collectedPercent = activity.percentValueAchieved;
         updateData.percentValueAchieved = (task.percentValueAchieved || 0) + activity.percentValueAchieved;
         

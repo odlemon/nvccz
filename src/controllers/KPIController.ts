@@ -48,14 +48,10 @@ const KPI_JOURNAL_TYPES = ["Debit", "Credit"];
 
 function serializeKpiForJson(kpi: any) {
   if (!kpi) return kpi;
-  const { catalogDescription, weightValue, ...rest } = kpi;
+  const { catalogDescription, type, weightValue, departmentId, catalogDepartmentName, ...rest } = kpi as any;
   return {
     ...rest,
-    description: catalogDescription ?? null,
-    weightValue:
-      weightValue != null && typeof weightValue?.toString === "function"
-        ? parseFloat(weightValue.toString())
-        : weightValue
+    description: catalogDescription ?? null
   };
 }
 
@@ -65,10 +61,7 @@ export class KPIController {
     try {
       const {
         name,
-        type,
-        departmentId,
         isReverseKpi,
-        weightValue,
         hasUnit,
         unitCategory,
         unit,
@@ -76,7 +69,6 @@ export class KPIController {
         unitPosition,
         code,
         description,
-        catalogDepartmentName,
         accountType,
         accountNumber,
         journalEntryType,
@@ -84,27 +76,16 @@ export class KPIController {
         scorecardPillar
       } = req.body;
 
-      if (!name || !type) {
+      if (!name || !String(name).trim()) {
         return res.status(400).json({
           success: false,
-          message: "KPI name and type are required"
-        });
-      }
-
-      if (!["Metric", "Percentage"].includes(type)) {
-        return res.status(400).json({
-          success: false,
-          message: "KPI type must be either 'Metric' or 'Percentage'"
+          message: "KPI name is required"
         });
       }
 
       const rev = parseRequiredBool(isReverseKpi, "isReverseKpi");
       if (!rev.ok) {
         return res.status(400).json({ success: false, message: rev.message });
-      }
-      const w = parseRequiredFiniteNumber(weightValue, "weightValue");
-      if (!w.ok) {
-        return res.status(400).json({ success: false, message: w.message });
       }
       const hu = parseRequiredBool(hasUnit, "hasUnit");
       if (!hu.ok) {
@@ -114,22 +95,30 @@ export class KPIController {
       if (!uc.ok) {
         return res.status(400).json({ success: false, message: uc.message });
       }
-      const u = parseRequiredNonEmptyString(unit, "unit");
-      if (!u.ok) {
-        return res.status(400).json({ success: false, message: u.message });
-      }
-      const us = parseRequiredNonEmptyString(unitSymbol, "unitSymbol");
-      if (!us.ok) {
-        return res.status(400).json({ success: false, message: us.message });
-      }
-      if (unitPosition === undefined || unitPosition === null) {
-        return res.status(400).json({ success: false, message: "unitPosition is required" });
-      }
-      if (unitPosition !== "prefix" && unitPosition !== "suffix") {
-        return res.status(400).json({
-          success: false,
-          message: "unitPosition must be either 'prefix' or 'suffix'"
-        });
+      let unitNorm: string | null = null;
+      let unitSymbolNorm: string | null = null;
+      let unitPositionNorm: string | null = null;
+      if (hu.value) {
+        const uReq = parseRequiredNonEmptyString(unit, "unit");
+        if (!uReq.ok) {
+          return res.status(400).json({ success: false, message: uReq.message });
+        }
+        unitNorm = uReq.value;
+        const usReq = parseRequiredNonEmptyString(unitSymbol, "unitSymbol");
+        if (!usReq.ok) {
+          return res.status(400).json({ success: false, message: usReq.message });
+        }
+        unitSymbolNorm = usReq.value;
+        if (unitPosition === undefined || unitPosition === null) {
+          return res.status(400).json({ success: false, message: "unitPosition is required when hasUnit is true" });
+        }
+        if (unitPosition !== "prefix" && unitPosition !== "suffix") {
+          return res.status(400).json({
+            success: false,
+            message: "unitPosition must be either 'prefix' or 'suffix'"
+          });
+        }
+        unitPositionNorm = unitPosition;
       }
 
       const codeP = parseRequiredNonEmptyString(code, "code");
@@ -140,36 +129,40 @@ export class KPIController {
       if (!descP.ok) {
         return res.status(400).json({ success: false, message: descP.message });
       }
-      const cdnP = parseRequiredNonEmptyString(catalogDepartmentName, "catalogDepartmentName");
-      if (!cdnP.ok) {
-        return res.status(400).json({ success: false, message: cdnP.message });
-      }
-      const atP = parseRequiredNonEmptyString(accountType, "accountType");
-      if (!atP.ok) {
-        return res.status(400).json({ success: false, message: atP.message });
-      }
-      if (!KPI_ACCOUNT_TYPES.includes(atP.value)) {
-        return res.status(400).json({
-          success: false,
-          message: `accountType must be one of: ${KPI_ACCOUNT_TYPES.join(", ")}`
-        });
-      }
-      const jtP = parseRequiredNonEmptyString(journalEntryType, "journalEntryType");
-      if (!jtP.ok) {
-        return res.status(400).json({ success: false, message: jtP.message });
-      }
-      if (!KPI_JOURNAL_TYPES.includes(jtP.value)) {
-        return res.status(400).json({
-          success: false,
-          message: `journalEntryType must be one of: ${KPI_JOURNAL_TYPES.join(", ")}`
-        });
-      }
       const fin = parseRequiredBool(isFinancial, "isFinancial");
       if (!fin.ok) {
         return res.status(400).json({ success: false, message: fin.message });
       }
-      let accountNumberNorm = null;
+
+      let accountTypeNorm: string | null = null;
+      let journalEntryTypeNorm: string | null = null;
+      let accountNumberNorm: string | null = null;
+
       if (fin.value === true) {
+        const atP = parseRequiredNonEmptyString(accountType, "accountType");
+        if (!atP.ok) {
+          return res.status(400).json({ success: false, message: atP.message });
+        }
+        if (!KPI_ACCOUNT_TYPES.includes(atP.value)) {
+          return res.status(400).json({
+            success: false,
+            message: `accountType must be one of: ${KPI_ACCOUNT_TYPES.join(", ")}`
+          });
+        }
+        accountTypeNorm = atP.value;
+
+        const jtP = parseRequiredNonEmptyString(journalEntryType, "journalEntryType");
+        if (!jtP.ok) {
+          return res.status(400).json({ success: false, message: jtP.message });
+        }
+        if (!KPI_JOURNAL_TYPES.includes(jtP.value)) {
+          return res.status(400).json({
+            success: false,
+            message: `journalEntryType must be one of: ${KPI_JOURNAL_TYPES.join(", ")}`
+          });
+        }
+        journalEntryTypeNorm = jtP.value;
+
         const an = parseRequiredNonEmptyString(accountNumber, "accountNumber");
         if (!an.ok) {
           return res.status(400).json({
@@ -178,51 +171,44 @@ export class KPIController {
           });
         }
         accountNumberNorm = an.value;
-      } else if (accountNumber != null && String(accountNumber).trim() !== "") {
-        const an = parseRequiredNonEmptyString(accountNumber, "accountNumber");
-        if (!an.ok) {
-          return res.status(400).json({ success: false, message: an.message });
+      } else {
+        if (accountType != null && String(accountType).trim() !== "") {
+          const atP = parseRequiredNonEmptyString(accountType, "accountType");
+          if (!atP.ok) {
+            return res.status(400).json({ success: false, message: atP.message });
+          }
+          if (KPI_ACCOUNT_TYPES.includes(atP.value)) accountTypeNorm = atP.value;
         }
-        accountNumberNorm = an.value;
-      }
-
-      const resolvedDepartmentId = await KPIService.resolveDepartmentIdByCatalogDepartmentName(
-        cdnP.value
-      );
-      if (!resolvedDepartmentId) {
-        return res.status(400).json({
-          success: false,
-          message: `No department found with name "${cdnP.value}". Use the exact name from the departments table (e.g. Human Resources).`
-        });
-      }
-      if (
-        departmentId != null &&
-        String(departmentId).trim() !== "" &&
-        String(departmentId).trim() !== resolvedDepartmentId
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "departmentId does not match catalogDepartmentName; omit departmentId or align it with the resolved department."
-        });
+        if (journalEntryType != null && String(journalEntryType).trim() !== "") {
+          const jtP = parseRequiredNonEmptyString(journalEntryType, "journalEntryType");
+          if (!jtP.ok) {
+            return res.status(400).json({ success: false, message: jtP.message });
+          }
+          if (KPI_JOURNAL_TYPES.includes(jtP.value)) journalEntryTypeNorm = jtP.value;
+        }
+        if (accountNumber != null && String(accountNumber).trim() !== "") {
+          const an = parseRequiredNonEmptyString(accountNumber, "accountNumber");
+          if (!an.ok) {
+            return res.status(400).json({ success: false, message: an.message });
+          }
+          accountNumberNorm = an.value;
+        }
       }
 
       const kpi = await KPIService.createKPI({
-        name,
-        type,
-        departmentId: resolvedDepartmentId,
+        name: String(name).trim(),
         isReverseKpi: rev.value,
-        weightValue: w.value,
         hasUnit: hu.value,
         unitCategory: uc.value,
-        unit: u.value,
-        unitSymbol: us.value,
-        unitPosition,
+        unit: unitNorm,
+        unitSymbol: unitSymbolNorm,
+        unitPosition: unitPositionNorm,
         code: codeP.value,
         description: descP.value,
-        catalogDepartmentName: cdnP.value,
-        accountType: atP.value,
+        catalogDepartmentName: null,
+        accountType: accountTypeNorm,
         accountNumber: accountNumberNorm,
-        journalEntryType: jtP.value,
+        journalEntryType: journalEntryTypeNorm,
         isFinancial: fin.value,
         ...(scorecardPillar != null && String(scorecardPillar).trim() !== ""
           ? { scorecardPillar: String(scorecardPillar).trim() }
@@ -248,20 +234,11 @@ export class KPIController {
   // Get all KPIs
   static async getAllKPIs(req: Request, res: Response) {
     try {
-      const {
-        type,
-        departmentId,
-        isActive,
-        hasUnit,
-        search,
-        scorecardPillar
-      } = req.query;
+      const { isActive, hasUnit, search, scorecardPillar } = req.query;
 
       const filters: any = {};
-      if (type) filters.type = type as string;
-      if (departmentId) filters.departmentId = departmentId as string;
-      if (isActive !== undefined) filters.isActive = isActive === 'true';
-      if (hasUnit !== undefined) filters.hasUnit = hasUnit === 'true';
+      if (isActive !== undefined) filters.isActive = isActive === "true";
+      if (hasUnit !== undefined) filters.hasUnit = hasUnit === "true";
       if (search) filters.search = search as string;
       if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
 
@@ -305,10 +282,7 @@ export class KPIController {
       const { id } = req.params;
       const {
         name,
-        type,
-        departmentId,
         isReverseKpi,
-        weightValue,
         hasUnit,
         unitCategory,
         unit,
@@ -317,20 +291,12 @@ export class KPIController {
         isActive,
         code,
         description,
-        catalogDepartmentName,
         accountType,
         accountNumber,
         journalEntryType,
         isFinancial,
         scorecardPillar
       } = req.body;
-
-      if (type && !["Metric", "Percentage"].includes(type)) {
-        return res.status(400).json({
-          success: false,
-          message: "KPI type must be either 'Metric' or 'Percentage'"
-        });
-      }
 
       if (accountType && !KPI_ACCOUNT_TYPES.includes(accountType)) {
         return res.status(400).json({
@@ -345,66 +311,27 @@ export class KPIController {
         });
       }
 
-      const patch = {
-        name,
-        type,
+      const patch: any = {
+        ...(name !== undefined && { name }),
         ...(isReverseKpi !== undefined && {
-          isReverseKpi:
-            typeof isReverseKpi === "boolean"
-              ? isReverseKpi
-              : isReverseKpi === "true",
+          isReverseKpi: typeof isReverseKpi === "boolean" ? isReverseKpi : isReverseKpi === "true"
         }),
-        weightValue,
-        hasUnit,
-        unitCategory,
-        unit,
-        unitSymbol,
-        unitPosition,
-        isActive,
+        ...(hasUnit !== undefined && { hasUnit }),
+        ...(unitCategory !== undefined && { unitCategory }),
+        ...(unit !== undefined && { unit }),
+        ...(unitSymbol !== undefined && { unitSymbol }),
+        ...(unitPosition !== undefined && { unitPosition }),
+        ...(isActive !== undefined && { isActive }),
         ...(code !== undefined && { code: String(code).trim() }),
         ...(description !== undefined && { description }),
         ...(accountType !== undefined && { accountType }),
         ...(accountNumber !== undefined && { accountNumber }),
         ...(journalEntryType !== undefined && { journalEntryType }),
         ...(isFinancial !== undefined && {
-          isFinancial:
-            typeof isFinancial === "boolean" ? isFinancial : isFinancial === "true"
+          isFinancial: typeof isFinancial === "boolean" ? isFinancial : isFinancial === "true"
         }),
         ...(scorecardPillar !== undefined && { scorecardPillar })
       };
-
-      if (catalogDepartmentName !== undefined) {
-        if (catalogDepartmentName === null || String(catalogDepartmentName).trim() === "") {
-          patch.catalogDepartmentName = null;
-          patch.departmentId = null;
-        } else {
-          const cdn = parseRequiredNonEmptyString(catalogDepartmentName, "catalogDepartmentName");
-          if (!cdn.ok) {
-            return res.status(400).json({ success: false, message: cdn.message });
-          }
-          const rid = await KPIService.resolveDepartmentIdByCatalogDepartmentName(cdn.value);
-          if (!rid) {
-            return res.status(400).json({
-              success: false,
-              message: `No department found with name "${cdn.value}". Use the exact name from the departments table.`
-            });
-          }
-          if (
-            departmentId != null &&
-            String(departmentId).trim() !== "" &&
-            String(departmentId).trim() !== rid
-          ) {
-            return res.status(400).json({
-              success: false,
-              message: "departmentId does not match catalogDepartmentName; omit departmentId or align it with the resolved department."
-            });
-          }
-          patch.catalogDepartmentName = cdn.value;
-          patch.departmentId = rid;
-        }
-      } else if (departmentId !== undefined) {
-        patch.departmentId = departmentId;
-      }
 
       const kpi = await KPIService.updateKPI(id, patch);
 
@@ -463,19 +390,11 @@ export class KPIController {
   // Get comprehensive KPI tracking data
   static async getKPITracking(req: Request, res: Response) {
     try {
-      const {
-        kpiId,
-        type,
-        departmentId,
-        isActive,
-        scorecardPillar
-      } = req.query;
+      const { kpiId, isActive, scorecardPillar } = req.query;
 
       const filters: any = {};
       if (kpiId) filters.kpiId = kpiId as string;
-      if (type) filters.type = type as string;
-      if (departmentId) filters.departmentId = departmentId as string;
-      if (isActive !== undefined) filters.isActive = isActive === 'true';
+      if (isActive !== undefined) filters.isActive = isActive === "true";
       if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
 
       const trackingData = await KPIService.getKPITracking(filters);
@@ -496,14 +415,9 @@ export class KPIController {
   // Get KPI analytics summary
   static async getKPIAnalyticsSummary(req: Request, res: Response) {
     try {
-      const {
-        departmentId,
-        scorecardPillar,
-        period = 'month'
-      } = req.query;
+      const { scorecardPillar, period = "month" } = req.query;
 
       const filters: any = {};
-      if (departmentId) filters.departmentId = departmentId as string;
       if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
 
       const analyticsData = await KPIService.getKPIAnalyticsSummary(filters, period as string);

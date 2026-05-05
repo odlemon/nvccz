@@ -316,6 +316,10 @@ export class PerformanceReviewService {
       request.revieweeId = revieweeId;
       request.reviewerId = reviewerId;
 
+      if (actor?.id && actor.id === revieweeId) {
+        throw new Error("You cannot create a performance review that targets you as the reviewee.");
+      }
+
       this.validateReviewPayload(request);
 
       // Validate reviewee exists
