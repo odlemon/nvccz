@@ -2,8 +2,9 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
-import { uploadToS3 } from "../utils/awsS3";
 import { normalizeNewsletterContent } from "../utils/newsletterContent";
+import { saveNewsletterCoverImage } from "../utils/newsletterImageStorage";
+import { getUploadedNewsletterCoverFile } from "../utils/newsletterMulterHelpers";
 import {
   getNewsletterRecipientConfig,
   listNewsletterBaseAudienceUsers,
@@ -20,6 +21,9 @@ export const newsletterController = {
       const authorId = req.user.id;
       const normalizedTitle = String(title ?? "").trim();
       let imageUrl: string | undefined;
+
+      const coverFile = getUploadedNewsletterCoverFile(req);
+      let coverSnapshotForEmail: Buffer | undefined;
 
       // Update user's last seen
       await prisma.user.update({
@@ -43,16 +47,20 @@ export const newsletterController = {
         });
       }
 
-      // Handle image upload if present
-      if (req.file) {
+      // Handle cover image (`image` or `coverImage` in multipart/form-data)
+      if (coverFile?.buffer?.length) {
         try {
-          const key = `newsletters/${Date.now()}-${req.file.originalname}`;
-          imageUrl = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+          imageUrl = await saveNewsletterCoverImage(
+            coverFile.buffer,
+            coverFile.originalname || "cover.jpg",
+            coverFile.mimetype || "image/jpeg"
+          );
+          coverSnapshotForEmail = Buffer.from(coverFile.buffer);
         } catch (uploadError) {
           console.error("Error uploading image:", uploadError);
           res.status(500).json({
             success: false,
-            message: "Error uploading image"
+            message: uploadError instanceof Error ? uploadError.message : "Error uploading image"
           });
           return;
         }
@@ -105,12 +113,12 @@ export const newsletterController = {
           title: normalizedTitle,
           content: normalized.html,
           imageUrl: newsletter.imageUrl ?? undefined,
-          coverImageFromUpload: req.file
-            ? {
-                content: req.file.buffer,
-                contentType: req.file.mimetype || "image/jpeg",
-                filename: req.file.originalname
-              }
+          coverImageFromUpload:
+            coverSnapshotForEmail?.length ? {
+              content: coverSnapshotForEmail,
+              contentType: coverFile?.mimetype || "image/jpeg",
+              filename: coverFile?.originalname
+            }
             : undefined,
           authorDisplayName: authorDisplayName || "Author",
         })
@@ -312,6 +320,8 @@ export const newsletterController = {
       const normalizedTitle = String(title ?? "").trim();
       let imageUrl: string | undefined;
 
+      const coverFile = getUploadedNewsletterCoverFile(req);
+
       const existingNewsletter = await prisma.newsletter.findUnique({
         where: { id }
       });
@@ -347,16 +357,19 @@ export const newsletterController = {
         });
       }
 
-      // Handle image upload if present
-      if (req.file) {
+      // Handle cover image (`image` or `coverImage` in multipart/form-data)
+      if (coverFile?.buffer?.length) {
         try {
-          const key = `newsletters/${Date.now()}-${req.file.originalname}`;
-          imageUrl = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+          imageUrl = await saveNewsletterCoverImage(
+            coverFile.buffer,
+            coverFile.originalname || "cover.jpg",
+            coverFile.mimetype || "image/jpeg"
+          );
         } catch (uploadError) {
           console.error("Error uploading image:", uploadError);
           res.status(500).json({
             success: false,
-            message: "Error uploading image"
+            message: uploadError instanceof Error ? uploadError.message : "Error uploading image"
           });
           return;
         }

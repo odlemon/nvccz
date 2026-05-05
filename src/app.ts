@@ -5,6 +5,7 @@ import cors from "cors"
 import helmet from "helmet"
 import dotenv from "dotenv"
 import compression from "compression"
+import path from "path"
 
 import { errorMiddleware } from "./middleware/error"
 import { prisma, checkDatabaseConnection } from "./utils/database"
@@ -218,6 +219,14 @@ app.use(cors({
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+// Newsletter (and future) uploads: `Newsletter.imageUrl` uses `/api/uploads/...` (see `newsletterImageStorage.ts`).
+app.use(
+  "/api/uploads",
+  express.static(path.join(process.cwd(), "uploads"), {
+    etag: true,
+    maxAge: process.env.NODE_ENV === "production" ? "7d" : "0"
+  })
+)
 app.use(
   compression({
     threshold: 1024,

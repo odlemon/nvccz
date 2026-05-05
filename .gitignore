@@ -10,6 +10,9 @@
 /dist
 /build
 
+# User-uploaded files (newsletter covers, etc.)
+/uploads
+
 # misc
 .DS_Store
 .env
