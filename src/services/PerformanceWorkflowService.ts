@@ -9,6 +9,7 @@ import {
   deriveParentStageFromRollup,
   isTargetMet
 } from "./performanceGoalRollupUtils";
+import { resolveDefaultDepartmentGoalAssigneeId } from "./performanceGoalDefaultAssignee";
 
 export class PerformanceWorkflowService {
   /**
@@ -44,6 +45,7 @@ export class PerformanceWorkflowService {
 
       // Create department goals for each department
       for (const department of departments) {
+        const departmentAssigneeId = await resolveDefaultDepartmentGoalAssigneeId(department.name);
         const departmentGoal = await prisma.performanceGoal.create({
           data: {
             title: `Department Goal: ${organizationalGoal.title}`,
@@ -60,6 +62,7 @@ export class PerformanceWorkflowService {
             priority: organizationalGoal.priority,
             startDate: organizationalGoal.startDate,
             endDate: organizationalGoal.endDate,
+            assignedToId: departmentAssigneeId,
             createdById: organizationalGoal.createdById,
             status: "active",
             stage: "planning"

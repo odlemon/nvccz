@@ -16,6 +16,12 @@ import {
   renderEmailSignature,
   type EmailBranding,
 } from "../utils/emailBranding";
+import {
+  coverImageInlineAttachment,
+  fetchCoverInlineAttachment,
+  inlineExternalImagesInNewsletterHtml,
+  type NewsletterInlineAttachment,
+} from "../utils/newsletterEmailImages";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -5442,7 +5448,10 @@ export class EmailNotificationService {
     recipients: Array<{ email: string; firstName?: string | null; lastName?: string | null }>;
     title: string;
     content: string;
+    /** Stored URL — fetched server-side unless `coverImageFromUpload` is provided. */
     imageUrl?: string | null;
+    /** Prefer buffer from multipart upload (`inline_upload`-style URLs are not fetchable). */
+    coverImageFromUpload?: { content: Buffer; contentType: string; filename?: string } | null;
     authorDisplayName: string;
   }): Promise<{
     attempted: number;
@@ -5459,45 +5468,38 @@ export class EmailNotificationService {
       String(html).replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
     const from = getFromAddress("platform");
     const company = process.env.COMPANY_NAME_SHORT || "NVCCZ";
-    const base = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
-    const readMoreUrl = base ? `${base}/` : "#";
-    const imgUrl = data.imageUrl?.trim();
+    const trimBaseEnv = (s: string | undefined): string | null => {
+      const t = String(s || "").trim();
+      return t ? t.replace(/\/$/, "") : null;
+    };
+    const publicBase =
+      trimBaseEnv(process.env.FRONTEND_URL) || trimBaseEnv(process.env.NEXT_PUBLIC_APP_URL) || null;
+    /** Unwrap `<a>` tags so the message has no clickable URLs (text inside links is kept). */
+    const stripAnchorTags = (html: string) =>
+      String(html).replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, (_, inner: string) => inner);
 
-    // Download once, embed as inline attachment (CID) for all recipients.
-    let inlineImage:
-      | { filename: string; content: Buffer; cid: string; contentType?: string; disposition: "inline" }
-      | null = null;
-    if (imgUrl && /^https?:\/\//i.test(imgUrl)) {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 15_000);
-      try {
-        const resp = await fetch(imgUrl, { signal: ac.signal, redirect: "follow" });
-        if (resp.ok) {
-          const contentType = resp.headers.get("content-type") || undefined;
-          const raw = Buffer.from(await resp.arrayBuffer());
-          if (raw.length > 0 && raw.length <= 8 * 1024 * 1024) {
-            const ext = contentType?.includes("png")
-              ? "png"
-              : contentType?.includes("gif")
-                ? "gif"
-                : contentType?.includes("webp")
-                  ? "webp"
-                  : "jpg";
-            inlineImage = {
-              filename: `newsletter-image.${ext}`,
-              content: raw,
-              cid: `newsletter-image-${Date.now()}@nvccz`,
-              contentType,
-              disposition: "inline",
-            };
-          }
-        }
-      } catch (e: any) {
-        console.warn("broadcastInternalNewsletterEmails: image download failed:", e?.message || e);
-      } finally {
-        clearTimeout(timer);
-      }
-    }
+    /** Body HTML + any `<img>` in content turned into CID parts (better than remote URLs in clients). */
+    let bodyProcessed = stripAnchorTags(stripScripts(data.content));
+    const bodyInlined = await inlineExternalImagesInNewsletterHtml(bodyProcessed, { publicBase });
+    bodyProcessed = bodyInlined.html;
+
+    /** Cover / hero image attachment (multipart buffer wins over bogus `imageUrl`). */
+    const uploadCover = data.coverImageFromUpload;
+    const coverAttachment: NewsletterInlineAttachment | null =
+      uploadCover?.content != null &&
+      Buffer.isBuffer(uploadCover.content) &&
+      uploadCover.content.length > 0
+        ? coverImageInlineAttachment({
+            content: uploadCover.content,
+            contentType: uploadCover.contentType || "image/jpeg",
+            filename: uploadCover.filename
+          })
+        : await fetchCoverInlineAttachment(String(data.imageUrl || "").trim());
+
+    const mimeAttachments: NewsletterInlineAttachment[] = [
+      ...(coverAttachment ? [coverAttachment] : []),
+      ...bodyInlined.attachments
+    ];
 
     const failed: Array<{ email: string; message: string }> = [];
     let succeeded = 0;
@@ -5515,9 +5517,8 @@ export class EmailNotificationService {
         const greeting = esc(r.firstName || "there");
         const titleEsc = esc(data.title);
         const authorEsc = esc(data.authorDisplayName);
-        const bodyHtml = stripScripts(data.content);
-        const imgBlock = inlineImage
-          ? `<div style="margin:16px 0;"><img src="cid:${inlineImage.cid}" alt="" style="max-width:100%;max-height:280px;border-radius:6px;" /></div>`
+        const imgBlock = coverAttachment
+          ? `<div style="margin:16px 0;"><img src="cid:${coverAttachment.cid}" alt="" width="600" style="max-width:100%;height:auto;border-radius:6px;display:block;" /></div>`
           : "";
 
         const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
@@ -5526,9 +5527,8 @@ export class EmailNotificationService {
   <p><strong>${titleEsc}</strong> — ${authorEsc} posted a new company newsletter.</p>
   ${imgBlock}
   <div style="margin:16px 0;padding:12px;border:1px solid #eee;border-radius:8px;background:#fafafa;">
-    ${bodyHtml}
+    ${bodyProcessed}
   </div>
-  <p><a href="${esc(readMoreUrl)}">Open the platform</a> to see announcements and past newsletters.</p>
   <p style="color:#888;font-size:12px;">${esc(company)}</p>
 </body></html>`;
 
@@ -5537,7 +5537,7 @@ export class EmailNotificationService {
           to: { name: displayName, address: to },
           subject: `${data.title} — ${company}`,
           html,
-          attachments: inlineImage ? [inlineImage] : undefined,
+          attachments: mimeAttachments.length ? mimeAttachments : undefined,
         });
         succeeded++;
       } catch (e: any) {

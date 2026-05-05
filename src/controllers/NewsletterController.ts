@@ -105,6 +105,13 @@ export const newsletterController = {
           title: normalizedTitle,
           content: normalized.html,
           imageUrl: newsletter.imageUrl ?? undefined,
+          coverImageFromUpload: req.file
+            ? {
+                content: req.file.buffer,
+                contentType: req.file.mimetype || "image/jpeg",
+                filename: req.file.originalname
+              }
+            : undefined,
           authorDisplayName: authorDisplayName || "Author",
         })
           .then((emailResult) => {

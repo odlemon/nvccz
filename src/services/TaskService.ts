@@ -435,6 +435,23 @@ export class TaskService {
       // Linked project tasks should roll up to the goal by default (B.17 / Project Velocity); opt out with isPerformanceTask: false.
       const normalizedIsPerformanceTask = hasLinkedGoal ? request.isPerformanceTask !== false : false;
 
+      const breakdownLogTag = "[performance-breakdown:individuals]";
+      if (normalizedIsPerformanceTask && normalizedGoalId) {
+        console.log(
+          breakdownLogTag,
+          "TaskService.createTask (performance path)",
+          JSON.stringify({
+            createdBy,
+            goalId: normalizedGoalId,
+            teamUserIds,
+            department: request.department ?? null,
+            titlePreview: request.title ? String(request.title).slice(0, 100) : null,
+            hasKpiPayload: Boolean(request.kpi?.id),
+            targetValue: request.targetValue ?? null
+          })
+        );
+      }
+
       // Validate goal if provided
       if (normalizedGoalId) {
         const goal = await prisma.performanceGoal.findUnique({
@@ -442,10 +459,27 @@ export class TaskService {
         });
 
         if (!goal) {
+          if (request.isPerformanceTask) {
+            console.error(breakdownLogTag, "createTask abort: Performance goal not found", normalizedGoalId);
+          }
           throw new Error("Performance goal not found");
         }
         if (String(goal.status).toLowerCase() !== "active") {
+          if (request.isPerformanceTask) {
+            console.error(
+              breakdownLogTag,
+              "createTask abort: goal not active",
+              JSON.stringify({ goalId: normalizedGoalId, status: goal.status, type: goal.type })
+            );
+          }
           throw new Error("Cannot link tasks to a goal until the goal is active.");
+        }
+        if (normalizedIsPerformanceTask && normalizedGoalId) {
+          console.log(
+            breakdownLogTag,
+            "linked goal validation OK",
+            JSON.stringify({ goalId: goal.id, type: goal.type, status: goal.status })
+          );
         }
       }
 
@@ -457,6 +491,9 @@ export class TaskService {
         });
 
         if (!kpiRecord) {
+          if (request.isPerformanceTask) {
+            console.error(breakdownLogTag, "createTask abort: KPI not found", request.kpi.id);
+          }
           throw new Error("KPI not found");
         }
 
@@ -553,8 +590,22 @@ export class TaskService {
       });
 
       const [taskWithApplication] = await attachApplicationDataToTasks([task]);
+      if (normalizedIsPerformanceTask && normalizedGoalId) {
+        console.log(
+          breakdownLogTag,
+          "TaskService.createTask persisted",
+          JSON.stringify({ taskId: task.id, goalId: normalizedGoalId })
+        );
+      }
       return taskWithApplication;
     } catch (error) {
+      if (request.isPerformanceTask || request.goalId) {
+        console.error(
+          "[performance-breakdown:individuals]",
+          "TaskService.createTask error",
+          error instanceof Error ? error.message : error
+        );
+      }
       throw error;
     }
   }
