@@ -16,6 +16,7 @@ export class ScorecardPillarController {
   /**
    * GET /:id/company-goal-line-weights — company goals only, optional strategy + department line filter;
    * small payload for weight sliders (see also GET /:id?type=company).
+   * To include department goals intentionally, pass `includeTypes=company,department`.
    */
   static async getCompanyGoalLineWeights(req: AuthRequest, res: Response) {
     try {

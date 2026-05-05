@@ -459,7 +459,7 @@ export class ScorecardPillarService {
     opts?: {
       strategyId?: string | null;
       departmentName?: string | null;
-      /** Default: company + department (UAT line weights often use department goals in a pillar). Pass ["company"] for legacy-only. */
+      /** Default: company only. Pass ["company","department"] only when you intentionally want dept goals in the list. */
       includeTypes?: string[];
     }
   ): Promise<{
@@ -489,8 +489,8 @@ export class ScorecardPillarService {
     const rawTypes =
       opts?.includeTypes && opts.includeTypes.length
         ? opts.includeTypes.map((t) => String(t).trim().toLowerCase()).filter(Boolean)
-        : ["company", "department"];
-    const allowedBase = Array.from(new Set(rawTypes.length ? rawTypes : ["company", "department"]));
+        : ["company"];
+    const allowedBase = Array.from(new Set(rawTypes.length ? rawTypes : ["company"]));
 
     const where: any = {
       OR: [
