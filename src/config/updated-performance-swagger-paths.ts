@@ -893,6 +893,39 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     }
   },
 
+  '/performance/contracts': {
+    get: {
+      tags: ['Updated performance'],
+      summary: 'List performance contracts',
+      description:
+        '**Purpose:** Fetch performance contracts for admin / HR / setup screens — **all matching rows** within **`take`** (paginate with **`skip`**).\n\n**Auth:** Bearer JWT (`authenticate` only; no role matrix).\n\n**Query filters (all optional):**\n- **contractType** — e.g. `BOARD`, `CEO`, `DEPARTMENT`, `EMPLOYEE`\n- **status** — e.g. `ACTIVE`\n- **periodYear** — integer (2000–2100); contracts whose period **overlaps** that UTC calendar year\n- **periodLabel** — exact match (e.g. `2026`)\n- **subjectUserId** — filter employee/CEO subject\n- **departmentName** — filter department PCs\n- **skip** — offset (default 0)\n- **take** — page size (default 500, max 2000)\n\n**Response:** **200** `{ success: true, count, total, skip, take, data: PerformanceContract[] }` with related **subjectUser**, **reviewer**, **approver**, **createdBy** (minimal user fields).',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'query',
+          name: 'contractType',
+          schema: { type: 'string', example: 'EMPLOYEE' },
+          description: 'BOARD | CEO | DEPARTMENT | EMPLOYEE (as stored)'
+        },
+        { in: 'query', name: 'status', schema: { type: 'string', example: 'ACTIVE' } },
+        { in: 'query', name: 'periodYear', schema: { type: 'integer', example: 2026 } },
+        { in: 'query', name: 'periodLabel', schema: { type: 'string', example: '2026' } },
+        { in: 'query', name: 'subjectUserId', schema: { type: 'string' } },
+        { in: 'query', name: 'departmentName', schema: { type: 'string', example: 'Investments' } },
+        { in: 'query', name: 'skip', schema: { type: 'integer', default: 0 } },
+        { in: 'query', name: 'take', schema: { type: 'integer', default: 500, maximum: 2000 } }
+      ],
+      responses: {
+        200: {
+          description:
+            '`{ success: true, count, total, skip, take, data: array }` — `total` is count matching filters; `data.length` ≤ `take`'
+        },
+        400: JSON_400,
+        401: JSON_401
+      }
+    }
+  },
+
   '/performance/contracts/board': {
     post: {
       tags: ['Updated performance'],

@@ -401,32 +401,12 @@ export const performanceEndpoints = {
   // ==========================================
   // STAGE 4: PERFORMANCE REVIEW
   // ==========================================
-
-  '/performance/review-cycles': {
-    get: {
-      tags: ['🔄 Stage 4: Performance Review'],
-      summary: 'Get Performance Review Cycles',
-      description: 'Get all performance review cycles and their status',
-      security: [{ bearerAuth: [] }],
-      responses: {
-        200: {
-          description: 'Performance review cycles retrieved successfully',
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: { type: 'boolean' },
-                  message: { type: 'string' },
-                  data: { type: 'array', items: { type: 'object' } }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
+  //
+  // NOTE: Review cycles + independent evaluation endpoints are documented under
+  // `Reviews UAT (Review cycles & independent evaluation)` (see
+  // `reviews-uat-review-cycles-independent-eval-endpoints.ts`).
+  // We intentionally do not duplicate them here to avoid Swagger showing
+  // multiple “review cycle” endpoint groups.
 
   // ==========================================
   // STAGE 5: DATA SYNCHRONIZATION (ETL)

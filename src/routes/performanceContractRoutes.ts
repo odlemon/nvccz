@@ -9,6 +9,7 @@ const router = express.Router();
  * Annual performance contract setup (one PC per scorecard type per period).
  * `authenticate` only — no role gates. Optional `createdById` in body overrides JWT user.
  */
+router.get("/", authenticate, PerformanceContractController.list);
 router.post("/board", authenticate, PerformanceContractController.createBoard);
 router.post("/ceo", authenticate, PerformanceContractController.createCEO);
 router.post("/department", authenticate, PerformanceContractController.createDepartment);

@@ -6,7 +6,7 @@ import { authenticate } from "../middleware/authenticate";
 const router = express.Router();
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * components:
  *   schemas:
  *     PerformanceReview:
@@ -132,7 +132,7 @@ const router = express.Router();
  */
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews:
  *   post:
  *     summary: Create a new performance review
@@ -232,7 +232,7 @@ const router = express.Router();
 router.post("/", authenticate, PerformanceReviewController.createPerformanceReview);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews:
  *   get:
  *     summary: Get all performance reviews
@@ -331,7 +331,7 @@ router.post("/", authenticate, PerformanceReviewController.createPerformanceRevi
 router.get("/", authenticate, PerformanceReviewController.getAllPerformanceReviews);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/analytics:
  *   get:
  *     summary: Get performance review analytics
@@ -415,7 +415,7 @@ router.get("/", authenticate, PerformanceReviewController.getAllPerformanceRevie
 router.get("/analytics", authenticate, PerformanceReviewController.getPerformanceReviewAnalytics);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/completion-rates:
  *   get:
  *     summary: Get performance review completion rates by department
@@ -464,7 +464,7 @@ router.get("/analytics", authenticate, PerformanceReviewController.getPerformanc
 router.get("/completion-rates", authenticate, PerformanceReviewController.getPerformanceReviewCompletionRates);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/reports/rating-distribution:
  *   get:
  *     summary: Get department rating distribution
@@ -522,7 +522,7 @@ router.get("/completion-rates", authenticate, PerformanceReviewController.getPer
 router.get("/reports/rating-distribution", authenticate, PerformanceReviewController.getDepartmentRatingDistribution);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/{id}:
  *   get:
  *     summary: Get performance review by ID
@@ -563,7 +563,7 @@ router.get("/reports/rating-distribution", authenticate, PerformanceReviewContro
 router.get("/:id", authenticate, PerformanceReviewController.getPerformanceReviewById);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/{id}:
  *   put:
  *     summary: Update performance review
@@ -682,7 +682,7 @@ router.get("/:id", authenticate, PerformanceReviewController.getPerformanceRevie
 router.put("/:id", authenticate, PerformanceReviewController.updatePerformanceReview);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/{id}:
  *   delete:
  *     summary: Delete performance review
@@ -729,7 +729,7 @@ router.delete("/:id", authenticate, PerformanceReviewController.deletePerformanc
 // ===== PERFORMANCE REVIEW FEEDBACK ROUTES =====
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/feedback:
  *   post:
  *     summary: Create performance review feedback
@@ -796,7 +796,7 @@ router.delete("/:id", authenticate, PerformanceReviewController.deletePerformanc
 router.post("/feedback", authenticate, PerformanceReviewController.createPerformanceReviewFeedback);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/feedback/{id}:
  *   put:
  *     summary: Update performance review feedback
@@ -862,7 +862,7 @@ router.post("/feedback", authenticate, PerformanceReviewController.createPerform
 router.put("/feedback/:id", authenticate, PerformanceReviewController.updatePerformanceReviewFeedback);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/feedback/{id}:
  *   delete:
  *     summary: Delete performance review feedback
@@ -907,7 +907,7 @@ router.put("/feedback/:id", authenticate, PerformanceReviewController.updatePerf
 router.delete("/feedback/:id", authenticate, PerformanceReviewController.deletePerformanceReviewFeedback);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/cycles/{cycleId}/initiate:
  *   post:
  *     summary: Run company review cycle reminders (email only)
@@ -966,7 +966,7 @@ router.delete("/feedback/:id", authenticate, PerformanceReviewController.deleteP
 router.post("/cycles/:cycleId/initiate", authenticate, PerformanceReviewController.initiateCycleForAllEmployees);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/{id}/autopopulate:
  *   post:
  *     summary: Auto-populate the quantitative review snapshot
@@ -1002,7 +1002,7 @@ router.post("/cycles/:cycleId/initiate", authenticate, PerformanceReviewControll
 router.post("/:id/autopopulate", authenticate, PerformanceReviewController.autopopulateQuantitativeSnapshot);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/{id}/finalize:
  *   post:
  *     summary: Finalize and lock a performance review
@@ -1045,7 +1045,7 @@ router.post("/:id/autopopulate", authenticate, PerformanceReviewController.autop
  *                   format: date-time
  */
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/{id}/complete-stage:
  *   post:
  *     summary: Complete the current workflow stage and advance to the next (no body)
@@ -1074,7 +1074,7 @@ router.post(
 router.post("/:id/finalize", authenticate, PerformanceReviewController.finalizePerformanceReview);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/{id}/document:
  *   get:
  *     summary: Get the saved performance review document payload
@@ -1112,7 +1112,7 @@ router.post("/:id/finalize", authenticate, PerformanceReviewController.finalizeP
 router.get("/:id/document", authenticate, PerformanceReviewController.getPerformanceReviewDocument);
 
 /**
- * @swagger
+ * @swagger-disabled-legacy
  * /api/performance-reviews/{id}/document.pdf:
  *   get:
  *     summary: Download the finalized performance review PDF
