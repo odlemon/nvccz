@@ -730,7 +730,8 @@ export class PerformanceConfigService {
     }
 
     const goals = await prisma.performanceGoal.findMany({
-      where: { id: { in: inputIds } }
+      where: { id: { in: inputIds } },
+      include: { kpi: { select: { scorecardPillar: true } } }
     });
     if (goals.length !== inputIds.length) {
       throw new Error("One or more goal ids were not found");
@@ -742,14 +743,27 @@ export class PerformanceConfigService {
       }
     }
 
-    for (const g of goals) {
-      const inPillar =
+    // If a goal was historically "inferred" by KPI but never materialized on the goal row,
+    // backfill its `scorecardPillar` + `pillarId` now so listing and weight updates stay consistent.
+    for (const g of goals as any[]) {
+      const inPillarByGoal =
         g.pillarId === params.pillarId ||
         g.scorecardPillar === canonical ||
         (g.scorecardPillar && aliasValues.includes(g.scorecardPillar));
-      if (!inPillar) {
-        throw new Error(`Goal ${g.id} is not mapped to this scorecard pillar`);
+      if (inPillarByGoal) continue;
+
+      const kpiPillar = g.kpi?.scorecardPillar ? normalizeOrgBscScorecardPillar(g.kpi.scorecardPillar) : null;
+      const kpiMatches = kpiPillar && (kpiPillar === canonical || aliasValues.includes(kpiPillar));
+      if (kpiMatches) {
+        await prisma.performanceGoal.update({
+          where: { id: g.id },
+          data: { scorecardPillar: canonical, pillarId: params.pillarId }
+        });
+        g.scorecardPillar = canonical;
+        g.pillarId = params.pillarId;
+        continue;
       }
+      throw new Error(`Goal ${g.id} is not mapped to this scorecard pillar`);
     }
 
     const sStrat = goals[0]!.strategyId ?? null;

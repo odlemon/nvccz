@@ -385,13 +385,9 @@ export class ScorecardPillarService {
     const aliasValues = aliasRows.map((r) => r.alias).filter(Boolean) as string[];
 
     const variants = collectScorecardPillarStringVariants(pillar.canonicalName, aliasValues);
-    const pillarGoalOrKpiClause = [
-      { pillarId: id },
-      { scorecardPillar: { in: variants } },
-      { kpi: { is: { scorecardPillar: { in: variants } } } }
-    ];
-
-    const whereBase: any = { OR: pillarGoalOrKpiClause };
+    // Strict: a goal is considered "in this pillar" only when the goal itself is mapped to it.
+    // KPI inference should populate `scorecardPillar`/`pillarId` at create/update time, not at read time.
+    const whereBase: any = { OR: [{ pillarId: id }, { scorecardPillar: { in: variants } }] };
     if (opts?.type) whereBase.type = { in: expandStoredGoalTypes([opts.type]) };
     if (opts?.status) whereBase.status = opts.status;
 
@@ -493,11 +489,7 @@ export class ScorecardPillarService {
     const allowedBase = Array.from(new Set(rawTypes.length ? rawTypes : ["company"]));
 
     const where: any = {
-      OR: [
-        { pillarId: id },
-        { scorecardPillar: { in: variants } },
-        { kpi: { is: { scorecardPillar: { in: variants } } } }
-      ],
+      OR: [{ pillarId: id }, { scorecardPillar: { in: variants } }],
       type: { in: expandStoredGoalTypes(allowedBase) }
     };
 
