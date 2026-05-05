@@ -610,7 +610,13 @@ const options = {
             id: { type: 'string', example: 'clx1234567890abcdef' },
             title: { type: 'string', example: 'Monthly Company Newsletter' },
             content: { type: 'string', example: 'This is the newsletter content...' },
-            imageUrl: { type: 'string', nullable: true, example: 'https://lysp.s3.amazonaws.com/newsletters/1234567890-image.jpg' },
+            imageUrl: {
+              type: 'string',
+              nullable: true,
+              description:
+                'Public URL for the cover image after multipart upload (GET from same API host), e.g. .../api/uploads/newsletters/{file}. Set `PUBLIC_ASSET_BASE_URL` if the API is behind a proxy.',
+              example: 'http://localhost:3000/api/uploads/newsletters/1700000000000-abc123.jpg'
+            },
             authorId: { type: 'string', example: 'clx1234567890abcdef' },
             author: {
               type: 'object',
@@ -629,6 +635,8 @@ const options = {
         CreateNewsletterRequest: {
           type: 'object',
           required: ['title', 'content'],
+          description:
+            '**Deprecated for `POST /newsletters`**: create uses **`multipart/form-data`** with `title`, `content`, optional binary **`image`** or **`coverImage`**. Retained for clients that send JSON elsewhere.',
           properties: {
             title: { type: 'string', example: 'Monthly Company Newsletter' },
             content: { type: 'string', example: 'This is the newsletter content...' }
@@ -3426,26 +3434,41 @@ const fallbackSpec = {
           },
           post: {
             summary: 'Create newsletter',
-            description: 'Create a new newsletter',
+            description:
+              '**`multipart/form-data`**: `title`, `content`, optional **`image`** or **`coverImage`** file. Response **`data.imageUrl`** is the saved cover URL when a file was uploaded.',
             tags: ['Newsletters'],
             security: [{ bearerAuth: [] }],
             requestBody: {
               required: true,
               content: {
-                'application/json': {
-                  schema: { $ref: '#/components/schemas/CreateNewsletterRequest' }
+                'multipart/form-data': {
+                  schema: {
+                    type: 'object',
+                    required: ['title', 'content'],
+                    properties: {
+                      title: { type: 'string', example: 'Monthly Company Update' },
+                      content: { type: 'string', description: 'HTML or plain text body' },
+                      image: { type: 'string', format: 'binary', description: 'Optional cover (field name `image`)' },
+                      coverImage: { type: 'string', format: 'binary', description: 'Same as image (alternate field name)' }
+                    }
+                  },
+                  encoding: {
+                    title: { contentType: 'text/plain; charset=UTF-8' },
+                    content: { contentType: 'text/plain; charset=UTF-8' }
+                  }
                 }
               }
             },
             responses: {
               201: {
-                description: 'Newsletter created successfully',
+                description: 'Newsletter created successfully; `data.imageUrl` set when cover uploaded',
                 content: {
                   'application/json': {
                     schema: {
                       type: 'object',
                       properties: {
                         success: { type: 'boolean' },
+                        message: { type: 'string' },
                         data: { $ref: '#/components/schemas/Newsletter' }
                       }
                     }
@@ -3593,7 +3616,8 @@ const fallbackSpec = {
           },
           put: {
             summary: 'Update newsletter',
-            description: 'Update an existing newsletter with optional image upload',
+            description:
+              '**`multipart/form-data`**: `title`, `content`, optional new cover **`image`** or **`coverImage`**. **`data.imageUrl`** updates when a file is sent.',
             tags: ['Newsletters'],
             security: [{ bearerAuth: [] }],
             parameters: [
@@ -3619,15 +3643,24 @@ const fallbackSpec = {
                       },
                       content: {
                         type: 'string',
-                        description: 'Newsletter content',
+                        description: 'Newsletter body (HTML or plain text)',
                         example: 'This month we achieved great milestones...'
                       },
                       image: {
                         type: 'string',
                         format: 'binary',
-                        description: 'Newsletter image (optional)'
+                        description: 'Optional new cover (field name `image`)'
+                      },
+                      coverImage: {
+                        type: 'string',
+                        format: 'binary',
+                        description: 'Same as `image` (alternate field name)'
                       }
                     }
+                  },
+                  encoding: {
+                    title: { contentType: 'text/plain; charset=UTF-8' },
+                    content: { contentType: 'text/plain; charset=UTF-8' }
                   }
                 }
               }
