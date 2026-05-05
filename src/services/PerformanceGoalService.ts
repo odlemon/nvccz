@@ -779,6 +779,28 @@ export class PerformanceGoalService {
         await KPIService.syncKpiActiveFromLinkedGoals(kpiId);
       }
 
+      // If an individual goal is created directly under a department goal, auto-create the linked task.
+      // (Breakdown endpoints already do this; this covers direct POST /api/performance/goals creates.)
+      if (goal.type === "individual" && goal.parentGoal?.type === "department") {
+        try {
+          const { IndividualGoalToTaskService } = await import("./IndividualGoalToTaskService");
+          await IndividualGoalToTaskService.convertIndividualGoalsToTasks(goal.id);
+        } catch (taskError: any) {
+          // Keep the system consistent: do not leave a department->individual goal without a task.
+          try {
+            await prisma.performanceGoal.delete({ where: { id: goal.id } });
+          } catch (cleanupErr) {
+            console.error(
+              `❌ Failed to cleanup individual goal ${goal.id} after task creation failure:`,
+              cleanupErr
+            );
+          }
+          throw new Error(
+            `Failed to create task for individual goal: ${taskError?.message ?? String(taskError)}`
+          );
+        }
+      }
+
       // Note: Cascading is now manual - use createBreakdownGoals() method separately
 
       return goal;
@@ -1005,6 +1027,15 @@ export class PerformanceGoalService {
           console.log(`✅ Automatically created task for individual goal: ${individualGoal.id}`);
         } catch (taskError: any) {
           console.error(`❌ Failed to create task for individual goal ${individualGoal.id}:`, taskError);
+          // Do not leave an orphan individual goal during breakdown (goal must have its task).
+          try {
+            await prisma.performanceGoal.delete({ where: { id: individualGoal.id } });
+          } catch (cleanupErr) {
+            console.error(
+              `❌ Failed to cleanup individual goal ${individualGoal.id} after task creation failure:`,
+              cleanupErr
+            );
+          }
           throw new Error(
             `Individual goal was created but linked task failed: ${taskError?.message ?? String(taskError)}`
           );
