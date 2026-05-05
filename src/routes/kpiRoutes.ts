@@ -78,6 +78,7 @@ const router = express.Router();
  *               - code
  *               - description
  *               - isFinancial
+ *               - pillarId
  *             properties:
  *               name:
  *                 type: string
@@ -121,9 +122,9 @@ const router = express.Router();
  *                 description: Required when isFinancial is true
  *               isFinancial:
  *                 type: boolean
- *               scorecardPillar:
+ *               pillarId:
  *                 type: string
- *                 description: Optional. BSC org pillar; if omitted, inferred from name/accounts
+ *                 description: Required. Scorecard pillar id (e.g. bsc_financial, bsc_internal_operations)
  *     responses:
  *       201:
  *         description: KPI created successfully

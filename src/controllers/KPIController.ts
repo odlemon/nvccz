@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Request, Response } from "express";
 import { KPIService } from "../services/KPIService";
+import { prisma } from "../utils/database";
 
 function parseRequiredBool(value: unknown, field: string): { ok: true; value: boolean } | { ok: false; message: string } {
   if (value === undefined) {
@@ -73,7 +74,7 @@ export class KPIController {
         accountNumber,
         journalEntryType,
         isFinancial,
-        scorecardPillar
+        pillarId
       } = req.body;
 
       if (!name || !String(name).trim()) {
@@ -133,6 +134,22 @@ export class KPIController {
       if (!fin.ok) {
         return res.status(400).json({ success: false, message: fin.message });
       }
+
+      const pid = parseRequiredNonEmptyString(pillarId, "pillarId");
+      if (!pid.ok) {
+        return res.status(400).json({ success: false, message: pid.message });
+      }
+      const pillarRow = await prisma.scorecardPillar.findUnique({
+        where: { id: pid.value },
+        select: { canonicalName: true }
+      });
+      if (!pillarRow?.canonicalName) {
+        return res.status(400).json({
+          success: false,
+          message: `pillarId "${pid.value}" not found. Use one of the seeded BSC pillar ids (e.g. bsc_financial).`
+        });
+      }
+      const canonicalPillar = pillarRow.canonicalName;
 
       let accountTypeNorm: string | null = null;
       let journalEntryTypeNorm: string | null = null;
@@ -210,9 +227,7 @@ export class KPIController {
         accountNumber: accountNumberNorm,
         journalEntryType: journalEntryTypeNorm,
         isFinancial: fin.value,
-        ...(scorecardPillar != null && String(scorecardPillar).trim() !== ""
-          ? { scorecardPillar: String(scorecardPillar).trim() }
-          : {})
+        scorecardPillar: canonicalPillar
       });
 
       return res.status(201).json({

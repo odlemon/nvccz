@@ -22,7 +22,8 @@ export interface CreateKPIRequest {
   accountNumber?: string | null;
   journalEntryType: string | null;
   isFinancial: boolean;
-  scorecardPillar?: string;
+  /** Canonical pillar name resolved from `scorecard_pillars.id` on controller layer. */
+  scorecardPillar: string;
 }
 
 export interface UpdateKPIRequest {
@@ -169,17 +170,12 @@ export class KPIService {
       request.scorecardPillar && String(request.scorecardPillar).trim()
         ? normalizeOrgBscScorecardPillar(request.scorecardPillar)
         : null;
-    const resolvedPillar =
-      fromRequest ||
-      inferKpiScorecardPillar({
-        name: request.name,
-        code: codeTrim,
-        catalogDescription: request.description,
-        accountType: request.accountType,
-        catalogDepartmentName: request.catalogDepartmentName ?? null,
-        isFinancial: request.isFinancial,
-        unitCategory: request.unitCategory
-      });
+    if (!fromRequest) {
+      throw new Error(
+        "scorecardPillar is required and must be one of: Financial, Customer & Market, Internal Operations, Learning, Growth & HR (or FINANCIAL, CUSTOMER, INTERNAL_OPS, LEARNING_GROWTH)."
+      );
+    }
+    const resolvedPillar = fromRequest;
 
     await ScorecardPillarService.assertCanonicalExists(resolvedPillar);
 
