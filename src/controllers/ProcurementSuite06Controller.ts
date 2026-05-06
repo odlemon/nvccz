@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { Request, Response } from "express";
+import { prisma } from "../utils/database";
 import { VendorInvoiceIntakeService } from "../services/VendorInvoiceIntakeService";
 import { ThreeWayMatchService } from "../services/ThreeWayMatchService";
 
@@ -65,7 +66,57 @@ export class ProcurementSuite06Controller {
 
   static async runExtract(req: Request, res: Response) {
     try {
-      const data = await VendorInvoiceIntakeService.runExtraction(req.params.id);
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+      const intakeId = req.params.id;
+      const file = (req as any).file as Express.Multer.File | undefined;
+      const { vendorId, sourcePurchaseOrderId, goodsReceivedNoteId } = req.body;
+
+      const vid = String(vendorId ?? "").trim();
+      const poId = String(sourcePurchaseOrderId ?? "").trim();
+      const grnId = String(goodsReceivedNoteId ?? "").trim();
+
+      if (!intakeId) {
+        return res.status(400).json({ success: false, message: "Intake id is required" });
+      }
+      if (!vid) {
+        return res.status(400).json({ success: false, message: "vendorId is required" });
+      }
+      if (!poId) {
+        return res.status(400).json({ success: false, message: "sourcePurchaseOrderId is required" });
+      }
+      if (!grnId) {
+        return res.status(400).json({ success: false, message: "goodsReceivedNoteId is required" });
+      }
+      if (!file?.buffer?.length) {
+        return res.status(400).json({
+          success: false,
+          message: "PDF file is required (multipart field name: document)",
+        });
+      }
+
+      const existing = await prisma.vendorInvoiceIntake.findUnique({ where: { id: intakeId }, select: { id: true } });
+      if (!existing) {
+        return res.status(404).json({ success: false, message: "Intake not found" });
+      }
+
+      const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
+      const { downloadURL: documentUrl } = await FirebaseStorageService.uploadProcurementVendorInvoice(
+        file.buffer,
+        file.originalname || "invoice.pdf",
+        userId
+      );
+
+      await VendorInvoiceIntakeService.updateIntakeBeforeExtract({
+        intakeId,
+        documentUrl,
+        vendorId: vid,
+        sourcePurchaseOrderId: poId,
+        goodsReceivedNoteId: grnId,
+      });
+
+      const data = await VendorInvoiceIntakeService.runExtraction(intakeId);
       res.json({ success: true, data });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });

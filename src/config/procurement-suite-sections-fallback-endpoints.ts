@@ -611,7 +611,7 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
     post: {
       summary: "Run PDF text extraction + LLM structured parse",
       description:
-        "Uses the PDF uploaded on create (field **document**). **No request body** — multipart applies only to POST /procurement/suite06/intakes when creating the intake. `documentUrl` in the request is not supported.",
+        "**multipart/form-data** — required fields: **document** (PDF), **vendorId**, **sourcePurchaseOrderId**, **goodsReceivedNoteId** (same as create intake). Updates the intake `{id}` with the uploaded file URL and ids, then runs extraction. `documentUrl` is not accepted.",
       tags: [S06_INTAKE],
       security: bearer,
       parameters: [
@@ -623,7 +623,40 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
           description: "Vendor invoice intake id (cuid)",
         },
       ],
-      responses: { 200: { description: "OK" } },
+      requestBody: {
+        required: true,
+        content: {
+          "multipart/form-data": {
+            schema: {
+              type: "object",
+              required: ["document", "vendorId", "sourcePurchaseOrderId", "goodsReceivedNoteId"],
+              properties: {
+                document: {
+                  type: "string",
+                  format: "binary",
+                  description: "PDF file — field name **document** (max 15MB).",
+                },
+                vendorId: { type: "string", example: "vend_cuid_123", description: "Vendor id (cuid)." },
+                sourcePurchaseOrderId: {
+                  type: "string",
+                  example: "po_cuid_123",
+                  description: "Purchase order id (cuid).",
+                },
+                goodsReceivedNoteId: {
+                  type: "string",
+                  example: "grn_cuid_123",
+                  description: "Goods received note id (cuid).",
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "OK" },
+        400: { description: "Validation error" },
+        404: { description: "Intake not found" },
+      },
     },
   },
   "/procurement/suite06/intakes/{id}/verify": {
