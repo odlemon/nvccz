@@ -2917,14 +2917,29 @@ export class EmailNotificationService {
       
       const from = getFromAddress('payroll');
       const employeeName = `${payslipData.employee.user.firstName} ${payslipData.employee.user.lastName}`;
+      const email = String(payslipData?.employee?.user?.email || "").trim();
+      if (!email) {
+        throw new Error("Cannot send payslip email: employee email is missing");
+      }
+
+      const pdfAttachment = payslipData?.pdfAttachment;
+
       await emailTransport.sendMail({
         from: `"${from.name}" <${from.address}>`,
-        to: `"${employeeName}" <${payslipData.employee.user.email}>`,
+        to: [{ name: employeeName, address: email }],
         subject: subject,
-        html: htmlContent
+        html: htmlContent,
+        attachments: pdfAttachment
+          ? [
+              {
+                filename: pdfAttachment.filename,
+                content: pdfAttachment.content,
+              },
+            ]
+          : undefined,
       });
 
-      console.log(`Payslip email sent to ${payslipData.employee.user.email}`);
+      console.log(`Payslip email sent to ${email}`);
     } catch (error) {
       console.error("Error sending payslip email:", error);
       throw error;

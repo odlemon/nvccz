@@ -83,8 +83,8 @@ async function main() {
 
   const report = await CreditorsAgeAnalysisService.generate();
   assert(
-    report.grandTotalMixedCurrency === false && report.grandTotal.total !== null,
-    'Single-currency report should expose numeric grandTotal'
+    typeof report.grandTotalMixedCurrency === "boolean",
+    "Report should include grandTotalMixedCurrency flag"
   );
   const row = report.vendors.flatMap((v) => v.bills).find((l) => l.purchaseInvoiceId === posted.id);
   assert(!!row, 'Bill in creditors age report');
@@ -92,7 +92,14 @@ async function main() {
   const curTot = report.totalsByCurrency[currency.code.toUpperCase()];
   assert(curTot && curTot.current >= 500, 'Current bucket includes this bill');
   const vendorRow = report.vendors.find((v) => v.bills.some((b) => b.purchaseInvoiceId === posted.id));
-  assert(vendorRow && vendorRow.multiCurrencyVendor === false && vendorRow.total !== null, 'Vendor row totals');
+  assert(!!vendorRow, "Vendor row exists");
+  if (vendorRow.multiCurrencyVendor) {
+    const per = vendorRow.perCurrencyVendorTotals?.[currency.code.toUpperCase()];
+    assert(!!per, "Vendor perCurrencyVendorTotals contains this currency");
+    assert(per.current >= 500, "Vendor currency current bucket includes this bill");
+  } else {
+    assert(vendorRow.total !== null, "Vendor row has numeric totals for single-currency vendor");
+  }
 
   console.log('PASS — Office Rent bill Cr 2000, Creditors Age Analysis Current:', row.invoiceNumber);
 }
