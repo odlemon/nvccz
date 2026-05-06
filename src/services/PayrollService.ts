@@ -12,6 +12,8 @@ import {
   resolvePayePayableAccount,
 } from './payrollLiabilityAccountHelpers';
 import { classifyDeductionForPayrollJournal } from './payrollJournalDeductionClassification';
+import { loadCapitalCallAccountingLetterhead } from "../utils/capitalCallAccountingLetterhead";
+import { buildPayslipPdfBuffer, safePayslipPdfFileBaseName } from "../utils/payslipPdf";
 
 export interface PayrollCalculationResult {
   basicSalary: Decimal;
@@ -1300,6 +1302,14 @@ export class PayrollService {
         throw new Error('Payslip not found');
       }
 
+      const employeePayroll = await prisma.employeePayroll.findFirst({
+        where: { payrollRunId, employeeId },
+        include: {
+          allowances: { include: { allowanceType: true } },
+          deductions: { include: { deductionType: true } },
+        },
+      });
+
       // Transform the payslip data for email template
       const payslipData = {
         id: payslip.id,
@@ -1314,11 +1324,52 @@ export class PayrollService {
         employee: payslip.employee,
         payrollRun: payslip.payrollRun,
         currency: payslip.currency,
-        companyName: process.env.COMPANY_NAME_FULL || "National Venture Capital Company of Zimbabwe"
+        companyName: process.env.COMPANY_NAME_FULL || "National Venture Capital Company of Zimbabwe",
       };
 
+      // Build a PDF attachment (letterhead + clean layout), same identity source as capital calls
+      const letterhead = await loadCapitalCallAccountingLetterhead().catch(() => null);
+      const employeeName = `${payslip.employee.user.firstName} ${payslip.employee.user.lastName}`;
+      const ccy = String(payslip.currency?.code || payslip.currency?.symbol || "USD").toUpperCase();
+      const paymentDateLabel = new Date(payslip.payrollRun.endDate).toISOString().slice(0, 10);
+      const allowances =
+        employeePayroll?.allowances?.map((a: any) => ({
+          name: a.allowanceType?.name || "Allowance",
+          amount: Number(a.amount || 0),
+        })) || [];
+      const deductions =
+        employeePayroll?.deductions?.map((d: any) => ({
+          name: d.deductionType?.name || "Deduction",
+          amount: Number(d.amount || 0),
+        })) || [];
+      const pdfBuffer = await buildPayslipPdfBuffer({
+        payslipNumber: payslip.id,
+        payPeriod: String(payslip.payrollRun.payPeriod || ""),
+        paymentDateLabel,
+        currencyCode: ccy,
+        employeeName,
+        employeeNumber: payslip.employee.employeeNumber || null,
+        employeeEmail: payslip.employee.user.email || null,
+        bankName: payslip.employee.bankName || null,
+        bankAccountNumber: payslip.employee.accountNumber || null,
+        bankBranchCode: payslip.employee.branchCode || null,
+        grossPay: Number(payslip.grossPay || 0),
+        totalDeductions: Number(payslip.totalDeductions || 0),
+        netPay: Number(payslip.netPay || 0),
+        basicSalary: payslip.employee.basicSalary ? Number(payslip.employee.basicSalary) : null,
+        allowances,
+        deductions,
+        letterhead,
+      });
+      const pdfFilename = `Payslip-${safePayslipPdfFileBaseName(employeeName)}-${safePayslipPdfFileBaseName(
+        String(payslip.payrollRun.payPeriod || paymentDateLabel)
+      )}.pdf`;
+
       // Send the email
-      await EmailNotificationService.sendPayslipEmail(payslipData);
+      await EmailNotificationService.sendPayslipEmail({
+        ...payslipData,
+        pdfAttachment: { filename: pdfFilename, content: pdfBuffer },
+      });
 
       console.log(`Payslip email sent successfully to ${payslip.employee.user.email}`);
     } catch (error) {
