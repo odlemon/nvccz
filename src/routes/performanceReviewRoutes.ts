@@ -112,7 +112,7 @@ const router = express.Router();
  *         rating:
  *           type: integer
  *           minimum: 1
- *           maximum: 5
+ *           maximum: 6
  *         isPrivate:
  *           type: boolean
  *         isAnonymous:
@@ -765,7 +765,7 @@ router.delete("/:id", authenticate, PerformanceReviewController.deletePerformanc
  *               rating:
  *                 type: integer
  *                 minimum: 1
- *                 maximum: 5
+ *                 maximum: 6
  *               isPrivate:
  *                 type: boolean
  *               isAnonymous:
@@ -826,7 +826,7 @@ router.post("/feedback", authenticate, PerformanceReviewController.createPerform
  *               rating:
  *                 type: integer
  *                 minimum: 1
- *                 maximum: 5
+ *                 maximum: 6
  *               isPrivate:
  *                 type: boolean
  *               isAnonymous:

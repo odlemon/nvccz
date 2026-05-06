@@ -91,7 +91,7 @@ Status legend:
 
 | UAT | Status | Backend evidence |
 |---|---|---|
-| F.03 Integer-only manager scale | Implemented | `validateManagerRatings` and review payload validation |
+| F.03 Integer-only review ratings (1–6, BSC-aligned) | Implemented | `validateManagerRatings` / `validateManagerScaleInteger` and review payload validation |
 | F.04 Final sign-off PDF | Implemented | PDF generation and review locking in `src/services/PerformanceReviewService.ts` and `src/services/performanceDocumentRenderer.ts` |
 | F.05 Review cycle trigger (remind reviewees) | Implemented | `initiateCycleForAllEmployees`: emails reviewees with manager-created reviews in cycle window who have not started self-assessment; links `cycleId` when null. No bulk review/task creation. |
 | F.06 Quantitative auto-populate | Implemented | `autopopulateQuantitativeSnapshot` in `src/services/PerformanceReviewService.ts` |

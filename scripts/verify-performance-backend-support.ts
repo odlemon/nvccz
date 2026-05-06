@@ -39,6 +39,8 @@ function main() {
   );
 
   assert(!validateManagerRatings([{ managerRating: 4.5 }]).valid, "Manager rating validation should reject decimals.");
+  assert(validateManagerRatings([{ managerRating: 6 }]).valid, "Manager rating validation should accept 6.");
+  assert(!validateManagerRatings([{ managerRating: 7 }]).valid, "Manager rating validation should reject 7.");
   assert(
     validateQualitativeFeedbackMinimum("This manager comment is comfortably above fifty characters long.").valid,
     "Qualitative feedback minimum should accept 50+ chars."

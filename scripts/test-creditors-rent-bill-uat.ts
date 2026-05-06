@@ -82,11 +82,17 @@ async function main() {
   );
 
   const report = await CreditorsAgeAnalysisService.generate();
+  assert(
+    report.grandTotalMixedCurrency === false && report.grandTotal.total !== null,
+    'Single-currency report should expose numeric grandTotal'
+  );
   const row = report.vendors.flatMap((v) => v.bills).find((l) => l.purchaseInvoiceId === posted.id);
   assert(!!row, 'Bill in creditors age report');
   assert(row.bucket === 'current', `Current bucket (not past due), got ${row.bucket}`);
   const curTot = report.totalsByCurrency[currency.code.toUpperCase()];
   assert(curTot && curTot.current >= 500, 'Current bucket includes this bill');
+  const vendorRow = report.vendors.find((v) => v.bills.some((b) => b.purchaseInvoiceId === posted.id));
+  assert(vendorRow && vendorRow.multiCurrencyVendor === false && vendorRow.total !== null, 'Vendor row totals');
 
   console.log('PASS — Office Rent bill Cr 2000, Creditors Age Analysis Current:', row.invoiceNumber);
 }

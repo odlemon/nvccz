@@ -624,8 +624,8 @@ Frontend should decrease the badge using `unread` from the PUT response or from 
 
 - Omit **`stage`** and **`status`** so the review **stays** in self-review for this save.
 - **`selfFeedback`:** must be **≥ 50 characters** after trim (validation error otherwise).
-- **`ratingValue`:** if sent, must be a **whole number 1–5**; omit if not used in self-review.
-- **`scores`:** any **`managerRating`** on an item must be a **whole number 1–5**; self-only payloads often omit `managerRating` or use **`selfRating`** only (see example).
+- **`ratingValue`:** if sent, must be a **whole number 1–6** (aligned with BSC scorecard scale); omit if not used in self-review.
+- **`scores`:** any **`managerRating`**, **`rating`**, or **`selfRating`** on an item must be a **whole number 1–6** when present; self-only payloads often omit `managerRating` or use **`selfRating`** only (see example).
 
 ```json
 {
@@ -668,7 +668,7 @@ Frontend should decrease the badge using `unread` from the PUT response or from 
 - `POST /api/performance-reviews/{reviewId}/autopopulate`
 - **Auth:** `Authorization: Bearer <jwt>`. **Body:** none. Fills `quantitativeSnapshot` from goals (assigned to reviewee in the review window) and tasks (reviewee on `team`, Kanban `stage` per task).
 
-**F.10** — Department rating distribution (1–5 histogram source for charts)
+**F.10** — Department rating distribution (1–6 histogram source for charts)
 
 - `GET /api/performance-reviews/reports/rating-distribution?departmentName=Finance&reviewPeriod=2026-Q1`
 - **`departmentName`** — required (matches reviewee **`department.name`** or reviewee **`userDepartment`**).

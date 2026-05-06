@@ -8,7 +8,7 @@ This section covers review cycle initiation, quantitative auto-population, valid
 
 | UAT | Backend Status | Endpoints |
 |---|---|---|
-| F.03 Integer-only manager scale | Implemented | `PUT /api/performance-reviews/:id` |
+| F.03 Integer-only review rating scale (1–6, BSC-aligned) | Implemented | `PUT /api/performance-reviews/:id` |
 | F.04 Final sign-off PDF | Implemented | `POST /api/performance-reviews/:id/finalize`, `GET /api/performance-reviews/:id/document` |
 | F.05 Review cycle trigger | Implemented | `POST /api/performance-reviews/cycles/:cycleId/initiate` |
 | F.06 Quantitative auto-populate | Implemented | `POST /api/performance-reviews/:id/autopopulate` |
@@ -64,7 +64,7 @@ This section covers review cycle initiation, quantitative auto-population, valid
 2. Call `POST /api/performance-reviews/cycles/:cycleId/initiate`.
 3. Confirm that review tasks were created.
 4. Call `POST /api/performance-reviews/:id/autopopulate`.
-5. Try updating the review with invalid decimal manager ratings.
+5. Try updating the review with invalid decimal ratings or values outside 1–6.
 6. Finalize the review and fetch the document.
 7. Fetch department rating distribution.
 

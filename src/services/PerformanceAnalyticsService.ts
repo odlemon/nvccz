@@ -9,6 +9,26 @@ import {
   parseGoalCurrentAndTarget
 } from "./performanceGoalRollupUtils";
 
+/** Prisma `KPI` has no `type` field — use `accountType` / `code`; expose legacy `type` on API payloads. */
+const KPI_ANALYTICS_SELECT = {
+  id: true,
+  name: true,
+  accountType: true,
+  code: true,
+  isFinancial: true,
+  unitSymbol: true,
+  unitPosition: true,
+  isReverseKpi: true
+} as const;
+
+function kpiWithLegacyTypeField(kpi: any) {
+  if (!kpi) return null;
+  return {
+    ...kpi,
+    type: kpi.accountType ?? kpi.code ?? null
+  };
+}
+
 export class PerformanceAnalyticsService {
   /**
    * Get KPI performance analysis
@@ -36,14 +56,7 @@ export class PerformanceAnalyticsService {
         where: whereClause,
         include: {
           kpi: {
-            select: {
-              id: true,
-              name: true,
-              type: true,
-              unitSymbol: true,
-              unitPosition: true,
-              isReverseKpi: true
-            }
+            select: KPI_ANALYTICS_SELECT
           },
           subGoals: {
             include: {
@@ -226,7 +239,7 @@ export class PerformanceAnalyticsService {
           : calculatedCompletionRate;
 
         return {
-          kpi: group.kpi,
+          kpi: kpiWithLegacyTypeField(group.kpi),
           totalGoals: group.goalCount,
           completedGoals,
           inProgressGoals,
@@ -264,14 +277,7 @@ export class PerformanceAnalyticsService {
         where: { type: 'company' },
         include: {
           kpi: {
-            select: {
-              id: true,
-              name: true,
-              type: true,
-              unitSymbol: true,
-              unitPosition: true,
-              isReverseKpi: true
-            }
+            select: KPI_ANALYTICS_SELECT
           },
           subGoals: {
             include: {
@@ -346,7 +352,7 @@ export class PerformanceAnalyticsService {
           progressPercentage: goal.targetValue ? 
             ((goal.currentValue || 0) / parseFloat(goal.targetValue.toString()) * 100).toFixed(2) : "0",
           stage: goal.stage,
-          kpi: goal.kpi,
+          kpi: kpiWithLegacyTypeField(goal.kpi),
           departmentCount: goal.subGoals.length
         })),
         departmentBreakdown: departmentStats.map(stat => ({
@@ -403,14 +409,7 @@ export class PerformanceAnalyticsService {
         where: whereClause,
         include: {
           kpi: {
-            select: {
-              id: true,
-              name: true,
-              type: true,
-              unitSymbol: true,
-              unitPosition: true,
-              isReverseKpi: true
-            }
+            select: KPI_ANALYTICS_SELECT
           },
           assignedTo: {
             select: {
@@ -448,7 +447,7 @@ export class PerformanceAnalyticsService {
         priority: goal.priority,
         startDate: goal.startDate,
         endDate: goal.endDate,
-        kpi: goal.kpi,
+        kpi: kpiWithLegacyTypeField(goal.kpi),
         assignedTo: goal.assignedTo,
         createdBy: goal.createdBy,
         createdAt: goal.createdAt,

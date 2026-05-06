@@ -2,7 +2,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { PerformanceReviewCycleService } from "../services/PerformanceReviewCycleService";
-import { isCEO, isHRLeader, isSysAdmin } from "../services/performanceScorecardSupport";
+import { isAdminViewer, isCEO, isHRLeader, isSysAdmin } from "../services/performanceScorecardSupport";
 
 export class PerformanceReviewCycleController {
   /**
@@ -27,11 +27,11 @@ export class PerformanceReviewCycleController {
         where: { id: userId },
         include: { role: true }
       });
-      if (!actor || !(isCEO(actor) || isHRLeader(actor) || isSysAdmin(actor))) {
+      if (!actor || !(isCEO(actor) || isHRLeader(actor) || isSysAdmin(actor) || isAdminViewer(actor))) {
         return res.status(403).json({
           success: false,
           message:
-            "Only HR leadership, CEO, or system administrators may create performance review cycles. Someone in HR must create the cycle on behalf of managers and employees."
+            "Only HR leadership, CEO, administrators, or system administrators may create performance review cycles."
         });
       }
 

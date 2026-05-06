@@ -5451,7 +5451,7 @@ export class EmailNotificationService {
     /** Stored URL — fetched server-side unless `coverImageFromUpload` is provided. */
     imageUrl?: string | null;
     /** Prefer buffer from multipart upload (`inline_upload`-style URLs are not fetchable). */
-    coverImageFromUpload?: { content: Buffer; contentType: string; filename?: string } | null;
+    coverImageFromUpload?: { content: Buffer | Uint8Array; contentType: string; filename?: string } | null;
     authorDisplayName: string;
   }): Promise<{
     attempted: number;
@@ -5478,27 +5478,55 @@ export class EmailNotificationService {
     const stripAnchorTags = (html: string) =>
       String(html).replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, (_, inner: string) => inner);
 
-    /** Body HTML + any `<img>` in content turned into CID parts (better than remote URLs in clients). */
-    let bodyProcessed = stripAnchorTags(stripScripts(data.content));
-    const bodyInlined = await inlineExternalImagesInNewsletterHtml(bodyProcessed, { publicBase });
-    bodyProcessed = bodyInlined.html;
+    const toBuffer = (x: unknown): Buffer | null => {
+      if (x == null) return null;
+      if (Buffer.isBuffer(x)) return x;
+      if (x instanceof Uint8Array) return Buffer.from(x);
+      if (ArrayBuffer.isView(x)) {
+        const v = x as ArrayBufferView;
+        return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
+      }
+      return null;
+    };
 
-    /** Cover / hero image attachment (multipart buffer wins over bogus `imageUrl`). */
-    const uploadCover = data.coverImageFromUpload;
-    const coverAttachment: NewsletterInlineAttachment | null =
-      uploadCover?.content != null &&
-      Buffer.isBuffer(uploadCover.content) &&
-      uploadCover.content.length > 0
-        ? coverImageInlineAttachment({
-            content: uploadCover.content,
-            contentType: uploadCover.contentType || "image/jpeg",
-            filename: uploadCover.filename
-          })
-        : await fetchCoverInlineAttachment(String(data.imageUrl || "").trim());
+    /** Body HTML + optional `<img>` → CID (never block sends — skip on error). */
+    let bodyProcessed = stripAnchorTags(stripScripts(data.content));
+    let bodyInlineAttachments: NewsletterInlineAttachment[] = [];
+    try {
+      const bodyInlined = await inlineExternalImagesInNewsletterHtml(bodyProcessed, { publicBase });
+      bodyProcessed = bodyInlined.html;
+      bodyInlineAttachments = bodyInlined.attachments;
+    } catch (bodyImgErr) {
+      console.warn(
+        "[newsletter-email] Skipping body image inlining (sending HTML as-is):",
+        bodyImgErr instanceof Error ? bodyImgErr.message : bodyImgErr
+      );
+    }
+
+    /** Cover attachment: prefer multipart buffer (multer may use Uint8Array, not Buffer). */
+    let coverAttachment: NewsletterInlineAttachment | null = null;
+    try {
+      const uploadCover = data.coverImageFromUpload;
+      const uploadBuf = toBuffer(uploadCover?.content);
+      if (uploadBuf && uploadBuf.length > 0) {
+        coverAttachment = coverImageInlineAttachment({
+          content: uploadBuf,
+          contentType: uploadCover?.contentType || "image/jpeg",
+          filename: uploadCover?.filename
+        });
+      } else {
+        coverAttachment = await fetchCoverInlineAttachment(String(data.imageUrl || "").trim());
+      }
+    } catch (coverErr) {
+      console.warn(
+        "[newsletter-email] Skipping cover inline image (email still sends):",
+        coverErr instanceof Error ? coverErr.message : coverErr
+      );
+    }
 
     const mimeAttachments: NewsletterInlineAttachment[] = [
       ...(coverAttachment ? [coverAttachment] : []),
-      ...bodyInlined.attachments
+      ...bodyInlineAttachments
     ];
 
     const failed: Array<{ email: string; message: string }> = [];

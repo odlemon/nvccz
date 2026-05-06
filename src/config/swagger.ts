@@ -243,7 +243,7 @@ const options = {
       {
         name: 'Reviews UAT (Review cycles & independent evaluation)',
         description:
-          'Review cycle configuration + independent evaluation workflows: self review, external evaluator access (role-based), HR moderation, manager 1–5 validation, quantitative auto-populate, status progression, finalize (locks + generates PDF), rating distribution reports.'
+          'Review cycle configuration + independent evaluation workflows: self review, external evaluator access (role-based), HR moderation, manager 1–6 validation (aligned with BSC scorecard scale), quantitative auto-populate, status progression, finalize (locks + generates PDF), rating distribution reports.'
       },
       {
         name: 'Performance UAT (Tasks & board)',
@@ -636,7 +636,7 @@ const options = {
           type: 'object',
           required: ['title', 'content'],
           description:
-            '**Deprecated for `POST /newsletters`**: create uses **`multipart/form-data`** with `title`, `content`, optional binary **`image`** or **`coverImage`**. Retained for clients that send JSON elsewhere.',
+            '**Deprecated for `POST /newsletters`**: create uses **`multipart/form-data`** with `title`, `content`, optional binary **`image`**. Retained for clients that send JSON elsewhere.',
           properties: {
             title: { type: 'string', example: 'Monthly Company Newsletter' },
             content: { type: 'string', example: 'This is the newsletter content...' }
@@ -3435,7 +3435,7 @@ const fallbackSpec = {
           post: {
             summary: 'Create newsletter',
             description:
-              '**`multipart/form-data`**: `title`, `content`, optional **`image`** or **`coverImage`** file. Response **`data.imageUrl`** is the saved cover URL when a file was uploaded.',
+              '**`multipart/form-data`**: `title`, `content`, optional **`image`** file. Response **`data.imageUrl`** is the saved cover URL when a file was uploaded.',
             tags: ['Newsletters'],
             security: [{ bearerAuth: [] }],
             requestBody: {
@@ -3448,8 +3448,7 @@ const fallbackSpec = {
                     properties: {
                       title: { type: 'string', example: 'Monthly Company Update' },
                       content: { type: 'string', description: 'HTML or plain text body' },
-                      image: { type: 'string', format: 'binary', description: 'Optional cover (field name `image`)' },
-                      coverImage: { type: 'string', format: 'binary', description: 'Same as image (alternate field name)' }
+                      image: { type: 'string', format: 'binary', description: 'Optional cover image' }
                     }
                   },
                   encoding: {
@@ -3617,7 +3616,7 @@ const fallbackSpec = {
           put: {
             summary: 'Update newsletter',
             description:
-              '**`multipart/form-data`**: `title`, `content`, optional new cover **`image`** or **`coverImage`**. **`data.imageUrl`** updates when a file is sent.',
+              '**`multipart/form-data`**: `title`, `content`, optional new cover **`image`**. **`data.imageUrl`** updates when a file is sent.',
             tags: ['Newsletters'],
             security: [{ bearerAuth: [] }],
             parameters: [
@@ -3649,12 +3648,7 @@ const fallbackSpec = {
                       image: {
                         type: 'string',
                         format: 'binary',
-                        description: 'Optional new cover (field name `image`)'
-                      },
-                      coverImage: {
-                        type: 'string',
-                        format: 'binary',
-                        description: 'Same as `image` (alternate field name)'
+                        description: 'Optional new cover image'
                       }
                     }
                   },

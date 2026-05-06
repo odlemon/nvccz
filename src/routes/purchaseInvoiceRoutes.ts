@@ -418,7 +418,9 @@ router.get(
  *       Returns vendor-grouped aging summary with nested bill detail.
  *       Top-level `vendors[]` array — each entry has bucket totals (current / 30 / 60 / 90 / over90),
  *       VAT total, outstanding total, and a `bills[]` array for drill-down.
- *       `grandTotal` gives the report-wide sums across all vendors.
+ *       When all open bills share one currency, `grandTotal` is populated. If invoices span multiple
+ *       currencies, `grandTotalMixedCurrency` is true, `grandTotal` numeric fields are null, and
+ *       clients must use `totalsByCurrency` and `perCurrencyVendorTotals` (never add USD + ZIG).
  *     tags: [Accounts Payables]
  *     security:
  *       - bearerAuth: []

@@ -4,7 +4,6 @@ import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { normalizeNewsletterContent } from "../utils/newsletterContent";
 import { saveNewsletterCoverImage } from "../utils/newsletterImageStorage";
-import { getUploadedNewsletterCoverFile } from "../utils/newsletterMulterHelpers";
 import {
   getNewsletterRecipientConfig,
   listNewsletterBaseAudienceUsers,
@@ -22,7 +21,7 @@ export const newsletterController = {
       const normalizedTitle = String(title ?? "").trim();
       let imageUrl: string | undefined;
 
-      const coverFile = getUploadedNewsletterCoverFile(req);
+      const coverFile = req.file;
       let coverSnapshotForEmail: Buffer | undefined;
 
       // Update user's last seen
@@ -47,7 +46,7 @@ export const newsletterController = {
         });
       }
 
-      // Handle cover image (`image` or `coverImage` in multipart/form-data)
+      // Handle cover image (`image` field in multipart/form-data)
       if (coverFile?.buffer?.length) {
         try {
           imageUrl = await saveNewsletterCoverImage(
@@ -320,7 +319,7 @@ export const newsletterController = {
       const normalizedTitle = String(title ?? "").trim();
       let imageUrl: string | undefined;
 
-      const coverFile = getUploadedNewsletterCoverFile(req);
+      const coverFile = req.file;
 
       const existingNewsletter = await prisma.newsletter.findUnique({
         where: { id }
@@ -357,7 +356,7 @@ export const newsletterController = {
         });
       }
 
-      // Handle cover image (`image` or `coverImage` in multipart/form-data)
+      // Handle cover image (`image` field in multipart/form-data)
       if (coverFile?.buffer?.length) {
         try {
           imageUrl = await saveNewsletterCoverImage(

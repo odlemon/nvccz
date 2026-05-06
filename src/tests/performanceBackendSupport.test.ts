@@ -129,13 +129,15 @@ describe("performanceBackendSupport", () => {
     ).toBe(false);
   });
 
-  it("enforces integer-only 1-5 manager ratings and 50-char qualitative feedback", () => {
+  it("enforces integer-only 1-6 review ratings and 50-char qualitative feedback", () => {
     expect(
       validateManagerRatings([
         { managerRating: 1 },
-        { managerRating: 5 }
+        { managerRating: 6 }
       ]).valid
     ).toBe(true);
+
+    expect(validateManagerRatings([{ rating: 3 }, { selfRating: 5 }]).valid).toBe(true);
 
     expect(
       validateManagerRatings([
@@ -145,7 +147,8 @@ describe("performanceBackendSupport", () => {
 
     expect(validateManagerScaleInteger(4).valid).toBe(true);
     expect(validateManagerScaleInteger(4.5).valid).toBe(false);
-    expect(validateManagerScaleInteger(6).valid).toBe(false);
+    expect(validateManagerScaleInteger(6).valid).toBe(true);
+    expect(validateManagerScaleInteger(7).valid).toBe(false);
     expect(validateManagerScaleInteger(null).valid).toBe(true);
 
     expect(

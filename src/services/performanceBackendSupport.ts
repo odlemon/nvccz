@@ -2,6 +2,7 @@
 
 import path from "path";
 import fs from "fs";
+import { PERFORMANCE_RATING_SCALE } from "./performanceScorecardSupport";
 
 export const HARD_CODED_BSC_PILLARS = [
   "Financial",
@@ -234,28 +235,39 @@ export function shouldRaiseDataQualityAlert(params: {
   return absoluteDiff > 0.0001 || percentDiff > 0.5;
 }
 
-const MANAGER_RATING_ERROR = "Manager rating must be a whole number from 1 to 5.";
+function managerRatingRangeMessage(): string {
+  const { min, max } = PERFORMANCE_RATING_SCALE;
+  return `Manager rating must be a whole number from ${min} to ${max}.`;
+}
 
-/** F.03 — single numeric manager scale (e.g. review.ratingValue). */
+/** F.03 — integer rating aligned with BSC / scorecard `PERFORMANCE_RATING_SCALE` (e.g. review.ratingValue, dimension rows). */
 export function validateManagerScaleInteger(value: unknown): { valid: boolean; message: string } {
   if (value === undefined || value === null) {
     return { valid: true, message: "" };
   }
   const numeric = Number(value);
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric) || numeric < 1 || numeric > 5) {
-    return { valid: false, message: MANAGER_RATING_ERROR };
+  const { min, max } = PERFORMANCE_RATING_SCALE;
+  if (!Number.isFinite(numeric) || !Number.isInteger(numeric) || numeric < min || numeric > max) {
+    return { valid: false, message: managerRatingRangeMessage() };
   }
   return { valid: true, message: "" };
 }
 
+/** Validates numeric rating fields on each score row (manager / self / generic `rating`). */
 export function validateManagerRatings(scores: any[]) {
+  const { min, max } = PERFORMANCE_RATING_SCALE;
+  const keys = ["managerRating", "rating", "selfRating"] as const;
   const invalidEntries = (Array.isArray(scores) ? scores : []).filter((score) => {
-    if (score?.managerRating === undefined || score?.managerRating === null) {
-      return false;
+    if (!score || typeof score !== "object") return false;
+    for (const key of keys) {
+      const raw = score[key];
+      if (raw === undefined || raw === null || String(raw).trim() === "") continue;
+      const numeric = Number(raw);
+      if (!Number.isInteger(numeric) || numeric < min || numeric > max) {
+        return true;
+      }
     }
-
-    const numeric = Number(score.managerRating);
-    return !Number.isInteger(numeric) || numeric < 1 || numeric > 5;
+    return false;
   });
 
   return {

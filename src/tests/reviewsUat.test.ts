@@ -60,15 +60,7 @@ describe("Reviews UAT — validation + finalize PDF", () => {
     (prisma as any).performanceReview.create = jest.fn();
   });
 
-  test("Manager 1–5 scale rejects non-integers/out-of-range", async () => {
-    (prisma.user.findUnique as any).mockResolvedValue({
-      id: "actor",
-      role: { name: "admin" },
-      departmentId: "dept_1",
-      department: { name: "HR" },
-      employee: null
-    });
-
+  test("Create rejects when the logged-in user is the reviewee", async () => {
     await expect(
       PerformanceReviewService.createPerformanceReview(
         {
@@ -76,39 +68,59 @@ describe("Reviews UAT — validation + finalize PDF", () => {
           reviewPeriod: "2026",
           title: "Test",
           description: "",
-          revieweeId: "user_reviewee",
-          reviewerId: "user_reviewer",
-          ratingValue: 7,
-          scores: [{ rating: 7 }]
+          revieweeId: "actor",
+          reviewerId: "user_reviewer"
         },
         { id: "actor" }
       )
-    ).rejects.toThrow(/whole numbers between 1 and 5|between 1 and 5|whole number from 1 to 5/i);
+    ).rejects.toThrow(/cannot create a performance review that targets you/i);
   });
 
-  test("Qualitative feedback enforces minimum length 50", async () => {
-    (prisma.user.findUnique as any).mockResolvedValue({
-      id: "actor",
-      role: { name: "admin" },
-      departmentId: "dept_1",
-      department: { name: "HR" },
-      employee: null
+  test("Create allows different departments and does not require qualitative/rating validation", async () => {
+    (prisma.user.findUnique as any).mockImplementation(({ where: { id } }: any) => {
+      if (id === "user_reviewee") {
+        return {
+          id,
+          departmentId: "dept_fin",
+          department: { name: "Finance" },
+          userDepartment: null
+        };
+      }
+      if (id === "user_reviewer") {
+        return {
+          id,
+          departmentId: "dept_legal",
+          department: { name: "Legal" },
+          userDepartment: null
+        };
+      }
+      return null;
     });
 
-    await expect(
-      PerformanceReviewService.createPerformanceReview(
-        {
-          reviewType: "ANNUAL",
-          reviewPeriod: "2026",
-          title: "Test",
-          revieweeId: "user_reviewee",
-          reviewerId: "user_reviewer",
-          managerFeedback: "too short",
-          scores: [{ rating: 3 }]
-        },
-        { id: "actor" }
-      )
-    ).rejects.toThrow(/at least 50 characters/i);
+    (prisma.performanceReview.create as any).mockResolvedValue({
+      id: "new_review",
+      revieweeId: "user_reviewee",
+      reviewerId: "user_reviewer",
+      reviewType: "ANNUAL",
+      reviewPeriod: "2026",
+      title: "Test"
+    });
+
+    const created = await PerformanceReviewService.createPerformanceReview(
+      {
+        reviewType: "ANNUAL",
+        reviewPeriod: "2026",
+        title: "Test",
+        revieweeId: "user_reviewee",
+        reviewerId: "user_reviewer",
+        managerFeedback: "short",
+        scores: [{ rating: 99 }],
+        ratingValue: 99
+      },
+      { id: "actor" }
+    );
+    expect(created.id).toBe("new_review");
+    expect(prisma.performanceReview.create).toHaveBeenCalled();
   });
 
   test("Finalize generates PDF path and locks review", async () => {

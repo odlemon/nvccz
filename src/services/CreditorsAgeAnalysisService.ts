@@ -40,10 +40,8 @@ export interface CreditorsAgeAnalysisBill {
 
 /* ── Vendor-level summary row ───────────────────────────────────────── */
 
-export interface CreditorsAgeVendorSummary {
-  vendorId: string;
-  vendorName: string;
-  billCount: number;
+/** Aging buckets for one currency slice of a vendor (or whole vendor when single-currency). */
+export interface CreditorsAgeVendorCurrencyTotals {
   total: number;
   vatTotal: number;
   current: number;
@@ -51,7 +49,27 @@ export interface CreditorsAgeVendorSummary {
   days31To60: number;
   days61To90: number;
   over90: number;
+}
+
+export interface CreditorsAgeVendorSummary {
+  vendorId: string;
+  vendorName: string;
+  billCount: number;
   bills: CreditorsAgeAnalysisBill[];
+  /**
+   * When false, `total` / bucket fields are in that vendor’s invoice currency (all bills share one currency).
+   * When true, those top-level totals are null — use `perCurrencyVendorTotals` only.
+   */
+  multiCurrencyVendor: boolean;
+  total: number | null;
+  vatTotal: number | null;
+  current: number | null;
+  days1To30: number | null;
+  days31To60: number | null;
+  days61To90: number | null;
+  over90: number | null;
+  /** Present when `multiCurrencyVendor` — do not sum across keys (different units). */
+  perCurrencyVendorTotals?: Record<string, CreditorsAgeVendorCurrencyTotals>;
 }
 
 /* ── Full report ────────────────────────────────────────────────────── */
@@ -64,15 +82,22 @@ export interface CreditorsAgeAnalysisReport {
   bucketLabels: Record<CreditorsAgeBucket, string>;
   bucketShortColumnTitles: Record<CreditorsAgeBucket, string>;
   vendors: CreditorsAgeVendorSummary[];
+  /**
+   * Report-wide totals. When `grandTotalMixedCurrency` is true, every field is null
+   * (adding USD + ZIG numerically is meaningless) — use `totalsByCurrency` instead.
+   */
   grandTotal: {
-    total: number;
-    vatTotal: number;
-    current: number;
-    days1To30: number;
-    days31To60: number;
-    days61To90: number;
-    over90: number;
+    total: number | null;
+    vatTotal: number | null;
+    current: number | null;
+    days1To30: number | null;
+    days31To60: number | null;
+    days61To90: number | null;
+    over90: number | null;
   };
+  grandTotalMixedCurrency: boolean;
+  /** Set when more than one invoice currency appears on the report. */
+  grandTotalNote: string | null;
   totalsByCurrency: Record<
     string,
     Record<CreditorsAgeBucket | "total", number>
@@ -97,20 +122,24 @@ export class CreditorsAgeAnalysisService {
       orderBy: [{ vendorId: "asc" }, { invoiceDate: "asc" }]
     });
 
-    const vendorMap = new Map<string, {
-      vendorId: string;
-      vendorName: string;
-      buckets: Record<FiveBucketAgeKey, Decimal>;
-      vatTotal: Decimal;
-      total: Decimal;
-      bills: CreditorsAgeAnalysisBill[];
-    }>();
+    const vendorMap = new Map<
+      string,
+      {
+        vendorId: string;
+        vendorName: string;
+        byCurrency: Record<
+          string,
+          {
+            buckets: Record<FiveBucketAgeKey, Decimal>;
+            vatTotal: Decimal;
+            total: Decimal;
+          }
+        >;
+        bills: CreditorsAgeAnalysisBill[];
+      }
+    >();
 
     const totalsByCurrency: Record<string, Record<FiveBucketAgeKey, Decimal>> = {};
-
-    const grandBuckets = emptyFiveBuckets();
-    let grandVat = new Decimal(0);
-    let grandTotal = new Decimal(0);
 
     for (const inv of invoices) {
       const code = inv.currency.code.toUpperCase();
@@ -126,24 +155,26 @@ export class CreditorsAgeAnalysisService {
 
       totalsByCurrency[code][bucket] = totalsByCurrency[code][bucket].plus(out);
 
-      grandBuckets[bucket] = grandBuckets[bucket].plus(out);
-      grandVat = grandVat.plus(vat);
-      grandTotal = grandTotal.plus(out);
-
       if (!vendorMap.has(inv.vendorId)) {
         vendorMap.set(inv.vendorId, {
           vendorId: inv.vendorId,
           vendorName: inv.vendor.name,
-          buckets: emptyFiveBuckets(),
-          vatTotal: new Decimal(0),
-          total: new Decimal(0),
+          byCurrency: {},
           bills: []
         });
       }
       const v = vendorMap.get(inv.vendorId)!;
-      v.buckets[bucket] = v.buckets[bucket].plus(out);
-      v.vatTotal = v.vatTotal.plus(vat);
-      v.total = v.total.plus(out);
+      if (!v.byCurrency[code]) {
+        v.byCurrency[code] = {
+          buckets: emptyFiveBuckets(),
+          vatTotal: new Decimal(0),
+          total: new Decimal(0)
+        };
+      }
+      const vc = v.byCurrency[code];
+      vc.buckets[bucket] = vc.buckets[bucket].plus(out);
+      vc.vatTotal = vc.vatTotal.plus(vat);
+      vc.total = vc.total.plus(out);
       v.bills.push({
         purchaseInvoiceId: inv.id,
         invoiceNumber: inv.invoiceNumber,
@@ -161,19 +192,112 @@ export class CreditorsAgeAnalysisService {
       });
     }
 
-    const vendors: CreditorsAgeVendorSummary[] = Array.from(vendorMap.values()).map(v => ({
-      vendorId: v.vendorId,
-      vendorName: v.vendorName,
-      billCount: v.bills.length,
-      total: v.total.toNumber(),
-      vatTotal: v.vatTotal.toNumber(),
-      current: v.buckets.current.toNumber(),
-      days1To30: v.buckets.days1To30.toNumber(),
-      days31To60: v.buckets.days31To60.toNumber(),
-      days61To90: v.buckets.days61To90.toNumber(),
-      over90: v.buckets.over90.toNumber(),
-      bills: v.bills
-    }));
+    const nullGrand = (): CreditorsAgeAnalysisReport["grandTotal"] => ({
+      total: null,
+      vatTotal: null,
+      current: null,
+      days1To30: null,
+      days31To60: null,
+      days61To90: null,
+      over90: null
+    });
+
+    const zeroGrand = (): CreditorsAgeAnalysisReport["grandTotal"] => ({
+      total: 0,
+      vatTotal: 0,
+      current: 0,
+      days1To30: 0,
+      days31To60: 0,
+      days61To90: 0,
+      over90: 0
+    });
+
+    const currencyCodes = Object.keys(totalsByCurrency).sort();
+    const grandTotalMixedCurrency = currencyCodes.length > 1;
+    const grandTotalNote = grandTotalMixedCurrency
+      ? "Grand total omitted: invoices span multiple currencies (e.g. USD and ZIG). Use totalsByCurrency and per-currency vendor rows — do not add those figures."
+      : null;
+
+    let grandTotal: CreditorsAgeAnalysisReport["grandTotal"];
+    if (currencyCodes.length === 0) {
+      grandTotal = zeroGrand();
+    } else if (grandTotalMixedCurrency) {
+      grandTotal = nullGrand();
+    } else {
+      const only = currencyCodes[0];
+      const b = totalsByCurrency[only];
+      let vatSum = new Decimal(0);
+      for (const inv of invoices) {
+        if (inv.currency.code.toUpperCase() === only) {
+          vatSum = vatSum.plus(new Decimal(inv.vatAmount));
+        }
+      }
+      grandTotal = {
+        total: b.current
+          .plus(b.days1To30)
+          .plus(b.days31To60)
+          .plus(b.days61To90)
+          .plus(b.over90)
+          .toNumber(),
+        vatTotal: vatSum.toNumber(),
+        current: b.current.toNumber(),
+        days1To30: b.days1To30.toNumber(),
+        days31To60: b.days31To60.toNumber(),
+        days61To90: b.days61To90.toNumber(),
+        over90: b.over90.toNumber()
+      };
+    }
+
+    const vendors: CreditorsAgeVendorSummary[] = Array.from(vendorMap.values()).map((v) => {
+      const codes = Object.keys(v.byCurrency).sort();
+      const multi = codes.length > 1;
+      const perCurrency: Record<string, CreditorsAgeVendorCurrencyTotals> = {};
+      for (const c of codes) {
+        const vc = v.byCurrency[c];
+        perCurrency[c] = {
+          total: vc.total.toNumber(),
+          vatTotal: vc.vatTotal.toNumber(),
+          current: vc.buckets.current.toNumber(),
+          days1To30: vc.buckets.days1To30.toNumber(),
+          days31To60: vc.buckets.days31To60.toNumber(),
+          days61To90: vc.buckets.days61To90.toNumber(),
+          over90: vc.buckets.over90.toNumber()
+        };
+      }
+      if (multi) {
+        return {
+          vendorId: v.vendorId,
+          vendorName: v.vendorName,
+          billCount: v.bills.length,
+          multiCurrencyVendor: true,
+          total: null,
+          vatTotal: null,
+          current: null,
+          days1To30: null,
+          days31To60: null,
+          days61To90: null,
+          over90: null,
+          perCurrencyVendorTotals: perCurrency,
+          bills: v.bills
+        };
+      }
+      const c0 = codes[0];
+      const vc = v.byCurrency[c0];
+      return {
+        vendorId: v.vendorId,
+        vendorName: v.vendorName,
+        billCount: v.bills.length,
+        multiCurrencyVendor: false,
+        total: vc.total.toNumber(),
+        vatTotal: vc.vatTotal.toNumber(),
+        current: vc.buckets.current.toNumber(),
+        days1To30: vc.buckets.days1To30.toNumber(),
+        days31To60: vc.buckets.days31To60.toNumber(),
+        days61To90: vc.buckets.days61To90.toNumber(),
+        over90: vc.buckets.over90.toNumber(),
+        bills: v.bills
+      };
+    });
 
     const numericTotals: Record<string, Record<FiveBucketAgeKey | "total", number>> = {};
     for (const [cur, buckets] of Object.entries(totalsByCurrency)) {
@@ -195,15 +319,9 @@ export class CreditorsAgeAnalysisService {
       bucketLabels: { ...FIVE_BUCKET_LABELS },
       bucketShortColumnTitles: { ...FIVE_BUCKET_SHORT_COLUMN_TITLES },
       vendors,
-      grandTotal: {
-        total: grandTotal.toNumber(),
-        vatTotal: grandVat.toNumber(),
-        current: grandBuckets.current.toNumber(),
-        days1To30: grandBuckets.days1To30.toNumber(),
-        days31To60: grandBuckets.days31To60.toNumber(),
-        days61To90: grandBuckets.days61To90.toNumber(),
-        over90: grandBuckets.over90.toNumber()
-      },
+      grandTotal,
+      grandTotalMixedCurrency,
+      grandTotalNote,
       totalsByCurrency: numericTotals
     };
   }
