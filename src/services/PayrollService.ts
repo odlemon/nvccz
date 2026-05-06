@@ -843,14 +843,13 @@ export class PayrollService {
       }
 
       // Create journal entry
-      // Use processing date (today) instead of payroll run endDate to ensure entry appears in Journal view
-      // The endDate might be in the future, which would exclude it from default Journal view date range
+      // Use payroll run endDate as the accounting date so KPI analytics and financial statements land in the correct period.
       // Generate unique reference number by including timestamp to avoid duplicate reference number errors
       const timestamp = Date.now();
       const uniqueReferenceNumber = `PAYROLL-${payrollRun.payPeriod.replace(/\s+/g, '-').toUpperCase()}-${timestamp}`;
       
       const journalEntry = await createJournalEntryWithAuditSequence({
-        transactionDate: new Date(),
+        transactionDate: payrollRun.endDate,
         referenceNumber: uniqueReferenceNumber,
         description: `Payroll Journal - Gross Pay: ${payrollRun.name} (${payrollRun.payPeriod})`,
         totalAmount: totalGrossPay,

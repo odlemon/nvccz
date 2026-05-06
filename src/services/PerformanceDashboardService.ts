@@ -117,16 +117,18 @@ export interface PerformanceDashboardData {
 }
 
 export class PerformanceDashboardService {
-  /** Productivity: performance tasks and any task linked to a performance goal — completed in period by `updatedAt`. */
-  private static completedPerfLinkedTasksWhere(monthStart: Date, monthEnd: Date) {
+  /**
+   * Productivity: completed tasks in period by `updatedAt`.
+   * This is intentionally NOT limited to performance-linked tasks, otherwise the dashboard shows 0 despite completed work.
+   */
+  private static completedTasksWhere(monthStart: Date, monthEnd: Date) {
     return {
       isTrashed: false,
       stage: "completed",
       updatedAt: {
         gte: monthStart,
         lte: monthEnd
-      },
-      OR: [{ isPerformanceTask: true }, { goalId: { not: null } }]
+      }
     };
   }
 
@@ -172,11 +174,11 @@ export class PerformanceDashboardService {
         return taskDate >= lastMonthStart && taskDate <= lastMonthEnd;
       });
       
-      // Calculate summary cards
-      const pendingTasks = allTasks.filter(t => t.stage === 'todo').length;
-      const inProgressTasks = allTasks.filter(t => t.stage === 'in_progress').length;
-      const completedTasks = allTasks.filter(t => t.stage === 'completed').length;
-      const totalTasks = allTasks.length;
+      // Calculate summary cards (STRICTLY within requested period)
+      const pendingTasks = currentMonthTasks.filter(t => t.stage === 'todo').length;
+      const inProgressTasks = currentMonthTasks.filter(t => t.stage === 'in_progress').length;
+      const completedTasks = currentMonthTasks.filter(t => t.stage === 'completed').length;
+      const totalTasks = currentMonthTasks.length;
       
       const lastMonthPending = lastMonthTasks.filter(t => t.stage === 'todo').length;
       const lastMonthInProgress = lastMonthTasks.filter(t => t.stage === 'in_progress').length;
@@ -203,17 +205,17 @@ export class PerformanceDashboardService {
       // Get monthly productivity (last 12 months)
       const monthlyProductivity = await this.getMonthlyProductivity(currentYear, currentMonth);
       
-      // Get performance distribution
-      const performanceDistribution = await this.getPerformanceDistribution(allTasks);
+      // Get performance distribution (within period)
+      const performanceDistribution = await this.getPerformanceDistribution(currentMonthTasks);
       
-      // Get worker performance insights
-      const workerPerformance = await this.getWorkerPerformance(allTasks);
+      // Get worker performance insights (within period)
+      const workerPerformance = await this.getWorkerPerformance(currentMonthTasks);
       
       // Get budget tracker
       const budgetTracker = await this.getBudgetTracker(currentMonthStart, currentMonthEnd);
       
-      // Get employee of the month
-      const employeeOfTheMonth = await this.getEmployeeOfTheMonth(allTasks, currentMonthStart, currentMonthEnd);
+      // Get employee of the month (within period)
+      const employeeOfTheMonth = await this.getEmployeeOfTheMonth(currentMonthTasks, currentMonthStart, currentMonthEnd);
       
       return {
         summaryCards: {
@@ -307,7 +309,7 @@ export class PerformanceDashboardService {
       const monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
 
       const completedCount = await prisma.task.count({
-        where: PerformanceDashboardService.completedPerfLinkedTasksWhere(monthStart, monthEnd)
+        where: PerformanceDashboardService.completedTasksWhere(monthStart, monthEnd)
       });
 
       productivity.push({
@@ -321,7 +323,7 @@ export class PerformanceDashboardService {
       const prevYearStart = new Date(y - 1, m - 1, 1);
       const prevYearEnd = new Date(y - 1, m, 0, 23, 59, 59, 999);
       const completedPriorYear = await prisma.task.count({
-        where: PerformanceDashboardService.completedPerfLinkedTasksWhere(prevYearStart, prevYearEnd)
+        where: PerformanceDashboardService.completedTasksWhere(prevYearStart, prevYearEnd)
       });
       rollingSumPriorYear += completedPriorYear;
     }
@@ -520,19 +522,6 @@ export class PerformanceDashboardService {
         }
       });
 
-      // Broader fallback: some tenants only set contract dates loosely — still surface portfolio budgets.
-      if (contracts.length === 0) {
-        contracts = await prisma.performanceContract.findMany({
-          where: {
-            status: { notIn: notArchived as unknown as string[] }
-          },
-          select: {
-            allocatedBudget: true,
-            actualSpend: true
-          }
-        });
-      }
-
       if (contracts.length === 0) {
         const activeBudget = await prisma.budget.findFirst({
           where: { isActive: true },
@@ -610,31 +599,9 @@ export class PerformanceDashboardService {
     taskCount: number;
     completionRate: number;
   } | null> {
-    // Get tasks for current month
-    let monthTasks = allTasks.filter(task => {
-      const taskDate = new Date(task.createdAt);
-      return taskDate >= monthStart && taskDate <= monthEnd;
-    });
-    
-    // If no tasks in current month, try to find the most recent month with tasks
-    if (monthTasks.length === 0) {
-      // Group tasks by month
-      const tasksByMonth = new Map<string, any[]>();
-      for (const task of allTasks) {
-        const taskDate = new Date(task.createdAt);
-        const monthKey = `${taskDate.getFullYear()}-${taskDate.getMonth()}`;
-        if (!tasksByMonth.has(monthKey)) {
-          tasksByMonth.set(monthKey, []);
-        }
-        tasksByMonth.get(monthKey)!.push(task);
-      }
-      
-      // Get the most recent month with tasks
-      const sortedMonths = Array.from(tasksByMonth.keys()).sort().reverse();
-      if (sortedMonths.length > 0) {
-        monthTasks = tasksByMonth.get(sortedMonths[0]) || [];
-      }
-    }
+    // `allTasks` here is already filtered to the requested month window.
+    const monthTasks = allTasks;
+    if (!monthTasks.length) return null;
     
     // Calculate task counts per user for the month
     const userTaskStats = new Map<string, { total: number; completed: number }>();
