@@ -6,6 +6,74 @@ import { EmailNotificationService } from "./EmailNotificationService";
 import { prisma } from '../utils/database';
 import { nextQuotationNumber } from "../utils/accountingDocumentNumbers";
 
+/**
+ * Render a vendor quotation PDF (with letterhead + ACCEPTED/REJECTED watermark) for email attachment.
+ * Returns `undefined` on any failure so callers can fall back to plain emails. The quotation argument
+ * is the Prisma row including its `items` relation; missing fields are normalised to PDF-friendly defaults.
+ */
+async function buildVendorQuotationPdfAttachment(
+  quotation: any,
+  decision: "ACCEPTED" | "REJECTED"
+): Promise<{ filename: string; content: Buffer } | undefined> {
+  if (!quotation) return undefined;
+  try {
+    const [
+      { loadCapitalCallAccountingLetterhead },
+      { buildVendorQuotationPdfBuffer, safeVendorQuotationPdfFileBaseName },
+    ] = await Promise.all([
+      import("../utils/capitalCallAccountingLetterhead"),
+      import("../utils/vendorQuotationPdf"),
+    ]);
+    const letterhead = await loadCapitalCallAccountingLetterhead().catch(() => null);
+    const pdf = await buildVendorQuotationPdfBuffer({
+      quotationNumber: quotation.quotationNumber,
+      rfqNumber: quotation.rfqNumber ?? null,
+      status: quotation.status ?? null,
+      submittedAt: quotation.submittedAt ?? null,
+      validUntil: quotation.validUntil ?? null,
+      reviewedAt: quotation.reviewedAt ?? null,
+      reviewNotes: quotation.reviewNotes ?? null,
+      rejectionReason: quotation.rejectionReason ?? null,
+      paymentTerms: quotation.paymentTerms ?? null,
+      deliveryTerms: quotation.deliveryTerms ?? null,
+      deliveryTime: quotation.deliveryTime ?? null,
+      currencyCode: quotation.currencyCode || "USD",
+      subtotal: Number(quotation.subtotal ?? 0),
+      taxAmount: Number(quotation.taxAmount ?? 0),
+      totalAmount: Number(quotation.totalAmount ?? 0),
+      vendor: {
+        name: quotation.vendorName || "Vendor",
+        email: quotation.vendorEmail ?? null,
+        companyName: quotation.companyName ?? null,
+        contactPerson: quotation.contactPerson ?? null,
+        phoneNumber: quotation.phoneNumber ?? null,
+        address: quotation.address ?? null,
+        taxEIN: quotation.taxEIN ?? null,
+      },
+      items: Array.isArray(quotation.items)
+        ? quotation.items.map((it: any) => ({
+            itemName: it.itemName,
+            description: it.description ?? null,
+            quantity: Number(it.quantity ?? 0),
+            unit: it.unit ?? null,
+            unitPrice: Number(it.unitPrice ?? 0),
+            totalPrice: Number(it.totalPrice ?? 0),
+            brand: it.brand ?? null,
+            model: it.model ?? null,
+            warranty: it.warranty ?? null,
+          }))
+        : null,
+      letterhead,
+      decision,
+    });
+    const safeBase = safeVendorQuotationPdfFileBaseName(quotation.quotationNumber || "Quotation");
+    return { filename: `Quotation-${safeBase}-${decision}.pdf`, content: pdf };
+  } catch (e: any) {
+    console.warn("⚠️  buildVendorQuotationPdfAttachment failed:", e?.message || e);
+    return undefined;
+  }
+}
+
 export interface CreateVendorQuotationParams {
   rfqNumber?: string;
   requisitionId?: string;
@@ -435,8 +503,13 @@ export class VendorQuotationService {
         }
       });
 
-      // Send email notification to vendor
+      // Send email notification to vendor (best-effort: failures here must not roll back the review)
       try {
+        const pdfAttachment = await buildVendorQuotationPdfAttachment(updatedQuotation, action === "ACCEPT" ? "ACCEPTED" : "REJECTED").catch((e: any) => {
+          console.warn("⚠️  Failed to render quotation PDF (continuing without attachment):", e?.message || e);
+          return undefined;
+        });
+
         if (action === "ACCEPT") {
           await EmailNotificationService.sendQuotationAcceptedEmail({
             vendorName: quotation.companyName || quotation.vendorName,
@@ -444,8 +517,9 @@ export class VendorQuotationService {
             quotationNumber: quotation.quotationNumber,
             quotationAmount: Number(quotation.totalAmount),
             currencyCode: quotation.currencyCode,
-          rfqNumber: quotation.rfqNumber,
-            reviewNotes
+            rfqNumber: quotation.rfqNumber,
+            reviewNotes,
+            pdfAttachment,
           });
           console.log("✅ Acceptance email sent to vendor");
 
@@ -459,7 +533,8 @@ export class VendorQuotationService {
             quotationNumber: quotation.quotationNumber,
             quotationAmount: Number(quotation.totalAmount),
             currencyCode: quotation.currencyCode,
-            rejectionReason
+            rejectionReason,
+            pdfAttachment,
           });
           console.log("✅ Rejection email sent to vendor");
         }
@@ -661,13 +736,16 @@ export class VendorQuotationService {
           }
         });
 
+        const pdfAttachment = await buildVendorQuotationPdfAttachment(updated, "REJECTED").catch(() => undefined);
+
         await EmailNotificationService.sendQuotationRejectedEmail({
           vendorName: updated.companyName || updated.vendorName,
           vendorEmail: updated.vendorEmail,
           quotationNumber: updated.quotationNumber,
           quotationAmount: Number(updated.totalAmount),
           currencyCode: updated.currencyCode,
-          rejectionReason
+          rejectionReason,
+          pdfAttachment,
         });
       }
     } catch (error: any) {

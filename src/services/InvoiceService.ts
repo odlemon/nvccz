@@ -141,6 +141,7 @@ export class InvoiceService {
   private static invoiceApiInclude() {
     return {
       customer: true,
+      vendor: true,
       currency: true,
       paymentCurrency: true,
       forexGainLoss: {
@@ -897,6 +898,75 @@ export class InvoiceService {
         oldValues: before,
         newValues: afterSend ?? updatedInvoice,
       });
+
+      // Best-effort: email the customer a branded PDF copy. Failures here must NOT roll back the SEND.
+      try {
+        const inv = afterSend ?? updatedInvoice;
+        const customerEmail = String(inv?.customer?.email || "").trim();
+        const vendorEmail = String(inv?.vendor?.email || "").trim();
+        if (customerEmail || vendorEmail) {
+          const [{ loadCapitalCallAccountingLetterhead }, { buildInvoicePdfBuffer, safeInvoicePdfFileBaseName }, { EmailNotificationService }] =
+            await Promise.all([
+              import("../utils/capitalCallAccountingLetterhead"),
+              import("../utils/invoicePdf"),
+              import("./EmailNotificationService"),
+            ]);
+          const letterhead = await loadCapitalCallAccountingLetterhead().catch(() => null);
+          const pdf = await buildInvoicePdfBuffer({
+            invoiceNumber: inv.invoiceNumber || inv.id,
+            transactionDate: inv.transactionDate,
+            dueDate: inv.dueDate ?? null,
+            description: inv.description ?? null,
+            status: inv.status,
+            currencyCode: inv.currency?.code || "",
+            amount: Number(inv.amount ?? 0),
+            vatAmount: Number(inv.vatAmount ?? 0),
+            totalAmount: Number(inv.totalAmount ?? 0),
+            paidAmount: Number(inv.paidAmount ?? 0),
+            outstandingAmount: Number(inv.outstandingAmount ?? 0),
+            customer: {
+              name: inv.customer?.name || "Customer",
+              email: inv.customer?.email ?? null,
+              phone: inv.customer?.phone ?? null,
+              address: inv.customer?.address ?? null,
+            },
+            items: Array.isArray(inv.items) ? (inv.items as any[]) : null,
+            letterhead,
+          });
+          const fileBase = safeInvoicePdfFileBaseName(inv.invoiceNumber || inv.id);
+          if (customerEmail) {
+            await EmailNotificationService.sendInvoiceToCustomer({
+              customerName: inv.customer?.name || "Customer",
+              customerEmail,
+              invoiceNumber: inv.invoiceNumber || inv.id,
+              invoiceDate: inv.transactionDate,
+              totalAmount: Number(inv.totalAmount ?? 0),
+              currencyCode: inv.currency?.code || "",
+              dueDate: inv.dueDate ?? null,
+              description: inv.description ?? null,
+              pdfAttachment: { filename: `Invoice-${fileBase}.pdf`, content: pdf },
+            });
+          } else if (vendorEmail) {
+            await EmailNotificationService.sendProcurementInvoiceToVendor({
+              vendorName: inv.vendor?.name || "Vendor",
+              vendorEmail,
+              invoiceNumber: inv.invoiceNumber || inv.id,
+              invoiceDate: inv.transactionDate,
+              totalAmount: Number(inv.totalAmount ?? 0),
+              currencyCode: inv.currency?.code || "",
+              dueDate: inv.dueDate ?? null,
+              poNumber: null,
+              pdfAttachment: { filename: `Invoice-${fileBase}.pdf`, content: pdf },
+            });
+          }
+        } else {
+          console.warn(
+            `[InvoiceService.sendInvoice] Skipping invoice email — invoice ${id} has no customer or vendor email on file`
+          );
+        }
+      } catch (mailErr: any) {
+        console.warn(`[InvoiceService.sendInvoice] Best-effort customer email failed for invoice ${id}:`, mailErr?.message || mailErr);
+      }
 
       return (await this.attachEquivalent(afterSend ?? updatedInvoice)) as InvoiceWithRelations;
     } catch (error: any) {

@@ -5,6 +5,7 @@
  */
 const PDFDocument = require("pdfkit");
 import type { CapitalCallAccountingLetterhead } from "./capitalCallAccountingLetterhead";
+import { drawLetterhead } from "./letterheadPdf";
 
 function fmtMoney(n: number): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -143,60 +144,7 @@ export async function buildPayslipPdfBuffer(params: {
     const margin = 50;
     const pageW = doc.page.width;
     const contentW = pageW - margin * 2;
-
-    if (lh) {
-      const LOGO_RADIUS_PT = 34;
-      const yStart = doc.y;
-
-      if (lh.logoBuffer) {
-        try {
-          const pdfImg = doc.openImage(lh.logoBuffer);
-          const iw = pdfImg.width;
-          const ih = pdfImg.height;
-          const cx = pageW - margin - LOGO_RADIUS_PT;
-          const cy = yStart + LOGO_RADIUS_PT;
-          const box = 2 * LOGO_RADIUS_PT;
-          const scale = Math.max(box / iw, box / ih);
-          const drawW = iw * scale;
-          const drawH = ih * scale;
-          const drawX = cx - drawW / 2;
-          const drawY = cy - drawH / 2;
-
-          doc.save();
-          doc.circle(cx, cy, LOGO_RADIUS_PT).clip();
-          doc.image(lh.logoBuffer, drawX, drawY, { width: drawW, height: drawH });
-          doc.restore();
-
-          doc.save();
-          doc.lineWidth(0.75).strokeColor("#dddddd");
-          doc.circle(cx, cy, LOGO_RADIUS_PT).stroke();
-          doc.restore();
-
-          doc.y = yStart + box + 6;
-          doc.x = margin;
-        } catch {
-          doc.y = yStart;
-          doc.x = margin;
-        }
-      }
-
-      doc.font("Helvetica").fontSize(12).fillColor("#111111");
-      doc.text(lh.displayName, margin, doc.y, { width: contentW, align: "right" });
-      doc.font("Helvetica").fontSize(9).fillColor("#444444");
-      for (const line of lh.detailLines) {
-        doc.text(line, margin, doc.y, { width: contentW, align: "right" });
-      }
-      doc.moveDown(0.35);
-      const yRule = doc.y;
-      doc
-        .strokeColor("#cccccc")
-        .lineWidth(0.5)
-        .moveTo(margin, yRule)
-        .lineTo(pageW - margin, yRule)
-        .stroke();
-      doc.moveDown(0.85);
-      doc.fillColor("#000000");
-    }
+    drawLetterhead(doc, lh);
 
     doc.font("Helvetica-Bold").fontSize(18).fillColor("#111111").text("Payslip", { align: "center" });
     doc.moveDown(0.2);
