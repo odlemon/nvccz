@@ -596,21 +596,6 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
       tags: [S06_INTAKE],
       security: bearer,
       parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
-      requestBody: {
-        required: false,
-        content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              description: "Extraction runs using server defaults; body is optional for forward-compat knobs.",
-              properties: {
-                force: { type: "boolean", example: false },
-              },
-            },
-            example: { force: true },
-          },
-        },
-      },
       responses: { 200: { description: "OK" } },
     },
   },
