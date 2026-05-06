@@ -9206,8 +9206,10 @@ specs.paths = {
 function addTagToOps(
   paths: Record<string, any>,
   shouldTagPath: (pathKey: string) => boolean,
-  tagName: string
+  tagName: string,
+  opts?: { skipIfHasTagPrefix?: string }
 ) {
+  const skipPrefix = opts?.skipIfHasTagPrefix;
   for (const [pathKey, pathItem] of Object.entries(paths ?? {})) {
     if (!shouldTagPath(pathKey)) continue;
     for (const [method, op] of Object.entries(pathItem ?? {})) {
@@ -9215,6 +9217,8 @@ function addTagToOps(
       if (!['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].includes(String(method))) continue;
       if (!op || typeof op !== 'object') continue;
       const tags = Array.isArray((op as any).tags) ? (op as any).tags : [];
+      // Avoid Swagger UI listing the same operation under two procurement sections (umbrella + specific).
+      if (skipPrefix && tags.some((t: any) => typeof t === 'string' && t.startsWith(skipPrefix))) continue;
       if (!tags.includes(tagName)) {
         (op as any).tags = [...tags, tagName];
       }
@@ -9222,7 +9226,9 @@ function addTagToOps(
   }
 }
 
-// Procurement UAT umbrella tag — make all procurement-suite paths discoverable under one filter.
+// Procurement UAT umbrella tag — make procurement-suite paths discoverable under one filter,
+// but ONLY when the operation does not already have a specific "Procurement — ..." tag,
+// otherwise Swagger UI would list the same endpoint twice (umbrella + specific section).
 addTagToOps(
   specs.paths as any,
   (pathKey) =>
@@ -9231,7 +9237,8 @@ addTagToOps(
     pathKey.startsWith('/public/vendor-registration') ||
     pathKey.startsWith('/accounting/vendors/pending-review') ||
     pathKey.includes('/accounting/vendors/') && pathKey.includes('/approve-registration'),
-  'Procurement — UAT'
+  'Procurement — UAT',
+  { skipIfHasTagPrefix: 'Procurement — ' }
 );
 
 export { specs }; 

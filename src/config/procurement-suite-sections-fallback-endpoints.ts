@@ -552,7 +552,9 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
   },
   "/procurement/suite06/intakes": {
     post: {
-      summary: "Create vendor invoice intake (multipart form-data or documentUrl)",
+      summary: "Create vendor invoice intake (multipart — PDF + required ids)",
+      description:
+        "Content-Type: multipart/form-data. **Required fields:** `document` (PDF binary), `vendorId`, `sourcePurchaseOrderId`, `goodsReceivedNoteId`. URL-only intake (`documentUrl`) is not supported.",
       tags: [S06_INTAKE],
       security: bearer,
       requestBody: {
@@ -561,13 +563,28 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
           "multipart/form-data": {
             schema: {
               type: "object",
-              required: ["vendorId"],
+              required: ["document", "vendorId", "sourcePurchaseOrderId", "goodsReceivedNoteId"],
               properties: {
-                document: { type: "string", format: "binary" },
-                documentUrl: { type: "string", example: "https://storage.example.com/vendor-invoices/inv-0042.pdf" },
-                vendorId: { type: "string", example: "vend_cuid_123" },
-                sourcePurchaseOrderId: { type: "string", example: "po_cuid_123" },
-                goodsReceivedNoteId: { type: "string", example: "grn_cuid_123" },
+                document: {
+                  type: "string",
+                  format: "binary",
+                  description: "PDF file — field name must be **document** (max 15MB).",
+                },
+                vendorId: {
+                  type: "string",
+                  example: "vend_cuid_123",
+                  description: "Vendor id (cuid).",
+                },
+                sourcePurchaseOrderId: {
+                  type: "string",
+                  example: "po_cuid_123",
+                  description: "Purchase order id (cuid).",
+                },
+                goodsReceivedNoteId: {
+                  type: "string",
+                  example: "grn_cuid_123",
+                  description: "Goods received note id (cuid).",
+                },
               },
             },
             example: {
@@ -593,9 +610,19 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
   "/procurement/suite06/intakes/{id}/extract": {
     post: {
       summary: "Run PDF text extraction + LLM structured parse",
+      description:
+        "Uses the PDF uploaded on create (field **document**). **No request body** — multipart applies only to POST /procurement/suite06/intakes when creating the intake. `documentUrl` in the request is not supported.",
       tags: [S06_INTAKE],
       security: bearer,
-      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
+      parameters: [
+        {
+          in: "path",
+          name: "id",
+          required: true,
+          schema: { type: "string" },
+          description: "Vendor invoice intake id (cuid)",
+        },
+      ],
       responses: { 200: { description: "OK" } },
     },
   },
