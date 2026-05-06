@@ -1,5 +1,5 @@
 /**
- * F.03 UAT — Manager 1–5 scale: reject 4.5 and 6; accept integers 1–5.
+ * F.03 UAT — Review integer scale (aligned with BSC 1–6): reject 4.5 and 7; accept integers 1–6.
  * Exercises real HTTP: PUT /api/performance-reviews/:id
  */
 import "dotenv/config";
@@ -81,7 +81,7 @@ async function main() {
     fail(`Expected rejection for managerRating 4.5, got: ${res.status} ${res.text?.slice(0, 300)}`);
   }
   const msg45 = String(res.json?.message || "");
-  if (!msg45.toLowerCase().includes("whole") && !msg45.toLowerCase().includes("1") && !msg45.toLowerCase().includes("5")) {
+  if (!msg45.toLowerCase().includes("whole") && !msg45.toLowerCase().includes("1") && !msg45.toLowerCase().includes("6")) {
     fail(`Unexpected error message for 4.5: "${msg45}"`);
   }
   console.log("OK: 4.5 rejected —", msg45.slice(0, 80));
@@ -89,12 +89,12 @@ async function main() {
   // Invalid: out of range
   res = await req("PUT", `/api/performance-reviews/${review.id}`, {
     token,
-    jsonBody: { scores: [{ criterionId: "uat", managerRating: 6 }] }
+    jsonBody: { scores: [{ criterionId: "uat", managerRating: 7 }] }
   });
   if (res.json?.success !== false) {
-    fail(`Expected rejection for managerRating 6, got: ${res.status} ${res.text?.slice(0, 300)}`);
+    fail(`Expected rejection for managerRating 7, got: ${res.status} ${res.text?.slice(0, 300)}`);
   }
-  console.log("OK: 6 rejected —", String(res.json?.message || "").slice(0, 80));
+  console.log("OK: 7 rejected —", String(res.json?.message || "").slice(0, 80));
 
   // Invalid: ratingValue
   res = await req("PUT", `/api/performance-reviews/${review.id}`, {
@@ -116,15 +116,25 @@ async function main() {
   }
   console.log("OK: managerRating 4 accepted");
 
-  // Valid: ratingValue 5
+  // Valid: managerRating 6
   res = await req("PUT", `/api/performance-reviews/${review.id}`, {
     token,
-    jsonBody: { ratingValue: 5 }
+    jsonBody: { scores: [{ criterionId: "uat", managerRating: 6 }] }
+  });
+  if (res.status !== 200 || res.json?.success !== true || !res.json?.data?.id) {
+    fail(`Expected success for managerRating 6, got: ${res.status} ${res.text?.slice(0, 400)}`);
+  }
+  console.log("OK: managerRating 6 accepted");
+
+  // Valid: ratingValue 6
+  res = await req("PUT", `/api/performance-reviews/${review.id}`, {
+    token,
+    jsonBody: { ratingValue: 6 }
   });
   if (res.status !== 200 || res.json?.success !== true) {
-    fail(`Expected success for ratingValue 5, got: ${res.status} ${res.text?.slice(0, 400)}`);
+    fail(`Expected success for ratingValue 6, got: ${res.status} ${res.text?.slice(0, 400)}`);
   }
-  console.log("OK: ratingValue 5 accepted");
+  console.log("OK: ratingValue 6 accepted");
 
   console.log(JSON.stringify({ uat: "F.03", pass: true, reviewId: review.id }, null, 2));
 

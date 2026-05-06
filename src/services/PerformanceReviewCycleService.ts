@@ -10,7 +10,7 @@ export interface CreateReviewCycleRequest {
   peerReviewDeadline: Date;
   managerReviewDeadline: Date;
   availableReviewTypes: string[]; // ["Self", "Manager", "Peer"]
-  reviewRatingScale: string; // "1-5 Scale", "Meets/Exceeds/Needs Improvement"
+  reviewRatingScale: string; // e.g. "1-6 Scale" (aligned with BSC), "Meets/Exceeds/Needs Improvement"
 }
 
 export interface UpdateReviewCycleRequest {

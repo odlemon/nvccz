@@ -44,7 +44,7 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
                 peerReviewDeadline: { type: 'string', format: 'date-time' },
                 managerReviewDeadline: { type: 'string', format: 'date-time' },
                 availableReviewTypes: { type: 'array', items: { type: 'string' }, example: ['Self', 'Manager', 'Peer'] },
-                reviewRatingScale: { type: 'string', example: '1-5 Scale' },
+                reviewRatingScale: { type: 'string', example: '1-6 Scale' },
                 isActive: { type: 'boolean', nullable: true }
               }
             }
@@ -204,7 +204,7 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
                 criteria: { type: 'array', items: { type: 'object' }, nullable: true },
                 scores: { type: 'array', items: { type: 'object' }, nullable: true },
                 overallScore: { type: 'number', nullable: true },
-                ratingValue: { type: 'integer', minimum: 1, maximum: 5, nullable: true },
+                ratingValue: { type: 'integer', minimum: 1, maximum: 6, nullable: true },
                 rating: { type: 'string', nullable: true },
                 strengths: { type: 'string', nullable: true },
                 areasForImprovement: { type: 'string', nullable: true },
@@ -309,7 +309,7 @@ export const reviewsUatReviewCyclesIndependentEvalEndpoints = {
     get: {
       summary: 'Rating distribution report',
       description:
-        'Per-department: pass departmentName. Organisation-wide: pass organizationWide=true or 1 (departmentName optional; HR/exec/admin bypass only). Buckets use ratingValue 1–5.',
+        'Per-department: pass departmentName. Organisation-wide: pass organizationWide=true or 1 (departmentName optional; HR/exec/admin bypass only). Buckets use ratingValue 1–6.',
       tags: ['Reviews UAT (Review cycles & independent evaluation)'],
       security: [{ bearerAuth: [] }],
       parameters: [

@@ -111,7 +111,7 @@ Use these as **RBAC + layout** guidelines. Exact permission names in your auth s
 
 - As a line manager, I open reviews for **my direct reports** when the workflow reaches **manager / final content** stages.
 - I see **HR-moderated** outcomes and employee + external material **according to policy** (your narrative: manager may focus on HR-consolidated scores; the UI should hide fields policy says they must not see).
-- I enter **manager ratings (1–5)** and **manager feedback** where required.
+- I enter **manager ratings (1–6)** and **manager feedback** where required.
 - I perform **final sign-off**: an explicit **Finalize** action that **locks** the review and makes the **official PDF** available.
 
 **UI**
@@ -147,8 +147,8 @@ Use these as **RBAC + layout** guidelines. Exact permission names in your auth s
 
 ### Ratings
 
-- **Manager scale**: integers **1–5** only; reject decimals in the client before submit.
-- Use consistent control: five-point radio or select; optional tooltips per point if HR provides definitions.
+- **Rating scale**: integers **1–6** only (same as BSC scorecard raw scale); reject decimals in the client before submit.
+- Use consistent control: six-point radio or select; optional tooltips per point if HR provides definitions.
 
 ### Status on the form
 
@@ -208,12 +208,12 @@ The UI should **derive** the friendly label from **`stage` + `stakeholder` prese
 **Stories**
 
 - As HR, I open **Reports → Rating distribution** for a selected **review period** (and optionally **department**).
-- I switch to **Organisation-wide** view to see the **histogram** of manager `ratingValue` (1–5) counts before finalization.
+- I switch to **Organisation-wide** view to see the **histogram** of manager `ratingValue` (1–6) counts before finalization.
 - I drill into a **department** to compare distributions and spot **bias** or clustering.
 
 **Charts**
 
-- Simple bar chart: rating 1–5 vs count; table export optional later.
+- Simple bar chart: rating 1–6 vs count; table export optional later.
 
 ---
 
@@ -252,7 +252,7 @@ The UI should **derive** the friendly label from **`stage` + `stakeholder` prese
 - [ ] **My reviews** vs **Reviews to complete** vs **Cycles** vs **Reports**.
 - [ ] Read-only **performance snapshot** block.
 - [ ] **≥ 50 characters** on validated text fields with counter.
-- [ ] **1–5** integer manager ratings.
+- [ ] **1–6** integer ratings (self / dimension / manager as applicable).
 - [ ] **Status stepper** mapped from `stage` / stakeholder / locked state.
 - [ ] **Finalize** only for allowed roles; then **download PDF**.
 - [ ] **Cycles** UI explains prerequisites (existing reviews).

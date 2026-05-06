@@ -2,12 +2,7 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 import AuditService from "./AuditService";
-import {
-  resolveReviewWorkflowStatus,
-  validateManagerRatings,
-  validateManagerScaleInteger,
-  validateQualitativeFeedbackMinimum
-} from "./performanceBackendSupport";
+import { resolveReviewWorkflowStatus, validateManagerScaleInteger } from "./performanceBackendSupport";
 import { isCEO, isHRLeader, isSysAdmin } from "./performanceScorecardSupport";
 import { EmailNotificationService } from "./EmailNotificationService";
 import { renderPerformanceReviewPdf } from "./performanceDocumentRenderer";
@@ -169,32 +164,6 @@ export interface UpdatePerformanceReviewFeedbackRequest {
 export class PerformanceReviewService {
   // ===== PERFORMANCE REVIEW CRUD OPERATIONS =====
 
-  private static validateReviewPayload(request: any) {
-    const ratingValidation = validateManagerRatings(request?.scores || []);
-    if (!ratingValidation.valid) {
-      throw new Error("Manager ratings must be whole numbers between 1 and 5.");
-    }
-
-    const ratingValueCheck = validateManagerScaleInteger(request?.ratingValue);
-    if (!ratingValueCheck.valid) {
-      throw new Error(ratingValueCheck.message);
-    }
-
-    const qualitativeFields = [
-      request?.managerFeedback,
-      request?.selfFeedback,
-      request?.peerFeedback,
-      request?.stakeholderFeedback
-    ].filter((value) => value !== undefined && value !== null && String(value).trim().length > 0);
-
-    for (const field of qualitativeFields) {
-      const validation = validateQualitativeFeedbackMinimum(field, 50);
-      if (!validation.valid) {
-        throw new Error("Qualitative feedback must be at least 50 characters.");
-      }
-    }
-  }
-
   private static async getReviewWithAccessContext(reviewId: string) {
     return prisma.performanceReview.findUnique({
       where: { id: reviewId },
@@ -320,8 +289,6 @@ export class PerformanceReviewService {
         throw new Error("You cannot create a performance review that targets you as the reviewee.");
       }
 
-      this.validateReviewPayload(request);
-
       // Validate reviewee exists
       const reviewee = await prisma.user.findUnique({
         where: { id: revieweeId },
@@ -350,18 +317,6 @@ export class PerformanceReviewService {
 
         if (!stakeholder) {
           throw new Error(`Stakeholder with ID ${request.stakeholderId} not found`);
-        }
-      }
-
-      if (actor?.id) {
-        const actorFull = await prisma.user.findUnique({
-          where: { id: actor.id },
-          include: { department: true, role: true }
-        });
-        if (actorFull && !canBypassPerformanceDepartmentGate(actorFull)) {
-          if (!usersSharePerformanceDepartment(reviewee, reviewer)) {
-            throw new Error("Reviewer must be in the same department as the reviewee.");
-          }
         }
       }
 
@@ -619,8 +574,6 @@ export class PerformanceReviewService {
       if (existingReview.isLocked) {
         throw new Error("This review has been finalised and is locked.");
       }
-
-      this.validateReviewPayload(request);
 
       // Validate reviewer if provided
       if (request.reviewerId) {
@@ -1403,7 +1356,6 @@ export class PerformanceReviewService {
 
       await this.assertPerformanceReviewAccess(review, actor);
       await this.assertFinalizePerformanceReviewPermission(review, actor);
-      this.validateReviewPayload(review);
 
       const sections = [
         {
@@ -1570,7 +1522,7 @@ export class PerformanceReviewService {
         }
       });
 
-      const buckets = [1, 2, 3, 4, 5].map((value) => ({
+      const buckets = [1, 2, 3, 4, 5, 6].map((value) => ({
         rating: value,
         count: 0
       }));

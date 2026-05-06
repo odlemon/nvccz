@@ -31,6 +31,11 @@ function isDateOnlyString(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
+/** True when [aStart,aEnd] intersects [bStart,bEnd] (inclusive). */
+function dateRangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
+  return aStart.getTime() <= bEnd.getTime() && aEnd.getTime() >= bStart.getTime();
+}
+
 function coerceGoalDateTime(
   value: unknown,
   fallback: Date | null | undefined,
@@ -1844,6 +1849,32 @@ export class PerformanceGoalService {
   }
 
   /**
+   * Resolve the KPI used for payroll→goal sync. Prefer catalog `PAYROLL_EXPENSE`, then exact / fuzzy name match
+   * (seeded DBs sometimes rename the display label slightly).
+   */
+  static async resolvePayrollExpenseKpiForSync() {
+    const byCode = await prisma.kPI.findFirst({ where: { code: "PAYROLL_EXPENSE" } });
+    if (byCode) return byCode;
+    const byLegacyName = await prisma.kPI.findFirst({ where: { name: "Payroll Expense" } });
+    if (byLegacyName) return byLegacyName;
+    const pool = await prisma.kPI.findMany({
+      where: {
+        OR: [
+          { name: { contains: "Payroll" } },
+          { catalogDescription: { contains: "payroll" } }
+        ]
+      },
+      take: 40
+    });
+    const norm = (s: string) => String(s || "").toLowerCase();
+    return (
+      pool.find((k) => norm(k.name).includes("payroll") && norm(k.name).includes("expense")) ||
+      pool.find((k) => norm(k.name).includes("payroll") && norm(k.name).includes("gross")) ||
+      null
+    );
+  }
+
+  /**
    * Sync payroll data to performance goals linked to Payroll Expense KPI
    * Called after payroll run is processed to update goal progress
    */
@@ -1853,19 +1884,16 @@ export class PerformanceGoalService {
       console.log(`   Payroll Run ID: ${payrollRunId}`);
       console.log(`   Total Gross Pay: ${totalGrossPay.toString()}`);
 
-      // Get the Payroll Expense KPI
-      const payrollKPI = await prisma.kPI.findFirst({
-        where: {
-          name: 'Payroll Expense'
-        }
-      });
+      const payrollKPI = await PerformanceGoalService.resolvePayrollExpenseKpiForSync();
 
       if (!payrollKPI) {
-        console.log('⚠️ Payroll Expense KPI not found. Skipping goal sync.');
+        console.log(
+          '⚠️ Payroll Expense KPI not found (expected `code` PAYROLL_EXPENSE or name containing "Payroll" + "Expense"). Skipping goal sync.'
+        );
         return;
       }
 
-      console.log(`   Found Payroll Expense KPI: ${payrollKPI.id}`);
+      console.log(`   Found Payroll Expense KPI: ${payrollKPI.id} (${payrollKPI.name}${payrollKPI.code ? `, code=${payrollKPI.code}` : ""})`);
 
       // Get payroll run to check date range
       const payrollRun = await prisma.payrollRun.findUnique({
@@ -1881,12 +1909,15 @@ export class PerformanceGoalService {
         return;
       }
 
-      // Find all active goals linked to Payroll Expense KPI
+      const payrollStartDate = new Date(payrollRun.startDate);
+      const payrollEndDate = new Date(payrollRun.endDate);
+
+      // Goals tied to this KPI, or explicitly flagged with the payroll expense catalog code
       const goals = await prisma.performanceGoal.findMany({
         where: {
-          kpiId: payrollKPI.id,
+          OR: [{ kpiId: payrollKPI.id }, { formulaType: "PAYROLL_EXPENSE" }],
           status: {
-            in: ['active', 'completed'] // Include completed to handle updates
+            in: ['active', 'completed', 'in_progress']
           }
         },
         select: {
@@ -1906,24 +1937,23 @@ export class PerformanceGoalService {
 
       // Update each goal
       for (const goal of goals) {
-        // Check if payroll run falls within goal's date range
-        const payrollEndDate = new Date(payrollRun.endDate);
         const goalStartDate = new Date(goal.startDate);
         const goalEndDate = new Date(goal.endDate);
 
-        if (payrollEndDate < goalStartDate || payrollEndDate > goalEndDate) {
-          console.log(`   ⏭️ Skipping goal "${goal.title}" - payroll run date (${payrollEndDate.toISOString()}) outside goal range (${goalStartDate.toISOString()} to ${goalEndDate.toISOString()})`);
+        // Require **interval overlap** between payroll run and goal (not only payroll end inside goal)
+        if (!dateRangesOverlap(payrollStartDate, payrollEndDate, goalStartDate, goalEndDate)) {
+          console.log(
+            `   ⏭️ Skipping goal "${goal.title}" — payroll run [${payrollStartDate.toISOString()} .. ${payrollEndDate.toISOString()}] does not overlap goal [${goalStartDate.toISOString()} .. ${goalEndDate.toISOString()}]`
+          );
           continue;
         }
 
-        // Sum all COMPLETED payroll runs within goal's date range
+        // Sum all COMPLETED payroll runs whose pay period **overlaps** the goal window
         const relevantPayrollRuns = await prisma.payrollRun.findMany({
           where: {
             status: 'COMPLETED',
-            endDate: {
-              gte: goalStartDate,
-              lte: goalEndDate
-            }
+            startDate: { lte: goalEndDate },
+            endDate: { gte: goalStartDate }
           },
           select: {
             totalGrossPay: true
@@ -1967,6 +1997,8 @@ export class PerformanceGoalService {
             }
           }
         });
+
+        await this.refreshPerformanceRiskZoneOnGoal(goal.id).catch(() => undefined);
 
         console.log(`   ✅ Updated goal "${goal.title}": ${totalPayrollValue.toFixed(2)}/${targetValue.toFixed(2)} (${progressPercentage.toFixed(1)}%)`);
 

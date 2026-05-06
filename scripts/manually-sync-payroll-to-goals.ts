@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { PerformanceGoalService } from '../src/services/PerformanceGoalService';
 
 const prisma = new PrismaClient();
 
@@ -7,26 +8,21 @@ async function manuallySyncPayrollToGoals() {
   try {
     console.log('🔄 Manually syncing payroll to goals...\n');
 
-    // Get the Payroll Expense KPI
-    const payrollKPI = await prisma.kPI.findFirst({
-      where: {
-        name: 'Payroll Expense'
-      }
-    });
+    const payrollKPI = await PerformanceGoalService.resolvePayrollExpenseKpiForSync();
 
     if (!payrollKPI) {
-      console.log('❌ Payroll Expense KPI not found.');
+      console.log('❌ Payroll Expense KPI not found (code PAYROLL_EXPENSE or payroll/expense name).');
       return;
     }
 
-    console.log(`✅ Found Payroll Expense KPI: ${payrollKPI.id}\n`);
+    console.log(`✅ Found Payroll Expense KPI: ${payrollKPI.id} (${payrollKPI.name})\n`);
 
     // Find all goals linked to Payroll Expense KPI
     const goals = await prisma.performanceGoal.findMany({
       where: {
-        kpiId: payrollKPI.id,
+        OR: [{ kpiId: payrollKPI.id }, { formulaType: 'PAYROLL_EXPENSE' }],
         status: {
-          in: ['active', 'completed']
+          in: ['active', 'completed', 'in_progress']
         }
       },
       select: {
@@ -48,14 +44,15 @@ async function manuallySyncPayrollToGoals() {
       console.log(`Processing goal: "${goal.title}"`);
       console.log(`  Date Range: ${new Date(goal.startDate).toISOString().split('T')[0]} to ${new Date(goal.endDate).toISOString().split('T')[0]}`);
 
-      // Sum all COMPLETED payroll runs within goal's date range
+      const goalStartDate = new Date(goal.startDate);
+      const goalEndDate = new Date(goal.endDate);
+
+      // Sum COMPLETED payroll runs whose period overlaps the goal window
       const relevantPayrollRuns = await prisma.payrollRun.findMany({
         where: {
           status: 'COMPLETED',
-          endDate: {
-            gte: goal.startDate,
-            lte: goal.endDate
-          }
+          startDate: { lte: goalEndDate },
+          endDate: { gte: goalStartDate }
         },
         select: {
           id: true,

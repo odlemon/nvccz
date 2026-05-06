@@ -11,6 +11,7 @@ import {
   resolveNssaPensionPayableAccount,
   resolvePayePayableAccount,
 } from './payrollLiabilityAccountHelpers';
+import { classifyDeductionForPayrollJournal } from './payrollJournalDeductionClassification';
 
 export interface PayrollCalculationResult {
   basicSalary: Decimal;
@@ -27,6 +28,8 @@ export interface PayrollCalculationResult {
     type: string;
     amount: Decimal;
     isStatutory: boolean;
+    /** When set, payroll deduction rows and GL classification use this catalog row (avoids taxRule.name vs DeductionTypes.name mismatches). */
+    deductionTypeId?: string;
   }>;
 }
 
@@ -46,7 +49,8 @@ export class PayrollService {
   static async calculateEmployeePayroll(
     employeeId: string,
     payrollRunId: string,
-    currencyId: string
+    currencyId: string,
+    options?: { bypassActiveRosterCheck?: boolean }
   ): Promise<PayrollCalculationResult> {
     try {
       // Get payroll run to determine the effective date for calculations
@@ -83,7 +87,10 @@ export class PayrollService {
       if (!employee) {
         throw new Error('Employee not found');
       }
-      if (employee.terminated || !employee.isActive) {
+      if (
+        !options?.bypassActiveRosterCheck &&
+        (employee.terminated || !employee.isActive)
+      ) {
         throw new Error('Employee has been terminated and is excluded from payroll');
       }
 
@@ -212,7 +219,8 @@ export class PayrollService {
             deductions.push({
               type: deductionType.name,
               amount: deductionAmount,
-              isStatutory: false
+              isStatutory: false,
+              deductionTypeId: deductionType.id,
             });
             totalDeductions = totalDeductions.add(deductionAmount);
           }
@@ -237,7 +245,8 @@ export class PayrollService {
             deductions.push({
               type: deductionType.name,
               amount: deductionAmount,
-              isStatutory: true
+              isStatutory: true,
+              deductionTypeId: deductionType.id,
             });
             totalDeductions = totalDeductions.add(deductionAmount);
           }
@@ -269,10 +278,12 @@ export class PayrollService {
           }
 
           if (deductionAmount.gt(0)) {
+            const resolvedDt = await PayrollService.resolveDeductionTypeForTaxRule(taxRule, effectiveDate);
             deductions.push({
-              type: taxRule.name,
+              type: resolvedDt?.name ?? taxRule.name,
               amount: deductionAmount,
-              isStatutory: true
+              isStatutory: true,
+              deductionTypeId: resolvedDt?.id,
             });
             totalDeductions = totalDeductions.add(deductionAmount);
           }
@@ -295,6 +306,135 @@ export class PayrollService {
       console.error('Error calculating employee payroll:', error);
       throw error;
     }
+  }
+
+  /**
+   * Map a tax rule to a catalog DeductionTypes row so PayrollDeduction rows persist and GL can classify PAYE/NSSA.
+   */
+  private static async resolveDeductionTypeForTaxRule(
+    taxRule: { type: string; name: string },
+    effectiveDate: Date
+  ): Promise<{ id: string; name: string; code: string } | null> {
+    const typeU = String(taxRule.type || '').toUpperCase();
+    const orMatch: Array<Record<string, unknown>> = [
+      { code: taxRule.type },
+      { code: typeU },
+      { name: taxRule.name },
+    ];
+    if (typeU === 'PAYE') {
+      orMatch.push({ code: 'PAYE' });
+    }
+    if (typeU === 'NSSA') {
+      orMatch.push({ code: 'NSSA' });
+    }
+    if (typeU === 'AIDS_LEVY') {
+      orMatch.push({ code: 'AIDS_LEVY' });
+      orMatch.push({ name: { contains: 'AIDS' } });
+    }
+    return prisma.deductionTypes.findFirst({
+      where: {
+        isActive: true,
+        AND: [
+          { effectiveDate: { lte: effectiveDate } },
+          { OR: [{ endDate: null }, { endDate: { gte: effectiveDate } }] },
+          { OR: orMatch },
+        ],
+      },
+      orderBy: { effectiveDate: 'desc' },
+      select: { id: true, name: true, code: true },
+    });
+  }
+
+  private static async persistPayrollDeductionLinesFromCalculation(
+    employeePayrollId: string,
+    calculation: PayrollCalculationResult,
+    currencyId: string | null
+  ): Promise<{ created: number; skippedUnresolved: number }> {
+    let created = 0;
+    let skippedUnresolved = 0;
+    for (const deduction of calculation.deductions) {
+      let deductionTypeId = deduction.deductionTypeId;
+      if (!deductionTypeId) {
+        const byName = await prisma.deductionTypes.findFirst({
+          where: { isActive: true, name: deduction.type },
+        });
+        deductionTypeId = byName?.id;
+      }
+      if (!deductionTypeId) {
+        const label = String(deduction.type || '').toUpperCase();
+        let codeGuess: string | undefined;
+        if (label.includes('PAYE') || label.includes('PAY AS YOU') || label.includes('INCOME TAX')) {
+          codeGuess = 'PAYE';
+        } else if (label.includes('NSSA')) {
+          codeGuess = 'NSSA';
+        } else if (label.includes('AIDS')) {
+          codeGuess = 'AIDS_LEVY';
+        }
+        if (codeGuess) {
+          const byCode = await prisma.deductionTypes.findFirst({
+            where: { isActive: true, code: codeGuess },
+          });
+          deductionTypeId = byCode?.id;
+        }
+      }
+      if (deductionTypeId) {
+        await prisma.payrollDeduction.create({
+          data: {
+            employeePayrollId,
+            deductionTypeId,
+            amount: deduction.amount,
+            currencyId,
+          },
+        });
+        created += 1;
+      } else {
+        skippedUnresolved += 1;
+        console.warn(
+          `[Payroll] No DeductionTypes match for calculated deduction "${deduction.type}" amount ${deduction.amount.toString()} — GL liability split may be incomplete`
+        );
+      }
+    }
+    return { created, skippedUnresolved };
+  }
+
+  /**
+   * Re-persist `PayrollDeduction` rows from current rules/catalog (backfill / repair).
+   * Uses roster rows already on the run; allows terminated employees who were on that run.
+   */
+  static async rebuildPayrollDeductionLinesForRun(payrollRunId: string): Promise<{
+    employeePayrolls: number;
+    deductionsCreated: number;
+    skippedUnresolved: number;
+  }> {
+    const run = await prisma.payrollRun.findUnique({ where: { id: payrollRunId } });
+    if (!run) {
+      throw new Error('Payroll run not found');
+    }
+    const cid = run.currencyId || '';
+    const eps = await prisma.employeePayroll.findMany({ where: { payrollRunId } });
+    let deductionsCreated = 0;
+    let skippedUnresolved = 0;
+    for (const ep of eps) {
+      const calculation = await PayrollService.calculateEmployeePayroll(
+        ep.employeeId,
+        payrollRunId,
+        cid,
+        { bypassActiveRosterCheck: true }
+      );
+      await prisma.payrollDeduction.deleteMany({ where: { employeePayrollId: ep.id } });
+      const r = await PayrollService.persistPayrollDeductionLinesFromCalculation(
+        ep.id,
+        calculation,
+        run.currencyId
+      );
+      deductionsCreated += r.created;
+      skippedUnresolved += r.skippedUnresolved;
+    }
+    return {
+      employeePayrolls: eps.length,
+      deductionsCreated,
+      skippedUnresolved,
+    };
   }
 
   /**
@@ -445,28 +585,18 @@ export class PayrollService {
           }
         }
 
-        // Create deduction records
-        for (const deduction of calculation.deductions) {
-          const deductionType = await prisma.deductionTypes.findFirst({
-            where: { name: deduction.type }
-          });
-
-          if (deductionType) {
-            await prisma.payrollDeduction.create({
-              data: {
-                employeePayrollId: (await prisma.employeePayroll.findFirst({
-                  where: {
-                    payrollRunId,
-                    employeeId: employee.id
-                  }
-                }))!.id,
-                deductionTypeId: deductionType.id,
-                amount: deduction.amount,
-                currencyId: payrollRun.currencyId
-              }
-            });
-          }
+        const employeePayrollRow = await prisma.employeePayroll.findFirst({
+          where: { payrollRunId, employeeId: employee.id },
+        });
+        if (!employeePayrollRow) {
+          throw new Error(`Employee payroll row missing after upsert for employee ${employee.id}`);
         }
+
+        await PayrollService.persistPayrollDeductionLinesFromCalculation(
+          employeePayrollRow.id,
+          calculation,
+          payrollRun.currencyId
+        );
 
         // Create payslip record
         await prisma.payslip.upsert({
@@ -537,7 +667,14 @@ export class PayrollService {
       console.log(`   Total Net Pay: ${totalNetPay.toString()}`);
       console.log(`   Currency ID: ${payrollRun.currencyId || 'N/A'}`);
       try {
-        await PayrollService.createPayrollJournalEntry(payrollRunId, totalGrossPay, totalDeductions, totalNetPay, createdById, payrollRun.currencyId || '');
+        await PayrollService.createPayrollJournalEntry(
+          payrollRunId,
+          totalGrossPay,
+          totalDeductions,
+          totalNetPay,
+          createdById,
+          payrollRun.currencyId || ''
+        );
         console.log('[OK] Payroll journal entry creation completed successfully');
       } catch (journalError: any) {
         // Log but don't fail payroll processing
@@ -568,7 +705,8 @@ export class PayrollService {
     totalDeductions: Decimal,
     totalNetPay: Decimal,
     createdById: string,
-    currencyId: string
+    currencyId: string,
+    options?: { rethrowOnError?: boolean }
   ): Promise<void> {
       console.log('═══════════════════════════════════════════════════════════════');
     console.log('🔵 createPayrollJournalEntry METHOD CALLED');
@@ -602,43 +740,33 @@ export class PayrollService {
       }
       console.log(`[OK] Payroll run found: ${payrollRun.name} (${payrollRun.payPeriod})`);
       
-      // Calculate total PAYE and NSSA/Pension from deductions
+      // Calculate total PAYE and NSSA/Pension from persisted deductions (catalog code + name heuristics)
       console.log('Step 2: Calculating liability breakdown from deductions...');
       let totalPAYE = new Decimal(0);
       let totalNSSA = new Decimal(0);
       let totalPension = new Decimal(0);
-      
-      // Get TaxRules to identify PAYE and NSSA deductions
-      const taxRules = await prisma.taxRules.findMany({
-        where: {
-          currencyId: payrollRun.currencyId || undefined,
-          isActive: true
-        }
-      });
-      
-      // Create a map of tax rule names to types
-      const taxRuleMap = new Map<string, string>();
-      taxRules.forEach(rule => {
-        taxRuleMap.set(rule.name.toUpperCase(), rule.type.toUpperCase());
-      });
-      
+
       for (const employeePayroll of payrollRun.employeePayrolls) {
         for (const deduction of employeePayroll.deductions) {
-          const deductionTypeName = deduction.deductionType.name.toUpperCase();
-          const deductionTypeCode = deduction.deductionType.code?.toUpperCase() || '';
-          
-          // Check if this deduction matches a TaxRule type
-          const taxRuleType = taxRuleMap.get(deductionTypeName);
-          
-          if (taxRuleType === 'PAYE' || deductionTypeCode === 'PAYE' || deductionTypeName.includes('PAYE')) {
+          const dt = deduction.deductionType;
+          const bucket = classifyDeductionForPayrollJournal({
+            name: dt.name,
+            code: dt.code,
+          });
+          const deductionTypeName = dt.name.toUpperCase();
+          const deductionTypeCode = String(dt.code || '').toUpperCase();
+
+          if (bucket === 'PAYE') {
             totalPAYE = totalPAYE.add(deduction.amount);
             console.log(`   Found PAYE deduction: ${deductionTypeName} = $${deduction.amount.toString()}`);
-          } else if (taxRuleType === 'NSSA' || deductionTypeCode === 'NSSA' || deductionTypeName.includes('NSSA')) {
-            totalNSSA = totalNSSA.add(deduction.amount);
-            console.log(`   Found NSSA deduction: ${deductionTypeName} = $${deduction.amount.toString()}`);
-          } else if (deductionTypeCode === 'PENSION' || deductionTypeName.includes('PENSION')) {
-            totalPension = totalPension.add(deduction.amount);
-            console.log(`   Found Pension deduction: ${deductionTypeName} = $${deduction.amount.toString()}`);
+          } else if (bucket === 'NSSA_PENSION') {
+            if (deductionTypeCode.includes('PENSION') || deductionTypeName.includes('PENSION')) {
+              totalPension = totalPension.add(deduction.amount);
+              console.log(`   Found Pension deduction: ${deductionTypeName} = $${deduction.amount.toString()}`);
+            } else {
+              totalNSSA = totalNSSA.add(deduction.amount);
+              console.log(`   Found NSSA deduction: ${deductionTypeName} = $${deduction.amount.toString()}`);
+            }
           }
         }
       }
@@ -819,10 +947,97 @@ export class PayrollService {
       console.error('[FAIL] Error creating payroll journal entry:', error);
       console.error('Error details:', error.message);
       console.error('Error stack:', error.stack);
+      if (options?.rethrowOnError) {
+        throw error;
+      }
       // Don't throw - allow payroll processing to complete even if journal entry fails
       // This ensures payroll data is saved, but log the error for manual correction
       console.error('⚠️  Payroll processed but journal entry creation failed. Manual correction may be required.');
     }
+  }
+
+  /** Description header used for gross-pay accrual journals (must match backfill delete lookup). */
+  static payrollGrossAccrualJournalDescription(payrollRun: { name: string; payPeriod: string }): string {
+    return `Payroll Journal - Gross Pay: ${payrollRun.name} (${payrollRun.payPeriod})`;
+  }
+
+  /**
+   * Delete posted gross-pay accrual journal(s) for a payroll run (by description / PAYROLL- reference).
+   * Does not touch payment/cashbook journals.
+   */
+  static async deletePayrollGrossAccrualJournalEntries(payrollRunId: string): Promise<{ deletedIds: string[] }> {
+    const run = await prisma.payrollRun.findUnique({
+      where: { id: payrollRunId },
+      select: { id: true, name: true, payPeriod: true },
+    });
+    if (!run) {
+      throw new Error('Payroll run not found');
+    }
+    const exactDesc = PayrollService.payrollGrossAccrualJournalDescription(run);
+    const candidates = await prisma.journalEntry.findMany({
+      where: {
+        OR: [
+          { description: exactDesc },
+          {
+            AND: [
+              { description: { startsWith: 'Payroll Journal - Gross Pay:' } },
+              { description: { contains: run.payPeriod } },
+              { description: { contains: run.name } },
+            ],
+          },
+        ],
+      },
+      select: { id: true, referenceNumber: true, description: true },
+    });
+    const safe = candidates.filter(
+      (je) =>
+        je.referenceNumber.startsWith('PAYROLL-') ||
+        je.description.startsWith('Payroll Journal - Gross Pay:')
+    );
+    const byId = new Map(safe.map((j) => [j.id, j]));
+    const deletedIds: string[] = [];
+    for (const je of byId.values()) {
+      await prisma.journalEntry.delete({ where: { id: je.id } });
+      deletedIds.push(je.id);
+    }
+    return { deletedIds };
+  }
+
+  /**
+   * Backfill repair: rebuild deduction lines, replace accrual GL, re-sync payroll goals (same as post-processPayrollRun).
+   */
+  static async repairCompletedPayrollRunAccounting(
+    payrollRunId: string,
+    options?: { rethrowJournalErrors?: boolean }
+  ): Promise<{
+    deductions: { employeePayrolls: number; deductionsCreated: number; skippedUnresolved: number };
+    deletedJournalEntryIds: string[];
+  }> {
+    const run = await prisma.payrollRun.findUnique({ where: { id: payrollRunId } });
+    if (!run) {
+      throw new Error('Payroll run not found');
+    }
+    if (run.status !== 'COMPLETED') {
+      throw new Error(`Payroll run must be COMPLETED (got ${run.status})`);
+    }
+    const deductions = await PayrollService.rebuildPayrollDeductionLinesForRun(payrollRunId);
+    const { deletedIds } = await PayrollService.deletePayrollGrossAccrualJournalEntries(payrollRunId);
+    await PayrollService.createPayrollJournalEntry(
+      payrollRunId,
+      new Decimal(run.totalGrossPay.toString()),
+      new Decimal(run.totalDeductions.toString()),
+      new Decimal(run.totalNetPay.toString()),
+      run.createdById,
+      run.currencyId || '',
+      { rethrowOnError: options?.rethrowJournalErrors !== false }
+    );
+    const { PerformanceGoalService } = await import('./PerformanceGoalService');
+    await PerformanceGoalService.syncPayrollToGoals(
+      payrollRunId,
+      new Decimal(run.totalGrossPay.toString()),
+      run.createdById
+    );
+    return { deductions, deletedJournalEntryIds: deletedIds };
   }
 
   /**

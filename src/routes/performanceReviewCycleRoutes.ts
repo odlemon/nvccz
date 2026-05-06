@@ -121,7 +121,7 @@ const router = express.Router();
  *               reviewRatingScale:
  *                 type: string
  *                 description: Review rating scale
- *                 example: "1-5 Scale"
+ *                 example: "1-6 Scale"
  *     responses:
  *       201:
  *         description: Performance review cycle created successfully

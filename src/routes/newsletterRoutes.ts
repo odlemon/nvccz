@@ -20,14 +20,8 @@ const upload = multer({
   }
 });
 
-/** Multipart fields: `title`, `content` (text), optional `image` OR `coverImage` (binary). */
-const newsletterFormUpload = upload.fields([
-  { name: "image", maxCount: 1 },
-  { name: "coverImage", maxCount: 1 }
-]);
-
-function newsletterMultipartMw(req: express.Request, res: express.Response, next: express.NextFunction) {
-  return newsletterFormUpload(req, res, (err: unknown) => {
+function newsletterImageUploadMw(req: express.Request, res: express.Response, next: express.NextFunction) {
+  return upload.single("image")(req, res, (err: unknown) => {
     if (err) {
       const message =
         err instanceof Error ? err.message : typeof err === "string" ? err : "Multipart upload failed";
@@ -49,7 +43,7 @@ router.use(authenticate);
  *     summary: Create a new newsletter
  *     description: |
  *       **`multipart/form-data` only.** Fields: **`title`** (string), **`content`** (string; HTML or plain text),
- *       optional **`image`** or **`coverImage`** (binary, one cover photo).
+ *       optional **`image`** (binary cover photo).
  *
  *       The server saves the cover under `/api/uploads/newsletters/` and returns the full **`imageUrl`**
  *       on **`data`** (use this in the UI). Omit `multipart` file fields if there is no cover image.
@@ -80,10 +74,6 @@ router.use(authenticate);
  *                 type: string
  *                 format: binary
  *                 description: Optional cover image (field name **`image`**)
- *               coverImage:
- *                 type: string
- *                 format: binary
- *                 description: Same as **`image`** — use whichever your client prefers (only one needed)
  *     responses:
  *       201:
  *         description: Newsletter created successfully; **`data.imageUrl`** is the public URL of the uploaded cover when a file was sent
@@ -113,7 +103,7 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post("/", newsletterMultipartMw, newsletterController.createNewsletter);
+router.post("/", newsletterImageUploadMw, newsletterController.createNewsletter);
 
 /**
  * @swagger
@@ -290,11 +280,7 @@ router.get("/:id", newsletterController.getNewsletterById);
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Optional new cover (**`image`**)
- *               coverImage:
- *                 type: string
- *                 format: binary
- *                 description: Optional new cover (alias of **`image`**)
+ *                 description: Optional new cover image
  *     responses:
  *       200:
  *         description: Newsletter updated successfully — **`data.imageUrl`** refreshed when a new file is uploaded
@@ -336,7 +322,7 @@ router.get("/:id", newsletterController.getNewsletterById);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put("/:id", newsletterMultipartMw, newsletterController.updateNewsletter);
+router.put("/:id", newsletterImageUploadMw, newsletterController.updateNewsletter);
 
 /**
  * @swagger
