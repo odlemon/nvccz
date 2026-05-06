@@ -230,7 +230,26 @@ export class PayrollService {
       }
 
       // 2. Statutory deductions (applied to ALL employees)
+      // Avoid double-counting statutory deductions that are also represented as TaxRules (PAYE/NSSA/AIDS Levy).
+      // In this codebase, PAYE/NSSA should come from TaxRules (so they can be period/rate-config driven),
+      // while other statutory items (e.g. Pension) may come from DeductionTypes.
+      const taxRuleTypeSet = new Set(
+        (taxRules || [])
+          .map((tr: any) => String(tr?.type || "").toUpperCase().trim())
+          .filter(Boolean)
+      );
       for (const deductionType of statutoryDeductionTypes) {
+        const codeU = String(deductionType?.code || "").toUpperCase().trim();
+        const nameU = String(deductionType?.name || "").toUpperCase().trim();
+        const isTaxRuleBacked =
+          (codeU && taxRuleTypeSet.has(codeU)) ||
+          (nameU === "PAYE" && taxRuleTypeSet.has("PAYE")) ||
+          (nameU.includes("NSSA") && taxRuleTypeSet.has("NSSA")) ||
+          (nameU.includes("AIDS") && taxRuleTypeSet.has("AIDS_LEVY"));
+        if (isTaxRuleBacked) {
+          continue;
+        }
+
         // Check if statutory deduction is effective for the payroll period
         const isStatutoryDeductionEffective = deductionType.effectiveDate <= effectiveDate && 
           (deductionType.endDate === null || deductionType.endDate >= effectiveDate);
