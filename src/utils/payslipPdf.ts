@@ -15,15 +15,52 @@ export function safePayslipPdfFileBaseName(part: string): string {
   return s.slice(0, 80) || "payslip";
 }
 
-function drawKeyValueRow(doc: any, key: string, val: string, opts?: { keyW?: number }) {
-  const keyW = opts?.keyW ?? 170;
-  const startX = doc.x;
-  const startY = doc.y;
+function drawKeyValueRow(
+  doc: any,
+  key: string,
+  val: string,
+  opts?: { keyW?: number; valW?: number; x?: number; y?: number; ellipsis?: boolean }
+) {
+  const keyW = opts?.keyW ?? 140;
+  const startX = opts?.x ?? doc.x;
+  const startY = opts?.y ?? doc.y;
+  const valW = opts?.valW ?? doc.page.width - (startX + keyW) - 50;
   doc.font("Helvetica-Bold").fillColor("#333333").text(key, startX, startY, { width: keyW });
   doc.font("Helvetica").fillColor("#000000").text(val, startX + keyW, startY, {
-    width: doc.page.width - (startX + keyW) - 50,
+    width: valW,
+    ellipsis: Boolean(opts?.ellipsis),
   });
-  doc.moveDown(0.25);
+  doc.y = Math.max(doc.y, startY + 14);
+  doc.x = 50;
+}
+
+function drawTwoColumnDetails(doc: any, params: { left: Array<[string, string]>; right: Array<[string, string]> }) {
+  const margin = 50;
+  const pageW = doc.page.width;
+  const contentW = pageW - margin * 2;
+  const colGap = 22;
+  const colW = (contentW - colGap) / 2;
+  const keyW = 118;
+  const valW = colW - keyW;
+
+  const startY = doc.y;
+  const maxRows = Math.max(params.left.length, params.right.length);
+  let y = startY;
+  doc.fontSize(10);
+
+  for (let i = 0; i < maxRows; i++) {
+    const l = params.left[i];
+    const r = params.right[i];
+    if (l) {
+      drawKeyValueRow(doc, l[0], l[1], { x: margin, y, keyW, valW, ellipsis: true });
+    }
+    if (r) {
+      drawKeyValueRow(doc, r[0], r[1], { x: margin + colW + colGap, y, keyW, valW, ellipsis: true });
+    }
+    y += 18;
+  }
+  doc.y = y;
+  doc.x = margin;
 }
 
 function drawTable(
@@ -168,12 +205,17 @@ export async function buildPayslipPdfBuffer(params: {
 
     doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text("Employee details");
     doc.moveDown(0.35);
-    doc.fontSize(10);
-    drawKeyValueRow(doc, "Employee name", params.employeeName);
-    drawKeyValueRow(doc, "Employee number", params.employeeNumber || "—");
-    drawKeyValueRow(doc, "Email", params.employeeEmail || "—");
-    drawKeyValueRow(doc, "Payslip number", params.payslipNumber);
-    drawKeyValueRow(doc, "Payment date", params.paymentDateLabel);
+    drawTwoColumnDetails(doc, {
+      left: [
+        ["Employee name", params.employeeName],
+        ["Employee number", params.employeeNumber || "—"],
+        ["Payslip number", params.payslipNumber],
+      ],
+      right: [
+        ["Email", params.employeeEmail || "—"],
+        ["Payment date", params.paymentDateLabel],
+      ],
+    });
     doc.moveDown(0.6);
 
     const ccy = params.currencyCode;
@@ -212,10 +254,13 @@ export async function buildPayslipPdfBuffer(params: {
 
     doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text("Bank details");
     doc.moveDown(0.35);
-    doc.font("Helvetica").fontSize(10).fillColor("#000000");
-    drawKeyValueRow(doc, "Bank", params.bankName || "—");
-    drawKeyValueRow(doc, "Account number", params.bankAccountNumber || "—");
-    drawKeyValueRow(doc, "Branch code", params.bankBranchCode || "—");
+    drawTwoColumnDetails(doc, {
+      left: [
+        ["Bank", params.bankName || "—"],
+        ["Account number", params.bankAccountNumber || "—"],
+      ],
+      right: [["Branch code", params.bankBranchCode || "—"]],
+    });
 
     doc.moveDown(1.2);
     doc.font("Helvetica").fontSize(8.5).fillColor("#666666");
