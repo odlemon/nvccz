@@ -106,32 +106,32 @@ export async function buildVendorQuotationPdfBuffer(
     doc.moveDown(0.8);
 
     const headerStartY = doc.y;
-    const colW = (contentW - 22) / 2;
+    const gap = 20;
+    const detailColW = 260;
+    const detailsX = pageW - margin - detailColW;
+    const leftColW = Math.max(160, detailsX - margin - gap);
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
-    doc.text("Vendor", margin, headerStartY, { width: colW });
+    doc.text("Vendor", margin, headerStartY, { width: leftColW });
     doc.font("Helvetica").fontSize(10).fillColor("#000000");
-    if (input.vendor.companyName) doc.text(input.vendor.companyName, margin, doc.y, { width: colW });
-    doc.text(input.vendor.name || "—", margin, doc.y, { width: colW });
-    if (input.vendor.contactPerson) doc.text(`Contact: ${input.vendor.contactPerson}`, margin, doc.y, { width: colW });
-    if (input.vendor.email) doc.text(input.vendor.email, margin, doc.y, { width: colW });
-    if (input.vendor.phoneNumber) doc.text(input.vendor.phoneNumber, margin, doc.y, { width: colW });
-    if (input.vendor.address) doc.text(input.vendor.address, margin, doc.y, { width: colW });
-    if (input.vendor.taxEIN) doc.text(`Tax/EIN: ${input.vendor.taxEIN}`, margin, doc.y, { width: colW });
+    if (input.vendor.companyName) doc.text(input.vendor.companyName, margin, doc.y, { width: leftColW });
+    doc.text(input.vendor.name || "—", margin, doc.y, { width: leftColW });
+    if (input.vendor.contactPerson) doc.text(`Contact: ${input.vendor.contactPerson}`, margin, doc.y, { width: leftColW });
+    if (input.vendor.email) doc.text(input.vendor.email, margin, doc.y, { width: leftColW });
+    if (input.vendor.phoneNumber) doc.text(input.vendor.phoneNumber, margin, doc.y, { width: leftColW });
+    if (input.vendor.address) doc.text(input.vendor.address, margin, doc.y, { width: leftColW });
+    if (input.vendor.taxEIN) doc.text(`Tax/EIN: ${input.vendor.taxEIN}`, margin, doc.y, { width: leftColW });
     const leftEndY = doc.y;
 
-    const rightX = margin + colW + 22;
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
-    doc.text("Quotation details", rightX, headerStartY, { width: colW });
+    doc.text("Quotation details", detailsX, headerStartY, { width: detailColW, align: "right" });
     doc.font("Helvetica").fontSize(10).fillColor("#000000");
-    doc.text(`Submitted: ${fmtDate(input.submittedAt)}`, rightX, doc.y, { width: colW });
-    if (input.validUntil) doc.text(`Valid until: ${fmtDate(input.validUntil)}`, rightX, doc.y, { width: colW });
-    doc.text(`Currency: ${input.currencyCode}`, rightX, doc.y, { width: colW });
-    if (input.status) doc.text(`Status: ${input.status}`, rightX, doc.y, { width: colW });
-    if (input.reviewedAt) doc.text(`Reviewed: ${fmtDate(input.reviewedAt)}`, rightX, doc.y, { width: colW });
-    if (input.paymentTerms) doc.text(`Payment terms: ${input.paymentTerms}`, rightX, doc.y, { width: colW });
-    if (input.deliveryTerms) doc.text(`Delivery terms: ${input.deliveryTerms}`, rightX, doc.y, { width: colW });
-    if (input.deliveryTime) doc.text(`Delivery time: ${input.deliveryTime}`, rightX, doc.y, { width: colW });
+    doc.text(`Submitted: ${fmtDate(input.submittedAt)}`, detailsX, doc.y, { width: detailColW, align: "right" });
+    if (input.validUntil) doc.text(`Valid until: ${fmtDate(input.validUntil)}`, detailsX, doc.y, { width: detailColW, align: "right" });
+    if (input.reviewedAt) doc.text(`Reviewed: ${fmtDate(input.reviewedAt)}`, detailsX, doc.y, { width: detailColW, align: "right" });
+    if (input.paymentTerms) doc.text(`Payment terms: ${input.paymentTerms}`, detailsX, doc.y, { width: detailColW, align: "right" });
+    if (input.deliveryTerms) doc.text(`Delivery terms: ${input.deliveryTerms}`, detailsX, doc.y, { width: detailColW, align: "right" });
+    if (input.deliveryTime) doc.text(`Delivery time: ${input.deliveryTime}`, detailsX, doc.y, { width: detailColW, align: "right" });
     const rightEndY = doc.y;
 
     doc.x = margin;
@@ -210,11 +210,11 @@ function drawQuotationItemsTable(
   doc.font("Helvetica-Bold").fontSize(9).fillColor("#333333");
   doc.text("Description", margin + 6, headerY + 5, { width: colDescW - 12 });
   doc.text("Qty", margin + colDescW, headerY + 5, { width: colQtyW, align: "right" });
-  doc.text(`Unit price (${currencyCode})`, margin + colDescW + colQtyW, headerY + 5, {
+  doc.text("Unit price", margin + colDescW + colQtyW, headerY + 5, {
     width: colPriceW,
     align: "right",
   });
-  doc.text(`Amount (${currencyCode})`, margin + colDescW + colQtyW + colPriceW, headerY + 5, {
+  doc.text("Amount", margin + colDescW + colQtyW + colPriceW, headerY + 5, {
     width: colTotalW - 6,
     align: "right",
   });

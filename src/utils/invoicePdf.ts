@@ -111,32 +111,28 @@ export async function buildInvoicePdfBuffer(input: SalesInvoicePdfInput): Promis
       .text(`Invoice ${input.invoiceNumber || "—"}`, { align: "center" });
     doc.moveDown(0.8);
 
-    // Two-column header: Bill to | Invoice meta
+    // Bill to (left) | Invoice details flush right
     const headerStartY = doc.y;
-    const colW = (contentW - 22) / 2;
+    const gap = 20;
+    const detailColW = 240;
+    const detailsX = pageW - margin - detailColW;
+    const leftColW = Math.max(160, detailsX - margin - gap);
 
-    // Left: Bill to
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
-    doc.text("Bill to", margin, headerStartY, { width: colW });
+    doc.text("Bill to", margin, headerStartY, { width: leftColW });
     doc.font("Helvetica").fontSize(10).fillColor("#000000");
-    doc.text(input.customer.name || "—", margin, doc.y, { width: colW });
-    if (input.customer.email) doc.text(input.customer.email, margin, doc.y, { width: colW });
-    if (input.customer.phone) doc.text(input.customer.phone, margin, doc.y, { width: colW });
-    if (input.customer.address) doc.text(input.customer.address, margin, doc.y, { width: colW });
+    doc.text(input.customer.name || "—", margin, doc.y, { width: leftColW });
+    if (input.customer.email) doc.text(input.customer.email, margin, doc.y, { width: leftColW });
+    if (input.customer.phone) doc.text(input.customer.phone, margin, doc.y, { width: leftColW });
+    if (input.customer.address) doc.text(input.customer.address, margin, doc.y, { width: leftColW });
     const leftEndY = doc.y;
 
-    // Right: Invoice meta
-    const rightX = margin + colW + 22;
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
-    doc.text("Invoice details", rightX, headerStartY, { width: colW });
+    doc.text("Invoice details", detailsX, headerStartY, { width: detailColW, align: "right" });
     doc.font("Helvetica").fontSize(10).fillColor("#000000");
-    doc.text(`Date: ${fmtDate(input.transactionDate)}`, rightX, doc.y, { width: colW });
+    doc.text(`Date: ${fmtDate(input.transactionDate)}`, detailsX, doc.y, { width: detailColW, align: "right" });
     if (input.dueDate) {
-      doc.text(`Due: ${fmtDate(input.dueDate)}`, rightX, doc.y, { width: colW });
-    }
-    doc.text(`Currency: ${input.currencyCode}`, rightX, doc.y, { width: colW });
-    if (input.status) {
-      doc.text(`Status: ${input.status}`, rightX, doc.y, { width: colW });
+      doc.text(`Due: ${fmtDate(input.dueDate)}`, detailsX, doc.y, { width: detailColW, align: "right" });
     }
     const rightEndY = doc.y;
 
@@ -203,11 +199,11 @@ function drawItemsTable(
   doc.font("Helvetica-Bold").fontSize(9).fillColor("#333333");
   doc.text("Description", margin + 6, headerY + 5, { width: colDescW - 12 });
   doc.text("Qty", margin + colDescW, headerY + 5, { width: colQtyW, align: "right" });
-  doc.text(`Unit price (${currencyCode})`, margin + colDescW + colQtyW, headerY + 5, {
+  doc.text("Unit price", margin + colDescW + colQtyW, headerY + 5, {
     width: colPriceW,
     align: "right",
   });
-  doc.text(`Amount (${currencyCode})`, margin + colDescW + colQtyW + colPriceW, headerY + 5, {
+  doc.text("Amount", margin + colDescW + colQtyW + colPriceW, headerY + 5, {
     width: colTotalW - 6,
     align: "right",
   });

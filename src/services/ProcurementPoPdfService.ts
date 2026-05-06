@@ -69,30 +69,31 @@ export class ProcurementPoPdfService {
     doc.moveDown(0.8);
 
     const headerStartY = doc.y;
-    const colW = (contentW - 22) / 2;
+    const gap = 20;
+    const detailColW = 240;
+    const detailsX = pageW - margin - detailColW;
+    const leftColW = Math.max(160, detailsX - margin - gap);
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
-    doc.text("Vendor", margin, headerStartY, { width: colW });
+    doc.text("Vendor", margin, headerStartY, { width: leftColW });
     doc.font("Helvetica").fontSize(10).fillColor("#000000");
-    doc.text(po.vendor?.name || "—", margin, doc.y, { width: colW });
-    if (po.vendor?.email) doc.text(po.vendor.email, margin, doc.y, { width: colW });
-    if (po.vendor?.phone) doc.text(po.vendor.phone, margin, doc.y, { width: colW });
-    if (po.vendor?.address) doc.text(po.vendor.address, margin, doc.y, { width: colW });
+    doc.text(po.vendor?.name || "—", margin, doc.y, { width: leftColW });
+    if (po.vendor?.email) doc.text(po.vendor.email, margin, doc.y, { width: leftColW });
+    if (po.vendor?.phone) doc.text(po.vendor.phone, margin, doc.y, { width: leftColW });
+    if (po.vendor?.address) doc.text(po.vendor.address, margin, doc.y, { width: leftColW });
     const leftEndY = doc.y;
 
-    const rightX = margin + colW + 22;
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
-    doc.text("PO details", rightX, headerStartY, { width: colW });
+    doc.text("PO details", detailsX, headerStartY, { width: detailColW, align: "right" });
     doc.font("Helvetica").fontSize(10).fillColor("#000000");
-    doc.text(`PO Number: ${po.poNumber || po.id}`, rightX, doc.y, { width: colW });
-    doc.text(`Date: ${po.createdAt.toISOString().slice(0, 10)}`, rightX, doc.y, { width: colW });
+    doc.text(`PO Number: ${po.poNumber || po.id}`, detailsX, doc.y, { width: detailColW, align: "right" });
+    doc.text(`Date: ${po.createdAt.toISOString().slice(0, 10)}`, detailsX, doc.y, { width: detailColW, align: "right" });
     if (po.deliveryDate) {
-      doc.text(`Delivery: ${new Date(po.deliveryDate).toISOString().slice(0, 10)}`, rightX, doc.y, {
-        width: colW,
+      doc.text(`Delivery: ${new Date(po.deliveryDate).toISOString().slice(0, 10)}`, detailsX, doc.y, {
+        width: detailColW,
+        align: "right",
       });
     }
-    if (po.status) doc.text(`Status: ${po.status}`, rightX, doc.y, { width: colW });
-    if (po.currency?.code) doc.text(`Currency: ${po.currency.code}`, rightX, doc.y, { width: colW });
     const rightEndY = doc.y;
 
     doc.x = margin;
@@ -174,18 +175,14 @@ function drawPoItemsTable(
   doc.font("Helvetica-Bold").fontSize(9).fillColor("#333333");
   doc.text("Description", margin + 6, headerY + 5, { width: colDescW - 12 });
   doc.text("Qty", margin + colDescW, headerY + 5, { width: colQtyW, align: "right" });
-  doc.text(
-    `Unit price${currencyCode ? ` (${currencyCode})` : ""}`,
-    margin + colDescW + colQtyW,
-    headerY + 5,
-    { width: colPriceW, align: "right" }
-  );
-  doc.text(
-    `Amount${currencyCode ? ` (${currencyCode})` : ""}`,
-    margin + colDescW + colQtyW + colPriceW,
-    headerY + 5,
-    { width: colTotalW - 6, align: "right" }
-  );
+  doc.text("Unit price", margin + colDescW + colQtyW, headerY + 5, {
+    width: colPriceW,
+    align: "right",
+  });
+  doc.text("Amount", margin + colDescW + colQtyW + colPriceW, headerY + 5, {
+    width: colTotalW - 6,
+    align: "right",
+  });
   doc.y = headerY + 22;
 
   doc.font("Helvetica").fontSize(9).fillColor("#000000");
