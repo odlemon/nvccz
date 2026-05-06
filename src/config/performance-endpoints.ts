@@ -106,6 +106,44 @@ export const performanceEndpoints = {
     }
   },
 
+  '/performance/goals/by-kpi/{kpiId}': {
+    get: {
+      tags: ['Performance Goals'],
+      summary: 'Get performance goals for a KPI',
+      description:
+        'Returns all goals where `performance_goals.kpiId = kpiId` (same shape as GET /performance/goals).',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: 'kpiId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'KPI id (kpis.id)'
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Goals retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  count: { type: 'number', example: 2 },
+                  goals: { type: 'array', items: { type: 'object' } }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Bad request' },
+        401: { description: 'Unauthorized' }
+      }
+    }
+  },
+
   '/performance/breakdown/departments/available': {
     get: {
       tags: ['🏢 Hardcoded Departments'],

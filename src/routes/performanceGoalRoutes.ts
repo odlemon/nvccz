@@ -219,6 +219,11 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *           type: string
  *         description: Filter by parent goal ID
  *       - in: query
+ *         name: kpiId
+ *         schema:
+ *           type: string
+ *         description: Filter by associated KPI ID
+ *       - in: query
  *         name: search
  *         schema:
  *           type: string
@@ -230,6 +235,32 @@ router.post("/", authenticate, PerformanceGoalController.createPerformanceGoal);
  *         description: Unauthorized
  */
 router.get("/", authenticate, PerformanceGoalController.getAllPerformanceGoals);
+
+/**
+ * @swagger
+ * /performance/goals/by-kpi/{kpiId}:
+ *   get:
+ *     summary: Get performance goals for a KPI
+ *     description: Returns all goals where `performance_goals.kpiId = {kpiId}` (same goal shape as GET /performance/goals)
+ *     tags: [Performance Goals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: kpiId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: KPI id (kpis.id)
+ *     responses:
+ *       200:
+ *         description: List of performance goals linked to the KPI
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/by-kpi/:kpiId", authenticate, PerformanceGoalController.getGoalsByKpiId);
 
 /**
  * @swagger
