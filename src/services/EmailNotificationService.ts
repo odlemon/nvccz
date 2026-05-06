@@ -3642,6 +3642,8 @@ export class EmailNotificationService {
     reviewNotes?: string;
     companyName?: string;
     rfqNumber?: string;
+    /** Optional PDF copy of the quotation with ACCEPTED watermark. */
+    pdfAttachment?: { filename: string; content: Buffer };
   }): Promise<void> {
     try {
       const branding = await getEmailBrandingCached();
@@ -3653,7 +3655,10 @@ export class EmailNotificationService {
         from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        html: htmlContent
+        html: htmlContent,
+        attachments: data.pdfAttachment
+          ? [{ filename: data.pdfAttachment.filename, content: data.pdfAttachment.content }]
+          : undefined,
       });
 
       console.log(`✅ Quotation accepted email sent to ${data.vendorEmail}`);
@@ -3674,6 +3679,8 @@ export class EmailNotificationService {
     currencyCode: string;
     rejectionReason?: string;
     companyName?: string;
+    /** Optional PDF copy of the quotation with REJECTED watermark. */
+    pdfAttachment?: { filename: string; content: Buffer };
   }): Promise<void> {
     try {
       const branding = await getEmailBrandingCached();
@@ -3685,7 +3692,10 @@ export class EmailNotificationService {
         from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        html: htmlContent
+        html: htmlContent,
+        attachments: data.pdfAttachment
+          ? [{ filename: data.pdfAttachment.filename, content: data.pdfAttachment.content }]
+          : undefined,
       });
 
       console.log(`✅ Quotation rejected email sent to ${data.vendorEmail}`);
@@ -3994,6 +4004,8 @@ export class EmailNotificationService {
     /** Suite 04: one-time POST link for vendor acknowledgement */
     vendorAckUrl?: string;
     verificationUrl?: string;
+    /** Optional PDF copy of the purchase order. */
+    pdfAttachment?: { filename: string; content: Buffer };
   }): Promise<void> {
     try {
       const branding = await getEmailBrandingCached();
@@ -4005,7 +4017,10 @@ export class EmailNotificationService {
         from: `"${from.name}" <${from.address}>`,
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
-        html: htmlContent
+        html: htmlContent,
+        attachments: data.pdfAttachment
+          ? [{ filename: data.pdfAttachment.filename, content: data.pdfAttachment.content }]
+          : undefined,
       });
 
       console.log(`✅ Purchase Order ${data.poNumber} sent to ${data.vendorEmail}`);
@@ -5595,5 +5610,178 @@ export class EmailNotificationService {
     }
 
     return { attempted: data.recipients.length, succeeded, failed };
+  }
+
+  /**
+   * Send a sales invoice (Accounting > Invoices) to the customer with a branded PDF attachment.
+   * Mirrors `sendPayslipEmail` but is best-effort: callers should wrap in try/catch and
+   * not roll back the underlying status change if email/PDF generation fails.
+   */
+  static async sendInvoiceToCustomer(data: {
+    customerName: string;
+    customerEmail: string;
+    invoiceNumber: string;
+    invoiceDate: Date | string;
+    totalAmount: number;
+    currencyCode: string;
+    dueDate?: Date | string | null;
+    description?: string | null;
+    pdfAttachment?: { filename: string; content: Buffer };
+  }): Promise<void> {
+    try {
+      const branding = await getEmailBrandingCached();
+      const headerHtml = renderEmailHeader(branding, {
+        title: `Invoice ${data.invoiceNumber}`,
+      });
+      const signatureHtml = renderEmailSignature("Accounts Receivable", branding);
+      const footerHtml = renderEmailFooter(branding);
+
+      const dateLabel = (() => {
+        const dt = data.invoiceDate instanceof Date ? data.invoiceDate : new Date(data.invoiceDate);
+        return Number.isNaN(dt.getTime())
+          ? String(data.invoiceDate)
+          : dt.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      })();
+      const dueLabel = (() => {
+        if (!data.dueDate) return null;
+        const dt = data.dueDate instanceof Date ? data.dueDate : new Date(data.dueDate);
+        return Number.isNaN(dt.getTime())
+          ? String(data.dueDate)
+          : dt.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      })();
+      const totalLabel = `${data.currencyCode} ${Number(data.totalAmount).toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+
+      const subject = `Invoice ${data.invoiceNumber} - ${branding.companyName}`;
+      const htmlContent = `<!DOCTYPE html>
+<html>
+  <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;margin:0;padding:0;">
+    <div style="max-width:640px;margin:0 auto;background:#ffffff;">
+      ${headerHtml}
+      <div style="padding:28px;">
+        <p>Dear ${data.customerName || "Customer"},</p>
+        <p>Please find attached your invoice <strong>${data.invoiceNumber}</strong> dated <strong>${dateLabel}</strong>${
+        dueLabel ? `, due on <strong>${dueLabel}</strong>` : ""
+      }.</p>
+        <div style="background:#f8fafc;border-left:4px solid #2563eb;padding:14px 18px;margin:18px 0;border-radius:4px;">
+          <div><strong>Invoice number:</strong> ${data.invoiceNumber}</div>
+          <div><strong>Invoice date:</strong> ${dateLabel}</div>
+          ${dueLabel ? `<div><strong>Due date:</strong> ${dueLabel}</div>` : ""}
+          <div><strong>Total due:</strong> ${totalLabel}</div>
+        </div>
+        ${
+          data.description
+            ? `<p style="color:#444;"><strong>Description:</strong> ${String(data.description)}</p>`
+            : ""
+        }
+        <p>If you have any questions about this invoice please reply to this email or contact our finance team.</p>
+        ${signatureHtml}
+      </div>
+      ${footerHtml}
+    </div>
+  </body>
+</html>`;
+
+      const from = getFromAddress("finance");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.customerName}" <${data.customerEmail}>`,
+        subject,
+        html: htmlContent,
+        attachments: data.pdfAttachment
+          ? [{ filename: data.pdfAttachment.filename, content: data.pdfAttachment.content }]
+          : undefined,
+      });
+
+      console.log(`✅ Invoice ${data.invoiceNumber} emailed to ${data.customerEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending invoice email:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Notify the vendor that their submitted invoice has been approved by the buyer,
+   * attaching a branded PDF copy. Best-effort.
+   */
+  static async sendProcurementInvoiceToVendor(data: {
+    vendorName: string;
+    vendorEmail: string;
+    invoiceNumber: string;
+    invoiceDate: Date | string;
+    totalAmount: number;
+    currencyCode: string;
+    dueDate?: Date | string | null;
+    poNumber?: string | null;
+    pdfAttachment?: { filename: string; content: Buffer };
+  }): Promise<void> {
+    try {
+      const branding = await getEmailBrandingCached();
+      const headerHtml = renderEmailHeader(branding, {
+        title: `Invoice ${data.invoiceNumber} approved`,
+      });
+      const signatureHtml = renderEmailSignature("Procurement Team", branding);
+      const footerHtml = renderEmailFooter(branding);
+
+      const dateLabel = (() => {
+        const dt = data.invoiceDate instanceof Date ? data.invoiceDate : new Date(data.invoiceDate);
+        return Number.isNaN(dt.getTime())
+          ? String(data.invoiceDate)
+          : dt.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      })();
+      const dueLabel = (() => {
+        if (!data.dueDate) return null;
+        const dt = data.dueDate instanceof Date ? data.dueDate : new Date(data.dueDate);
+        return Number.isNaN(dt.getTime())
+          ? String(data.dueDate)
+          : dt.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      })();
+      const totalLabel = `${data.currencyCode} ${Number(data.totalAmount).toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+
+      const subject = `Invoice ${data.invoiceNumber} approved - ${branding.companyName}`;
+      const htmlContent = `<!DOCTYPE html>
+<html>
+  <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;margin:0;padding:0;">
+    <div style="max-width:640px;margin:0 auto;background:#ffffff;">
+      ${headerHtml}
+      <div style="padding:28px;">
+        <p>Dear ${data.vendorName || "Vendor"},</p>
+        <p>Your invoice <strong>${data.invoiceNumber}</strong> has been approved. Please find a copy attached for your records.</p>
+        <div style="background:#ecfdf5;border-left:4px solid #16a34a;padding:14px 18px;margin:18px 0;border-radius:4px;">
+          <div><strong>Invoice number:</strong> ${data.invoiceNumber}</div>
+          <div><strong>Invoice date:</strong> ${dateLabel}</div>
+          ${dueLabel ? `<div><strong>Due date:</strong> ${dueLabel}</div>` : ""}
+          ${data.poNumber ? `<div><strong>Purchase order:</strong> ${data.poNumber}</div>` : ""}
+          <div><strong>Total approved:</strong> ${totalLabel}</div>
+        </div>
+        <p>Payment will be processed in line with the agreed payment terms. You will receive a separate notification once payment is released.</p>
+        ${signatureHtml}
+      </div>
+      ${footerHtml}
+    </div>
+  </body>
+</html>`;
+
+      const from = getFromAddress("procurement");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.vendorName}" <${data.vendorEmail}>`,
+        subject,
+        html: htmlContent,
+        attachments: data.pdfAttachment
+          ? [{ filename: data.pdfAttachment.filename, content: data.pdfAttachment.content }]
+          : undefined,
+      });
+
+      console.log(`✅ Procurement invoice ${data.invoiceNumber} emailed to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending procurement invoice email:", error);
+      throw error;
+    }
   }
 }

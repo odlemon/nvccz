@@ -2002,6 +2002,32 @@ export class ProcurementService {
       const apiBase = (process.env.API_URL || "http://localhost:3000/api").replace(/\/$/, "");
       const vendorAckUrl = `${apiBase}/public/purchase-orders/${vendorAckToken}/acknowledge`;
 
+      // Persist verification tokens BEFORE rendering the PDF so the PDF embeds the same token
+      // that vendor-side `verify` endpoints will accept. PO stays in its current pre-send status
+      // until the email is dispatched successfully (next step).
+      await prisma.purchaseOrder.update({
+        where: { id: poId },
+        data: { vendorAckToken, poPdfVerificationToken },
+      });
+
+      console.log("\n🧾 Step 2a: Rendering branded PO PDF for attachment...");
+      let pdfAttachment: { filename: string; content: Buffer } | undefined;
+      try {
+        const [{ ProcurementPoPdfService }, { loadCapitalCallAccountingLetterhead }] = await Promise.all([
+          import("./ProcurementPoPdfService"),
+          import("../utils/capitalCallAccountingLetterhead"),
+        ]);
+        const letterhead = await loadCapitalCallAccountingLetterhead().catch(() => null);
+        const pdfBuf = await ProcurementPoPdfService.renderPurchaseOrderPdf(poId, { letterhead });
+        const safeBase = String(purchaseOrder.poNumber || poId)
+          .replace(/[^a-zA-Z0-9._-]+/g, "_")
+          .replace(/^_+|_+$/g, "");
+        pdfAttachment = { filename: `PurchaseOrder-${safeBase}.pdf`, content: pdfBuf };
+        console.log("   ✅ PO PDF generated");
+      } catch (pdfErr: any) {
+        console.warn("   ⚠️  Failed to render PO PDF (continuing without attachment):", pdfErr?.message || pdfErr);
+      }
+
       // Import email service dynamically
       const { EmailNotificationService } = await import("./EmailNotificationService");
 
@@ -2025,6 +2051,7 @@ export class ProcurementService {
         notes: undefined,
         vendorAckUrl,
         verificationUrl: `${apiBase}/procurement/purchase-orders/verify?token=${poPdfVerificationToken}`,
+        pdfAttachment,
       });
 
       console.log("   ✅ Email sent successfully");
@@ -2038,8 +2065,6 @@ export class ProcurementService {
           sentAt: dispatchedAt,
           dispatchedAt,
           sentById,
-          vendorAckToken,
-          poPdfVerificationToken,
         },
         include: {
           vendor: true,
@@ -2371,23 +2396,75 @@ export class ProcurementService {
       });
       console.log("   ✅ Audit log created");
 
-      // Send approval email to vendor
-      console.log("\n📧 Step 6: Sending approval email to vendor...");
+      // Send approval email to vendor (best-effort: never roll back the APPROVE on email/PDF failure)
+      console.log("\n📧 Step 6: Sending approval email to vendor with PDF copy...");
       try {
-        const { EmailNotificationService } = await import('./EmailNotificationService');
-        await EmailNotificationService.sendInvoiceApprovedEmail({
-          vendorName: invoice.vendor.name,
-          vendorEmail: invoice.vendor.email || '',
-          invoiceNumber: invoice.invoiceNumber,
-          invoiceAmount: Number(invoice.totalAmount),
-          currencyCode: invoice.currency?.code || 'USD',
-          approvedDate: new Date(),
-          dueDate: invoice.dueDate || undefined
-        });
-        console.log("   ✅ Approval email sent to vendor");
+        const vendorEmail = String(invoice.vendor?.email || "").trim();
+        if (!vendorEmail) {
+          console.warn("   ⚠️  Skipping vendor email — vendor has no email on file");
+        } else {
+          const [{ EmailNotificationService }, { loadCapitalCallAccountingLetterhead }, { buildProcurementInvoicePdfBuffer, safeProcurementInvoicePdfFileBaseName }] =
+            await Promise.all([
+              import("./EmailNotificationService"),
+              import("../utils/capitalCallAccountingLetterhead"),
+              import("../utils/procurementInvoicePdf"),
+            ]);
+          const letterhead = await loadCapitalCallAccountingLetterhead().catch(() => null);
+
+          let poNumber: string | null = null;
+          if (updatedInvoice.purchaseOrderId) {
+            const po = await prisma.purchaseOrder.findUnique({
+              where: { id: updatedInvoice.purchaseOrderId },
+              select: { poNumber: true },
+            });
+            poNumber = po?.poNumber || null;
+          }
+
+          const pdf = await buildProcurementInvoicePdfBuffer({
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            invoiceDate: updatedInvoice.invoiceDate,
+            dueDate: updatedInvoice.dueDate ?? null,
+            status: updatedInvoice.status,
+            paymentStatus: updatedInvoice.paymentStatus,
+            currencyCode: updatedInvoice.currency?.code || invoice.currency?.code || "USD",
+            subtotal: Number(updatedInvoice.subtotal ?? finalSubtotal),
+            taxAmount: Number(updatedInvoice.taxAmount ?? finalTaxAmount),
+            totalAmount: Number(updatedInvoice.totalAmount ?? finalTotalAmount),
+            poNumber,
+            vendor: {
+              name: invoice.vendor?.name || "Vendor",
+              email: invoice.vendor?.email ?? null,
+              phone: (invoice.vendor as any)?.phone ?? null,
+              address: (invoice.vendor as any)?.address ?? null,
+              bpNumber: (invoice.vendor as any)?.bpNumber ?? null,
+              taxNumber: (invoice.vendor as any)?.taxNumber ?? null,
+            },
+            items: (updatedInvoice.items || []).map((it: any) => ({
+              itemName: it.itemName,
+              description: it.description ?? null,
+              quantity: Number(it.quantity ?? 0),
+              unitPrice: Number(it.unitPrice ?? 0),
+              totalPrice: Number(it.totalPrice ?? 0),
+            })),
+            letterhead,
+          });
+
+          const fileBase = safeProcurementInvoicePdfFileBaseName(updatedInvoice.invoiceNumber);
+          await EmailNotificationService.sendProcurementInvoiceToVendor({
+            vendorName: invoice.vendor?.name || "Vendor",
+            vendorEmail,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            invoiceDate: updatedInvoice.invoiceDate,
+            totalAmount: Number(updatedInvoice.totalAmount ?? finalTotalAmount),
+            currencyCode: updatedInvoice.currency?.code || invoice.currency?.code || "USD",
+            dueDate: updatedInvoice.dueDate ?? null,
+            poNumber,
+            pdfAttachment: { filename: `Invoice-${fileBase}.pdf`, content: pdf },
+          });
+          console.log("   ✅ Approval email + PDF sent to vendor");
+        }
       } catch (emailError: any) {
-        console.error("   ⚠️  Failed to send approval email:", emailError.message);
-        // Don't fail the entire approval if email fails
+        console.error("   ⚠️  Failed to send approval email:", emailError?.message || emailError);
       }
 
       console.log("\n════════════════════════════════════════════════════════════════");
