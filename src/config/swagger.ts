@@ -263,7 +263,7 @@ const options = {
       {
         name: 'Performance Goals',
         description:
-          'List and manage performance goals. **GET /performance/goals** supports **`strategicThemeId`**, **`pillarId`**, **`department`** (name), **`type`**, **`scorecardPillar`**, **`search`**, and related filters. OpenAPI paths are relative to the server URL that ends in `/api`.'
+          'List and manage performance goals. **GET /performance/goals** supports **`strategicThemeId`**, **`pillarId`**, **`department`** (name), **`type`**, **`scorecardPillar`**, **`kpiId`**, **`search`**, and related filters. KPI-scoped list is also available at **GET /performance/goals/by-kpi/{kpiId}**. OpenAPI paths are relative to the server URL that ends in `/api`.'
       },
       {
         name: 'performance-kpis',

@@ -1150,6 +1150,10 @@ export class PerformanceGoalService {
         where.parentGoalId = filters.parentGoalId;
       }
 
+      if (filters.kpiId) {
+        where.kpiId = filters.kpiId;
+      }
+
       if (filters.strategicThemeId) {
         where.strategicThemeId = filters.strategicThemeId;
       }
@@ -1244,6 +1248,13 @@ export class PerformanceGoalService {
     } catch (error) {
       throw error;
     }
+  }
+
+  /** Fetch goals linked to a specific KPI id (same shape as GET /performance/goals). */
+  static async getGoalsByKpiId(kpiId: string) {
+    const id = String(kpiId || "").trim();
+    if (!id) throw new Error("kpiId is required");
+    return this.getAllPerformanceGoals({ kpiId: id });
   }
 
   /**

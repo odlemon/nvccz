@@ -93,6 +93,7 @@ export class PerformanceGoalController {
         department,
         assignedToId,
         parentGoalId,
+        kpiId,
         strategicThemeId,
         scorecardPillar,
         pillarId,
@@ -105,6 +106,7 @@ export class PerformanceGoalController {
       if (department) filters.departmentName = department as string;
       if (assignedToId) filters.assignedToId = assignedToId as string;
       if (parentGoalId) filters.parentGoalId = parentGoalId as string;
+      if (kpiId) filters.kpiId = kpiId as string;
       if (strategicThemeId) filters.strategicThemeId = strategicThemeId as string;
       if (scorecardPillar) filters.scorecardPillar = scorecardPillar as string;
       if (pillarId) filters.pillarId = pillarId as string;
@@ -119,6 +121,24 @@ export class PerformanceGoalController {
       });
     } catch (error: any) {
       res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  // Get performance goals by KPI id
+  static async getGoalsByKpiId(req: Request, res: Response) {
+    try {
+      const { kpiId } = req.params;
+      const goals = await PerformanceGoalService.getGoalsByKpiId(kpiId);
+      return res.status(200).json({
+        success: true,
+        count: goals.length,
+        goals
+      });
+    } catch (error: any) {
+      return res.status(400).json({
         success: false,
         message: error.message
       });
