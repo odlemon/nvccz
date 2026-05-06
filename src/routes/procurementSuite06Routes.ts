@@ -19,10 +19,9 @@ const uploadVendorInvoicePdf = multer({
 
 /**
  * @swagger
- * /procurement/suite06/intakes/upload-document:
+ * /procurement/suite06/intakes:
  *   post:
- *     summary: Upload vendor invoice PDF (returns documentUrl for intake creation)
- *     description: Multipart field **`document`** (PDF, max 15MB). Same storage pipeline as portfolio uploads.
+ *     summary: Create vendor invoice intake (multipart form-data or URL)
  *     tags: [Procurement — AI invoice intake (Suite 06)]
  *     security:
  *       - bearerAuth: []
@@ -32,44 +31,16 @@ const uploadVendorInvoicePdf = multer({
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required:
- *               - document
+ *             required: [vendorId]
  *             properties:
  *               document:
  *                 type: string
  *                 format: binary
- *     responses:
- *       201:
- *         description: Returns documentUrl and documentPath
- *       400:
- *         description: Missing file or not PDF
- */
-router.post(
-  "/intakes/upload-document",
-  uploadVendorInvoicePdf.single("document"),
-  ProcurementSuite06Controller.uploadIntakeDocument
-);
-
-/**
- * @swagger
- * /procurement/suite06/intakes:
- *   post:
- *     summary: Create vendor invoice intake (document URL)
- *     tags: [Procurement — AI invoice intake (Suite 06)]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [documentUrl, vendorId]
- *             properties:
+ *                 description: PDF invoice (max 15MB). If provided, server uploads and uses resulting documentUrl.
  *               documentUrl:
  *                 type: string
  *                 format: uri
- *                 example: "https://storage.example.com/invoices/acme-2026-001.pdf"
+ *                 description: Optional alternative to file upload (must be server-downloadable).
  *               vendorId:
  *                 type: string
  *                 example: "clxxxxxxxxxxxxxxxxxxxx"
@@ -80,7 +51,10 @@ router.post(
  *                 type: string
  *                 nullable: true
  *           examples:
- *             minimal:
+ *             withFile:
+ *               value:
+ *                 vendorId: "clvendor123"
+ *             withUrl:
  *               value:
  *                 documentUrl: "https://storage.example.com/invoices/acme-2026-001.pdf"
  *                 vendorId: "clvendor123"
@@ -90,7 +64,11 @@ router.post(
  *       400:
  *         description: Validation error
  */
-router.post("/intakes", ProcurementSuite06Controller.createIntake);
+router.post(
+  "/intakes",
+  uploadVendorInvoicePdf.single("document"),
+  ProcurementSuite06Controller.createIntake
+);
 
 /**
  * @swagger

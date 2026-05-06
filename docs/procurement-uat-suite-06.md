@@ -22,7 +22,7 @@ Portfolio application scoring uses the same **`LlmChatService`** / `LLM_*` varia
 
 ### Uploading PDFs (fixes “upload not working”)
 
-- **Suite 06 (staff, JWT):** `POST /api/procurement/suite06/intakes/upload-document` — multipart field **`document`** (PDF, max 15MB). Response `data.documentUrl` → use as **`documentUrl`** in `POST /api/procurement/suite06/intakes`, then `POST …/intakes/:id/extract`.
+- **Suite 06 (staff, JWT):** `POST /api/procurement/suite06/intakes` — **multipart/form-data** with field **`document`** (PDF, max 15MB) + `vendorId` (+ optional `sourcePurchaseOrderId`, `goodsReceivedNoteId`). This single call uploads the PDF and creates the intake; then run `POST …/intakes/:id/extract`.
 - **Legacy public vendor invoice (no JWT):** `POST /api/procurement/invoices/upload-document` — same multipart field; use returned **`documentUrl`** as **`documentPath`** (or URL) on `POST /api/procurement/invoices`.
 
 Previously, the UI had to obtain a hosted URL elsewhere; there was **no** multipart upload on these routes. Text extraction also reused the portfolio **4000-character** truncation for all PDFs, which broke multi-line invoice extraction and confused the LLM.
