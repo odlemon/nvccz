@@ -9,34 +9,40 @@ export class ProcurementSuite06Controller {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
       const file = (req as any).file as Express.Multer.File | undefined;
-      const { documentUrl: rawDocumentUrl, vendorId, sourcePurchaseOrderId, goodsReceivedNoteId } = req.body;
-      if (!vendorId) {
+      const { vendorId, sourcePurchaseOrderId, goodsReceivedNoteId } = req.body;
+
+      const vid = String(vendorId ?? "").trim();
+      const poId = String(sourcePurchaseOrderId ?? "").trim();
+      const grnId = String(goodsReceivedNoteId ?? "").trim();
+
+      if (!vid) {
         return res.status(400).json({ success: false, message: "vendorId is required" });
       }
-
-      let documentUrl = rawDocumentUrl;
-      if (file?.buffer?.length) {
-        const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
-        const { downloadURL } = await FirebaseStorageService.uploadProcurementVendorInvoice(
-          file.buffer,
-          file.originalname || "invoice.pdf",
-          userId
-        );
-        documentUrl = downloadURL;
+      if (!poId) {
+        return res.status(400).json({ success: false, message: "sourcePurchaseOrderId is required" });
       }
-
-      if (!documentUrl) {
+      if (!grnId) {
+        return res.status(400).json({ success: false, message: "goodsReceivedNoteId is required" });
+      }
+      if (!file?.buffer?.length) {
         return res.status(400).json({
           success: false,
-          message: "Provide a PDF file (multipart field: document) or documentUrl",
+          message: "PDF file is required (multipart field name: document)",
         });
       }
 
+      const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
+      const { downloadURL: documentUrl } = await FirebaseStorageService.uploadProcurementVendorInvoice(
+        file.buffer,
+        file.originalname || "invoice.pdf",
+        userId
+      );
+
       const data = await VendorInvoiceIntakeService.createIntake({
         documentUrl,
-        vendorId,
-        sourcePurchaseOrderId,
-        goodsReceivedNoteId,
+        vendorId: vid,
+        sourcePurchaseOrderId: poId,
+        goodsReceivedNoteId: grnId,
         createdById: userId,
       });
       res.status(201).json({ success: true, data });

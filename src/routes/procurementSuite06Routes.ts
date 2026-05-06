@@ -21,7 +21,11 @@ const uploadVendorInvoicePdf = multer({
  * @swagger
  * /procurement/suite06/intakes:
  *   post:
- *     summary: Create vendor invoice intake (multipart form-data or URL)
+ *     summary: Create vendor invoice intake (multipart form-data, PDF file required)
+ *     description: |
+ *       **Content-Type:** `multipart/form-data`.
+ *       **All fields required:** `document` (PDF file), `vendorId`, `sourcePurchaseOrderId`, `goodsReceivedNoteId`.
+ *       URL-only uploads (`documentUrl`) are not supported — upload the PDF using field **`document`** (max 15MB).
  *     tags: [Procurement — AI invoice intake (Suite 06)]
  *     security:
  *       - bearerAuth: []
@@ -31,33 +35,33 @@ const uploadVendorInvoicePdf = multer({
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [vendorId]
+ *             required:
+ *               - document
+ *               - vendorId
+ *               - sourcePurchaseOrderId
+ *               - goodsReceivedNoteId
  *             properties:
  *               document:
  *                 type: string
  *                 format: binary
- *                 description: PDF invoice (max 15MB). If provided, server uploads and uses resulting documentUrl.
- *               documentUrl:
- *                 type: string
- *                 format: uri
- *                 description: Optional alternative to file upload (must be server-downloadable).
+ *                 description: PDF invoice file (field name **document**, max 15MB).
  *               vendorId:
  *                 type: string
+ *                 description: Vendor id (cuid).
  *                 example: "clxxxxxxxxxxxxxxxxxxxx"
  *               sourcePurchaseOrderId:
  *                 type: string
- *                 nullable: true
+ *                 description: Linked purchase order id (cuid).
  *               goodsReceivedNoteId:
  *                 type: string
- *                 nullable: true
+ *                 description: Linked goods received note id (cuid).
  *           examples:
- *             withFile:
+ *             full:
+ *               summary: File + all ids
  *               value:
  *                 vendorId: "clvendor123"
- *             withUrl:
- *               value:
- *                 documentUrl: "https://storage.example.com/invoices/acme-2026-001.pdf"
- *                 vendorId: "clvendor123"
+ *                 sourcePurchaseOrderId: "clpo456"
+ *                 goodsReceivedNoteId: "clgrn789"
  *     responses:
  *       201:
  *         description: Intake created (status DRAFT)
@@ -86,6 +90,9 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  * /procurement/suite06/intakes/{id}/extract:
  *   post:
  *     summary: Run PDF text extraction + LLM structured parse
+ *     description: |
+ *       Runs on the intake created earlier (PDF uploaded as **document** on create).
+ *       **No request body** — only path parameter `id`.
  *     tags: [Procurement — AI invoice intake (Suite 06)]
  *     security:
  *       - bearerAuth: []
@@ -95,6 +102,7 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  *         required: true
  *         schema:
  *           type: string
+ *         description: Vendor invoice intake id (cuid)
  *     responses:
  *       200:
  *         description: Intake updated (EXTRACTED or PENDING_VERIFICATION)

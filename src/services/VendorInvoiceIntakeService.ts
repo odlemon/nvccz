@@ -39,8 +39,8 @@ export class VendorInvoiceIntakeService {
   static async createIntake(params: {
     documentUrl: string;
     vendorId: string;
-    sourcePurchaseOrderId?: string | null;
-    goodsReceivedNoteId?: string | null;
+    sourcePurchaseOrderId: string;
+    goodsReceivedNoteId: string;
     createdById: string;
   }) {
     const intakeNumber = await this.generateIntakeNumber();
@@ -49,8 +49,8 @@ export class VendorInvoiceIntakeService {
         intakeNumber,
         documentUrl: params.documentUrl,
         vendorId: params.vendorId,
-        sourcePurchaseOrderId: params.sourcePurchaseOrderId || null,
-        goodsReceivedNoteId: params.goodsReceivedNoteId || null,
+        sourcePurchaseOrderId: params.sourcePurchaseOrderId,
+        goodsReceivedNoteId: params.goodsReceivedNoteId,
         status: "DRAFT",
         createdById: params.createdById,
       },
