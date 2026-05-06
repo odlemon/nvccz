@@ -209,7 +209,6 @@ export async function buildPayslipPdfBuffer(params: {
       left: [
         ["Employee name", params.employeeName],
         ["Employee number", params.employeeNumber || "—"],
-        ["Payslip number", params.payslipNumber],
       ],
       right: [
         ["Email", params.employeeEmail || "—"],
