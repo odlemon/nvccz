@@ -91,8 +91,10 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  *   post:
  *     summary: Run PDF text extraction + LLM structured parse
  *     description: |
- *       Runs on the intake created earlier (PDF uploaded as **document** on create).
- *       **No request body** — only path parameter `id`.
+ *       **Content-Type:** `multipart/form-data`** — same required fields as **POST …/intakes**:
+ *       **`document`** (PDF), **`vendorId`**, **`sourcePurchaseOrderId`**, **`goodsReceivedNoteId`**.
+ *       The file is uploaded, the intake row `{id}` is updated with the new URL and ids, then extraction runs.
+ *       URL-only (`documentUrl`) is not supported.
  *     tags: [Procurement — AI invoice intake (Suite 06)]
  *     security:
  *       - bearerAuth: []
@@ -103,11 +105,44 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  *         schema:
  *           type: string
  *         description: Vendor invoice intake id (cuid)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - document
+ *               - vendorId
+ *               - sourcePurchaseOrderId
+ *               - goodsReceivedNoteId
+ *             properties:
+ *               document:
+ *                 type: string
+ *                 format: binary
+ *                 description: PDF invoice file (field **document**, max 15MB).
+ *               vendorId:
+ *                 type: string
+ *                 description: Vendor id (cuid).
+ *               sourcePurchaseOrderId:
+ *                 type: string
+ *                 description: Linked purchase order id (cuid).
+ *               goodsReceivedNoteId:
+ *                 type: string
+ *                 description: Linked goods received note id (cuid).
  *     responses:
  *       200:
  *         description: Intake updated (EXTRACTED or PENDING_VERIFICATION)
+ *       400:
+ *         description: Validation error
+ *       404:
+ *         description: Intake not found
  */
-router.post("/intakes/:id/extract", ProcurementSuite06Controller.runExtract);
+router.post(
+  "/intakes/:id/extract",
+  uploadVendorInvoicePdf.single("document"),
+  ProcurementSuite06Controller.runExtract
+);
 
 /**
  * @swagger

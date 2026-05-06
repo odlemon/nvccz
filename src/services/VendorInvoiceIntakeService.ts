@@ -58,6 +58,27 @@ export class VendorInvoiceIntakeService {
   }
 
   /**
+   * Update stored PDF URL and links before re-running extraction (POST …/intakes/:id/extract with multipart).
+   */
+  static async updateIntakeBeforeExtract(params: {
+    intakeId: string;
+    documentUrl: string;
+    vendorId: string;
+    sourcePurchaseOrderId: string;
+    goodsReceivedNoteId: string;
+  }) {
+    return prisma.vendorInvoiceIntake.update({
+      where: { id: params.intakeId },
+      data: {
+        documentUrl: params.documentUrl,
+        vendorId: params.vendorId,
+        sourcePurchaseOrderId: params.sourcePurchaseOrderId,
+        goodsReceivedNoteId: params.goodsReceivedNoteId,
+      },
+    });
+  }
+
+  /**
    * Download PDF, extract text, run LLM parse, set status EXTRACTED or PENDING_VERIFICATION.
    */
   static async runExtraction(intakeId: string) {
