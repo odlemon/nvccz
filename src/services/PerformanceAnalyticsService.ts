@@ -46,10 +46,23 @@ export class PerformanceAnalyticsService {
       }
 
       if (dateRange) {
-        whereClause.createdAt = {
-          gte: dateRange.start,
-          lte: dateRange.end
-        };
+        // Analytics period should reflect goals that are relevant in the requested window.
+        // Using createdAt breaks long-running goals (e.g. annual payroll KPI) and yields 0% progress for past months.
+        // Use date-range overlap on goal.startDate/endDate, with createdAt as a fallback for legacy rows.
+        whereClause.OR = [
+          {
+            AND: [
+              { startDate: { lte: dateRange.end } },
+              { endDate: { gte: dateRange.start } }
+            ]
+          },
+          {
+            createdAt: {
+              gte: dateRange.start,
+              lte: dateRange.end
+            }
+          }
+        ];
       }
 
       const goals = await prisma.performanceGoal.findMany({
@@ -69,6 +82,13 @@ export class PerformanceAnalyticsService {
       const financialKPIMap = HARDCODED_KPIS.reduce((map, kpi) => {
         if (kpi.isFinancial) {
           map.set(kpi.name.toLowerCase(), kpi);
+        }
+        return map;
+      }, new Map<string, HardcodedKPI>());
+
+      const financialKpiByCode = HARDCODED_KPIS.reduce((map, kpi) => {
+        if (kpi.isFinancial && kpi.code) {
+          map.set(String(kpi.code).toUpperCase(), kpi);
         }
         return map;
       }, new Map<string, HardcodedKPI>());
@@ -99,17 +119,63 @@ export class PerformanceAnalyticsService {
         return acc;
       }, {} as any);
 
+      // Ensure *all* financial KPIs are present in analytics, even when no goals exist for them.
+      // This makes the endpoint behave like a live accounting sync.
+      const allFinancialKpis = await prisma.kPI.findMany({
+        where: {
+          OR: [
+            { isFinancial: true },
+            { code: { in: HARDCODED_KPIS.filter((k) => k.isFinancial).map((k) => k.code) } },
+            // Backward compatibility: some environments have financial KPI rows without `code` / `isFinancial` set.
+            // Include by catalog name match so analytics can still sync from accounting.
+            { name: { in: HARDCODED_KPIS.filter((k) => k.isFinancial).map((k) => k.name) } },
+          ],
+          isActive: true,
+        },
+        select: KPI_ANALYTICS_SELECT,
+      });
+      for (const kpi of allFinancialKpis) {
+        if (!kpi?.id) continue;
+        if (!kpiGroups[kpi.id]) {
+          kpiGroups[kpi.id] = {
+            kpi,
+            goals: [],
+            totalTargetValue: 0,
+            totalCurrentValue: 0,
+            goalCount: 0,
+          };
+        }
+      }
+
       // Determine if we need financial statements
+      const resolveHardcodedKpiConfig = (kpi: any): HardcodedKPI | null => {
+        const codeKey = String(kpi?.code || "").toUpperCase();
+        if (codeKey && financialKpiByCode.has(codeKey)) return financialKpiByCode.get(codeKey)!;
+        const nameKey = String(kpi?.name || "").toLowerCase();
+        if (nameKey && financialKPIMap.has(nameKey)) return financialKPIMap.get(nameKey)!;
+        return null;
+      };
+
       const needsIncomeStatement = Object.values(kpiGroups).some((group: any) => {
-        const config = HARDCODED_KPIS.find(k => k.name === group.kpi?.name);
+        const config = resolveHardcodedKpiConfig(group.kpi);
         if (!config || !config.isFinancial) return false;
-        return ['Revenue', 'Income', 'Expense'].includes(config.accountType);
+        return ["Revenue", "Income", "Expense"].includes(config.accountType);
       });
 
       const needsBalanceSheet = Object.values(kpiGroups).some((group: any) => {
-        const config = HARDCODED_KPIS.find(k => k.name === group.kpi?.name);
+        const config = resolveHardcodedKpiConfig(group.kpi);
         if (!config || !config.isFinancial) return false;
-        return ['Asset', 'Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Other Asset', 'Liability', 'Current Liability', 'Long-Term Liability', 'Equity'].includes(config.accountType);
+        return [
+          "Asset",
+          "Current Asset",
+          "Fixed Asset",
+          "Long-Term Asset",
+          "Other Asset",
+          "Liability",
+          "Current Liability",
+          "Long-Term Liability",
+          "Equity",
+        ].includes(config.accountType);
       });
 
       let effectiveDateRange = dateRange;
@@ -177,7 +243,9 @@ export class PerformanceAnalyticsService {
 
         // Only fetch accounting values for financial KPIs that use accounting data
         if (kpiNameKey && financialKPIMap.has(kpiNameKey)) {
-          const kpiConfig = financialKPIMap.get(kpiNameKey)!;
+          const kpiConfig =
+            (group.kpi?.code && financialKpiByCode.get(String(group.kpi.code).toUpperCase())) ||
+            financialKPIMap.get(kpiNameKey)!;
           
           // Only use accounting data if KPI is marked as financial
           // Currency filtering is automatically applied via loaders (only for Balance Sheet/Income Statement)
@@ -197,11 +265,8 @@ export class PerformanceAnalyticsService {
         let progressPercentage: string;
         let progressRatio: number;
         if (accountingValue !== null) {
-          if (group.totalTargetValue > 0) {
-            progressRatio = totalCurrentValue / group.totalTargetValue;
-          } else {
-            progressRatio = totalCurrentValue > 0 ? 1 : 0;
-          }
+          // If there are no goals/targets linked, show 0% progress (value is still provided via totalCurrentValue).
+          progressRatio = group.totalTargetValue > 0 ? totalCurrentValue / group.totalTargetValue : 0;
           progressPercentage = (progressRatio * 100).toFixed(2);
         } else {
           const p = computeKpiLineProgressPercent(group.goals, group.kpi);
@@ -582,7 +647,13 @@ export class PerformanceAnalyticsService {
     if (incomeTypes.includes(kpiConfig.accountType)) {
       if (!incomeStatementLoader) return 0;
       const incomeStatement = await incomeStatementLoader();
-      const section = kpiConfig.accountType === 'Expense' ? incomeStatement.expenses : incomeStatement.revenue;
+      // IncomeStatementService returns `sections` (revenue / operatingExpenses / incomeTax / belowTheLine).
+      // Older callers sometimes expected top-level `revenue` / `expenses`. Support both shapes.
+      const sections = incomeStatement?.sections || {};
+      const section =
+        kpiConfig.accountType === "Expense"
+          ? sections.operatingExpenses || sections.expenses || incomeStatement.expenses || incomeStatement.operatingExpenses
+          : sections.revenue || incomeStatement.revenue;
       const accounts = section?.accounts || [];
 
       if (accountNumber && !shouldUseSectionTotal) {
@@ -593,6 +664,14 @@ export class PerformanceAnalyticsService {
       }
 
       return Math.abs(Number(section?.total ?? 0));
+    }
+
+    // Net profit should come from the Income Statement (period result), not the equity balance.
+    if (String(kpiConfig.code || "").toUpperCase() === "NET_PROFIT") {
+      if (!incomeStatementLoader) return 0;
+      const incomeStatement = await incomeStatementLoader();
+      const ni = Number(incomeStatement?.totals?.netIncome ?? incomeStatement?.netIncome ?? 0);
+      return Math.abs(ni);
     }
 
     if (balanceTypes.includes(kpiConfig.accountType)) {
