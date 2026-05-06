@@ -2913,10 +2913,16 @@ export class EmailNotificationService {
   static async sendPayslipEmail(payslipData: any): Promise<void> {
     try {
       const subject = `Your Payslip - ${payslipData.payrollRun.payPeriod} - ${process.env.COMPANY_NAME_SHORT || 'NVCCZ'}`;
-      const htmlContent = this.getPayslipTemplate(payslipData);
+      const employeeName = `${payslipData.employee.user.firstName} ${payslipData.employee.user.lastName}`;
+      const company = process.env.COMPANY_NAME_SHORT || "NVCCZ";
+      const htmlContent = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;line-height:1.5;color:#222;">
+        <p>Dear ${employeeName},</p>
+        <p>Please find attached your payslip for <strong>${String(payslipData.payrollRun.payPeriod || "")}</strong>.</p>
+        <p>If you have any questions, please contact the HR/Payroll team.</p>
+        <p>Regards,<br><strong>${company}</strong></p>
+      </body></html>`;
       
       const from = getFromAddress('payroll');
-      const employeeName = `${payslipData.employee.user.firstName} ${payslipData.employee.user.lastName}`;
       const email = String(payslipData?.employee?.user?.email || "").trim();
       if (!email) {
         throw new Error("Cannot send payslip email: employee email is missing");
