@@ -527,26 +527,6 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
   },
 
   // --- Suite 06: AI intake + 3-way match + CFO dashboard (see procurementSuite06Routes) ---
-  "/procurement/suite06/intakes/upload-document": {
-    post: {
-      summary: "Upload vendor invoice PDF (multipart) — returns documentUrl for POST …/intakes",
-      tags: [S06_INTAKE],
-      security: bearer,
-      requestBody: {
-        required: true,
-        content: {
-          "multipart/form-data": {
-            schema: {
-              type: "object",
-              required: ["document"],
-              properties: { document: { type: "string", format: "binary" } },
-            },
-          },
-        },
-      },
-      responses: { 201: { description: "Created" }, 400: { description: "Validation" } },
-    },
-  },
   "/procurement/invoices/upload-document": {
     post: {
       summary: "PUBLIC — upload vendor invoice PDF for legacy procurement invoice flow",
@@ -572,17 +552,18 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
   },
   "/procurement/suite06/intakes": {
     post: {
-      summary: "Create vendor invoice intake (document URL)",
+      summary: "Create vendor invoice intake (multipart form-data or documentUrl)",
       tags: [S06_INTAKE],
       security: bearer,
       requestBody: {
         required: true,
         content: {
-          "application/json": {
+          "multipart/form-data": {
             schema: {
               type: "object",
-              required: ["documentUrl", "vendorId"],
+              required: ["vendorId"],
               properties: {
+                document: { type: "string", format: "binary" },
                 documentUrl: { type: "string", example: "https://storage.example.com/vendor-invoices/inv-0042.pdf" },
                 vendorId: { type: "string", example: "vend_cuid_123" },
                 sourcePurchaseOrderId: { type: "string", example: "po_cuid_123" },
@@ -590,7 +571,6 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
               },
             },
             example: {
-              documentUrl: "https://storage.example.com/vendor-invoices/inv-0042.pdf",
               vendorId: "vend_cuid_123",
               sourcePurchaseOrderId: "po_cuid_123",
               goodsReceivedNoteId: "grn_cuid_123",
