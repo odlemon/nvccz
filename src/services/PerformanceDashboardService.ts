@@ -14,21 +14,30 @@ export interface PerformanceDashboardData {
       value: number;
       change: number;
       changePercent: number;
-      progress: number; // current/total
+      /** Ratio 0..1 (value/total). */
+      progress: number;
+      /** Percentage 0..100 (value/total*100). */
+      progressPercent: number;
+      /** Convenience label e.g. "9/21". */
+      ratioText: string;
       total: number;
     };
     inProgress: {
       value: number;
       change: number;
       changePercent: number;
-      progress: number; // current/total
+      progress: number;
+      progressPercent: number;
+      ratioText: string;
       total: number;
     };
     completed: {
       value: number;
       change: number;
       changePercent: number;
-      progress: number; // current/total
+      progress: number;
+      progressPercent: number;
+      ratioText: string;
       total: number;
     };
     completionRate: {
@@ -213,6 +222,8 @@ export class PerformanceDashboardService {
             change: pendingChange,
             changePercent: Math.round(pendingChangePercent * 100) / 100,
             progress: totalTasks > 0 ? Math.round((pendingTasks / totalTasks) * 100) / 100 : 0,
+            progressPercent: totalTasks > 0 ? Math.round(((pendingTasks / totalTasks) * 100) * 100) / 100 : 0,
+            ratioText: `${pendingTasks}/${totalTasks}`,
             total: totalTasks
           },
           inProgress: {
@@ -220,6 +231,8 @@ export class PerformanceDashboardService {
             change: inProgressChange,
             changePercent: Math.round(inProgressChangePercent * 100) / 100,
             progress: totalTasks > 0 ? Math.round((inProgressTasks / totalTasks) * 100) / 100 : 0,
+            progressPercent: totalTasks > 0 ? Math.round(((inProgressTasks / totalTasks) * 100) * 100) / 100 : 0,
+            ratioText: `${inProgressTasks}/${totalTasks}`,
             total: totalTasks
           },
           completed: {
@@ -227,6 +240,8 @@ export class PerformanceDashboardService {
             change: completedChange,
             changePercent: Math.round(completedChangePercent * 100) / 100,
             progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) / 100 : 0,
+            progressPercent: totalTasks > 0 ? Math.round(((completedTasks / totalTasks) * 100) * 100) / 100 : 0,
+            ratioText: `${completedTasks}/${totalTasks}`,
             total: totalTasks
           },
           completionRate: {
