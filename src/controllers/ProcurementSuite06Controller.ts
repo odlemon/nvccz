@@ -46,7 +46,7 @@ export class ProcurementSuite06Controller {
 
       const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
       const startedAt = Date.now();
-      const { downloadURL: documentUrl } = await this.withTimeout(
+      const { downloadURL: documentUrl } = await ProcurementSuite06Controller.withTimeout(
         "Upload vendor invoice PDF",
         70_000,
         FirebaseStorageService.uploadProcurementVendorInvoice(file.buffer, file.originalname || "invoice.pdf", userId)
@@ -121,7 +121,7 @@ export class ProcurementSuite06Controller {
       }
 
       const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
-      const { downloadURL: documentUrl } = await this.withTimeout(
+      const { downloadURL: documentUrl } = await ProcurementSuite06Controller.withTimeout(
         "Upload vendor invoice PDF",
         70_000,
         FirebaseStorageService.uploadProcurementVendorInvoice(file.buffer, file.originalname || "invoice.pdf", userId)
