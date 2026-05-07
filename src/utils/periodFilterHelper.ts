@@ -99,15 +99,28 @@ export function parsePeriodToDateRange(periodType: PeriodType, periodValue: stri
 export function extractPeriodFilter(req: any): PeriodFilter | null {
   // ONLY extract from query parameters (URL), not from body
   const periodType = req.query?.periodType as PeriodType | undefined;
-  const periodValue = req.query?.periodValue as string | undefined;
+  let periodValue = req.query?.periodValue as string | undefined;
   const currencyId = req.query?.currencyId as string | undefined;
 
-  if (!periodType || !periodValue) {
+  if (!periodType) {
     return null;
   }
 
   if (!['month', 'quarter', 'year'].includes(periodType)) {
     throw new Error(`Invalid periodType: ${periodType}. Must be 'month', 'quarter', or 'year'`);
+  }
+
+  // Default periodValue when clients send ?periodType=month only (common)
+  if (!periodValue) {
+    const now = new Date();
+    if (periodType === 'month') {
+      periodValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    } else if (periodType === 'quarter') {
+      const q = Math.floor(now.getMonth() / 3) + 1;
+      periodValue = `${now.getFullYear()}-Q${q}`;
+    } else {
+      periodValue = String(now.getFullYear());
+    }
   }
 
   return {

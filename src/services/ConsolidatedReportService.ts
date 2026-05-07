@@ -47,6 +47,41 @@ export class ConsolidatedReportService {
   }
 
   /**
+   * Map raw `journal_entries.currencyId` values to canonical `currencies.id`.
+   * Some legacy rows store an ISO code (e.g. "USD") instead of the Currency cuid — that breaks FX lookups
+   * (rate cache sees "USD" as an unknown id and errors with misleading "USD → USD").
+   */
+  private static async buildLegacyCurrencyResolutionMap(
+    rawIds: Iterable<string>
+  ): Promise<Map<string, string>> {
+    const all = await prisma.currency.findMany({ select: { id: true, code: true } });
+    const idSet = new Set(all.map((c) => c.id));
+    const upperCodeToId = new Map<string, string>();
+    for (const c of all) {
+      upperCodeToId.set(this.normalizeCurrencyCode(c.code), c.id);
+    }
+
+    const map = new Map<string, string>();
+    for (const raw of rawIds) {
+      if (!raw) continue;
+      if (idSet.has(raw)) {
+        map.set(raw, raw);
+        continue;
+      }
+      const byCode = upperCodeToId.get(this.normalizeCurrencyCode(raw));
+      if (byCode) {
+        map.set(raw, byCode);
+        continue;
+      }
+      map.set(raw, raw);
+      console.warn(
+        `[ConsolidatedReportService] Unknown currency key "${raw}" (not a currency id or known code); FX may fail.`
+      );
+    }
+    return map;
+  }
+
+  /**
    * All `currencies.id` values that should match the same logical currency in `exchange_rates`:
    * duplicate rows sharing `code`, and ZIG/ZWG/ZWL treated as one bucket for FX rows.
    */
@@ -350,10 +385,7 @@ export class ConsolidatedReportService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   static async generateConsolidatedBalanceSheet(params: ConsolidatedBalanceSheetParams) {
-    const { consolidationCurrencyId, hideZeroBalances } = params;
-
-    const targetCurrency = await prisma.currency.findUnique({ where: { id: consolidationCurrencyId } });
-    if (!targetCurrency) throw new Error("Consolidation currency not found");
+    const { consolidationCurrencyId: consolidationCurrencyRaw, hideZeroBalances } = params;
 
     // Date range
     let startDate: Date;
@@ -379,10 +411,25 @@ export class ConsolidatedReportService {
 
     const journalLines = await this.loadJournalLinesWithCoaForConsolidated(journalEntryWhere);
 
-    // Collect all distinct currencies used
+    const rawCurrencyIds = new Set<string>();
+    for (const line of journalLines) {
+      if (line.journalEntry.currencyId) rawCurrencyIds.add(line.journalEntry.currencyId);
+    }
+    rawCurrencyIds.add(consolidationCurrencyRaw);
+
+    const currencyResolution = await this.buildLegacyCurrencyResolutionMap(rawCurrencyIds);
+    const consolidationCurrencyId =
+      currencyResolution.get(consolidationCurrencyRaw) ?? consolidationCurrencyRaw;
+
+    const targetCurrency = await prisma.currency.findUnique({ where: { id: consolidationCurrencyId } });
+    if (!targetCurrency) throw new Error("Consolidation currency not found");
+
+    // Collect distinct currencies (canonical ids) for FX
     const currencyIds = new Set<string>();
     for (const line of journalLines) {
-      if (line.journalEntry.currencyId) currencyIds.add(line.journalEntry.currencyId);
+      const raw = line.journalEntry.currencyId;
+      if (!raw) continue;
+      currencyIds.add(currencyResolution.get(raw) ?? raw);
     }
     currencyIds.add(consolidationCurrencyId);
 
@@ -394,7 +441,9 @@ export class ConsolidatedReportService {
 
     for (const line of journalLines) {
       const accId = line.chartOfAccountId;
-      const ccyId = line.journalEntry.currencyId;
+      const rawCcy = line.journalEntry.currencyId;
+      const ccyId = rawCcy ? currencyResolution.get(rawCcy) ?? rawCcy : null;
+      if (!ccyId) continue;
       const key: AccCcyKey = `${accId}|${ccyId}`;
       const entry = sourceAmounts.get(key) ?? { sourceAmount: 0, accountType: line.chartOfAccount.accountType, accountName: line.chartOfAccount.accountName };
 
@@ -533,10 +582,7 @@ export class ConsolidatedReportService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   static async generateConsolidatedIncomeStatement(params: ConsolidatedIncomeStatementParams) {
-    const { startDate, endDate, consolidationCurrencyId } = params;
-
-    const targetCurrency = await prisma.currency.findUnique({ where: { id: consolidationCurrencyId } });
-    if (!targetCurrency) throw new Error("Consolidation currency not found");
+    const { startDate, endDate, consolidationCurrencyId: consolidationCurrencyRaw } = params;
 
     const sd = new Date(startDate);
     sd.setHours(0, 0, 0, 0);
@@ -548,6 +594,19 @@ export class ConsolidatedReportService {
 
     const journalLines = await this.loadJournalLinesWithCoaForConsolidated(journalEntryWhere);
 
+    const rawCurrencyIds = new Set<string>();
+    for (const line of journalLines) {
+      if (line.journalEntry.currencyId) rawCurrencyIds.add(line.journalEntry.currencyId);
+    }
+    rawCurrencyIds.add(consolidationCurrencyRaw);
+
+    const currencyResolution = await this.buildLegacyCurrencyResolutionMap(rawCurrencyIds);
+    const consolidationCurrencyId =
+      currencyResolution.get(consolidationCurrencyRaw) ?? consolidationCurrencyRaw;
+
+    const targetCurrency = await prisma.currency.findUnique({ where: { id: consolidationCurrencyId } });
+    if (!targetCurrency) throw new Error("Consolidation currency not found");
+
     // Only income statement accounts
     const isIncomeStatementAccount = (fs: string | null) =>
       fs && (fs.toLowerCase().includes("income") || fs.toLowerCase().includes("profit"));
@@ -556,7 +615,8 @@ export class ConsolidatedReportService {
 
     const currencyIds = new Set<string>();
     for (const l of incomeLines) {
-      if (l.journalEntry.currencyId) currencyIds.add(l.journalEntry.currencyId);
+      const raw = l.journalEntry.currencyId;
+      if (raw) currencyIds.add(currencyResolution.get(raw) ?? raw);
     }
     currencyIds.add(consolidationCurrencyId);
 
@@ -570,7 +630,9 @@ export class ConsolidatedReportService {
 
     for (const line of incomeLines) {
       const accId = line.chartOfAccountId;
-      const ccyId = line.journalEntry.currencyId;
+      const rawCcy = line.journalEntry.currencyId;
+      const ccyId = rawCcy ? currencyResolution.get(rawCcy) ?? rawCcy : null;
+      if (!ccyId) continue;
       const key: AccCcyKey = `${accId}|${ccyId}`;
 
       const debit = new Decimal(line.debitAmount).toNumber();
