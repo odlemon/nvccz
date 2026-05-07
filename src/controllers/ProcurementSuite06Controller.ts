@@ -92,21 +92,8 @@ export class ProcurementSuite06Controller {
       const file = (req as any).file as Express.Multer.File | undefined;
       const { vendorId, sourcePurchaseOrderId, goodsReceivedNoteId } = req.body;
 
-      const vid = String(vendorId ?? "").trim();
-      const poId = String(sourcePurchaseOrderId ?? "").trim();
-      const grnId = String(goodsReceivedNoteId ?? "").trim();
-
       if (!intakeId) {
         return res.status(400).json({ success: false, message: "Intake id is required" });
-      }
-      if (!vid) {
-        return res.status(400).json({ success: false, message: "vendorId is required" });
-      }
-      if (!poId) {
-        return res.status(400).json({ success: false, message: "sourcePurchaseOrderId is required" });
-      }
-      if (!grnId) {
-        return res.status(400).json({ success: false, message: "goodsReceivedNoteId is required" });
       }
       if (!file?.buffer?.length) {
         return res.status(400).json({
@@ -115,9 +102,46 @@ export class ProcurementSuite06Controller {
         });
       }
 
-      const existing = await prisma.vendorInvoiceIntake.findUnique({ where: { id: intakeId }, select: { id: true } });
+      const existing = await prisma.vendorInvoiceIntake.findUnique({
+        where: { id: intakeId },
+        select: {
+          id: true,
+          vendorId: true,
+          sourcePurchaseOrderId: true,
+          goodsReceivedNoteId: true,
+        },
+      });
       if (!existing) {
         return res.status(404).json({ success: false, message: "Intake not found" });
+      }
+
+      // Multipart text fields can be omitted: reuse ids already stored on the intake from POST …/intakes.
+      const vid = String(vendorId ?? "").trim() || String(existing.vendorId ?? "").trim();
+      const poId =
+        String(sourcePurchaseOrderId ?? "").trim() || String(existing.sourcePurchaseOrderId ?? "").trim();
+      const grnId =
+        String(goodsReceivedNoteId ?? "").trim() || String(existing.goodsReceivedNoteId ?? "").trim();
+
+      if (!vid) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "vendorId is required (send multipart field vendorId, or create the intake with vendorId saved on the row)",
+        });
+      }
+      if (!poId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "sourcePurchaseOrderId is required (send field sourcePurchaseOrderId or save it on the intake first)",
+        });
+      }
+      if (!grnId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "goodsReceivedNoteId is required (send field goodsReceivedNoteId or save it on the intake first)",
+        });
       }
 
       const { FirebaseStorageService } = await import("../services/FirebaseStorageService");

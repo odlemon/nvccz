@@ -91,9 +91,10 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  *   post:
  *     summary: Run PDF text extraction + LLM structured parse
  *     description: |
- *       **Content-Type:** `multipart/form-data`** — same required fields as **POST …/intakes**:
- *       **`document`** (PDF), **`vendorId`**, **`sourcePurchaseOrderId`**, **`goodsReceivedNoteId`**.
- *       The file is uploaded, the intake row `{id}` is updated with the new URL and ids, then extraction runs.
+ *       **Content-Type:** `multipart/form-data`** — **`document`** (PDF) is always required.
+ *       **`vendorId`**, **`sourcePurchaseOrderId`**, **`goodsReceivedNoteId`** may be omitted if they were already
+ *       saved when creating the intake (**POST …/intakes**); otherwise include them again (or to change links).
+ *       The PDF is uploaded first; the intake row is updated with the new URL and final ids, then extraction runs.
  *       URL-only (`documentUrl`) is not supported.
  *     tags: [Procurement — AI invoice intake (Suite 06)]
  *     security:
@@ -113,9 +114,6 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  *             type: object
  *             required:
  *               - document
- *               - vendorId
- *               - sourcePurchaseOrderId
- *               - goodsReceivedNoteId
  *             properties:
  *               document:
  *                 type: string
@@ -123,13 +121,13 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  *                 description: PDF invoice file (field **document**, max 15MB).
  *               vendorId:
  *                 type: string
- *                 description: Vendor id (cuid).
+ *                 description: Vendor id (cuid). Optional if already on the intake.
  *               sourcePurchaseOrderId:
  *                 type: string
- *                 description: Linked purchase order id (cuid).
+ *                 description: Linked purchase order id (cuid). Optional if already on the intake.
  *               goodsReceivedNoteId:
  *                 type: string
- *                 description: Linked goods received note id (cuid).
+ *                 description: Linked goods received note id (cuid). Optional if already on the intake.
  *     responses:
  *       200:
  *         description: Intake updated (EXTRACTED or PENDING_VERIFICATION)

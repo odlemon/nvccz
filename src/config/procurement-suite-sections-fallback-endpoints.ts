@@ -611,7 +611,7 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
     post: {
       summary: "Run PDF text extraction + LLM structured parse",
       description:
-        "**multipart/form-data** — required fields: **document** (PDF), **vendorId**, **sourcePurchaseOrderId**, **goodsReceivedNoteId** (same as create intake). Updates the intake `{id}` with the uploaded file URL and ids, then runs extraction. `documentUrl` is not accepted.",
+        "**multipart/form-data** — **document** (PDF) is required. **vendorId**, **sourcePurchaseOrderId**, **goodsReceivedNoteId** are optional if already stored on the intake from **POST …/intakes**; send them to override. Uploads file, updates intake + URL, then runs extraction. `documentUrl` is not accepted.",
       tags: [S06_INTAKE],
       security: bearer,
       parameters: [
@@ -629,7 +629,7 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
           "multipart/form-data": {
             schema: {
               type: "object",
-              required: ["document", "vendorId", "sourcePurchaseOrderId", "goodsReceivedNoteId"],
+              required: ["document"],
               properties: {
                 document: {
                   type: "string",
