@@ -38,10 +38,47 @@ export interface ConsolidatedIncomeStatementParams {
 
 type RateCache = Map<string, { rate: number; code: string }>;
 
+/** ZiG family: rates are often stored under one code (e.g. ZWL) while journals use another (ZWG). */
+const ZIG_FAMILY_CODES = ["ZIG", "ZWG", "ZWL"] as const;
+
 export class ConsolidatedReportService {
+  private static normalizeCurrencyCode(code: string | null | undefined): string {
+    return (code ?? "").trim().toUpperCase();
+  }
+
+  /**
+   * All `currencies.id` values that should match the same logical currency in `exchange_rates`:
+   * duplicate rows sharing `code`, and ZIG/ZWG/ZWL treated as one bucket for FX rows.
+   */
+  private static async expandCurrencyIdsForExchangeLookup(currencyId: string): Promise<string[]> {
+    const row = await prisma.currency.findUnique({
+      where: { id: currencyId },
+      select: { id: true, code: true },
+    });
+    if (!row) return [currencyId];
+
+    const norm = this.normalizeCurrencyCode(row.code);
+    const zigFamily = new Set(ZIG_FAMILY_CODES as readonly string[]);
+
+    if (zigFamily.has(norm)) {
+      const rows = await prisma.currency.findMany({
+        where: { code: { in: [...ZIG_FAMILY_CODES] } },
+        select: { id: true },
+      });
+      return [...new Set([currencyId, ...rows.map((r) => r.id)])];
+    }
+
+    const sameCode = await prisma.currency.findMany({
+      where: { code: row.code },
+      select: { id: true },
+    });
+    return sameCode.length ? sameCode.map((r) => r.id) : [currencyId];
+  }
+
   /**
    * Resolve the conversion rate from `fromCurrencyId` to `toCurrencyId` as of `asOfDate`.
-   * Fallback chain: exact date → nearest earlier → inverse → live Zimrate USD/ZWG (then stored snapshot if API down) for ZiG↔USD.
+   * Fallback chain: exact date → nearest earlier → inverse → latest (active) → Zimrate/snapshot USD↔ZiG → inactive table rows.
+   * Uses expanded currency id sets so duplicate `Currency` rows or ZIG/ZWG/ZWL aliases still match `exchange_rates` rows.
    */
   private static async resolveRate(
     fromCurrencyId: string,
@@ -50,59 +87,134 @@ export class ConsolidatedReportService {
   ): Promise<number> {
     if (fromCurrencyId === toCurrencyId) return 1;
 
+    const [fromMeta, toMeta] = await Promise.all([
+      prisma.currency.findUnique({ where: { id: fromCurrencyId }, select: { code: true } }),
+      prisma.currency.findUnique({ where: { id: toCurrencyId }, select: { code: true } }),
+    ]);
+    if (!fromMeta || !toMeta) {
+      throw new Error(`Unknown currency id in conversion (${fromCurrencyId} → ${toCurrencyId})`);
+    }
+
+    const fc0 = this.normalizeCurrencyCode(fromMeta.code);
+    const tc0 = this.normalizeCurrencyCode(toMeta.code);
+    if (fc0 && fc0 === tc0) return 1;
+
+    const fromIds = await this.expandCurrencyIdsForExchangeLookup(fromCurrencyId);
+    const toIds = await this.expandCurrencyIdsForExchangeLookup(toCurrencyId);
+    if (fromIds.length === 0 || toIds.length === 0) {
+      throw new Error(`No exchange rate found for currency conversion (${fromCurrencyId} → ${toCurrencyId})`);
+    }
+
     const normalized = new Date(asOfDate);
     normalized.setHours(0, 0, 0, 0);
 
-    // 1. Exact date match
-    let row = await prisma.exchangeRate.findUnique({
+    const zigCodes = new Set(ZIG_FAMILY_CODES as readonly string[]);
+
+    // 1. Exact date match (any id pair)
+    let row = await prisma.exchangeRate.findFirst({
       where: {
-        date_fromCurrencyId_toCurrencyId: { date: normalized, fromCurrencyId, toCurrencyId },
+        date: normalized,
+        fromCurrencyId: { in: fromIds },
+        toCurrencyId: { in: toIds },
       },
     });
     if (row && Number(row.rate) > 0) return Number(row.rate);
 
-    // 2. Nearest earlier date (direct)
+    // 2. Nearest earlier date (direct, active)
     row = await prisma.exchangeRate.findFirst({
-      where: { fromCurrencyId, toCurrencyId, date: { lte: normalized }, isActive: true },
+      where: {
+        fromCurrencyId: { in: fromIds },
+        toCurrencyId: { in: toIds },
+        date: { lte: normalized },
+        isActive: true,
+      },
       orderBy: { date: "desc" },
     });
     if (row && Number(row.rate) > 0) return Number(row.rate);
 
-    // 3. Inverse rate (nearest earlier)
+    // 3. Inverse rate (nearest earlier, active)
     let inv = await prisma.exchangeRate.findFirst({
-      where: { fromCurrencyId: toCurrencyId, toCurrencyId: fromCurrencyId, date: { lte: normalized }, isActive: true },
+      where: {
+        fromCurrencyId: { in: toIds },
+        toCurrencyId: { in: fromIds },
+        date: { lte: normalized },
+        isActive: true,
+      },
       orderBy: { date: "desc" },
     });
     if (inv && Number(inv.rate) > 0) return 1 / Number(inv.rate);
 
-    // 4. Latest available rate regardless of date (direct)
+    // 4. Latest available rate regardless of date (direct, active)
     row = await prisma.exchangeRate.findFirst({
-      where: { fromCurrencyId, toCurrencyId, isActive: true },
+      where: {
+        fromCurrencyId: { in: fromIds },
+        toCurrencyId: { in: toIds },
+        isActive: true,
+      },
       orderBy: { date: "desc" },
     });
     if (row && Number(row.rate) > 0) return Number(row.rate);
 
-    // 5. Latest available inverse rate regardless of date
+    // 5. Latest inverse (active)
     inv = await prisma.exchangeRate.findFirst({
-      where: { fromCurrencyId: toCurrencyId, toCurrencyId: fromCurrencyId, isActive: true },
+      where: {
+        fromCurrencyId: { in: toIds },
+        toCurrencyId: { in: fromIds },
+        isActive: true,
+      },
       orderBy: { date: "desc" },
     });
     if (inv && Number(inv.rate) > 0) return 1 / Number(inv.rate);
 
-    // 6. Live Zimrate USD/ZWG first, then last stored snapshot if API unavailable (covers ZiG↔USD when no explicit rate exists)
+    // 6. Live Zimrate USD/ZWG + stored snapshot (ZiG↔USD when no table row matches expanded ids)
     const snapshot = await resolveUsdZwgAvgForConsolidatedReport(prisma as any).catch(() => null);
     if (snapshot && snapshot > 0) {
-      const [fromCcy, toCcy] = await Promise.all([
-        prisma.currency.findUnique({ where: { id: fromCurrencyId }, select: { code: true } }),
-        prisma.currency.findUnique({ where: { id: toCurrencyId }, select: { code: true } }),
-      ]);
-      const fc = fromCcy?.code?.toUpperCase() ?? "";
-      const tc = toCcy?.code?.toUpperCase() ?? "";
-      const zigCodes = new Set(["ZIG", "ZWG", "ZWL"]);
-
-      if (fc === "USD" && zigCodes.has(tc)) return snapshot;
-      if (zigCodes.has(fc) && tc === "USD") return 1 / snapshot;
+      if (fc0 === "USD" && zigCodes.has(tc0)) return snapshot;
+      if (zigCodes.has(fc0) && tc0 === "USD") return 1 / snapshot;
     }
+
+    // 7. Inactive rows (still better than failing when only legacy/deactivated rates exist)
+    row = await prisma.exchangeRate.findFirst({
+      where: {
+        fromCurrencyId: { in: fromIds },
+        toCurrencyId: { in: toIds },
+        date: { lte: normalized },
+        rate: { gt: 0 },
+      },
+      orderBy: { date: "desc" },
+    });
+    if (row && Number(row.rate) > 0) return Number(row.rate);
+
+    inv = await prisma.exchangeRate.findFirst({
+      where: {
+        fromCurrencyId: { in: toIds },
+        toCurrencyId: { in: fromIds },
+        date: { lte: normalized },
+        rate: { gt: 0 },
+      },
+      orderBy: { date: "desc" },
+    });
+    if (inv && Number(inv.rate) > 0) return 1 / Number(inv.rate);
+
+    row = await prisma.exchangeRate.findFirst({
+      where: {
+        fromCurrencyId: { in: fromIds },
+        toCurrencyId: { in: toIds },
+        rate: { gt: 0 },
+      },
+      orderBy: { date: "desc" },
+    });
+    if (row && Number(row.rate) > 0) return Number(row.rate);
+
+    inv = await prisma.exchangeRate.findFirst({
+      where: {
+        fromCurrencyId: { in: toIds },
+        toCurrencyId: { in: fromIds },
+        rate: { gt: 0 },
+      },
+      orderBy: { date: "desc" },
+    });
+    if (inv && Number(inv.rate) > 0) return 1 / Number(inv.rate);
 
     throw new Error(`No exchange rate found for currency conversion (${fromCurrencyId} → ${toCurrencyId})`);
   }
@@ -139,11 +251,19 @@ export class ConsolidatedReportService {
     });
     const codeMap = new Map(currencies.map((c) => [c.id, c.code]));
 
-    const usdCurrency = currencies.find((c) => c.code.toUpperCase() === "USD");
+    const targetRow = currencies.find((c) => c.id === targetCurrencyId);
+    const targetCodeNorm = targetRow ? this.normalizeCurrencyCode(targetRow.code) : "";
+
+    const usdCurrency = currencies.find((c) => this.normalizeCurrencyCode(c.code) === "USD");
     const usdId = usdCurrency?.id;
 
     for (const cid of currencyIds) {
-      if (cid === targetCurrencyId) {
+      const cidCode = codeMap.get(cid);
+      const cidNorm = cidCode ? this.normalizeCurrencyCode(cidCode) : "";
+      if (
+        cid === targetCurrencyId ||
+        (targetCodeNorm && cidNorm && targetCodeNorm === cidNorm)
+      ) {
         cache.set(cid, { rate: 1, code: codeMap.get(cid) ?? "???" });
         continue;
       }
