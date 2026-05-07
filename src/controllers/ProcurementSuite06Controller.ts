@@ -5,6 +5,18 @@ import { VendorInvoiceIntakeService } from "../services/VendorInvoiceIntakeServi
 import { ThreeWayMatchService } from "../services/ThreeWayMatchService";
 
 export class ProcurementSuite06Controller {
+  private static async withTimeout<T>(label: string, ms: number, p: Promise<T>): Promise<T> {
+    let t: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    });
+    try {
+      return await Promise.race([p, timeout]);
+    } finally {
+      if (t) clearTimeout(t);
+    }
+  }
+
   static async createIntake(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
@@ -33,10 +45,11 @@ export class ProcurementSuite06Controller {
       }
 
       const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
-      const { downloadURL: documentUrl } = await FirebaseStorageService.uploadProcurementVendorInvoice(
-        file.buffer,
-        file.originalname || "invoice.pdf",
-        userId
+      const startedAt = Date.now();
+      const { downloadURL: documentUrl } = await this.withTimeout(
+        "Upload vendor invoice PDF",
+        70_000,
+        FirebaseStorageService.uploadProcurementVendorInvoice(file.buffer, file.originalname || "invoice.pdf", userId)
       );
 
       const data = await VendorInvoiceIntakeService.createIntake({
@@ -46,9 +59,15 @@ export class ProcurementSuite06Controller {
         goodsReceivedNoteId: grnId,
         createdById: userId,
       });
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs > 15_000) {
+        console.warn(`[Suite06] createIntake slow path ${elapsedMs}ms`, { vendorId: vid, poId, grnId });
+      }
       res.status(201).json({ success: true, data });
     } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message });
+      const msg = e?.message || "Failed to create intake";
+      const isTimeout = /timed out/i.test(msg);
+      res.status(isTimeout ? 504 : 500).json({ success: false, message: msg });
     }
   }
 
@@ -102,10 +121,10 @@ export class ProcurementSuite06Controller {
       }
 
       const { FirebaseStorageService } = await import("../services/FirebaseStorageService");
-      const { downloadURL: documentUrl } = await FirebaseStorageService.uploadProcurementVendorInvoice(
-        file.buffer,
-        file.originalname || "invoice.pdf",
-        userId
+      const { downloadURL: documentUrl } = await this.withTimeout(
+        "Upload vendor invoice PDF",
+        70_000,
+        FirebaseStorageService.uploadProcurementVendorInvoice(file.buffer, file.originalname || "invoice.pdf", userId)
       );
 
       await VendorInvoiceIntakeService.updateIntakeBeforeExtract({
@@ -119,7 +138,9 @@ export class ProcurementSuite06Controller {
       const data = await VendorInvoiceIntakeService.runExtraction(intakeId);
       res.json({ success: true, data });
     } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message });
+      const msg = e?.message || "Failed to extract intake";
+      const isTimeout = /timed out/i.test(msg);
+      res.status(isTimeout ? 504 : 500).json({ success: false, message: msg });
     }
   }
 

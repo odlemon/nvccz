@@ -144,6 +144,23 @@ router.post(
   ProcurementSuite06Controller.runExtract
 );
 
+// Ensure multer + route errors return JSON (otherwise clients can hang waiting on a response).
+router.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (!err) {
+    return res.status(500).json({ success: false, message: "Unknown error" });
+  }
+  // Multer file size / parsing errors
+  if (err instanceof multer.MulterError) {
+    const msg =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "PDF is too large (max 15MB)"
+        : err.message || "Upload failed";
+    return res.status(400).json({ success: false, message: msg, error: err.code });
+  }
+  // fileFilter / other thrown errors
+  return res.status(400).json({ success: false, message: err.message || "Request failed" });
+});
+
 /**
  * @swagger
  * /procurement/suite06/intakes/{id}/verify:
