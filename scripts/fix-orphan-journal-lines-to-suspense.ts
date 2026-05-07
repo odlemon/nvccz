@@ -32,6 +32,7 @@ async function ensureSuspenseAccount() {
       accountName: "Suspense (Orphaned Journal Lines)",
       accountType: "Expense",
       financialStatement: "Income Statement",
+      naturalBalance: "DEBIT",
       notes: "Auto-created to repair orphan journal entry lines with missing chart_of_accounts references.",
       isActive: true,
     },
@@ -43,21 +44,20 @@ async function ensureSuspenseAccount() {
 async function main() {
   const suspense = await ensureSuspenseAccount();
 
-  // Find orphan chartOfAccountIds via raw SQL (faster than fetching full lists).
-  const orphans: Array<{ chartOfAccountId: string; cnt: number }> = (await prisma.$queryRawUnsafe(`
-    SELECT jel.chartOfAccountId as chartOfAccountId, COUNT(*) as cnt
-    FROM journal_entry_lines jel
-    LEFT JOIN chart_of_accounts coa ON coa.id = jel.chartOfAccountId
-    WHERE coa.id IS NULL
-    GROUP BY jel.chartOfAccountId
-  `)) as any;
+  const distinctLines = await prisma.journalEntryLine.findMany({
+    distinct: ["chartOfAccountId"],
+    select: { chartOfAccountId: true },
+  });
+  const coaIds = new Set(
+    (await prisma.chartOfAccounts.findMany({ select: { id: true } })).map((c) => c.id)
+  );
 
-  if (!orphans.length) {
+  const orphanIds = distinctLines.map((r) => r.chartOfAccountId).filter((id) => !coaIds.has(id));
+
+  if (!orphanIds.length) {
     console.log("fix-orphan-journal-lines-to-suspense: no orphan journal entry lines found.");
     return;
   }
-
-  const orphanIds = orphans.map((o) => String(o.chartOfAccountId));
 
   const res = await prisma.journalEntryLine.updateMany({
     where: { chartOfAccountId: { in: orphanIds } },
@@ -65,10 +65,10 @@ async function main() {
   });
 
   console.log("fix-orphan-journal-lines-to-suspense:", {
-    suspense: suspense,
+    suspense,
     distinctOrphanAccountIds: orphanIds.length,
     updatedLines: res.count,
-    sampleOrphans: orphans.slice(0, 10),
+    orphanIdsSample: orphanIds.slice(0, 15),
   });
 }
 
