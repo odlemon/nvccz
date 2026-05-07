@@ -168,6 +168,63 @@ export class ConsolidatedReportService {
     return cache;
   }
 
+  /**
+   * Posted JE lines with chart-of-account metadata. Loads COA in a second query so rows whose
+   * `chartOfAccountId` no longer exists (DB drift) are skipped instead of failing Prisma's required relation.
+   */
+  private static async loadJournalLinesWithCoaForConsolidated(journalEntryWhere: Record<string, unknown>) {
+    const raw = await prisma.journalEntryLine.findMany({
+      where: { journalEntry: { is: journalEntryWhere } },
+      select: {
+        chartOfAccountId: true,
+        debitAmount: true,
+        creditAmount: true,
+        journalEntry: { select: { currencyId: true } },
+      },
+    });
+
+    const ids = [...new Set(raw.map((r) => r.chartOfAccountId))];
+    const coas = await prisma.chartOfAccounts.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        accountNo: true,
+        accountName: true,
+        accountType: true,
+        financialStatement: true,
+      },
+    });
+    const coaMap = new Map(coas.map((c) => [c.id, c]));
+
+    const orphanCount = raw.filter((r) => !coaMap.has(r.chartOfAccountId)).length;
+    if (orphanCount > 0) {
+      console.warn(
+        `[ConsolidatedReportService] Skipping ${orphanCount} journal line(s) with missing chart of account rows (orphan chartOfAccountId).`
+      );
+    }
+
+    const out: Array<{
+      chartOfAccountId: string;
+      debitAmount: (typeof raw)[number]["debitAmount"];
+      creditAmount: (typeof raw)[number]["creditAmount"];
+      journalEntry: { currencyId: string | null };
+      chartOfAccount: (typeof coas)[number];
+    }> = [];
+
+    for (const line of raw) {
+      const coa = coaMap.get(line.chartOfAccountId);
+      if (!coa) continue;
+      out.push({
+        chartOfAccountId: line.chartOfAccountId,
+        debitAmount: line.debitAmount,
+        creditAmount: line.creditAmount,
+        journalEntry: line.journalEntry,
+        chartOfAccount: coa,
+      });
+    }
+    return out;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  CONSOLIDATED BALANCE SHEET
   // ═══════════════════════════════════════════════════════════════════════════
@@ -200,16 +257,7 @@ export class ConsolidatedReportService {
       orderBy: { accountNo: "asc" },
     });
 
-    const journalLines = await prisma.journalEntryLine.findMany({
-      where: { journalEntry: { is: journalEntryWhere } },
-      select: {
-        chartOfAccountId: true,
-        debitAmount: true,
-        creditAmount: true,
-        chartOfAccount: { select: { id: true, accountNo: true, accountName: true, accountType: true } },
-        journalEntry: { select: { currencyId: true } },
-      },
-    });
+    const journalLines = await this.loadJournalLinesWithCoaForConsolidated(journalEntryWhere);
 
     // Collect all distinct currencies used
     const currencyIds = new Set<string>();
@@ -378,24 +426,7 @@ export class ConsolidatedReportService {
     // Fetch ALL posted JE lines — no currency filter
     const journalEntryWhere = buildJournalEntryWhereForGlReporting({ gte: sd, lte: ed });
 
-    const journalLines = await prisma.journalEntryLine.findMany({
-      where: { journalEntry: { is: journalEntryWhere } },
-      select: {
-        chartOfAccountId: true,
-        debitAmount: true,
-        creditAmount: true,
-        chartOfAccount: {
-          select: {
-            id: true,
-            accountNo: true,
-            accountName: true,
-            accountType: true,
-            financialStatement: true,
-          },
-        },
-        journalEntry: { select: { currencyId: true } },
-      },
-    });
+    const journalLines = await this.loadJournalLinesWithCoaForConsolidated(journalEntryWhere);
 
     // Only income statement accounts
     const isIncomeStatementAccount = (fs: string | null) =>
