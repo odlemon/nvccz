@@ -47,6 +47,16 @@ function resolveMediaBaseUrl(): string {
   return "/api/public-media";
 }
 
+/** Collapse accidental .../api/public-media/api/public-media/... from bad URL rewriting. */
+export function collapseDuplicatePublicMediaPath(url: string): string {
+  let u = String(url || "");
+  const dup = "/api/public-media/api/public-media/";
+  while (u.includes(dup)) {
+    u = u.replace(dup, "/api/public-media/");
+  }
+  return u;
+}
+
 /** Path under uploads/ (e.g. term-sheet-signatures/foo.png) from any stored URL shape. */
 export function extractRelativeMediaPath(stored: string): string {
   const q = stored.split("?")[0];
@@ -58,7 +68,11 @@ export function extractRelativeMediaPath(stored: string): string {
   const pm = "/api/public-media/";
   idx = q.indexOf(pm);
   if (idx >= 0) {
-    return normalizeMalformedSignaturePath(q.slice(idx + pm.length).replace(/^\/+/, ""));
+    let rel = q.slice(idx + pm.length).replace(/^\/+/, "");
+    while (/^api\/public-media\//i.test(rel)) {
+      rel = rel.replace(/^api\/public-media\//i, "");
+    }
+    return normalizeMalformedSignaturePath(rel);
   }
   return normalizeMalformedSignaturePath(q.replace(/^\/+/, ""));
 }
@@ -105,6 +119,12 @@ function toPublicMediaUrlFromUploadResponse(
     const relative = normalizeMalformedSignaturePath(
       uploadResponseUrl.slice(idx + marker.length).replace(/^\/+/, "")
     );
+    return appendPublicMediaCacheBuster(`${resolveMediaBaseUrl()}/${relative}`);
+  }
+  // Upload service may already return .../api/public-media/<file> — do not prefix again (avoids /api/public-media/api/public-media/).
+  const pmInResponse = "/api/public-media/";
+  if (uploadResponseUrl.indexOf(pmInResponse) >= 0) {
+    const relative = extractRelativeMediaPath(uploadResponseUrl);
     return appendPublicMediaCacheBuster(`${resolveMediaBaseUrl()}/${relative}`);
   }
   const trimmed = uploadResponseUrl.replace(/^https?:\/\/[^/]+\//, "");

@@ -5,6 +5,7 @@ import { createHash } from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import { logger } from '../utils/logger';
+import { collapseDuplicatePublicMediaPath } from './RemoteUploadService';
 
 export interface ApplicationDocumentReference {
   url: string;
@@ -71,7 +72,7 @@ export class DocumentTextExtractionService {
   static resolveDocumentUrlForFetch(url: string): string {
     const u = String(url || '').trim();
     if (!u) throw new Error('Empty document URL');
-    if (/^https?:\/\//i.test(u)) return u;
+    if (/^https?:\/\//i.test(u)) return collapseDuplicatePublicMediaPath(u);
     let origin =
       process.env.API_INTERNAL_BASE_URL?.trim() ||
       process.env.BASE_URL?.trim() ||
@@ -81,7 +82,7 @@ export class DocumentTextExtractionService {
       origin = origin.replace(/\/api$/i, '');
     }
     const path = u.startsWith('/') ? u : `/${u}`;
-    return `${origin}${path}`;
+    return collapseDuplicatePublicMediaPath(`${origin}${path}`);
   }
 
   private static async extractSingleDocument(

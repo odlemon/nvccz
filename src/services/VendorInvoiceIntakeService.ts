@@ -5,10 +5,15 @@ import { VendorInvoiceExtractionService } from "./VendorInvoiceExtractionService
 import { PurchaseInvoiceService } from "./PurchaseInvoiceService";
 import { getSuite06MatchConfidenceThreshold } from "../config/suite06Config";
 import AuditService from "./AuditService";
+import { collapseDuplicatePublicMediaPath } from "./RemoteUploadService";
 
 const INTAKE_PREFIX = "VIN";
 
 export class VendorInvoiceIntakeService {
+  private static normalizeDocumentUrl(url: string): string {
+    return collapseDuplicatePublicMediaPath(String(url || "").trim());
+  }
+
   private static async generateIntakeNumber(): Promise<string> {
     const y = new Date().getFullYear();
     const last = await prisma.vendorInvoiceIntake.findFirst({
@@ -47,7 +52,7 @@ export class VendorInvoiceIntakeService {
     return prisma.vendorInvoiceIntake.create({
       data: {
         intakeNumber,
-        documentUrl: params.documentUrl,
+        documentUrl: this.normalizeDocumentUrl(params.documentUrl),
         vendorId: params.vendorId,
         sourcePurchaseOrderId: params.sourcePurchaseOrderId,
         goodsReceivedNoteId: params.goodsReceivedNoteId,
@@ -58,7 +63,7 @@ export class VendorInvoiceIntakeService {
   }
 
   /**
-   * Update stored PDF URL and links before re-running extraction (POST …/intakes/:id/extract with multipart).
+   * Update stored PDF URL and links (e.g. after POST …/intakes/:id/document replaces the PDF).
    */
   static async updateIntakeBeforeExtract(params: {
     intakeId: string;
@@ -70,7 +75,7 @@ export class VendorInvoiceIntakeService {
     return prisma.vendorInvoiceIntake.update({
       where: { id: params.intakeId },
       data: {
-        documentUrl: params.documentUrl,
+        documentUrl: this.normalizeDocumentUrl(params.documentUrl),
         vendorId: params.vendorId,
         sourcePurchaseOrderId: params.sourcePurchaseOrderId,
         goodsReceivedNoteId: params.goodsReceivedNoteId,
@@ -84,6 +89,15 @@ export class VendorInvoiceIntakeService {
   static async runExtraction(intakeId: string) {
     const intake = await prisma.vendorInvoiceIntake.findUnique({ where: { id: intakeId } });
     if (!intake) throw new Error("Intake not found");
+
+    const cleanedUrl = this.normalizeDocumentUrl(intake.documentUrl);
+    if (cleanedUrl && cleanedUrl !== intake.documentUrl) {
+      await prisma.vendorInvoiceIntake.update({
+        where: { id: intakeId },
+        data: { documentUrl: cleanedUrl },
+      });
+      intake.documentUrl = cleanedUrl;
+    }
 
     const hints = await this.getCorrectionMap(intake.vendorId);
     const rawText = await VendorInvoiceExtractionService.extractTextFromUrl(
@@ -166,7 +180,41 @@ export class VendorInvoiceIntakeService {
       },
     });
     if (!row) throw new Error("Intake not found");
+    if (row.documentUrl) row.documentUrl = this.normalizeDocumentUrl(row.documentUrl);
     return row;
+  }
+
+  static async listIntakes(params: {
+    skip?: number;
+    take?: number;
+    status?: string;
+    vendorId?: string;
+  }) {
+    const take = Math.min(100, Math.max(1, params.take ?? 50));
+    const skip = Math.max(0, params.skip ?? 0);
+    const where: Record<string, unknown> = {};
+    if (params.status) where.status = params.status;
+    if (params.vendorId) where.vendorId = params.vendorId;
+
+    const [items, total] = await Promise.all([
+      prisma.vendorInvoiceIntake.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+        include: {
+          vendor: { select: { id: true, name: true, bpNumber: true } },
+          sourcePurchaseOrder: { select: { id: true, poNumber: true } },
+          goodsReceivedNote: { select: { id: true, grnNumber: true } },
+          purchaseInvoice: { select: { id: true, invoiceNumber: true, suite06MatchStatus: true } },
+        },
+      }),
+      prisma.vendorInvoiceIntake.count({ where }),
+    ]);
+    for (const it of items as any[]) {
+      if (it?.documentUrl) it.documentUrl = this.normalizeDocumentUrl(it.documentUrl);
+    }
+    return { items, total, skip, take };
   }
 
   static async listVerificationQueue(take = 50) {
