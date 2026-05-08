@@ -7,6 +7,7 @@ import {
 } from "../services/PurchaseInvoiceService";
 import { prisma } from "../utils/database";
 import { parseDate } from "../utils/dateHelper";
+import { isAdminViewer } from "../services/performanceScorecardSupport";
 
 export class ProcurementController {
   /**
@@ -163,11 +164,14 @@ export class ProcurementController {
           id: true,
           userDepartment: true,
           departmentRole: true,
-          roleCode: true
+          roleCode: true,
+          role: { select: { name: true } },
         }
       });
 
-      if (!user || !user.userDepartment) {
+      const isAdmin = user ? isAdminViewer(user) || user.roleCode === "ADMIN" : false;
+
+      if (!user || (!isAdmin && !user.userDepartment)) {
         return res.status(403).json({
           success: false,
           message: "User is not assigned to any department"
@@ -176,6 +180,7 @@ export class ProcurementController {
 
       // Check if user can view requisitions (HEAD, DEPUTY, or PROC_MGR)
       const canView = 
+        isAdmin ||
         user.departmentRole === 'HEAD' || 
         user.departmentRole === 'DEPUTY' || 
         user.roleCode === 'PROC_MGR';
@@ -196,15 +201,17 @@ export class ProcurementController {
       } = req.query;
 
       // Filter by user's department - requisitions target the department
-      const where: any = {
-        department: user.userDepartment // Requisitions are filtered by department name
-      };
+      const where: any = isAdmin
+        ? {}
+        : { department: user.userDepartment }; // Non-admins are filtered by department name
 
       if (status) where.status = status;
       if (requestedById) where.requestedById = requestedById;
       if (priority) where.priority = priority;
 
-      await ProcurementService.applyInvesteeFundScopeToDepartmentRequisitionWhere(userId, where);
+      if (!isAdmin) {
+        await ProcurementService.applyInvesteeFundScopeToDepartmentRequisitionWhere(userId, where);
+      }
 
       const requisitions = await prisma.purchaseRequisition.findMany({
         where,
@@ -250,10 +257,12 @@ export class ProcurementController {
 
       res.status(200).json({
         success: true,
-        message: `Requisitions for ${user.userDepartment} department retrieved successfully`,
+        message: isAdmin
+          ? "Requisitions retrieved successfully"
+          : `Requisitions for ${user.userDepartment} department retrieved successfully`,
         data: requisitions,
         count: requisitions.length,
-        department: user.userDepartment
+        ...(isAdmin ? {} : { department: user.userDepartment })
       });
     } catch (error: any) {
       console.error("Error getting purchase requisitions:", error);
