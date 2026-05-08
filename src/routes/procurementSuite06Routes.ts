@@ -67,12 +67,44 @@ const uploadVendorInvoicePdf = multer({
  *         description: Intake created (status DRAFT)
  *       400:
  *         description: Validation error
+ *   get:
+ *     summary: List vendor invoice intakes (paginated)
+ *     description: Returns `{ success, data: { items, total, skip, take } }`.
+ *     tags: [Procurement — AI invoice intake (Suite 06)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: take
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Page size (max 100)
+ *       - in: query
+ *         name: skip
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Filter by intake status (e.g. DRAFT, EXTRACTED, PENDING_VERIFICATION)
+ *       - in: query
+ *         name: vendorId
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: OK
  */
 router.post(
   "/intakes",
   uploadVendorInvoicePdf.single("document"),
   ProcurementSuite06Controller.createIntake
 );
+
+router.get("/intakes", ProcurementSuite06Controller.listIntakes);
 
 /**
  * @swagger
@@ -82,6 +114,18 @@ router.post(
  *     tags: [Procurement — AI invoice intake (Suite 06)]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Vendor invoice intake id (cuid)
+ *     responses:
+ *       200:
+ *         description: OK
+ *       404:
+ *         description: Intake not found
  */
 router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
 
@@ -89,13 +133,48 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  * @swagger
  * /procurement/suite06/intakes/{id}/extract:
  *   post:
- *     summary: Run PDF text extraction + LLM structured parse
+ *     summary: Run extraction from saved intake (no PDF re-upload)
  *     description: |
- *       **Content-Type:** `multipart/form-data`** — **`document`** (PDF) is always required.
- *       **`vendorId`**, **`sourcePurchaseOrderId`**, **`goodsReceivedNoteId`** may be omitted if they were already
- *       saved when creating the intake (**POST …/intakes**); otherwise include them again (or to change links).
- *       The PDF is uploaded first; the intake row is updated with the new URL and final ids, then extraction runs.
- *       URL-only (`documentUrl`) is not supported.
+ *       Uses **`documentUrl`**, **`vendorId`**, **`sourcePurchaseOrderId`**, and **`goodsReceivedNoteId`** already stored on the intake
+ *       (from **POST …/intakes**). **Body optional:** JSON to override links before parsing.
+ *       To replace the PDF only, use **POST …/intakes/{id}/document** then call extract again.
+ *     tags: [Procurement — AI invoice intake (Suite 06)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Vendor invoice intake id (cuid)
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               vendorId: { type: string, description: Optional override }
+ *               sourcePurchaseOrderId: { type: string, description: Optional override }
+ *               goodsReceivedNoteId: { type: string, description: Optional override }
+ *     responses:
+ *       200:
+ *         description: Intake updated (EXTRACTED or PENDING_VERIFICATION)
+ *       400:
+ *         description: Validation error
+ *       404:
+ *         description: Intake not found
+ */
+router.post("/intakes/:id/extract", ProcurementSuite06Controller.runExtract);
+
+/**
+ * @swagger
+ * /procurement/suite06/intakes/{id}/document:
+ *   post:
+ *     summary: Replace PDF stored on intake
+ *     description: |
+ *       **multipart/form-data** — field **`document`** (PDF, max 15MB). Updates `documentUrl`; call **POST …/extract** afterward to re-parse.
  *     tags: [Procurement — AI invoice intake (Suite 06)]
  *     security:
  *       - bearerAuth: []
@@ -118,46 +197,20 @@ router.get("/intakes/:id", ProcurementSuite06Controller.getIntake);
  *               document:
  *                 type: string
  *                 format: binary
- *                 description: PDF invoice file (field **document**, max 15MB).
- *               vendorId:
- *                 type: string
- *                 description: Vendor id (cuid). Optional if already on the intake.
- *               sourcePurchaseOrderId:
- *                 type: string
- *                 description: Linked purchase order id (cuid). Optional if already on the intake.
- *               goodsReceivedNoteId:
- *                 type: string
- *                 description: Linked goods received note id (cuid). Optional if already on the intake.
+ *                 description: PDF — field name **document**
  *     responses:
  *       200:
- *         description: Intake updated (EXTRACTED or PENDING_VERIFICATION)
+ *         description: OK
  *       400:
  *         description: Validation error
  *       404:
  *         description: Intake not found
  */
 router.post(
-  "/intakes/:id/extract",
+  "/intakes/:id/document",
   uploadVendorInvoicePdf.single("document"),
-  ProcurementSuite06Controller.runExtract
+  ProcurementSuite06Controller.replaceIntakeDocument
 );
-
-// Ensure multer + route errors return JSON (otherwise clients can hang waiting on a response).
-router.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (!err) {
-    return res.status(500).json({ success: false, message: "Unknown error" });
-  }
-  // Multer file size / parsing errors
-  if (err instanceof multer.MulterError) {
-    const msg =
-      err.code === "LIMIT_FILE_SIZE"
-        ? "PDF is too large (max 15MB)"
-        : err.message || "Upload failed";
-    return res.status(400).json({ success: false, message: msg, error: err.code });
-  }
-  // fileFilter / other thrown errors
-  return res.status(400).json({ success: false, message: err.message || "Request failed" });
-});
 
 /**
  * @swagger
@@ -253,5 +306,19 @@ router.get("/verification-queue", ProcurementSuite06Controller.verificationQueue
  *       - bearerAuth: []
  */
 router.get("/cfo-dashboard", ProcurementSuite06Controller.cfoDashboard);
+
+router.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (!err) {
+    return res.status(500).json({ success: false, message: "Unknown error" });
+  }
+  if (err instanceof multer.MulterError) {
+    const msg =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "PDF is too large (max 15MB)"
+        : err.message || "Upload failed";
+    return res.status(400).json({ success: false, message: msg, error: err.code });
+  }
+  return res.status(400).json({ success: false, message: err.message || "Request failed" });
+});
 
 export default router;
