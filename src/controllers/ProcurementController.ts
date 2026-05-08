@@ -126,11 +126,50 @@ export class ProcurementController {
         });
       }
 
-      const requisitions = await ProcurementService.getPendingRequisitionsForDepartmentHead(userId);
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, roleCode: true, userDepartment: true, departmentRole: true, role: { select: { name: true } } },
+      });
+      const isAdmin = user ? isAdminViewer(user) || user.roleCode === "ADMIN" : false;
+
+      const requisitions = isAdmin
+        ? await prisma.purchaseRequisition.findMany({
+            where: { status: "PENDING_APPROVAL" },
+            include: {
+              requestedBy: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  userDepartment: true,
+                  departmentRole: true,
+                  roleCode: true,
+                },
+              },
+              approvedBy: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  userDepartment: true,
+                  departmentRole: true,
+                  roleCode: true,
+                },
+              },
+              currency: { select: { id: true, code: true, name: true, symbol: true } },
+              items: true,
+            },
+            orderBy: { createdAt: "desc" },
+          })
+        : await ProcurementService.getPendingRequisitionsForDepartmentHead(userId);
 
       res.status(200).json({
         success: true,
-        message: "Pending requisitions for your department retrieved successfully",
+        message: isAdmin
+          ? "Pending requisitions retrieved successfully"
+          : "Pending requisitions for your department retrieved successfully",
         data: requisitions,
         count: requisitions.length
       });
