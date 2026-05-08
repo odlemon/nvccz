@@ -597,6 +597,20 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
       },
       responses: { 201: { description: "Created" }, 400: { description: "Validation error" } },
     },
+    get: {
+      summary: "List vendor invoice intakes",
+      description:
+        "Paginated list. Query: `take` (default 50), `skip`, optional `status`, optional `vendorId`.",
+      tags: [S06_INTAKE],
+      security: bearer,
+      parameters: [
+        { in: "query", name: "take", schema: { type: "integer", default: 50 } },
+        { in: "query", name: "skip", schema: { type: "integer", default: 0 } },
+        { in: "query", name: "status", schema: { type: "string" } },
+        { in: "query", name: "vendorId", schema: { type: "string" } },
+      ],
+      responses: { 200: { description: "OK" } },
+    },
   },
   "/procurement/suite06/intakes/{id}": {
     get: {
@@ -609,9 +623,9 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
   },
   "/procurement/suite06/intakes/{id}/extract": {
     post: {
-      summary: "Run PDF text extraction + LLM structured parse",
+      summary: "Run PDF text extraction + LLM structured parse (uses saved intake — no re-upload)",
       description:
-        "**multipart/form-data** — required fields: **document** (PDF), **vendorId**, **sourcePurchaseOrderId**, **goodsReceivedNoteId** (same as create intake). Updates the intake `{id}` with the uploaded file URL and ids, then runs extraction. `documentUrl` is not accepted.",
+        "Uses `documentUrl` and PO/GRN/vendor ids already on the intake. Optional JSON body fields `vendorId`, `sourcePurchaseOrderId`, `goodsReceivedNoteId` override before parse. To swap PDF: **POST …/intakes/{id}/document** (multipart `document`) then extract again.",
       tags: [S06_INTAKE],
       security: bearer,
       parameters: [
@@ -624,29 +638,15 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
         },
       ],
       requestBody: {
-        required: true,
+        required: false,
         content: {
-          "multipart/form-data": {
+          "application/json": {
             schema: {
               type: "object",
-              required: ["document", "vendorId", "sourcePurchaseOrderId", "goodsReceivedNoteId"],
               properties: {
-                document: {
-                  type: "string",
-                  format: "binary",
-                  description: "PDF file — field name **document** (max 15MB).",
-                },
-                vendorId: { type: "string", example: "vend_cuid_123", description: "Vendor id (cuid)." },
-                sourcePurchaseOrderId: {
-                  type: "string",
-                  example: "po_cuid_123",
-                  description: "Purchase order id (cuid).",
-                },
-                goodsReceivedNoteId: {
-                  type: "string",
-                  example: "grn_cuid_123",
-                  description: "Goods received note id (cuid).",
-                },
+                vendorId: { type: "string" },
+                sourcePurchaseOrderId: { type: "string" },
+                goodsReceivedNoteId: { type: "string" },
               },
             },
           },
@@ -657,6 +657,29 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
         400: { description: "Validation error" },
         404: { description: "Intake not found" },
       },
+    },
+  },
+  "/procurement/suite06/intakes/{id}/document": {
+    post: {
+      summary: "Replace PDF stored on intake (multipart field document)",
+      tags: [S06_INTAKE],
+      security: bearer,
+      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: true,
+        content: {
+          "multipart/form-data": {
+            schema: {
+              type: "object",
+              required: ["document"],
+              properties: {
+                document: { type: "string", format: "binary", description: "PDF — field **document**" },
+              },
+            },
+          },
+        },
+      },
+      responses: { 200: { description: "OK" }, 400: { description: "Validation" }, 404: { description: "Not found" } },
     },
   },
   "/procurement/suite06/intakes/{id}/verify": {
