@@ -1334,24 +1334,37 @@ export class AccountingDashboardService {
 
   /**
    * Format assets summary
+   *
+   * `currentAssets.total` from the balance-sheet builder includes a synthetic
+   * "Cash and Cash Equivalents" line equal to `cashAndCashEquivalents.total`.
+   * To avoid double-counting when clients sum rows or draw treemaps, we show:
+   * - Cash & Bank Balance (cash total)
+   * - Current Assets excluding that embedded cash line (non-cash current only)
    */
   private static formatAssetsSummary(assets: any): AssetBreakdown[] {
     const summary: AssetBreakdown[] = [];
     const total = assets.totalAssets;
 
-    if (Math.abs(assets.cashAndCashEquivalents.total) > 0.01) {
+    const cashTotal = Number(assets.cashAndCashEquivalents?.total ?? 0);
+    const currentTotal = Number(assets.currentAssets?.total ?? 0);
+    const hasCashLine = Math.abs(cashTotal) > 0.01;
+    const currentAmount = hasCashLine ? currentTotal - cashTotal : currentTotal;
+
+    if (hasCashLine) {
       summary.push({
         category: 'Cash & Bank Balance',
-        amount: assets.cashAndCashEquivalents.total,
-        percent: total !== 0 ? (assets.cashAndCashEquivalents.total / total) * 100 : 0
+        amount: cashTotal,
+        percent: total !== 0 ? (cashTotal / total) * 100 : 0
       });
     }
 
-    if (Math.abs(assets.currentAssets.total) > 0.01) {
+    if (Math.abs(currentAmount) > 0.01) {
       summary.push({
-        category: 'Current Assets',
-        amount: assets.currentAssets.total,
-        percent: total !== 0 ? (assets.currentAssets.total / total) * 100 : 0
+        category: hasCashLine
+          ? 'Current Assets (excl. cash & equivalents)'
+          : 'Current Assets',
+        amount: currentAmount,
+        percent: total !== 0 ? (currentAmount / total) * 100 : 0
       });
     }
 
@@ -1399,8 +1412,9 @@ export class AccountingDashboardService {
       });
     }
 
-    // Current assets breakdown
+    // Current assets breakdown (skip synthetic aggregate — cash is already listed above)
     for (const account of assets.currentAssets.accounts || []) {
+      if (account.accountNo === 'CASH-EQUIV') continue;
       detailed.push({
         category: account.accountName,
         amount: account.balance,

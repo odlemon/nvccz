@@ -203,9 +203,6 @@ const router = Router();
  *                         name:
  *                           type: string
  *                           example: "Eva Chowdary"
- *                         pictureUrl:
- *                           type: string
- *                           nullable: true
  *                         role:
  *                           type: string
  *                           example: "UI/UX Designer"
@@ -215,19 +212,23 @@ const router = Router();
  *                         email:
  *                           type: string
  *                           example: "example@gmail.com"
- *                         phone:
- *                           type: string
- *                           nullable: true
- *                           example: "+0245801254"
- *                         totalTimeWorked:
- *                           type: number
- *                           example: 12.45
  *                         taskCount:
  *                           type: number
+ *                           description: Total tasks the user was on this month
  *                           example: 15
+ *                         tasksCompleted:
+ *                           type: number
+ *                           example: 12
+ *                         tasksInProgress:
+ *                           type: number
+ *                           example: 2
+ *                         tasksPending:
+ *                           type: number
+ *                           example: 1
  *                         completionRate:
  *                           type: number
- *                           example: 95.5
+ *                           description: tasksCompleted / taskCount * 100
+ *                           example: 80
  *                     period:
  *                       type: object
  *                       properties:

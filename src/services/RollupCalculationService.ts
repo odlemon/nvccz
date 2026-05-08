@@ -21,7 +21,6 @@ export class RollupCalculationService {
             select: {
               id: true,
               name: true,
-              type: true,
               unitSymbol: true,
               unitPosition: true
             }

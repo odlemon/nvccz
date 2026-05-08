@@ -366,7 +366,7 @@ export class PayrollService {
     });
   }
 
-  private static async persistPayrollDeductionLinesFromCalculation(
+  static async persistPayrollDeductionLinesFromCalculation(
     employeePayrollId: string,
     calculation: PayrollCalculationResult,
     currencyId: string | null
@@ -861,14 +861,19 @@ export class PayrollService {
         }
       }
 
-      // Create journal entry
       // Use payroll run endDate as the accounting date so KPI analytics and financial statements land in the correct period.
+      // BUT clamp it to "now" if endDate is in the future, otherwise the JE is parked in the future and the
+      // GL viewer's default date filter hides it. Past periods → real period date. Future-dated test runs → today.
+      const now = new Date();
+      const accountingDate = payrollRun.endDate.getTime() > now.getTime()
+        ? now
+        : payrollRun.endDate;
       // Generate unique reference number by including timestamp to avoid duplicate reference number errors
       const timestamp = Date.now();
       const uniqueReferenceNumber = `PAYROLL-${payrollRun.payPeriod.replace(/\s+/g, '-').toUpperCase()}-${timestamp}`;
       
       const journalEntry = await createJournalEntryWithAuditSequence({
-        transactionDate: payrollRun.endDate,
+        transactionDate: accountingDate,
         referenceNumber: uniqueReferenceNumber,
         description: `Payroll Journal - Gross Pay: ${payrollRun.name} (${payrollRun.payPeriod})`,
         totalAmount: totalGrossPay,
