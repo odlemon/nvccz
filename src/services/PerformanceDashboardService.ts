@@ -87,22 +87,19 @@ export interface PerformanceDashboardData {
   };
   
   // Employee Of The Month
+  // NOTE: We do not track real clock-in/out hours, so time-based fields have been removed.
+  // Selection and reported numbers are derived purely from task completion in the period.
   employeeOfTheMonth: {
     userId: string;
     name: string;
-    pictureUrl: string | null;
     role: string;
     department: string;
     email: string;
-      phone: string | null; // Note: phone field not available in User model, will be null
-    totalTimeWorked: number; // Total hours worked (hours + minutes as decimal)
-    timeBreakdown: {
-      activeTime: number; // hours
-      extraTime: number; // hours
-      pauseTime: number; // hours
-    };
-    taskCount: number;
-    completionRate: number;
+    taskCount: number;        // total tasks the user was on this month
+    tasksCompleted: number;   // tasks at stage='completed'
+    tasksInProgress: number;  // tasks at stage='in_progress'
+    tasksPending: number;     // tasks at any other stage (todo / planning / blocked / etc.)
+    completionRate: number;   // tasksCompleted / taskCount * 100
   } | null;
   
   // Period Information
@@ -585,64 +582,84 @@ export class PerformanceDashboardService {
   ): Promise<{
     userId: string;
     name: string;
-    pictureUrl: string | null;
     role: string;
     department: string;
     email: string;
-      phone: string | null; // Note: phone field not available in User model, will be null
-    totalTimeWorked: number;
-    timeBreakdown: {
-      activeTime: number;
-      extraTime: number;
-      pauseTime: number;
-    };
     taskCount: number;
+    tasksCompleted: number;
+    tasksInProgress: number;
+    tasksPending: number;
     completionRate: number;
   } | null> {
     // `allTasks` here is already filtered to the requested month window.
     const monthTasks = allTasks;
     if (!monthTasks.length) return null;
-    
-    // Calculate task counts per user for the month
-    const userTaskStats = new Map<string, { total: number; completed: number }>();
-    
+
+    // Per-user task breakdown for the month: total / completed / in_progress / other.
+    type UserStats = {
+      total: number;
+      completed: number;
+      inProgress: number;
+      pending: number; // todo / planning / blocked / null / etc.
+    };
+    const userTaskStats = new Map<string, UserStats>();
+
     for (const task of monthTasks) {
       const team = this.parseTeam(task.team);
+      const stage = String(task.stage || '').toLowerCase();
       for (const userId of team) {
         if (!userTaskStats.has(userId)) {
-          userTaskStats.set(userId, { total: 0, completed: 0 });
+          userTaskStats.set(userId, {
+            total: 0,
+            completed: 0,
+            inProgress: 0,
+            pending: 0,
+          });
         }
         const stats = userTaskStats.get(userId)!;
         stats.total++;
-        if (task.stage === 'completed') {
+        if (stage === 'completed') {
           stats.completed++;
+        } else if (stage === 'in_progress') {
+          stats.inProgress++;
+        } else {
+          stats.pending++;
         }
       }
     }
-    
+
     if (userTaskStats.size === 0) {
       return null;
     }
-    
-    // Find top performer (highest completion rate, then highest task count)
+
+    // Pick top performer: highest completion rate, tie-break on # completed, then on total tasks.
+    // Users with zero completed tasks are excluded so we never crown someone who shipped nothing.
     let topUserId: string | null = null;
-    let topScore = 0;
-    
+    let topRate = -1;
+    let topCompleted = -1;
+    let topTotal = -1;
+
     for (const [userId, stats] of userTaskStats.entries()) {
+      if (stats.completed <= 0) continue; // must have at least one completed task to qualify
       const completionRate = stats.total > 0 ? (stats.completed / stats.total) * 100 : 0;
-      const score = completionRate * 100 + stats.total; // Weighted score
-      
-      if (score > topScore) {
-        topScore = score;
+      const better =
+        completionRate > topRate ||
+        (completionRate === topRate && stats.completed > topCompleted) ||
+        (completionRate === topRate &&
+          stats.completed === topCompleted &&
+          stats.total > topTotal);
+      if (better) {
+        topRate = completionRate;
+        topCompleted = stats.completed;
+        topTotal = stats.total;
         topUserId = userId;
       }
     }
-    
+
     if (!topUserId) {
       return null;
     }
-    
-    // Get user details
+
     const user = await prisma.user.findUnique({
       where: { id: topUserId },
       select: {
@@ -651,68 +668,40 @@ export class PerformanceDashboardService {
         lastName: true,
         email: true,
         userDepartment: true,
-        department: {
-          select: {
-            name: true
-          }
-        },
-        employee: {
-          select: {
-            pictureUrl: true
-          }
-        },
-        role: {
-          select: {
-            name: true
-          }
-        }
-      }
+        department: { select: { name: true } },
+        role: { select: { name: true } },
+      },
     });
-    
+
     if (!user) {
       return null;
     }
-    
+
     const stats = userTaskStats.get(topUserId)!;
     const completionRate = stats.total > 0 ? (stats.completed / stats.total) * 100 : 0;
-    
+
     // Determine role based on role name or default to Full Time
-    let role = "Full Time";
+    let role = 'Full Time';
     if (user.role?.name) {
       const roleName = user.role.name.toLowerCase();
-      if (roleName.includes('remote')) role = "Remote";
-      else if (roleName.includes('part')) role = "Part Time";
-      else if (roleName.includes('contract')) role = "Contract";
-      else if (roleName.includes('consultant')) role = "Consultant";
-      else role = "Full Time";
+      if (roleName.includes('remote')) role = 'Remote';
+      else if (roleName.includes('part')) role = 'Part Time';
+      else if (roleName.includes('contract')) role = 'Contract';
+      else if (roleName.includes('consultant')) role = 'Consultant';
+      else role = 'Full Time';
     }
-    
-    // Calculate total time worked (simplified - based on task count)
-    // In a real system, this would come from time tracking
-    // Estimate: 2 hours per task for active time
-    const activeTime = stats.total * 2;
-    // Extra time: 20% of active time for high performers
-    const extraTime = completionRate >= 80 ? activeTime * 0.2 : 0;
-    // Pause time: 10% of active time
-    const pauseTime = activeTime * 0.1;
-    const totalTimeWorked = activeTime + extraTime; // Total doesn't include pause time
-    
+
     return {
       userId: user.id,
       name: `${user.firstName} ${user.lastName}`,
-      pictureUrl: user.employee?.pictureUrl || null,
       role,
       department: user.department?.name || user.userDepartment || 'Unassigned',
       email: user.email,
-      phone: null, // Phone field not available in User model
-      totalTimeWorked: Math.round((totalTimeWorked * 100) / 100), // Round to 2 decimals
-      timeBreakdown: {
-        activeTime: Math.round((activeTime * 100) / 100),
-        extraTime: Math.round((extraTime * 100) / 100),
-        pauseTime: Math.round((pauseTime * 100) / 100)
-      },
       taskCount: stats.total,
-      completionRate: Math.round(completionRate * 100) / 100
+      tasksCompleted: stats.completed,
+      tasksInProgress: stats.inProgress,
+      tasksPending: stats.pending,
+      completionRate: Math.round(completionRate * 100) / 100,
     };
   }
   

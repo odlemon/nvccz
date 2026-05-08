@@ -4,7 +4,8 @@ export const dashboardsEndpoints = {
   '/accounting/dashboard': {
     get: {
       summary: 'Get accounting dashboard data',
-      description: 'Returns comprehensive accounting dashboard data including key metrics (Revenue, COGS, Gross Profit, Net Profit), monthly chart data, expense breakdowns, and assets/liabilities breakdowns. All calculations match the Income Statement and Balance Sheet reports.',
+      description:
+        'Returns comprehensive accounting dashboard data including key metrics (Revenue, COGS, Gross Profit, Net Profit), monthly chart data, expense breakdowns, and assets/liabilities breakdowns. All calculations match the Income Statement and Balance Sheet reports. Assets `summary` rows are mutually exclusive buckets (cash vs non-cash current assets are split so amounts sum to `assets.total` together with fixed, other, VAT disclosure, and any supplemental register/STI lines).',
       tags: ['Dashboards'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -414,12 +415,14 @@ export const dashboardsEndpoints = {
                         properties: {
                           userId: { type: 'string' },
                           name: { type: 'string', example: 'Eva Chowdary' },
-                          pictureUrl: { type: 'string', nullable: true },
                           role: { type: 'string', example: 'UI/UX Designer' },
                           department: { type: 'string', example: 'IT' },
                           email: { type: 'string', example: 'example@gmail.com' },
-                          taskCount: { type: 'number', example: 15 },
-                          completionRate: { type: 'number', example: 95.5 }
+                          taskCount: { type: 'number', example: 15, description: 'Total tasks the user was on this month' },
+                          tasksCompleted: { type: 'number', example: 12 },
+                          tasksInProgress: { type: 'number', example: 2 },
+                          tasksPending: { type: 'number', example: 1 },
+                          completionRate: { type: 'number', example: 80, description: 'tasksCompleted / taskCount * 100' }
                         }
                       },
                       generatedAt: { type: 'string', format: 'date-time' }

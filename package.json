@@ -82,6 +82,8 @@
     "db:fix:clone-tax-rules-to-usd": "ts-node --transpile-only -r dotenv/config scripts/clone-tax-rules-to-usd.ts",
     "db:fix:tax-rules-null-currency-to-usd": "ts-node --transpile-only -r dotenv/config scripts/set-tax-rules-null-currency-to-usd.ts",
     "db:fix:tax-rules-missing-currency-to-usd": "ts-node --transpile-only -r dotenv/config scripts/fix-tax-rules-missing-currency-to-usd.ts",
+    "db:fix:dedupe-tax-rules-and-rebuild-payroll-runs": "ts-node --transpile-only -r dotenv/config scripts/dedupe-tax-rules-and-rebuild-payroll-runs.ts",
+    "db:cleanup:duplicate-tax-rules-and-restamp-payroll-jes": "ts-node --transpile-only -r dotenv/config scripts/cleanup-duplicate-tax-rules-and-restamp-payroll-jes.ts",
     "db:fix:orphan-journal-lines-to-suspense": "ts-node --transpile-only -r dotenv/config scripts/fix-orphan-journal-lines-to-suspense.ts",
     "db:backfill:currency-legacy-codes": "ts-node --transpile-only -r dotenv/config scripts/backfill-currency-legacy-codes.ts",
     "db:fix:kpi-payroll-expense-lines-to-5030": "ts-node --transpile-only -r dotenv/config scripts/fix-kpi-payroll-expense-lines-to-5030.ts",
