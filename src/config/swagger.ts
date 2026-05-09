@@ -614,8 +614,8 @@ const options = {
               type: 'string',
               nullable: true,
               description:
-                'Public URL for the cover image after multipart upload (GET from same API host), e.g. .../api/uploads/newsletters/{file}. Set `PUBLIC_ASSET_BASE_URL` if the API is behind a proxy.',
-              example: 'http://localhost:3000/api/uploads/newsletters/1700000000000-abc123.jpg'
+                'Public URL for the cover image after multipart upload, served through the API media proxy, e.g. .../api/public-media/newsletters/{file}.',
+              example: 'https://dev-api.arcus.co.zw/api/public-media/newsletters/1700000000000-abc123.jpg'
             },
             authorId: { type: 'string', example: 'clx1234567890abcdef' },
             author: {

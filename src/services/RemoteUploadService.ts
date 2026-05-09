@@ -166,6 +166,12 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   "activity-documents": "application-documents",
   "activity-document": "application-documents",
 
+  // Newsletter cover images
+  "newsletters": "newsletters",
+  "newsletter": "newsletters",
+  "newsletter-covers": "newsletters",
+  "newsletter-cover": "newsletters",
+
   // Company profile / letterhead
   "company-profile": "application-documents",
   "company-profile-logos": "application-documents",

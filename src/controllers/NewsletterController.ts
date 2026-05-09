@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { normalizeNewsletterContent } from "../utils/newsletterContent";
-import { saveNewsletterCoverImage } from "../utils/newsletterImageStorage";
+import { remoteUploadService, rewritePublicMediaUrl } from "../services/RemoteUploadService";
 import {
   getNewsletterRecipientConfig,
   listNewsletterBaseAudienceUsers,
@@ -11,6 +11,29 @@ import {
   saveNewsletterRecipientConfig,
 } from "../utils/newsletterInternalRecipients";
 import { EmailNotificationService } from "../services/EmailNotificationService";
+
+const NEWSLETTER_UPLOAD_TYPE = "newsletters";
+
+async function uploadNewsletterCoverImage(file: Express.Multer.File): Promise<string> {
+  const upload = await remoteUploadService.uploadSingleFile(
+    {
+      buffer: file.buffer,
+      originalname: file.originalname || "newsletter-cover.jpg",
+      mimetype: file.mimetype || "image/jpeg",
+    },
+    NEWSLETTER_UPLOAD_TYPE
+  );
+
+  return upload.downloadURL;
+}
+
+function withPublicNewsletterImageUrl<T extends { imageUrl?: string | null }>(newsletter: T): T {
+  if (!newsletter?.imageUrl) return newsletter;
+  return {
+    ...newsletter,
+    imageUrl: rewritePublicMediaUrl(newsletter.imageUrl) || newsletter.imageUrl,
+  };
+}
 
 export const newsletterController = {
   // Create a new newsletter
@@ -49,11 +72,7 @@ export const newsletterController = {
       // Handle cover image (`image` field in multipart/form-data)
       if (coverFile?.buffer?.length) {
         try {
-          imageUrl = await saveNewsletterCoverImage(
-            coverFile.buffer,
-            coverFile.originalname || "cover.jpg",
-            coverFile.mimetype || "image/jpeg"
-          );
+          imageUrl = await uploadNewsletterCoverImage(coverFile);
           coverSnapshotForEmail = Buffer.from(coverFile.buffer);
         } catch (uploadError) {
           console.error("Error uploading image:", uploadError);
@@ -111,7 +130,7 @@ export const newsletterController = {
           ],
           title: normalizedTitle,
           content: normalized.html,
-          imageUrl: newsletter.imageUrl ?? undefined,
+          imageUrl: rewritePublicMediaUrl(newsletter.imageUrl) ?? undefined,
           coverImageFromUpload:
             coverSnapshotForEmail?.length ? {
               content: coverSnapshotForEmail,
@@ -137,7 +156,7 @@ export const newsletterController = {
       res.status(201).json({
         success: true,
         message: "Newsletter created successfully",
-        data: newsletter,
+        data: withPublicNewsletterImageUrl(newsletter),
         distribution: {
           recipientUserCount: recipientUsers.length,
           extraEmailRecipientCount: resolved.extraEmailRecipients.length,
@@ -259,7 +278,7 @@ export const newsletterController = {
 
       res.status(200).json({
         success: true,
-        data: newsletters
+        data: newsletters.map(withPublicNewsletterImageUrl)
       });
     } catch (error: any) {
       console.error("Error fetching newsletters:", error);
@@ -299,7 +318,7 @@ export const newsletterController = {
 
       res.status(200).json({
         success: true,
-        data: newsletter
+        data: withPublicNewsletterImageUrl(newsletter)
       });
     } catch (error: any) {
       console.error("Error fetching newsletter:", error);
@@ -359,11 +378,7 @@ export const newsletterController = {
       // Handle cover image (`image` field in multipart/form-data)
       if (coverFile?.buffer?.length) {
         try {
-          imageUrl = await saveNewsletterCoverImage(
-            coverFile.buffer,
-            coverFile.originalname || "cover.jpg",
-            coverFile.mimetype || "image/jpeg"
-          );
+          imageUrl = await uploadNewsletterCoverImage(coverFile);
         } catch (uploadError) {
           console.error("Error uploading image:", uploadError);
           res.status(500).json({
@@ -397,7 +412,7 @@ export const newsletterController = {
       res.status(200).json({
         success: true,
         message: "Newsletter updated successfully",
-        data: updatedNewsletter
+        data: withPublicNewsletterImageUrl(updatedNewsletter)
       });
     } catch (error: any) {
       console.error("Error updating newsletter:", error);
