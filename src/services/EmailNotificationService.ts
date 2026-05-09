@@ -4004,10 +4004,14 @@ export class EmailNotificationService {
     /** Suite 04: one-time POST link for vendor acknowledgement */
     vendorAckUrl?: string;
     verificationUrl?: string;
-    /** Optional PDF copy of the purchase order. */
-    pdfAttachment?: { filename: string; content: Buffer };
+    /** Branded PO PDF (letterhead via `ProcurementPoPdfService`); required for vendor send. */
+    pdfAttachment: { filename: string; content: Buffer };
   }): Promise<void> {
     try {
+      if (!data.pdfAttachment?.content || !Buffer.isBuffer(data.pdfAttachment.content) || data.pdfAttachment.content.length === 0) {
+        throw new Error("Purchase order email requires a non-empty PDF attachment");
+      }
+
       const branding = await getEmailBrandingCached();
       const subject = `Purchase Order ${data.poNumber} - ${branding.companyName}`;
       const htmlContent = this.getPurchaseOrderTemplate(data, branding);
@@ -4018,9 +4022,13 @@ export class EmailNotificationService {
         to: `"${data.vendorName}" <${data.vendorEmail}>`,
         subject: subject,
         html: htmlContent,
-        attachments: data.pdfAttachment
-          ? [{ filename: data.pdfAttachment.filename, content: data.pdfAttachment.content }]
-          : undefined,
+        attachments: [
+          {
+            filename: data.pdfAttachment.filename,
+            content: data.pdfAttachment.content,
+            contentType: "application/pdf",
+          },
+        ],
       });
 
       console.log(`✅ Purchase Order ${data.poNumber} sent to ${data.vendorEmail}`);

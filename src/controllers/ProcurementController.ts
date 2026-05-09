@@ -562,6 +562,7 @@ export class ProcurementController {
     try {
       const {
         requisitionId,
+        quotationId,
         vendorId,
         priority,
         currencyId,
@@ -590,6 +591,7 @@ export class ProcurementController {
 
       const purchaseOrder = await ProcurementService.createPurchaseOrder({
         requisitionId,
+        quotationId: quotationId ? String(quotationId).trim() : undefined,
         vendorId,
         priority,
         currencyId,
@@ -791,6 +793,14 @@ export class ProcurementController {
               title: true
             }
           },
+          quotation: {
+            select: {
+              id: true,
+              quotationNumber: true,
+              status: true,
+              rfqNumber: true,
+            },
+          },
           currency: {
             select: {
               id: true,
@@ -815,8 +825,7 @@ export class ProcurementController {
               lastName: true,
               email: true
             }
-          },
-          items: true
+          }
         },
         orderBy: {
           createdAt: 'desc'
@@ -862,6 +871,14 @@ export class ProcurementController {
               id: true,
               requisitionNumber: true,
               title: true,
+            },
+          },
+          quotation: {
+            select: {
+              id: true,
+              quotationNumber: true,
+              status: true,
+              rfqNumber: true,
             },
           },
           currency: {
@@ -990,11 +1007,20 @@ export class ProcurementController {
         });
       }
 
+      const invoiceDateParsed = parseDate(invoiceDate);
+      const dueDateParsed = dueDate ? parseDate(dueDate) : undefined;
+      if (dueDateParsed && invoiceDateParsed && dueDateParsed.getTime() < invoiceDateParsed.getTime()) {
+        return res.status(400).json({
+          success: false,
+          message: "Due date cannot be earlier than the invoice date",
+        });
+      }
+
       const invoice = await ProcurementService.createProcurementInvoice({
         purchaseOrderId,
         vendorId,
-        invoiceDate: parseDate(invoiceDate),
-        dueDate: dueDate ? parseDate(dueDate) : undefined,
+        invoiceDate: invoiceDateParsed,
+        dueDate: dueDateParsed,
         currencyId,
         documentPath,
         documentType,
