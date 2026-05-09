@@ -2,6 +2,7 @@
 import { PrismaClient, Prisma, Decimal } from "@prisma/client";
 import AuditService from "./AuditService";
 import { EmailNotificationService } from "./EmailNotificationService";
+import VATService from "./VATService";
 
 import { prisma } from '../utils/database';
 import { nextQuotationNumber } from "../utils/accountingDocumentNumbers";
@@ -173,9 +174,9 @@ export class VendorQuotationService {
         };
       });
 
-      // For now, we'll assume a default tax rate of 0
-      // Vendors can specify tax in their notes or we can calculate later
-      const taxAmount = 0;
+      // Same VAT logic as Purchase Order creation so quotation subtotal/tax/total match the PO totals.
+      await VATService.refreshActiveVatRate(false).catch(() => undefined);
+      const taxAmount = VATService.calculateVAT(subtotal);
       const totalAmount = subtotal + taxAmount;
 
       console.log("💰 Financial Summary:");
@@ -459,11 +460,22 @@ export class VendorQuotationService {
 
       console.log(`   Quotation: ${quotation.quotationNumber}`);
       console.log(`   Vendor: ${quotation.companyName || quotation.vendorName}`);
-      console.log(`   Amount: $${Number(quotation.totalAmount).toFixed(2)}`);
+      console.log(`   Amount (stored): $${Number(quotation.totalAmount).toFixed(2)}`);
       console.log(`   Action: ${action}`);
       console.log("");
 
       const newStatus = action === "ACCEPT" ? "ACCEPTED" : "REJECTED";
+
+      // Reconcile subtotal/VAT/total with the same rules as `ProcurementService.createPurchaseOrder`,
+      // so legacy quotations (stored with taxAmount=0) and new PO-from-quotation flows show equal figures.
+      await VATService.refreshActiveVatRate(false).catch(() => undefined);
+      const alignedSubtotal = quotation.items.reduce(
+        (sum, item: { quantity: any; unitPrice: any }) =>
+          sum + Number(item.quantity) * Number(item.unitPrice),
+        0
+      );
+      const alignedTax = VATService.calculateVAT(alignedSubtotal);
+      const alignedTotal = alignedSubtotal + alignedTax;
 
       // Update quotation status
       const updatedQuotation = await prisma.vendorQuotation.update({
@@ -473,7 +485,10 @@ export class VendorQuotationService {
           reviewedById,
           reviewedAt: new Date(),
           reviewNotes,
-          rejectionReason: action === "REJECT" ? rejectionReason : null
+          rejectionReason: action === "REJECT" ? rejectionReason : null,
+          subtotal: new Decimal(alignedSubtotal),
+          taxAmount: new Decimal(alignedTax),
+          totalAmount: new Decimal(alignedTotal),
         },
         include: {
           items: true,
@@ -515,7 +530,7 @@ export class VendorQuotationService {
             vendorName: quotation.companyName || quotation.vendorName,
             vendorEmail: quotation.vendorEmail,
             quotationNumber: quotation.quotationNumber,
-            quotationAmount: Number(quotation.totalAmount),
+            quotationAmount: Number(updatedQuotation.totalAmount),
             currencyCode: quotation.currencyCode,
             rfqNumber: quotation.rfqNumber,
             reviewNotes,
@@ -531,7 +546,7 @@ export class VendorQuotationService {
             vendorName: quotation.companyName || quotation.vendorName,
             vendorEmail: quotation.vendorEmail,
             quotationNumber: quotation.quotationNumber,
-            quotationAmount: Number(quotation.totalAmount),
+            quotationAmount: Number(updatedQuotation.totalAmount),
             currencyCode: quotation.currencyCode,
             rejectionReason,
             pdfAttachment,

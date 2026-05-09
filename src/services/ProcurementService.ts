@@ -9,6 +9,12 @@ import { ApprovalService } from "./ApprovalService";
 import { CashbookService } from "./CashbookService";
 import VATService from "./VATService";
 import { nextUnifiedInvoiceNumber } from "../utils/accountingDocumentNumbers";
+import {
+  nextProcurementGrnNumber,
+  nextProcurementPoNumber,
+  nextProcurementRequisitionNumber,
+  nextProcurementRfqNumber,
+} from "../utils/procurementDocumentNumbers";
 
 // Hardcoded departments
 export enum Department {
@@ -150,40 +156,29 @@ export interface AIMatchingResult {
 }
 
 export class ProcurementService {
-  /**
-   * Generate unique requisition number
-   */
-  private static generateRequisitionNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `REQ-${timestamp}-${random}`;
+  // Document numbering:
+  // Use the same shape as accounting docs: PREFIX_YYYYMMDD_0001 (UTC day, per-document sequence).
+  // Prefixes are distinct from accounting (`INV_`, `QUO_`) so numbers do not clash across modules.
+
+  /** Safe segment for building `PO-…` numbers from vendor quotation numbers. */
+  private static sanitizeQuotationNumberForPoSegment(raw: string): string {
+    const t = String(raw || "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-zA-Z0-9._-]/g, "");
+    const seg = t.slice(0, 80);
+    return seg.length > 0 ? seg : "Q";
   }
 
   /**
-   * Generate unique RFQ number
+   * When a PO is created from an accepted vendor quotation, align the PO number with that quotation
+   * (e.g. `PO-VQ-2026-0042` instead of an unrelated `PO-{timestamp}-{rand}`), so procurement and finance
+   * see the same logical reference. Falls back to timestamp PO if quotation is missing or collision.
    */
-  private static generateRFQNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `RFQ-${timestamp}-${random}`;
-  }
-
-  /**
-   * Generate unique PO number
-   */
-  private static generatePONumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `PO-${timestamp}-${random}`;
-  }
-
-  /**
-   * Generate unique GRN number
-   */
-  private static generateGRNNumber(): string {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `GRN-${timestamp}-${random}`;
+  private static async resolvePoNumberForCreate(quotationId?: string | null): Promise<string> {
+    // Always use PO_YYYYMMDD_#### to match agreed numbering format.
+    // Quotation reference is carried via `quotationId` + API includes `quotation.quotationNumber` for display.
+    return nextProcurementPoNumber(prisma as any, new Date());
   }
 
   /**
@@ -261,7 +256,7 @@ export class ProcurementService {
 
       const requisition = await prisma.purchaseRequisition.create({
         data: {
-          requisitionNumber: this.generateRequisitionNumber(),
+          requisitionNumber: await nextProcurementRequisitionNumber(prisma as any, new Date()),
           title,
           description,
           department: department, // ⬅️ Now storing department name as string
@@ -1582,8 +1577,8 @@ export class ProcurementService {
       console.log("✅ All vendors found with valid emails:");
       vendors.forEach(v => console.log(`   - ${v.name} (${v.email})`));
 
-      // Generate RFQ number
-      const rfqNumber = this.generateRFQNumber();
+      // Generate RFQ number (RFQ_YYYYMMDD_####)
+      const rfqNumber = await nextProcurementRfqNumber(prisma as any, new Date());
 
       console.log(`\n📝 Step 2: Creating RFQ record: ${rfqNumber}`);
 
@@ -1841,20 +1836,65 @@ export class ProcurementService {
         );
       }
 
+      if (quotationId) {
+        const qRow = await prisma.vendorQuotation.findUnique({
+          where: { id: quotationId },
+          select: { id: true, vendorEmail: true },
+        });
+        if (!qRow) {
+          throw new Error("Vendor quotation not found");
+        }
+        const vEmail = String(vendor.email || "").trim().toLowerCase();
+        const qEmail = String(qRow.vendorEmail || "").trim().toLowerCase();
+        if (vEmail && qEmail && vEmail !== qEmail) {
+          throw new Error("Selected vendor does not match the vendor quotation");
+        }
+      }
+
       let effectiveCurrencyId = currencyId;
       if (!effectiveCurrencyId && vendor.settlementCurrencyId) {
         effectiveCurrencyId = vendor.settlementCurrencyId;
       }
 
-      // Calculate totals
-      const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-      const taxAmount = VATService.calculateVAT(subtotal);
-      const totalAmount = subtotal + taxAmount;
+      await VATService.refreshActiveVatRate(false).catch(() => undefined);
+
+      const computedSubtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+      let subtotal = computedSubtotal;
+      let taxAmount = VATService.calculateVAT(computedSubtotal);
+      let totalAmount = computedSubtotal + taxAmount;
+
+      if (quotationId) {
+        const qAgg = await prisma.vendorQuotation.findUnique({
+          where: { id: quotationId },
+          select: { subtotal: true, taxAmount: true, totalAmount: true },
+        });
+        if (qAgg) {
+          const qs = Number(qAgg.subtotal);
+          const qt = Number(qAgg.taxAmount);
+          const qtTot = Number(qAgg.totalAmount);
+          const subMatch =
+            Number.isFinite(qs) && Math.abs(computedSubtotal - qs) <= 0.02;
+          const expectedTax = VATService.calculateVAT(computedSubtotal);
+          const expectedTotal = computedSubtotal + expectedTax;
+          const taxCoherent =
+            Number.isFinite(qt) &&
+            Number.isFinite(qtTot) &&
+            Math.abs(qt - expectedTax) <= 0.05 &&
+            Math.abs(qtTot - expectedTotal) <= 0.05;
+          if (subMatch && taxCoherent) {
+            subtotal = qs;
+            taxAmount = qt;
+            totalAmount = qtTot;
+          }
+        }
+      }
+
+      const poNumber = await this.resolvePoNumberForCreate(quotationId ?? null);
 
       // Create purchase order
       const purchaseOrder = await prisma.purchaseOrder.create({
         data: {
-          poNumber: this.generatePONumber(),
+          poNumber,
           requisitionId,
           quotationId,
           vendorId,
@@ -1905,6 +1945,14 @@ export class ProcurementService {
               requisitionNumber: true,
               title: true
             }
+          },
+          quotation: {
+            select: {
+              id: true,
+              quotationNumber: true,
+              status: true,
+              rfqNumber: true,
+            },
           },
           currency: {
             select: {
@@ -2010,26 +2058,28 @@ export class ProcurementService {
         data: { vendorAckToken, poPdfVerificationToken },
       });
 
-      console.log("\n🧾 Step 2a: Rendering branded PO PDF for attachment...");
-      let pdfAttachment: { filename: string; content: Buffer } | undefined;
-      try {
-        const [{ ProcurementPoPdfService }, { loadCapitalCallAccountingLetterhead }] = await Promise.all([
+      console.log("\n🧾 Step 2a: Rendering branded PO PDF with accounting letterhead (required, same pipeline as sales invoices)...");
+
+      const [{ ProcurementPoPdfService }, { loadCapitalCallAccountingLetterhead }, { EmailNotificationService }] =
+        await Promise.all([
           import("./ProcurementPoPdfService"),
           import("../utils/capitalCallAccountingLetterhead"),
+          import("./EmailNotificationService"),
         ]);
-        const letterhead = await loadCapitalCallAccountingLetterhead().catch(() => null);
-        const pdfBuf = await ProcurementPoPdfService.renderPurchaseOrderPdf(poId, { letterhead });
-        const safeBase = String(purchaseOrder.poNumber || poId)
-          .replace(/[^a-zA-Z0-9._-]+/g, "_")
-          .replace(/^_+|_+$/g, "");
-        pdfAttachment = { filename: `PurchaseOrder-${safeBase}.pdf`, content: pdfBuf };
-        console.log("   ✅ PO PDF generated");
-      } catch (pdfErr: any) {
-        console.warn("   ⚠️  Failed to render PO PDF (continuing without attachment):", pdfErr?.message || pdfErr);
-      }
 
-      // Import email service dynamically
-      const { EmailNotificationService } = await import("./EmailNotificationService");
+      const letterhead = await loadCapitalCallAccountingLetterhead();
+      const pdfBuf = await ProcurementPoPdfService.renderPurchaseOrderPdf(poId, { letterhead });
+      if (!pdfBuf?.length) {
+        throw new Error("Purchase order PDF generation returned an empty buffer");
+      }
+      const safeBase = String(purchaseOrder.poNumber || poId)
+        .replace(/[^a-zA-Z0-9._-]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      const pdfAttachment = {
+        filename: `PurchaseOrder-${safeBase}.pdf`,
+        content: pdfBuf,
+      };
+      console.log("   ✅ PO PDF generated");
 
       await EmailNotificationService.sendPurchaseOrderToVendor({
         vendorName: purchaseOrder.vendor.name,
@@ -3092,10 +3142,12 @@ export class ProcurementService {
       const grnStatus =
         options?.submittedByInvestee === true ? "PENDING_GP_REVIEW" : "RECEIVED";
 
+      const grnNumber = await nextProcurementGrnNumber(prisma as any, new Date());
+
       // Create GRN
       const grn = await prisma.goodsReceivedNote.create({
         data: {
-          grnNumber: this.generateGRNNumber(),
+          grnNumber,
           purchaseOrderId,
           receivedById,
           ...(options?.receivedDate ? { receivedDate: options.receivedDate } : {}),
