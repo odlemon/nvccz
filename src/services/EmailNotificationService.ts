@@ -5511,7 +5511,6 @@ export class EmailNotificationService {
     const stripScripts = (html: string) =>
       String(html).replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
     const from = getFromAddress("platform");
-    const company = process.env.COMPANY_NAME_SHORT || "NVCCZ";
     const trimBaseEnv = (s: string | undefined): string | null => {
       const t = String(s || "").trim();
       return t ? t.replace(/\/$/, "") : null;
@@ -5532,6 +5531,35 @@ export class EmailNotificationService {
       }
       return null;
     };
+
+    /** Letterhead from accounting Company Profile (logo + address + contact lines). */
+    let branding: EmailBranding;
+    try {
+      branding = await getEmailBrandingCached();
+    } catch {
+      branding = {
+        companyName: process.env.COMPANY_NAME_SHORT || "NVCCZ",
+        logoUrl: null,
+        addressLines: [],
+        contactEmail: null,
+        contactPhone: null,
+        website: null,
+      };
+    }
+    const companyNameEsc = esc(branding.companyName);
+
+    /** Inline the company logo as a CID attachment so Gmail/Outlook render it without remote fetch. */
+    let logoAttachment: NewsletterInlineAttachment | null = null;
+    if (branding.logoUrl) {
+      try {
+        logoAttachment = await fetchCoverInlineAttachment(branding.logoUrl);
+        if (logoAttachment) {
+          logoAttachment = { ...logoAttachment, cid: `newsletter-logo@nvccz` };
+        }
+      } catch {
+        logoAttachment = null;
+      }
+    }
 
     /** Body HTML + optional `<img>` → CID (never block sends — skip on error). */
     let bodyProcessed = stripAnchorTags(stripScripts(data.content));
@@ -5569,9 +5597,103 @@ export class EmailNotificationService {
     }
 
     const mimeAttachments: NewsletterInlineAttachment[] = [
+      ...(logoAttachment ? [logoAttachment] : []),
       ...(coverAttachment ? [coverAttachment] : []),
       ...bodyInlineAttachments
     ];
+
+    const titleEsc = esc(data.title);
+    const authorEsc = esc(data.authorDisplayName || "");
+    const issueDateEsc = esc(
+      new Date().toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" })
+    );
+
+    /** Branded letterhead bar (table-based for Outlook compatibility). */
+    const headerBlock = `
+      <tr>
+        <td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%);padding:24px 28px;color:#ffffff;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+            <tr>
+              <td style="vertical-align:middle;">
+                <div style="font-family:Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;letter-spacing:0.2px;line-height:1.2;">${companyNameEsc}</div>
+                <div style="margin-top:4px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.85;">Company Newsletter</div>
+                ${branding.addressLines.length
+                  ? `<div style="margin-top:10px;font-family:Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#cbd5f5;">${branding.addressLines
+                      .map((l) => `<div>${esc(l)}</div>`)
+                      .join("")}</div>`
+                  : ""}
+              </td>
+              <td style="vertical-align:middle;text-align:right;width:84px;">
+                ${logoAttachment
+                  ? `<img src="cid:${logoAttachment.cid}" alt="${companyNameEsc}" width="64" height="64" style="width:64px;height:64px;border-radius:999px;object-fit:cover;display:inline-block;border:2px solid rgba(255,255,255,0.6);" />`
+                  : ""}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+
+    const issueMetaBlock = `
+      <tr>
+        <td style="padding:18px 28px 0 28px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+            <tr>
+              <td style="font-family:Helvetica,Arial,sans-serif;font-size:11px;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;">${issueDateEsc}${authorEsc ? ` &nbsp;·&nbsp; ${authorEsc}` : ""}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+
+    const titleBlock = `
+      <tr>
+        <td style="padding:6px 28px 14px 28px;">
+          <h1 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:#0f172a;font-weight:700;">${titleEsc}</h1>
+          <div style="margin-top:14px;height:3px;width:48px;background:#1e3a8a;border-radius:2px;"></div>
+        </td>
+      </tr>`;
+
+    const coverBlock = coverAttachment
+      ? `<tr>
+          <td style="padding:8px 28px 0 28px;">
+            <img src="cid:${coverAttachment.cid}" alt="" width="544" style="display:block;width:100%;max-width:544px;height:auto;border-radius:8px;border:0;outline:none;text-decoration:none;" />
+          </td>
+        </tr>`
+      : "";
+
+    const bodyBlock = `
+      <tr>
+        <td style="padding:20px 28px 8px 28px;">
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.7;color:#1f2937;">
+            ${bodyProcessed}
+          </div>
+        </td>
+      </tr>`;
+
+    /** Footer letterhead-style strip with contact info. */
+    const contactPieces: string[] = [];
+    if (branding.contactEmail) contactPieces.push(esc(branding.contactEmail));
+    if (branding.contactPhone) contactPieces.push(`Tel: ${esc(branding.contactPhone)}`);
+    if (branding.website) contactPieces.push(esc(branding.website.replace(/^https?:\/\//, "")));
+    const contactHtml = contactPieces.length
+      ? `<div style="margin-top:6px;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#cbd5f5;">${contactPieces.join(" &nbsp;·&nbsp; ")}</div>`
+      : "";
+    const addressFooterHtml = branding.addressLines.length
+      ? `<div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#cbd5f5;">${branding.addressLines
+          .map((l) => esc(l))
+          .join(" &nbsp;·&nbsp; ")}</div>`
+      : "";
+    const year = new Date().getFullYear();
+    const footerBlock = `
+      <tr>
+        <td style="background:#0f172a;padding:22px 28px;color:#e2e8f0;">
+          <div style="font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;color:#ffffff;">${companyNameEsc}</div>
+          ${addressFooterHtml}
+          ${contactHtml}
+          <div style="margin-top:12px;border-top:1px solid #1e293b;padding-top:10px;font-family:Helvetica,Arial,sans-serif;font-size:11px;color:#94a3b8;">
+            © ${year} ${companyNameEsc}. All rights reserved. &nbsp;·&nbsp; You are receiving this because you are a member of ${companyNameEsc}. This is an automated message — please do not reply.
+          </div>
+        </td>
+      </tr>`;
 
     const failed: Array<{ email: string; message: string }> = [];
     let succeeded = 0;
@@ -5586,28 +5708,38 @@ export class EmailNotificationService {
       }
       try {
         const displayName = [r.firstName, r.lastName].filter(Boolean).join(" ").trim() || r.firstName || "User";
-        const greeting = esc(r.firstName || "there");
-        const titleEsc = esc(data.title);
-        const authorEsc = esc(data.authorDisplayName);
-        const imgBlock = coverAttachment
-          ? `<div style="margin:16px 0;"><img src="cid:${coverAttachment.cid}" alt="" width="600" style="max-width:100%;height:auto;border-radius:6px;display:block;" /></div>`
-          : "";
 
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;line-height:1.6;color:#222;">
-  <p>Hi ${greeting},</p>
-  <p><strong>${titleEsc}</strong> — ${authorEsc} posted a new company newsletter.</p>
-  ${imgBlock}
-  <div style="margin:16px 0;padding:12px;border:1px solid #eee;border-radius:8px;background:#fafafa;">
-    ${bodyProcessed}
-  </div>
-  <p style="color:#888;font-size:12px;">${esc(company)}</p>
-</body></html>`;
+        const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>${titleEsc}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#eef2f7;font-family:Helvetica,Arial,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;color:transparent;">${titleEsc} — ${companyNameEsc} newsletter</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#eef2f7;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:600px;max-width:600px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.08);">
+            ${headerBlock}
+            ${issueMetaBlock}
+            ${titleBlock}
+            ${coverBlock}
+            ${bodyBlock}
+            ${footerBlock}
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
         await emailTransport.sendMail({
           from: `"${from.name}" <${from.address}>`,
           to: { name: displayName, address: to },
-          subject: `${data.title} — ${company}`,
+          subject: `${data.title} — ${branding.companyName}`,
           html,
           attachments: mimeAttachments.length ? mimeAttachments : undefined,
         });

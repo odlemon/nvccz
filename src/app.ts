@@ -219,7 +219,7 @@ app.use(cors({
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
-// Newsletter (and future) uploads: `Newsletter.imageUrl` uses `/api/uploads/...` (see `newsletterImageStorage.ts`).
+// Legacy local uploads. New media uploads use `/api/public-media/...` via `RemoteUploadService`.
 app.use(
   "/api/uploads",
   express.static(path.join(process.cwd(), "uploads"), {

@@ -18,7 +18,7 @@ const router = Router();
  * /accounting/dashboard:
  *   get:
  *     summary: Get accounting dashboard data
- *     description: Returns comprehensive accounting dashboard data including key metrics (Revenue, COGS, Gross Profit, Net Profit), monthly chart data, expense breakdowns, and assets/liabilities breakdowns. All calculations match the Income Statement and Balance Sheet reports.
+ *     description: Returns comprehensive accounting dashboard data including key metrics (Revenue, COGS, Gross Profit, Net Profit), monthly chart data, expense breakdowns, and assets/liabilities breakdowns. All calculations match the Income Statement and Balance Sheet reports. Assets summary buckets partition total assets (cash is separated from non-cash current assets so rows sum consistently with `assets.total`).
  *     tags: [Dashboards]
  *     security:
  *       - bearerAuth: []

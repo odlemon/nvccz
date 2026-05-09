@@ -382,6 +382,13 @@ export class PerformanceWorkflowService {
         if (!bank?.glAccountId) {
           throw new Error("No active bank with a GL account linked (banks.glAccountId).");
         }
+        const kpiAccount = await prisma.chartOfAccounts.findFirst({
+          where: { accountNo: kpiConfig.accountNumber, isActive: true },
+          select: { id: true, accountNo: true, accountName: true },
+        });
+        if (!kpiAccount) {
+          throw new Error(`No active chart account found for KPI account number ${kpiConfig.accountNumber}.`);
+        }
 
         const journalEntry = await createJournalEntryWithAuditSequence({
           transactionDate: new Date(),
@@ -394,13 +401,13 @@ export class PerformanceWorkflowService {
           journalEntryLines: {
             create: [
               {
-                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiConfig.accountNumber : bank.glAccountId,
+                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiAccount.id : bank.glAccountId,
                 debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
                 creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
                 description: `KPI: ${goal.kpi.name}`,
               },
               {
-                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiConfig.accountNumber : bank.glAccountId,
+                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiAccount.id : bank.glAccountId,
                 debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
                 creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
                 description: `KPI: ${goal.kpi.name}`,

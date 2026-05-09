@@ -756,7 +756,14 @@ export class PortfolioCompanyService {
         };
       });
 
-      return companiesWithInvestments;
+      // Endpoint is "with-investments": exclude companies that have no investment activity
+      // (i.e. no disbursements at all). A company is considered "with investments" when it
+      // has at least one disbursement in any state (PENDING/APPROVED/DISBURSED).
+      const onlyWithInvestments = companiesWithInvestments.filter(
+        c => c.status !== 'NO_INVESTMENT'
+      );
+
+      return onlyWithInvestments;
     } catch (error) {
       throw error;
     }
