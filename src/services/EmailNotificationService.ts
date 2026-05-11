@@ -950,11 +950,24 @@ export class EmailNotificationService {
   }
 
   /**
-   * @deprecated Use sendApplicationBelowThresholdEmail instead
-   * Send application rejected email (kept for backwards compatibility)
+   * Application rejected — short generic notice only (no scores, AI reasoning, or document lists).
    */
   static async sendApplicationRejectedEmail(data: EmailNotificationData): Promise<void> {
-    return this.sendApplicationBelowThresholdEmail(data);
+    try {
+      const subject = `Application update — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
+      const htmlContent = this.getGenericApplicationRejectionEmailHtml(data);
+      const from = getFromAddress("investment");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.applicantName}" <${data.applicantEmail}>`,
+        subject,
+        html: htmlContent,
+      });
+      console.log(`Application rejection email sent to ${data.applicantEmail}`);
+    } catch (error) {
+      console.error("Error sending application rejected email:", error);
+      throw error;
+    }
   }
 
   /**
@@ -2006,11 +2019,39 @@ export class EmailNotificationService {
     `;
   }
 
+  private static escapeHtmlPlain(value: string): string {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  /** Short, generic applicant rejection — no detailed reasons or internal criteria. */
+  private static getGenericApplicationRejectionEmailHtml(data: EmailNotificationData): string {
+    const org = process.env.COMPANY_NAME_SHORT || "NVCCZ";
+    const team = process.env.EMAIL_FROM_NAME_INVESTMENT || `${org} Investment Team`;
+    const name = this.escapeHtmlPlain(data.applicantName);
+    const business = this.escapeHtmlPlain(data.businessName);
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family: Arial, Helvetica, sans-serif; color: #333; line-height: 1.5; max-width: 560px; margin: 0; padding: 16px;">
+<p>Dear ${name},</p>
+<p>Thank you for your interest in ${this.escapeHtmlPlain(org)} and for applying in respect of <strong>${business}</strong>.</p>
+<p>After review, your application did not meet our current investment requirements or criteria. We are not able to provide individual feedback on this outcome.</p>
+<p>Regards,<br><strong>${this.escapeHtmlPlain(team)}</strong></p>
+<p style="font-size: 12px; color: #666; margin-top: 24px;">This is an automated message. Please do not reply to this email.</p>
+</body>
+</html>`;
+  }
+
   /**
-   * @deprecated Use getApplicationBelowThresholdTemplate instead
+   * @deprecated Prefer getGenericApplicationRejectionEmailHtml for rejection sends.
    */
   private static getApplicationRejectedTemplate(data: EmailNotificationData): string {
-    return this.getApplicationBelowThresholdTemplate(data);
+    return this.getGenericApplicationRejectionEmailHtml(data);
   }
 
   private static getApplicationBelowThresholdTemplate(data: EmailNotificationData): string {
