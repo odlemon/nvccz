@@ -445,6 +445,7 @@ export class ApplicationScoringService {
         data: {
           currentStage: stage,
           screeningOutcome: outcome,
+          screeningRejectionReason: rejectionReason,
           updatedAt: new Date()
         }
       });
