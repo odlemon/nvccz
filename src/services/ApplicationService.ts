@@ -69,6 +69,8 @@ export interface ApplicationWithRelations {
   submittedAt?: Date;
   initialScreeningScore?: Decimal;
   screeningOutcome?: string;
+  /** Internal: AI/auto screening narrative when rejected at screening (API only; not in applicant email). */
+  screeningRejectionReason?: string | null;
   dueDiligenceScore?: Decimal;
   boardDecision?: string;
   createdAt: Date;
@@ -1474,6 +1476,7 @@ export class ApplicationService {
             screeningScore: new Decimal(score),
             currentStage: "REJECTED_SCREENING",
             screeningOutcome: "REJECTED_SCREENING",
+            screeningRejectionReason: `Lead analyst screening score ${score} is below the minimum required (${ANALYST_SCREENING_MIN_SCORE}).`,
             updatedAt: new Date()
           },
           include: fullInclude

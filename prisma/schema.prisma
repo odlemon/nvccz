@@ -1406,6 +1406,8 @@ model Application {
   /// Analyst "Initial Screening Scorecard" (UAT); separate from AI `initialScreeningScore`.
   screeningScore           Decimal?                  @db.Decimal(5, 2)
   screeningOutcome         String?
+  /// Internal only: AI/auto screening narrative when rejected at screening (not sent to applicant in email).
+  screeningRejectionReason String?                   @db.Text
   /// Human-readable sequential deal id: `{PREFIX}-{year}-{6-digit-seq}`; PREFIX from env `DEAL_REFERENCE_PREFIX` (default VST).
   dealReference            String?                   @unique
   assignedAnalystId        String?
