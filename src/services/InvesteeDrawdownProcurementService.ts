@@ -128,6 +128,8 @@ export class InvesteeDrawdownProcurementService {
         investeeSubmittedAt: true,
         approvedAt: true,
         sourcingCategory: true,
+        rejectionReason: true,
+        rejectionContentFingerprint: true,
         createdAt: true,
         updatedAt: true,
       },

@@ -197,16 +197,22 @@ export class ProcurementApprovalConfigService {
         }
       }
 
+      const REQUIRED_STAGE_TYPES = ["PURCHASE_REQUISITION", "PURCHASE_ORDER", "INVOICE", "GRN"];
+      const stageTypesInPayload = new Set(
+        stages.map((s) => String(s.stageType ?? "").trim().toUpperCase())
+      );
+      for (const t of REQUIRED_STAGE_TYPES) {
+        if (!stageTypesInPayload.has(t)) {
+          throw new Error(
+            `Update must include exactly one block per procurement stage. Missing stage type: ${t}. ` +
+              `Send all four stage types (each with at least one step) so other workflows are not wiped by mistake.`
+          );
+        }
+      }
+
       const config = await prisma.$transaction(async (tx) => {
         const existingStages = await tx.procurementApprovalStage.findMany({
           where: { configId: id },
-          include: {
-            _count: {
-              select: {
-                approvals: true
-              }
-            }
-          }
         });
 
         const stageMap = new Map<string, typeof existingStages[0]>();
@@ -260,11 +266,15 @@ export class ProcurementApprovalConfigService {
         for (const [key, stage] of stageMap.entries()) {
           if (processedKeys.has(key)) continue;
 
-          if (stage._count.approvals > 0) {
+          // Approval rows reference procurement_approval_stages.id; remove them first so the
+          // template step can be dropped when the client removes a step from the workflow.
+          const removedApprovals = await tx.approval.deleteMany({
+            where: { stageId: stage.id },
+          });
+          if (removedApprovals.count > 0) {
             console.warn(
-              `[updateProcurementApprovalConfig] Not deleting stage ${key} (${stage.stepName}) — ${stage._count.approvals} approval row(s) exist. If you meant to remove this step, resolve or migrate approvals first.`
+              `[updateProcurementApprovalConfig] Removed ${removedApprovals.count} approval row(s) for deleted template step ${key} (${stage.stepName}).`
             );
-            continue;
           }
 
           await tx.procurementApprovalStage.delete({
@@ -859,10 +869,29 @@ export class ProcurementApprovalConfigService {
       // Check if step is complete
       if (status === 'APPROVED') {
         await this.checkStepCompletion(requestId, stageId);
-      } else if (status === 'REJECTED') {
+      } else if (status === 'REJECTED' && !delegatedToId) {
         await this.rejectApprovalRequest(requestId, comments);
         // Send rejection email to submitter
         await this.sendRejectionEmailToSubmitter(requestId, comments);
+        if (comments) {
+          const ar = await prisma.approvalRequest.findUnique({
+            where: { id: requestId },
+            select: { entityId: true, stageType: true },
+          });
+          if (ar?.entityId && ar.stageType) {
+            const { persistProcurementEntityRejection } = await import(
+              "../utils/procurementRejectionPersistence"
+            );
+            try {
+              await persistProcurementEntityRejection(prisma, ar.stageType, ar.entityId, comments);
+            } catch (entityErr: any) {
+              console.error(
+                "⚠️  Failed to persist procurement entity rejection metadata:",
+                entityErr?.message || entityErr
+              );
+            }
+          }
+        }
       }
 
       return approval;

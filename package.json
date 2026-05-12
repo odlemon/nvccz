@@ -128,6 +128,8 @@
     "db:migrate:procurement-suites-03-05": "ts-node scripts/run-procurement-suites-03-05-migration.ts",
     "db:migrate:procurement-suite06": "ts-node scripts/run-procurement-suite06-migration.ts",
     "db:migrate:purchase-requisition-investee-portfolio": "ts-node scripts/run-purchase-requisition-investee-portfolio-migration.ts",
+    "db:migrate:purchase-requisition-rejection-fingerprint": "ts-node scripts/run-purchase-requisition-rejection-fingerprint-migration.ts",
+    "db:migrate:procurement-rejection-metadata": "ts-node scripts/run-procurement-rejection-metadata-migration.ts",
     "db:migrate:portfolio-company-letterhead": "ts-node scripts/run-portfolio-company-letterhead-migration.ts",
     "db:migrate:newsletter-audience-config": "ts-node scripts/run-newsletter-audience-config-migration.ts",
     "db:migrate:milestone-period-backfill": "ts-node scripts/run-milestone-disbursement-period-backfill.ts",

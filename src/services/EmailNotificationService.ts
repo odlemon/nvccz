@@ -24,6 +24,7 @@ import {
   inlineExternalImagesInNewsletterHtml,
   type NewsletterInlineAttachment,
 } from "../utils/newsletterEmailImages";
+import { wrapTransactionalNewsletterEmailDocument } from "../utils/newsletterEmailLayout";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -35,6 +36,33 @@ export interface EmailNotificationData {
 }
 
 export class EmailNotificationService {
+  /** Same outer shell, header, title band, body font, and footer as internal newsletter emails. */
+  private static composeNewsletterTransactionalHtml(params: {
+    branding: EmailBranding;
+    pageTitle: string;
+    preheader: string;
+    emailHeading: string;
+    headerTagline: string;
+    bodyInnerHtml: string;
+    teamLabel: string;
+    extraHeadInner?: string;
+  }): string {
+    const headerAndTitleTrsHtml = renderEmailHeader(params.branding, {
+      title: params.emailHeading,
+      tagline: params.headerTagline,
+    });
+    const footerTrHtml = renderEmailFooter(params.branding);
+    const signatureHtml = renderEmailSignature(params.teamLabel, params.branding);
+    return wrapTransactionalNewsletterEmailDocument({
+      pageTitle: params.pageTitle,
+      preheader: params.preheader,
+      headerAndTitleTrsHtml,
+      bodyInnerHtml: params.bodyInnerHtml + signatureHtml,
+      footerTrHtml,
+      extraHeadInner: params.extraHeadInner,
+    });
+  }
+
   /**
    * Send application received confirmation email
    */
@@ -812,9 +840,6 @@ export class EmailNotificationService {
     }
     try {
       const branding = await getEmailBrandingCached();
-      const headerHtml = renderEmailHeader(branding, { title: "New vendor procurement invoice" });
-      const footerHtml = renderEmailFooter(branding);
-      const signatureHtml = renderEmailSignature("Procurement Team", branding);
       const totalLabel = `${data.currencyCode} ${Number(data.totalAmount).toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
@@ -833,12 +858,7 @@ export class EmailNotificationService {
       for (const r of data.recipients) {
         try {
           const rn = he(r.name || "Colleague");
-          const htmlContent = `<!DOCTYPE html>
-<html>
-  <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;margin:0;padding:0;">
-    <div style="max-width:640px;margin:0 auto;background:#ffffff;">
-      ${headerHtml}
-      <div style="padding:28px;">
+          const bodyInner = `
         <p>Dear ${rn},</p>
         <p>A vendor has submitted a procurement invoice for review.</p>
         <div style="background:#eff6ff;border-left:4px solid #2563eb;padding:14px 18px;margin:18px 0;border-radius:4px;">
@@ -847,13 +867,16 @@ export class EmailNotificationService {
           ${data.poNumber ? `<div><strong>Purchase order:</strong> ${po}</div>` : ""}
           <div><strong>Total:</strong> ${totalLabel}</div>
         </div>
-        <p>Please route this document through your usual procurement and finance review process.</p>
-        ${signatureHtml}
-      </div>
-      ${footerHtml}
-    </div>
-  </body>
-</html>`;
+        <p>Please route this document through your usual procurement and finance review process.</p>`;
+          const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+            branding,
+            pageTitle: `New vendor procurement invoice — ${branding.companyName}`,
+            preheader: `${subject} — ${branding.companyName}`,
+            emailHeading: "New vendor procurement invoice",
+            headerTagline: "Procurement",
+            bodyInnerHtml: bodyInner,
+            teamLabel: "Procurement Team",
+          });
           await emailTransport.sendMail({
             from: `"${from.name}" <${from.address}>`,
             to: `"${r.name}" <${r.email}>`,
@@ -886,9 +909,6 @@ export class EmailNotificationService {
   }): Promise<void> {
     try {
       const branding = await getEmailBrandingCached();
-      const headerHtml = renderEmailHeader(branding, { title: "RFQ awarded" });
-      const footerHtml = renderEmailFooter(branding);
-      const signatureHtml = renderEmailSignature("Procurement Team", branding);
       const he = (s: string) =>
         String(s)
           .replace(/&/g, "&amp;")
@@ -896,12 +916,7 @@ export class EmailNotificationService {
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;");
       const subject = `RFQ ${data.rfqNumber} awarded — ${data.requisitionNumber}`;
-      const htmlContent = `<!DOCTYPE html>
-<html>
-  <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;margin:0;padding:0;">
-    <div style="max-width:640px;margin:0 auto;background:#ffffff;">
-      ${headerHtml}
-      <div style="padding:28px;">
+      const bodyInner = `
         <p>Dear ${he(data.submitterName)},</p>
         <p>The RFQ linked to your purchase requisition has been <strong>awarded</strong>.</p>
         <div style="background:#f0fdf4;border-left:4px solid #16a34a;padding:14px 18px;margin:18px 0;border-radius:4px;">
@@ -914,13 +929,16 @@ export class EmailNotificationService {
           <p style="margin:0;"><strong>Rationale</strong></p>
           <p style="margin:8px 0 0 0;">${he(data.awardRationale)}</p>
         </div>
-        <p>Your procurement contact will advise on next steps.</p>
-        ${signatureHtml}
-      </div>
-      ${footerHtml}
-    </div>
-  </body>
-</html>`;
+        <p>Your procurement contact will advise on next steps.</p>`;
+      const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+        branding,
+        pageTitle: `RFQ awarded — ${branding.companyName}`,
+        preheader: `${subject} — ${branding.companyName}`,
+        emailHeading: "RFQ awarded",
+        headerTagline: "Procurement",
+        bodyInnerHtml: bodyInner,
+        teamLabel: "Procurement Team",
+      });
       const from = getFromAddress("procurement");
       await emailTransport.sendMail({
         from: `"${from.name}" <${from.address}>`,
@@ -3788,45 +3806,16 @@ export class EmailNotificationService {
    * Get event invitation email template
    */
   private static getEventInvitationTemplate(data: any, branding: EmailBranding): string {
-    const eventDate = new Date(data.eventDate).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+    const eventDate = new Date(data.eventDate).toLocaleDateString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
 
-    const headerHtml = renderEmailHeader(branding, { title: "Event invitation" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Events Team", branding);
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Event Invitation</title>
-        <style>
-          body {
-            font-family: 'Arial', sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f4f4f4;
-          }
-          .container {
-            background-color: #ffffff;
-            border-radius: 10px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-            overflow: hidden;
-          }
-          .content {
-            padding: 30px;
-          }
+    const extraHeadInner = `<style>
           .event-details {
             background-color: #f8f9fa;
             padding: 20px;
@@ -3835,7 +3824,7 @@ export class EmailNotificationService {
           }
           .event-details h3 {
             margin-top: 0;
-            color: #667eea;
+            color: #1e3a8a;
           }
           .rsvp-section {
             background-color: #e8f5e8;
@@ -3861,43 +3850,38 @@ export class EmailNotificationService {
             background-color: #ffc107;
             color: #333;
           }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+
+    const bodyInner = `
             <p>Dear ${data.guestName},</p>
-            
             <p>You have been invited to attend an event organized by ${branding.companyName}.</p>
-            
             <div class="event-details">
               <h3>📅 Event Details</h3>
               <p><strong>Event:</strong> ${data.eventTitle}</p>
               <p><strong>Date & Time:</strong> ${eventDate}</p>
-              ${data.eventLocation ? `<p><strong>Location:</strong> ${data.eventLocation}</p>` : ''}
-              ${data.rsvpDeadline ? `<p><strong>RSVP Deadline:</strong> ${new Date(data.rsvpDeadline).toLocaleDateString()}</p>` : ''}
+              ${data.eventLocation ? `<p><strong>Location:</strong> ${data.eventLocation}</p>` : ""}
+              ${data.rsvpDeadline ? `<p><strong>RSVP Deadline:</strong> ${new Date(data.rsvpDeadline).toLocaleDateString()}</p>` : ""}
             </div>
-            
             <div class="rsvp-section">
               <h3>📝 Please RSVP</h3>
               <p>Click one of the buttons below to respond to this invitation:</p>
-              <a href="${process.env.EVENTS_PORTAL_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=accepted" class="rsvp-button">✅ Accept</a>
-              <a href="${process.env.EVENTS_PORTAL_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=declined" class="rsvp-button decline">❌ Decline</a>
-              <a href="${process.env.EVENTS_PORTAL_URL || 'http://app.kyntaro.com'}/events/rsvp/${data.invitationToken}?status=maybe" class="rsvp-button maybe">🤔 Maybe</a>
+              <a href="${process.env.EVENTS_PORTAL_URL || "http://app.kyntaro.com"}/events/rsvp/${data.invitationToken}?status=accepted" class="rsvp-button">✅ Accept</a>
+              <a href="${process.env.EVENTS_PORTAL_URL || "http://app.kyntaro.com"}/events/rsvp/${data.invitationToken}?status=declined" class="rsvp-button decline">❌ Decline</a>
+              <a href="${process.env.EVENTS_PORTAL_URL || "http://app.kyntaro.com"}/events/rsvp/${data.invitationToken}?status=maybe" class="rsvp-button maybe">🤔 Maybe</a>
             </div>
-            
             <p><strong>Note:</strong> This invitation is personalized for you. Please use the RSVP links above to respond.</p>
-            
-            <p>We look forward to seeing you at the event!</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+            <p>We look forward to seeing you at the event!</p>`;
+
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Event invitation — ${branding.companyName}`,
+      preheader: `${data.eventTitle} — ${branding.companyName}`,
+      emailHeading: "Event invitation",
+      headerTagline: "Events",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Events Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -3905,47 +3889,18 @@ export class EmailNotificationService {
    */
   private static getRSVPNotificationTemplate(data: any, branding: EmailBranding): string {
     const statusEmoji = {
-      'ACCEPTED': '✅',
-      'DECLINED': '❌',
-      'MAYBE': '🤔'
+      ACCEPTED: "✅",
+      DECLINED: "❌",
+      MAYBE: "🤔",
     };
 
     const statusColor = {
-      'ACCEPTED': '#28a745',
-      'DECLINED': '#dc3545',
-      'MAYBE': '#ffc107'
+      ACCEPTED: "#28a745",
+      DECLINED: "#dc3545",
+      MAYBE: "#ffc107",
     };
 
-    const headerHtml = renderEmailHeader(branding, { title: "RSVP update" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Events Team", branding);
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>RSVP Update</title>
-        <style>
-          body {
-            font-family: 'Arial', sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f4f4f4;
-          }
-          .container {
-            background-color: #ffffff;
-            border-radius: 10px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-            overflow: hidden;
-          }
-          .content {
-            padding: 30px;
-          }
+    const extraHeadInner = `<style>
           .rsvp-update {
             background-color: #f8f9fa;
             padding: 20px;
@@ -3953,69 +3908,37 @@ export class EmailNotificationService {
             margin: 20px 0;
             border-left: 4px solid ${statusColor[data.rsvpStatus]};
           }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+
+    const bodyInner = `
             <p>Dear ${data.organizerName},</p>
-            
             <p>You have received a new RSVP response for your event:</p>
-            
             <div class="rsvp-update">
               <h3>${statusEmoji[data.rsvpStatus]} RSVP Response</h3>
               <p><strong>Event:</strong> ${data.eventTitle}</p>
               <p><strong>Guest:</strong> ${data.guestName}</p>
               <p><strong>Response:</strong> ${data.rsvpStatus}</p>
-              ${data.rsvpNotes ? `<p><strong>Notes:</strong> ${data.rsvpNotes}</p>` : ''}
+              ${data.rsvpNotes ? `<p><strong>Notes:</strong> ${data.rsvpNotes}</p>` : ""}
             </div>
-            
-            <p>You can view all RSVP responses and manage your event through the ${branding.companyName} platform.</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+            <p>You can view all RSVP responses and manage your event through the ${branding.companyName} platform.</p>`;
+
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `RSVP update — ${branding.companyName}`,
+      preheader: `${data.eventTitle} — ${branding.companyName}`,
+      emailHeading: "RSVP update",
+      headerTagline: "Events",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Events Team",
+      extraHeadInner,
+    });
   }
 
   /**
    * Get budget approval email template
    */
   private static getBudgetApprovalTemplate(data: any, branding: EmailBranding): string {
-    const headerHtml = renderEmailHeader(branding, { title: "Budget approved" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Finance Team", branding);
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Budget Approved</title>
-        <style>
-          body {
-            font-family: 'Arial', sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f4f4f4;
-          }
-          .container {
-            background-color: #ffffff;
-            border-radius: 10px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-            overflow: hidden;
-          }
-          .content {
-            padding: 30px;
-          }
+    const extraHeadInner = `<style>
           .approval-details {
             background-color: #e8f5e8;
             padding: 20px;
@@ -4023,34 +3946,30 @@ export class EmailNotificationService {
             margin: 20px 0;
             border-left: 4px solid #28a745;
           }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+
+    const bodyInner = `
             <p>Dear ${data.organizerName},</p>
-            
             <p>Great news! Your event budget has been approved by the finance team.</p>
-            
             <div class="approval-details">
               <h3>💰 Budget Approval Details</h3>
               <p><strong>Event:</strong> ${data.eventTitle}</p>
               <p><strong>Approved Budget:</strong> $${data.approvedBudget.toLocaleString()}</p>
-              ${data.notes ? `<p><strong>Notes:</strong> ${data.notes}</p>` : ''}
+              ${data.notes ? `<p><strong>Notes:</strong> ${data.notes}</p>` : ""}
             </div>
-            
             <p>You can now proceed with your event planning and start making necessary arrangements. Remember to keep all receipts and documentation for expense tracking.</p>
-            
-            <p>If you have any questions about the approved budget or need assistance with event planning, please don't hesitate to contact the finance team.</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+            <p>If you have any questions about the approved budget or need assistance with event planning, please don't hesitate to contact the finance team.</p>`;
+
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Budget approved — ${branding.companyName}`,
+      preheader: `${data.eventTitle} — ${branding.companyName}`,
+      emailHeading: "Budget approved",
+      headerTagline: "Finance",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Finance Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -4379,19 +4298,11 @@ export class EmailNotificationService {
       const subSafe = String(data.requisitionNumber).replace(/[\r\n]/g, " ");
       const subject = `Investee drawdown PR — Pending VC review — ${subSafe}`;
       const branding = await getEmailBrandingCached();
-      const headerHtml = renderEmailHeader(branding, { title: "Investee drawdown PR" });
-      const footerHtml = renderEmailFooter(branding);
-      const signatureHtml = renderEmailSignature("Procurement Team", branding);
       const docNote =
         data.useOfFundsDocumentUrl && String(data.useOfFundsDocumentUrl).trim() !== ""
           ? `<p>A <strong>use of funds / business case</strong> document was included with this submission.</p>`
           : "";
-      const htmlContent = `<!DOCTYPE html>
-<html>
-  <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;margin:0;padding:0;">
-    <div style="max-width:640px;margin:0 auto;background:#ffffff;">
-      ${headerHtml}
-      <div style="padding:28px;">
+      const bodyInner = `
         <p>A purchase requisition was submitted for <strong>VC executive review</strong> (Suite 02).</p>
         <ul>
           <li><strong>Portfolio company:</strong> ${esc(data.portfolioCompanyName)}</li>
@@ -4400,13 +4311,16 @@ export class EmailNotificationService {
           <li><strong>Submitted by:</strong> ${esc(data.submittedByName)}</li>
         </ul>
         ${docNote}
-        <p>Please route this through your usual VC executive review process (CFO approval gate).</p>
-        ${signatureHtml}
-      </div>
-      ${footerHtml}
-    </div>
-  </body>
-</html>`;
+        <p>Please route this through your usual VC executive review process (CFO approval gate).</p>`;
+      const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+        branding,
+        pageTitle: `Investee drawdown PR — ${branding.companyName}`,
+        preheader: `${subject} — ${branding.companyName}`,
+        emailHeading: "Investee drawdown PR",
+        headerTagline: "Procurement",
+        bodyInnerHtml: bodyInner,
+        teamLabel: "Procurement Team",
+      });
       const from = getFromAddress("procurement");
       for (const r of data.recipients) {
         await emailTransport.sendMail({
@@ -4617,53 +4531,27 @@ export class EmailNotificationService {
     specialRequirements?: string;
     companyName?: string;
   }, branding: EmailBranding): string {
-    const formattedDate = data.rfqDate.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    const formattedDate = data.rfqDate.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
     });
-    const expectedDelivery = data.expectedDeliveryDate 
-      ? data.expectedDeliveryDate.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
+    const expectedDelivery = data.expectedDeliveryDate
+      ? data.expectedDeliveryDate.toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
         })
-      : 'To be discussed';
+      : "To be discussed";
     const deadline = data.rfqDeadline
-      ? data.rfqDeadline.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
+      ? data.rfqDeadline.toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
         })
-      : 'As soon as possible';
-    const headerHtml = renderEmailHeader(branding, { title: `RFQ ${data.rfqNumber}` });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
+      : "As soon as possible";
 
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 20px;
-          }
-          .container {
-            background-color: #ffffff;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-          }
-          .content {
-            padding: 30px;
-          }
+    const extraHeadInner = `<style>
           .rfq-info {
             background-color: #f8f9fa;
             padding: 20px;
@@ -4733,13 +4621,6 @@ export class EmailNotificationService {
             margin: 20px 0;
             border-left: 4px solid #007bff;
           }
-          .footer {
-            background-color: #f8f9fa;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-          }
           .action-button {
             display: inline-block;
             background-color: #4CAF50;
@@ -4767,16 +4648,11 @@ export class EmailNotificationService {
           .instruction-list li {
             margin: 8px 0;
           }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+
+    const bodyInner = `
             <p>Dear ${data.vendorName},</p>
-            
             <p>We are seeking competitive quotes for the following items/services. Please review the details below and provide your best pricing.</p>
-            
             <div class="rfq-info">
               <h3 style="margin-top: 0;">📋 RFQ Information</h3>
               <table>
@@ -4794,18 +4670,15 @@ export class EmailNotificationService {
                 </tr>
               </table>
             </div>
-
             ${data.description ? `
             <div>
               <h3>📝 Description</h3>
               <p>${data.description}</p>
             </div>
-            ` : ''}
-
+            ` : ""}
             <div class="deadline-box">
               ⏰ <strong>Quote Submission Deadline:</strong> ${deadline}
             </div>
-
             <h3>📦 Items/Services Required</h3>
             <table class="items-table">
               <thead>
@@ -4816,35 +4689,36 @@ export class EmailNotificationService {
                 </tr>
               </thead>
               <tbody>
-                ${data.items.map(item => `
+                ${data.items
+                  .map(
+                    (item) => `
                   <tr>
                     <td>
                       <strong>${item.itemName}</strong>
-                      ${item.description ? `<div class="item-description">${item.description}</div>` : ''}
-                      ${item.specifications ? `<div class="item-specs">Specs: ${JSON.stringify(item.specifications)}</div>` : ''}
+                      ${item.description ? `<div class="item-description">${item.description}</div>` : ""}
+                      ${item.specifications ? `<div class="item-specs">Specs: ${JSON.stringify(item.specifications)}</div>` : ""}
                     </td>
                     <td style="text-align: right;">${item.quantity}</td>
-                    <td style="text-align: right;">${item.unit || 'unit'}</td>
+                    <td style="text-align: right;">${item.unit || "unit"}</td>
                   </tr>
-                `).join('')}
+                `
+                  )
+                  .join("")}
               </tbody>
             </table>
-
             ${data.deliveryAddress ? `
             <div style="margin: 20px 0;">
               <h3>🚚 Delivery Information</h3>
               <p><strong>Delivery Address:</strong><br>${data.deliveryAddress}</p>
               <p><strong>Expected Delivery Date:</strong> ${expectedDelivery}</p>
             </div>
-            ` : ''}
-
+            ` : ""}
             ${data.specialRequirements ? `
             <div class="requirements">
               <h3 style="margin-top: 0;">⚡ Special Requirements</h3>
               <p>${data.specialRequirements}</p>
             </div>
-            ` : ''}
-
+            ` : ""}
             <div class="instruction-list">
               <h3>📧 How to submit your quote</h3>
               <p>Please reply to this email (or contact our procurement team using the details in the footer) and include the following:</p>
@@ -4862,7 +4736,6 @@ export class EmailNotificationService {
                 <li>Any <strong>additional notes</strong> or terms</li>
               </ol>
             </div>
-
             <div class="highlight-box">
               <h3 style="margin-top: 0;">💡 Quote Format Example</h3>
               <p><strong>Item 1:</strong> Office Rent - $5,000 per month<br>
@@ -4874,7 +4747,6 @@ export class EmailNotificationService {
               <strong>Payment Terms:</strong> NET 30<br>
               <strong>Quote Valid Until:</strong> ${deadline}</p>
             </div>
-
             <p><strong>Important Notes:</strong></p>
             <ul>
               <li>All prices should be in <strong>USD</strong> or <strong>ZWL</strong> (please specify)</li>
@@ -4883,16 +4755,18 @@ export class EmailNotificationService {
               <li>Attach any relevant product specifications or brochures</li>
               <li>Provide company registration details</li>
             </ul>
+            <p>We appreciate your prompt response and look forward to receiving your competitive quote. If you have any questions about this RFQ, please don't hesitate to contact our procurement team.</p>`;
 
-            <p>We appreciate your prompt response and look forward to receiving your competitive quote. If you have any questions about this RFQ, please don't hesitate to contact our procurement team.</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `RFQ ${data.rfqNumber} — ${branding.companyName}`,
+      preheader: `${data.title} — ${branding.companyName}`,
+      emailHeading: `RFQ ${data.rfqNumber}`,
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -4918,35 +4792,7 @@ export class EmailNotificationService {
     notes?: string;
   }, branding: EmailBranding): string {
     const currencySymbol = data.currencyCode === 'USD' ? '$' : data.currencyCode === 'ZWL' ? 'ZWL' : data.currencyCode;
-    const headerHtml = renderEmailHeader(branding, { title: "New quotation received" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Quotation Submitted</title>
-        <style>
-          body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #222;
-            background-color: #f8fafc;
-            margin: 0;
-            padding: 20px;
-          }
-          .card {
-            background: #fff;
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-            max-width: 700px;
-            margin: 0 auto;
-          }
-          h1 {
-            color: #0f766e;
-            margin-bottom: 5px;
-          }
+    const extraHeadInner = `<style>
           .meta-table, .items-table {
             width: 100%;
             border-collapse: collapse;
@@ -4975,13 +4821,8 @@ export class EmailNotificationService {
             border-radius: 8px;
             margin-top: 20px;
           }
-        </style>
-      </head>
-      <body>
-        <div style="max-width: 700px; margin: 0 auto;">
-          ${headerHtml}
-          <div class="card">
-            <h1>New quotation received</h1>
+        </style>`;
+    const bodyInner = `
           <p>Dear ${data.requesterName},</p>
           <p><strong>${data.vendorName}</strong> has submitted a quotation for RFQ <strong>${data.rfqNumber}</strong>.</p>
           ${data.requisitionNumber ? `<p><strong>Requisition:</strong> ${data.requisitionNumber}${data.requisitionTitle ? ` – ${data.requisitionTitle}` : ''}</p>` : ''}
@@ -5028,14 +4869,17 @@ export class EmailNotificationService {
             </tfoot>
           </table>
           ${data.notes ? `<div class="note"><strong>Vendor notes:</strong> ${data.notes}</div>` : ''}
-          <p style="margin-top: 20px;">Please review this quotation through your usual procurement channels.</p>
-          ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+          <p style="margin-top: 20px;">Please review this quotation through your usual procurement channels.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `New quotation received — ${branding.companyName}`,
+      preheader: `${data.rfqNumber} — ${branding.companyName}`,
+      emailHeading: "New quotation received",
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /** Desk / FYI copy of quotation submission (same facts as requester email, different greeting). */
@@ -5063,31 +4907,7 @@ export class EmailNotificationService {
   ): string {
     const currencySymbol =
       data.currencyCode === "USD" ? "$" : data.currencyCode === "ZWL" ? "ZWL" : data.currencyCode;
-    const headerHtml = renderEmailHeader(branding, { title: "New quotation (desk copy)" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>New quotation</title>
-        <style>
-          body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #222;
-            background-color: #f8fafc;
-            margin: 0;
-            padding: 20px;
-          }
-          .card {
-            background: #fff;
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-            max-width: 700px;
-            margin: 0 auto;
-          }
+    const extraHeadInner = `<style>
           .meta-table, .items-table {
             width: 100%;
             border-collapse: collapse;
@@ -5116,12 +4936,8 @@ export class EmailNotificationService {
             border-radius: 8px;
             margin-top: 20px;
           }
-        </style>
-      </head>
-      <body>
-        <div style="max-width: 700px; margin: 0 auto;">
-          ${headerHtml}
-          <div class="card">
+        </style>`;
+    const bodyInner = `
             <p>Dear ${data.recipientName},</p>
             <p><strong>${data.vendorName}</strong> has submitted a quotation for RFQ <strong>${data.rfqNumber}</strong>.</p>
             ${data.requisitionNumber ? `<p><strong>Requisition:</strong> ${data.requisitionNumber}${data.requisitionTitle ? ` – ${data.requisitionTitle}` : ""}</p>` : ""}
@@ -5172,14 +4988,17 @@ export class EmailNotificationService {
               </tfoot>
             </table>
             ${data.notes ? `<div class="note"><strong>Vendor notes:</strong> ${data.notes}</div>` : ""}
-            <p style="margin-top: 20px;">Please coordinate review through your usual procurement channels.</p>
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+            <p style="margin-top: 20px;">Please coordinate review through your usual procurement channels.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `New quotation (desk copy) — ${branding.companyName}`,
+      preheader: `${data.rfqNumber} — ${branding.companyName}`,
+      emailHeading: "New quotation (desk copy)",
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -5220,44 +5039,7 @@ export class EmailNotificationService {
         })
       : 'To be confirmed';
 
-    const headerHtml = renderEmailHeader(branding, { title: `Purchase Order ${data.poNumber}` });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 20px;
-          }
-          .container {
-            background-color: #ffffff;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-          }
-          .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-          }
-          .header h1 {
-            margin: 0;
-            font-size: 28px;
-          }
-          .content {
-            padding: 30px;
-          }
+    const extraHeadInner = `<style>
           .po-info {
             background-color: #f8f9fa;
             padding: 20px;
@@ -5281,7 +5063,7 @@ export class EmailNotificationService {
             margin: 20px 0;
           }
           .items-table th {
-            background-color: #667eea;
+            background-color: #1e3a8a;
             color: white;
             padding: 12px;
             text-align: left;
@@ -5318,13 +5100,6 @@ export class EmailNotificationService {
             margin: 20px 0;
             border-left: 4px solid #007bff;
           }
-          .footer {
-            background-color: #f8f9fa;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-          }
           .action-button {
             display: inline-block;
             background-color: #28a745;
@@ -5335,16 +5110,11 @@ export class EmailNotificationService {
             margin: 15px 0;
             font-weight: 600;
           }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+
+    const bodyInner = `
             <p>Dear ${data.vendorName},</p>
-            
             <p>Please find below our purchase order for your review and processing.</p>
-            
             <div class="po-info">
               <h3 style="margin-top: 0;">📋 Order Information</h3>
               <table>
@@ -5365,18 +5135,16 @@ export class EmailNotificationService {
                   <td>Payment Terms:</td>
                   <td>${data.paymentTerms}</td>
                 </tr>
-                ` : ''}
+                ` : ""}
               </table>
             </div>
-
             ${data.deliveryAddress ? `
             <div class="delivery-info">
               <h3 style="margin-top: 0;">🚚 Delivery Information</h3>
               <p><strong>Delivery Address:</strong><br>${data.deliveryAddress}</p>
               <p><strong>Expected Delivery Date:</strong> ${expectedDelivery}</p>
             </div>
-            ` : ''}
-
+            ` : ""}
             <h3>📝 Order Items</h3>
             <table class="items-table">
               <thead>
@@ -5388,33 +5156,34 @@ export class EmailNotificationService {
                 </tr>
               </thead>
               <tbody>
-                ${data.items.map(item => `
+                ${data.items
+                  .map(
+                    (item) => `
                   <tr>
                     <td>
                       <strong>${item.itemName}</strong>
-                      ${item.description ? `<div class="item-description">${item.description}</div>` : ''}
+                      ${item.description ? `<div class="item-description">${item.description}</div>` : ""}
                     </td>
                     <td style="text-align: right;">${item.quantity}</td>
                     <td style="text-align: right;">${currencySymbol}${item.unitPrice.toFixed(2)}</td>
                     <td style="text-align: right;">${currencySymbol}${item.total.toFixed(2)}</td>
                   </tr>
-                `).join('')}
+                `
+                  )
+                  .join("")}
                 <tr class="total-row">
                   <td colspan="3" style="text-align: right;">Total Amount:</td>
                   <td style="text-align: right;">${currencySymbol}${data.totalAmount.toFixed(2)}</td>
                 </tr>
               </tbody>
             </table>
-
             ${data.notes ? `
             <div class="notes">
               <h3 style="margin-top: 0;">💬 Additional Notes</h3>
               <p>${data.notes}</p>
             </div>
-            ` : ''}
-
+            ` : ""}
             <p>Please confirm receipt of this purchase order in writing (reply to this email or your usual channel) and provide your acceptance and estimated delivery timeline.</p>
-            
             <p><strong>Next steps:</strong></p>
             <ul>
               <li>Review the order details carefully</li>
@@ -5422,16 +5191,18 @@ export class EmailNotificationService {
               <li>Provide delivery timeline confirmation</li>
               <li>Send your invoice as per the agreed terms</li>
             </ul>
+            <p>If you have any questions or need clarification on any items, please don't hesitate to contact our procurement team.</p>`;
 
-            <p>If you have any questions or need clarification on any items, please don't hesitate to contact our procurement team.</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Purchase Order ${data.poNumber} — ${branding.companyName}`,
+      preheader: `PO ${data.poNumber} — ${branding.companyName}`,
+      emailHeading: `Purchase Order ${data.poNumber}`,
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -5447,62 +5218,43 @@ export class EmailNotificationService {
     companyName?: string;
     rfqNumber?: string;
   }, branding: EmailBranding): string {
-    const headerHtml = renderEmailHeader(branding, { title: "Quotation accepted" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+    const extraHeadInner = `<style>
           .info-box { background: #f0fdf4; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; border-radius: 4px; }
           .amount { font-size: 24px; font-weight: bold; color: #10b981; margin: 10px 0; }
           .notes { background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0; }
-          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 10px 10px; }
-          .button { display: inline-block; padding: 12px 30px; background: #10b981; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: bold; }
           ul { padding-left: 20px; }
-        </style>
-      </head>
-      <body>
-        ${headerHtml}
-        <div class="content">
+        </style>`;
+    const bodyInner = `
           <p>Dear ${data.vendorName},</p>
-          
           <p>Great news! We are pleased to inform you that your quotation has been <strong>accepted</strong>.</p>
-          
           <div class="info-box">
             <p style="margin: 0;"><strong>📋 Quotation Number:</strong> ${data.quotationNumber}</p>
             <div class="amount">${data.currencyCode} ${data.quotationAmount.toFixed(2)}</div>
           </div>
-
           ${data.reviewNotes ? `
           <div class="notes">
             <h3 style="margin-top: 0;">💬 Review Notes</h3>
             <p>${data.reviewNotes}</p>
           </div>
           ` : ''}
-
           <p><strong>Next steps:</strong></p>
           <ul>
             <li>Finalize the preparation of the items or services you quoted</li>
             <li>Ensure delivery aligns with the timeframe you submitted</li>
             <li>Prepare your tax invoice referencing quotation <strong>${data.quotationNumber}</strong>; our team will advise how to submit it</li>
           </ul>
-
           <p>Thank you for your competitive pricing and professional service. We look forward to a successful transaction and continued business relationship.</p>
-          
-          <p>If you have any questions, please don't hesitate to contact our procurement team.</p>
-          
-          ${signatureHtml}
-        </div>
-        ${footerHtml}
-      </body>
-      </html>
-    `;
+          <p>If you have any questions, please don't hesitate to contact our procurement team.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Quotation accepted — ${branding.companyName}`,
+      preheader: `${data.quotationNumber} — ${branding.companyName}`,
+      emailHeading: "Quotation accepted",
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -5516,43 +5268,24 @@ export class EmailNotificationService {
     rejectionReason?: string;
     companyName?: string;
   }, branding: EmailBranding): string {
-    const headerHtml = renderEmailHeader(branding, { title: "Quotation status update" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+    const extraHeadInner = `<style>
           .info-box { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px; }
           .reason { background: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b; }
-          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 10px 10px; }
           ul { padding-left: 20px; }
-        </style>
-      </head>
-      <body>
-        ${headerHtml}
-        <div class="content">
+        </style>`;
+    const bodyInner = `
           <p>Dear ${data.vendorName},</p>
-          
           <p>Thank you for submitting your quotation for our recent request. After careful review and consideration, we regret to inform you that we will not be proceeding with your quotation at this time.</p>
-          
           <div class="info-box">
             <p style="margin: 0;"><strong>📋 Quotation Number:</strong> ${data.quotationNumber}</p>
             <p style="margin: 10px 0 0 0;"><strong>Amount:</strong> ${data.currencyCode} ${data.quotationAmount.toFixed(2)}</p>
           </div>
-
           ${data.rejectionReason ? `
           <div class="reason">
             <h3 style="margin-top: 0;">📝 Reason</h3>
             <p>${data.rejectionReason}</p>
           </div>
           ` : ''}
-
           <p>Please note that this decision does not reflect negatively on your company or services. We receive multiple quotations and must make decisions based on various factors including:</p>
           <ul>
             <li>Pricing and budget constraints</li>
@@ -5561,17 +5294,18 @@ export class EmailNotificationService {
             <li>Past performance and reliability</li>
             <li>Overall business requirements</li>
           </ul>
-
           <p>We value our relationship with you and hope to have the opportunity to work together on future projects. Please feel free to participate in our future RFQs.</p>
-          
-          <p>Thank you for your time and effort in preparing the quotation.</p>
-          
-          ${signatureHtml}
-        </div>
-        ${footerHtml}
-      </body>
-      </html>
-    `;
+          <p>Thank you for your time and effort in preparing the quotation.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Quotation status update — ${branding.companyName}`,
+      preheader: `${data.quotationNumber} — ${branding.companyName}`,
+      emailHeading: "Quotation status update",
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -5597,36 +5331,18 @@ export class EmailNotificationService {
       day: 'numeric'
     }) : null;
 
-    const headerHtml = renderEmailHeader(branding, { title: "Invoice approved" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Finance Team", branding);
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
-          .info-box { background: #ecfdf5; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; border-radius: 4px; }
+    const extraHeadInner = `<style>
           .amount { font-size: 28px; font-weight: bold; color: #10b981; margin: 15px 0; text-align: center; }
           .details { background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; }
           .detail-row { display: flex; justify-content: space-between; margin: 10px 0; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
-          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 10px 10px; }
-        </style>
-      </head>
-      <body>
-        ${headerHtml}
-        <div class="content">
+          .info-box { background: #ecfdf5; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; border-radius: 4px; }
+        </style>`;
+    const bodyInner = `
           <p>Dear ${data.vendorName},</p>
-          
           <p>We are pleased to inform you that your invoice has been approved and is ready for payment processing.</p>
-          
           <div class="amount">
             ${data.currencyCode} ${data.invoiceAmount.toFixed(2)}
           </div>
-
           <div class="details">
             <h3 style="margin-top: 0;">📋 Invoice Details</h3>
             <div class="detail-row">
@@ -5648,20 +5364,21 @@ export class EmailNotificationService {
             </div>
             ` : ''}
           </div>
-
           <div class="info-box">
             <p style="margin: 0;"><strong>ℹ️ Next Steps:</strong></p>
             <p style="margin: 5px 0 0 0;">Payment will be processed according to our payment terms. You will receive a separate payment confirmation email once the payment has been completed.</p>
           </div>
-
-          <p>Thank you for your business. We appreciate your patience during the approval process.</p>
-          
-          ${signatureHtml}
-        </div>
-        ${footerHtml}
-      </body>
-      </html>
-    `;
+          <p>Thank you for your business. We appreciate your patience during the approval process.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Invoice approved — ${branding.companyName}`,
+      preheader: `${data.invoiceNumber} — ${branding.companyName}`,
+      emailHeading: "Invoice approved",
+      headerTagline: "Finance",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Finance Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -5685,36 +5402,18 @@ export class EmailNotificationService {
       day: 'numeric'
     });
 
-    const headerHtml = renderEmailHeader(branding, { title: "Payment confirmation" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Finance Team", branding);
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-          .header { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+    const extraHeadInner = `<style>
           .info-box { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0; border-radius: 4px; }
           .payment-amount { font-size: 28px; font-weight: bold; color: #3b82f6; margin: 15px 0; text-align: center; }
           .payment-details { background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; }
           .payment-row { display: flex; justify-content: space-between; margin: 10px 0; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
-          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 10px 10px; }
-        </style>
-      </head>
-      <body>
-        ${headerHtml}
-        <div class="content">
+        </style>`;
+    const bodyInner = `
           <p>Dear ${data.vendorName},</p>
-          
           <p>We are pleased to confirm that payment for your invoice has been processed successfully.</p>
-          
           <div class="payment-amount">
             ${data.currencyCode} ${data.invoiceAmount.toFixed(2)}
           </div>
-
           <div class="payment-details">
             <h3 style="margin-top: 0;">📋 Payment Details</h3>
             <div class="payment-row">
@@ -5746,34 +5445,33 @@ export class EmailNotificationService {
             </div>
             ` : ''}
           </div>
-
           ${data.isPartialPayment ? `
           <div class="info-box" style="background: #fef3c7; border-left-color: #f59e0b;">
             <p style="margin: 0;"><strong>⚠️ Partial Payment:</strong></p>
             <p style="margin: 5px 0 0 0;">This is a partial payment. A remaining balance of <strong>${data.currencyCode} ${data.remainingBalance?.toFixed(2) || '0.00'}</strong> is still pending.</p>
           </div>
           ` : ''}
-
           <div class="info-box">
             <p style="margin: 0;"><strong>ℹ️ Important:</strong></p>
             <p style="margin: 5px 0 0 0;">The payment should reflect in your account within 1-3 business days, depending on your bank's processing time.</p>
           </div>
-
           <p><strong>If you have any questions:</strong></p>
           <ul>
             <li>Please verify the payment against your records</li>
             <li>Contact our finance team if there are any discrepancies</li>
             <li>Keep this email for your records</li>
           </ul>
-
-          <p>Thank you for your excellent service and cooperation. We look forward to continuing our business relationship.</p>
-          
-          ${signatureHtml}
-        </div>
-        ${footerHtml}
-      </body>
-      </html>
-    `;
+          <p>Thank you for your excellent service and cooperation. We look forward to continuing our business relationship.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Payment confirmation — ${branding.companyName}`,
+      preheader: `${data.invoiceNumber} — ${branding.companyName}`,
+      emailHeading: "Payment confirmation",
+      headerTagline: "Finance",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Finance Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -5791,32 +5489,12 @@ export class EmailNotificationService {
     status: string;
     companyName?: string;
   }, branding: EmailBranding): string {
-    const headerHtml = renderEmailHeader(branding, { title: "Requisition approval required" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>New Requisition Requires Approval</title>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #059669; color: white; padding: 20px; text-align: center; }
-          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+    const extraHeadInner = `<style>
           .info-box { background: #f0fdf4; border-left: 4px solid #059669; padding: 15px; margin: 20px 0; border-radius: 4px; }
-          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+    const bodyInner = `
             <p>Dear ${data.headName},</p>
-            
             <p>A new purchase requisition has been submitted and requires your approval:</p>
-            
             <div class="info-box">
               <p style="margin: 0;"><strong>Requisition Number:</strong> ${data.requisitionNumber}</p>
               <p style="margin: 10px 0 0 0;"><strong>Title / summary:</strong> ${data.title}</p>
@@ -5826,16 +5504,17 @@ export class EmailNotificationService {
               <p style="margin: 10px 0 0 0;"><strong>Total Amount:</strong> ${data.totalAmount.toFixed(2)}</p>
               <p style="margin: 10px 0 0 0;"><strong>Status:</strong> ${data.status}</p>
             </div>
-
-            <p>Please review and approve or reject this requisition through your usual internal channels.</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+            <p>Please review and approve or reject this requisition through your usual internal channels.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Requisition approval required — ${branding.companyName}`,
+      preheader: `${data.requisitionNumber} — ${branding.companyName}`,
+      emailHeading: "Requisition approval required",
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -5953,59 +5632,39 @@ export class EmailNotificationService {
     branding: EmailBranding
   ): string {
     const L = EmailNotificationService.procurementApprovedSubmitterLabels(data.procurementStageType);
-    const headerHtml = renderEmailHeader(branding, { title: L.headerTitle });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
     const deptRow =
       L.showDepartment
         ? `<p style="margin: 10px 0 0 0;"><strong>Department:</strong> ${data.department}</p>`
         : "";
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>${L.htmlTitle}</title>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #059669; color: white; padding: 20px; text-align: center; }
-          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+    const extraHeadInner = `<style>
           .info-box { background: #f0fdf4; border-left: 4px solid #059669; padding: 15px; margin: 20px 0; border-radius: 4px; }
-          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+    const bodyInner = `
             <p>Dear ${data.submitterName},</p>
-            
             <p>${L.leadParagraph}</p>
-            
             <div class="info-box">
               <p style="margin: 0;"><strong>${L.referenceLabel}:</strong> ${data.requisitionNumber}</p>
               <p style="margin: 10px 0 0 0;"><strong>Title / summary:</strong> ${data.title}</p>
               ${deptRow}
               <p style="margin: 10px 0 0 0;"><strong>Approved By:</strong> ${data.approvedByName}${data.approvedByEmail ? ` (${data.approvedByEmail})` : ""}</p>
             </div>
-
             ${data.approvalComments ? `
             <div style="background: #f9fafb; padding: 15px; border-radius: 4px; margin: 20px 0;">
               <p style="margin: 0;"><strong>Approval Comments:</strong></p>
               <p style="margin: 10px 0 0 0;">${data.approvalComments}</p>
             </div>
             ` : ''}
-
-            <p>You can now proceed with the next steps in the procurement process.</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+            <p>You can now proceed with the next steps in the procurement process.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `${L.headerTitle} — ${branding.companyName}`,
+      preheader: `${data.requisitionNumber} — ${branding.companyName}`,
+      emailHeading: L.headerTitle,
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -6026,59 +5685,39 @@ export class EmailNotificationService {
     branding: EmailBranding
   ): string {
     const L = EmailNotificationService.procurementRejectedSubmitterLabels(data.procurementStageType);
-    const headerHtml = renderEmailHeader(branding, { title: L.headerTitle });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
     const deptRow =
       L.showDepartment
         ? `<p style="margin: 10px 0 0 0;"><strong>Department:</strong> ${data.department}</p>`
         : "";
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>${L.htmlTitle}</title>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #dc2626; color: white; padding: 20px; text-align: center; }
-          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+    const extraHeadInner = `<style>
           .info-box { background: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0; border-radius: 4px; }
-          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+    const bodyInner = `
             <p>Dear ${data.submitterName},</p>
-            
             <p>${L.leadParagraph}</p>
-            
             <div class="info-box">
               <p style="margin: 0;"><strong>${L.referenceLabel}:</strong> ${data.requisitionNumber}</p>
               <p style="margin: 10px 0 0 0;"><strong>Title / summary:</strong> ${data.title}</p>
               ${deptRow}
               <p style="margin: 10px 0 0 0;"><strong>Rejected By:</strong> ${data.rejectedByName}${data.rejectedByEmail ? ` (${data.rejectedByEmail})` : ""}</p>
             </div>
-
             ${data.rejectionReason ? `
             <div style="background: #f9fafb; padding: 15px; border-radius: 4px; margin: 20px 0;">
               <p style="margin: 0;"><strong>Rejection Reason:</strong></p>
               <p style="margin: 10px 0 0 0;">${data.rejectionReason}</p>
             </div>
             ` : ''}
-
-            <p>Please review the rejection reason and make necessary changes before resubmitting.</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+            <p>Please review the rejection reason and make necessary changes before resubmitting.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `${L.headerTitle} — ${branding.companyName}`,
+      preheader: `${data.requisitionNumber} — ${branding.companyName}`,
+      emailHeading: L.headerTitle,
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -6097,32 +5736,12 @@ export class EmailNotificationService {
     department: string;
     companyName?: string;
   }, branding: EmailBranding): string {
-    const headerHtml = renderEmailHeader(branding, { title: "Approval required" });
-    const footerHtml = renderEmailFooter(branding);
-    const signatureHtml = renderEmailSignature("Procurement Team", branding);
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Approval Required</title>
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; }
-          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+    const extraHeadInner = `<style>
           .info-box { background: #eff6ff; border-left: 4px solid #2563eb; padding: 15px; margin: 20px 0; border-radius: 4px; }
-          .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          ${headerHtml}
-          <div class="content">
+        </style>`;
+    const bodyInner = `
             <p>Dear ${data.approverName},</p>
-            
             <p>An approval request is pending your review:</p>
-            
             <div class="info-box">
               <p style="margin: 0;"><strong>Entity Type:</strong> ${data.entityType}</p>
               <p style="margin: 10px 0 0 0;"><strong>${data.entityType} Number:</strong> ${data.entityNumber}</p>
@@ -6131,16 +5750,17 @@ export class EmailNotificationService {
               <p style="margin: 10px 0 0 0;"><strong>Submitted By:</strong> ${data.submittedByName} (${data.submittedByEmail})</p>
               <p style="margin: 10px 0 0 0;"><strong>Step:</strong> ${data.stepNumber} of ${data.totalSteps} - ${data.stepName}</p>
             </div>
-
-            <p>Please review and approve or reject this request through your usual internal channels.</p>
-            
-            ${signatureHtml}
-          </div>
-          ${footerHtml}
-        </div>
-      </body>
-      </html>
-    `;
+            <p>Please review and approve or reject this request through your usual internal channels.</p>`;
+    return EmailNotificationService.composeNewsletterTransactionalHtml({
+      branding,
+      pageTitle: `Approval required — ${branding.companyName}`,
+      preheader: `${data.entityNumber} — ${branding.companyName}`,
+      emailHeading: "Approval required",
+      headerTagline: "Procurement",
+      bodyInnerHtml: bodyInner,
+      teamLabel: "Procurement Team",
+      extraHeadInner,
+    });
   }
 
   /**
@@ -6533,11 +6153,6 @@ export class EmailNotificationService {
   }): Promise<void> {
     try {
       const branding = await getEmailBrandingCached();
-      const headerHtml = renderEmailHeader(branding, {
-        title: `Invoice ${data.invoiceNumber}`,
-      });
-      const signatureHtml = renderEmailSignature("Accounts Receivable", branding);
-      const footerHtml = renderEmailFooter(branding);
 
       const dateLabel = (() => {
         const dt = data.invoiceDate instanceof Date ? data.invoiceDate : new Date(data.invoiceDate);
@@ -6558,12 +6173,8 @@ export class EmailNotificationService {
       })}`;
 
       const subject = `Invoice ${data.invoiceNumber} - ${branding.companyName}`;
-      const htmlContent = `<!DOCTYPE html>
-<html>
-  <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;margin:0;padding:0;">
-    <div style="max-width:640px;margin:0 auto;background:#ffffff;">
-      ${headerHtml}
-      <div style="padding:28px;">
+      const emailHeading = `Invoice ${data.invoiceNumber}`;
+      const bodyInner = `
         <p>Dear ${data.customerName || "Customer"},</p>
         <p>Please find attached your invoice <strong>${data.invoiceNumber}</strong> dated <strong>${dateLabel}</strong>${
         dueLabel ? `, due on <strong>${dueLabel}</strong>` : ""
@@ -6579,13 +6190,16 @@ export class EmailNotificationService {
             ? `<p style="color:#444;"><strong>Description:</strong> ${String(data.description)}</p>`
             : ""
         }
-        <p>If you have any questions about this invoice please reply to this email or contact our finance team.</p>
-        ${signatureHtml}
-      </div>
-      ${footerHtml}
-    </div>
-  </body>
-</html>`;
+        <p>If you have any questions about this invoice please reply to this email or contact our finance team.</p>`;
+      const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+        branding,
+        pageTitle: `${emailHeading} — ${branding.companyName}`,
+        preheader: `${subject} — ${branding.companyName}`,
+        emailHeading,
+        headerTagline: "Finance",
+        bodyInnerHtml: bodyInner,
+        teamLabel: "Accounts Receivable",
+      });
 
       const from = getFromAddress("finance");
       await emailTransport.sendMail({
@@ -6622,11 +6236,6 @@ export class EmailNotificationService {
   }): Promise<void> {
     try {
       const branding = await getEmailBrandingCached();
-      const headerHtml = renderEmailHeader(branding, {
-        title: `Invoice ${data.invoiceNumber} approved`,
-      });
-      const signatureHtml = renderEmailSignature("Procurement Team", branding);
-      const footerHtml = renderEmailFooter(branding);
 
       const dateLabel = (() => {
         const dt = data.invoiceDate instanceof Date ? data.invoiceDate : new Date(data.invoiceDate);
@@ -6647,12 +6256,8 @@ export class EmailNotificationService {
       })}`;
 
       const subject = `Invoice ${data.invoiceNumber} approved - ${branding.companyName}`;
-      const htmlContent = `<!DOCTYPE html>
-<html>
-  <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;margin:0;padding:0;">
-    <div style="max-width:640px;margin:0 auto;background:#ffffff;">
-      ${headerHtml}
-      <div style="padding:28px;">
+      const emailHeading = `Invoice ${data.invoiceNumber} approved`;
+      const bodyInner = `
         <p>Dear ${data.vendorName || "Vendor"},</p>
         <p>Your invoice <strong>${data.invoiceNumber}</strong> has been approved. Please find a copy attached for your records.</p>
         <div style="background:#ecfdf5;border-left:4px solid #16a34a;padding:14px 18px;margin:18px 0;border-radius:4px;">
@@ -6662,13 +6267,16 @@ export class EmailNotificationService {
           ${data.poNumber ? `<div><strong>Purchase order:</strong> ${data.poNumber}</div>` : ""}
           <div><strong>Total approved:</strong> ${totalLabel}</div>
         </div>
-        <p>Payment will be processed in line with the agreed payment terms. You will receive a separate notification once payment is released.</p>
-        ${signatureHtml}
-      </div>
-      ${footerHtml}
-    </div>
-  </body>
-</html>`;
+        <p>Payment will be processed in line with the agreed payment terms. You will receive a separate notification once payment is released.</p>`;
+      const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+        branding,
+        pageTitle: `${emailHeading} — ${branding.companyName}`,
+        preheader: `${subject} — ${branding.companyName}`,
+        emailHeading,
+        headerTagline: "Procurement",
+        bodyInnerHtml: bodyInner,
+        teamLabel: "Procurement Team",
+      });
 
       const from = getFromAddress("procurement");
       await emailTransport.sendMail({

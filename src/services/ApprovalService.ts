@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
+import { persistProcurementEntityRejection } from "../utils/procurementRejectionPersistence";
 import { Department, DepartmentRole } from "./ProcurementService";
 
 export class ApprovalService {
@@ -645,38 +646,19 @@ export class ApprovalService {
 
       switch (stageType) {
         case "PURCHASE_REQUISITION":
-          await tx.purchaseRequisition.update({
-            where: { id: entityId },
-            data: { 
-              status: "REJECTED",
-              rejectionReason: reason
-            }
-          });
-          console.log(`   ❌ Purchase Requisition ${entityId} marked as REJECTED`);
-          break;
-
         case "PURCHASE_ORDER":
-          await tx.purchaseOrder.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Purchase Order ${entityId} marked as REJECTED`);
-          break;
-
         case "INVOICE":
-          await tx.procurementInvoice.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Procurement Invoice ${entityId} marked as REJECTED`);
-          break;
-
         case "GRN":
-          await tx.goodsReceivedNote.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Goods Received Note ${entityId} marked as REJECTED`);
+          await persistProcurementEntityRejection(tx, stageType, entityId, reason);
+          if (stageType === "PURCHASE_REQUISITION") {
+            console.log(`   ❌ Purchase Requisition ${entityId} marked as REJECTED`);
+          } else if (stageType === "PURCHASE_ORDER") {
+            console.log(`   ❌ Purchase Order ${entityId} marked as REJECTED`);
+          } else if (stageType === "INVOICE") {
+            console.log(`   ❌ Procurement Invoice ${entityId} marked as REJECTED`);
+          } else {
+            console.log(`   ❌ Goods Received Note ${entityId} marked as REJECTED`);
+          }
           break;
 
         default:

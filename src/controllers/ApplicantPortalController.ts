@@ -1470,6 +1470,39 @@ export class ApplicantPortalController {
     }
   }
 
+  async updateInvesteePurchaseRequisition(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return ResponseHelper.error(res, "User not found in request", undefined, 401);
+      }
+      if (!(await ApplicantPortalController.isApplicant(user))) {
+        return ResponseHelper.error(res, "Access denied. This endpoint is only available to applicants.", undefined, 403);
+      }
+      const userId = user.id || user.userId;
+      if (!userId) {
+        return ResponseHelper.error(res, "User ID not found in request", undefined, 401);
+      }
+      const pc = await prisma.portfolioCompany.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!pc) {
+        return ResponseHelper.error(res, "No portfolio company found for this user", undefined, 404);
+      }
+      const { id } = req.params;
+      if (!id) {
+        return ResponseHelper.error(res, "Requisition id is required", undefined, 400);
+      }
+      const updated = await ProcurementService.updatePurchaseRequisitionByOwner(id, userId, req.body || {}, {
+        restrictToPortfolioCompanyId: pc.id,
+      });
+      return ResponseHelper.success(res, "Purchase requisition updated successfully", updated);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
   async cancelInvesteePurchaseRequisition(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;

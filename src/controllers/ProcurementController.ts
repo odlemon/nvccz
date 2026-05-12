@@ -568,6 +568,37 @@ export class ProcurementController {
   }
 
   /**
+   * Update own purchase requisition while DRAFT or REJECTED (required before resubmit if rejected).
+   */
+  static async updatePurchaseRequisition(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const requisition = await ProcurementService.updatePurchaseRequisitionByOwner(id, userId, req.body || {});
+
+      res.status(200).json({
+        success: true,
+        message: "Purchase requisition updated successfully",
+        data: requisition
+      });
+    } catch (error: any) {
+      console.error("Error updating purchase requisition:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update purchase requisition"
+      });
+    }
+  }
+
+  /**
    * Create a purchase order
    */
   static async createPurchaseOrder(req: Request, res: Response) {
@@ -802,7 +833,9 @@ export class ProcurementController {
             select: {
               id: true,
               requisitionNumber: true,
-              title: true
+              title: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
             }
           },
           quotation: {
@@ -811,6 +844,8 @@ export class ProcurementController {
               quotationNumber: true,
               status: true,
               rfqNumber: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
             },
           },
           currency: {
@@ -883,6 +918,8 @@ export class ProcurementController {
               id: true,
               requisitionNumber: true,
               title: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
             },
           },
           quotation: {
@@ -891,6 +928,8 @@ export class ProcurementController {
               quotationNumber: true,
               status: true,
               rfqNumber: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
             },
           },
           currency: {
@@ -1339,7 +1378,9 @@ export class ProcurementController {
             select: {
               id: true,
               poNumber: true,
-              status: true
+              status: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
             }
           },
           currency: {

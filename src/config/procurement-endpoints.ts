@@ -185,11 +185,14 @@ export const procurementEndpoints = {
         }
       },
       responses: {
-        200: { description: 'Requisition rejected successfully' },
+        200: {
+          description:
+            'Requisition rejected successfully. Response `data` includes `rejectionReason`, `rejectionContentFingerprint`, and full requisition scalars for resubmit/edit flows.',
+        },
         400: { description: 'Bad request (missing reason or invalid state)' },
         401: { description: 'Unauthorized' },
-        403: { description: 'Forbidden - only department HEAD or DEPUTY can reject' }
-      }
+        403: { description: 'Forbidden - only department HEAD or DEPUTY can reject' },
+      },
     }
   },
 

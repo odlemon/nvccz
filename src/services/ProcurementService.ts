@@ -15,6 +15,7 @@ import {
   nextProcurementRequisitionNumber,
   nextProcurementRfqNumber,
 } from "../utils/procurementDocumentNumbers";
+import { computePurchaseRequisitionContentFingerprint } from "../utils/purchaseRequisitionContentFingerprint";
 
 // Hardcoded departments
 export enum Department {
@@ -633,6 +634,187 @@ export class ProcurementService {
     return result;
   }
 
+  private static async cancelStalePendingApprovalRequestsForPurchaseRequisitionEntity(
+    requisitionId: string
+  ) {
+    const now = new Date();
+    await prisma.approvalRequest.updateMany({
+      where: {
+        entityId: requisitionId,
+        stageType: "PURCHASE_REQUISITION",
+        status: "PENDING",
+      },
+      data: {
+        status: "CANCELLED",
+        rejectionReason: "Superseded: requisition resubmitted after rejection",
+        rejectedAt: now,
+      },
+    });
+  }
+
+  /**
+   * Update a purchase requisition while it is DRAFT or REJECTED (requester only).
+   * Rejected rows must be edited here (or via equivalent investee route) before resubmit is allowed.
+   */
+  static async updatePurchaseRequisitionByOwner(
+    requisitionId: string,
+    userId: string,
+    body: {
+      title?: string;
+      description?: string | null;
+      department?: string;
+      priority?: string;
+      justification?: string | null;
+      sourcingCategory?: string | null;
+      items?: Array<{
+        itemName: string;
+        description?: string | null;
+        quantity: number | string;
+        unit?: string | null;
+        specifications?: unknown;
+      }>;
+      portfolioCompanyId?: string | null;
+      fundId?: string | null;
+      useOfFundsDocumentUrl?: string | null;
+      drawdownRequestAmount?: number | string | null;
+    },
+    opts?: { restrictToPortfolioCompanyId?: string }
+  ) {
+    const existing = await prisma.purchaseRequisition.findUnique({
+      where: { id: requisitionId },
+      include: { items: true },
+    });
+    if (!existing) {
+      throw new Error("Purchase requisition not found");
+    }
+    if (existing.requestedById !== userId) {
+      throw new Error("Only the requisition requester can update this requisition.");
+    }
+    if (
+      opts?.restrictToPortfolioCompanyId &&
+      existing.portfolioCompanyId !== opts.restrictToPortfolioCompanyId
+    ) {
+      throw new Error("This requisition is not linked to your portfolio company.");
+    }
+    if (existing.status !== "DRAFT" && existing.status !== "REJECTED") {
+      throw new Error("Only draft or rejected requisitions can be updated.");
+    }
+    if (existing.portfolioCompanyId && body.portfolioCompanyId != null) {
+      throw new Error("portfolioCompanyId cannot be changed on an investee-linked requisition.");
+    }
+    if (body.items != null) {
+      if (!Array.isArray(body.items) || body.items.length === 0) {
+        throw new Error("When provided, items must be a non-empty array.");
+      }
+    }
+
+    let drawdownDec: Decimal | undefined;
+    if (existing.portfolioCompanyId) {
+      const url =
+        body.useOfFundsDocumentUrl !== undefined
+          ? body.useOfFundsDocumentUrl
+          : existing.useOfFundsDocumentUrl;
+      if (!url || String(url).trim() === "") {
+        throw new Error(
+          "useOfFundsDocumentUrl is required for investee drawdown requisitions (Suite 02)."
+        );
+      }
+      const rawAmt =
+        body.drawdownRequestAmount !== undefined && body.drawdownRequestAmount !== null
+          ? body.drawdownRequestAmount
+          : existing.drawdownRequestAmount;
+      if (rawAmt == null || Number(rawAmt) <= 0) {
+        throw new Error("drawdownRequestAmount is required and must be positive for investee requisitions.");
+      }
+      drawdownDec = new Decimal(Number(rawAmt));
+      const { InvesteeDrawdownProcurementService } = await import("./InvesteeDrawdownProcurementService");
+      await InvesteeDrawdownProcurementService.assertDrawdownWithinTranche({
+        portfolioCompanyId: existing.portfolioCompanyId,
+        additionalAmount: drawdownDec,
+        excludeRequisitionId: requisitionId,
+      });
+    }
+
+    const { normalizeVendorCategory } = await import("../utils/vendorCategoryNormalize");
+    const normalizedSourcing =
+      body.sourcingCategory !== undefined
+        ? body.sourcingCategory != null && String(body.sourcingCategory).trim() !== ""
+          ? normalizeVendorCategory(body.sourcingCategory)
+          : null
+        : undefined;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (body.items) {
+        await tx.purchaseRequisitionItem.deleteMany({ where: { requisitionId } });
+        await tx.purchaseRequisitionItem.createMany({
+          data: body.items.map((item) => ({
+            requisitionId,
+            itemName: item.itemName,
+            description: item.description ?? null,
+            quantity: new Decimal(item.quantity),
+            unitPrice: new Decimal(0),
+            totalPrice: new Decimal(0),
+            unit: item.unit ?? null,
+            specifications: item.specifications as object | undefined,
+          })),
+        });
+      }
+
+      const agg = await tx.purchaseRequisitionItem.aggregate({
+        where: { requisitionId },
+        _sum: { totalPrice: true },
+      });
+      const totalAmount = new Decimal(agg._sum.totalPrice?.toString() ?? "0");
+
+      return tx.purchaseRequisition.update({
+        where: { id: requisitionId },
+        data: {
+          ...(body.title !== undefined ? { title: body.title } : {}),
+          ...(body.description !== undefined ? { description: body.description } : {}),
+          ...(body.department !== undefined ? { department: body.department } : {}),
+          ...(body.priority !== undefined ? { priority: body.priority } : {}),
+          ...(body.justification !== undefined ? { justification: body.justification } : {}),
+          ...(normalizedSourcing !== undefined
+            ? { sourcingCategory: normalizedSourcing }
+            : {}),
+          ...(body.useOfFundsDocumentUrl !== undefined
+            ? { useOfFundsDocumentUrl: body.useOfFundsDocumentUrl }
+            : {}),
+          ...(body.fundId !== undefined ? { fundId: body.fundId } : {}),
+          ...(drawdownDec ? { drawdownRequestAmount: drawdownDec } : {}),
+          totalAmount,
+        },
+        include: {
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              userDepartment: true,
+              departmentRole: true,
+              roleCode: true,
+            },
+          },
+          currency: {
+            select: { id: true, code: true, name: true, symbol: true },
+          },
+          items: true,
+        },
+      });
+    });
+
+    await AuditService.log({
+      userId,
+      action: "UPDATE",
+      entityType: "PurchaseRequisition",
+      entityId: requisitionId,
+      newValues: { ...updated, note: "Owner update (draft or rejected)" },
+    });
+
+    return updated;
+  }
+
   /**
    * Submit a purchase requisition for approval
    */
@@ -660,8 +842,25 @@ export class ProcurementService {
         throw new Error("Purchase requisition not found");
       }
 
-      if (requisition.status !== "DRAFT") {
-        throw new Error("Requisition is not in draft status");
+      const resubmitFromRejection = requisition.status === "REJECTED";
+      const isDraft = requisition.status === "DRAFT";
+      if (!isDraft && !resubmitFromRejection) {
+        throw new Error("Requisition is not in draft or rejected status");
+      }
+
+      if (resubmitFromRejection) {
+        if (requisition.requestedById !== submittedById) {
+          throw new Error("Only the requisition requester can resubmit after rejection.");
+        }
+        const fp = requisition.rejectionContentFingerprint;
+        if (fp) {
+          const nowFp = computePurchaseRequisitionContentFingerprint(requisition);
+          if (nowFp === fp) {
+            throw new Error(
+              "Update the requisition details before resubmitting. No changes were detected since rejection."
+            );
+          }
+        }
       }
 
       console.log("\n════════════════════════════════════════════════════════════════");
@@ -704,6 +903,7 @@ export class ProcurementService {
           data: {
             status: "PENDING_VC_EXECUTIVE_REVIEW",
             investeeSubmittedAt: new Date(),
+            rejectionContentFingerprint: null,
           },
           include: {
             requestedBy: {
@@ -758,6 +958,10 @@ export class ProcurementService {
         return updatedRequisition;
       }
 
+      if (resubmitFromRejection) {
+        await this.cancelStalePendingApprovalRequestsForPurchaseRequisitionEntity(requisitionId);
+      }
+
       const { ApprovalService } = await import('./ApprovalService');
       
       console.log("🔄 Initiating approval workflow...");
@@ -806,7 +1010,8 @@ export class ProcurementService {
         updatedRequisition = await prisma.purchaseRequisition.update({
           where: { id: requisitionId },
           data: {
-            status: "PENDING_APPROVAL"
+            status: "PENDING_APPROVAL",
+            rejectionContentFingerprint: null,
           },
           include: {
             requestedBy: {
@@ -1114,12 +1319,14 @@ export class ProcurementService {
         if (execRejector.roleCode !== "CFO" && execRejector.roleCode !== "SYSADMIN") {
           throw new Error("Only VC CFO (or SYSADMIN) can reject investee drawdown requisitions at this stage.");
         }
+        const rejectionFingerprint = computePurchaseRequisitionContentFingerprint(requisition);
         const updatedRequisition = await prisma.purchaseRequisition.update({
           where: { id: requisitionId },
           data: {
             status: "REJECTED",
             rejectionReason,
             investeeSubmittedAt: null,
+            rejectionContentFingerprint: rejectionFingerprint,
           },
           include: {
             requestedBy: {
@@ -1199,11 +1406,13 @@ export class ProcurementService {
         throw new Error(`Only department HEAD or DEPUTY can reject requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
       }
 
+      const rejectionFingerprint = computePurchaseRequisitionContentFingerprint(requisition);
       const updatedRequisition = await prisma.purchaseRequisition.update({
         where: { id: requisitionId },
         data: {
           status: "REJECTED",
-          rejectionReason
+          rejectionReason,
+          rejectionContentFingerprint: rejectionFingerprint,
         },
         include: {
           requestedBy: {
@@ -1817,7 +2026,13 @@ export class ProcurementService {
               },
             },
             requisition: {
-              select: { id: true, requisitionNumber: true, title: true },
+              select: {
+                id: true,
+                requisitionNumber: true,
+                title: true,
+                rejectionReason: true,
+                rejectionContentFingerprint: true,
+              },
             },
           },
           orderBy: { createdAt: "desc" },
@@ -1837,6 +2052,8 @@ export class ProcurementService {
         visibility: r.visibility,
         closingAt: r.closingAt,
         requisitionId: r.requisitionId,
+        rejectionReason: r.rejectionReason,
+        rejectionContentFingerprint: r.rejectionContentFingerprint,
         createdAt: r.createdAt,
         createdBy: r.createdBy,
         requisition: r.requisition,
@@ -3731,6 +3948,8 @@ export class ProcurementService {
           status: true,
           totalAmount: true,
           department: true, // Scalar field (String), not a relation
+          rejectionReason: true,
+          rejectionContentFingerprint: true,
           requestedBy: {
             select: {
               id: true,
@@ -3766,6 +3985,8 @@ export class ProcurementService {
           invoiceDate: true,
           paymentDate: true,
           createdAt: true,
+          rejectionReason: true,
+          rejectionContentFingerprint: true,
           vendor: {
             select: {
               id: true,
@@ -3876,7 +4097,9 @@ export class ProcurementService {
           vendorEmail: true,      // Scalar field
           companyName: true,      // Scalar field
           submittedAt: true,
-          updatedAt: true
+          updatedAt: true,
+          rejectionReason: true,
+          rejectionContentFingerprint: true,
         }
       });
 
