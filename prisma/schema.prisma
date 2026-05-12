@@ -676,9 +676,6 @@ model VendorKycDocument {
   documentType  String    @map("document_type")
   fileName      String    @map("file_name")
   fileUrl       String    @map("file_url") @db.Text
-  filePath      String?   @map("file_path") @db.Text
-  fileSize      Int?      @map("file_size")
-  mimeType      String?   @map("mime_type")
   /// At-rest encryption (AES-256-GCM) before remote upload; IV + tag stored for decryption by authorized roles.
   isEncrypted   Boolean   @default(true) @map("is_encrypted")
   encryptionIv  String?   @map("encryption_iv") @db.Text
