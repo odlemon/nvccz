@@ -11,6 +11,7 @@ import {
 import { capitalCallNoticeEmailSubject } from "../utils/capitalCallNoticeSubject";
 import {
   getEmailBrandingCached,
+  loadEmailBrandingFromDb,
   renderEmailFooter,
   renderEmailHeader,
   renderEmailSignature,
@@ -5722,15 +5723,20 @@ export class EmailNotificationService {
     let branding: EmailBranding;
     try {
       branding = await getEmailBrandingCached();
-    } catch {
-      branding = {
-        companyName: process.env.COMPANY_NAME_SHORT || "NVCCZ",
-        logoUrl: null,
-        addressLines: [],
-        contactEmail: null,
-        contactPhone: null,
-        website: null,
-      };
+    } catch (err) {
+      console.warn("[newsletter-email] getEmailBrandingCached failed, loading branding from DB:", err);
+      try {
+        branding = await loadEmailBrandingFromDb();
+      } catch {
+        branding = {
+          companyName: process.env.COMPANY_NAME_SHORT || "NVCCZ",
+          logoUrl: null,
+          addressLines: [],
+          contactEmail: null,
+          contactPhone: null,
+          website: null,
+        };
+      }
     }
     const companyNameEsc = esc(branding.companyName);
 

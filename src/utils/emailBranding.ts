@@ -29,6 +29,16 @@ function resolveCompanyName(profileLegalName?: string | null) {
   );
 }
 
+/** Prefer active letterhead `label` (Company Profile → Addresses); else profile legal name / env. */
+function resolveDisplayCompanyName(
+  activeAddr: { label?: string | null } | null,
+  profileLegalName?: string | null
+) {
+  const fromLetterhead = clean(activeAddr?.label ?? null);
+  if (fromLetterhead) return fromLetterhead;
+  return resolveCompanyName(profileLegalName);
+}
+
 function joinAddressLines(parts: Array<string | null | undefined>) {
   const out: string[] = [];
   for (const p of parts) {
@@ -38,11 +48,8 @@ function joinAddressLines(parts: Array<string | null | undefined>) {
   return out;
 }
 
-export async function getEmailBrandingCached(): Promise<EmailBranding> {
-  if (_cache && Date.now() - _cache.ts < BRANDING_CACHE_TTL_MS) {
-    return _cache.branding;
-  }
-
+/** Load branding from DB (active letterhead address + company profile). Does not read/write cache. */
+export async function loadEmailBrandingFromDb(): Promise<EmailBranding> {
   const [profile, activeAddr] = await Promise.all([
     prisma.companyProfile.findFirst({
       orderBy: { updatedAt: "desc" },
@@ -51,7 +58,7 @@ export async function getEmailBrandingCached(): Promise<EmailBranding> {
     CompanyProfileAddressService.getActive(),
   ]);
 
-  const companyName = resolveCompanyName(profile?.legalName ?? null);
+  const companyName = resolveDisplayCompanyName(activeAddr, profile?.legalName ?? null);
   const logoUrl =
     clean(activeAddr?.logoUrl ?? null) ||
     clean(profile?.logoUrl ?? null) ||
@@ -67,7 +74,7 @@ export async function getEmailBrandingCached(): Promise<EmailBranding> {
       ])
     : [];
 
-  const branding: EmailBranding = {
+  return {
     companyName,
     logoUrl,
     addressLines,
@@ -75,6 +82,14 @@ export async function getEmailBrandingCached(): Promise<EmailBranding> {
     contactPhone: clean(profile?.phone ?? null) || null,
     website: clean(profile?.website ?? null) || clean(process.env.FRONTEND_URL) || null,
   };
+}
+
+export async function getEmailBrandingCached(): Promise<EmailBranding> {
+  if (_cache && Date.now() - _cache.ts < BRANDING_CACHE_TTL_MS) {
+    return _cache.branding;
+  }
+
+  const branding = await loadEmailBrandingFromDb();
 
   _cache = { branding, ts: Date.now() };
   return branding;
