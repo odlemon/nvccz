@@ -215,7 +215,11 @@ router.put("/:id/banks/:bankId", VendorController.updateVendorBank);
  * @swagger
  * /accounting/vendors/{id}/kyc-documents:
  *   post:
- *     summary: Staff upload KYC document for vendor
+ *     summary: Staff upload KYC document for vendor (on behalf of vendor)
+ *     description: |
+ *       Authenticated staff uploads one encrypted file to the same remote store as portal self-registration.
+ *       Response `data` includes `fileUrl` (public-media URL to ciphertext), `storageRelativePath`, and `staffDownloadUrl`
+ *       for decrypted download. Use multipart field `documentType` (CR14, BANK_LETTER, CERTIFICATE_OF_INCORPORATION, ITF263, OTHER) plus `file`.
  *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
@@ -231,12 +235,23 @@ router.put("/:id/banks/:bankId", VendorController.updateVendorBank);
  *         multipart/form-data:
  *           schema:
  *             type: object
+ *             required:
+ *               - file
+ *               - documentType
  *             properties:
  *               file:
  *                 type: string
  *                 format: binary
+ *               documentType:
+ *                 type: string
+ *                 description: KYC slot code
+ *                 example: CR14
+ *     responses:
+ *       201:
+ *         description: Created — data includes fileUrl, staffDownloadUrl, documentType, etc.
  *   get:
  *     summary: List KYC documents for vendor
+ *     description: Each item includes fileUrl, storageRelativePath, staffDownloadUrl (same shape as POST response data).
  *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []

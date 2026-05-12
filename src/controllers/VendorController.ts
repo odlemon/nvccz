@@ -14,6 +14,7 @@ import { VendorKycService } from "../services/VendorKycService";
 import { listVendorsEligibleForRfqQuery } from "../services/VendorProcurementListService";
 import { VendorSelfRegistrationService } from "../services/VendorSelfRegistrationService";
 import AuditService from "../services/AuditService";
+import { EmailNotificationService } from "../services/EmailNotificationService";
 
 /** KYC fields for API responses (never expose encryption IV / auth tag). */
 const VENDOR_KYC_API_SELECT = {
@@ -35,10 +36,7 @@ const VENDOR_KYC_API_SELECT = {
 };
 
 function attachStaffKycDownloadUrls(docs: any[]) {
-  return (docs || []).map((d) => ({
-    ...d,
-    staffDownloadUrl: `/api/accounting/vendors/kyc-documents/${d.id}/download`,
-  }));
+  return (docs || []).map((d) => VendorKycService.formatKycDocumentForStaffApi(d as Record<string, unknown>));
 }
 
 export class VendorController {
@@ -647,6 +645,21 @@ export class VendorController {
     try {
       const { id } = req.params;
       const vendor = await VendorSelfRegistrationService.approvePendingVendor(id);
+      const email = vendor.email && String(vendor.email).trim();
+      if (email) {
+        try {
+          await EmailNotificationService.sendVendorRegistrationApprovedEmail({
+            vendorEmail: email,
+            vendorName: vendor.name,
+            contactPerson: vendor.contactPerson,
+          });
+        } catch (emailErr: any) {
+          console.warn(
+            "[vendor] Registration approved but approval email failed:",
+            emailErr?.message || emailErr
+          );
+        }
+      }
       res.status(200).json({ success: true, data: vendor });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
@@ -814,7 +827,10 @@ export class VendorController {
         file,
         uploadedById: req.user.id,
       });
-      res.status(201).json({ success: true, data: row });
+      res.status(201).json({
+        success: true,
+        data: VendorKycService.formatKycDocumentForStaffApi(row as Record<string, unknown>),
+      });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
     }
@@ -824,7 +840,10 @@ export class VendorController {
     try {
       const { id } = req.params;
       const rows = await VendorKycService.listForVendor(id);
-      res.status(200).json({ success: true, data: rows });
+      res.status(200).json({
+        success: true,
+        data: rows.map((r) => VendorKycService.formatKycDocumentForStaffApi(r as Record<string, unknown>)),
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
