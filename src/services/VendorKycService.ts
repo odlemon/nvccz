@@ -4,7 +4,7 @@ import {
   remoteUploadService,
   rewritePublicMediaUrl,
   extractRelativeMediaPath,
-  collapseDuplicatePublicMediaUrl,
+  collapseDuplicatePublicMediaPath,
 } from "./RemoteUploadService";
 import { encryptVendorArtifact } from "../utils/vendorArtifactCrypto";
 import { VENDOR_PORTAL_ACTOR_ID } from "../constants/vendorPortalActor";
@@ -137,7 +137,7 @@ export class VendorKycService {
    */
   static formatKycDocumentForStaffApi(d: Record<string, unknown>) {
     const rawUrl = d.fileUrl && String(d.fileUrl).trim() ? String(d.fileUrl).trim() : "";
-    const normalizedUrl = rawUrl ? collapseDuplicatePublicMediaUrl(rawUrl) : "";
+    const normalizedUrl = rawUrl ? collapseDuplicatePublicMediaPath(rawUrl) : "";
     const fileUrl =
       normalizedUrl ? rewritePublicMediaUrl(normalizedUrl) ?? normalizedUrl : null;
     const storageRelativePath = normalizedUrl
@@ -199,7 +199,7 @@ export class VendorKycService {
       "application-documents"
     );
 
-    const safeUrl = collapseDuplicatePublicMediaUrl(upload.downloadURL) || upload.downloadURL;
+    const safeUrl = collapseDuplicatePublicMediaPath(upload.downloadURL) || upload.downloadURL;
     const publicFileUrl = rewritePublicMediaUrl(safeUrl) ?? safeUrl;
     const storageRelativePath =
       upload.filePath || extractRelativeMediaPath(safeUrl) || null;
