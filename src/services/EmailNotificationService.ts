@@ -950,24 +950,169 @@ export class EmailNotificationService {
   }
 
   /**
-   * Application rejected — short generic notice only (no scores, AI reasoning, or document lists).
+   * Application rejected — Nyasha-approved copy, newsletter-style letterhead.
+   * Branding from `getEmailBrandingCached()` (active Company Profile address + profile — same data as GET /api/company-profile/addresses).
    */
   static async sendApplicationRejectedEmail(data: EmailNotificationData): Promise<void> {
     try {
-      const subject = `Application update — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
-      const htmlContent = this.getGenericApplicationRejectionEmailHtml(data);
+      const { html, attachments, subject } = await EmailNotificationService.buildApplicationRejectionEmailBrandedDocument(
+        data
+      );
       const from = getFromAddress("investment");
       await emailTransport.sendMail({
         from: `"${from.name}" <${from.address}>`,
         to: `"${data.applicantName}" <${data.applicantEmail}>`,
         subject,
-        html: htmlContent,
+        html,
+        attachments: attachments.length ? attachments : undefined,
       });
       console.log(`Application rejection email sent to ${data.applicantEmail}`);
     } catch (error) {
       console.error("Error sending application rejected email:", error);
       throw error;
     }
+  }
+
+  /**
+   * Newsletter-style HTML + CID logo (mirrors `broadcastInternalNewsletterEmails` letterhead/footer).
+   */
+  private static async buildApplicationRejectionEmailBrandedDocument(data: EmailNotificationData): Promise<{
+    html: string;
+    attachments: NewsletterInlineAttachment[];
+    subject: string;
+  }> {
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+    let branding: EmailBranding;
+    try {
+      branding = await getEmailBrandingCached();
+    } catch {
+      branding = {
+        companyName: process.env.COMPANY_NAME_SHORT || "NVCCZ",
+        logoUrl: null,
+        addressLines: [],
+        contactEmail: null,
+        contactPhone: null,
+        website: null,
+      };
+    }
+
+    const companyNameEsc = esc(branding.companyName);
+    const founderEsc = esc(data.applicantName);
+
+    let logoAttachment: NewsletterInlineAttachment | null = null;
+    if (branding.logoUrl) {
+      try {
+        const fetched = await fetchCoverInlineAttachment(branding.logoUrl);
+        if (fetched) {
+          logoAttachment = { ...fetched, cid: "application-rejection-logo@nvccz" };
+        }
+      } catch {
+        logoAttachment = null;
+      }
+    }
+
+    const headerBlock = `
+      <tr>
+        <td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%);padding:24px 28px;color:#ffffff;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+            <tr>
+              <td style="vertical-align:middle;">
+                <div style="font-family:Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;letter-spacing:0.2px;line-height:1.2;">${companyNameEsc}</div>
+                <div style="margin-top:4px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.85;">Application update</div>
+                ${
+                  branding.addressLines.length
+                    ? `<div style="margin-top:10px;font-family:Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#cbd5f5;">${branding.addressLines
+                        .map((l) => `<div>${esc(l)}</div>`)
+                        .join("")}</div>`
+                    : ""
+                }
+              </td>
+              <td style="vertical-align:middle;text-align:right;width:84px;">
+                ${
+                  logoAttachment
+                    ? `<img src="cid:${logoAttachment.cid}" alt="${companyNameEsc}" width="64" height="64" style="width:64px;height:64px;border-radius:999px;object-fit:cover;display:inline-block;border:2px solid rgba(255,255,255,0.6);" />`
+                    : ""
+                }
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+
+    const bodyBlock = `
+      <tr>
+        <td style="padding:24px 28px 8px 28px;">
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.7;color:#1f2937;">
+            <p style="margin:0 0 16px 0;">Dear ${founderEsc},</p>
+            <p style="margin:0 0 16px 0;">Thank you for submitting your application and for taking the time to share your company story with us.</p>
+            <p style="margin:0 0 16px 0;">We have completed our review and, after careful consideration, we will not be moving forward with your application at this time. This decision was based on our current investment priorities, and not as a reflection of the strength of your team or the potential of your business.</p>
+            <p style="margin:0 0 16px 0;">We appreciate your interest in ${companyNameEsc} and wish you every success as you continue to build.</p>
+            <p style="margin:24px 0 0 0;">Kind regards,<br/><strong>${companyNameEsc}</strong></p>
+            <p style="margin:20px 0 0 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.55;color:#64748b;">Please note: This inbox is not monitored for application responses. Please do not reply directly to this email.</p>
+          </div>
+        </td>
+      </tr>`;
+
+    const contactPieces: string[] = [];
+    if (branding.contactEmail) contactPieces.push(esc(branding.contactEmail));
+    if (branding.contactPhone) contactPieces.push(`Tel: ${esc(branding.contactPhone)}`);
+    if (branding.website) contactPieces.push(esc(String(branding.website).replace(/^https?:\/\//, "")));
+    const contactHtml = contactPieces.length
+      ? `<div style="margin-top:6px;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#cbd5f5;">${contactPieces.join(
+          " &nbsp;·&nbsp; "
+        )}</div>`
+      : "";
+    const addressFooterHtml = branding.addressLines.length
+      ? `<div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#cbd5f5;">${branding.addressLines
+          .map((l) => esc(l))
+          .join(" &nbsp;·&nbsp; ")}</div>`
+      : "";
+    const year = new Date().getFullYear();
+    const footerBlock = `
+      <tr>
+        <td style="background:#0f172a;padding:22px 28px;color:#e2e8f0;">
+          <div style="font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;color:#ffffff;">${companyNameEsc}</div>
+          ${addressFooterHtml}
+          ${contactHtml}
+          <div style="margin-top:12px;border-top:1px solid #1e293b;padding-top:10px;font-family:Helvetica,Arial,sans-serif;font-size:11px;color:#94a3b8;">
+            © ${year} ${companyNameEsc}. All rights reserved. &nbsp;·&nbsp; This is an automated message — please do not reply.
+          </div>
+        </td>
+      </tr>`;
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>Application update — ${companyNameEsc}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#eef2f7;font-family:Helvetica,Arial,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;color:transparent;">Application update — ${companyNameEsc}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#eef2f7;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:600px;max-width:600px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.08);">
+            ${headerBlock}
+            ${bodyBlock}
+            ${footerBlock}
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+    const attachments: NewsletterInlineAttachment[] = logoAttachment ? [logoAttachment] : [];
+    const subject = `Application update — ${branding.companyName}`;
+    return { html, attachments, subject };
   }
 
   /**
@@ -2028,21 +2173,21 @@ export class EmailNotificationService {
       .replace(/'/g, "&#39;");
   }
 
-  /** Short, generic applicant rejection — no detailed reasons or internal criteria. */
+  /** Plain HTML fallback (deprecated paths only). Main send uses `buildApplicationRejectionEmailBrandedDocument`. */
   private static getGenericApplicationRejectionEmailHtml(data: EmailNotificationData): string {
     const org = process.env.COMPANY_NAME_SHORT || "NVCCZ";
-    const team = process.env.EMAIL_FROM_NAME_INVESTMENT || `${org} Investment Team`;
     const name = this.escapeHtmlPlain(data.applicantName);
-    const business = this.escapeHtmlPlain(data.businessName);
+    const orgEsc = this.escapeHtmlPlain(org);
     return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body style="font-family: Arial, Helvetica, sans-serif; color: #333; line-height: 1.5; max-width: 560px; margin: 0; padding: 16px;">
 <p>Dear ${name},</p>
-<p>Thank you for your interest in ${this.escapeHtmlPlain(org)} and for applying in respect of <strong>${business}</strong>.</p>
-<p>After review, your application did not meet our current investment requirements or criteria. We are not able to provide individual feedback on this outcome.</p>
-<p>Regards,<br><strong>${this.escapeHtmlPlain(team)}</strong></p>
-<p style="font-size: 12px; color: #666; margin-top: 24px;">This is an automated message. Please do not reply to this email.</p>
+<p>Thank you for submitting your application and for taking the time to share your company story with us.</p>
+<p>We have completed our review and, after careful consideration, we will not be moving forward with your application at this time. This decision was based on our current investment priorities, and not as a reflection of the strength of your team or the potential of your business.</p>
+<p>We appreciate your interest in ${orgEsc} and wish you every success as you continue to build.</p>
+<p>Kind regards,<br><strong>${orgEsc}</strong></p>
+<p style="font-size: 12px; color: #666; margin-top: 24px;">Please note: This inbox is not monitored for application responses. Please do not reply directly to this email.</p>
 </body>
 </html>`;
   }
