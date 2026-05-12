@@ -217,7 +217,7 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  * /procurement/requisitions:
  *   get:
  *     summary: Get all purchase requisitions (filtered by user's department)
- *     description: **Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user's department only. Requisitions are filtered by the department they target.
+ *     description: **Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user's department only. Requisitions are filtered by the department they target. **Draft (unsubmitted) requisitions are never returned** unless you filter by another status; `status=DRAFT` is rejected — use `GET /procurement/requisitions/my` for your own drafts.
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -226,8 +226,8 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO]
- *         description: Filter by status
+ *           enum: [PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO, PENDING_VC_EXECUTIVE_REVIEW]
+ *         description: Filter by status (DRAFT not supported — drafts excluded from this list by default)
  *       - in: query
  *         name: requestedById
  *         schema:

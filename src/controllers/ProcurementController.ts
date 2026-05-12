@@ -244,7 +244,19 @@ export class ProcurementController {
         ? {}
         : { department: user.userDepartment }; // Non-admins are filtered by department name
 
-      if (status) where.status = status;
+      // Unsubmitted drafts are not listed here (approvers / dept view). Use GET /requisitions/my for own drafts.
+      if (status) {
+        if (String(status).toUpperCase() === "DRAFT") {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Draft purchase requisitions are not returned on this endpoint. Use GET /api/procurement/requisitions/my for requisitions you created (including drafts).",
+          });
+        }
+        where.status = status;
+      } else {
+        where.status = { not: "DRAFT" };
+      }
       if (requestedById) where.requestedById = requestedById;
       if (priority) where.priority = priority;
 
