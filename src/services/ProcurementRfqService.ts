@@ -238,6 +238,33 @@ export class ProcurementRfqService {
       console.error("Win email failed", e);
     }
 
+    if (rfq.requisitionId) {
+      const req = await prisma.purchaseRequisition.findUnique({
+        where: { id: rfq.requisitionId },
+        include: {
+          requestedBy: {
+            select: { firstName: true, lastName: true, email: true },
+          },
+        },
+      });
+      if (req?.requestedBy?.email) {
+        try {
+          await EmailNotificationService.sendRfqAwardedToSubmitter({
+            submitterName: `${req.requestedBy.firstName} ${req.requestedBy.lastName}`.trim(),
+            submitterEmail: req.requestedBy.email,
+            requisitionNumber: req.requisitionNumber,
+            requisitionTitle: req.title,
+            rfqNumber: rfq.rfqNumber,
+            winningQuotationNumber: win.quotationNumber,
+            awardedVendorName: win.companyName || win.vendorName,
+            awardRationale,
+          });
+        } catch (e) {
+          console.error("RFQ award notification to PR submitter failed", e);
+        }
+      }
+    }
+
     await AuditService.log({
       userId: awardedById,
       action: "UPDATE",
