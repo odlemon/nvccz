@@ -20,6 +20,7 @@ import {
 import {
   coverImageInlineAttachment,
   fetchCoverInlineAttachment,
+  fetchLogoInlineAttachment,
   inlineExternalImagesInNewsletterHtml,
   type NewsletterInlineAttachment,
 } from "../utils/newsletterEmailImages";
@@ -1009,9 +1010,11 @@ export class EmailNotificationService {
     let logoAttachment: NewsletterInlineAttachment | null = null;
     if (branding.logoUrl) {
       try {
-        const fetched = await fetchCoverInlineAttachment(branding.logoUrl);
+        const fetched = await fetchLogoInlineAttachment(branding.logoUrl, {
+          cid: "application-rejection-logo@nvccz",
+        });
         if (fetched) {
-          logoAttachment = { ...fetched, cid: "application-rejection-logo@nvccz" };
+          logoAttachment = fetched;
         }
       } catch {
         logoAttachment = null;
@@ -5744,10 +5747,9 @@ export class EmailNotificationService {
     let logoAttachment: NewsletterInlineAttachment | null = null;
     if (branding.logoUrl) {
       try {
-        logoAttachment = await fetchCoverInlineAttachment(branding.logoUrl);
-        if (logoAttachment) {
-          logoAttachment = { ...logoAttachment, cid: `newsletter-logo@nvccz` };
-        }
+        logoAttachment = await fetchLogoInlineAttachment(branding.logoUrl, {
+          cid: "newsletter-logo@nvccz",
+        });
       } catch {
         logoAttachment = null;
       }
