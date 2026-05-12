@@ -1281,6 +1281,11 @@ export class ProcurementApprovalConfigService {
 
       if (!request || request.approvals.length === 0) return;
 
+      if (!request.requestedBy?.email) {
+        console.warn("sendApprovalCompletionEmailToSubmitter: submitter has no email; skipping");
+        return;
+      }
+
       const lastApprover = request.approvals[0].approver;
 
       // Get entity details based on stageType
@@ -1359,10 +1364,15 @@ export class ProcurementApprovalConfigService {
         submitterEmail: request.requestedBy.email,
         requisitionNumber: entityNumber,
         title: entityTitle,
-        department: department || 'N/A',
+        department: department || "N/A",
         approvedByName: `${lastApprover.firstName} ${lastApprover.lastName}`,
-        approvedByEmail: lastApprover.email,
-        companyName: 'NVCCZ'
+        approvedByEmail: lastApprover.email ?? "",
+        companyName: "NVCCZ",
+        procurementStageType: stageType as
+          | "PURCHASE_REQUISITION"
+          | "PURCHASE_ORDER"
+          | "INVOICE"
+          | "GRN",
       });
     } catch (error: any) {
       console.error("⚠️  Error sending approval completion email:", error.message || error);
@@ -1404,6 +1414,11 @@ export class ProcurementApprovalConfigService {
       });
 
       if (!request || request.approvals.length === 0) return;
+
+      if (!request.requestedBy?.email) {
+        console.warn("sendRejectionEmailToSubmitter: submitter has no email; skipping");
+        return;
+      }
 
       const rejector = request.approvals[0].approver;
       const stageType = request.stageType;
@@ -1484,11 +1499,16 @@ export class ProcurementApprovalConfigService {
         submitterEmail: request.requestedBy.email,
         requisitionNumber: entityNumber,
         title: entityTitle,
-        department: department || 'N/A',
+        department: department || "N/A",
         rejectedByName: `${rejector.firstName} ${rejector.lastName}`,
-        rejectedByEmail: rejector.email,
+        rejectedByEmail: rejector.email ?? "",
         rejectionReason,
-        companyName: 'NVCCZ'
+        companyName: "NVCCZ",
+        procurementStageType: stageType as
+          | "PURCHASE_REQUISITION"
+          | "PURCHASE_ORDER"
+          | "INVOICE"
+          | "GRN",
       });
     } catch (error: any) {
       console.error("⚠️  Error sending rejection email:", error.message || error);

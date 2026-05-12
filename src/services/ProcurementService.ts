@@ -832,45 +832,6 @@ export class ProcurementService {
           }
         });
         console.log("✅ Requisition status updated to PENDING_APPROVAL");
-        
-        // Send email notification to department HEAD when requisition is submitted
-        try {
-          const { EmailNotificationService } = await import('./EmailNotificationService');
-          
-          // Find department HEAD
-          const departmentHeads = await prisma.user.findMany({
-            where: {
-              userDepartment: requisition.department,
-              departmentRole: 'HEAD'
-            },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          });
-
-          if (departmentHeads.length > 0) {
-            for (const head of departmentHeads) {
-              await EmailNotificationService.sendRequisitionSubmittedToHead({
-                headName: `${head.firstName} ${head.lastName}`,
-                headEmail: head.email,
-                requisitionNumber: updatedRequisition.requisitionNumber,
-                title: updatedRequisition.title,
-                department: updatedRequisition.department,
-                submittedByName: `${requisition.requestedBy.firstName} ${requisition.requestedBy.lastName}`,
-                submittedByEmail: requisition.requestedBy.email,
-                totalAmount: Number(updatedRequisition.totalAmount),
-                itemCount: requisition.items.length,
-                status: updatedRequisition.status
-              });
-            }
-          }
-        } catch (emailError: any) {
-          console.error("⚠️  Error sending email notification:", emailError.message || emailError);
-          // Don't throw - email failure shouldn't block requisition submission
-        }
       } else {
         // This should not happen if default workflow is created, but handle it just in case
         console.log("⚠️  No approval workflow could be created - Requisition remains in DRAFT status");
@@ -901,8 +862,16 @@ export class ProcurementService {
       const requisition = await prisma.purchaseRequisition.findUnique({
         where: { id: requisitionId },
         include: {
-          items: true
-        }
+          items: true,
+          requestedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+        },
       });
 
       if (!requisition) {
@@ -915,8 +884,8 @@ export class ProcurementService {
             id: true,
             firstName: true,
             lastName: true,
-            email: true
-          }
+            email: true,
+          },
         },
         approvedBy: {
           select: {
@@ -936,7 +905,7 @@ export class ProcurementService {
       ) {
         const execApprover = await prisma.user.findUnique({
           where: { id: approvedById },
-          select: { roleCode: true, firstName: true, lastName: true }
+          select: { roleCode: true, firstName: true, lastName: true, email: true },
         });
         if (!execApprover) {
           throw new Error("Approver not found");
@@ -999,10 +968,34 @@ export class ProcurementService {
           console.error("[Suite 02] Auto-RFQ after VC approval failed:", rfqErr);
         }
 
-        return await prisma.purchaseRequisition.findUnique({
+        const after = await prisma.purchaseRequisition.findUnique({
           where: { id: requisitionId },
           include: requisitionInclude,
         });
+        if (!after) {
+          throw new Error("Purchase requisition not found after approval");
+        }
+        try {
+          const rb = requisition.requestedBy;
+          if (rb?.email) {
+            const { EmailNotificationService } = await import("./EmailNotificationService");
+            await EmailNotificationService.sendRequisitionApprovedToSubmitter({
+              submitterName: `${rb.firstName} ${rb.lastName}`.trim(),
+              submitterEmail: rb.email,
+              requisitionNumber: requisition.requisitionNumber,
+              title: requisition.title,
+              department: String(requisition.department ?? ""),
+              approvedByName: `${execApprover.firstName} ${execApprover.lastName}`.trim(),
+              approvedByEmail: execApprover.email ?? "",
+            });
+          }
+        } catch (notifyErr) {
+          console.error(
+            "⚠️  Failed to email submitter after investee PR approval:",
+            (notifyErr as Error)?.message || notifyErr
+          );
+        }
+        return after;
       }
 
       if (requisition.status !== "PENDING_APPROVAL") {
@@ -1012,12 +1005,13 @@ export class ProcurementService {
       // Check if the approver is the department head or deputy
       const approver = await prisma.user.findUnique({
         where: { id: approvedById },
-        select: { 
-          userDepartment: true, 
+        select: {
+          userDepartment: true,
           departmentRole: true,
-          firstName: true, 
-          lastName: true 
-        }
+          firstName: true,
+          lastName: true,
+          email: true,
+        },
       });
 
       if (!approver) {
@@ -1050,6 +1044,27 @@ export class ProcurementService {
         entityId: requisitionId,
         newValues: updatedRequisition,
       });
+
+      try {
+        const rb = updatedRequisition.requestedBy;
+        if (rb?.email) {
+          const { EmailNotificationService } = await import("./EmailNotificationService");
+          await EmailNotificationService.sendRequisitionApprovedToSubmitter({
+            submitterName: `${rb.firstName} ${rb.lastName}`.trim(),
+            submitterEmail: rb.email,
+            requisitionNumber: updatedRequisition.requisitionNumber,
+            title: updatedRequisition.title,
+            department: String(updatedRequisition.department ?? ""),
+            approvedByName: `${approver.firstName} ${approver.lastName}`.trim(),
+            approvedByEmail: approver.email ?? "",
+          });
+        }
+      } catch (notifyErr) {
+        console.error(
+          "⚠️  Failed to email submitter after PR approval:",
+          (notifyErr as Error)?.message || notifyErr
+        );
+      }
 
       return updatedRequisition;
     } catch (error) {
@@ -1091,7 +1106,7 @@ export class ProcurementService {
       ) {
         const execRejector = await prisma.user.findUnique({
           where: { id: rejectedById },
-          select: { roleCode: true }
+          select: { roleCode: true, firstName: true, lastName: true, email: true },
         });
         if (!execRejector) {
           throw new Error("Approver not found");
@@ -1133,6 +1148,27 @@ export class ProcurementService {
           entityId: requisitionId,
           newValues: { ...updatedRequisition, note: "Investee PR — VC executive rejection (Suite 02)" },
         });
+        try {
+          const rb = updatedRequisition.requestedBy;
+          if (rb?.email) {
+            const { EmailNotificationService } = await import("./EmailNotificationService");
+            await EmailNotificationService.sendRequisitionRejectedToSubmitter({
+              submitterName: `${rb.firstName} ${rb.lastName}`.trim(),
+              submitterEmail: rb.email,
+              requisitionNumber: updatedRequisition.requisitionNumber,
+              title: updatedRequisition.title,
+              department: String(updatedRequisition.department ?? ""),
+              rejectedByName: `${execRejector.firstName} ${execRejector.lastName}`.trim(),
+              rejectedByEmail: execRejector.email ?? "",
+              rejectionReason,
+            });
+          }
+        } catch (notifyErr) {
+          console.error(
+            "⚠️  Failed to email submitter after investee PR rejection:",
+            (notifyErr as Error)?.message || notifyErr
+          );
+        }
         return updatedRequisition;
       }
 
@@ -1144,8 +1180,11 @@ export class ProcurementService {
         where: { id: rejectedById },
         select: {
           userDepartment: true,
-          departmentRole: true
-        }
+          departmentRole: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+        },
       });
 
       if (!approver) {
@@ -1194,6 +1233,28 @@ export class ProcurementService {
         entityId: requisitionId,
         newValues: updatedRequisition
       });
+
+      try {
+        const rb = updatedRequisition.requestedBy;
+        if (rb?.email) {
+          const { EmailNotificationService } = await import("./EmailNotificationService");
+          await EmailNotificationService.sendRequisitionRejectedToSubmitter({
+            submitterName: `${rb.firstName} ${rb.lastName}`.trim(),
+            submitterEmail: rb.email,
+            requisitionNumber: updatedRequisition.requisitionNumber,
+            title: updatedRequisition.title,
+            department: String(updatedRequisition.department ?? ""),
+            rejectedByName: `${approver.firstName} ${approver.lastName}`.trim(),
+            rejectedByEmail: approver.email ?? "",
+            rejectionReason,
+          });
+        }
+      } catch (notifyErr) {
+        console.error(
+          "⚠️  Failed to email submitter after PR rejection:",
+          (notifyErr as Error)?.message || notifyErr
+        );
+      }
 
       return updatedRequisition;
     } catch (error) {
@@ -2047,8 +2108,6 @@ export class ProcurementService {
 
       const vendorAckToken = randomBytes(24).toString("hex");
       const poPdfVerificationToken = randomBytes(24).toString("hex");
-      const apiBase = (process.env.API_URL || "http://localhost:3000/api").replace(/\/$/, "");
-      const vendorAckUrl = `${apiBase}/public/purchase-orders/${vendorAckToken}/acknowledge`;
 
       // Persist verification tokens BEFORE rendering the PDF so the PDF embeds the same token
       // that vendor-side `verify` endpoints will accept. PO stays in its current pre-send status
@@ -2099,8 +2158,6 @@ export class ProcurementService {
         expectedDeliveryDate: purchaseOrder.expectedDeliveryDate || undefined,
         paymentTerms: purchaseOrder.paymentTerms || undefined,
         notes: undefined,
-        vendorAckUrl,
-        verificationUrl: `${apiBase}/procurement/purchase-orders/verify?token=${poPdfVerificationToken}`,
         pdfAttachment,
       });
 
@@ -3064,12 +3121,32 @@ export class ProcurementService {
 
       // Audit log
       await AuditService.log({
-        userId: createdById,
+        userId: createdById ?? finalCreatedById,
         action: "CREATE",
         entityType: "ProcurementInvoice",
         entityId: invoice.id,
         newValues: invoice,
       });
+
+      if (!createdById) {
+        try {
+          const recipients = await this.resolveProcurementDeskNotifyRecipients();
+          const { EmailNotificationService } = await import("./EmailNotificationService");
+          await EmailNotificationService.sendProcurementInvoiceCreatedForReview({
+            recipients,
+            vendorName: invoice.vendor?.name ?? "Vendor",
+            invoiceNumber: invoice.invoiceNumber,
+            poNumber: invoice.purchaseOrder?.poNumber ?? null,
+            totalAmount: Number(invoice.totalAmount),
+            currencyCode: invoice.currency?.code ?? "USD",
+          });
+        } catch (notifyErr) {
+          console.error(
+            "⚠️  Failed to notify desk of vendor-submitted procurement invoice:",
+            (notifyErr as Error)?.message || notifyErr
+          );
+        }
+      }
 
       return invoice;
     } catch (error) {

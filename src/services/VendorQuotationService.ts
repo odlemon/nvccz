@@ -266,8 +266,14 @@ export class VendorQuotationService {
       console.log("════════════════════════════════════════════════════════════════\n");
 
       // Notify procurement requester (if the requisition exists and has an owner)
+      let requisitionForNotify: {
+        requisitionNumber: string;
+        title: string;
+        requestedBy: { firstName: string; lastName: string; email: string } | null;
+      } | null = null;
+
       if (requisitionId) {
-        const requisition = await prisma.purchaseRequisition.findUnique({
+        requisitionForNotify = await prisma.purchaseRequisition.findUnique({
           where: { id: requisitionId },
           include: {
             requestedBy: {
@@ -280,11 +286,11 @@ export class VendorQuotationService {
           }
         });
 
-        if (requisition && requisition.requestedBy?.email) {
-          const requesterName = `${requisition.requestedBy.firstName} ${requisition.requestedBy.lastName}`;
+        if (requisitionForNotify && requisitionForNotify.requestedBy?.email) {
+          const requesterName = `${requisitionForNotify.requestedBy.firstName} ${requisitionForNotify.requestedBy.lastName}`;
           await EmailNotificationService.sendQuotationSubmittedNotification({
             requesterName,
-            requesterEmail: requisition.requestedBy.email,
+            requesterEmail: requisitionForNotify.requestedBy.email,
             vendorName: companyName || vendorName,
             vendorEmail,
             rfqNumber,
@@ -299,11 +305,57 @@ export class VendorQuotationService {
               unitPrice: Number(item.unitPrice),
               totalPrice: Number(item.totalPrice)
             })),
-            requisitionNumber: requisition.requisitionNumber,
-            requisitionTitle: requisition.title,
+            requisitionNumber: requisitionForNotify.requisitionNumber,
+            requisitionTitle: requisitionForNotify.title,
             notes
           });
         }
+      }
+
+      try {
+        const { ProcurementService } = await import("./ProcurementService");
+        const deskRecipients = await ProcurementService.resolveProcurementDeskNotifyRecipients();
+        const skipEmails = new Set<string>();
+        if (requisitionForNotify?.requestedBy?.email) {
+          skipEmails.add(requisitionForNotify.requestedBy.email.trim().toLowerCase());
+        }
+        const payloadBase = {
+          vendorName: companyName || vendorName,
+          vendorEmail,
+          rfqNumber,
+          quotationNumber: quotation.quotationNumber,
+          totalAmount: Number(quotation.totalAmount),
+          currencyCode,
+          items: quotation.items.map(item => ({
+            itemName: item.itemName,
+            description: item.description,
+            quantity: Number(item.quantity),
+            unit: item.unit || "unit",
+            unitPrice: Number(item.unitPrice),
+            totalPrice: Number(item.totalPrice),
+          })),
+          requisitionNumber: requisitionForNotify?.requisitionNumber,
+          requisitionTitle: requisitionForNotify?.title,
+          notes,
+        };
+        for (const r of deskRecipients) {
+          const em = r.email?.trim().toLowerCase();
+          if (!em || skipEmails.has(em)) continue;
+          try {
+            await EmailNotificationService.sendQuotationSubmittedDeskCopy({
+              recipientName: r.name,
+              recipientEmail: r.email,
+              ...payloadBase,
+            });
+          } catch (oneDeskErr) {
+            console.error(
+              `⚠️  Desk quotation notify failed for ${r.email}:`,
+              (oneDeskErr as Error)?.message || oneDeskErr
+            );
+          }
+        }
+      } catch (deskErr) {
+        console.error("⚠️  Desk notification for new quotation failed:", (deskErr as Error)?.message || deskErr);
       }
 
       return quotation;
