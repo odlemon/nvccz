@@ -44,6 +44,13 @@ export interface ProcessApprovalParams {
   signatureData?: string; // Base64 signature image
 }
 
+/** Stable key for matching procurement approval steps (DB + payloads may differ in casing). */
+function procurementStageStepKey(stageType: string, stepNumber: number | string): string {
+  const t = String(stageType ?? "").trim().toUpperCase();
+  const n = Number(stepNumber);
+  return `${t}-${Number.isFinite(n) ? n : stepNumber}`;
+}
+
 export class ProcurementApprovalConfigService {
   /**
    * Create a new procurement approval configuration
@@ -204,29 +211,30 @@ export class ProcurementApprovalConfigService {
 
         const stageMap = new Map<string, typeof existingStages[0]>();
         for (const stage of existingStages) {
-          stageMap.set(`${stage.stageType}-${stage.stepNumber}`, stage);
+          stageMap.set(procurementStageStepKey(stage.stageType, stage.stepNumber), stage);
         }
 
         const processedKeys = new Set<string>();
 
-      for (const stage of stages) {
-        for (const step of stage.steps) {
-            const key = `${stage.stageType}-${step.stepNumber}`;
+        for (const stage of stages) {
+          for (const step of stage.steps) {
+            const canonicalStageType = String(stage.stageType ?? "").trim().toUpperCase();
+            const key = procurementStageStepKey(canonicalStageType, step.stepNumber);
 
             const stageData = {
-            stageType: stage.stageType,
-            stepNumber: step.stepNumber,
-            stepName: step.stepName,
-            stepType: step.stepType,
-            userId: step.userId,
+              stageType: canonicalStageType,
+              stepNumber: Number(step.stepNumber),
+              stepName: step.stepName,
+              stepType: step.stepType,
+              userId: step.userId,
               roleId: step.roleId,
               roleCode: step.roleCode,
-            departmentId: step.departmentId,
-            amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
-            isRequired: step.isRequired ?? true,
-            canDelegate: step.canDelegate ?? false,
-            autoApprove: step.autoApprove ?? false,
-            approvalOrder: step.approvalOrder ?? 'SEQUENTIAL'
+              departmentId: step.departmentId,
+              amountThreshold: step.amountThreshold ? new Decimal(step.amountThreshold) : null,
+              isRequired: step.isRequired ?? true,
+              canDelegate: step.canDelegate ?? false,
+              autoApprove: step.autoApprove ?? false,
+              approvalOrder: step.approvalOrder ?? "SEQUENTIAL",
             };
 
             const existingStage = stageMap.get(key);
@@ -234,15 +242,15 @@ export class ProcurementApprovalConfigService {
             if (existingStage) {
               await tx.procurementApprovalStage.update({
                 where: { id: existingStage.id },
-                data: stageData
+                data: stageData,
               });
               processedKeys.add(key);
             } else {
               await tx.procurementApprovalStage.create({
                 data: {
                   configId: id,
-                  ...stageData
-                }
+                  ...stageData,
+                },
               });
               processedKeys.add(key);
             }
@@ -253,13 +261,14 @@ export class ProcurementApprovalConfigService {
           if (processedKeys.has(key)) continue;
 
           if (stage._count.approvals > 0) {
-            throw new Error(
-              `Cannot remove step ${stage.stepNumber} (${stage.stepName}) for stage ${stage.stageType} because approvals already exist.`
+            console.warn(
+              `[updateProcurementApprovalConfig] Not deleting stage ${key} (${stage.stepName}) — ${stage._count.approvals} approval row(s) exist. If you meant to remove this step, resolve or migrate approvals first.`
             );
+            continue;
           }
 
           await tx.procurementApprovalStage.delete({
-            where: { id: stage.id }
+            where: { id: stage.id },
           });
         }
 
@@ -707,10 +716,22 @@ export class ProcurementApprovalConfigService {
       case 'DEPARTMENT':
         if (stage.departmentId) {
           const users = await prisma.user.findMany({
-            where: { departmentId: stage.departmentId },
-            select: { id: true }
+            where: {
+              departmentId: stage.departmentId,
+              ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+            },
+            select: { id: true },
           });
-          approvers.push(...users.map(u => u.id));
+          approvers.push(...users.map((u) => u.id));
+        } else if (stage.requiredUserDepartment) {
+          const users = await prisma.user.findMany({
+            where: {
+              userDepartment: stage.requiredUserDepartment,
+              ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+            },
+            select: { id: true },
+          });
+          approvers.push(...users.map((u) => u.id));
         }
         break;
 
@@ -1135,10 +1156,29 @@ export class ProcurementApprovalConfigService {
 
       if (!request) return;
 
-      // Get approvers for this stage
-      const approvers = await this.getApproversForStage(stage);
+      // Prefer DB pending rows (matches who was assigned on submit); getApproversForStage misses
+      // DEPARTMENT stages that use requiredUserDepartment + requiredDepartmentRole without departmentId.
+      const pendingRows = await prisma.approval.findMany({
+        where: {
+          requestId,
+          stageId: stage.id,
+          status: "PENDING",
+        },
+        select: { approverId: true },
+      });
+      let approverIds = pendingRows.map((r) => r.approverId);
+      if (approverIds.length === 0) {
+        approverIds = await this.getApproversForStage(stage);
+      }
+      if (approverIds.length === 0) {
+        console.warn(
+          `[sendApprovalStepNotifications] No pending approvals or resolved approvers for request ${requestId} stage ${stage.id} (${stage.stepName}); skipping emails.`
+        );
+        return;
+      }
+
       const approverUsers = await prisma.user.findMany({
-        where: { id: { in: approvers } },
+        where: { id: { in: approverIds } },
         select: {
           id: true,
           firstName: true,
@@ -1221,6 +1261,12 @@ export class ProcurementApprovalConfigService {
       const { EmailNotificationService } = await import('./EmailNotificationService');
       for (const approver of approverUsers) {
         try {
+          if (!approver.email || !String(approver.email).trim()) {
+            console.warn(
+              `[sendApprovalStepNotifications] Approver ${approver.id} (${approver.firstName} ${approver.lastName}) has no email; skipping.`
+            );
+            continue;
+          }
           await EmailNotificationService.sendApprovalStepNotification({
             approverName: `${approver.firstName} ${approver.lastName}`,
             approverEmail: approver.email,
