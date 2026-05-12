@@ -1120,6 +1120,175 @@ export class EmailNotificationService {
   }
 
   /**
+   * Vendor self-registration approved by staff — same letterhead layout as portfolio screening rejection.
+   */
+  static async sendVendorRegistrationApprovedEmail(data: {
+    vendorEmail: string;
+    vendorName: string;
+    contactPerson?: string | null;
+  }): Promise<void> {
+    try {
+      const { html, attachments, subject } =
+        await EmailNotificationService.buildVendorRegistrationApprovedBrandedDocument(data);
+      const from = getFromAddress("procurement");
+      const displayName = String(data.contactPerson || "").trim() || data.vendorName;
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${displayName}" <${data.vendorEmail}>`,
+        subject,
+        html,
+        attachments: attachments.length ? attachments : undefined,
+      });
+      console.log(`Vendor registration approved email sent to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("Error sending vendor registration approved email:", error);
+      throw error;
+    }
+  }
+
+  private static async buildVendorRegistrationApprovedBrandedDocument(data: {
+    vendorEmail: string;
+    vendorName: string;
+    contactPerson?: string | null;
+  }): Promise<{ html: string; attachments: NewsletterInlineAttachment[]; subject: string }> {
+    const esc = (s: string) =>
+      String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+    let branding: EmailBranding;
+    try {
+      branding = await getEmailBrandingCached();
+    } catch {
+      try {
+        branding = await loadEmailBrandingFromDb();
+      } catch {
+        branding = {
+          companyName: process.env.COMPANY_NAME_SHORT || "NVCCZ",
+          logoUrl: null,
+          addressLines: [],
+          contactEmail: null,
+          contactPhone: null,
+          website: null,
+        };
+      }
+    }
+
+    const companyNameEsc = esc(branding.companyName);
+    const vendorNameEsc = esc(data.vendorName);
+    const addresseeEsc = esc(String(data.contactPerson || "").trim() || data.vendorName);
+
+    let logoAttachment: NewsletterInlineAttachment | null = null;
+    if (branding.logoUrl) {
+      try {
+        logoAttachment = await fetchLogoInlineAttachment(branding.logoUrl, {
+          cid: "vendor-registration-approved-logo@nvccz",
+        });
+      } catch {
+        logoAttachment = null;
+      }
+    }
+
+    const headerBlock = `
+      <tr>
+        <td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%);padding:24px 28px;color:#ffffff;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+            <tr>
+              <td style="vertical-align:middle;">
+                <div style="font-family:Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;letter-spacing:0.2px;line-height:1.2;">${companyNameEsc}</div>
+                <div style="margin-top:4px;font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.85;">Vendor registration approved</div>
+                ${
+                  branding.addressLines.length
+                    ? `<div style="margin-top:10px;font-family:Helvetica,Arial,sans-serif;font-size:11px;line-height:1.5;color:#cbd5f5;">${branding.addressLines
+                        .map((l) => `<div>${esc(l)}</div>`)
+                        .join("")}</div>`
+                    : ""
+                }
+              </td>
+              <td style="vertical-align:middle;text-align:right;width:84px;">
+                ${
+                  logoAttachment
+                    ? `<img src="cid:${logoAttachment.cid}" alt="${companyNameEsc}" width="64" height="64" style="width:64px;height:64px;border-radius:999px;object-fit:cover;display:inline-block;border:2px solid rgba(255,255,255,0.6);" />`
+                    : ""
+                }
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+
+    const bodyBlock = `
+      <tr>
+        <td style="padding:24px 28px 8px 28px;">
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.7;color:#1f2937;">
+            <p style="margin:0 0 16px 0;">Dear ${addresseeEsc},</p>
+            <p style="margin:0 0 16px 0;">We are pleased to confirm that <strong>${vendorNameEsc}</strong> has been <strong>approved</strong> as an active vendor on the procurement register for ${companyNameEsc}.</p>
+            <p style="margin:0 0 16px 0;">Our team may contact you at this email address for quotations, purchase orders, and related correspondence.</p>
+            <p style="margin:24px 0 0 0;">Kind regards,<br/><strong>${companyNameEsc}</strong></p>
+            <p style="margin:20px 0 0 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.55;color:#64748b;">Please note: This inbox is not monitored for open-ended vendor support. For procurement queries, use the contact details in the footer below or those shared directly by your buyer.</p>
+          </div>
+        </td>
+      </tr>`;
+
+    const contactPieces: string[] = [];
+    if (branding.contactEmail) contactPieces.push(esc(branding.contactEmail));
+    if (branding.contactPhone) contactPieces.push(`Tel: ${esc(branding.contactPhone)}`);
+    if (branding.website) contactPieces.push(esc(String(branding.website).replace(/^https?:\/\//, "")));
+    const contactHtml = contactPieces.length
+      ? `<div style="margin-top:6px;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#cbd5f5;">${contactPieces.join(
+          " &nbsp;·&nbsp; "
+        )}</div>`
+      : "";
+    const addressFooterHtml = branding.addressLines.length
+      ? `<div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#cbd5f5;">${branding.addressLines
+          .map((l) => esc(l))
+          .join(" &nbsp;·&nbsp; ")}</div>`
+      : "";
+    const year = new Date().getFullYear();
+    const footerBlock = `
+      <tr>
+        <td style="background:#0f172a;padding:22px 28px;color:#e2e8f0;">
+          <div style="font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;color:#ffffff;">${companyNameEsc}</div>
+          ${addressFooterHtml}
+          ${contactHtml}
+          <div style="margin-top:12px;border-top:1px solid #1e293b;padding-top:10px;font-family:Helvetica,Arial,sans-serif;font-size:11px;color:#94a3b8;">
+            © ${year} ${companyNameEsc}. All rights reserved. &nbsp;·&nbsp; This is an automated message — please do not reply.
+          </div>
+        </td>
+      </tr>`;
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>Vendor registration approved — ${companyNameEsc}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#eef2f7;font-family:Helvetica,Arial,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;color:transparent;">Vendor registration approved — ${companyNameEsc}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#eef2f7;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:600px;max-width:600px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.08);">
+            ${headerBlock}
+            ${bodyBlock}
+            ${footerBlock}
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+    const attachments: NewsletterInlineAttachment[] = logoAttachment ? [logoAttachment] : [];
+    const subject = `Vendor registration approved — ${branding.companyName}`;
+    return { html, attachments, subject };
+  }
+
+  /**
    * Send term sheet created email
    */
   static async sendTermSheetCreatedEmail(data: EmailNotificationData): Promise<void> {
