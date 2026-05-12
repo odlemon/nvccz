@@ -121,6 +121,7 @@
     "db:migrate:saved-filter-favorites": "ts-node scripts/run-saved-filter-favorites-migration.ts",
     "db:migrate:vendor-tax-compliance": "ts-node scripts/run-vendor-tax-compliance-columns-migration.ts",
     "db:migrate:vendor-bp-number": "ts-node scripts/run-vendor-bp-number-migration.ts",
+    "db:migrate:vendor-kyc-drop-file-meta-columns": "ts-node scripts/run-vendor-kyc-drop-file-meta-columns-migration.ts",
     "db:migrate:vendor-procurement-fields": "ts-node scripts/run-vendor-procurement-fields-migration.ts",
     "db:migrate:procurement-suite01-supplement": "ts-node scripts/run-procurement-suite01-supplement-migration.ts",
     "db:migrate:procurement-suites-03-05": "ts-node scripts/run-procurement-suites-03-05-migration.ts",

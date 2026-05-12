@@ -217,9 +217,10 @@ router.put("/:id/banks/:bankId", VendorController.updateVendorBank);
  *   post:
  *     summary: Staff upload KYC document for vendor (on behalf of vendor)
  *     description: |
- *       Authenticated staff uploads one encrypted file to the same remote store as portal self-registration.
- *       Response `data` includes `fileUrl` (public-media URL to ciphertext), `storageRelativePath`, and `staffDownloadUrl`
- *       for decrypted download. Use multipart field `documentType` (CR14, BANK_LETTER, CERTIFICATE_OF_INCORPORATION, ITF263, OTHER) plus `file`.
+ *       Authenticated staff uploads one file to the same remote store as portal self-registration.
+ *       Response `data` is a single KYC row with absolute `fileUrl` (public-media). Staff may still use
+ *       `GET /accounting/vendors/kyc-documents/:documentId/download` for attachment download when needed.
+ *       Use multipart field `documentType` (CR14, BANK_LETTER, CERTIFICATE_OF_INCORPORATION, ITF263, OTHER) plus `file`.
  *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []
@@ -248,10 +249,10 @@ router.put("/:id/banks/:bankId", VendorController.updateVendorBank);
  *                 example: CR14
  *     responses:
  *       201:
- *         description: Created — data includes fileUrl, staffDownloadUrl, documentType, etc.
+ *         description: Created — `data` includes absolute `fileUrl`, `documentType`, verification fields, etc.
  *   get:
  *     summary: List KYC documents for vendor
- *     description: Each item includes fileUrl, storageRelativePath, staffDownloadUrl (same shape as POST response data).
+ *     description: Each item matches POST response shape (absolute `fileUrl` only; no separate storage path fields).
  *     tags: [Vendor Master, Compliance & KYC (Suite 01), Accounting - Vendors]
  *     security:
  *       - bearerAuth: []

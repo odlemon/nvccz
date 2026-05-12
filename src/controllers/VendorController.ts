@@ -23,9 +23,6 @@ const VENDOR_KYC_API_SELECT = {
   documentType: true,
   fileName: true,
   fileUrl: true,
-  filePath: true,
-  fileSize: true,
-  mimeType: true,
   isEncrypted: true,
   isVerified: true,
   verifiedById: true,
@@ -36,7 +33,7 @@ const VENDOR_KYC_API_SELECT = {
 };
 
 function attachStaffKycDownloadUrls(docs: any[]) {
-  return (docs || []).map((d) => VendorKycService.formatKycDocumentForStaffApi(d as Record<string, unknown>));
+  return (docs || []).map((d) => VendorKycService.formatKycDocumentResponse(d as Record<string, unknown>));
 }
 
 export class VendorController {
@@ -829,7 +826,7 @@ export class VendorController {
       });
       res.status(201).json({
         success: true,
-        data: VendorKycService.formatKycDocumentForStaffApi(row as Record<string, unknown>),
+        data: VendorKycService.formatKycDocumentResponse(row as Record<string, unknown>),
       });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
@@ -842,7 +839,7 @@ export class VendorController {
       const rows = await VendorKycService.listForVendor(id);
       res.status(200).json({
         success: true,
-        data: rows.map((r) => VendorKycService.formatKycDocumentForStaffApi(r as Record<string, unknown>)),
+        data: rows.map((r) => VendorKycService.formatKycDocumentResponse(r as Record<string, unknown>)),
       });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
