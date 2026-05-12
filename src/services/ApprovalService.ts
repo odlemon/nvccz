@@ -160,16 +160,26 @@ export class ApprovalService {
                 console.log(`      - ${u.firstName} ${u.lastName} (${u.email}) [${u.roleCode || 'no roleCode'}]`);
               });
             }
-          } else if (stage.stepType === "DEPARTMENT" && stage.departmentId) {
-            // Get department head/deputy
-            const deptUsers = await tx.user.findMany({
-              where: {
-                departmentId: stage.departmentId,
-                ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {})
-              },
-              select: { id: true }
-            });
-            approverIds = deptUsers.map(u => u.id);
+          } else if (stage.stepType === "DEPARTMENT") {
+            if (stage.departmentId) {
+              const deptUsers = await tx.user.findMany({
+                where: {
+                  departmentId: stage.departmentId,
+                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+                },
+                select: { id: true },
+              });
+              approverIds = deptUsers.map((u) => u.id);
+            } else if (stage.requiredUserDepartment) {
+              const deptUsers = await tx.user.findMany({
+                where: {
+                  userDepartment: stage.requiredUserDepartment,
+                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+                },
+                select: { id: true },
+              });
+              approverIds = deptUsers.map((u) => u.id);
+            }
           } else if (stage.stepType === "AMOUNT_THRESHOLD") {
             let entityAmount = 0;
             if (params.stageType === "PURCHASE_ORDER") {
@@ -224,32 +234,30 @@ export class ApprovalService {
         console.log("════════════════════════════════════════════════════════════════");
         console.log("");
 
-        // Send email notifications to first step approvers
-        try {
-          const firstStage = stages.find(s => s.stepNumber === 1);
-          if (firstStage && approvals.length > 0) {
-            // Get first step approvals only
-            const firstStepApprovals = approvals.filter(a => {
-              const approvalStage = stages.find(s => s.id === a.stageId);
-              return approvalStage && approvalStage.stepNumber === 1;
-            });
-
-            if (firstStepApprovals.length > 0) {
-              const { ProcurementApprovalConfigService } = await import('./ProcurementApprovalConfigService');
-              await ProcurementApprovalConfigService.sendApprovalStepNotifications(
-                approvalRequest.id,
-                firstStage,
-                params.stageType
-              );
-            }
-          }
-        } catch (emailError: any) {
-          console.error("⚠️  Error sending initial approval notifications:", emailError.message || emailError);
-          // Don't throw - email failure shouldn't block approval request creation
-        }
-
         return { approvalRequest, approvals };
       });
+
+      // After commit: notify first-step approvers (pending rows visible; sendApprovalStepNotifications reads DB)
+      try {
+        const firstStage = stages.find((s) => s.stepNumber === 1);
+        if (firstStage && result.approvals.length > 0) {
+          const firstStepApprovals = result.approvals.filter((a) => {
+            const approvalStage = stages.find((s) => s.id === a.stageId);
+            return approvalStage && approvalStage.stepNumber === 1;
+          });
+
+          if (firstStepApprovals.length > 0) {
+            const { ProcurementApprovalConfigService } = await import("./ProcurementApprovalConfigService");
+            await ProcurementApprovalConfigService.sendApprovalStepNotifications(
+              result.approvalRequest.id,
+              firstStage,
+              params.stageType
+            );
+          }
+        }
+      } catch (emailError: any) {
+        console.error("⚠️  Error sending initial approval notifications:", emailError.message || emailError);
+      }
 
       return result;
     } catch (error) {
