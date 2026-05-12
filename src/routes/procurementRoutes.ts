@@ -417,7 +417,7 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  * /procurement/requisitions/{id}/reject:
  *   put:
  *     summary: Reject a purchase requisition
- *     description: **Required Role:** Department HEAD or DEPUTY for the department that owns the requisition. ⚠️ Once rejected, status becomes REJECTED and cannot be modified
+ *     description: **Required Role:** Department HEAD or DEPUTY for the department that owns the requisition. Sets status **REJECTED**, stores a content fingerprint, and notifies the submitter. The requester may **PUT** `/api/procurement/requisitions/{id}` to edit while rejected, then **PUT** `/submit` again only after line/header details change from the rejected snapshot.
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -443,7 +443,7 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  *                 example: "Budget no longer available"
  *     responses:
  *       200:
- *         description: Requisition rejected successfully
+ *         description: Requisition rejected successfully. Response body includes `rejectionReason`, `rejectionContentFingerprint`, and full requisition row.
  *       400:
  *         description: Bad request (missing reason or invalid state)
  *       401:
@@ -452,6 +452,46 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  *         description: Forbidden (not department head/deputy)
  */
 router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequisition);
+
+/**
+ * @swagger
+ * /procurement/requisitions/{id}:
+ *   put:
+ *     summary: Update own purchase requisition (DRAFT or REJECTED)
+ *     description: Requester only. After rejection, edit here so the content fingerprint differs, then call submit again.
+ *     tags:
+ *       - Procurement
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title: { type: string }
+ *               description: { type: string }
+ *               department: { type: string }
+ *               priority: { type: string }
+ *               justification: { type: string }
+ *               sourcingCategory: { type: string }
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       400:
+ *         description: Validation error
+ */
+router.put("/requisitions/:id", ProcurementController.updatePurchaseRequisition);
 
 router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
 router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);

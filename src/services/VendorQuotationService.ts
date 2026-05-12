@@ -529,6 +529,14 @@ export class VendorQuotationService {
       const alignedTax = VATService.calculateVAT(alignedSubtotal);
       const alignedTotal = alignedSubtotal + alignedTax;
 
+      let rejectionFingerprint: string | null = null;
+      if (action === "REJECT") {
+        const { computeVendorQuotationRejectionFingerprint } = await import(
+          "../utils/procurementEntityRejectionFingerprint"
+        );
+        rejectionFingerprint = computeVendorQuotationRejectionFingerprint(quotation);
+      }
+
       // Update quotation status
       const updatedQuotation = await prisma.vendorQuotation.update({
         where: { id: quotationId },
@@ -538,6 +546,7 @@ export class VendorQuotationService {
           reviewedAt: new Date(),
           reviewNotes,
           rejectionReason: action === "REJECT" ? rejectionReason : null,
+          rejectionContentFingerprint: action === "REJECT" ? rejectionFingerprint : null,
           subtotal: new Decimal(alignedSubtotal),
           taxAmount: new Decimal(alignedTax),
           totalAmount: new Decimal(alignedTotal),
@@ -769,23 +778,30 @@ export class VendorQuotationService {
           rfqNumber,
           status: { in: ["SUBMITTED", "UNDER_REVIEW"] },
           id: { not: acceptedQuotation.id }
-        }
+        },
+        include: { items: true },
       });
 
       if (remainingQuotations.length === 0) {
         return;
       }
 
+      const { computeVendorQuotationRejectionFingerprint } = await import(
+        "../utils/procurementEntityRejectionFingerprint"
+      );
+
       const rejectionReason = `RFQ ${rfqNumber} was awarded to ${acceptedQuotation.companyName || acceptedQuotation.vendorName}.`;
 
       for (const quote of remainingQuotations) {
+        const rejectionFingerprint = computeVendorQuotationRejectionFingerprint(quote);
         const updated = await prisma.vendorQuotation.update({
           where: { id: quote.id },
           data: {
             status: "REJECTED",
             reviewedById,
             reviewedAt: new Date(),
-            rejectionReason
+            rejectionReason,
+            rejectionContentFingerprint: rejectionFingerprint,
           },
           include: {
             items: true
