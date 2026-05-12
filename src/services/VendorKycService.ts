@@ -60,6 +60,23 @@ const TYPE_LABEL_BY_CODE = Object.fromEntries(
   VENDOR_KYC_PORTAL_DOCUMENT_TYPES.map((d) => [d.code, d.label])
 );
 
+/** Drop `cb` cache-buster from KYC API `fileUrl` only (DB may still store `?cb=1` from upload). */
+function stripKycPublicMediaCacheQuery(url: string): string {
+  if (!url || !/[?&]cb=/.test(url)) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.delete("cb");
+    const q = u.searchParams.toString();
+    u.search = q ? `?${q}` : "";
+    return u.toString();
+  } catch {
+    return String(url)
+      .replace(/\?cb=1(?:&|$)/i, "?")
+      .replace(/&cb=1(?=&|$)/gi, "")
+      .replace(/\?$/, "");
+  }
+}
+
 function guessMimeFromFileName(fileName: string): string | null {
   const n = String(fileName || "").toLowerCase();
   const i = n.lastIndexOf(".");
@@ -151,11 +168,8 @@ export class VendorKycService {
   }
 
   /**
-   * Single browser-openable `fileUrl` for API responses and DB persistence.
-   * Pipeline: collapse duplicate `/api/public-media/` segments → {@link rewritePublicMediaUrl} when the
-   * stored value still carries `/uploads/` or `/api/public-media/` → if still not absolute, resolve against
-   * `BASE_URL` / `API_PUBLIC_BASE_URL` / `FRONTEND_URL` for path-only `/api/...` → else prefix with
-   * {@link resolveMediaBaseUrl} when that base is already absolute (covers relative keys like `application-documents/...`).
+   * Normalizes stored `file_url` for KYC JSON only: collapse duplicates, rewrite legacy `/uploads/` paths,
+   * resolve path-only URLs to absolute when env allows, then strip `cb` (never return `?cb=1` in API bodies).
    */
   static resolveKycFileUrlForResponse(stored: string | null | undefined): string | null {
     const raw = String(stored || "").trim();
@@ -190,7 +204,7 @@ export class VendorKycService {
         u = `${base}/${rel}`;
       }
     }
-    return u;
+    return stripKycPublicMediaCacheQuery(u);
   }
 
   /** Staff, portal, and nested vendor payloads: only id, type, name, absolute fileUrl, verification, encryption flag, timestamps. */
