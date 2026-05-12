@@ -6,7 +6,7 @@ import {
   extractRelativeMediaPath,
   collapseDuplicatePublicMediaPath,
 } from "./RemoteUploadService";
-import { encryptVendorArtifact } from "../utils/vendorArtifactCrypto";
+import { FirebaseStorageService } from "./FirebaseStorageService";
 import { VENDOR_PORTAL_ACTOR_ID } from "../constants/vendorPortalActor";
 
 export const VENDOR_PORTAL_KYC_UPLOADED_BY = VENDOR_PORTAL_ACTOR_ID;
@@ -133,7 +133,7 @@ export class VendorKycService {
 
   /**
    * Staff / nested vendor payloads: same pattern as application documents — absolute `fileUrl`
-   * via public-media base, plus `storageRelativePath` and a JWT download for decrypted PDFs.
+   * via public-media base, plus `storageRelativePath` and download routes (PDF when stored plaintext).
    */
   static formatKycDocumentForStaffApi(d: Record<string, unknown>) {
     const rawUrl = d.fileUrl && String(d.fileUrl).trim() ? String(d.fileUrl).trim() : "";
@@ -166,7 +166,7 @@ export class VendorKycService {
     };
   }
 
-  /** Portal list: meaningful public storage URL (encrypted blob) + token-based download for decrypted file. */
+  /** Portal list: public `fileUrl` like portfolio uploads; `portalDownloadUrl` for token-authenticated download. */
   static formatKycDocumentForPortalApi(d: Record<string, unknown>, token: string) {
     const t = encodeURIComponent(String(token || "").trim());
     const staff = this.formatKycDocumentForStaffApi(d);
@@ -176,6 +176,11 @@ export class VendorKycService {
     };
   }
 
+  /**
+   * Same remote upload path as portfolio application documents (`FirebaseStorageService.uploadApplicationDocument`):
+   * plaintext file under `application-documents`, browser-openable `fileUrl` (e.g. `.pdf`).
+   * Legacy DB rows may still use at-rest encryption (`isEncrypted: true`).
+   */
   static async uploadEncrypted(params: {
     vendorId: string;
     documentType: string;
@@ -186,23 +191,17 @@ export class VendorKycService {
     const vendor = await prisma.vendor.findUnique({ where: { id: params.vendorId } });
     if (!vendor) throw new Error("Vendor not found");
 
-    const { ciphertext, iv, authTag } = encryptVendorArtifact(params.file.buffer);
-    const safeName = params.file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-    const remoteName = `${Date.now()}-${safeName}.enc`;
-
-    const upload = await remoteUploadService.uploadSingleFile(
-      {
-        buffer: ciphertext,
-        originalname: remoteName,
-        mimetype: "application/octet-stream",
-      },
-      "application-documents"
+    const { downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
+      params.file.buffer,
+      params.file.originalname,
+      params.vendorId,
+      docType
     );
 
-    const safeUrl = collapseDuplicatePublicMediaPath(upload.downloadURL) || upload.downloadURL;
+    const safeUrl = collapseDuplicatePublicMediaPath(downloadURL) || downloadURL;
     const publicFileUrl = rewritePublicMediaUrl(safeUrl) ?? safeUrl;
     const storageRelativePath =
-      upload.filePath || extractRelativeMediaPath(safeUrl) || null;
+      extractRelativeMediaPath(safeUrl) || extractRelativeMediaPath(downloadURL) || null;
 
     const row = await prisma.vendorKycDocument.create({
       data: {
@@ -211,11 +210,11 @@ export class VendorKycService {
         fileName: params.file.originalname,
         fileUrl: publicFileUrl,
         filePath: storageRelativePath,
-        fileSize: ciphertext.length,
-        mimeType: params.file.mimetype || "application/octet-stream",
-        isEncrypted: true,
-        encryptionIv: iv,
-        encryptionAuthTag: authTag,
+        fileSize: params.file.buffer.length,
+        mimeType: params.file.mimetype || "application/pdf",
+        isEncrypted: false,
+        encryptionIv: null,
+        encryptionAuthTag: null,
         uploadedById: params.uploadedById,
       },
     });
@@ -264,35 +263,39 @@ export class VendorKycService {
     fileName: string;
     mimeType: string | null;
   }> {
-    const { decryptVendorArtifact } = await import("../utils/vendorArtifactCrypto");
     const doc = await prisma.vendorKycDocument.findUnique({ where: { id: documentId } });
     if (!doc) throw new Error("Document not found");
-    if (!doc.isEncrypted || !doc.encryptionIv || !doc.encryptionAuthTag) {
-      throw new Error("Document is not encrypted or missing crypto metadata");
-    }
 
-    let ciphertext: Buffer;
+    let raw: Buffer;
     const url = doc.fileUrl && String(doc.fileUrl).trim();
     if (url) {
       const axios = (await import("axios")).default;
       const fetchUrl = rewritePublicMediaUrl(url) ?? url;
       try {
         const res = await axios.get(fetchUrl, { responseType: "arraybuffer", timeout: 60000 });
-        ciphertext = Buffer.from(res.data);
+        raw = Buffer.from(res.data);
       } catch {
         const rel = extractRelativeMediaPath(url) || doc.filePath;
         if (!rel || String(rel).startsWith("/artifacts")) {
           throw new Error("Document file could not be retrieved from storage");
         }
-        ciphertext = await remoteUploadService.downloadFile(rel);
+        raw = await remoteUploadService.downloadFile(rel);
       }
     } else if (doc.filePath && !String(doc.filePath).startsWith("/artifacts")) {
-      ciphertext = await remoteUploadService.downloadFile(String(doc.filePath));
+      raw = await remoteUploadService.downloadFile(String(doc.filePath));
     } else {
       throw new Error("Document has no retrievable file URL or storage path");
     }
 
-    const plain = decryptVendorArtifact(ciphertext, doc.encryptionIv, doc.encryptionAuthTag);
+    if (!doc.isEncrypted) {
+      return { buffer: raw, fileName: doc.fileName, mimeType: doc.mimeType };
+    }
+
+    const { decryptVendorArtifact } = await import("../utils/vendorArtifactCrypto");
+    if (!doc.encryptionIv || !doc.encryptionAuthTag) {
+      throw new Error("Document is marked encrypted but missing crypto metadata");
+    }
+    const plain = decryptVendorArtifact(raw, doc.encryptionIv, doc.encryptionAuthTag);
     return { buffer: plain, fileName: doc.fileName, mimeType: doc.mimeType };
   }
 }
