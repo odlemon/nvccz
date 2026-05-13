@@ -19,14 +19,23 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required:
+ *               - vendorPortalToken
  *               - vendorName
  *               - vendorEmail
  *               - items
  *             properties:
+ *               vendorPortalToken:
+ *                 type: string
+ *                 description: >
+ *                   Signed portal token from the RFQ invitation email (`token` query param).
+ *                   Embeds vendor id and procurement RFQ id; server verifies HMAC and invitation.
+ *               token:
+ *                 type: string
+ *                 description: Alias of `vendorPortalToken` (same value).
  *               rfqNumber:
  *                 type: string
- *                 description: RFQ number this quotation responds to
- *                 example: "RFQ-1729012345-123"
+ *                 description: Optional cross-check; must match the RFQ embedded in the token if supplied.
+ *                 example: "RFQ_20260511_0001"
  *               requisitionId:
  *                 type: string
  *                 description: Requisition ID (optional)
@@ -123,6 +132,7 @@ const router = express.Router();
  *                       type: string
  *                       example: "2 years"
  *           example:
+ *             vendorPortalToken: "<signed token from RFQ email link>"
  *             rfqNumber: "RFQ-1729012345-123"
  *             vendorName: "John Doe"
  *             vendorEmail: "john@abcsupplies.com"

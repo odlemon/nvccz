@@ -9,7 +9,11 @@ export class VendorQuotationController {
    */
   static async createVendorQuotation(req: Request, res: Response, next: NextFunction) {
     try {
-      const quotation = await VendorQuotationService.createVendorQuotation(req.body);
+      const body = { ...req.body };
+      if (!body.vendorPortalToken && body.token) {
+        body.vendorPortalToken = body.token;
+      }
+      const quotation = await VendorQuotationService.createVendorQuotation(body);
 
       res.status(201).json({
         success: true,

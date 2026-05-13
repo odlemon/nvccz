@@ -13,6 +13,7 @@
 
 const http = require('http');
 const https = require('https');
+const { signRfqSubmit, defaultRfqExpFromClosingOr365d } = require('./vendor-portal-token-sign.cjs');
 
 // Configuration
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
@@ -32,6 +33,9 @@ let grnId = null;
 let invoiceId = null;
 let vendorId = null;
 let requisitionId = null;
+let rfqNumberGlobal = '';
+let procurementRfqIdGlobal = '';
+let rfqDeadlineIsoGlobal = '';
 
 /**
  * Make HTTP request
@@ -241,6 +245,7 @@ async function submitAndApproveRequisition() {
 async function createAndSendRFQ() {
   console.log('📢 Step 5: Creating and sending RFQ...');
   try {
+    const rfqDeadline = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
     const response = await makeRequest({ 
       path: '/procurement/rfq', 
       method: 'POST' 
@@ -250,6 +255,7 @@ async function createAndSendRFQ() {
       description: 'RFQ for testing PO/GRN flow',
       vendorIds: [vendorId],
       priority: 'MEDIUM',
+      rfqDeadline,
       items: [
         {
           itemName: 'Office Supplies Bundle',
@@ -260,7 +266,10 @@ async function createAndSendRFQ() {
     });
 
     if (response.status === 201 || response.status === 200) {
-      console.log(`✅ RFQ created and sent: ${response.data.data?.rfqNumber || 'RFQ-XXX'}\n`);
+      rfqNumberGlobal = response.data.data?.rfqNumber || '';
+      procurementRfqIdGlobal = response.data.data?.procurementRfqId || '';
+      rfqDeadlineIsoGlobal = rfqDeadline;
+      console.log(`✅ RFQ created and sent: ${rfqNumberGlobal || 'RFQ-XXX'}\n`);
       return true;
     } else {
       throw new Error(`Failed to create RFQ: ${JSON.stringify(response.data)}`);
@@ -277,12 +286,15 @@ async function createAndSendRFQ() {
 async function submitVendorQuotation() {
   console.log('📝 Step 6: Submitting vendor quotation (public API)...');
   try {
+    const exp = defaultRfqExpFromClosingOr365d(rfqDeadlineIsoGlobal);
+    const portalToken = signRfqSubmit(vendorId, procurementRfqIdGlobal, exp);
     const response = await makeRequest({ 
       path: '/vendor-quotations/submit', 
       method: 'POST',
       headers: {} // No auth for public endpoint
     }, {
-      rfqNumber: null, // Will use latest RFQ
+      vendorPortalToken: portalToken,
+      rfqNumber: rfqNumberGlobal,
       vendorName: 'Test Vendor for PO/GRN Flow',
       vendorEmail: 'vendor.po.grn@testnvccz.com',
       companyName: 'PO/GRN Test Vendor Ltd',

@@ -24,7 +24,11 @@ import {
   inlineExternalImagesInNewsletterHtml,
   type NewsletterInlineAttachment,
 } from "../utils/newsletterEmailImages";
-import { wrapTransactionalNewsletterEmailDocument } from "../utils/newsletterEmailLayout";
+import {
+  escapeAttrForEmail,
+  wrapTransactionalNewsletterEmailDocument,
+} from "../utils/newsletterEmailLayout";
+import { buildVendorRfqResponsePageUrl } from "../utils/vendorRfqEmailLinks";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -3979,6 +3983,8 @@ export class EmailNotificationService {
     vendorName: string;
     vendorEmail: string;
     rfqNumber: string;
+    /** Per-vendor invitation token; used to build the submission link when public base URL env is set. */
+    invitationToken: string;
     rfqDate: Date;
     title: string;
     description: string;
@@ -4476,6 +4482,8 @@ export class EmailNotificationService {
     verificationUrl?: string;
     /** Branded PO PDF (letterhead via `ProcurementPoPdfService`); required for vendor send. */
     pdfAttachment: { filename: string; content: Buffer };
+    /** Escaped `href` for vendor invoice submission (signed portal token in query). */
+    vendorInvoiceSubmitUrlEscaped?: string;
   }): Promise<void> {
     try {
       if (!data.pdfAttachment?.content || !Buffer.isBuffer(data.pdfAttachment.content) || data.pdfAttachment.content.length === 0) {
@@ -4515,6 +4523,7 @@ export class EmailNotificationService {
     vendorName: string;
     vendorEmail: string;
     rfqNumber: string;
+    invitationToken: string;
     rfqDate: Date;
     title: string;
     description: string;
@@ -4550,6 +4559,15 @@ export class EmailNotificationService {
           day: "numeric",
         })
       : "As soon as possible";
+
+    const quotationSubmitUrl =
+      data.invitationToken?.trim().length > 0
+        ? buildVendorRfqResponsePageUrl({
+            invitationToken: data.invitationToken.trim(),
+            rfqNumber: data.rfqNumber,
+          })
+        : null;
+    const quotationSubmitUrlAttr = quotationSubmitUrl ? escapeAttrForEmail(quotationSubmitUrl) : "";
 
     const extraHeadInner = `<style>
           .rfq-info {
@@ -4719,9 +4737,28 @@ export class EmailNotificationService {
               <p>${data.specialRequirements}</p>
             </div>
             ` : ""}
+            ${
+              quotationSubmitUrl
+                ? `<div style="text-align:center;margin:28px 0 8px;">
+              <a href="${quotationSubmitUrlAttr}" class="action-button">Submit your quotation online</a>
+              <p style="font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#64748b;margin-top:14px;max-width:520px;margin-left:auto;margin-right:auto;">
+                Use this secure link for <strong>${data.rfqNumber}</strong>. If the button does not work, copy and paste the URL into your browser.
+              </p>
+            </div>`
+                : `<div class="highlight-box" style="border-left-color:#64748b;background-color:#f1f5f9;">
+              <p style="margin:0;font-size:14px;line-height:1.5;">
+                <strong>Online submission link</strong> is not included because no public app base URL is configured.
+                Set <code>VENDOR_PORTAL_BASE_URL</code> or <code>FRONTEND_URL</code> (or <code>NEXT_PUBLIC_APP_URL</code> / <code>PUBLIC_APP_URL</code>) so vendors receive a one-click link. You can optionally override the path with <code>VENDOR_RFQ_RESPONSE_PATH</code> (default <code>/vendor-quotations/rfq-respond</code>).
+              </p>
+            </div>`
+            }
             <div class="instruction-list">
               <h3>📧 How to submit your quote</h3>
-              <p>Please reply to this email (or contact our procurement team using the details in the footer) and include the following:</p>
+              <p>${
+                quotationSubmitUrl
+                  ? "Click the button above to open the quotation form, or reply to this email (or contact our procurement team using the details in the footer) and include the following:"
+                  : "Please reply to this email (or contact our procurement team using the details in the footer) and include the following:"
+              }</p>
               <ol>
                 <li><strong>RFQ reference:</strong> ${data.rfqNumber}</li>
                 <li><strong>Company name</strong> and <strong>tax / VAT number</strong></li>
@@ -5024,6 +5061,7 @@ export class EmailNotificationService {
     companyName?: string;
     vendorAckUrl?: string;
     verificationUrl?: string;
+    vendorInvoiceSubmitUrlEscaped?: string;
   }, branding: EmailBranding): string {
     const currencySymbol = data.currency === 'USD' ? '$' : data.currency === 'ZWL' ? 'ZWL' : data.currency;
     const formattedDate = data.poDate.toLocaleDateString('en-US', { 
@@ -5183,6 +5221,16 @@ export class EmailNotificationService {
               <p>${data.notes}</p>
             </div>
             ` : ""}
+            ${
+              data.vendorInvoiceSubmitUrlEscaped
+                ? `<div style="text-align:center;margin:24px 0;">
+              <a href="${data.vendorInvoiceSubmitUrlEscaped}" class="action-button">Submit your invoice online</a>
+              <p style="font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#64748b;margin-top:12px;max-width:520px;margin-left:auto;margin-right:auto;">
+                Use this secure link for PO <strong>${data.poNumber}</strong>. The link identifies your company; use the same token in the request body when you submit the invoice through our API.
+              </p>
+            </div>`
+                : ""
+            }
             <p>Please confirm receipt of this purchase order in writing (reply to this email or your usual channel) and provide your acceptance and estimated delivery timeline.</p>
             <p><strong>Next steps:</strong></p>
             <ul>

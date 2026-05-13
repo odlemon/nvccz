@@ -636,6 +636,7 @@ model Vendor {
   banks                 VendorBank[]
   kycDocuments          VendorKycDocument[]
   rfqInvitations        RfqVendorInvitation[]
+  vendorQuotations      VendorQuotation[]      @relation("VendorQuotationVendor")
   rfqClarifications     RfqClarification[]
   vendorInvoiceIntakes  VendorInvoiceIntake[]
   invoiceFieldCorrections VendorInvoiceFieldCorrection[]
@@ -2317,6 +2318,9 @@ model VendorQuotation {
   requisitionId   String?
   /// Suite 03: link to formal RFQ row (when created after migration).
   procurementRfqId String?              @map("procurement_rfq_id")
+  /// Identified vendor for public RFQ submissions (from signed vendor portal token).
+  vendorId        String?               @map("vendor_id")
+  vendor          Vendor?               @relation("VendorQuotationVendor", fields: [vendorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   vendorName      String
   vendorEmail     String
   companyName     String?
@@ -2352,6 +2356,7 @@ model VendorQuotation {
   items           VendorQuotationItem[]
 
   @@index([procurementRfqId])
+  @@index([vendorId])
   @@map("vendor_quotations")
 }
 
@@ -2397,7 +2402,8 @@ model RfqVendorInvitation {
   id                 String          @id @default(cuid())
   procurementRfqId   String          @map("procurement_rfq_id")
   vendorId           String          @map("vendor_id")
-  invitationToken    String          @unique @map("invitation_token") @db.VarChar(64)
+  /// Legacy opaque token; RFQ emails now use stateless signed tokens (see `vendorPortalToken`). Optional.
+  invitationToken    String?         @map("invitation_token") @db.VarChar(512)
   emailSentAt        DateTime?       @map("email_sent_at")
   createdAt          DateTime        @default(now()) @map("created_at")
   procurementRfq     ProcurementRfq  @relation(fields: [procurementRfqId], references: [id], onDelete: Cascade)
