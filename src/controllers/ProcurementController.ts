@@ -691,11 +691,11 @@ export class ProcurementController {
         technicalWeight,
       } = req.body;
 
-      // Validation
-      if (!title || !items || items.length === 0) {
+      // Validation: title + vendors always; items optional when requisitionId (PR lines used)
+      if (!title) {
         return res.status(400).json({
           success: false,
-          message: "Title and items are required"
+          message: "Title is required"
         });
       }
 
@@ -703,6 +703,15 @@ export class ProcurementController {
         return res.status(400).json({
           success: false,
           message: "At least one vendor must be selected"
+        });
+      }
+
+      const hasItems = Array.isArray(items) && items.length > 0;
+      if (!hasItems && !requisitionId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Items are required unless requisitionId is provided (approved PR line items will be used).",
         });
       }
 
@@ -1039,6 +1048,8 @@ export class ProcurementController {
       const {
         purchaseOrderId,
         vendorId,
+        vendorPortalToken,
+        token: tokenAlias,
         invoiceDate,
         dueDate,
         currencyId,
@@ -1047,14 +1058,34 @@ export class ProcurementController {
         items
       } = req.body;
 
+      const resolvedPortalToken =
+        typeof vendorPortalToken === "string" && vendorPortalToken.trim()
+          ? vendorPortalToken.trim()
+          : typeof tokenAlias === "string" && tokenAlias.trim()
+            ? tokenAlias.trim()
+            : undefined;
+
       // Public endpoint - vendors don't need to be authenticated
       // createdById can be null or we can use a system user ID
       const createdById = req.user?.id || null; // null for vendor submissions
 
-      if (!vendorId || !invoiceDate || !items || items.length === 0) {
+      const isStaff = Boolean(req.user?.id);
+      if (!invoiceDate || !items || items.length === 0) {
         return res.status(400).json({
           success: false,
-          message: "Vendor ID, invoice date, and items are required"
+          message: "Invoice date and items are required"
+        });
+      }
+      if (isStaff && !vendorId) {
+        return res.status(400).json({
+          success: false,
+          message: "Vendor ID is required for staff-submitted invoices"
+        });
+      }
+      if (!isStaff && !resolvedPortalToken) {
+        return res.status(400).json({
+          success: false,
+          message: "vendorPortalToken is required for vendor-submitted invoices"
         });
       }
 
@@ -1070,6 +1101,7 @@ export class ProcurementController {
       const invoice = await ProcurementService.createProcurementInvoice({
         purchaseOrderId,
         vendorId,
+        vendorPortalToken: resolvedPortalToken,
         invoiceDate: invoiceDateParsed,
         dueDate: dueDateParsed,
         currencyId,

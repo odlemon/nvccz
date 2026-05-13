@@ -68,7 +68,7 @@ export const procurementEndpoints = {
     },
     get: {
       summary: 'Get all purchase requisitions (filtered by user\'s department)',
-      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target. **Suite 02:** investee-linked rows are further scoped by fund for FundManagers (CFO/SYSADMIN/PROC_MGR see all).',
+      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target. **Suite 02:** investee-linked rows are further scoped by fund for FundManagers (unrestricted roles — admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, etc. — see all).',
       tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -112,7 +112,7 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}': {
     get: {
       summary: 'Get purchase requisition by ID',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). **Suite 02:** investee-linked PRs require portfolio owner, requester, CFO/SYSADMIN/PROC_MGR, or FundManager for that fund.',
+      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). **Suite 02:** investee-linked PRs require portfolio owner, requester, unrestricted role (admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, etc.), or FundManager for that fund.',
       tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -225,9 +225,12 @@ export const procurementEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['title', 'vendorIds', 'items'],
+              required: ['title', 'vendorIds'],
               properties: {
-                requisitionId: { type: 'string', description: 'Link to approved requisition' },
+                requisitionId: {
+                  type: 'string',
+                  description: 'Link to approved requisition; when set, items may be omitted (PR lines copied)',
+                },
                 title: { type: 'string', example: 'Office Supplies RFQ' },
                 description: { type: 'string', description: 'Detailed description' },
                 vendorIds: { type: 'array', items: { type: 'string' }, description: 'Array of vendor IDs to send RFQ to' },
@@ -238,6 +241,7 @@ export const procurementEndpoints = {
                 specialRequirements: { type: 'string' },
                 items: {
                   type: 'array',
+                  description: 'Optional when requisitionId is set — defaults to PR line items',
                   items: {
                     type: 'object',
                     properties: {
@@ -274,8 +278,13 @@ export const procurementEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['vendorName', 'vendorEmail', 'items'],
+              required: ['vendorPortalToken', 'vendorName', 'vendorEmail', 'items'],
               properties: {
+                vendorPortalToken: {
+                  type: 'string',
+                  description: 'Signed token from RFQ email (query `token`). Same as optional `token` field.',
+                },
+                token: { type: 'string', description: 'Alias of vendorPortalToken' },
                 rfqNumber: { type: 'string', example: 'RFQ-1729012345-123' },
                 requisitionId: { type: 'string' },
                 vendorName: { type: 'string', example: 'John Doe' },
@@ -627,7 +636,7 @@ export const procurementEndpoints = {
     get: {
       summary: 'List investee (portfolio-linked) purchase requisitions (Suite 02)',
       description:
-        '**Scope:** CFO, SYSADMIN, or PROC_MGR see all; active **FundManager** users only see PRs for their fund(s). Others receive 403.',
+        '**Scope:** CFO, SYSADMIN, PROC_MGR, ADMIN, CEO, FIN_MGR, CIO, COO, application admin (`isAdminViewer`), or active **FundManager**; FundManagers only see PRs for their fund(s). Others receive 403.',
       tags: ['Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       responses: {

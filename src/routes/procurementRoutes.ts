@@ -90,16 +90,23 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - vendorId
  *               - invoiceDate
  *               - items
  *             properties:
+ *               vendorPortalToken:
+ *                 type: string
+ *                 description: >
+ *                   Required for **unauthenticated** vendor submits. Signed token from the PO email
+ *                   (`PO_VENDOR_INVOICE`); embeds `vendorId` and `purchaseOrderId`. Alias body field `token`.
+ *               token:
+ *                 type: string
+ *                 description: Alias of `vendorPortalToken`.
  *               purchaseOrderId:
  *                 type: string
- *                 description: Related purchase order ID
+ *                 description: Required unless `vendorPortalToken` supplies it (must match token when both sent).
  *               vendorId:
  *                 type: string
- *                 description: Vendor ID
+ *                 description: Required for **staff** (authenticated) creates; for vendor self-serve, derived from token.
  *               invoiceDate:
  *                 type: string
  *                 format: date-time
@@ -519,11 +526,10 @@ router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.conver
  *             required:
  *               - title
  *               - vendorIds
- *               - items
  *             properties:
  *               requisitionId:
  *                 type: string
- *                 description: Link to approved requisition
+ *                 description: Link to approved requisition. When set, items may be omitted — PR line items are copied.
  *               title:
  *                 type: string
  *                 description: RFQ title
@@ -553,6 +559,7 @@ router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.conver
  *                 type: string
  *               items:
  *                 type: array
+ *                 description: Omit when requisitionId is set — line items are copied from the approved PR
  *                 items:
  *                   type: object
  *                   properties:

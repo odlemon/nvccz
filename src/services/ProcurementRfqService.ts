@@ -294,13 +294,26 @@ export class ProcurementRfqService {
     });
 
     const { EmailNotificationService: E } = await import("./EmailNotificationService");
+    const {
+      signVendorPortalToken,
+      rfqPortalTokenExpiryUnixSeconds,
+      VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+    } = await import("../utils/vendorPortalToken");
+    const rfqExp = rfqPortalTokenExpiryUnixSeconds(newClosingAt);
     const snap = (rfq.itemsSnapshot as any)?.items || [];
     for (const inv of rfq.invitations) {
       if (inv.vendor?.email) {
+        const portalToken = signVendorPortalToken({
+          k: VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+          v: inv.vendorId,
+          r: rfq.id,
+          exp: rfqExp,
+        });
         await E.sendRFQToVendor({
           vendorName: inv.vendor.name,
           vendorEmail: inv.vendor.email,
           rfqNumber: rfq.rfqNumber,
+          invitationToken: portalToken,
           rfqDate: new Date(),
           title: rfq.title,
           description: `(Deadline extended) ${rfq.description || ""}`,

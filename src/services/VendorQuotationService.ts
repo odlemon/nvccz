@@ -6,6 +6,10 @@ import VATService from "./VATService";
 
 import { prisma } from '../utils/database';
 import { nextQuotationNumber } from "../utils/accountingDocumentNumbers";
+import {
+  verifyVendorPortalToken,
+  VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+} from "../utils/vendorPortalToken";
 
 /**
  * Render a vendor quotation PDF (with letterhead + ACCEPTED/REJECTED watermark) for email attachment.
@@ -78,6 +82,11 @@ async function buildVendorQuotationPdfAttachment(
 export interface CreateVendorQuotationParams {
   rfqNumber?: string;
   requisitionId?: string;
+  /**
+   * Signed portal token (`RFQ_SUBMIT`) from the RFQ email link. Required.
+   * Alias: `token` (same string) is also accepted by the controller body passthrough.
+   */
+  vendorPortalToken: string;
   vendorName: string;
   vendorEmail: string;
   companyName?: string;
@@ -127,6 +136,7 @@ export class VendorQuotationService {
       const {
         rfqNumber,
         requisitionId,
+        vendorPortalToken,
         vendorName,
         vendorEmail,
         companyName,
@@ -145,21 +155,80 @@ export class VendorQuotationService {
         technicalScoreJson,
       } = params;
 
-      let procurementRfqId: string | null = null;
-      if (rfqNumber) {
-        const rfqRow = await prisma.procurementRfq.findUnique({
-          where: { rfqNumber },
-          select: { id: true },
-        });
-        procurementRfqId = rfqRow?.id ?? null;
+      const portalRaw = String(vendorPortalToken || "").trim();
+      if (!portalRaw) {
+        throw new Error("vendorPortalToken is required");
       }
+      const portalPayload = verifyVendorPortalToken(portalRaw);
+      if (portalPayload.k !== VENDOR_PORTAL_KIND_RFQ_SUBMIT) {
+        throw new Error("Invalid vendor portal token for quotation submission");
+      }
+      const vendorIdFromToken = portalPayload.v;
+      const procurementRfqIdFromToken = portalPayload.r;
+
+      const rfqRow = await prisma.procurementRfq.findUnique({
+        where: { id: procurementRfqIdFromToken },
+        select: {
+          id: true,
+          rfqNumber: true,
+          status: true,
+          closingAt: true,
+          requisitionId: true,
+        },
+      });
+      if (!rfqRow) {
+        throw new Error("RFQ not found for this token");
+      }
+      if (rfqRow.status !== "OPEN") {
+        throw new Error(`RFQ is not accepting quotations (status: ${rfqRow.status})`);
+      }
+      if (rfqRow.closingAt && new Date() > new Date(rfqRow.closingAt)) {
+        throw new Error("RFQ submission deadline has passed");
+      }
+
+      const invite = await prisma.rfqVendorInvitation.findUnique({
+        where: {
+          procurementRfqId_vendorId: {
+            procurementRfqId: procurementRfqIdFromToken,
+            vendorId: vendorIdFromToken,
+          },
+        },
+      });
+      if (!invite) {
+        throw new Error("This vendor is not invited to this RFQ");
+      }
+
+      const vendorRow = await prisma.vendor.findUnique({
+        where: { id: vendorIdFromToken },
+        select: { id: true, email: true, name: true },
+      });
+      if (!vendorRow) {
+        throw new Error("Vendor not found");
+      }
+      if (
+        String(vendorRow.email || "")
+          .trim()
+          .toLowerCase() !== String(vendorEmail || "").trim().toLowerCase()
+      ) {
+        throw new Error("Vendor email does not match the invited vendor for this RFQ");
+      }
+
+      if (rfqNumber && rfqRow.rfqNumber !== rfqNumber) {
+        throw new Error("rfqNumber does not match this invitation token");
+      }
+
+      const effectiveRfqNumber = rfqRow.rfqNumber;
+      const effectiveProcurementRfqId = rfqRow.id;
+      const effectiveRequisitionId = requisitionId ?? rfqRow.requisitionId ?? undefined;
+
+      let procurementRfqId: string | null = effectiveProcurementRfqId;
 
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📝 CREATING VENDOR QUOTATION");
       console.log("════════════════════════════════════════════════════════════════");
       console.log(`📧 Vendor Email: ${vendorEmail}`);
       console.log(`🏢 Company: ${companyName || vendorName}`);
-      console.log(`📋 RFQ Number: ${rfqNumber || 'N/A'}`);
+      console.log(`📋 RFQ Number: ${effectiveRfqNumber}`);
       console.log(`📦 Items: ${items.length}`);
       console.log("");
 
@@ -186,8 +255,9 @@ export class VendorQuotationService {
       console.log("");
 
       const quotationDataBase = {
-        rfqNumber,
-        requisitionId,
+        rfqNumber: effectiveRfqNumber,
+        requisitionId: effectiveRequisitionId,
+        vendorId: vendorIdFromToken,
         vendorName,
         vendorEmail,
         companyName,
@@ -272,9 +342,9 @@ export class VendorQuotationService {
         requestedBy: { firstName: string; lastName: string; email: string } | null;
       } | null = null;
 
-      if (requisitionId) {
+      if (effectiveRequisitionId) {
         requisitionForNotify = await prisma.purchaseRequisition.findUnique({
-          where: { id: requisitionId },
+          where: { id: effectiveRequisitionId },
           include: {
             requestedBy: {
               select: {
@@ -293,7 +363,7 @@ export class VendorQuotationService {
             requesterEmail: requisitionForNotify.requestedBy.email,
             vendorName: companyName || vendorName,
             vendorEmail,
-            rfqNumber,
+            rfqNumber: effectiveRfqNumber,
             quotationNumber: quotation.quotationNumber,
             totalAmount: Number(quotation.totalAmount),
             currencyCode,
@@ -322,7 +392,7 @@ export class VendorQuotationService {
         const payloadBase = {
           vendorName: companyName || vendorName,
           vendorEmail,
-          rfqNumber,
+          rfqNumber: effectiveRfqNumber,
           quotationNumber: quotation.quotationNumber,
           totalAmount: Number(quotation.totalAmount),
           currencyCode,

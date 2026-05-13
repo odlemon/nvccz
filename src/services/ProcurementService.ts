@@ -16,6 +16,7 @@ import {
   nextProcurementRfqNumber,
 } from "../utils/procurementDocumentNumbers";
 import { computePurchaseRequisitionContentFingerprint } from "../utils/purchaseRequisitionContentFingerprint";
+import { isAdminViewer } from "./performanceScorecardSupport";
 
 // Hardcoded departments
 export enum Department {
@@ -75,7 +76,8 @@ export interface CreateRFQParams {
   reportingCurrencyId?: string;
   priceWeight?: number;
   technicalWeight?: number;
-  items: {
+  /** When omitted or empty and `requisitionId` is set, PR line items are copied. */
+  items?: {
     itemName: string;
     description?: string;
     quantity: number;
@@ -112,7 +114,13 @@ export interface CreatePurchaseOrderParams {
 
 export interface CreateProcurementInvoiceParams {
   purchaseOrderId?: string;
-  vendorId: string;
+  /** Required for staff-created invoices. For public vendor submits, derived from `vendorPortalToken` when set. */
+  vendorId?: string;
+  /**
+   * Signed portal token (`PO_VENDOR_INVOICE`) embedding vendor id + purchase order id.
+   * Required when `createdById` is absent (vendor self-serve).
+   */
+  vendorPortalToken?: string;
   invoiceDate: Date;
   dueDate?: Date;
   currencyId?: string;
@@ -1473,17 +1481,42 @@ export class ProcurementService {
   }
 
   /**
-   * CFO / SYSADMIN / PROC_MGR: all funds. Otherwise must have at least one active FundManager row (Suite 02 fund isolation).
+   * Investee drawdown PR lists (Suite 02): who may see **all** funds without a FundManager row.
+   * Uses `isAdminViewer` (role name/code signals) plus senior finance/procurement/exec role codes.
    */
-  static async getInvesteePrViewerFundScopeOrThrow(viewerUserId: string): Promise<string[] | null> {
+  static async userHasUnrestrictedInvesteePrViewScope(viewerUserId: string): Promise<boolean> {
     const u = await prisma.user.findUnique({
       where: { id: viewerUserId },
-      select: { roleCode: true },
+      select: {
+        roleCode: true,
+        departmentRole: true,
+        userDepartment: true,
+        role: { select: { name: true } },
+      },
     });
-    if (!u) {
-      throw new Error("User not found");
-    }
-    if (u.roleCode === "CFO" || u.roleCode === "SYSADMIN" || u.roleCode === "PROC_MGR") {
+    if (!u) return false;
+    if (isAdminViewer(u)) return true;
+    const code = String(u.roleCode || "").trim().toUpperCase();
+    const unrestrictedCodes = new Set([
+      "CFO",
+      "SYSADMIN",
+      "PROC_MGR",
+      "ADMIN",
+      "CEO",
+      "FIN_MGR",
+      "CIO",
+      "COO",
+      "SUPER_ADMIN",
+    ]);
+    return code.length > 0 && unrestrictedCodes.has(code);
+  }
+
+  /**
+   * CFO / SYSADMIN / PROC_MGR / ADMIN / CEO / FIN_MGR / CIO / COO / isAdminViewer: all funds.
+   * Otherwise must have at least one active FundManager row (Suite 02 fund isolation).
+   */
+  static async getInvesteePrViewerFundScopeOrThrow(viewerUserId: string): Promise<string[] | null> {
+    if (await this.userHasUnrestrictedInvesteePrViewScope(viewerUserId)) {
       return null;
     }
     const rows = await prisma.fundManager.findMany({
@@ -1520,11 +1553,7 @@ export class ProcurementService {
     if (r.requestedById === viewerUserId) {
       return;
     }
-    const u = await prisma.user.findUnique({
-      where: { id: viewerUserId },
-      select: { roleCode: true },
-    });
-    if (u?.roleCode === "CFO" || u?.roleCode === "SYSADMIN" || u?.roleCode === "PROC_MGR") {
+    if (await this.userHasUnrestrictedInvesteePrViewScope(viewerUserId)) {
       return;
     }
     const rows = await prisma.fundManager.findMany({
@@ -1710,16 +1739,12 @@ export class ProcurementService {
 
   /**
    * Suite 02 / 2.7: single source of truth for "which requisitions may this viewer see" when rows may be investee-linked.
-   * `null` = unrestricted (CFO, SYSADMIN, PROC_MGR) — no extra filter.
+   * `null` = unrestricted (admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, CIO, COO, ADMIN) — no extra filter.
    */
   static async buildInvesteeFundVisibilityWhereForViewer(
     viewerUserId: string
   ): Promise<Record<string, unknown> | null> {
-    const u = await prisma.user.findUnique({
-      where: { id: viewerUserId },
-      select: { roleCode: true },
-    });
-    if (u && ["CFO", "SYSADMIN", "PROC_MGR"].includes(u.roleCode ?? "")) {
+    if (await this.userHasUnrestrictedInvesteePrViewScope(viewerUserId)) {
       return null;
     }
     const fm = await prisma.fundManager.findMany({
@@ -1749,7 +1774,7 @@ export class ProcurementService {
   }
 
   /**
-   * Department requisition list (Suite 02 / 2.7): FundManagers only see investee PRs for funds they manage; CFO/SYSADMIN/PROC_MGR see all.
+   * Department requisition list (Suite 02 / 2.7): FundManagers only see investee PRs for funds they manage; unrestricted roles (admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, etc.) see all.
    */
   static async applyInvesteeFundScopeToDepartmentRequisitionWhere(
     viewerUserId: string,
@@ -1791,12 +1816,56 @@ export class ProcurementService {
         technicalWeight,
       } = params;
 
+      const inputItems = Array.isArray(items) && items.length > 0 ? items : null;
+
+      let requisitionSourcingCategory: string | null | undefined;
+      let resolvedItems: NonNullable<CreateRFQParams["items"]>;
+
+      if (requisitionId) {
+        const pr = await prisma.purchaseRequisition.findUnique({
+          where: { id: requisitionId },
+          include: { items: true },
+        });
+        if (!pr) {
+          throw new Error(`Purchase requisition not found: ${requisitionId}`);
+        }
+        if (pr.status !== "APPROVED") {
+          throw new Error(
+            `RFQ can only be linked to an approved purchase requisition. Requisition ${pr.requisitionNumber} is "${pr.status}" (expected APPROVED).`
+          );
+        }
+        requisitionSourcingCategory = pr.sourcingCategory;
+        if (inputItems) {
+          resolvedItems = inputItems;
+        } else {
+          if (!pr.items.length) {
+            throw new Error(
+              "No RFQ items were supplied and the purchase requisition has no line items to copy."
+            );
+          }
+          resolvedItems = pr.items.map((it) => ({
+            itemName: it.itemName,
+            description: it.description ?? undefined,
+            quantity: Number(it.quantity),
+            unit: it.unit ?? undefined,
+            specifications: it.specifications ?? undefined,
+          }));
+        }
+      } else {
+        if (!inputItems) {
+          throw new Error(
+            "Items are required when requisitionId is not provided, or pass requisitionId to use PR line items."
+          );
+        }
+        resolvedItems = inputItems;
+      }
+
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📧 CREATING AND SENDING RFQ TO VENDORS");
       console.log("════════════════════════════════════════════════════════════════");
       console.log(`📋 Title: ${title}`);
       console.log(`👥 Selected Vendors: ${vendorIds.length}`);
-      console.log(`📦 Items: ${items.length}`);
+      console.log(`📦 Items: ${resolvedItems.length}`);
       console.log("");
 
       // Validate vendors exist and have emails
@@ -1810,15 +1879,6 @@ export class ProcurementService {
       }
 
       const { categoriesMatch } = await import("../utils/vendorCategoryNormalize");
-
-      let requisitionSourcingCategory: string | null | undefined;
-      if (requisitionId) {
-        const reqRow = await prisma.purchaseRequisition.findUnique({
-          where: { id: requisitionId },
-          select: { sourcingCategory: true },
-        });
-        requisitionSourcingCategory = reqRow?.sourcingCategory;
-      }
 
       for (const v of vendors) {
         if (v.isBlacklisted) {
@@ -1866,7 +1926,7 @@ export class ProcurementService {
             priceWeight != null ? new Decimal(priceWeight) : new Decimal(0.5),
           technicalWeight:
             technicalWeight != null ? new Decimal(technicalWeight) : new Decimal(0.5),
-          itemsSnapshot: { items } as object,
+          itemsSnapshot: { items: resolvedItems } as object,
           deliveryAddress: deliveryAddress || null,
           expectedDeliveryDate: expectedDeliveryDate || null,
           specialRequirements: specialRequirements || null,
@@ -1874,13 +1934,18 @@ export class ProcurementService {
         },
       });
 
+      const {
+        signVendorPortalToken,
+        rfqPortalTokenExpiryUnixSeconds,
+        VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+      } = await import("../utils/vendorPortalToken");
+      const rfqExp = rfqPortalTokenExpiryUnixSeconds(rfqRow.closingAt);
+
       for (const v of vendors) {
-        const invitationToken = randomBytes(24).toString("hex");
         await prisma.rfqVendorInvitation.create({
           data: {
             procurementRfqId: rfqRow.id,
             vendorId: v.id,
-            invitationToken,
             emailSentAt: new Date(),
           },
         });
@@ -1892,7 +1957,7 @@ export class ProcurementService {
         title,
         description,
         vendors: vendors.map((v) => ({ id: v.id, name: v.name, email: v.email })),
-        items,
+        items: resolvedItems,
         deliveryAddress,
         expectedDeliveryDate,
         rfqDeadline,
@@ -1924,14 +1989,22 @@ export class ProcurementService {
       for (const vendor of vendors) {
         console.log(`   📤 Sending to: ${vendor.name} (${vendor.email})`);
         
+        const portalToken = signVendorPortalToken({
+          k: VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+          v: vendor.id,
+          r: rfqRow.id,
+          exp: rfqExp,
+        });
+
         await EmailNotificationService.sendRFQToVendor({
           vendorName: vendor.name,
           vendorEmail: vendor.email,
           rfqNumber,
+          invitationToken: portalToken,
           rfqDate: new Date(),
           title,
           description: description || '',
-          items: items.map(item => ({
+          items: resolvedItems.map(item => ({
             itemName: item.itemName,
             description: item.description || '',
             quantity: item.quantity,
@@ -1964,12 +2037,7 @@ export class ProcurementService {
       console.log(`📋 RFQ Number: ${rfqNumber}`);
       console.log(`👥 Vendors Contacted: ${vendors.length}`);
       vendors.forEach(v => console.log(`   - ${v.name} (${v.email})`));
-      console.log(`📦 Items: ${items.length}`);
-      if (rfqDeadline) {
-        console.log(`⏰ Response Deadline: ${rfqDeadline.toLocaleDateString()}`);
-      }
-      console.log("");
-      console.log("📌 NEXT STEPS:");
+      console.log(`📦 Items: ${resolvedItems.length}`);
       console.log("   1. Vendors receive RFQ via email");
       console.log("   2. Vendors respond with their quotes (via email)");
       console.log("   3. Review vendor quotes");
@@ -2357,6 +2425,22 @@ export class ProcurementService {
       };
       console.log("   ✅ PO PDF generated");
 
+      const {
+        signVendorPortalToken,
+        poInvoicePortalTokenExpiryUnixSeconds,
+        VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE,
+      } = await import("../utils/vendorPortalToken");
+      const { escapeVendorPoInvoiceSubmitUrlForEmailHref } = await import("../utils/vendorPoInvoiceEmailLinks");
+      const invExp = poInvoicePortalTokenExpiryUnixSeconds();
+      const invoicePortalToken = signVendorPortalToken({
+        k: VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE,
+        v: purchaseOrder.vendorId,
+        p: poId,
+        exp: invExp,
+      });
+      const vendorInvoiceSubmitUrlEscaped =
+        escapeVendorPoInvoiceSubmitUrlForEmailHref(invoicePortalToken) || undefined;
+
       await EmailNotificationService.sendPurchaseOrderToVendor({
         vendorName: purchaseOrder.vendor.name,
         vendorEmail: purchaseOrder.vendor.email,
@@ -2376,6 +2460,7 @@ export class ProcurementService {
         paymentTerms: purchaseOrder.paymentTerms || undefined,
         notes: undefined,
         pdfAttachment,
+        vendorInvoiceSubmitUrlEscaped,
       });
 
       console.log("   ✅ Email sent successfully");
@@ -3201,6 +3286,7 @@ export class ProcurementService {
       const {
         purchaseOrderId,
         vendorId,
+        vendorPortalToken,
         invoiceDate,
         dueDate,
         currencyId,
@@ -3210,9 +3296,53 @@ export class ProcurementService {
         items
       } = params;
 
+      const {
+        verifyVendorPortalToken,
+        VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE,
+      } = await import("../utils/vendorPortalToken");
+
+      let resolvedVendorId = vendorId?.trim() || "";
+      let resolvedPurchaseOrderId = purchaseOrderId?.trim() || "";
+
+      const portalRaw = vendorPortalToken?.trim();
+      if (portalRaw) {
+        const pl = verifyVendorPortalToken(portalRaw);
+        if (pl.k !== VENDOR_PORTAL_KIND_PO_VENDOR_INVOICE) {
+          throw new Error("Invalid vendor portal token for procurement invoice submission");
+        }
+        const po = await prisma.purchaseOrder.findUnique({
+          where: { id: pl.p },
+          select: { id: true, vendorId: true, status: true, poNumber: true },
+        });
+        if (!po) throw new Error("Purchase order not found");
+        if (po.vendorId !== pl.v) throw new Error("Token does not match this purchase order");
+        if (!["SENT", "APPROVED", "PENDING"].includes(String(po.status || ""))) {
+          throw new Error(`Purchase order is not open for vendor invoices (status: ${po.status})`);
+        }
+        if (resolvedVendorId && resolvedVendorId !== pl.v) {
+          throw new Error("vendorId does not match portal token");
+        }
+        if (resolvedPurchaseOrderId && resolvedPurchaseOrderId !== pl.p) {
+          throw new Error("purchaseOrderId does not match portal token");
+        }
+        resolvedVendorId = pl.v;
+        resolvedPurchaseOrderId = pl.p;
+      } else if (!createdById) {
+        throw new Error(
+          "vendorPortalToken is required when submitting a procurement invoice without staff authentication"
+        );
+      }
+
+      if (!resolvedVendorId) {
+        throw new Error("Vendor ID is required (or supply a valid vendorPortalToken)");
+      }
+      if (!resolvedPurchaseOrderId) {
+        throw new Error("purchaseOrderId is required (or supply a valid vendorPortalToken)");
+      }
+
       // Validate vendor exists
       const vendor = await prisma.vendor.findUnique({
-        where: { id: vendorId }
+        where: { id: resolvedVendorId }
       });
 
       if (!vendor) {
@@ -3289,8 +3419,8 @@ export class ProcurementService {
           invoice = await prisma.procurementInvoice.create({
             data: {
               invoiceNumber,
-              purchaseOrderId,
-              vendorId,
+              purchaseOrderId: resolvedPurchaseOrderId,
+              vendorId: resolvedVendorId,
               invoiceDate,
               dueDate,
               subtotal: new Decimal(subtotal),
