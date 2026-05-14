@@ -255,9 +255,25 @@ router.get("/", VendorQuotationController.getAllQuotations);
  *         example: "RFQ-1729012345-123"
  *     responses:
  *       200:
- *         description: List of quotations for the RFQ
- *       401:
- *         description: Unauthorized
+ *         description: List of quotations for the RFQ; `rfq` carries procurement row + itemsSnapshot when the RFQ exists (even if `data` is empty).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   description: Vendor quotations (empty until vendors submit)
+ *                 rfq:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Procurement RFQ header including itemsSnapshot (null if RFQ row was deleted or number unknown)
+ *                 count:
+ *                   type: number
  */
 router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
 

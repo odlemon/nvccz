@@ -16,6 +16,7 @@ import {
   nextProcurementRfqNumber,
 } from "../utils/procurementDocumentNumbers";
 import { computePurchaseRequisitionContentFingerprint } from "../utils/purchaseRequisitionContentFingerprint";
+import { normalizeRfqItemLinesFromBody, prItemsToNormalizedRfqLines } from "../utils/rfqItemInput";
 import { isAdminViewer } from "./performanceScorecardSupport";
 
 // Hardcoded departments
@@ -83,6 +84,9 @@ export interface CreateRFQParams {
     quantity: number;
     unit?: string;
     specifications?: any;
+    /** Reference pricing on RFQ snapshot (optional; null = vendor quotes). */
+    unitPrice?: number | null;
+    lineTotal?: number | null;
   }[];
 }
 
@@ -1816,10 +1820,11 @@ export class ProcurementService {
         technicalWeight,
       } = params;
 
-      const inputItems = Array.isArray(items) && items.length > 0 ? items : null;
+      const sanitizedBodyItems = normalizeRfqItemLinesFromBody(items ?? []);
 
       let requisitionSourcingCategory: string | null | undefined;
       let resolvedItems: NonNullable<CreateRFQParams["items"]>;
+      let prEmailMeta: { requisitionNumber: string; requisitionTitle: string } | undefined;
 
       if (requisitionId) {
         const pr = await prisma.purchaseRequisition.findUnique({
@@ -1835,29 +1840,24 @@ export class ProcurementService {
           );
         }
         requisitionSourcingCategory = pr.sourcingCategory;
-        if (inputItems) {
-          resolvedItems = inputItems;
+        prEmailMeta = { requisitionNumber: pr.requisitionNumber, requisitionTitle: pr.title };
+        if (sanitizedBodyItems.length > 0) {
+          resolvedItems = sanitizedBodyItems;
         } else {
           if (!pr.items.length) {
             throw new Error(
               "No RFQ items were supplied and the purchase requisition has no line items to copy."
             );
           }
-          resolvedItems = pr.items.map((it) => ({
-            itemName: it.itemName,
-            description: it.description ?? undefined,
-            quantity: Number(it.quantity),
-            unit: it.unit ?? undefined,
-            specifications: it.specifications ?? undefined,
-          }));
+          resolvedItems = prItemsToNormalizedRfqLines(pr.items);
         }
       } else {
-        if (!inputItems) {
+        if (sanitizedBodyItems.length === 0) {
           throw new Error(
             "Items are required when requisitionId is not provided, or pass requisitionId to use PR line items."
           );
         }
-        resolvedItems = inputItems;
+        resolvedItems = sanitizedBodyItems;
       }
 
       console.log("\n════════════════════════════════════════════════════════════════");
@@ -2014,7 +2014,11 @@ export class ProcurementService {
           deliveryAddress,
           expectedDeliveryDate,
           rfqDeadline,
-          specialRequirements
+          specialRequirements,
+          priority,
+          visibility,
+          requisitionNumber: prEmailMeta?.requisitionNumber,
+          requisitionTitle: prEmailMeta?.requisitionTitle,
         });
         
         console.log(`   ✅ Sent to ${vendor.name}`);

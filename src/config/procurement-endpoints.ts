@@ -359,7 +359,10 @@ export const procurementEndpoints = {
         { in: 'path', name: 'rfqNumber', required: true, schema: { type: 'string' }, description: 'RFQ number', example: 'RFQ-1729012345-123' }
       ],
       responses: {
-        200: { description: 'List of quotations for the RFQ' },
+        200: {
+          description:
+            'Quotations in `data` (may be empty). `rfq` is the procurement_rfqs row with itemsSnapshot when the RFQ exists.',
+        },
         401: { description: 'Unauthorized' }
       }
     }

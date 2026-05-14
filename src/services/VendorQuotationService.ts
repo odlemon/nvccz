@@ -128,6 +128,35 @@ export interface ReviewQuotationParams {
 
 export class VendorQuotationService {
   /**
+   * Prefer `vendorId` on the quotation; fall back to email match (legacy rows).
+   * Used so accept/reject emails and PO creation use master vendor data.
+   */
+  private static async resolveVendorRowForQuotation(quotation: {
+    vendorId: string | null;
+    vendorEmail: string;
+  }) {
+    let vendor =
+      quotation.vendorId &&
+      (await prisma.vendor.findUnique({
+        where: { id: quotation.vendorId },
+        select: { id: true, name: true, email: true, contactPerson: true },
+      }));
+    const fallbackEmail = String(quotation.vendorEmail || "").trim();
+    if (!vendor?.email?.trim() && fallbackEmail) {
+      vendor = await prisma.vendor.findFirst({
+        where: { email: fallbackEmail },
+        select: { id: true, name: true, email: true, contactPerson: true },
+      });
+    }
+    if (!vendor?.email?.trim()) {
+      throw new Error(
+        "Vendor not found for this quotation (missing vendorId link or unknown email). Update the vendor master record."
+      );
+    }
+    return vendor;
+  }
+
+  /**
    * Create a vendor quotation (no authentication required)
    * This is called when a vendor submits their quote through the public form
    */
@@ -200,18 +229,55 @@ export class VendorQuotationService {
 
       const vendorRow = await prisma.vendor.findUnique({
         where: { id: vendorIdFromToken },
-        select: { id: true, email: true, name: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          taxNumber: true,
+          contactPerson: true,
+          phone: true,
+          address: true,
+          paymentTerms: true,
+        },
       });
       if (!vendorRow) {
         throw new Error("Vendor not found");
       }
-      if (
-        String(vendorRow.email || "")
-          .trim()
-          .toLowerCase() !== String(vendorEmail || "").trim().toLowerCase()
-      ) {
+      const recordEmail = String(vendorRow.email || "")
+        .trim()
+        .toLowerCase();
+      const submittedEmail = String(vendorEmail || "")
+        .trim()
+        .toLowerCase();
+      if (!recordEmail || recordEmail !== submittedEmail) {
         throw new Error("Vendor email does not match the invited vendor for this RFQ");
       }
+
+      const trimIn = (v: unknown) => {
+        const t = v == null ? "" : String(v).trim();
+        return t.length > 0 ? t : undefined;
+      };
+
+      const resolvedVendorEmail = String(vendorRow.email).trim();
+      const resolvedCompanyName =
+        String(vendorRow.name || "").trim() || trimIn(companyName) || "Vendor";
+      const resolvedVendorName =
+        String(vendorRow.contactPerson || "").trim() ||
+        trimIn(vendorName) ||
+        resolvedCompanyName;
+      const resolvedContactPerson =
+        String(vendorRow.contactPerson || "").trim() ||
+        trimIn(contactPerson) ||
+        trimIn(vendorName) ||
+        resolvedCompanyName;
+      const resolvedTaxEIN =
+        vendorRow.taxNumber?.trim() || trimIn(taxEIN) || undefined;
+      const resolvedPhone =
+        vendorRow.phone?.trim() || trimIn(phoneNumber) || undefined;
+      const resolvedAddress =
+        vendorRow.address?.trim() || trimIn(address) || undefined;
+      const resolvedPaymentTerms =
+        vendorRow.paymentTerms?.trim() || trimIn(paymentTerms) || undefined;
 
       if (rfqNumber && rfqRow.rfqNumber !== rfqNumber) {
         throw new Error("rfqNumber does not match this invitation token");
@@ -226,8 +292,8 @@ export class VendorQuotationService {
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📝 CREATING VENDOR QUOTATION");
       console.log("════════════════════════════════════════════════════════════════");
-      console.log(`📧 Vendor Email: ${vendorEmail}`);
-      console.log(`🏢 Company: ${companyName || vendorName}`);
+      console.log(`📧 Vendor Email: ${resolvedVendorEmail}`);
+      console.log(`🏢 Company: ${resolvedCompanyName}`);
       console.log(`📋 RFQ Number: ${effectiveRfqNumber}`);
       console.log(`📦 Items: ${items.length}`);
       console.log("");
@@ -258,16 +324,16 @@ export class VendorQuotationService {
         rfqNumber: effectiveRfqNumber,
         requisitionId: effectiveRequisitionId,
         vendorId: vendorIdFromToken,
-        vendorName,
-        vendorEmail,
-        companyName,
-        taxEIN,
-        contactPerson,
-        phoneNumber,
-        address,
+        vendorName: resolvedVendorName,
+        vendorEmail: resolvedVendorEmail,
+        companyName: resolvedCompanyName,
+        taxEIN: resolvedTaxEIN,
+        contactPerson: resolvedContactPerson,
+        phoneNumber: resolvedPhone,
+        address: resolvedAddress,
         validUntil,
         currencyCode,
-        paymentTerms,
+        paymentTerms: resolvedPaymentTerms,
         deliveryTerms,
         deliveryTime,
         notes,
@@ -361,8 +427,16 @@ export class VendorQuotationService {
           await EmailNotificationService.sendQuotationSubmittedNotification({
             requesterName,
             requesterEmail: requisitionForNotify.requestedBy.email,
-            vendorName: companyName || vendorName,
-            vendorEmail,
+            vendorName: resolvedCompanyName,
+            vendorEmail: resolvedVendorEmail,
+            companyName: resolvedCompanyName,
+            contactPerson: resolvedContactPerson,
+            taxEIN: resolvedTaxEIN,
+            phoneNumber: resolvedPhone,
+            address: resolvedAddress,
+            paymentTerms: resolvedPaymentTerms,
+            deliveryTerms: trimIn(deliveryTerms),
+            deliveryTime: trimIn(deliveryTime),
             rfqNumber: effectiveRfqNumber,
             quotationNumber: quotation.quotationNumber,
             totalAmount: Number(quotation.totalAmount),
@@ -390,8 +464,16 @@ export class VendorQuotationService {
           skipEmails.add(requisitionForNotify.requestedBy.email.trim().toLowerCase());
         }
         const payloadBase = {
-          vendorName: companyName || vendorName,
-          vendorEmail,
+          vendorName: resolvedCompanyName,
+          vendorEmail: resolvedVendorEmail,
+          companyName: resolvedCompanyName,
+          contactPerson: resolvedContactPerson,
+          taxEIN: resolvedTaxEIN,
+          phoneNumber: resolvedPhone,
+          address: resolvedAddress,
+          paymentTerms: resolvedPaymentTerms,
+          deliveryTerms: trimIn(deliveryTerms),
+          deliveryTime: trimIn(deliveryTime),
           rfqNumber: effectiveRfqNumber,
           quotationNumber: quotation.quotationNumber,
           totalAmount: Number(quotation.totalAmount),
@@ -649,6 +731,26 @@ export class VendorQuotationService {
         }
       });
 
+      let masterVendor: {
+        id: string;
+        name: string;
+        email: string;
+        contactPerson: string | null;
+      } | null = null;
+      try {
+        masterVendor = await VendorQuotationService.resolveVendorRowForQuotation(quotation);
+      } catch (e: any) {
+        console.warn(
+          "⚠️  Could not resolve vendor master for this quotation (emails will use stored quotation fields):",
+          e?.message || e
+        );
+      }
+
+      const notifyVendorName = masterVendor
+        ? masterVendor.contactPerson?.trim() || masterVendor.name
+        : quotation.companyName || quotation.vendorName;
+      const notifyVendorEmail = masterVendor?.email?.trim() || quotation.vendorEmail;
+
       // Send email notification to vendor (best-effort: failures here must not roll back the review)
       try {
         const pdfAttachment = await buildVendorQuotationPdfAttachment(updatedQuotation, action === "ACCEPT" ? "ACCEPTED" : "REJECTED").catch((e: any) => {
@@ -658,8 +760,8 @@ export class VendorQuotationService {
 
         if (action === "ACCEPT") {
           await EmailNotificationService.sendQuotationAcceptedEmail({
-            vendorName: quotation.companyName || quotation.vendorName,
-            vendorEmail: quotation.vendorEmail,
+            vendorName: notifyVendorName,
+            vendorEmail: notifyVendorEmail,
             quotationNumber: quotation.quotationNumber,
             quotationAmount: Number(updatedQuotation.totalAmount),
             currencyCode: quotation.currencyCode,
@@ -674,8 +776,8 @@ export class VendorQuotationService {
           }
         } else {
           await EmailNotificationService.sendQuotationRejectedEmail({
-            vendorName: quotation.companyName || quotation.vendorName,
-            vendorEmail: quotation.vendorEmail,
+            vendorName: notifyVendorName,
+            vendorEmail: notifyVendorEmail,
             quotationNumber: quotation.quotationNumber,
             quotationAmount: Number(updatedQuotation.totalAmount),
             currencyCode: quotation.currencyCode,
@@ -694,18 +796,12 @@ export class VendorQuotationService {
 
       // If accepted, create PO (default) or invoice (if explicitly requested)
       if (action === "ACCEPT") {
-        // Find vendor in the system
-        const vendor = await prisma.vendor.findFirst({
-          where: { email: quotation.vendorEmail }
-        });
-
-        if (!vendor) {
+        if (!masterVendor) {
           throw new Error(
-            `Vendor with email ${quotation.vendorEmail} not found in system. ` +
-            `Please add this vendor before accepting the quotation, or the system admin should create the vendor account.`
+            "Vendor master record could not be resolved from vendorId or email; cannot create purchase order. Link the quotation to a vendor or fix the vendor email."
           );
         }
-
+        const vendor = masterVendor;
         // Get currency by code
         const currency = await prisma.currency.findFirst({
           where: { code: quotation.currencyCode }
@@ -891,9 +987,20 @@ export class VendorQuotationService {
 
         const pdfAttachment = await buildVendorQuotationPdfAttachment(updated, "REJECTED").catch(() => undefined);
 
+        let regVendor: { name: string; email: string; contactPerson: string | null } | null = null;
+        try {
+          regVendor = await VendorQuotationService.resolveVendorRowForQuotation(updated);
+        } catch {
+          regVendor = null;
+        }
+        const rejName = regVendor
+          ? regVendor.contactPerson?.trim() || regVendor.name
+          : updated.companyName || updated.vendorName;
+        const rejEmail = regVendor?.email?.trim() || updated.vendorEmail;
+
         await EmailNotificationService.sendQuotationRejectedEmail({
-          vendorName: updated.companyName || updated.vendorName,
-          vendorEmail: updated.vendorEmail,
+          vendorName: rejName,
+          vendorEmail: rejEmail,
           quotationNumber: updated.quotationNumber,
           quotationAmount: Number(updated.totalAmount),
           currencyCode: updated.currencyCode,
@@ -908,11 +1015,32 @@ export class VendorQuotationService {
   }
 
   /**
-   * Get quotations by RFQ number
+   * Get quotations by RFQ number, plus the procurement RFQ header (so callers still see line items
+   * from `itemsSnapshot` / PR when no vendor has submitted yet).
    */
   static async getQuotationsByRFQ(rfqNumber: string) {
     try {
-      const quotations = await prisma.vendorQuotation.findMany({
+      const rfq = await prisma.procurementRfq.findUnique({
+        where: { rfqNumber },
+        select: {
+          id: true,
+          rfqNumber: true,
+          requisitionId: true,
+          title: true,
+          description: true,
+          status: true,
+          visibility: true,
+          closingAt: true,
+          expectedDeliveryDate: true,
+          deliveryAddress: true,
+          specialRequirements: true,
+          itemsSnapshot: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      const quotationsRaw = await prisma.vendorQuotation.findMany({
         where: { rfqNumber },
         include: {
           items: true,
@@ -921,22 +1049,29 @@ export class VendorQuotationService {
               id: true,
               firstName: true,
               lastName: true,
-              email: true
-            }
+              email: true,
+            },
           },
           invoice: {
             select: {
               id: true,
               invoiceNumber: true,
-              status: true
-            }
-          }
+              status: true,
+            },
+          },
         },
-        orderBy: { submittedAt: 'desc' }
+        orderBy: { submittedAt: "desc" },
       });
 
+      const fallbackRfqId = rfq?.id ?? null;
+      const quotationsForRedaction = quotationsRaw.map((q: any) => ({
+        ...q,
+        procurementRfqId: q.procurementRfqId || fallbackRfqId,
+      }));
+
       const { maybeRedactQuotationsListForStaff } = await import("../utils/quotationRedaction");
-      return maybeRedactQuotationsListForStaff(quotations);
+      const quotations = await maybeRedactQuotationsListForStaff(quotationsForRedaction);
+      return { quotations, rfq };
     } catch (error: any) {
       console.error("Error fetching quotations by RFQ:", error);
       throw error;
