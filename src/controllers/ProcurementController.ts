@@ -7,6 +7,7 @@ import {
 } from "../services/PurchaseInvoiceService";
 import { prisma } from "../utils/database";
 import { parseDate } from "../utils/dateHelper";
+import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
 import { isAdminViewer } from "../services/performanceScorecardSupport";
 
 export class ProcurementController {
@@ -675,7 +676,8 @@ export class ProcurementController {
       }
 
       const {
-        requisitionId,
+        requisitionId: requisitionIdRaw,
+        purchaseRequisitionId,
         title,
         description,
         vendorIds,
@@ -690,6 +692,8 @@ export class ProcurementController {
         priceWeight,
         technicalWeight,
       } = req.body;
+
+      const requisitionId = requisitionIdRaw || purchaseRequisitionId;
 
       // Validation: title + vendors always; items optional when requisitionId (PR lines used)
       if (!title) {
@@ -706,7 +710,7 @@ export class ProcurementController {
         });
       }
 
-      const hasItems = Array.isArray(items) && items.length > 0;
+      const hasItems = hasUsableRfqItemLines(items);
       if (!hasItems && !requisitionId) {
         return res.status(400).json({
           success: false,

@@ -26,6 +26,7 @@ import {
 } from "../utils/newsletterEmailImages";
 import {
   escapeAttrForEmail,
+  escapeHtmlForEmail,
   wrapTransactionalNewsletterEmailDocument,
 } from "../utils/newsletterEmailLayout";
 import { buildVendorRfqResponsePageUrl } from "../utils/vendorRfqEmailLinks";
@@ -753,6 +754,14 @@ export class EmailNotificationService {
     quotationNumber: string;
     vendorName: string;
     vendorEmail: string;
+    companyName?: string | null;
+    contactPerson?: string | null;
+    taxEIN?: string | null;
+    phoneNumber?: string | null;
+    address?: string | null;
+    paymentTerms?: string | null;
+    deliveryTerms?: string | null;
+    deliveryTime?: string | null;
     totalAmount: number;
     currencyCode: string;
     items: Array<{
@@ -793,6 +802,14 @@ export class EmailNotificationService {
     recipientEmail: string;
     vendorName: string;
     vendorEmail: string;
+    companyName?: string | null;
+    contactPerson?: string | null;
+    taxEIN?: string | null;
+    phoneNumber?: string | null;
+    address?: string | null;
+    paymentTerms?: string | null;
+    deliveryTerms?: string | null;
+    deliveryTime?: string | null;
     rfqNumber: string;
     quotationNumber: string;
     totalAmount: number;
@@ -3999,6 +4016,11 @@ export class EmailNotificationService {
     expectedDeliveryDate?: Date;
     rfqDeadline?: Date;
     specialRequirements?: string;
+    /** From RFQ create payload (not stored on procurement_rfqs row). */
+    priority?: string;
+    visibility?: string;
+    requisitionNumber?: string;
+    requisitionTitle?: string;
     companyName?: string;
   }): Promise<void> {
     try {
@@ -4538,36 +4560,70 @@ export class EmailNotificationService {
     expectedDeliveryDate?: Date;
     rfqDeadline?: Date;
     specialRequirements?: string;
+    priority?: string;
+    visibility?: string;
+    requisitionNumber?: string;
+    requisitionTitle?: string;
     companyName?: string;
   }, branding: EmailBranding): string {
-    const formattedDate = data.rfqDate.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-    const expectedDelivery = data.expectedDeliveryDate
-      ? data.expectedDeliveryDate.toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })
-      : "To be discussed";
-    const deadline = data.rfqDeadline
-      ? data.rfqDeadline.toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })
-      : "As soon as possible";
+    const esc = (v: unknown) => escapeHtmlForEmail(String(v ?? ""));
+    const escBr = (v: unknown) => esc(v).replace(/\n/g, "<br>");
+    const notSpecified = '<span style="color:#64748b;">Not specified</span>';
+    const cellOrNotSpecified = (v: unknown) => {
+      const t = String(v ?? "").trim();
+      return t ? escBr(t) : notSpecified;
+    };
+
+    const fmtLongDate = (d: Date) =>
+      d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    const fmtLongDateTime = (d: Date) =>
+      d.toLocaleString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      });
+
+    const formattedDate = fmtLongDate(data.rfqDate);
+    const expectedDeliveryDisplay = data.expectedDeliveryDate
+      ? esc(fmtLongDate(data.expectedDeliveryDate))
+      : notSpecified;
+    const deadlineFull = data.rfqDeadline ? esc(fmtLongDateTime(data.rfqDeadline)) : notSpecified;
+    const deadlineShort = data.rfqDeadline ? esc(fmtLongDate(data.rfqDeadline)) : "As soon as possible";
+
+    const visibilityLabel =
+      data.visibility === "PUBLIC_LISTING"
+        ? "Public listing"
+        : data.visibility === "INVITED_ONLY"
+          ? "Invited vendors only"
+          : data.visibility
+            ? esc(data.visibility)
+            : notSpecified;
+
+    const prRefRow =
+      data.requisitionNumber || data.requisitionTitle
+        ? `<tr>
+                  <td>Purchase requisition</td>
+                  <td>${data.requisitionNumber ? esc(data.requisitionNumber) : notSpecified}${
+                    data.requisitionTitle
+                      ? ` <span style="color:#475569;">— ${esc(data.requisitionTitle)}</span>`
+                      : ""
+                  }</td>
+                </tr>`
+        : "";
 
     const quotationSubmitUrl =
       data.invitationToken?.trim().length > 0
         ? buildVendorRfqResponsePageUrl({
             invitationToken: data.invitationToken.trim(),
             rfqNumber: data.rfqNumber,
+            fallbackBaseUrl: branding.website,
           })
         : null;
     const quotationSubmitUrlAttr = quotationSubmitUrl ? escapeAttrForEmail(quotationSubmitUrl) : "";
+    const quotationSubmitUrlText = quotationSubmitUrl ? esc(quotationSubmitUrl) : "";
 
     const extraHeadInner = `<style>
           .rfq-info {
@@ -4669,39 +4725,64 @@ export class EmailNotificationService {
         </style>`;
 
     const bodyInner = `
-            <p>Dear ${data.vendorName},</p>
+            <p>Dear ${esc(data.vendorName)},</p>
             <p>We are seeking competitive quotes for the following items/services. Please review the details below and provide your best pricing.</p>
             <div class="rfq-info">
-              <h3 style="margin-top: 0;">📋 RFQ Information</h3>
+              <h3 style="margin-top: 0;">📋 RFQ summary</h3>
               <table>
                 <tr>
-                  <td>RFQ Number:</td>
-                  <td><strong>${data.rfqNumber}</strong></td>
+                  <td>RFQ number</td>
+                  <td><strong>${esc(data.rfqNumber)}</strong></td>
                 </tr>
                 <tr>
-                  <td>Date:</td>
-                  <td>${formattedDate}</td>
+                  <td>Issue date</td>
+                  <td>${esc(formattedDate)}</td>
                 </tr>
                 <tr>
-                  <td>Project/Title:</td>
-                  <td><strong>${data.title}</strong></td>
+                  <td>Title</td>
+                  <td><strong>${esc(data.title)}</strong></td>
+                </tr>
+                <tr>
+                  <td>Priority</td>
+                  <td>${data.priority ? esc(data.priority) : notSpecified}</td>
+                </tr>
+                <tr>
+                  <td>Visibility</td>
+                  <td>${visibilityLabel}</td>
+                </tr>
+                ${prRefRow}
+                <tr>
+                  <td>Quote submission deadline</td>
+                  <td><strong>${deadlineFull}</strong></td>
+                </tr>
+                <tr>
+                  <td>Expected delivery</td>
+                  <td>${expectedDeliveryDisplay}</td>
+                </tr>
+                <tr>
+                  <td>Delivery address</td>
+                  <td>${cellOrNotSpecified(data.deliveryAddress)}</td>
+                </tr>
+                <tr>
+                  <td>Special requirements</td>
+                  <td>${cellOrNotSpecified(data.specialRequirements)}</td>
                 </tr>
               </table>
             </div>
             ${data.description ? `
             <div>
               <h3>📝 Description</h3>
-              <p>${data.description}</p>
+              <p>${escBr(data.description)}</p>
             </div>
             ` : ""}
             <div class="deadline-box">
-              ⏰ <strong>Quote Submission Deadline:</strong> ${deadline}
+              ⏰ <strong>Quote submission deadline:</strong> ${deadlineFull}
             </div>
-            <h3>📦 Items/Services Required</h3>
+            <h3>📦 Items / services required</h3>
             <table class="items-table">
               <thead>
                 <tr>
-                  <th style="width: 40%;">Item/Service</th>
+                  <th style="width: 40%;">Item / service</th>
                   <th style="text-align: right;">Quantity</th>
                   <th style="text-align: right;">Unit</th>
                 </tr>
@@ -4712,43 +4793,33 @@ export class EmailNotificationService {
                     (item) => `
                   <tr>
                     <td>
-                      <strong>${item.itemName}</strong>
-                      ${item.description ? `<div class="item-description">${item.description}</div>` : ""}
-                      ${item.specifications ? `<div class="item-specs">Specs: ${JSON.stringify(item.specifications)}</div>` : ""}
+                      <strong>${esc(item.itemName)}</strong>
+                      ${item.description ? `<div class="item-description">${esc(String(item.description))}</div>` : ""}
+                      ${item.specifications != null ? `<div class="item-specs">Specs: ${esc(JSON.stringify(item.specifications))}</div>` : ""}
                     </td>
-                    <td style="text-align: right;">${item.quantity}</td>
-                    <td style="text-align: right;">${item.unit || "unit"}</td>
+                    <td style="text-align: right;">${esc(item.quantity)}</td>
+                    <td style="text-align: right;">${esc(item.unit || "unit")}</td>
                   </tr>
                 `
                   )
                   .join("")}
               </tbody>
             </table>
-            ${data.deliveryAddress ? `
-            <div style="margin: 20px 0;">
-              <h3>🚚 Delivery Information</h3>
-              <p><strong>Delivery Address:</strong><br>${data.deliveryAddress}</p>
-              <p><strong>Expected Delivery Date:</strong> ${expectedDelivery}</p>
-            </div>
-            ` : ""}
-            ${data.specialRequirements ? `
-            <div class="requirements">
-              <h3 style="margin-top: 0;">⚡ Special Requirements</h3>
-              <p>${data.specialRequirements}</p>
-            </div>
-            ` : ""}
             ${
               quotationSubmitUrl
                 ? `<div style="text-align:center;margin:28px 0 8px;">
               <a href="${quotationSubmitUrlAttr}" class="action-button">Submit your quotation online</a>
               <p style="font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#64748b;margin-top:14px;max-width:520px;margin-left:auto;margin-right:auto;">
-                Use this secure link for <strong>${data.rfqNumber}</strong>. If the button does not work, copy and paste the URL into your browser.
+                Use this secure link for <strong>${esc(data.rfqNumber)}</strong>. If the button does not work, copy and paste the URL into your browser.
+              </p>
+              <p style="font-family:ui-monospace,Consolas,monospace;font-size:11px;word-break:break-all;color:#475569;max-width:560px;margin:10px auto 0;text-align:left;">
+                ${quotationSubmitUrlText}
               </p>
             </div>`
                 : `<div class="highlight-box" style="border-left-color:#64748b;background-color:#f1f5f9;">
               <p style="margin:0;font-size:14px;line-height:1.5;">
-                <strong>Online submission link</strong> is not included because no public app base URL is configured.
-                Set <code>VENDOR_PORTAL_BASE_URL</code> or <code>FRONTEND_URL</code> (or <code>NEXT_PUBLIC_APP_URL</code> / <code>PUBLIC_APP_URL</code>) so vendors receive a one-click link. You can optionally override the path with <code>VENDOR_RFQ_RESPONSE_PATH</code> (default <code>/vendor-quotations/rfq-respond</code>).
+                <strong>Online submission link</strong> could not be built (no public app base URL found).
+                Set <code>VENDOR_PORTAL_BASE_URL</code> or <code>FRONTEND_URL</code>, include an <code>https://</code> origin in <code>CORS_ORIGINS</code>, or set <code>WEB_APP_URL</code> / <code>API_PUBLIC_BASE_URL</code> / company profile <strong>website</strong>. Path override: <code>VENDOR_RFQ_RESPONSE_PATH</code> (default <code>/vendor-quotations/rfq-respond</code>).
               </p>
             </div>`
             }
@@ -4760,7 +4831,7 @@ export class EmailNotificationService {
                   : "Please reply to this email (or contact our procurement team using the details in the footer) and include the following:"
               }</p>
               <ol>
-                <li><strong>RFQ reference:</strong> ${data.rfqNumber}</li>
+                <li><strong>RFQ reference:</strong> ${esc(data.rfqNumber)}</li>
                 <li><strong>Company name</strong> and <strong>tax / VAT number</strong></li>
                 <li><strong>Contact person</strong> and <strong>phone number</strong></li>
                 <li><strong>Unit price</strong> for each line item</li>
@@ -4774,7 +4845,7 @@ export class EmailNotificationService {
               </ol>
             </div>
             <div class="highlight-box">
-              <h3 style="margin-top: 0;">💡 Quote Format Example</h3>
+              <h3 style="margin-top: 0;">💡 Quote format example</h3>
               <p><strong>Item 1:</strong> Office Rent - $5,000 per month<br>
               <strong>Item 2:</strong> Cleaning Services - $500 per month<br>
               <strong>Subtotal:</strong> $5,500<br>
@@ -4782,9 +4853,9 @@ export class EmailNotificationService {
               <strong>Total:</strong> $6,352.50<br>
               <strong>Delivery:</strong> Immediate<br>
               <strong>Payment Terms:</strong> NET 30<br>
-              <strong>Quote Valid Until:</strong> ${deadline}</p>
+              <strong>Quote valid until:</strong> ${deadlineShort}</p>
             </div>
-            <p><strong>Important Notes:</strong></p>
+            <p><strong>Important notes:</strong></p>
             <ul>
               <li>All prices should be in <strong>USD</strong> or <strong>ZWL</strong> (please specify)</li>
               <li>Include any applicable taxes in your quote</li>
@@ -4807,6 +4878,41 @@ export class EmailNotificationService {
   }
 
   /**
+   * Vendor / supplier block for quotation submission emails (requester + desk).
+   */
+  private static buildQuotationSubmittedVendorDetailsHtml(data: {
+    companyName?: string | null;
+    contactPerson?: string | null;
+    vendorEmail?: string | null;
+    taxEIN?: string | null;
+    phoneNumber?: string | null;
+    address?: string | null;
+    paymentTerms?: string | null;
+    deliveryTerms?: string | null;
+    deliveryTime?: string | null;
+  }): string {
+    const row = (label: string, val?: string | null) => {
+      const t = val != null ? String(val).trim() : "";
+      if (!t) return "";
+      const content = escapeHtmlForEmail(t).replace(/\n/g, "<br>");
+      return `<tr><td style="width:38%;vertical-align:top;padding:6px 0;"><strong>${escapeHtmlForEmail(label)}</strong></td><td style="padding:6px 0;">${content}</td></tr>`;
+    };
+    const rows = [
+      row("Company / legal name", data.companyName),
+      row("Contact person", data.contactPerson),
+      row("Email", data.vendorEmail),
+      row("Tax / VAT number", data.taxEIN),
+      row("Phone", data.phoneNumber),
+      row("Address", data.address),
+      row("Payment terms (this quote)", data.paymentTerms),
+      row("Delivery terms", data.deliveryTerms),
+      row("Delivery time", data.deliveryTime),
+    ].join("");
+    if (!rows.trim()) return "";
+    return `<h3 style="margin-top:22px;">Vendor details</h3><table class="meta-table">${rows}</table>`;
+  }
+
+  /**
    * Generate notification template for new vendor quotation (sent to requester)
    */
   private static getQuotationSubmittedNotificationTemplate(data: {
@@ -4816,6 +4922,15 @@ export class EmailNotificationService {
     requisitionTitle?: string;
     quotationNumber: string;
     vendorName: string;
+    vendorEmail: string;
+    companyName?: string | null;
+    contactPerson?: string | null;
+    taxEIN?: string | null;
+    phoneNumber?: string | null;
+    address?: string | null;
+    paymentTerms?: string | null;
+    deliveryTerms?: string | null;
+    deliveryTime?: string | null;
     totalAmount: number;
     currencyCode: string;
     items: Array<{
@@ -4873,6 +4988,17 @@ export class EmailNotificationService {
               <td>${currencySymbol}${data.totalAmount.toFixed(2)}</td>
             </tr>
           </table>
+          ${EmailNotificationService.buildQuotationSubmittedVendorDetailsHtml({
+            companyName: data.companyName,
+            contactPerson: data.contactPerson,
+            vendorEmail: data.vendorEmail,
+            taxEIN: data.taxEIN,
+            phoneNumber: data.phoneNumber,
+            address: data.address,
+            paymentTerms: data.paymentTerms,
+            deliveryTerms: data.deliveryTerms,
+            deliveryTime: data.deliveryTime,
+          })}
           <h3>Items</h3>
           <table class="items-table">
             <thead>
@@ -4928,6 +5054,15 @@ export class EmailNotificationService {
       requisitionTitle?: string;
       quotationNumber: string;
       vendorName: string;
+      vendorEmail: string;
+      companyName?: string | null;
+      contactPerson?: string | null;
+      taxEIN?: string | null;
+      phoneNumber?: string | null;
+      address?: string | null;
+      paymentTerms?: string | null;
+      deliveryTerms?: string | null;
+      deliveryTime?: string | null;
       totalAmount: number;
       currencyCode: string;
       items: Array<{
@@ -4988,6 +5123,17 @@ export class EmailNotificationService {
                 <td>${currencySymbol}${data.totalAmount.toFixed(2)}</td>
               </tr>
             </table>
+            ${EmailNotificationService.buildQuotationSubmittedVendorDetailsHtml({
+              companyName: data.companyName,
+              contactPerson: data.contactPerson,
+              vendorEmail: data.vendorEmail,
+              taxEIN: data.taxEIN,
+              phoneNumber: data.phoneNumber,
+              address: data.address,
+              paymentTerms: data.paymentTerms,
+              deliveryTerms: data.deliveryTerms,
+              deliveryTime: data.deliveryTime,
+            })}
             <h3>Items</h3>
             <table class="items-table">
               <thead>

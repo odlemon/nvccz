@@ -2,15 +2,20 @@
 import { prisma } from "./database";
 
 /**
- * Suite 03: Staff must not see bid prices until RFQ closing time (service-layer redaction).
+ * Suite 03: Staff must not see bid prices until RFQ closing time for **public** tenders.
+ * `INVITED_ONLY` RFQs are not sealed for staff list/detail so procurement can review amounts
+ * before the deadline (vendors still only access their own submission via the portal token).
  */
 export async function staffShouldRedactQuotationPrices(procurementRfqId: string | null | undefined): Promise<boolean> {
   if (!procurementRfqId) return false;
   const rfq = await prisma.procurementRfq.findUnique({
     where: { id: procurementRfqId },
-    select: { closingAt: true },
+    select: { closingAt: true, visibility: true },
   });
   if (!rfq?.closingAt) return false;
+  if (String(rfq.visibility || "").toUpperCase() !== "PUBLIC_LISTING") {
+    return false;
+  }
   return new Date() < new Date(rfq.closingAt);
 }
 

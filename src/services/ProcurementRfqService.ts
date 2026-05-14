@@ -3,6 +3,7 @@ import { prisma } from "../utils/database";
 import { MultiCurrencyService } from "./MultiCurrencyService";
 import AuditService from "./AuditService";
 import { EmailNotificationService } from "./EmailNotificationService";
+import { normalizeRfqItemLinesFromBody, prItemsToNormalizedRfqLines } from "../utils/rfqItemInput";
 
 export class ProcurementRfqService {
   static async getById(id: string) {
@@ -284,7 +285,10 @@ export class ProcurementRfqService {
     const { procurementRfqId, newClosingAt, extendedById } = params;
     const rfq = await prisma.procurementRfq.findUnique({
       where: { id: procurementRfqId },
-      include: { invitations: { include: { vendor: true } } },
+      include: {
+        invitations: { include: { vendor: true } },
+        requisition: { include: { items: true } },
+      },
     });
     if (!rfq) throw new Error("RFQ not found");
 
@@ -300,7 +304,15 @@ export class ProcurementRfqService {
       VENDOR_PORTAL_KIND_RFQ_SUBMIT,
     } = await import("../utils/vendorPortalToken");
     const rfqExp = rfqPortalTokenExpiryUnixSeconds(newClosingAt);
-    const snap = (rfq.itemsSnapshot as any)?.items || [];
+    const snapSource = (rfq.itemsSnapshot as any)?.items;
+    let emailItems = normalizeRfqItemLinesFromBody(Array.isArray(snapSource) ? snapSource : []);
+    if (
+      emailItems.length === 0 &&
+      rfq.requisitionId &&
+      rfq.requisition?.items?.length
+    ) {
+      emailItems = prItemsToNormalizedRfqLines(rfq.requisition.items);
+    }
     for (const inv of rfq.invitations) {
       if (inv.vendor?.email) {
         const portalToken = signVendorPortalToken({
@@ -317,11 +329,14 @@ export class ProcurementRfqService {
           rfqDate: new Date(),
           title: rfq.title,
           description: `(Deadline extended) ${rfq.description || ""}`,
-          items: Array.isArray(snap) ? snap : [],
+          items: emailItems,
           deliveryAddress: rfq.deliveryAddress || undefined,
           expectedDeliveryDate: rfq.expectedDeliveryDate || undefined,
           rfqDeadline: newClosingAt,
           specialRequirements: rfq.specialRequirements || undefined,
+          visibility: rfq.visibility,
+          requisitionNumber: rfq.requisition?.requisitionNumber,
+          requisitionTitle: rfq.requisition?.title,
           companyName: "NVCCZ",
         });
       }
