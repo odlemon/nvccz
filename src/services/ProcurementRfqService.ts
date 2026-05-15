@@ -333,6 +333,80 @@ export class ProcurementRfqService {
     });
   }
 
+  /**
+   * Staff clarification: persisted with userId (vendorId stays null); emails all invited vendors.
+   */
+  static async postStaffClarification(params: {
+    procurementRfqId: string;
+    body: string;
+    attachmentUrl?: string;
+    userId: string;
+  }) {
+    const rfq = await prisma.procurementRfq.findUnique({
+      where: { id: params.procurementRfqId },
+      include: {
+        invitations: { include: { vendor: true } },
+        createdBy: { select: { firstName: true, lastName: true } },
+      },
+    });
+    if (!rfq) throw new Error("RFQ not found");
+
+    const staffUser = await prisma.user.findUnique({
+      where: { id: params.userId },
+      select: { firstName: true, lastName: true },
+    });
+    const postedByName = staffUser
+      ? `${staffUser.firstName || ""} ${staffUser.lastName || ""}`.trim()
+      : undefined;
+
+    const row = await ProcurementRfqService.addClarification({
+      procurementRfqId: params.procurementRfqId,
+      authorType: "STAFF",
+      body: params.body,
+      attachmentUrl: params.attachmentUrl,
+      userId: params.userId,
+    });
+
+    const {
+      signVendorPortalToken,
+      rfqPortalTokenExpiryUnixSeconds,
+      VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+    } = await import("../utils/vendorPortalToken");
+    const rfqExp = rfqPortalTokenExpiryUnixSeconds(rfq.closingAt);
+
+    let emailsSent = 0;
+    const emailFailures: string[] = [];
+
+    for (const inv of rfq.invitations) {
+      if (!inv.vendor?.email) continue;
+      try {
+        const portalToken = signVendorPortalToken({
+          k: VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+          v: inv.vendorId,
+          r: rfq.id,
+          exp: rfqExp,
+        });
+        await EmailNotificationService.sendRfqClarificationToVendor({
+          vendorName: inv.vendor.name,
+          vendorEmail: inv.vendor.email,
+          rfqNumber: rfq.rfqNumber,
+          rfqTitle: rfq.title,
+          clarificationText: params.body,
+          postedByName,
+          attachmentUrl: params.attachmentUrl,
+          invitationToken: portalToken,
+          rfqDeadline: rfq.closingAt || undefined,
+        });
+        emailsSent += 1;
+      } catch (e: any) {
+        emailFailures.push(`${inv.vendor.email}: ${e?.message || e}`);
+        console.error("RFQ clarification email failed", e);
+      }
+    }
+
+    return { clarification: row, emailsSent, emailFailures };
+  }
+
   static async listClarifications(procurementRfqId: string) {
     return prisma.rfqClarification.findMany({
       where: { procurementRfqId },

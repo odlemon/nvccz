@@ -679,6 +679,7 @@ router.patch("/rfqs/:id/closing", ProcurementController.patchRfqExtend);
  *     description: |
  *       **Required Role:** PROC_MGR, PROC_OFF, or BUYER.
  *       Clarification text is stored in one `body` field. Send **`body`**, or **`answer`**, or **`question`** + **`answer`** (formatted as Q/A).
+ *       Staff rows use **`userId`** (vendorId is null). Invited vendors are emailed (RFQ-style template + portal link).
  *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
  *     security:
  *       - bearerAuth: []

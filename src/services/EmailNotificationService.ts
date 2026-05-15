@@ -4044,6 +4044,105 @@ export class EmailNotificationService {
   }
 
   /**
+   * Notify an invited vendor of a staff-posted RFQ clarification (Q&A addendum).
+   */
+  static async sendRfqClarificationToVendor(data: {
+    vendorName: string;
+    vendorEmail: string;
+    rfqNumber: string;
+    rfqTitle: string;
+    clarificationText: string;
+    postedByName?: string;
+    attachmentUrl?: string;
+    invitationToken?: string;
+    rfqDeadline?: Date;
+  }): Promise<void> {
+    try {
+      const branding = await getEmailBrandingCached();
+      const esc = (v: unknown) => escapeHtmlForEmail(String(v ?? ""));
+      const escBr = (v: unknown) => esc(v).replace(/\n/g, "<br>");
+
+      const quotationSubmitUrl =
+        data.invitationToken?.trim().length > 0
+          ? buildVendorRfqResponsePageUrl({
+              invitationToken: data.invitationToken.trim(),
+              rfqNumber: data.rfqNumber,
+              fallbackBaseUrl: branding.website,
+            })
+          : null;
+      const quotationSubmitUrlAttr = quotationSubmitUrl ? escapeAttrForEmail(quotationSubmitUrl) : "";
+
+      const deadlineLine = data.rfqDeadline
+        ? esc(
+            data.rfqDeadline.toLocaleString("en-US", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+              timeZoneName: "short",
+            })
+          )
+        : null;
+
+      const attachmentBlock = data.attachmentUrl?.trim()
+        ? `<p><strong>Attachment:</strong> <a href="${escapeAttrForEmail(data.attachmentUrl.trim())}">${esc(data.attachmentUrl.trim())}</a></p>`
+        : "";
+
+      const submitCta = quotationSubmitUrl
+        ? `<p style="text-align:center;margin:24px 0;">
+              <a href="${quotationSubmitUrlAttr}" style="display:inline-block;background-color:#4CAF50;color:#ffffff;padding:12px 30px;text-decoration:none;border-radius:6px;font-weight:600;">View RFQ &amp; submit quotation</a>
+            </p>
+            <p style="font-size:13px;color:#64748b;word-break:break-all;">${esc(quotationSubmitUrl)}</p>`
+        : `<p style="font-size:14px;color:#64748b;">Use the quotation link from your original RFQ invitation email to view this clarification and submit your quote.</p>`;
+
+      const postedByBlock = data.postedByName
+        ? `<p style="color:#475569;font-size:14px;">Posted by: <strong>${esc(data.postedByName)}</strong></p>`
+        : "";
+      const deadlineBlock = deadlineLine
+        ? `<p style="font-size:14px;"><strong>Quote deadline:</strong> ${deadlineLine}</p>`
+        : "";
+
+      const bodyInnerHtml = `
+            <p>Dear ${esc(data.vendorName)},</p>
+            <p>Procurement has published a <strong>clarification</strong> for RFQ <strong>${esc(data.rfqNumber)}</strong> (${esc(data.rfqTitle)}). Please review it before submitting or updating your quotation.</p>
+            ${postedByBlock}
+            ${deadlineBlock}
+            <div style="background-color:#f8f9fa;padding:20px;border-radius:8px;margin:20px 0;border-left:4px solid #2196F3;">
+              <h3 style="margin-top:0;">Clarification</h3>
+              <div style="font-size:15px;line-height:1.6;">${escBr(data.clarificationText)}</div>
+            </div>
+            ${attachmentBlock}
+            ${submitCta}
+            <p>If you have questions, reply to this email or contact our procurement team.</p>`;
+
+      const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+        branding,
+        pageTitle: `RFQ clarification ${data.rfqNumber}`,
+        preheader: `Clarification for ${data.rfqNumber}`,
+        emailHeading: `RFQ clarification — ${data.rfqNumber}`,
+        headerTagline: "Procurement",
+        bodyInnerHtml,
+        teamLabel: "Procurement Team",
+      });
+
+      const subject = `RFQ clarification ${data.rfqNumber} — ${branding.companyName}`;
+      const from = getFromAddress("procurement");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.vendorName}" <${data.vendorEmail}>`,
+        subject,
+        html: htmlContent,
+      });
+
+      console.log(`✅ RFQ clarification ${data.rfqNumber} sent to ${data.vendorEmail}`);
+    } catch (error) {
+      console.error("❌ Error sending RFQ clarification email:", error);
+      throw error;
+    }
+  }
+
+  /**
    * High-priority alert when vendor IBAN or account number changes (fraud-prevention UAT).
    */
   static async sendVendorBankCriticalChangeAlert(data: {
