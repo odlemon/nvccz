@@ -2351,7 +2351,20 @@ export class ProcurementService {
   /**
    * Send/Approve Purchase Order and email to vendor
    */
-  static async sendPurchaseOrder(poId: string, sentById: string) {
+  static async sendPurchaseOrder(
+    poId: string,
+    sentById: string,
+    options?: {
+      /** When set, email states the linked quotation was accepted (single combined vendor email). */
+      quotationAcceptContext?: {
+        quotationNumber: string;
+        quotationAmount: number;
+        currencyCode: string;
+        reviewNotes?: string;
+        rfqNumber?: string;
+      };
+    }
+  ) {
     try {
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📧 SENDING PURCHASE ORDER TO VENDOR");
@@ -2456,6 +2469,7 @@ export class ProcurementService {
           itemName: item.itemName,
           description: item.description || "",
           quantity: Number(item.quantity),
+          unit: item.unit || undefined,
           unitPrice: Number(item.unitPrice),
           total: Number(item.totalPrice),
         })),
@@ -2465,6 +2479,8 @@ export class ProcurementService {
         notes: undefined,
         pdfAttachment,
         vendorInvoiceSubmitUrlEscaped,
+        vendorInvoicePortalToken: invoicePortalToken,
+        quotationAcceptContext: options?.quotationAcceptContext,
       });
 
       console.log("   ✅ Email sent successfully");

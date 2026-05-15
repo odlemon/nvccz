@@ -751,30 +751,19 @@ export class VendorQuotationService {
         : quotation.companyName || quotation.vendorName;
       const notifyVendorEmail = masterVendor?.email?.trim() || quotation.vendorEmail;
 
-      // Send email notification to vendor (best-effort: failures here must not roll back the review)
-      try {
-        const pdfAttachment = await buildVendorQuotationPdfAttachment(updatedQuotation, action === "ACCEPT" ? "ACCEPTED" : "REJECTED").catch((e: any) => {
-          console.warn("⚠️  Failed to render quotation PDF (continuing without attachment):", e?.message || e);
-          return undefined;
-        });
+      if (action === "ACCEPT" && quotation.rfqNumber) {
+        await this.rejectOtherQuotations(quotation.rfqNumber, quotation, reviewedById);
+      }
 
-        if (action === "ACCEPT") {
-          await EmailNotificationService.sendQuotationAcceptedEmail({
-            vendorName: notifyVendorName,
-            vendorEmail: notifyVendorEmail,
-            quotationNumber: quotation.quotationNumber,
-            quotationAmount: Number(updatedQuotation.totalAmount),
-            currencyCode: quotation.currencyCode,
-            rfqNumber: quotation.rfqNumber,
-            reviewNotes,
-            pdfAttachment,
-          });
-          console.log("✅ Acceptance email sent to vendor");
-
-          if (quotation.rfqNumber) {
-            await this.rejectOtherQuotations(quotation.rfqNumber, quotation, reviewedById);
-          }
-        } else {
+      // Rejection email only here; acceptance with PO uses one combined PO email (no quotation PDF).
+      if (action === "REJECT") {
+        try {
+          const pdfAttachment = await buildVendorQuotationPdfAttachment(updatedQuotation, "REJECTED").catch(
+            (e: any) => {
+              console.warn("⚠️  Failed to render quotation PDF (continuing without attachment):", e?.message || e);
+              return undefined;
+            }
+          );
           await EmailNotificationService.sendQuotationRejectedEmail({
             vendorName: notifyVendorName,
             vendorEmail: notifyVendorEmail,
@@ -785,10 +774,9 @@ export class VendorQuotationService {
             pdfAttachment,
           });
           console.log("✅ Rejection email sent to vendor");
+        } catch (emailError: any) {
+          console.error("⚠️  Failed to send rejection email:", emailError.message);
         }
-      } catch (emailError: any) {
-        console.error("⚠️  Failed to send email notification:", emailError.message);
-        // Don't fail the entire operation if email fails
       }
 
       let purchaseOrder = null;
@@ -875,12 +863,32 @@ export class VendorQuotationService {
           console.log(`   PO ID: ${purchaseOrder.id}`);
           console.log(`   Lines: ${poItems.length} (from quotation)`);
 
-          console.log("\n📧 Sending Purchase Order to vendor...");
-          purchaseOrder = await ProcurementService.sendPurchaseOrder(
-            purchaseOrder.id,
-            reviewedById
-          );
+          console.log("\n📧 Sending combined acceptance + PO email to vendor...");
+          purchaseOrder = await ProcurementService.sendPurchaseOrder(purchaseOrder.id, reviewedById, {
+            quotationAcceptContext: {
+              quotationNumber: quotation.quotationNumber,
+              quotationAmount: Number(updatedQuotation.totalAmount),
+              currencyCode: quotation.currencyCode,
+              reviewNotes,
+              rfqNumber: quotation.rfqNumber || undefined,
+            },
+          });
           console.log(`   ✅ PO emailed to vendor (status: ${purchaseOrder.status})`);
+        } else if (action === "ACCEPT") {
+          try {
+            await EmailNotificationService.sendQuotationAcceptedEmail({
+              vendorName: notifyVendorName,
+              vendorEmail: notifyVendorEmail,
+              quotationNumber: quotation.quotationNumber,
+              quotationAmount: Number(updatedQuotation.totalAmount),
+              currencyCode: quotation.currencyCode,
+              rfqNumber: quotation.rfqNumber,
+              reviewNotes,
+            });
+            console.log("✅ Acceptance email sent (no PO created)");
+          } catch (emailError: any) {
+            console.error("⚠️  Failed to send acceptance email:", emailError.message);
+          }
         }
 
         // Create Invoice (optional - usually created after GRN)

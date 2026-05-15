@@ -30,6 +30,7 @@ import {
   wrapTransactionalNewsletterEmailDocument,
 } from "../utils/newsletterEmailLayout";
 import { buildVendorRfqResponsePageUrl } from "../utils/vendorRfqEmailLinks";
+import { buildVendorPoInvoiceResponsePageUrl } from "../utils/vendorPoInvoiceEmailLinks";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -4590,6 +4591,7 @@ export class EmailNotificationService {
       itemName: string;
       description?: string;
       quantity: number;
+      unit?: string;
       unitPrice: number;
       total: number;
     }>;
@@ -4605,6 +4607,16 @@ export class EmailNotificationService {
     pdfAttachment: { filename: string; content: Buffer };
     /** Escaped `href` for vendor invoice submission (signed portal token in query). */
     vendorInvoiceSubmitUrlEscaped?: string;
+    /** Raw portal token (for plain-text URL in email body). */
+    vendorInvoicePortalToken?: string;
+    /** Present when PO is issued immediately after quotation acceptance. */
+    quotationAcceptContext?: {
+      quotationNumber: string;
+      quotationAmount: number;
+      currencyCode: string;
+      reviewNotes?: string;
+      rfqNumber?: string;
+    };
   }): Promise<void> {
     try {
       if (!data.pdfAttachment?.content || !Buffer.isBuffer(data.pdfAttachment.content) || data.pdfAttachment.content.length === 0) {
@@ -4612,7 +4624,10 @@ export class EmailNotificationService {
       }
 
       const branding = await getEmailBrandingCached();
-      const subject = `Purchase Order ${data.poNumber} - ${branding.companyName}`;
+      const accepted = data.quotationAcceptContext;
+      const subject = accepted
+        ? `Quotation accepted — Purchase Order ${data.poNumber} — ${branding.companyName}`
+        : `Purchase Order ${data.poNumber} - ${branding.companyName}`;
       const htmlContent = this.getPurchaseOrderTemplate(data, branding);
       
       const from = getFromAddress('procurement');
@@ -5296,6 +5311,7 @@ export class EmailNotificationService {
       itemName: string;
       description?: string;
       quantity: number;
+      unit?: string;
       unitPrice: number;
       total: number;
     }>;
@@ -5307,7 +5323,18 @@ export class EmailNotificationService {
     vendorAckUrl?: string;
     verificationUrl?: string;
     vendorInvoiceSubmitUrlEscaped?: string;
+    vendorInvoicePortalToken?: string;
+    quotationAcceptContext?: {
+      quotationNumber: string;
+      quotationAmount: number;
+      currencyCode: string;
+      reviewNotes?: string;
+      rfqNumber?: string;
+    };
   }, branding: EmailBranding): string {
+    const esc = (v: unknown) => escapeHtmlForEmail(String(v ?? ""));
+    const escBr = (v: unknown) => esc(v).replace(/\n/g, "<br>");
+    const accepted = data.quotationAcceptContext;
     const currencySymbol = data.currency === 'USD' ? '$' : data.currency === 'ZWL' ? 'ZWL' : data.currency;
     const formattedDate = data.poDate.toLocaleDateString('en-US', { 
       year: 'numeric', 
@@ -5393,30 +5420,74 @@ export class EmailNotificationService {
             margin: 15px 0;
             font-weight: 600;
           }
+          .accept-box {
+            background-color: #f0fdf4;
+            border-left: 4px solid #10b981;
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          }
+          .instruction-list {
+            background-color: #f8fafc;
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #1e3a8a;
+          }
+          .highlight-box {
+            background-color: #fffbeb;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #f59e0b;
+          }
         </style>`;
 
+    const invoiceSubmitUrl =
+      data.vendorInvoicePortalToken?.trim().length > 0
+        ? buildVendorPoInvoiceResponsePageUrl(data.vendorInvoicePortalToken.trim())
+        : null;
+    const invoiceSubmitUrlAttr = invoiceSubmitUrl ? escapeAttrForEmail(invoiceSubmitUrl) : "";
+    const invoiceSubmitUrlText = invoiceSubmitUrl ? esc(invoiceSubmitUrl) : "";
+
+    const introHtml = accepted
+      ? `<p>Dear ${esc(data.vendorName)},</p>
+            <p>We are pleased to inform you that your quotation <strong>${esc(accepted.quotationNumber)}</strong> has been <strong>accepted</strong>.</p>
+            <div class="accept-box">
+              <p style="margin:0 0 8px;"><strong>Accepted quotation:</strong> ${esc(accepted.quotationNumber)}</p>
+              ${accepted.rfqNumber ? `<p style="margin:0 0 8px;"><strong>RFQ reference:</strong> ${esc(accepted.rfqNumber)}</p>` : ""}
+              <p style="margin:0;"><strong>Quoted total:</strong> ${esc(accepted.currencyCode)} ${accepted.quotationAmount.toFixed(2)}</p>
+            </div>
+            ${accepted.reviewNotes ? `
+            <div class="notes">
+              <h3 style="margin-top: 0;">Review notes</h3>
+              <p>${escBr(accepted.reviewNotes)}</p>
+            </div>` : ""}
+            <p>A formal <strong>purchase order (${esc(data.poNumber)})</strong> is attached as a PDF and summarised below. Please deliver against this PO and submit your tax invoice using the secure link in this email.</p>`
+      : `<p>Dear ${esc(data.vendorName)},</p>
+            <p>Please find below our purchase order for your review and processing. A PDF copy is attached to this email.</p>`;
+
     const bodyInner = `
-            <p>Dear ${data.vendorName},</p>
-            <p>Please find below our purchase order for your review and processing.</p>
+            ${introHtml}
             <div class="po-info">
               <h3 style="margin-top: 0;">📋 Order Information</h3>
               <table>
                 <tr>
                   <td>PO Number:</td>
-                  <td><strong>${data.poNumber}</strong></td>
+                  <td><strong>${esc(data.poNumber)}</strong></td>
                 </tr>
                 <tr>
                   <td>Date:</td>
-                  <td>${formattedDate}</td>
+                  <td>${esc(formattedDate)}</td>
                 </tr>
                 <tr>
                   <td>Vendor:</td>
-                  <td>${data.vendorName}</td>
+                  <td>${esc(data.vendorName)}</td>
                 </tr>
                 ${data.paymentTerms ? `
                 <tr>
                   <td>Payment Terms:</td>
-                  <td>${data.paymentTerms}</td>
+                  <td>${esc(data.paymentTerms)}</td>
                 </tr>
                 ` : ""}
               </table>
@@ -5424,7 +5495,7 @@ export class EmailNotificationService {
             ${data.deliveryAddress ? `
             <div class="delivery-info">
               <h3 style="margin-top: 0;">🚚 Delivery Information</h3>
-              <p><strong>Delivery Address:</strong><br>${data.deliveryAddress}</p>
+              <p><strong>Delivery Address:</strong><br>${escBr(data.deliveryAddress)}</p>
               <p><strong>Expected Delivery Date:</strong> ${expectedDelivery}</p>
             </div>
             ` : ""}
@@ -5466,31 +5537,91 @@ export class EmailNotificationService {
               <p>${data.notes}</p>
             </div>
             ` : ""}
+            <h3>Expected line items on your tax invoice</h3>
+            <p>Your invoice must match this purchase order — same items, quantities, and unit prices unless we agreed otherwise in writing.</p>
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th style="width: 36%;">Item</th>
+                  <th style="text-align: right;">Qty</th>
+                  <th style="text-align: right;">Unit</th>
+                  <th style="text-align: right;">Unit price</th>
+                  <th style="text-align: right;">Line total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.items
+                  .map(
+                    (item) => `
+                  <tr>
+                    <td>
+                      <strong>${esc(item.itemName)}</strong>
+                      ${item.description ? `<div class="item-description">${esc(String(item.description))}</div>` : ""}
+                    </td>
+                    <td style="text-align: right;">${esc(item.quantity)}</td>
+                    <td style="text-align: right;">${esc(item.unit || "unit")}</td>
+                    <td style="text-align: right;">${currencySymbol}${item.unitPrice.toFixed(2)}</td>
+                    <td style="text-align: right;">${currencySymbol}${item.total.toFixed(2)}</td>
+                  </tr>
+                `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
             ${
-              data.vendorInvoiceSubmitUrlEscaped
-                ? `<div style="text-align:center;margin:24px 0;">
-              <a href="${data.vendorInvoiceSubmitUrlEscaped}" class="action-button">Submit your invoice online</a>
-              <p style="font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#64748b;margin-top:12px;max-width:520px;margin-left:auto;margin-right:auto;">
-                Use this secure link for PO <strong>${data.poNumber}</strong>. The link identifies your company; use the same token in the request body when you submit the invoice through our API.
+              invoiceSubmitUrl
+                ? `<div style="text-align:center;margin:28px 0 8px;">
+              <a href="${invoiceSubmitUrlAttr || data.vendorInvoiceSubmitUrlEscaped}" class="action-button">Submit your invoice online</a>
+              <p style="font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#64748b;margin-top:14px;max-width:520px;margin-left:auto;margin-right:auto;">
+                Secure link for PO <strong>${esc(data.poNumber)}</strong>. The URL includes a signed token for your company and this order.
+              </p>
+              <p style="font-family:ui-monospace,Consolas,monospace;font-size:11px;word-break:break-all;color:#475569;max-width:560px;margin:10px auto 0;text-align:left;">
+                ${invoiceSubmitUrlText}
               </p>
             </div>`
-                : ""
+                : data.vendorInvoiceSubmitUrlEscaped
+                  ? `<div style="text-align:center;margin:24px 0;">
+              <a href="${data.vendorInvoiceSubmitUrlEscaped}" class="action-button">Submit your invoice online</a>
+            </div>`
+                  : `<div class="highlight-box" style="border-left-color:#64748b;background-color:#f1f5f9;">
+              <p style="margin:0;font-size:14px;line-height:1.5;">
+                <strong>Online invoice link</strong> could not be built. Set <code>VENDOR_PORTAL_BASE_URL</code> or <code>FRONTEND_URL</code>. Path: <code>VENDOR_PO_INVOICE_RESPONSE_PATH</code> (default <code>/procurement/vendor-invoice</code>).
+              </p>
+            </div>`
             }
-            <p>Please confirm receipt of this purchase order in writing (reply to this email or your usual channel) and provide your acceptance and estimated delivery timeline.</p>
-            <p><strong>Next steps:</strong></p>
-            <ul>
-              <li>Review the order details carefully</li>
-              <li>Confirm your acceptance of the order</li>
-              <li>Provide delivery timeline confirmation</li>
-              <li>Send your invoice as per the agreed terms</li>
-            </ul>
-            <p>If you have any questions or need clarification on any items, please don't hesitate to contact our procurement team.</p>`;
+            <div class="instruction-list">
+              <h3 style="margin-top:0;">How to submit your invoice</h3>
+              <p>${
+                invoiceSubmitUrl || data.vendorInvoiceSubmitUrlEscaped
+                  ? "Use the button above, or reply to this email and include:"
+                  : "Reply to this email or contact procurement and include:"
+              }</p>
+              <ol>
+                <li><strong>PO reference:</strong> ${esc(data.poNumber)}</li>
+                ${accepted ? `<li><strong>Quotation reference:</strong> ${esc(accepted.quotationNumber)}</li>` : ""}
+                <li><strong>Company name</strong> and <strong>tax / VAT number</strong></li>
+                <li><strong>Invoice number</strong> and <strong>invoice date</strong></li>
+                <li>Line items matching the table above</li>
+                <li><strong>Subtotal</strong>, <strong>VAT / tax</strong>, and <strong>total</strong> in <strong>${esc(data.currency)}</strong></li>
+                <li>PDF or scan of your signed tax invoice (if uploading online)</li>
+              </ol>
+            </div>
+            <p>Please confirm receipt of this purchase order and your estimated delivery timeline.</p>`;
+
+    const pageTitle = accepted
+      ? `Quotation accepted — PO ${data.poNumber} — ${branding.companyName}`
+      : `Purchase Order ${data.poNumber} — ${branding.companyName}`;
+    const emailHeading = accepted
+      ? `Quotation accepted — purchase order issued`
+      : `Purchase Order ${data.poNumber}`;
 
     return EmailNotificationService.composeNewsletterTransactionalHtml({
       branding,
-      pageTitle: `Purchase Order ${data.poNumber} — ${branding.companyName}`,
-      preheader: `PO ${data.poNumber} — ${branding.companyName}`,
-      emailHeading: `Purchase Order ${data.poNumber}`,
+      pageTitle,
+      preheader: accepted
+        ? `${accepted.quotationNumber} accepted — PO ${data.poNumber}`
+        : `PO ${data.poNumber} — ${branding.companyName}`,
+      emailHeading,
       headerTagline: "Procurement",
       bodyInnerHtml: bodyInner,
       teamLabel: "Procurement Team",
