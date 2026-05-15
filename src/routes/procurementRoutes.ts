@@ -623,9 +623,108 @@ router.post("/rfq", ProcurementController.createAndSendRFQ);
  */
 router.get("/rfq", ProcurementController.getAllRFQs);
 
+/**
+ * @swagger
+ * /procurement/rfqs/{id}/comparison-matrix:
+ *   get:
+ *     summary: RFQ comparison matrix
+ *     description: |
+ *       **Required Role:** PROC_MGR, PROC_OFF, or BUYER.
+ *       Compare all vendor quotations for a procurement RFQ (`procurement_rfqs.id`).
+ *       Returns full quotation detail, FX-normalized totals, weighted scores, and UI-friendly highlights (vendor names and amounts).
+ *       Not gated on RFQ closing time.
+ *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Procurement RFQ id
+ *     responses:
+ *       200:
+ *         description: Comparison matrix retrieved successfully
+ *       400:
+ *         description: RFQ not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get("/rfqs/:id/comparison-matrix", ProcurementController.getRfqComparisonMatrix);
+
+/**
+ * @swagger
+ * /procurement/rfqs/{id}/award:
+ *   post:
+ *     summary: "[Deprecated] Award RFQ"
+ *     description: |
+ *       **410 Gone** — use `POST /api/vendor-quotations/{id}/accept` for the winning quotation
+ *       and `POST /api/vendor-quotations/{id}/reject` for others.
+ *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
+ *     deprecated: true
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       410:
+ *         description: Use vendor-quotations accept/reject instead
+ */
 router.post("/rfqs/:id/award", ProcurementController.awardRfq);
 router.patch("/rfqs/:id/closing", ProcurementController.patchRfqExtend);
+/**
+ * @swagger
+ * /procurement/rfqs/{id}/clarifications:
+ *   post:
+ *     summary: Post RFQ clarification (staff)
+ *     description: |
+ *       **Required Role:** PROC_MGR, PROC_OFF, or BUYER.
+ *       Clarification text is stored in one `body` field. Send **`body`**, or **`answer`**, or **`question`** + **`answer`** (formatted as Q/A).
+ *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               body:
+ *                 type: string
+ *               question:
+ *                 type: string
+ *               answer:
+ *                 type: string
+ *               attachmentUrl:
+ *                 type: string
+ *           example:
+ *             answer: "Yes, delivery to multiple sites is allowed."
+ *     responses:
+ *       201:
+ *         description: Clarification created
+ *       400:
+ *         description: Missing clarification text
+ *   get:
+ *     summary: List RFQ clarifications
+ *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Clarifications list
+ */
 router.post("/rfqs/:id/clarifications", ProcurementController.postRfqClarification);
 router.get("/rfqs/:id/clarifications", ProcurementController.getRfqClarifications);
 

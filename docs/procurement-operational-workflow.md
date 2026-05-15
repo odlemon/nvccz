@@ -224,3 +224,24 @@ Exact route-level **JWT** requirements are in **Swagger** (`/api-docs`) per tag.
 | [procurement-uat-suite-06.md](./procurement-uat-suite-06.md) | AI intake, 3-way match, CFO dashboard, env vars. |
 
 When **testing internal** procurement, start from **`POST /api/procurement/requisitions`** → submit → approve, then **03 → 04 → 05 → 06** in order. When **testing investee** flow, start from Suite 02 in **procurement-uat.md**, then join the same RFQ/PO/GRN endpoints as staff.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

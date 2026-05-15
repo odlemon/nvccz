@@ -111,8 +111,7 @@ export class VendorQuotationController {
   }
 
   /**
-   * Accept a vendor quotation (AUTHENTICATED)
-   * This will automatically create an invoice from the quotation
+   * Accept a vendor quotation (AUTHENTICATED) — creates PO by default
    */
   static async acceptQuotation(req: Request, res: Response, next: NextFunction) {
     try {
@@ -123,7 +122,7 @@ export class VendorQuotationController {
       if (!userId) {
         return res.status(401).json({
           success: false,
-          message: "User not authenticated"
+          message: "User not authenticated",
         });
       }
 
@@ -131,12 +130,15 @@ export class VendorQuotationController {
         quotationId: id,
         action: "ACCEPT",
         reviewedById: userId,
-        reviewNotes
+        reviewNotes,
       });
 
       let message = "Quotation accepted successfully. Vendor has been notified.";
       if (result.purchaseOrder) {
-        message = `Quotation accepted and Purchase Order created successfully (${result.purchaseOrder.poNumber}). Vendor has been notified. Next: Send PO to vendor.`;
+        const sent = result.purchaseOrder.status === "SENT";
+        message = sent
+          ? `Quotation accepted. Purchase order ${result.purchaseOrder.poNumber} created and emailed to the vendor.`
+          : `Quotation accepted and purchase order ${result.purchaseOrder.poNumber} created.`;
       } else if (result.invoice) {
         message = "Quotation accepted and invoice created successfully. Vendor has been notified.";
       }

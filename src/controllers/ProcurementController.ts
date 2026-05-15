@@ -1852,32 +1852,20 @@ export class ProcurementController {
   static async getRfqComparisonMatrix(req: Request, res: Response) {
     try {
       const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const { serializeDecimalsDeep } = await import("../utils/prismaDecimalJson");
       const data = await ProcurementRfqService.getComparisonMatrix(req.params.id);
-      res.json({ success: true, data });
+      res.json({ success: true, data: serializeDecimalsDeep(data) });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }
   }
 
-  static async awardRfq(req: Request, res: Response) {
-    try {
-      const userId = req.user?.id;
-      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
-      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
-      const { winningQuotationId, awardRationale } = req.body;
-      if (!winningQuotationId || !awardRationale) {
-        return res.status(400).json({ success: false, message: "winningQuotationId and awardRationale required" });
-      }
-      const data = await ProcurementRfqService.awardRfq({
-        procurementRfqId: req.params.id,
-        winningQuotationId,
-        awardRationale,
-        awardedById: userId,
-      });
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message });
-    }
+  static async awardRfq(_req: Request, res: Response) {
+    return res.status(410).json({
+      success: false,
+      message:
+        "Deprecated. Use POST /api/vendor-quotations/:quotationId/accept for the winning bid (creates PO) and POST /api/vendor-quotations/:id/reject for other bids.",
+    });
   }
 
   static async patchRfqExtend(req: Request, res: Response) {
@@ -1903,12 +1891,21 @@ export class ProcurementController {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
       const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
-      const { body, attachmentUrl } = req.body;
-      if (!body) return res.status(400).json({ success: false, message: "body required" });
+      const payload = req.body && typeof req.body === "object" ? req.body : {};
+      const clarificationBody = ProcurementController.resolveRfqClarificationBody(payload);
+      if (!clarificationBody) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Clarification text required: send `body`, or `answer`, or both `question` and `answer`.",
+        });
+      }
+      const attachmentUrl =
+        typeof payload.attachmentUrl === "string" ? payload.attachmentUrl.trim() || undefined : undefined;
       const row = await ProcurementRfqService.addClarification({
         procurementRfqId: req.params.id,
         authorType: "STAFF",
-        body,
+        body: clarificationBody,
         attachmentUrl,
         userId,
       });
@@ -1916,6 +1913,24 @@ export class ProcurementController {
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }
+  }
+
+  /** Maps API payloads to the single `body` column on rfq_clarifications. */
+  private static resolveRfqClarificationBody(payload: Record<string, unknown>): string | null {
+    const trim = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const directBody = trim(payload.body);
+    if (directBody) return directBody;
+
+    const answer = trim(payload.answer);
+    const question = trim(payload.question);
+    if (question && answer) return `Q: ${question}\n\nA: ${answer}`;
+    if (answer) return answer;
+    if (question) return question;
+
+    const text = trim(payload.text);
+    if (text) return text;
+
+    return null;
   }
 
   static async getRfqClarifications(req: Request, res: Response) {
