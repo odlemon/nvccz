@@ -10,6 +10,11 @@ import {
   verifyVendorPortalToken,
   VENDOR_PORTAL_KIND_RFQ_SUBMIT,
 } from "../utils/vendorPortalToken";
+import {
+  buildPoLinesFromRfqAndQuotation,
+  normalizeRfqItemLinesFromBody,
+  prItemsToNormalizedRfqLines,
+} from "../utils/rfqItemInput";
 
 /**
  * Render a vendor quotation PDF (with letterhead + ACCEPTED/REJECTED watermark) for email attachment.
@@ -129,9 +134,9 @@ export interface ReviewQuotationParams {
 export class VendorQuotationService {
   /**
    * Prefer `vendorId` on the quotation; fall back to email match (legacy rows).
-   * Used so accept/reject emails and PO creation use master vendor data.
+   * Used for RFQ award PO creation and reject emails.
    */
-  private static async resolveVendorRowForQuotation(quotation: {
+  static async resolveVendorForQuotation(quotation: {
     vendorId: string | null;
     vendorEmail: string;
   }) {
@@ -638,8 +643,8 @@ export class VendorQuotationService {
         reviewedById,
         reviewNotes,
         rejectionReason,
-        createPO = true, // Default to true - auto-create PO on acceptance
-        createInvoice = false // Default to false - invoice created after GRN
+        createPO = true,
+        createInvoice = false,
       } = params;
 
       console.log("\n════════════════════════════════════════════════════════════════");
@@ -738,7 +743,7 @@ export class VendorQuotationService {
         contactPerson: string | null;
       } | null = null;
       try {
-        masterVendor = await VendorQuotationService.resolveVendorRowForQuotation(quotation);
+        masterVendor = await VendorQuotationService.resolveVendorForQuotation(quotation);
       } catch (e: any) {
         console.warn(
           "⚠️  Could not resolve vendor master for this quotation (emails will use stored quotation fields):",
@@ -807,50 +812,85 @@ export class VendorQuotationService {
           where: { code: quotation.currencyCode }
         });
 
-        // Create Purchase Order (default behavior)
+        // Create Purchase Order (default behavior) — RFQ lines + quotation prices, then email vendor
         if (createPO) {
-          console.log("\n📦 Creating Purchase Order from quotation...");
-          
-          const { ProcurementService } = await import('./ProcurementService');
-          
+          console.log("\n📦 Creating Purchase Order from accepted quotation (RFQ lines + quote prices)...");
+
+          let rfqRow: {
+            id: string;
+            requisitionId: string | null;
+            deliveryAddress: string | null;
+            expectedDeliveryDate: Date | null;
+            itemsSnapshot: unknown;
+            requisition?: { items: Array<{
+              itemName: string;
+              description?: string | null;
+              quantity: unknown;
+              unit?: string | null;
+              specifications?: unknown;
+              unitPrice?: unknown;
+              totalPrice?: unknown;
+            }> } | null;
+          } | null = null;
+
+          if (quotation.procurementRfqId) {
+            rfqRow = await prisma.procurementRfq.findUnique({
+              where: { id: quotation.procurementRfqId },
+              include: { requisition: { include: { items: true } } },
+            });
+          } else if (quotation.rfqNumber) {
+            rfqRow = await prisma.procurementRfq.findUnique({
+              where: { rfqNumber: quotation.rfqNumber },
+              include: { requisition: { include: { items: true } } },
+            });
+          }
+
+          let rfqLines = normalizeRfqItemLinesFromBody(
+            Array.isArray((rfqRow?.itemsSnapshot as { items?: unknown })?.items)
+              ? (rfqRow!.itemsSnapshot as { items: unknown[] }).items
+              : []
+          );
+          if (rfqLines.length === 0 && rfqRow?.requisition?.items?.length) {
+            rfqLines = prItemsToNormalizedRfqLines(rfqRow.requisition.items);
+          }
+
+          const poItems = buildPoLinesFromRfqAndQuotation(rfqLines, quotation.items);
+
+          const { ProcurementService } = await import("./ProcurementService");
+
           purchaseOrder = await ProcurementService.createPurchaseOrder({
             quotationId: quotation.id,
-            requisitionId: quotation.requisitionId || undefined,
+            requisitionId: quotation.requisitionId || rfqRow?.requisitionId || undefined,
             vendorId: vendor.id,
             currencyId: currency?.id,
-            expectedDeliveryDate: quotation.validUntil || undefined,
+            expectedDeliveryDate:
+              rfqRow?.expectedDeliveryDate || quotation.validUntil || undefined,
+            shippingAddress: rfqRow?.deliveryAddress || quotation.address || undefined,
             paymentTerms: quotation.paymentTerms || undefined,
             deliveryTerms: quotation.deliveryTerms || undefined,
             createdById: reviewedById,
-            items: quotation.items.map(item => ({
-              itemName: item.itemName,
-              description: item.description || undefined,
-              quantity: Number(item.quantity),
-              unitPrice: Number(item.unitPrice),
-              unit: item.unit || undefined,
-              specifications: item.specifications || undefined
-            }))
+            items: poItems,
           });
 
-          // Update quotation with PO reference (optional - PO already has quotationId)
-          // This updates the reverse relation if Prisma client supports it
           try {
             await prisma.vendorQuotation.update({
               where: { id: quotationId },
-              data: { purchaseOrder: { connect: { id: purchaseOrder.id } } }
+              data: { purchaseOrder: { connect: { id: purchaseOrder.id } } },
             });
-          } catch (error: any) {
-            // If Prisma client hasn't been regenerated yet, this will fail silently
-            // The PO already has quotationId, so the link is established
-            console.log('   ⚠️  Could not update quotation reverse relation (Prisma client may need regeneration)');
-            console.log('   ✅ PO-quotation link already established via quotationId field');
+          } catch {
+            // PO already linked via quotationId on purchase_orders
           }
 
           console.log(`✅ Purchase Order created: ${purchaseOrder.poNumber}`);
           console.log(`   PO ID: ${purchaseOrder.id}`);
-          console.log(`   Status: ${purchaseOrder.status}`);
-          console.log(`   Amount: $${Number(purchaseOrder.totalAmount).toFixed(2)}`);
-          console.log(`   📌 Next step: Send PO to vendor using POST /api/procurement/purchase-orders/${purchaseOrder.id}/send`);
+          console.log(`   Lines: ${poItems.length} (from RFQ snapshot where available)`);
+
+          console.log("\n📧 Sending Purchase Order to vendor...");
+          purchaseOrder = await ProcurementService.sendPurchaseOrder(
+            purchaseOrder.id,
+            reviewedById
+          );
+          console.log(`   ✅ PO emailed to vendor (status: ${purchaseOrder.status})`);
         }
 
         // Create Invoice (optional - usually created after GRN)
@@ -956,7 +996,7 @@ export class VendorQuotationService {
         "../utils/procurementEntityRejectionFingerprint"
       );
 
-      const rejectionReason = `RFQ ${rfqNumber} was awarded to ${acceptedQuotation.companyName || acceptedQuotation.vendorName}.`;
+      const rejectionReason = `RFQ ${rfqNumber} — another vendor's quotation was accepted.`;
 
       for (const quote of remainingQuotations) {
         const rejectionFingerprint = computeVendorQuotationRejectionFingerprint(quote);
@@ -989,7 +1029,7 @@ export class VendorQuotationService {
 
         let regVendor: { name: string; email: string; contactPerson: string | null } | null = null;
         try {
-          regVendor = await VendorQuotationService.resolveVendorRowForQuotation(updated);
+          regVendor = await VendorQuotationService.resolveVendorForQuotation(updated);
         } catch {
           regVendor = null;
         }

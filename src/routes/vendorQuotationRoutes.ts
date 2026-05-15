@@ -308,7 +308,10 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  * /vendor-quotations/{id}/accept:
  *   post:
  *     summary: Accept a vendor quotation
- *     description: **Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and triggers the invoice flow. Once accepted, status becomes ACCEPTED and cannot be modified.
+ *     description: |
+ *       **Required Role:** PROC_MGR or PROC_OFF.
+ *       Accepts the quotation, notifies the vendor, auto-rejects other bids on the same RFQ number,
+ *       builds PO lines from the RFQ item snapshot (priced from the quote), creates the PO, and emails it to the vendor (PDF).
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -324,27 +327,9 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  *         schema:
  *           type: string
  *         description: Optional notes about the acceptance
- *         example: "Best price and delivery time"
  *     responses:
  *       200:
- *         description: Quotation accepted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 data:
- *                   type: object
- *                   properties:
- *                     quotation:
- *                       type: object
- *                     invoice:
- *                       type: object
- *                       description: Created invoice (if any)
+ *         description: Quotation accepted; purchase order may be included in data
  *       400:
  *         description: Bad request
  *       401:

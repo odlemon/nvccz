@@ -266,6 +266,96 @@ export const procurementEndpoints = {
     }
   },
 
+  '/procurement/rfqs/{id}/comparison-matrix': {
+    get: {
+      summary: 'RFQ comparison matrix',
+      description:
+        '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Compare all vendor quotations for a procurement RFQ (`procurement_rfqs.id`). Returns full quotation detail (header, line items, vendor master, review info), FX-normalized totals for cross-currency comparison, weighted scores, and UI-friendly **highlights** (vendor names and amounts — not internal ids). Available whenever quotations exist; not gated on RFQ closing time.',
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'id',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Procurement RFQ id (`procurement_rfqs.id`)',
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Comparison matrix retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      rfq: { type: 'object', description: 'RFQ header and items snapshot' },
+                      quotationCount: { type: 'integer', example: 2 },
+                      reportingCurrencyId: { type: 'string', nullable: true },
+                      rows: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            quotation: { type: 'object', description: 'Full vendor quotation + items + vendor + reviewedBy' },
+                            comparison: {
+                              type: 'object',
+                              description: 'Derived scores and FX-normalized totals for ranking',
+                            },
+                          },
+                        },
+                      },
+                      highlights: {
+                        type: 'object',
+                        description: 'Best bids for UI badges (display labels, not cuid ids)',
+                        properties: {
+                          lowestNormalizedCost: { type: 'object', nullable: true },
+                          highestVendorRating: { type: 'object', nullable: true },
+                          highestCompositeScore: { type: 'object', nullable: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              example: {
+                success: true,
+                data: {
+                  rfq: {
+                    rfqNumber: 'RFQ_20260513_0001',
+                    title: 'Office supplies',
+                    status: 'OPEN',
+                  },
+                  quotationCount: 2,
+                  rows: [],
+                  highlights: {
+                    lowestNormalizedCost: {
+                      quotationNumber: 'QUO_20260514_0001',
+                      vendorName: 'Kays',
+                      totalAmount: 1238.74,
+                      currencyCode: 'USD',
+                      normalizedTotalReporting: 1238.74,
+                      reportingCurrencyCode: 'USD',
+                    },
+                    highestVendorRating: null,
+                    highestCompositeScore: null,
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: { description: 'RFQ not found or bad request' },
+        401: { description: 'Unauthorized' },
+      },
+    },
+  },
+
   // ========== PROCUREMENT - VENDOR QUOTATIONS ==========
   '/vendor-quotations/submit': {
     post: {
@@ -402,19 +492,31 @@ export const procurementEndpoints = {
   '/vendor-quotations/{id}/accept': {
     post: {
       summary: 'Accept a vendor quotation',
-      description: '**Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.',
+      description:
+        '**Required Role:** PROC_MGR or PROC_OFF. Accepts the quotation, auto-rejects other bids on the same RFQ, builds PO lines from RFQ items (unit prices from the quote), creates the PO, and emails it to the vendor with PDF.',
       tags: ['Procurement - Vendor Quotations'],
       security: [{ bearerAuth: [] }],
       parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' }
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' },
+        { in: 'query', name: 'reviewNotes', schema: { type: 'string' }, description: 'Optional acceptance notes' },
       ],
       responses: {
-        200: { description: 'Quotation accepted successfully' },
+        200: { description: 'Quotation accepted; PO may be in response data' },
         400: { description: 'Bad request' },
         401: { description: 'Unauthorized' },
-        404: { description: 'Quotation not found' }
-      }
-    }
+        404: { description: 'Quotation not found' },
+      },
+    },
+  },
+  '/procurement/rfqs/{id}/award': {
+    post: {
+      summary: '[Deprecated] Award RFQ',
+      description: '**410 Gone** — use `POST /vendor-quotations/{id}/accept` and `/reject` instead.',
+      deprecated: true,
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
+      security: [{ bearerAuth: [] }],
+      responses: { 410: { description: 'Use vendor-quotations accept/reject' } },
+    },
   },
   '/vendor-quotations/{id}/reject': {
     post: {

@@ -140,3 +140,108 @@ export function enrichRfqItemsSnapshotForApi(snapshot: unknown): unknown {
 export function hasUsableRfqItemLines(items: unknown): boolean {
   return normalizeRfqItemLinesFromBody(items).length > 0;
 }
+
+export type PurchaseOrderLineFromAccept = {
+  itemName: string;
+  description?: string;
+  quantity: number;
+  unitPrice: number;
+  unit?: string;
+  specifications?: unknown;
+};
+
+function lineMatchKey(name: unknown): string {
+  return trimStr(name).toLowerCase();
+}
+
+/**
+ * PO lines: RFQ (or PR) defines what was requested; accepted quotation supplies vendor unit prices.
+ * Falls back to quotation-only lines when no RFQ snapshot exists.
+ */
+export function buildPoLinesFromRfqAndQuotation(
+  rfqLines: NormalizedRfqLine[],
+  quotationItems: Array<{
+    itemName: string;
+    description?: string | null;
+    quantity?: unknown;
+    unitPrice: unknown;
+    unit?: string | null;
+    specifications?: unknown;
+  }>
+): PurchaseOrderLineFromAccept[] {
+  if (!quotationItems?.length) {
+    throw new Error("Accepted quotation has no line items; cannot create purchase order.");
+  }
+
+  const quoteByKey = new Map<string, (typeof quotationItems)[number]>();
+  for (const q of quotationItems) {
+    const key = lineMatchKey(q.itemName);
+    if (key && !quoteByKey.has(key)) quoteByKey.set(key, q);
+  }
+
+  const toPoLine = (
+    rfq: NormalizedRfqLine,
+    q: (typeof quotationItems)[number]
+  ): PurchaseOrderLineFromAccept => {
+    const unitPrice = Number(q.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw new Error(`Invalid unit price on quotation line "${q.itemName}".`);
+    }
+    return {
+      itemName: rfq.itemName,
+      description: rfq.description || (q.description ? trimStr(q.description) : undefined) || undefined,
+      quantity: rfq.quantity,
+      unitPrice,
+      unit: rfq.unit || (q.unit ? trimStr(q.unit) : undefined) || undefined,
+      specifications: rfq.specifications ?? q.specifications ?? undefined,
+    };
+  };
+
+  if (!rfqLines.length) {
+    return quotationItems.map((q) => {
+      const unitPrice = Number(q.unitPrice);
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        throw new Error(`Invalid unit price on quotation line "${q.itemName}".`);
+      }
+      return {
+        itemName: trimStr(q.itemName) || "Line item",
+        description: q.description ? trimStr(q.description) : undefined,
+        quantity: coercePositiveQuantity(q.quantity),
+        unitPrice,
+        unit: q.unit ? trimStr(q.unit) : undefined,
+        specifications: q.specifications ?? undefined,
+      };
+    });
+  }
+
+  const lines: PurchaseOrderLineFromAccept[] = [];
+  const usedQuoteKeys = new Set<string>();
+
+  for (const rfq of rfqLines) {
+    const key = lineMatchKey(rfq.itemName);
+    const q = quoteByKey.get(key);
+    if (!q) {
+      throw new Error(
+        `RFQ line "${rfq.itemName}" has no matching priced line on the accepted quotation.`
+      );
+    }
+    usedQuoteKeys.add(key);
+    lines.push(toPoLine(rfq, q));
+  }
+
+  for (const q of quotationItems) {
+    const key = lineMatchKey(q.itemName);
+    if (!key || usedQuoteKeys.has(key)) continue;
+    usedQuoteKeys.add(key);
+    lines.push({
+      itemName: trimStr(q.itemName) || "Line item",
+      description: q.description ? trimStr(q.description) : undefined,
+      quantity: coercePositiveQuantity(q.quantity),
+      unitPrice: Number(q.unitPrice),
+      unit: q.unit ? trimStr(q.unit) : undefined,
+      specifications: q.specifications ?? undefined,
+    });
+  }
+
+  return lines;
+}
