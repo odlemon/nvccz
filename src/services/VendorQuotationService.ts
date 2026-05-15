@@ -10,11 +10,6 @@ import {
   verifyVendorPortalToken,
   VENDOR_PORTAL_KIND_RFQ_SUBMIT,
 } from "../utils/vendorPortalToken";
-import {
-  buildPoLinesFromRfqAndQuotation,
-  normalizeRfqItemLinesFromBody,
-  prItemsToNormalizedRfqLines,
-} from "../utils/rfqItemInput";
 
 /**
  * Render a vendor quotation PDF (with letterhead + ACCEPTED/REJECTED watermark) for email attachment.
@@ -812,49 +807,44 @@ export class VendorQuotationService {
           where: { code: quotation.currencyCode }
         });
 
-        // Create Purchase Order (default behavior) — RFQ lines + quotation prices, then email vendor
+        // Create Purchase Order (default behavior) — quotation line items, then email vendor
         if (createPO) {
-          console.log("\n📦 Creating Purchase Order from accepted quotation (RFQ lines + quote prices)...");
+          console.log("\n📦 Creating Purchase Order from accepted quotation...");
 
           let rfqRow: {
-            id: string;
             requisitionId: string | null;
             deliveryAddress: string | null;
             expectedDeliveryDate: Date | null;
-            itemsSnapshot: unknown;
-            requisition?: { items: Array<{
-              itemName: string;
-              description?: string | null;
-              quantity: unknown;
-              unit?: string | null;
-              specifications?: unknown;
-              unitPrice?: unknown;
-              totalPrice?: unknown;
-            }> } | null;
           } | null = null;
 
           if (quotation.procurementRfqId) {
             rfqRow = await prisma.procurementRfq.findUnique({
               where: { id: quotation.procurementRfqId },
-              include: { requisition: { include: { items: true } } },
+              select: {
+                requisitionId: true,
+                deliveryAddress: true,
+                expectedDeliveryDate: true,
+              },
             });
           } else if (quotation.rfqNumber) {
             rfqRow = await prisma.procurementRfq.findUnique({
               where: { rfqNumber: quotation.rfqNumber },
-              include: { requisition: { include: { items: true } } },
+              select: {
+                requisitionId: true,
+                deliveryAddress: true,
+                expectedDeliveryDate: true,
+              },
             });
           }
 
-          let rfqLines = normalizeRfqItemLinesFromBody(
-            Array.isArray((rfqRow?.itemsSnapshot as { items?: unknown })?.items)
-              ? (rfqRow!.itemsSnapshot as { items: unknown[] }).items
-              : []
-          );
-          if (rfqLines.length === 0 && rfqRow?.requisition?.items?.length) {
-            rfqLines = prItemsToNormalizedRfqLines(rfqRow.requisition.items);
-          }
-
-          const poItems = buildPoLinesFromRfqAndQuotation(rfqLines, quotation.items);
+          const poItems = quotation.items.map((item) => ({
+            itemName: item.itemName,
+            description: item.description || undefined,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            unit: item.unit || undefined,
+            specifications: item.specifications || undefined,
+          }));
 
           const { ProcurementService } = await import("./ProcurementService");
 
@@ -883,7 +873,7 @@ export class VendorQuotationService {
 
           console.log(`✅ Purchase Order created: ${purchaseOrder.poNumber}`);
           console.log(`   PO ID: ${purchaseOrder.id}`);
-          console.log(`   Lines: ${poItems.length} (from RFQ snapshot where available)`);
+          console.log(`   Lines: ${poItems.length} (from quotation)`);
 
           console.log("\n📧 Sending Purchase Order to vendor...");
           purchaseOrder = await ProcurementService.sendPurchaseOrder(

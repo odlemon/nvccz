@@ -1902,14 +1902,25 @@ export class ProcurementController {
       }
       const attachmentUrl =
         typeof payload.attachmentUrl === "string" ? payload.attachmentUrl.trim() || undefined : undefined;
-      const row = await ProcurementRfqService.addClarification({
+      const result = await ProcurementRfqService.postStaffClarification({
         procurementRfqId: req.params.id,
-        authorType: "STAFF",
         body: clarificationBody,
         attachmentUrl,
         userId,
       });
-      res.status(201).json({ success: true, data: row });
+      const msg =
+        result.emailsSent > 0
+          ? `Clarification posted and emailed to ${result.emailsSent} invited vendor(s).`
+          : "Clarification posted (no invited vendors with email on this RFQ).";
+      res.status(201).json({
+        success: true,
+        message: msg,
+        data: {
+          ...result.clarification,
+          emailsSent: result.emailsSent,
+          emailFailures: result.emailFailures.length ? result.emailFailures : undefined,
+        },
+      });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }
