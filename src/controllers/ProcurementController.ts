@@ -1674,6 +1674,81 @@ export class ProcurementController {
   }
 
   /**
+   * QC-approve a goods received note (sets header + line qualityStatus to PASSED).
+   */
+  static async approveGoodsReceivedNote(req: Request, res: Response) {
+    try {
+      const approvedById = req.user?.id;
+      if (!approvedById) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const { id } = req.params;
+      const { qualityNotes } = req.body ?? {};
+
+      const grn = await ProcurementService.approveGoodsReceivedNote(id, approvedById, {
+        qualityNotes: typeof qualityNotes === "string" ? qualityNotes : undefined,
+      });
+
+      const { serializeDecimalsDeep } = await import("../utils/prismaDecimalJson");
+      res.status(200).json({
+        success: true,
+        message: "Goods received note approved; quality status set to PASSED",
+        data: serializeDecimalsDeep(grn),
+      });
+    } catch (error: any) {
+      console.error("Error approving goods received note:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to approve goods received note",
+      });
+    }
+  }
+
+  /**
+   * QC-reject a goods received note (sets header + line qualityStatus to FAILED).
+   */
+  static async rejectGoodsReceivedNote(req: Request, res: Response) {
+    try {
+      const rejectedById = req.user?.id;
+      if (!rejectedById) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const { id } = req.params;
+      const { rejectionReason, qualityNotes } = req.body ?? {};
+      const reason =
+        typeof rejectionReason === "string" && rejectionReason.trim()
+          ? rejectionReason.trim()
+          : typeof qualityNotes === "string" && qualityNotes.trim()
+            ? qualityNotes.trim()
+            : "";
+
+      if (!reason) {
+        return res.status(400).json({
+          success: false,
+          message: "rejectionReason is required",
+        });
+      }
+
+      const grn = await ProcurementService.rejectGoodsReceivedNote(id, rejectedById, reason);
+
+      const { serializeDecimalsDeep } = await import("../utils/prismaDecimalJson");
+      res.status(200).json({
+        success: true,
+        message: "Goods received note rejected; quality status set to FAILED",
+        data: serializeDecimalsDeep(grn),
+      });
+    } catch (error: any) {
+      console.error("Error rejecting goods received note:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to reject goods received note",
+      });
+    }
+  }
+
+  /**
    * Get procurement dashboard data
    */
   static async getProcurementDashboard(req: Request, res: Response) {

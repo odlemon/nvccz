@@ -443,6 +443,67 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
       responses: { 200: { description: "OK" }, 404: { description: "Not found" } },
     },
   },
+  "/procurement/goods-received-notes/{id}/approve": {
+    put: {
+      summary: "QC-approve GRN (qualityStatus PASSED on header and all lines)",
+      description:
+        "Sets header and line qualityStatus to PASSED, records approvedBy/approvedAt, and promotes status RECEIVED or PENDING_GP_REVIEW to APPROVED. Optional body qualityNotes on header.",
+      tags: [S05, "Procurement - GRN"],
+      security: bearer,
+      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: false,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                qualityNotes: { type: "string", example: "All items inspected and accepted" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "GRN approved" },
+        400: { description: "Bad request" },
+        404: { description: "Not found" },
+      },
+    },
+  },
+  "/procurement/goods-received-notes/{id}/reject": {
+    put: {
+      summary: "QC-reject GRN (qualityStatus FAILED; status REJECTED)",
+      description:
+        "Sets header and line qualityStatus to FAILED, status REJECTED, rejectionReason and fingerprint. Clears approver fields. Does not reverse PO quantities.",
+      tags: [S05, "Procurement - GRN"],
+      security: bearer,
+      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["rejectionReason"],
+              properties: {
+                rejectionReason: {
+                  type: "string",
+                  example: "Damaged packaging; quantity short",
+                },
+                qualityNotes: { type: "string", description: "Alias for rejectionReason" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "GRN rejected" },
+        400: { description: "Bad request" },
+        404: { description: "Not found" },
+      },
+    },
+  },
   "/applicant/procurement/goods-received-notes": {
     get: {
       summary: "List investee GRNs (portfolio-scoped)",

@@ -1159,6 +1159,104 @@ router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNo
 
 /**
  * @swagger
+ * /procurement/goods-received-notes/{id}/approve:
+ *   put:
+ *     summary: QC-approve a goods received note
+ *     description: |
+ *       **Required Role:** Authenticated procurement user (PROC_MGR, PROC_OFF, BUYER, etc.).
+ *       Sets the GRN header **`qualityStatus`** and every line **`qualityStatus`** to **`PASSED`**,
+ *       records **`approvedById`** / **`approvedAt`**, and promotes header **`status`** from
+ *       `RECEIVED` or `PENDING_GP_REVIEW` to **`APPROVED`** when applicable.
+ *       Optional body **`qualityNotes`** is stored on the GRN header.
+ *       Does not email the vendor. PO delivery status is unchanged (set at GRN create).
+ *     tags: [Procurement - GRN]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Goods received note id
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               qualityNotes:
+ *                 type: string
+ *                 description: Optional overall QC notes (header)
+ *           example:
+ *             qualityNotes: "All items inspected and accepted"
+ *     responses:
+ *       200:
+ *         description: GRN approved; qualityStatus PASSED on header and lines
+ *       400:
+ *         description: Bad request (e.g. GRN rejected)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: GRN not found
+ */
+router.put("/goods-received-notes/:id/approve", ProcurementController.approveGoodsReceivedNote);
+
+/**
+ * @swagger
+ * /procurement/goods-received-notes/{id}/reject:
+ *   put:
+ *     summary: QC-reject a goods received note
+ *     description: |
+ *       **Required Role:** Authenticated procurement user.
+ *       Sets the GRN header **`qualityStatus`** and every line **`qualityStatus`** to **`FAILED`**,
+ *       sets header **`status`** to **`REJECTED`**, and persists **`rejectionReason`** (required) plus
+ *       **`rejectionContentFingerprint`**. Clears **`approvedById`** / **`approvedAt`** if set.
+ *       Optional alias: body field **`qualityNotes`** is accepted as the rejection reason when
+ *       **`rejectionReason`** is omitted.
+ *       Does not reverse PO receipt quantities or PO delivery status.
+ *     tags: [Procurement - GRN]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Goods received note id
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - rejectionReason
+ *             properties:
+ *               rejectionReason:
+ *                 type: string
+ *                 description: Why the GRN failed QC (required)
+ *               qualityNotes:
+ *                 type: string
+ *                 description: Alias for rejectionReason
+ *           example:
+ *             rejectionReason: "Damaged packaging; 5 units short"
+ *     responses:
+ *       200:
+ *         description: GRN rejected; qualityStatus FAILED on header and lines
+ *       400:
+ *         description: Bad request (missing reason or already rejected)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: GRN not found
+ */
+router.put("/goods-received-notes/:id/reject", ProcurementController.rejectGoodsReceivedNote);
+
+/**
+ * @swagger
  * /procurement/dashboard:
  *   get:
  *     summary: Get procurement dashboard data with detailed information

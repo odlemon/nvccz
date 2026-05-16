@@ -3782,6 +3782,190 @@ export class ProcurementService {
     }
   }
 
+  /**
+   * QC approve a GRN: header + all lines → qualityStatus PASSED; records approver and time.
+   */
+  static async approveGoodsReceivedNote(
+    grnId: string,
+    approvedById: string,
+    options?: { qualityNotes?: string }
+  ) {
+    const existing = await prisma.goodsReceivedNote.findUnique({
+      where: { id: grnId },
+      select: { id: true, grnNumber: true, status: true, qualityStatus: true },
+    });
+    if (!existing) {
+      throw new Error("Goods received note not found");
+    }
+    if (existing.status === "REJECTED") {
+      throw new Error("Cannot approve a rejected goods received note");
+    }
+    if (existing.qualityStatus === "FAILED") {
+      throw new Error("Cannot approve a goods received note that failed QC");
+    }
+
+    const qualityNotes =
+      options?.qualityNotes != null && String(options.qualityNotes).trim()
+        ? String(options.qualityNotes).trim()
+        : undefined;
+
+    const nextHeaderStatus =
+      existing.status === "RECEIVED" ||
+      existing.status === "PENDING_GP_REVIEW" ||
+      existing.status === "DRAFT"
+        ? "APPROVED"
+        : existing.status;
+
+    await prisma.$transaction([
+      prisma.goodsReceivedNoteItem.updateMany({
+        where: { grnId },
+        data: { qualityStatus: "PASSED" },
+      }),
+      prisma.goodsReceivedNote.update({
+        where: { id: grnId },
+        data: {
+          qualityStatus: "PASSED",
+          approvedById,
+          approvedAt: new Date(),
+          status: nextHeaderStatus,
+          ...(qualityNotes ? { qualityNotes } : {}),
+        },
+      }),
+    ]);
+
+    const updated = await prisma.goodsReceivedNote.findUnique({
+      where: { id: grnId },
+      include: {
+        purchaseOrder: { include: { vendor: true, items: true } },
+        receivedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        approvedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        items: { include: { purchaseOrderItem: true } },
+        returnToVendors: {
+          include: {
+            createdBy: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
+          },
+        },
+      },
+    });
+
+    await AuditService.log({
+      userId: approvedById,
+      action: "APPROVE",
+      entityType: "GoodsReceivedNote",
+      entityId: grnId,
+      newValues: {
+        qualityStatus: "PASSED",
+        status: nextHeaderStatus,
+        qualityNotes: qualityNotes ?? null,
+      },
+    });
+
+    console.log(
+      `✅ GRN ${existing.grnNumber} QC approved (qualityStatus=PASSED, status=${nextHeaderStatus})`
+    );
+
+    return updated;
+  }
+
+  /**
+   * QC reject a GRN: header + all lines → qualityStatus FAILED; status REJECTED; stores reason + fingerprint.
+   */
+  static async rejectGoodsReceivedNote(
+    grnId: string,
+    rejectedById: string,
+    rejectionReason: string
+  ) {
+    const reason = String(rejectionReason || "").trim();
+    if (!reason) {
+      throw new Error("Rejection reason is required");
+    }
+
+    const existing = await prisma.goodsReceivedNote.findUnique({
+      where: { id: grnId },
+      include: { items: true },
+    });
+    if (!existing) {
+      throw new Error("Goods received note not found");
+    }
+    if (existing.status === "REJECTED") {
+      throw new Error("Goods received note is already rejected");
+    }
+
+    const { computeGoodsReceivedNoteRejectionFingerprint } = await import(
+      "../utils/procurementEntityRejectionFingerprint"
+    );
+    const rejectionContentFingerprint = computeGoodsReceivedNoteRejectionFingerprint({
+      ...existing,
+      status: "REJECTED",
+      qualityStatus: "FAILED",
+      qualityNotes: reason,
+    });
+
+    await prisma.$transaction([
+      prisma.goodsReceivedNoteItem.updateMany({
+        where: { grnId },
+        data: { qualityStatus: "FAILED" },
+      }),
+      prisma.goodsReceivedNote.update({
+        where: { id: grnId },
+        data: {
+          qualityStatus: "FAILED",
+          status: "REJECTED",
+          rejectionReason: reason,
+          rejectionContentFingerprint,
+          qualityNotes: reason,
+          approvedById: null,
+          approvedAt: null,
+        },
+      }),
+    ]);
+
+    const updated = await prisma.goodsReceivedNote.findUnique({
+      where: { id: grnId },
+      include: {
+        purchaseOrder: { include: { vendor: true, items: true } },
+        receivedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        approvedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        items: { include: { purchaseOrderItem: true } },
+        returnToVendors: {
+          include: {
+            createdBy: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
+          },
+        },
+      },
+    });
+
+    await AuditService.log({
+      userId: rejectedById,
+      action: "REJECT",
+      entityType: "GoodsReceivedNote",
+      entityId: grnId,
+      newValues: {
+        qualityStatus: "FAILED",
+        status: "REJECTED",
+        rejectionReason: reason,
+      },
+    });
+
+    console.log(
+      `❌ GRN ${existing.grnNumber} QC rejected (qualityStatus=FAILED, status=REJECTED)`
+    );
+
+    return updated;
+  }
+
   static async cancelPurchaseOrderLine(poId: string, lineId: string, userId: string) {
     const line = await prisma.purchaseOrderItem.findFirst({
       where: { id: lineId, purchaseOrderId: poId },
