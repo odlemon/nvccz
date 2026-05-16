@@ -409,10 +409,8 @@ export class PurchaseInvoiceService {
       );
     }
 
-    const convertible =
-      po.status === "APPROVED" ||
-      po.status === "SENT" ||
-      po.approvedById != null;
+    const { canConvertPoToVendorBill } = await import("../constants/purchaseOrderStatus");
+    const convertible = canConvertPoToVendorBill(po.status) || po.approvedById != null;
     if (!convertible) {
       throw new Error(
         `Purchase order cannot be converted to a vendor bill (status: ${po.status}). Send the PO to the vendor (SENT) or mark it APPROVED first.`

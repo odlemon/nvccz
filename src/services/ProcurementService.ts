@@ -125,7 +125,8 @@ export interface CreateProcurementInvoiceParams {
    * Required when `createdById` is absent (vendor self-serve).
    */
   vendorPortalToken?: string;
-  invoiceDate: Date;
+  /** Required for staff creates; ignored when `vendorPortalToken` is set (uses current date). */
+  invoiceDate?: Date;
   dueDate?: Date;
   currencyId?: string;
   documentPath?: string;
@@ -3336,7 +3337,10 @@ export class ProcurementService {
         });
         if (!po) throw new Error("Purchase order not found");
         if (po.vendorId !== pl.v) throw new Error("Token does not match this purchase order");
-        if (!["SENT", "APPROVED", "PENDING"].includes(String(po.status || ""))) {
+        const { canVendorSubmitProcurementInvoice } = await import(
+          "../constants/purchaseOrderStatus"
+        );
+        if (!canVendorSubmitProcurementInvoice(po.status)) {
           throw new Error(`Purchase order is not open for vendor invoices (status: ${po.status})`);
         }
         if (resolvedVendorId && resolvedVendorId !== pl.v) {
@@ -3358,6 +3362,12 @@ export class ProcurementService {
       }
       if (!resolvedPurchaseOrderId) {
         throw new Error("purchaseOrderId is required (or supply a valid vendorPortalToken)");
+      }
+
+      const isVendorPortalSubmit = Boolean(portalRaw);
+      const resolvedInvoiceDate = isVendorPortalSubmit ? new Date() : invoiceDate;
+      if (!resolvedInvoiceDate || Number.isNaN(resolvedInvoiceDate.getTime())) {
+        throw new Error("Invoice date is required");
       }
 
       // Validate vendor exists
@@ -3435,13 +3445,13 @@ export class ProcurementService {
       let lastProcInvoiceErr: any = null;
       for (let attempt = 0; attempt < 8; attempt++) {
         try {
-          const invoiceNumber = await nextUnifiedInvoiceNumber(prisma, new Date(invoiceDate));
+          const invoiceNumber = await nextUnifiedInvoiceNumber(prisma, resolvedInvoiceDate);
           invoice = await prisma.procurementInvoice.create({
             data: {
               invoiceNumber,
               purchaseOrderId: resolvedPurchaseOrderId,
               vendorId: resolvedVendorId,
-              invoiceDate,
+              invoiceDate: resolvedInvoiceDate,
               dueDate,
               subtotal: new Decimal(subtotal),
               taxAmount: new Decimal(taxAmount),
@@ -3484,6 +3494,28 @@ export class ProcurementService {
         throw lastProcInvoiceErr instanceof Error
           ? lastProcInvoiceErr
           : new Error(String(lastProcInvoiceErr));
+      }
+
+      const { PO_STATUS, PO_STATUSES_BEFORE_ACKNOWLEDGED } = await import(
+        "../constants/purchaseOrderStatus"
+      );
+      if (resolvedPurchaseOrderId) {
+        const poForAck = await prisma.purchaseOrder.findUnique({
+          where: { id: resolvedPurchaseOrderId },
+          select: { id: true, status: true, poNumber: true },
+        });
+        if (
+          poForAck &&
+          PO_STATUSES_BEFORE_ACKNOWLEDGED.includes(String(poForAck.status || ""))
+        ) {
+          await prisma.purchaseOrder.update({
+            where: { id: poForAck.id },
+            data: { status: PO_STATUS.ACKNOWLEDGED },
+          });
+          console.log(
+            `   ✅ PO ${poForAck.poNumber} status → ${PO_STATUS.ACKNOWLEDGED} (vendor invoice submitted)`
+          );
+        }
       }
 
       // Audit log
@@ -3558,6 +3590,22 @@ export class ProcurementService {
 
       if (!purchaseOrder) {
         throw new Error("Purchase order not found");
+      }
+
+      const { PO_STATUS, isPoFullyDelivered } = await import("../constants/purchaseOrderStatus");
+      if (purchaseOrder.status === PO_STATUS.DRAFT) {
+        throw new Error("Cannot receive goods against a draft purchase order");
+      }
+      if (purchaseOrder.status === PO_STATUS.BILLED) {
+        throw new Error("Cannot receive goods against a purchase order that is already billed");
+      }
+      if (isPoFullyDelivered(purchaseOrder.status)) {
+        const pendingLines = purchaseOrder.items.filter(
+          (l) => (l as { lineStatus?: string }).lineStatus !== "CANCELLED" && Number(l.quantityPending) > 0
+        );
+        if (pendingLines.length === 0) {
+          throw new Error("Purchase order is already fully delivered");
+        }
       }
 
       const settings = await prisma.procurementSettings.findUnique({
@@ -3663,22 +3711,27 @@ export class ProcurementService {
       const updatedLines = await prisma.purchaseOrderItem.findMany({
         where: { purchaseOrderId },
       });
-      const pending = updatedLines.filter((l) => Number(l.quantityPending) > 0);
-      const receivedAny = updatedLines.some((l) => Number(l.quantityReceived) > 0);
 
-      if (pending.length === 0) {
+      const { purchaseOrderStatusAfterGrnReceipt } = await import(
+        "../constants/purchaseOrderStatus"
+      );
+      const nextPoStatus = purchaseOrderStatusAfterGrnReceipt(updatedLines);
+
+      if (nextPoStatus === PO_STATUS.DELIVERED) {
         await prisma.purchaseOrder.update({
           where: { id: purchaseOrderId },
           data: {
-            status: "RECEIVED",
+            status: PO_STATUS.DELIVERED,
             actualDeliveryDate: new Date(),
           },
         });
-      } else if (receivedAny) {
+        console.log(`   ✅ PO status → ${PO_STATUS.DELIVERED} (GRN ${grn.grnNumber})`);
+      } else if (nextPoStatus === PO_STATUS.PARTIALLY_DELIVERED) {
         await prisma.purchaseOrder.update({
           where: { id: purchaseOrderId },
-          data: { status: "PARTIALLY_RECEIVED" },
+          data: { status: PO_STATUS.PARTIALLY_DELIVERED },
         });
+        console.log(`   ✅ PO status → ${PO_STATUS.PARTIALLY_DELIVERED} (GRN ${grn.grnNumber})`);
       }
 
       // Audit log
@@ -3697,7 +3750,32 @@ export class ProcurementService {
         console.error("VendorRatingService.recalculateForVendor:", e);
       }
 
-      return grn;
+      const grnFresh = await prisma.goodsReceivedNote.findUnique({
+        where: { id: grn.id },
+        include: {
+          purchaseOrder: {
+            include: {
+              vendor: true,
+              items: true,
+            },
+          },
+          receivedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          items: {
+            include: {
+              purchaseOrderItem: true,
+            },
+          },
+        },
+      });
+
+      return grnFresh ?? grn;
     } catch (error) {
       console.error("Error creating goods received note:", error);
       throw error;
@@ -4322,22 +4400,17 @@ export class ProcurementService {
         };
       });
 
-      const OPEN_PO_COMMITMENT_STATUSES = [
-        "DRAFT",
-        "SENT",
-        "APPROVED",
-        "PENDING"
-      ] as const;
+      const { OPEN_PO_COMMITMENT_STATUSES } = await import("../constants/purchaseOrderStatus");
 
       const [committedGroup, openPoCommitmentCount] = await Promise.all([
         prisma.purchaseOrder.groupBy({
           by: ["currencyId"],
-          where: { status: { in: [...OPEN_PO_COMMITMENT_STATUSES] } },
+          where: { status: { in: OPEN_PO_COMMITMENT_STATUSES } },
           _sum: { totalAmount: true },
           _count: { id: true }
         }),
         prisma.purchaseOrder.count({
-          where: { status: { in: [...OPEN_PO_COMMITMENT_STATUSES] } }
+          where: { status: { in: OPEN_PO_COMMITMENT_STATUSES } }
         })
       ]);
 
@@ -4398,7 +4471,7 @@ export class ProcurementService {
       return {
         commitmentAccounting: {
           note:
-            "Committed spend sums open purchase orders (DRAFT, SENT, APPROVED, PENDING). No GL posting occurs when a PO is created. When a vendor bill is created from the PO, status becomes BILLED and the amount leaves committed spend; Accounts Payable posts when the purchase invoice is submitted.",
+            "Committed spend sums open purchase orders (DRAFT, SENT, APPROVED, PENDING, ACKNOWLEDGED, partial delivery). No GL posting occurs when a PO is created. When a vendor bill is created from the PO, status becomes BILLED and the amount leaves committed spend; Accounts Payable posts when the purchase invoice is submitted.",
           openPurchaseOrderCount: openPoCommitmentCount,
           committedSpendByCurrency,
           committedSpendZIG: zigCommitted?.committedSpend ?? 0
