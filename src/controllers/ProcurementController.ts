@@ -1074,10 +1074,16 @@ export class ProcurementController {
       const createdById = req.user?.id || null; // null for vendor submissions
 
       const isStaff = Boolean(req.user?.id);
-      if (!invoiceDate || !items || items.length === 0) {
+      if (!items || items.length === 0) {
         return res.status(400).json({
           success: false,
-          message: "Invoice date and items are required"
+          message: "Invoice items are required"
+        });
+      }
+      if (isStaff && !invoiceDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Invoice date is required for staff-submitted invoices"
         });
       }
       if (isStaff && !vendorId) {
@@ -1093,9 +1099,10 @@ export class ProcurementController {
         });
       }
 
-      const invoiceDateParsed = parseDate(invoiceDate);
+      const invoiceDateParsed = isStaff ? parseDate(invoiceDate) : undefined;
       const dueDateParsed = dueDate ? parseDate(dueDate) : undefined;
-      if (dueDateParsed && invoiceDateParsed && dueDateParsed.getTime() < invoiceDateParsed.getTime()) {
+      const effectiveInvoiceDate = invoiceDateParsed ?? new Date();
+      if (dueDateParsed && dueDateParsed.getTime() < effectiveInvoiceDate.getTime()) {
         return res.status(400).json({
           success: false,
           message: "Due date cannot be earlier than the invoice date",
@@ -1106,7 +1113,7 @@ export class ProcurementController {
         purchaseOrderId,
         vendorId,
         vendorPortalToken: resolvedPortalToken,
-        invoiceDate: invoiceDateParsed,
+        invoiceDate: isStaff ? invoiceDateParsed : undefined,
         dueDate: dueDateParsed,
         currencyId,
         documentPath,

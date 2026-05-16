@@ -90,7 +90,6 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - invoiceDate
  *               - items
  *             properties:
  *               vendorPortalToken:
@@ -110,7 +109,8 @@ router.post(
  *               invoiceDate:
  *                 type: string
  *                 format: date-time
- *                 description: Invoice date
+ *                 description: >
+ *                   Staff only. Vendor portal submits ignore this and use the server date at create time.
  *               dueDate:
  *                 type: string
  *                 format: date-time
