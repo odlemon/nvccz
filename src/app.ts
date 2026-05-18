@@ -71,6 +71,7 @@ import applicantPortalRoutes from "./routes/applicantPortalRoutes"
 import boardReviewRoutes from "./routes/boardReviewRoutes"
 import termSheetRoutes from "./routes/termSheetRoutes"
 import investmentImplementationRoutes from "./routes/investmentImplementationRoutes"
+import investmentMonitoringRoutes from "./routes/investmentMonitoringRoutes"
 import fundRoutes from "./routes/fundRoutes"
 import clientRoutes from "./routes/clientRoutes"
 import targetRoutes from "./routes/targetRoutes"
@@ -532,6 +533,8 @@ app.use("/api/term-sheets", termSheetRoutes)
 
 // Investment Implementation routes
 app.use("/api/investment-implementations", investmentImplementationRoutes)
+// Portfolio monitoring: investments/{id}/valuations & exit (spec §2.4)
+app.use("/api/investments", investmentMonitoringRoutes)
 
 // Fund Management routes
 app.use("/api/funds", fundRoutes)

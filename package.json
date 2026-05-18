@@ -127,6 +127,7 @@
     "db:migrate:procurement-suite06": "ts-node scripts/run-procurement-suite06-migration.ts",
     "db:migrate:purchase-requisition-investee-portfolio": "ts-node scripts/run-purchase-requisition-investee-portfolio-migration.ts",
     "db:migrate:portfolio-company-letterhead": "ts-node scripts/run-portfolio-company-letterhead-migration.ts",
+    "db:migrate:investment-valuation-exit": "ts-node scripts/run-investment-valuation-exit-migration.ts",
     "db:migrate:newsletter-audience-config": "ts-node scripts/run-newsletter-audience-config-migration.ts",
     "db:migrate:milestone-period-backfill": "ts-node scripts/run-milestone-disbursement-period-backfill.ts",
     "db:migrate:cashbook-reconciliation-sessions": "ts-node scripts/run-cashbook-reconciliation-session-migration.ts",

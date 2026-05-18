@@ -99,6 +99,8 @@ model User {
   portfolioValuationsAssigned       PortfolioValuation[]         @relation("PortfolioValuationAssignedTo")
   portfolioValuationsCreated        PortfolioValuation[]         @relation("PortfolioValuationCreatedBy")
   portfolioValuationActivities      PortfolioValuationActivity[]
+  investmentValuationEventsCreated InvestmentValuationEvent[]   @relation("InvestmentValuationEventCreator")
+  investmentExitEventsRecorded       InvestmentExitEvent[]       @relation("InvestmentExitRecorder")
   exitInterviewsConducted           ExitInterview[]              @relation("ExitInterviewConductedBy")
   employee                          Employee?
   payrollRunsCreated                PayrollRun[]
@@ -540,6 +542,8 @@ model Currency {
   investmentImplementationsCommitmentCurrency InvestmentImplementation[] @relation("ImplementationCommitmentCurrency")
   fundDisbursementsPaymentCurrency          FundDisbursement[]          @relation("FundDisbursementPaymentCurrency")
   fundDisbursementsCommitmentCurrency       FundDisbursement[]          @relation("FundDisbursementCommitmentCurrency")
+  investmentValuationEventsCurrency         InvestmentValuationEvent[]  @relation("ValuationEventCurrency")
+  investmentExitEventsCurrency              InvestmentExitEvent[]       @relation("ExitEventCurrency")
 
   @@map("currencies")
 }
@@ -1743,10 +1747,60 @@ model InvestmentImplementation {
   fund               Fund?                 @relation(fields: [fundId], references: [id])
   commitmentCurrency Currency?             @relation("ImplementationCommitmentCurrency", fields: [commitmentCurrencyId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   initiatedBy        User                  @relation(fields: [initiatedById], references: [id])
-  milestones         InvestmentMilestone[]
-  fundDisbursements  FundDisbursement[]
+  milestones                  InvestmentMilestone[]
+  fundDisbursements           FundDisbursement[]
+  investmentValuationEvents   InvestmentValuationEvent[]
+  investmentExitEvent       InvestmentExitEvent?
 
   @@map("investment_implementations")
+}
+
+/// Periodic valuation for one portfolio investment (maps to investments/{id}/valuations). Each row has an official valuation date.
+model InvestmentValuationEvent {
+  id                         String   @id @default(cuid())
+  investmentImplementationId String   @map("investment_implementation_id")
+  valuationDate              DateTime @map("valuation_date") @db.Date
+  /// POST_MONEY | FAIR_MARKET_VALUE | PRE_MONEY | OTHER
+  valuationType              String   @map("valuation_type")
+  valuationAmount            Decimal  @map("valuation_amount") @db.Decimal(15, 2)
+  currencyId                 String?  @map("currency_id")
+  notes                      String?  @db.Text
+  createdById                String   @map("created_by_id")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  investmentImplementation InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
+  currency                 Currency?                @relation("ValuationEventCurrency", fields: [currencyId], references: [id], onDelete: SetNull)
+  createdBy                User                     @relation("InvestmentValuationEventCreator", fields: [createdById], references: [id])
+
+  @@index([investmentImplementationId], map: "investment_valuation_events_impl_idx")
+  @@index([valuationDate], map: "investment_valuation_events_date_idx")
+  @@map("investment_valuation_events")
+}
+
+/// Final exit for an investment: proceeds + performance metrics; sets implementation / portfolio company to EXITED.
+model InvestmentExitEvent {
+  id                         String   @id @default(cuid())
+  investmentImplementationId String   @unique @map("investment_implementation_id")
+  exitDate                   DateTime @map("exit_date") @db.Date
+  /// IPO | ACQUISITION | WRITE_OFF | SECONDARY | OTHER
+  exitType                   String   @map("exit_type")
+  exitProceedsAmount         Decimal  @map("exit_proceeds_amount") @db.Decimal(15, 2)
+  currencyId                 String?  @map("currency_id")
+  /// Sum of disbursement basis used for ROI/IRR (typically commitment-currency amounts).
+  totalInvestedBasis         Decimal? @map("total_invested_basis") @db.Decimal(15, 2)
+  irrAnnualized              Decimal? @map("irr_annualized") @db.Decimal(18, 8)
+  roiMultiple                Decimal? @map("roi_multiple") @db.Decimal(18, 8)
+  notes                      String?  @db.Text
+  recordedById               String   @map("recorded_by_id")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  investmentImplementation InvestmentImplementation @relation(fields: [investmentImplementationId], references: [id], onDelete: Cascade)
+  currency                 Currency?                @relation("ExitEventCurrency", fields: [currencyId], references: [id], onDelete: SetNull)
+  recordedBy               User                     @relation("InvestmentExitRecorder", fields: [recordedById], references: [id])
+
+  @@map("investment_exit_events")
 }
 
 model InvestmentMilestone {
