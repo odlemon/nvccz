@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextFunction, Request, Response } from "express";
 import { ReportingScheduleConfigService } from "../services/ReportingScheduleConfigService";
+import { ReportingSchedulePreviewService } from "../services/ReportingSchedulePreviewService";
 
 export class ReportingScheduleConfigController {
   static async list(req: Request, res: Response, next: NextFunction) {
@@ -61,4 +62,23 @@ export class ReportingScheduleConfigController {
       next(e);
     }
   }
+
+  static async previewById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const data = await ReportingSchedulePreviewService.previewByConfigId(id, {
+        asOfDate: req.query.asOfDate as string | undefined,
+        count: req.query.count as any,
+      });
+      if (!data) return res.status(404).json({ success: false, message: "Not found" });
+      return res.status(200).json({ success: true, data });
+    } catch (e: any) {
+      const msg = e?.message || "Preview failed";
+      if (msg.includes("Invalid") || msg.includes("must") || msg.includes("Cannot")) {
+        return res.status(400).json({ success: false, message: msg });
+      }
+      next(e);
+    }
+  }
+
 }

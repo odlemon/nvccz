@@ -73,3 +73,72 @@ export function shouldRunOpenCalendarAfterPeriodEnd(
   const asIso = toIsoDate(startOfUtcDay(asOf));
   return asIso >= thresholdIso;
 }
+
+const QUARTER_END_MONTH_INDEX0 = [2, 5, 8, 11];
+
+/** Next period end strictly after `periodEnd` for the given frequency. */
+export function advancePeriodEndUtc(
+  frequency: string,
+  periodEnd: Date,
+  customMonthEnds1to12?: number[] | null
+): Date {
+  const f = String(frequency || "").toUpperCase();
+  if (f === "MONTHLY") {
+    const y = periodEnd.getUTCFullYear();
+    const m0 = periodEnd.getUTCMonth();
+    return lastDayOfMonthUtc(y, m0 + 1);
+  }
+  if (f === "QUARTERLY") {
+    const y = periodEnd.getUTCFullYear();
+    const pe = periodEnd.getTime();
+    for (const idx of QUARTER_END_MONTH_INDEX0) {
+      const end = lastDayOfMonthUtc(y, idx);
+      if (end.getTime() > pe) return end;
+    }
+    return lastDayOfMonthUtc(y + 1, 2);
+  }
+  if (f === "YEARLY") {
+    return lastDayOfMonthUtc(periodEnd.getUTCFullYear() + 1, 11);
+  }
+  if (f === "CUSTOM") {
+    const months = (customMonthEnds1to12 || [])
+      .filter((m) => Number.isFinite(m) && m >= 1 && m <= 12)
+      .sort((a, b) => a - b);
+    if (!months.length) {
+      throw new Error("CUSTOM frequency requires customMonthEnds");
+    }
+    const pe = periodEnd.getTime();
+    const y0 = periodEnd.getUTCFullYear();
+    for (let yr = y0; yr <= y0 + 3; yr++) {
+      for (const m1 of months) {
+        const end = lastDayOfMonthUtc(yr, m1 - 1);
+        if (end.getTime() > pe) return end;
+      }
+    }
+    return lastDayOfMonthUtc(y0 + 4, months[0] - 1);
+  }
+  throw new Error(`Unsupported frequency: ${frequency}`);
+}
+
+/** `count` period ends starting at `anchor` (inclusive), advancing by frequency. */
+export function listPeriodEndsFromAnchorUtc(
+  frequency: string,
+  anchor: Date,
+  count: number,
+  customMonthEnds1to12?: number[] | null
+): Date[] {
+  const n = Math.max(0, Math.floor(count));
+  if (n === 0) return [];
+  const out: Date[] = [anchor];
+  let cur = anchor;
+  for (let i = 1; i < n; i++) {
+    cur = advancePeriodEndUtc(frequency, cur, customMonthEnds1to12);
+    out.push(cur);
+  }
+  return out;
+}
+
+export function compareIsoDates(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
