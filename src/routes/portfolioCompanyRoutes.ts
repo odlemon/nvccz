@@ -897,7 +897,9 @@ router.get(
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: `{ success, data: { configs } }`
+ *         description: |
+ *           `{ success, data: { configs } }` — each config has an `id`. Use **GET** `.../schedule-configs/{id}/preview`
+ *           for exact calendar dates (period end, open, due, reminders). See merged Swagger **Financial Reporting** section.
  *   post:
  *     summary: Create reporting schedule config — investor
  *     description: |
@@ -988,6 +990,11 @@ router.get(
   "/reporting/schedule-configs/:id",
   authenticate,
   ReportingScheduleConfigController.getById
+);
+router.get(
+  "/reporting/schedule-configs/:id/preview",
+  authenticate,
+  ReportingScheduleConfigController.previewById
 );
 router.put(
   "/reporting/schedule-configs/:id",

@@ -84,7 +84,9 @@ export const reportingScheduleSwaggerEndpoints = {
       summary: "List reporting schedule configs — investor",
       description:
         AUD_SCHEDULE_CONFIG_INVESTOR +
-        "Returns `{ success, data: { configs } }`. Each row is a **schedule definition** (cadence + timing), not an opened calendar period. Active configs are consumed by server automation on its own schedule.",
+        "Returns `{ success, data: { configs } }`. Each row is a **schedule definition** (cadence + timing), not an opened calendar period. " +
+        "Use the returned **`id`** with **GET** `/portfolio-companies/reporting/schedule-configs/{id}/preview` to see exact calendar dates (period end, reporting open, due, T−3 reminder, overdue). " +
+        "Active configs are consumed by server automation on its own schedule.",
       tags: ["Financial Reporting"],
       security: [{ bearerAuth: [] }],
       responses: {
@@ -176,6 +178,77 @@ export const reportingScheduleSwaggerEndpoints = {
       responses: {
         201: { description: "Created `{ success, data }`" },
         400: { description: "Validation error (e.g. CUSTOM without customMonthEnds)" },
+        401: { description: "Unauthorized" },
+      },
+    },
+  },
+
+  "/portfolio-companies/reporting/schedule-configs/{id}/preview": {
+    get: {
+      summary: "Preview reporting schedule dates — investor",
+      description:
+        AUD_SCHEDULE_CONFIG_INVESTOR +
+        "Computes **exact calendar dates** for upcoming reporting periods from a saved config (`id` from **GET** `.../schedule-configs`). " +
+        "Use before **POST** `/portfolio-companies/reporting/requests` to pre-fill `reportingPeriod` and `dueDate`, or to explain offsets to stakeholders. " +
+        "**Offsets:** `reportingOpensOn` = period end + `openCalendarAfterPeriodEndDays`; `submissionDueDate` = period end + `dueDateOffsetDaysAfterPeriodEnd`; " +
+        "`reminderTMinus3On` = due − 3 days; `overdueAlertOn` = due + 1 day (emails only when the daily reporting job runs on those dates).",
+      tags: ["Financial Reporting"],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: "path",
+          name: "id",
+          required: true,
+          schema: { type: "string" },
+          description: "Config id from GET /portfolio-companies/reporting/schedule-configs",
+        },
+        {
+          in: "query",
+          name: "asOfDate",
+          schema: { type: "string", format: "date", example: "2026-05-18" },
+          description: "Reference “today” for period derivation (default UTC today).",
+        },
+        {
+          in: "query",
+          name: "count",
+          schema: { type: "integer", minimum: 1, maximum: 24, default: 6 },
+          description: "How many upcoming periods to list (default 6).",
+        },
+      ],
+      responses: {
+        200: {
+          description: "Schedule preview",
+          content: {
+            "application/json": {
+              example: {
+                success: true,
+                data: {
+                  asOfDate: "2026-05-18",
+                  count: 6,
+                  reminderScheduleNote:
+                    "Reminder emails send only when the daily reporting job runs on the exact dates above.",
+                  periods: [
+                    {
+                      reportingPeriod: "2026-03-31",
+                      reportingPeriodLabel: "Q1 2026",
+                      periodEndDate: "2026-03-31",
+                      reportingOpensOn: "2026-04-01",
+                      submissionDueDate: "2026-04-15",
+                      reminderTMinus3On: "2026-04-12",
+                      overdueAlertOn: "2026-04-16",
+                      calendarAlreadyOpened: false,
+                      openWindowReached: true,
+                      isSubmissionOverdue: true,
+                      automationWouldOpenOnTick: false,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        404: { description: "Config not found" },
+        400: { description: "Invalid query (asOfDate or count)" },
         401: { description: "Unauthorized" },
       },
     },
