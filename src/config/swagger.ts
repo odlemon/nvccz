@@ -26,6 +26,7 @@ import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-s
 import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
 import { fundManagementEndpoints } from './fund-management-endpoints';
 import { portfolioLetterheadsEndpoints } from './portfolio-letterheads-endpoints';
+import { portfolioMonitoringEndpoints } from './portfolio-monitoring-endpoints';
 import { boardReviewOpenApiOverridePaths } from './board-review-openapi';
 
 const options = {
@@ -80,6 +81,11 @@ const options = {
         name: 'Portfolio Letterheads',
         description:
           'Investee letterhead CRUD per portfolio company — legal name, address lines, contact, social links, logo (`GET/PUT/DELETE /portfolio-companies/{id}/letterhead`, `POST …/letterhead/logo`). Authenticated users only; not tied to a specific financial report.'
+      },
+      {
+        name: 'Portfolio Monitoring & Exit Management',
+        description:
+          '**§2.4 Portfolio monitoring:** periodic **valuation events** and **exit management** per investment. Base path **`/investments/{investmentImplementationId}`** (server URL already includes `/api`). Resolve `investmentImplementationId` via `GET /investment-implementations/{portfolioCompanyId}` → `data.id`. Roles: admin, fund_manager, ceo, cfo. See **`docs/portfolio-monitoring-valuation-and-exit.md`**. DB: **`npm run db:migrate:investment-valuation-exit`**.'
       },
       {
         name: 'VAT Rates',
@@ -8859,6 +8865,7 @@ const fallbackSpec = {
           }
         }
       },
+    ...portfolioMonitoringEndpoints,
       '/investment-implementations': {
         get: {
           tags: ['💼 Stage 5: Investment Implementation'],
@@ -9463,6 +9470,7 @@ specs.paths = {
   ...updatedPerformanceSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
+  ...portfolioMonitoringEndpoints,
   ...boardReviewOpenApiOverridePaths
 };
 
