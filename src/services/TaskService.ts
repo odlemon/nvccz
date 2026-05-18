@@ -2022,7 +2022,7 @@ export class TaskService {
       );
 
       if (rollup.allCompleted && parentGoal.kpiId) {
-        await this.triggerAccountingIntegration(parentGoalId, parentGoal.targetValue || 0);
+        await this.triggerAccountingIntegration(parentGoalId, rollup.suggestedCurrentValue);
       }
 
       // 🚀 NEW: Trigger automatic roll-up calculations
@@ -2045,115 +2045,8 @@ export class TaskService {
     }
   }
 
-  /**
-   * Trigger accounting integration when goal is completed (task-linked goals / B.17).
-   * Uses hardcoded KPI config + chart of accounts rows (accountNo), same pattern as PerformanceGoalService.
-   */
   static async triggerAccountingIntegration(goalId: string, achievedValue: number): Promise<void> {
-    try {
-      console.log(`💰 Triggering accounting integration for goal: ${goalId}`);
-
-      const goal = await prisma.performanceGoal.findUnique({
-        where: { id: goalId },
-        include: { kpi: true },
-      });
-
-      if (!goal?.kpi) {
-        console.log(`⚠️ Goal ${goalId} has no KPI integration`);
-        return;
-      }
-
-      const { resolveKpiAccountingConfig } = await import("../utils/kpiCatalogMetadata");
-      const kpiConfig = resolveKpiAccountingConfig(goal.kpi);
-
-      if (!kpiConfig?.isFinancial || !kpiConfig.accountNumber) {
-        console.log(`⚠️ KPI "${goal.kpi.name}" is not financial or has no GL mapping; skipping journal entry`);
-        return;
-      }
-
-      if (!Number.isFinite(achievedValue) || achievedValue <= 0) {
-        console.log(`⚠️ KPI journal skipped: non-positive achievedValue (${achievedValue})`);
-        return;
-      }
-
-      // KPI journals should not hardcode a single "cash" account. Prefer the first active bank GL.
-      const bank = await prisma.bank.findFirst({
-        where: { isActive: true, glAccountId: { not: null } },
-        orderBy: { createdAt: "asc" },
-        select: { glAccountId: true },
-      });
-      const offsetAccountNo = bank?.glAccountId
-        ? null
-        : "1100";
-      const [primaryAcc, offsetAcc] = await Promise.all([
-        prisma.chartOfAccounts.findFirst({
-          where: { accountNo: kpiConfig.accountNumber, isActive: true },
-          select: { id: true },
-        }),
-        bank?.glAccountId
-          ? prisma.chartOfAccounts.findUnique({ where: { id: bank.glAccountId }, select: { id: true } })
-          : prisma.chartOfAccounts.findFirst({
-              where: { accountNo: offsetAccountNo!, isActive: true },
-              select: { id: true },
-            }),
-      ]);
-
-      if (!primaryAcc?.id || !offsetAcc?.id) {
-        console.error(
-          `❌ KPI journal skipped: chart account missing (KPI accountNo=${kpiConfig.accountNumber}, offset=bank.glAccountId|${offsetAccountNo})`
-        );
-        return;
-      }
-
-      const currency =
-        (await prisma.currency.findFirst({ where: { isDefault: true, isActive: true } })) ||
-        (await prisma.currency.findFirst({ where: { code: "USD", isActive: true } })) ||
-        (await prisma.currency.findFirst({ where: { isActive: true } }));
-
-      if (!currency) {
-        console.error("❌ KPI journal skipped: no active currency");
-        return;
-      }
-
-      const { createJournalEntryWithAuditSequence } = await import("./AuditTrailSequenceService");
-
-      const primaryId = primaryAcc.id;
-      const offsetId = offsetAcc.id;
-      const line1AccountId =
-        kpiConfig.journalEntryType === "Debit" ? primaryId : offsetId;
-      const line2AccountId =
-        kpiConfig.journalEntryType === "Credit" ? primaryId : offsetId;
-
-      await createJournalEntryWithAuditSequence({
-        transactionDate: new Date(),
-        referenceNumber: `KPI-${goal.id}-${Date.now()}`,
-        description: `KPI Achievement: ${goal.kpi.name} - ${goal.title}`,
-        totalAmount: achievedValue,
-        currencyId: currency.id,
-        status: "POSTED",
-        createdById: goal.createdById,
-        journalEntryLines: {
-          create: [
-            {
-              chartOfAccountId: line1AccountId,
-              debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-              creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-              description: `KPI: ${goal.kpi.name}`,
-            },
-            {
-              chartOfAccountId: line2AccountId,
-              debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-              creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-              description: `KPI: ${goal.kpi.name}`,
-            },
-          ],
-        },
-      });
-
-      console.log(`✅ KPI journal posted for goal ${goalId} (${goal.kpi.name})`);
-    } catch (error) {
-      console.error("❌ Error triggering accounting integration:", error);
-      throw error;
-    }
+    const { KpiAccountingIntegrationService } = await import("./KpiAccountingIntegrationService");
+    await KpiAccountingIntegrationService.triggerKpiAchievementJournal(goalId, achievedValue);
   }
 }

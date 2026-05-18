@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "../utils/database";
-import { createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
 import { KPIService } from "./KPIService";
 import {
   computeAchievementPercent,
@@ -309,7 +308,7 @@ export class PerformanceWorkflowService {
       );
 
       if (rollup.allCompleted && parentGoal.kpiId) {
-        await this.triggerAccountingIntegration(parentGoalId, parentGoal.targetValue);
+        await this.triggerAccountingIntegration(parentGoalId, rollup.suggestedCurrentValue);
       }
 
       // If this parent goal has a parent, update it too
@@ -351,81 +350,9 @@ export class PerformanceWorkflowService {
     }
   }
 
-  /**
-   * Trigger accounting integration for KPI achievement
-   */
   static async triggerAccountingIntegration(goalId: string, achievedValue: number): Promise<void> {
-    try {
-      console.log(`💰 Triggering accounting integration for goal: ${goalId}`);
-
-      const goal = await prisma.performanceGoal.findUnique({
-        where: { id: goalId },
-        include: { kpi: true }
-      });
-
-      if (!goal || !goal.kpi) {
-        console.log(`⚠️ Goal ${goalId} has no KPI associated`);
-        return;
-      }
-
-      const { resolveKpiAccountingConfig } = await import("../utils/kpiCatalogMetadata");
-      const kpiConfig = resolveKpiAccountingConfig(goal.kpi);
-
-      if (kpiConfig && kpiConfig.isFinancial && kpiConfig.accountNumber) {
-        // Create journal entry based on KPI completion
-        // Use a bank-linked GL account as the cash offset (Cash & Cash Equivalents is a reporting bucket).
-        const bank = await prisma.bank.findFirst({
-          where: { isActive: true, glAccountId: { not: null } },
-          orderBy: { createdAt: "asc" },
-          select: { glAccountId: true },
-        });
-        if (!bank?.glAccountId) {
-          throw new Error("No active bank with a GL account linked (banks.glAccountId).");
-        }
-        const kpiAccount = await prisma.chartOfAccounts.findFirst({
-          where: { accountNo: kpiConfig.accountNumber, isActive: true },
-          select: { id: true, accountNo: true, accountName: true },
-        });
-        if (!kpiAccount) {
-          throw new Error(`No active chart account found for KPI account number ${kpiConfig.accountNumber}.`);
-        }
-
-        const journalEntry = await createJournalEntryWithAuditSequence({
-          transactionDate: new Date(),
-          referenceNumber: `KPI-${goal.id}-${Date.now()}`,
-          description: `KPI Achievement: ${goal.title} - ${achievedValue} ${goal.targetUnit}`,
-          totalAmount: achievedValue,
-          currencyId: "USD",
-          status: "POSTED",
-          createdById: goal.createdById,
-          journalEntryLines: {
-            create: [
-              {
-                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiAccount.id : bank.glAccountId,
-                debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-                creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-                description: `KPI: ${goal.kpi.name}`,
-              },
-              {
-                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiAccount.id : bank.glAccountId,
-                debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-                creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-                description: `KPI: ${goal.kpi.name}`,
-              },
-            ],
-          },
-        });
-
-        console.log(`✅ Accounting integration triggered for goal ${goalId}: Journal Entry ${journalEntry.id} created`);
-      } else {
-        console.log(
-          `⚠️ KPI ${goal.kpi.code || goal.kpi.name} is not financial or has no GL mapping; no journal entry created`
-        );
-      }
-    } catch (error) {
-      console.error('❌ Error triggering accounting integration:', error);
-      throw error;
-    }
+    const { KpiAccountingIntegrationService } = await import("./KpiAccountingIntegrationService");
+    await KpiAccountingIntegrationService.triggerKpiAchievementJournal(goalId, achievedValue);
   }
 
   /**
