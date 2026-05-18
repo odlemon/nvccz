@@ -45,7 +45,7 @@ router.use(authenticate);
  *       **`multipart/form-data` only.** Fields: **`title`** (string), **`content`** (string; HTML or plain text),
  *       optional **`image`** (binary cover photo).
  *
- *       The server saves the cover under `/api/uploads/newsletters/` and returns the full **`imageUrl`**
+ *       The server uploads the cover to remote media storage and returns the public **`imageUrl`**
  *       on **`data`** (use this in the UI). Omit `multipart` file fields if there is no cover image.
  *
  *       Notifies internal staff (in-app) and queues promotional emails (background); see `distribution.emailDispatch`.

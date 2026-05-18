@@ -2,9 +2,14 @@
 import { PrismaClient, Prisma, Decimal } from "@prisma/client";
 import AuditService from "./AuditService";
 import { EmailNotificationService } from "./EmailNotificationService";
+import VATService from "./VATService";
 
 import { prisma } from '../utils/database';
 import { nextQuotationNumber } from "../utils/accountingDocumentNumbers";
+import {
+  verifyVendorPortalToken,
+  VENDOR_PORTAL_KIND_RFQ_SUBMIT,
+} from "../utils/vendorPortalToken";
 
 /**
  * Render a vendor quotation PDF (with letterhead + ACCEPTED/REJECTED watermark) for email attachment.
@@ -77,6 +82,11 @@ async function buildVendorQuotationPdfAttachment(
 export interface CreateVendorQuotationParams {
   rfqNumber?: string;
   requisitionId?: string;
+  /**
+   * Signed portal token (`RFQ_SUBMIT`) from the RFQ email link. Required.
+   * Alias: `token` (same string) is also accepted by the controller body passthrough.
+   */
+  vendorPortalToken: string;
   vendorName: string;
   vendorEmail: string;
   companyName?: string;
@@ -118,6 +128,35 @@ export interface ReviewQuotationParams {
 
 export class VendorQuotationService {
   /**
+   * Prefer `vendorId` on the quotation; fall back to email match (legacy rows).
+   * Used for RFQ award PO creation and reject emails.
+   */
+  static async resolveVendorForQuotation(quotation: {
+    vendorId: string | null;
+    vendorEmail: string;
+  }) {
+    let vendor =
+      quotation.vendorId &&
+      (await prisma.vendor.findUnique({
+        where: { id: quotation.vendorId },
+        select: { id: true, name: true, email: true, contactPerson: true },
+      }));
+    const fallbackEmail = String(quotation.vendorEmail || "").trim();
+    if (!vendor?.email?.trim() && fallbackEmail) {
+      vendor = await prisma.vendor.findFirst({
+        where: { email: fallbackEmail },
+        select: { id: true, name: true, email: true, contactPerson: true },
+      });
+    }
+    if (!vendor?.email?.trim()) {
+      throw new Error(
+        "Vendor not found for this quotation (missing vendorId link or unknown email). Update the vendor master record."
+      );
+    }
+    return vendor;
+  }
+
+  /**
    * Create a vendor quotation (no authentication required)
    * This is called when a vendor submits their quote through the public form
    */
@@ -126,6 +165,7 @@ export class VendorQuotationService {
       const {
         rfqNumber,
         requisitionId,
+        vendorPortalToken,
         vendorName,
         vendorEmail,
         companyName,
@@ -144,21 +184,117 @@ export class VendorQuotationService {
         technicalScoreJson,
       } = params;
 
-      let procurementRfqId: string | null = null;
-      if (rfqNumber) {
-        const rfqRow = await prisma.procurementRfq.findUnique({
-          where: { rfqNumber },
-          select: { id: true },
-        });
-        procurementRfqId = rfqRow?.id ?? null;
+      const portalRaw = String(vendorPortalToken || "").trim();
+      if (!portalRaw) {
+        throw new Error("vendorPortalToken is required");
       }
+      const portalPayload = verifyVendorPortalToken(portalRaw);
+      if (portalPayload.k !== VENDOR_PORTAL_KIND_RFQ_SUBMIT) {
+        throw new Error("Invalid vendor portal token for quotation submission");
+      }
+      const vendorIdFromToken = portalPayload.v;
+      const procurementRfqIdFromToken = portalPayload.r;
+
+      const rfqRow = await prisma.procurementRfq.findUnique({
+        where: { id: procurementRfqIdFromToken },
+        select: {
+          id: true,
+          rfqNumber: true,
+          status: true,
+          closingAt: true,
+          requisitionId: true,
+        },
+      });
+      if (!rfqRow) {
+        throw new Error("RFQ not found for this token");
+      }
+      if (rfqRow.status !== "OPEN") {
+        throw new Error(`RFQ is not accepting quotations (status: ${rfqRow.status})`);
+      }
+      if (rfqRow.closingAt && new Date() > new Date(rfqRow.closingAt)) {
+        throw new Error("RFQ submission deadline has passed");
+      }
+
+      const invite = await prisma.rfqVendorInvitation.findUnique({
+        where: {
+          procurementRfqId_vendorId: {
+            procurementRfqId: procurementRfqIdFromToken,
+            vendorId: vendorIdFromToken,
+          },
+        },
+      });
+      if (!invite) {
+        throw new Error("This vendor is not invited to this RFQ");
+      }
+
+      const vendorRow = await prisma.vendor.findUnique({
+        where: { id: vendorIdFromToken },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          taxNumber: true,
+          contactPerson: true,
+          phone: true,
+          address: true,
+          paymentTerms: true,
+        },
+      });
+      if (!vendorRow) {
+        throw new Error("Vendor not found");
+      }
+      const recordEmail = String(vendorRow.email || "")
+        .trim()
+        .toLowerCase();
+      const submittedEmail = String(vendorEmail || "")
+        .trim()
+        .toLowerCase();
+      if (!recordEmail || recordEmail !== submittedEmail) {
+        throw new Error("Vendor email does not match the invited vendor for this RFQ");
+      }
+
+      const trimIn = (v: unknown) => {
+        const t = v == null ? "" : String(v).trim();
+        return t.length > 0 ? t : undefined;
+      };
+
+      const resolvedVendorEmail = String(vendorRow.email).trim();
+      const resolvedCompanyName =
+        String(vendorRow.name || "").trim() || trimIn(companyName) || "Vendor";
+      const resolvedVendorName =
+        String(vendorRow.contactPerson || "").trim() ||
+        trimIn(vendorName) ||
+        resolvedCompanyName;
+      const resolvedContactPerson =
+        String(vendorRow.contactPerson || "").trim() ||
+        trimIn(contactPerson) ||
+        trimIn(vendorName) ||
+        resolvedCompanyName;
+      const resolvedTaxEIN =
+        vendorRow.taxNumber?.trim() || trimIn(taxEIN) || undefined;
+      const resolvedPhone =
+        vendorRow.phone?.trim() || trimIn(phoneNumber) || undefined;
+      const resolvedAddress =
+        vendorRow.address?.trim() || trimIn(address) || undefined;
+      const resolvedPaymentTerms =
+        vendorRow.paymentTerms?.trim() || trimIn(paymentTerms) || undefined;
+
+      if (rfqNumber && rfqRow.rfqNumber !== rfqNumber) {
+        throw new Error("rfqNumber does not match this invitation token");
+      }
+
+      const effectiveRfqNumber = rfqRow.rfqNumber;
+      const effectiveProcurementRfqId = rfqRow.id;
+      const effectiveRequisitionId = requisitionId ?? rfqRow.requisitionId ?? undefined;
+
+      let procurementRfqId: string | null = effectiveProcurementRfqId;
 
       console.log("\n════════════════════════════════════════════════════════════════");
       console.log("📝 CREATING VENDOR QUOTATION");
       console.log("════════════════════════════════════════════════════════════════");
-      console.log(`📧 Vendor Email: ${vendorEmail}`);
-      console.log(`🏢 Company: ${companyName || vendorName}`);
-      console.log(`📋 RFQ Number: ${rfqNumber || 'N/A'}`);
+      console.log(`📧 Vendor Email: ${resolvedVendorEmail}`);
+      console.log(`🏢 Company: ${resolvedCompanyName}`);
+      console.log(`📋 RFQ Number: ${effectiveRfqNumber}`);
       console.log(`📦 Items: ${items.length}`);
       console.log("");
 
@@ -173,9 +309,9 @@ export class VendorQuotationService {
         };
       });
 
-      // For now, we'll assume a default tax rate of 0
-      // Vendors can specify tax in their notes or we can calculate later
-      const taxAmount = 0;
+      // Same VAT logic as Purchase Order creation so quotation subtotal/tax/total match the PO totals.
+      await VATService.refreshActiveVatRate(false).catch(() => undefined);
+      const taxAmount = VATService.calculateVAT(subtotal);
       const totalAmount = subtotal + taxAmount;
 
       console.log("💰 Financial Summary:");
@@ -185,18 +321,19 @@ export class VendorQuotationService {
       console.log("");
 
       const quotationDataBase = {
-        rfqNumber,
-        requisitionId,
-        vendorName,
-        vendorEmail,
-        companyName,
-        taxEIN,
-        contactPerson,
-        phoneNumber,
-        address,
+        rfqNumber: effectiveRfqNumber,
+        requisitionId: effectiveRequisitionId,
+        vendorId: vendorIdFromToken,
+        vendorName: resolvedVendorName,
+        vendorEmail: resolvedVendorEmail,
+        companyName: resolvedCompanyName,
+        taxEIN: resolvedTaxEIN,
+        contactPerson: resolvedContactPerson,
+        phoneNumber: resolvedPhone,
+        address: resolvedAddress,
         validUntil,
         currencyCode,
-        paymentTerms,
+        paymentTerms: resolvedPaymentTerms,
         deliveryTerms,
         deliveryTime,
         notes,
@@ -265,9 +402,15 @@ export class VendorQuotationService {
       console.log("════════════════════════════════════════════════════════════════\n");
 
       // Notify procurement requester (if the requisition exists and has an owner)
-      if (requisitionId) {
-        const requisition = await prisma.purchaseRequisition.findUnique({
-          where: { id: requisitionId },
+      let requisitionForNotify: {
+        requisitionNumber: string;
+        title: string;
+        requestedBy: { firstName: string; lastName: string; email: string } | null;
+      } | null = null;
+
+      if (effectiveRequisitionId) {
+        requisitionForNotify = await prisma.purchaseRequisition.findUnique({
+          where: { id: effectiveRequisitionId },
           include: {
             requestedBy: {
               select: {
@@ -279,14 +422,22 @@ export class VendorQuotationService {
           }
         });
 
-        if (requisition && requisition.requestedBy?.email) {
-          const requesterName = `${requisition.requestedBy.firstName} ${requisition.requestedBy.lastName}`;
+        if (requisitionForNotify && requisitionForNotify.requestedBy?.email) {
+          const requesterName = `${requisitionForNotify.requestedBy.firstName} ${requisitionForNotify.requestedBy.lastName}`;
           await EmailNotificationService.sendQuotationSubmittedNotification({
             requesterName,
-            requesterEmail: requisition.requestedBy.email,
-            vendorName: companyName || vendorName,
-            vendorEmail,
-            rfqNumber,
+            requesterEmail: requisitionForNotify.requestedBy.email,
+            vendorName: resolvedCompanyName,
+            vendorEmail: resolvedVendorEmail,
+            companyName: resolvedCompanyName,
+            contactPerson: resolvedContactPerson,
+            taxEIN: resolvedTaxEIN,
+            phoneNumber: resolvedPhone,
+            address: resolvedAddress,
+            paymentTerms: resolvedPaymentTerms,
+            deliveryTerms: trimIn(deliveryTerms),
+            deliveryTime: trimIn(deliveryTime),
+            rfqNumber: effectiveRfqNumber,
             quotationNumber: quotation.quotationNumber,
             totalAmount: Number(quotation.totalAmount),
             currencyCode,
@@ -298,11 +449,65 @@ export class VendorQuotationService {
               unitPrice: Number(item.unitPrice),
               totalPrice: Number(item.totalPrice)
             })),
-            requisitionNumber: requisition.requisitionNumber,
-            requisitionTitle: requisition.title,
+            requisitionNumber: requisitionForNotify.requisitionNumber,
+            requisitionTitle: requisitionForNotify.title,
             notes
           });
         }
+      }
+
+      try {
+        const { ProcurementService } = await import("./ProcurementService");
+        const deskRecipients = await ProcurementService.resolveProcurementDeskNotifyRecipients();
+        const skipEmails = new Set<string>();
+        if (requisitionForNotify?.requestedBy?.email) {
+          skipEmails.add(requisitionForNotify.requestedBy.email.trim().toLowerCase());
+        }
+        const payloadBase = {
+          vendorName: resolvedCompanyName,
+          vendorEmail: resolvedVendorEmail,
+          companyName: resolvedCompanyName,
+          contactPerson: resolvedContactPerson,
+          taxEIN: resolvedTaxEIN,
+          phoneNumber: resolvedPhone,
+          address: resolvedAddress,
+          paymentTerms: resolvedPaymentTerms,
+          deliveryTerms: trimIn(deliveryTerms),
+          deliveryTime: trimIn(deliveryTime),
+          rfqNumber: effectiveRfqNumber,
+          quotationNumber: quotation.quotationNumber,
+          totalAmount: Number(quotation.totalAmount),
+          currencyCode,
+          items: quotation.items.map(item => ({
+            itemName: item.itemName,
+            description: item.description,
+            quantity: Number(item.quantity),
+            unit: item.unit || "unit",
+            unitPrice: Number(item.unitPrice),
+            totalPrice: Number(item.totalPrice),
+          })),
+          requisitionNumber: requisitionForNotify?.requisitionNumber,
+          requisitionTitle: requisitionForNotify?.title,
+          notes,
+        };
+        for (const r of deskRecipients) {
+          const em = r.email?.trim().toLowerCase();
+          if (!em || skipEmails.has(em)) continue;
+          try {
+            await EmailNotificationService.sendQuotationSubmittedDeskCopy({
+              recipientName: r.name,
+              recipientEmail: r.email,
+              ...payloadBase,
+            });
+          } catch (oneDeskErr) {
+            console.error(
+              `⚠️  Desk quotation notify failed for ${r.email}:`,
+              (oneDeskErr as Error)?.message || oneDeskErr
+            );
+          }
+        }
+      } catch (deskErr) {
+        console.error("⚠️  Desk notification for new quotation failed:", (deskErr as Error)?.message || deskErr);
       }
 
       return quotation;
@@ -433,8 +638,8 @@ export class VendorQuotationService {
         reviewedById,
         reviewNotes,
         rejectionReason,
-        createPO = true, // Default to true - auto-create PO on acceptance
-        createInvoice = false // Default to false - invoice created after GRN
+        createPO = true,
+        createInvoice = false,
       } = params;
 
       console.log("\n════════════════════════════════════════════════════════════════");
@@ -459,11 +664,30 @@ export class VendorQuotationService {
 
       console.log(`   Quotation: ${quotation.quotationNumber}`);
       console.log(`   Vendor: ${quotation.companyName || quotation.vendorName}`);
-      console.log(`   Amount: $${Number(quotation.totalAmount).toFixed(2)}`);
+      console.log(`   Amount (stored): $${Number(quotation.totalAmount).toFixed(2)}`);
       console.log(`   Action: ${action}`);
       console.log("");
 
       const newStatus = action === "ACCEPT" ? "ACCEPTED" : "REJECTED";
+
+      // Reconcile subtotal/VAT/total with the same rules as `ProcurementService.createPurchaseOrder`,
+      // so legacy quotations (stored with taxAmount=0) and new PO-from-quotation flows show equal figures.
+      await VATService.refreshActiveVatRate(false).catch(() => undefined);
+      const alignedSubtotal = quotation.items.reduce(
+        (sum, item: { quantity: any; unitPrice: any }) =>
+          sum + Number(item.quantity) * Number(item.unitPrice),
+        0
+      );
+      const alignedTax = VATService.calculateVAT(alignedSubtotal);
+      const alignedTotal = alignedSubtotal + alignedTax;
+
+      let rejectionFingerprint: string | null = null;
+      if (action === "REJECT") {
+        const { computeVendorQuotationRejectionFingerprint } = await import(
+          "../utils/procurementEntityRejectionFingerprint"
+        );
+        rejectionFingerprint = computeVendorQuotationRejectionFingerprint(quotation);
+      }
 
       // Update quotation status
       const updatedQuotation = await prisma.vendorQuotation.update({
@@ -473,7 +697,11 @@ export class VendorQuotationService {
           reviewedById,
           reviewedAt: new Date(),
           reviewNotes,
-          rejectionReason: action === "REJECT" ? rejectionReason : null
+          rejectionReason: action === "REJECT" ? rejectionReason : null,
+          rejectionContentFingerprint: action === "REJECT" ? rejectionFingerprint : null,
+          subtotal: new Decimal(alignedSubtotal),
+          taxAmount: new Decimal(alignedTax),
+          totalAmount: new Decimal(alignedTotal),
         },
         include: {
           items: true,
@@ -503,44 +731,52 @@ export class VendorQuotationService {
         }
       });
 
-      // Send email notification to vendor (best-effort: failures here must not roll back the review)
+      let masterVendor: {
+        id: string;
+        name: string;
+        email: string;
+        contactPerson: string | null;
+      } | null = null;
       try {
-        const pdfAttachment = await buildVendorQuotationPdfAttachment(updatedQuotation, action === "ACCEPT" ? "ACCEPTED" : "REJECTED").catch((e: any) => {
-          console.warn("⚠️  Failed to render quotation PDF (continuing without attachment):", e?.message || e);
-          return undefined;
-        });
+        masterVendor = await VendorQuotationService.resolveVendorForQuotation(quotation);
+      } catch (e: any) {
+        console.warn(
+          "⚠️  Could not resolve vendor master for this quotation (emails will use stored quotation fields):",
+          e?.message || e
+        );
+      }
 
-        if (action === "ACCEPT") {
-          await EmailNotificationService.sendQuotationAcceptedEmail({
-            vendorName: quotation.companyName || quotation.vendorName,
-            vendorEmail: quotation.vendorEmail,
-            quotationNumber: quotation.quotationNumber,
-            quotationAmount: Number(quotation.totalAmount),
-            currencyCode: quotation.currencyCode,
-            rfqNumber: quotation.rfqNumber,
-            reviewNotes,
-            pdfAttachment,
-          });
-          console.log("✅ Acceptance email sent to vendor");
+      const notifyVendorName = masterVendor
+        ? masterVendor.contactPerson?.trim() || masterVendor.name
+        : quotation.companyName || quotation.vendorName;
+      const notifyVendorEmail = masterVendor?.email?.trim() || quotation.vendorEmail;
 
-          if (quotation.rfqNumber) {
-            await this.rejectOtherQuotations(quotation.rfqNumber, quotation, reviewedById);
-          }
-        } else {
+      if (action === "ACCEPT" && quotation.rfqNumber) {
+        await this.rejectOtherQuotations(quotation.rfqNumber, quotation, reviewedById);
+      }
+
+      // Rejection email only here; acceptance with PO uses one combined PO email (no quotation PDF).
+      if (action === "REJECT") {
+        try {
+          const pdfAttachment = await buildVendorQuotationPdfAttachment(updatedQuotation, "REJECTED").catch(
+            (e: any) => {
+              console.warn("⚠️  Failed to render quotation PDF (continuing without attachment):", e?.message || e);
+              return undefined;
+            }
+          );
           await EmailNotificationService.sendQuotationRejectedEmail({
-            vendorName: quotation.companyName || quotation.vendorName,
-            vendorEmail: quotation.vendorEmail,
+            vendorName: notifyVendorName,
+            vendorEmail: notifyVendorEmail,
             quotationNumber: quotation.quotationNumber,
-            quotationAmount: Number(quotation.totalAmount),
+            quotationAmount: Number(updatedQuotation.totalAmount),
             currencyCode: quotation.currencyCode,
             rejectionReason,
             pdfAttachment,
           });
           console.log("✅ Rejection email sent to vendor");
+        } catch (emailError: any) {
+          console.error("⚠️  Failed to send rejection email:", emailError.message);
         }
-      } catch (emailError: any) {
-        console.error("⚠️  Failed to send email notification:", emailError.message);
-        // Don't fail the entire operation if email fails
       }
 
       let purchaseOrder = null;
@@ -548,67 +784,111 @@ export class VendorQuotationService {
 
       // If accepted, create PO (default) or invoice (if explicitly requested)
       if (action === "ACCEPT") {
-        // Find vendor in the system
-        const vendor = await prisma.vendor.findFirst({
-          where: { email: quotation.vendorEmail }
-        });
-
-        if (!vendor) {
+        if (!masterVendor) {
           throw new Error(
-            `Vendor with email ${quotation.vendorEmail} not found in system. ` +
-            `Please add this vendor before accepting the quotation, or the system admin should create the vendor account.`
+            "Vendor master record could not be resolved from vendorId or email; cannot create purchase order. Link the quotation to a vendor or fix the vendor email."
           );
         }
-
+        const vendor = masterVendor;
         // Get currency by code
         const currency = await prisma.currency.findFirst({
           where: { code: quotation.currencyCode }
         });
 
-        // Create Purchase Order (default behavior)
+        // Create Purchase Order (default behavior) — quotation line items, then email vendor
         if (createPO) {
-          console.log("\n📦 Creating Purchase Order from quotation...");
-          
-          const { ProcurementService } = await import('./ProcurementService');
-          
+          console.log("\n📦 Creating Purchase Order from accepted quotation...");
+
+          let rfqRow: {
+            requisitionId: string | null;
+            deliveryAddress: string | null;
+            expectedDeliveryDate: Date | null;
+          } | null = null;
+
+          if (quotation.procurementRfqId) {
+            rfqRow = await prisma.procurementRfq.findUnique({
+              where: { id: quotation.procurementRfqId },
+              select: {
+                requisitionId: true,
+                deliveryAddress: true,
+                expectedDeliveryDate: true,
+              },
+            });
+          } else if (quotation.rfqNumber) {
+            rfqRow = await prisma.procurementRfq.findUnique({
+              where: { rfqNumber: quotation.rfqNumber },
+              select: {
+                requisitionId: true,
+                deliveryAddress: true,
+                expectedDeliveryDate: true,
+              },
+            });
+          }
+
+          const poItems = quotation.items.map((item) => ({
+            itemName: item.itemName,
+            description: item.description || undefined,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            unit: item.unit || undefined,
+            specifications: item.specifications || undefined,
+          }));
+
+          const { ProcurementService } = await import("./ProcurementService");
+
           purchaseOrder = await ProcurementService.createPurchaseOrder({
             quotationId: quotation.id,
-            requisitionId: quotation.requisitionId || undefined,
+            requisitionId: quotation.requisitionId || rfqRow?.requisitionId || undefined,
             vendorId: vendor.id,
             currencyId: currency?.id,
-            expectedDeliveryDate: quotation.validUntil || undefined,
+            expectedDeliveryDate:
+              rfqRow?.expectedDeliveryDate || quotation.validUntil || undefined,
+            shippingAddress: rfqRow?.deliveryAddress || quotation.address || undefined,
             paymentTerms: quotation.paymentTerms || undefined,
             deliveryTerms: quotation.deliveryTerms || undefined,
             createdById: reviewedById,
-            items: quotation.items.map(item => ({
-              itemName: item.itemName,
-              description: item.description || undefined,
-              quantity: Number(item.quantity),
-              unitPrice: Number(item.unitPrice),
-              unit: item.unit || undefined,
-              specifications: item.specifications || undefined
-            }))
+            items: poItems,
           });
 
-          // Update quotation with PO reference (optional - PO already has quotationId)
-          // This updates the reverse relation if Prisma client supports it
           try {
             await prisma.vendorQuotation.update({
               where: { id: quotationId },
-              data: { purchaseOrder: { connect: { id: purchaseOrder.id } } }
+              data: { purchaseOrder: { connect: { id: purchaseOrder.id } } },
             });
-          } catch (error: any) {
-            // If Prisma client hasn't been regenerated yet, this will fail silently
-            // The PO already has quotationId, so the link is established
-            console.log('   ⚠️  Could not update quotation reverse relation (Prisma client may need regeneration)');
-            console.log('   ✅ PO-quotation link already established via quotationId field');
+          } catch {
+            // PO already linked via quotationId on purchase_orders
           }
 
           console.log(`✅ Purchase Order created: ${purchaseOrder.poNumber}`);
           console.log(`   PO ID: ${purchaseOrder.id}`);
-          console.log(`   Status: ${purchaseOrder.status}`);
-          console.log(`   Amount: $${Number(purchaseOrder.totalAmount).toFixed(2)}`);
-          console.log(`   📌 Next step: Send PO to vendor using POST /api/procurement/purchase-orders/${purchaseOrder.id}/send`);
+          console.log(`   Lines: ${poItems.length} (from quotation)`);
+
+          console.log("\n📧 Sending combined acceptance + PO email to vendor...");
+          purchaseOrder = await ProcurementService.sendPurchaseOrder(purchaseOrder.id, reviewedById, {
+            quotationAcceptContext: {
+              quotationNumber: quotation.quotationNumber,
+              quotationAmount: Number(updatedQuotation.totalAmount),
+              currencyCode: quotation.currencyCode,
+              reviewNotes,
+              rfqNumber: quotation.rfqNumber || undefined,
+            },
+          });
+          console.log(`   ✅ PO emailed to vendor (status: ${purchaseOrder.status})`);
+        } else if (action === "ACCEPT") {
+          try {
+            await EmailNotificationService.sendQuotationAcceptedEmail({
+              vendorName: notifyVendorName,
+              vendorEmail: notifyVendorEmail,
+              quotationNumber: quotation.quotationNumber,
+              quotationAmount: Number(updatedQuotation.totalAmount),
+              currencyCode: quotation.currencyCode,
+              rfqNumber: quotation.rfqNumber,
+              reviewNotes,
+            });
+            console.log("✅ Acceptance email sent (no PO created)");
+          } catch (emailError: any) {
+            console.error("⚠️  Failed to send acceptance email:", emailError.message);
+          }
         }
 
         // Create Invoice (optional - usually created after GRN)
@@ -702,23 +982,30 @@ export class VendorQuotationService {
           rfqNumber,
           status: { in: ["SUBMITTED", "UNDER_REVIEW"] },
           id: { not: acceptedQuotation.id }
-        }
+        },
+        include: { items: true },
       });
 
       if (remainingQuotations.length === 0) {
         return;
       }
 
-      const rejectionReason = `RFQ ${rfqNumber} was awarded to ${acceptedQuotation.companyName || acceptedQuotation.vendorName}.`;
+      const { computeVendorQuotationRejectionFingerprint } = await import(
+        "../utils/procurementEntityRejectionFingerprint"
+      );
+
+      const rejectionReason = `RFQ ${rfqNumber} — another vendor's quotation was accepted.`;
 
       for (const quote of remainingQuotations) {
+        const rejectionFingerprint = computeVendorQuotationRejectionFingerprint(quote);
         const updated = await prisma.vendorQuotation.update({
           where: { id: quote.id },
           data: {
             status: "REJECTED",
             reviewedById,
             reviewedAt: new Date(),
-            rejectionReason
+            rejectionReason,
+            rejectionContentFingerprint: rejectionFingerprint,
           },
           include: {
             items: true
@@ -738,9 +1025,20 @@ export class VendorQuotationService {
 
         const pdfAttachment = await buildVendorQuotationPdfAttachment(updated, "REJECTED").catch(() => undefined);
 
+        let regVendor: { name: string; email: string; contactPerson: string | null } | null = null;
+        try {
+          regVendor = await VendorQuotationService.resolveVendorForQuotation(updated);
+        } catch {
+          regVendor = null;
+        }
+        const rejName = regVendor
+          ? regVendor.contactPerson?.trim() || regVendor.name
+          : updated.companyName || updated.vendorName;
+        const rejEmail = regVendor?.email?.trim() || updated.vendorEmail;
+
         await EmailNotificationService.sendQuotationRejectedEmail({
-          vendorName: updated.companyName || updated.vendorName,
-          vendorEmail: updated.vendorEmail,
+          vendorName: rejName,
+          vendorEmail: rejEmail,
           quotationNumber: updated.quotationNumber,
           quotationAmount: Number(updated.totalAmount),
           currencyCode: updated.currencyCode,
@@ -755,11 +1053,32 @@ export class VendorQuotationService {
   }
 
   /**
-   * Get quotations by RFQ number
+   * Get quotations by RFQ number, plus the procurement RFQ header (so callers still see line items
+   * from `itemsSnapshot` / PR when no vendor has submitted yet).
    */
   static async getQuotationsByRFQ(rfqNumber: string) {
     try {
-      const quotations = await prisma.vendorQuotation.findMany({
+      const rfq = await prisma.procurementRfq.findUnique({
+        where: { rfqNumber },
+        select: {
+          id: true,
+          rfqNumber: true,
+          requisitionId: true,
+          title: true,
+          description: true,
+          status: true,
+          visibility: true,
+          closingAt: true,
+          expectedDeliveryDate: true,
+          deliveryAddress: true,
+          specialRequirements: true,
+          itemsSnapshot: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      const quotationsRaw = await prisma.vendorQuotation.findMany({
         where: { rfqNumber },
         include: {
           items: true,
@@ -768,22 +1087,29 @@ export class VendorQuotationService {
               id: true,
               firstName: true,
               lastName: true,
-              email: true
-            }
+              email: true,
+            },
           },
           invoice: {
             select: {
               id: true,
               invoiceNumber: true,
-              status: true
-            }
-          }
+              status: true,
+            },
+          },
         },
-        orderBy: { submittedAt: 'desc' }
+        orderBy: { submittedAt: "desc" },
       });
 
+      const fallbackRfqId = rfq?.id ?? null;
+      const quotationsForRedaction = quotationsRaw.map((q: any) => ({
+        ...q,
+        procurementRfqId: q.procurementRfqId || fallbackRfqId,
+      }));
+
       const { maybeRedactQuotationsListForStaff } = await import("../utils/quotationRedaction");
-      return maybeRedactQuotationsListForStaff(quotations);
+      const quotations = await maybeRedactQuotationsListForStaff(quotationsForRedaction);
+      return { quotations, rfq };
     } catch (error: any) {
       console.error("Error fetching quotations by RFQ:", error);
       throw error;

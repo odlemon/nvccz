@@ -7,6 +7,8 @@ import {
 } from "../services/PurchaseInvoiceService";
 import { prisma } from "../utils/database";
 import { parseDate } from "../utils/dateHelper";
+import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
+import { isAdminViewer } from "../services/performanceScorecardSupport";
 
 export class ProcurementController {
   /**
@@ -125,11 +127,50 @@ export class ProcurementController {
         });
       }
 
-      const requisitions = await ProcurementService.getPendingRequisitionsForDepartmentHead(userId);
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, roleCode: true, userDepartment: true, departmentRole: true, role: { select: { name: true } } },
+      });
+      const isAdmin = user ? isAdminViewer(user) || user.roleCode === "ADMIN" : false;
+
+      const requisitions = isAdmin
+        ? await prisma.purchaseRequisition.findMany({
+            where: { status: "PENDING_APPROVAL" },
+            include: {
+              requestedBy: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  userDepartment: true,
+                  departmentRole: true,
+                  roleCode: true,
+                },
+              },
+              approvedBy: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  userDepartment: true,
+                  departmentRole: true,
+                  roleCode: true,
+                },
+              },
+              currency: { select: { id: true, code: true, name: true, symbol: true } },
+              items: true,
+            },
+            orderBy: { createdAt: "desc" },
+          })
+        : await ProcurementService.getPendingRequisitionsForDepartmentHead(userId);
 
       res.status(200).json({
         success: true,
-        message: "Pending requisitions for your department retrieved successfully",
+        message: isAdmin
+          ? "Pending requisitions retrieved successfully"
+          : "Pending requisitions for your department retrieved successfully",
         data: requisitions,
         count: requisitions.length
       });
@@ -163,11 +204,14 @@ export class ProcurementController {
           id: true,
           userDepartment: true,
           departmentRole: true,
-          roleCode: true
+          roleCode: true,
+          role: { select: { name: true } },
         }
       });
 
-      if (!user || !user.userDepartment) {
+      const isAdmin = user ? isAdminViewer(user) || user.roleCode === "ADMIN" : false;
+
+      if (!user || (!isAdmin && !user.userDepartment)) {
         return res.status(403).json({
           success: false,
           message: "User is not assigned to any department"
@@ -176,6 +220,7 @@ export class ProcurementController {
 
       // Check if user can view requisitions (HEAD, DEPUTY, or PROC_MGR)
       const canView = 
+        isAdmin ||
         user.departmentRole === 'HEAD' || 
         user.departmentRole === 'DEPUTY' || 
         user.roleCode === 'PROC_MGR';
@@ -196,15 +241,29 @@ export class ProcurementController {
       } = req.query;
 
       // Filter by user's department - requisitions target the department
-      const where: any = {
-        department: user.userDepartment // Requisitions are filtered by department name
-      };
+      const where: any = isAdmin
+        ? {}
+        : { department: user.userDepartment }; // Non-admins are filtered by department name
 
-      if (status) where.status = status;
+      // Unsubmitted drafts are not listed here (approvers / dept view). Use GET /requisitions/my for own drafts.
+      if (status) {
+        if (String(status).toUpperCase() === "DRAFT") {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Draft purchase requisitions are not returned on this endpoint. Use GET /api/procurement/requisitions/my for requisitions you created (including drafts).",
+          });
+        }
+        where.status = status;
+      } else {
+        where.status = { not: "DRAFT" };
+      }
       if (requestedById) where.requestedById = requestedById;
       if (priority) where.priority = priority;
 
-      await ProcurementService.applyInvesteeFundScopeToDepartmentRequisitionWhere(userId, where);
+      if (!isAdmin) {
+        await ProcurementService.applyInvesteeFundScopeToDepartmentRequisitionWhere(userId, where);
+      }
 
       const requisitions = await prisma.purchaseRequisition.findMany({
         where,
@@ -250,10 +309,12 @@ export class ProcurementController {
 
       res.status(200).json({
         success: true,
-        message: `Requisitions for ${user.userDepartment} department retrieved successfully`,
+        message: isAdmin
+          ? "Requisitions retrieved successfully"
+          : `Requisitions for ${user.userDepartment} department retrieved successfully`,
         data: requisitions,
         count: requisitions.length,
-        department: user.userDepartment
+        ...(isAdmin ? {} : { department: user.userDepartment })
       });
     } catch (error: any) {
       console.error("Error getting purchase requisitions:", error);
@@ -508,12 +569,44 @@ export class ProcurementController {
   }
 
   /**
+   * Update own purchase requisition while DRAFT or REJECTED (required before resubmit if rejected).
+   */
+  static async updatePurchaseRequisition(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated"
+        });
+      }
+
+      const requisition = await ProcurementService.updatePurchaseRequisitionByOwner(id, userId, req.body || {});
+
+      res.status(200).json({
+        success: true,
+        message: "Purchase requisition updated successfully",
+        data: requisition
+      });
+    } catch (error: any) {
+      console.error("Error updating purchase requisition:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to update purchase requisition"
+      });
+    }
+  }
+
+  /**
    * Create a purchase order
    */
   static async createPurchaseOrder(req: Request, res: Response) {
     try {
       const {
         requisitionId,
+        quotationId,
         vendorId,
         priority,
         currencyId,
@@ -542,6 +635,7 @@ export class ProcurementController {
 
       const purchaseOrder = await ProcurementService.createPurchaseOrder({
         requisitionId,
+        quotationId: quotationId ? String(quotationId).trim() : undefined,
         vendorId,
         priority,
         currencyId,
@@ -582,7 +676,8 @@ export class ProcurementController {
       }
 
       const {
-        requisitionId,
+        requisitionId: requisitionIdRaw,
+        purchaseRequisitionId,
         title,
         description,
         vendorIds,
@@ -598,11 +693,13 @@ export class ProcurementController {
         technicalWeight,
       } = req.body;
 
-      // Validation
-      if (!title || !items || items.length === 0) {
+      const requisitionId = requisitionIdRaw || purchaseRequisitionId;
+
+      // Validation: title + vendors always; items optional when requisitionId (PR lines used)
+      if (!title) {
         return res.status(400).json({
           success: false,
-          message: "Title and items are required"
+          message: "Title is required"
         });
       }
 
@@ -610,6 +707,15 @@ export class ProcurementController {
         return res.status(400).json({
           success: false,
           message: "At least one vendor must be selected"
+        });
+      }
+
+      const hasItems = hasUsableRfqItemLines(items);
+      if (!hasItems && !requisitionId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Items are required unless requisitionId is provided (approved PR line items will be used).",
         });
       }
 
@@ -740,8 +846,20 @@ export class ProcurementController {
             select: {
               id: true,
               requisitionNumber: true,
-              title: true
+              title: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
             }
+          },
+          quotation: {
+            select: {
+              id: true,
+              quotationNumber: true,
+              status: true,
+              rfqNumber: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
+            },
           },
           currency: {
             select: {
@@ -767,8 +885,7 @@ export class ProcurementController {
               lastName: true,
               email: true
             }
-          },
-          items: true
+          }
         },
         orderBy: {
           createdAt: 'desc'
@@ -814,6 +931,18 @@ export class ProcurementController {
               id: true,
               requisitionNumber: true,
               title: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
+            },
+          },
+          quotation: {
+            select: {
+              id: true,
+              quotationNumber: true,
+              status: true,
+              rfqNumber: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
             },
           },
           currency: {
@@ -923,6 +1052,8 @@ export class ProcurementController {
       const {
         purchaseOrderId,
         vendorId,
+        vendorPortalToken,
+        token: tokenAlias,
         invoiceDate,
         dueDate,
         currencyId,
@@ -931,22 +1062,59 @@ export class ProcurementController {
         items
       } = req.body;
 
+      const resolvedPortalToken =
+        typeof vendorPortalToken === "string" && vendorPortalToken.trim()
+          ? vendorPortalToken.trim()
+          : typeof tokenAlias === "string" && tokenAlias.trim()
+            ? tokenAlias.trim()
+            : undefined;
+
       // Public endpoint - vendors don't need to be authenticated
       // createdById can be null or we can use a system user ID
       const createdById = req.user?.id || null; // null for vendor submissions
 
-      if (!vendorId || !invoiceDate || !items || items.length === 0) {
+      const isStaff = Boolean(req.user?.id);
+      if (!items || items.length === 0) {
         return res.status(400).json({
           success: false,
-          message: "Vendor ID, invoice date, and items are required"
+          message: "Invoice items are required"
+        });
+      }
+      if (isStaff && !invoiceDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Invoice date is required for staff-submitted invoices"
+        });
+      }
+      if (isStaff && !vendorId) {
+        return res.status(400).json({
+          success: false,
+          message: "Vendor ID is required for staff-submitted invoices"
+        });
+      }
+      if (!isStaff && !resolvedPortalToken) {
+        return res.status(400).json({
+          success: false,
+          message: "vendorPortalToken is required for vendor-submitted invoices"
+        });
+      }
+
+      const invoiceDateParsed = isStaff ? parseDate(invoiceDate) : undefined;
+      const dueDateParsed = dueDate ? parseDate(dueDate) : undefined;
+      const effectiveInvoiceDate = invoiceDateParsed ?? new Date();
+      if (dueDateParsed && dueDateParsed.getTime() < effectiveInvoiceDate.getTime()) {
+        return res.status(400).json({
+          success: false,
+          message: "Due date cannot be earlier than the invoice date",
         });
       }
 
       const invoice = await ProcurementService.createProcurementInvoice({
         purchaseOrderId,
         vendorId,
-        invoiceDate: parseDate(invoiceDate),
-        dueDate: dueDate ? parseDate(dueDate) : undefined,
+        vendorPortalToken: resolvedPortalToken,
+        invoiceDate: isStaff ? invoiceDateParsed : undefined,
+        dueDate: dueDateParsed,
         currencyId,
         documentPath,
         documentType,
@@ -1253,7 +1421,9 @@ export class ProcurementController {
             select: {
               id: true,
               poNumber: true,
-              status: true
+              status: true,
+              rejectionReason: true,
+              rejectionContentFingerprint: true,
             }
           },
           currency: {
@@ -1504,6 +1674,81 @@ export class ProcurementController {
   }
 
   /**
+   * QC-approve a goods received note (sets header + line qualityStatus to PASSED).
+   */
+  static async approveGoodsReceivedNote(req: Request, res: Response) {
+    try {
+      const approvedById = req.user?.id;
+      if (!approvedById) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const { id } = req.params;
+      const { qualityNotes } = req.body ?? {};
+
+      const grn = await ProcurementService.approveGoodsReceivedNote(id, approvedById, {
+        qualityNotes: typeof qualityNotes === "string" ? qualityNotes : undefined,
+      });
+
+      const { serializeDecimalsDeep } = await import("../utils/prismaDecimalJson");
+      res.status(200).json({
+        success: true,
+        message: "Goods received note approved; quality status set to PASSED",
+        data: serializeDecimalsDeep(grn),
+      });
+    } catch (error: any) {
+      console.error("Error approving goods received note:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to approve goods received note",
+      });
+    }
+  }
+
+  /**
+   * QC-reject a goods received note (sets header + line qualityStatus to FAILED).
+   */
+  static async rejectGoodsReceivedNote(req: Request, res: Response) {
+    try {
+      const rejectedById = req.user?.id;
+      if (!rejectedById) {
+        return res.status(401).json({ success: false, message: "User not authenticated" });
+      }
+
+      const { id } = req.params;
+      const { rejectionReason, qualityNotes } = req.body ?? {};
+      const reason =
+        typeof rejectionReason === "string" && rejectionReason.trim()
+          ? rejectionReason.trim()
+          : typeof qualityNotes === "string" && qualityNotes.trim()
+            ? qualityNotes.trim()
+            : "";
+
+      if (!reason) {
+        return res.status(400).json({
+          success: false,
+          message: "rejectionReason is required",
+        });
+      }
+
+      const grn = await ProcurementService.rejectGoodsReceivedNote(id, rejectedById, reason);
+
+      const { serializeDecimalsDeep } = await import("../utils/prismaDecimalJson");
+      res.status(200).json({
+        success: true,
+        message: "Goods received note rejected; quality status set to FAILED",
+        data: serializeDecimalsDeep(grn),
+      });
+    } catch (error: any) {
+      console.error("Error rejecting goods received note:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Failed to reject goods received note",
+      });
+    }
+  }
+
+  /**
    * Get procurement dashboard data
    */
   static async getProcurementDashboard(req: Request, res: Response) {
@@ -1689,32 +1934,20 @@ export class ProcurementController {
   static async getRfqComparisonMatrix(req: Request, res: Response) {
     try {
       const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
+      const { serializeDecimalsDeep } = await import("../utils/prismaDecimalJson");
       const data = await ProcurementRfqService.getComparisonMatrix(req.params.id);
-      res.json({ success: true, data });
+      res.json({ success: true, data: serializeDecimalsDeep(data) });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }
   }
 
-  static async awardRfq(req: Request, res: Response) {
-    try {
-      const userId = req.user?.id;
-      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
-      const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
-      const { winningQuotationId, awardRationale } = req.body;
-      if (!winningQuotationId || !awardRationale) {
-        return res.status(400).json({ success: false, message: "winningQuotationId and awardRationale required" });
-      }
-      const data = await ProcurementRfqService.awardRfq({
-        procurementRfqId: req.params.id,
-        winningQuotationId,
-        awardRationale,
-        awardedById: userId,
-      });
-      res.json({ success: true, data });
-    } catch (e: any) {
-      res.status(400).json({ success: false, message: e.message });
-    }
+  static async awardRfq(_req: Request, res: Response) {
+    return res.status(410).json({
+      success: false,
+      message:
+        "Deprecated. Use POST /api/vendor-quotations/:quotationId/accept for the winning bid (creates PO) and POST /api/vendor-quotations/:id/reject for other bids.",
+    });
   }
 
   static async patchRfqExtend(req: Request, res: Response) {
@@ -1740,19 +1973,57 @@ export class ProcurementController {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
       const { ProcurementRfqService } = await import("../services/ProcurementRfqService");
-      const { body, attachmentUrl } = req.body;
-      if (!body) return res.status(400).json({ success: false, message: "body required" });
-      const row = await ProcurementRfqService.addClarification({
+      const payload = req.body && typeof req.body === "object" ? req.body : {};
+      const clarificationBody = ProcurementController.resolveRfqClarificationBody(payload);
+      if (!clarificationBody) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Clarification text required: send `body`, or `answer`, or both `question` and `answer`.",
+        });
+      }
+      const attachmentUrl =
+        typeof payload.attachmentUrl === "string" ? payload.attachmentUrl.trim() || undefined : undefined;
+      const result = await ProcurementRfqService.postStaffClarification({
         procurementRfqId: req.params.id,
-        authorType: "STAFF",
-        body,
+        body: clarificationBody,
         attachmentUrl,
         userId,
       });
-      res.status(201).json({ success: true, data: row });
+      const msg =
+        result.emailsSent > 0
+          ? `Clarification posted and emailed to ${result.emailsSent} invited vendor(s).`
+          : "Clarification posted (no invited vendors with email on this RFQ).";
+      res.status(201).json({
+        success: true,
+        message: msg,
+        data: {
+          ...result.clarification,
+          emailsSent: result.emailsSent,
+          emailFailures: result.emailFailures.length ? result.emailFailures : undefined,
+        },
+      });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }
+  }
+
+  /** Maps API payloads to the single `body` column on rfq_clarifications. */
+  private static resolveRfqClarificationBody(payload: Record<string, unknown>): string | null {
+    const trim = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const directBody = trim(payload.body);
+    if (directBody) return directBody;
+
+    const answer = trim(payload.answer);
+    const question = trim(payload.question);
+    if (question && answer) return `Q: ${question}\n\nA: ${answer}`;
+    if (answer) return answer;
+    if (question) return question;
+
+    const text = trim(payload.text);
+    if (text) return text;
+
+    return null;
   }
 
   static async getRfqClarifications(req: Request, res: Response) {

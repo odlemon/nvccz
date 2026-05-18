@@ -21,8 +21,13 @@ export class RollupCalculationService {
             select: {
               id: true,
               name: true,
+              code: true,
+              unitCategory: true,
+              hasUnit: true,
+              isReverseKpi: true,
               unitSymbol: true,
-              unitPosition: true
+              unitPosition: true,
+              scorecardPillar: true,
             }
           }
         }

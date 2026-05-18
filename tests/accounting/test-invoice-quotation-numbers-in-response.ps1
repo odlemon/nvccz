@@ -129,47 +129,15 @@ try {
     $allPassed = $false
 }
 
-# --- 4) Vendor quotation: create (public) then GET list and GET by id ---
+# --- 4) Vendor quotation: public submit now requires signed vendorPortalToken (RFQ flow) ---
 Write-Host "`n4. Vendor quotation (procurement)" -ForegroundColor Yellow
-try {
-    $quoteBody = @{
-        vendorName   = "Test Vendor"
-        vendorEmail  = "test-vendor@example.com"
-        companyName  = "Test Co"
-        items        = @(@{ itemName = "Quote item"; quantity = 1; unitPrice = 200 })
-    } | ConvertTo-Json -Depth 5
-
-    $quoteCreate = Invoke-RestMethod -Uri "$baseUrl/api/vendor-quotations/submit" -Method POST -Body $quoteBody -ContentType "application/json"
-    $quoteId = $quoteCreate.data.id
-    $quoteNum = $quoteCreate.data.quotationNumber
-    Write-Host "   Created quotation id=$quoteId quotationNumber=$quoteNum" -ForegroundColor Gray
-
-    $quoteList = Invoke-RestMethod -Uri "$baseUrl/api/vendor-quotations?limit=20" -Method GET -Headers $headers
-    $quoteFound = $quoteList.data | Where-Object { $_.id -eq $quoteId } | Select-Object -First 1
-    if ($quoteFound -and $quoteFound.quotationNumber) {
-        Write-Host "   GET /vendor-quotations (list) - quotationNumber in response: $($quoteFound.quotationNumber)" -ForegroundColor Green
-    } else {
-        Write-Host "   GET /vendor-quotations (list) - MISSING quotationNumber for created quotation" -ForegroundColor Red
-        $allPassed = $false
-    }
-
-    $quoteOne = Invoke-RestMethod -Uri "$baseUrl/api/vendor-quotations/$quoteId" -Method GET -Headers $headers
-    if ($quoteOne.data.quotationNumber) {
-        Write-Host "   GET /vendor-quotations/:id - quotationNumber in response: $($quoteOne.data.quotationNumber)" -ForegroundColor Green
-    } else {
-        Write-Host "   GET /vendor-quotations/:id - MISSING quotationNumber in response" -ForegroundColor Red
-        $allPassed = $false
-    }
-} catch {
-    Write-Host "   FAIL - $($_.Exception.Message)" -ForegroundColor Red
-    if ($_.ErrorDetails.Message) { Write-Host "   $($_.ErrorDetails.Message)" -ForegroundColor Red }
-    $allPassed = $false
-}
+Write-Host "   SKIP — POST /vendor-quotations/submit requires vendorPortalToken from an RFQ invitation (HMAC)." -ForegroundColor Yellow
+Write-Host "   Use scripts/test-complete-procurement-workflow.js or an RFQ send + email link to exercise quotations." -ForegroundColor Gray
 
 # --- Summary ---
 Write-Host "`n=== Summary ===" -ForegroundColor Cyan
 if ($allPassed) {
-    Write-Host "All checks passed: invoiceNumber / quotationNumber are present in GET responses." -ForegroundColor Green
+    Write-Host "All checks passed: invoiceNumber present in GET responses (vendor quotation list checks skipped — portal token)." -ForegroundColor Green
 } else {
     Write-Host "Some checks failed. Review output above." -ForegroundColor Red
 }

@@ -29,7 +29,7 @@ export function resolveInternalMediaBaseUrl(): string {
  * REMOTE_MEDIA_BASE_URL (full override) → BASE_URL (API base, often ends with /api) → FRONTEND_URL / API_PUBLIC_BASE_URL.
  * If none set: path-only "/api/public-media" (same-origin); set BASE_URL for absolute URLs on other hosts.
  */
-function resolveMediaBaseUrl(): string {
+export function resolveMediaBaseUrl(): string {
   const explicit = process.env.REMOTE_MEDIA_BASE_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
   const baseUrl = process.env.BASE_URL?.trim();
@@ -165,6 +165,12 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   // Activity documents (stored under application-documents)
   "activity-documents": "application-documents",
   "activity-document": "application-documents",
+
+  // Newsletter cover images
+  "newsletters": "newsletters",
+  "newsletter": "newsletters",
+  "newsletter-covers": "newsletters",
+  "newsletter-cover": "newsletters",
 
   // Company profile / letterhead
   "company-profile": "application-documents",

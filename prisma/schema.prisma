@@ -176,6 +176,9 @@ model User {
   bscStatutorySubmissionsSubmitted     BscStatutorySubmission[]        @relation("BscStatutorySubmitter")
   bscStatutorySubmissionsManagerSigned BscStatutorySubmission[]        @relation("BscStatutoryManagerSigner")
   newsletterAudienceConfigsUpdated     NewsletterAudienceConfig[]
+  managementFeePeriodsCreated          ManagementFeePeriod[]            @relation("ManagementFeePeriodCreator")
+  distributionsCreated                 Distribution[]                   @relation("DistributionCreator")
+  portfolioDividendsApproved           PortfolioCompanyDividend[]       @relation("PortfolioDividendApprover")
 
   @@map("users")
 }
@@ -544,6 +547,8 @@ model Currency {
   fundDisbursementsCommitmentCurrency       FundDisbursement[]          @relation("FundDisbursementCommitmentCurrency")
   investmentValuationEventsCurrency         InvestmentValuationEvent[]  @relation("ValuationEventCurrency")
   investmentExitEventsCurrency              InvestmentExitEvent[]       @relation("ExitEventCurrency")
+  managementFeePeriods                  ManagementFeePeriod[]            @relation("ManagementFeePeriodCurrency")
+  distributions                         Distribution[]                   @relation("DistributionCurrency")
 
   @@map("currencies")
 }
@@ -640,6 +645,7 @@ model Vendor {
   banks                 VendorBank[]
   kycDocuments          VendorKycDocument[]
   rfqInvitations        RfqVendorInvitation[]
+  vendorQuotations      VendorQuotation[]      @relation("VendorQuotationVendor")
   rfqClarifications     RfqClarification[]
   vendorInvoiceIntakes  VendorInvoiceIntake[]
   invoiceFieldCorrections VendorInvoiceFieldCorrection[]
@@ -680,9 +686,6 @@ model VendorKycDocument {
   documentType  String    @map("document_type")
   fileName      String    @map("file_name")
   fileUrl       String    @map("file_url") @db.Text
-  filePath      String?   @map("file_path") @db.Text
-  fileSize      Int?      @map("file_size")
-  mimeType      String?   @map("mime_type")
   /// At-rest encryption (AES-256-GCM) before remote upload; IV + tag stored for decryption by authorized roles.
   isEncrypted   Boolean   @default(true) @map("is_encrypted")
   encryptionIv  String?   @map("encryption_iv") @db.Text
@@ -755,6 +758,9 @@ model JournalEntry {
   stiLiquidationInstruments ShortTermInvestmentInstrument[] @relation("StiLiquidationJe")
   stiFxRevaluationEntries   ShortTermInvestmentFxRevaluation[] @relation("StiFxRevaluationJe")
   capitalCall               CapitalCall?
+  managementFeePeriod       ManagementFeePeriod?              @relation("ManagementFeeJournal")
+  distribution              Distribution?                     @relation("DistributionJournal")
+  portfolioDividends        PortfolioCompanyDividend[]        @relation("PortfolioDividendJournal")
 
   @@map("journal_entries")
 }
@@ -1162,6 +1168,8 @@ model PortfolioCompany {
   investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteePortfolioRequisition")
   reportingPeriodOperationalKpis ReportingPeriodOperationalKpi[]
   letterhead                   PortfolioCompanyLetterhead?
+  dividends                    PortfolioCompanyDividend[]      @relation("PortfolioCompanyDividends")
+  distributionsSourced         Distribution[]                  @relation("PortfolioDistributionSource")
 
   @@map("portfolio_companies")
 }
@@ -1226,6 +1234,23 @@ model Fund {
   createdById               String
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
+  /// LP Fee policy (annual rate, e.g. 0.0200 = 2%/yr). See ManagementFeeService.
+  managementFeeRate         Decimal?                   @map("management_fee_rate") @db.Decimal(7, 4)
+  /// COMMITTED | INVESTED | NAV — base used when computing each period's fee.
+  managementFeeBase         String?                    @map("management_fee_base") @db.VarChar(32)
+  /// MONTHLY | QUARTERLY | SEMI_ANNUAL | ANNUAL — drives `accrueForPeriod` period length default.
+  managementFeeFrequency    String?                    @map("management_fee_frequency") @db.VarChar(16)
+  managementFeeStartDate    DateTime?                  @map("management_fee_start_date") @db.Date
+  /// Carried interest rate (e.g. 0.2000 = 20%) — applied to LP distributions over the hurdle.
+  carryRate                 Decimal?                   @map("carry_rate") @db.Decimal(7, 4)
+  /// LP preferred return / hurdle rate (e.g. 0.0800 = 8%/yr).
+  hurdleRate                Decimal?                   @map("hurdle_rate") @db.Decimal(7, 4)
+  /// PREFERRED_RETURN | NONE
+  hurdleType                String?                    @map("hurdle_type") @db.VarChar(16)
+  /// GP catch-up rate after the hurdle is met (e.g. 1.0000 = 100%).
+  catchUpRate               Decimal?                   @map("catch_up_rate") @db.Decimal(7, 4)
+  /// EUROPEAN | AMERICAN — whole-fund vs deal-by-deal waterfall.
+  waterfallType             String?                    @map("waterfall_type") @db.VarChar(32)
   createdBy                 User                       @relation(fields: [createdById], references: [id])
   applications              Application[]
   fundManagers              FundManager[]
@@ -1235,6 +1260,8 @@ model Fund {
   investmentCommitments     InvestmentCommitment[]
   investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteeFundRequisition")
   capitalCalls              CapitalCall[]
+  managementFeePeriods      ManagementFeePeriod[]
+  distributions             Distribution[]
 
   @@map("funds")
 }
@@ -1278,6 +1305,8 @@ model Client {
   updatedAt             DateTime               @updatedAt
   investmentCommitments InvestmentCommitment[]
   capitalCallAllocations CapitalCallAllocation[]
+  managementFeeAllocations ManagementFeeAllocation[]
+  distributionAllocations  DistributionAllocation[]
 
   @@map("clients")
 }
@@ -1297,6 +1326,8 @@ model InvestmentCommitment {
   client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   fund          Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
   capitalCallAllocations CapitalCallAllocation[]
+  managementFeeAllocations ManagementFeeAllocation[]
+  distributionAllocations  DistributionAllocation[]
 
   @@unique([clientId, fundId])
   @@map("investment_commitments")
@@ -1369,6 +1400,179 @@ model CapitalCallAllocationPayment {
   @@map("capital_call_allocation_payments")
 }
 
+/// LP Management Fee accrual header (one period per fund). Posts Dr 1220 / Cr 4010 at accrual.
+model ManagementFeePeriod {
+  id              String    @id @default(cuid())
+  fundId          String    @map("fund_id")
+  currencyId      String    @map("currency_id")
+  periodStart     DateTime  @map("period_start") @db.Date
+  periodEnd       DateTime  @map("period_end") @db.Date
+  /// Snapshot of fund.managementFeeBase used for this period (COMMITTED | INVESTED | NAV).
+  feeBase         String    @map("fee_base") @db.VarChar(32)
+  /// The base amount (sum of LP commitments, invested capital, or NAV) used in calc.
+  feeBaseAmount   Decimal   @map("fee_base_amount") @db.Decimal(15, 2)
+  /// Snapshot of fund.managementFeeRate (annualized).
+  rate            Decimal   @map("rate") @db.Decimal(7, 4)
+  /// totalFee = feeBaseAmount × rate × (periodDays / 365); rounded HALF_UP to 2dp.
+  totalFee        Decimal   @map("total_fee") @db.Decimal(15, 2)
+  status          String    @default("ACCRUED") @db.VarChar(32)
+  invoicesSentAt  DateTime? @map("invoices_sent_at")
+  journalEntryId  String?   @unique @map("journal_entry_id")
+  notes           String?   @db.Text
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  fund         Fund                       @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  currency     Currency                   @relation("ManagementFeePeriodCurrency", fields: [currencyId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?              @relation("ManagementFeeJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy    User                       @relation("ManagementFeePeriodCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  allocations  ManagementFeeAllocation[]
+
+  @@index([fundId], map: "management_fee_periods_fund_idx")
+  @@index([fundId, periodEnd], map: "management_fee_periods_fund_period_idx")
+  @@map("management_fee_periods")
+}
+
+/// Per-LP management fee allocation for one period (split pro-rata by commitment).
+model ManagementFeeAllocation {
+  id                     String   @id @default(cuid())
+  managementFeePeriodId  String   @map("management_fee_period_id")
+  clientId               String   @map("client_id")
+  investmentCommitmentId String   @map("investment_commitment_id")
+  lpLegalNameSnapshot    String   @map("lp_legal_name_snapshot") @db.VarChar(512)
+  commitmentSnapshot     Decimal  @map("commitment_snapshot") @db.Decimal(15, 2)
+  shareOfFee             Decimal  @map("share_of_fee") @db.Decimal(15, 2)
+  amountPaid             Decimal  @default(0) @map("amount_paid") @db.Decimal(15, 2)
+  status                 String   @default("PENDING") @db.VarChar(32)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  period               ManagementFeePeriod              @relation(fields: [managementFeePeriodId], references: [id], onDelete: Cascade)
+  client               Client                           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  investmentCommitment InvestmentCommitment             @relation(fields: [investmentCommitmentId], references: [id], onDelete: Restrict)
+  payments             ManagementFeeAllocationPayment[]
+
+  @@index([managementFeePeriodId], map: "management_fee_allocations_period_idx")
+  @@index([clientId], map: "management_fee_allocations_client_idx")
+  @@index([investmentCommitmentId], map: "management_fee_allocations_commitment_idx")
+  @@map("management_fee_allocations")
+}
+
+/// Posted receipt against one management-fee allocation (append-only).
+model ManagementFeeAllocationPayment {
+  id                        String   @id @default(cuid())
+  managementFeeAllocationId String   @map("management_fee_allocation_id")
+  amount                    Decimal  @db.Decimal(15, 2)
+  recordedAt                DateTime @default(now()) @map("recorded_at")
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  allocation ManagementFeeAllocation @relation(fields: [managementFeeAllocationId], references: [id], onDelete: Cascade)
+
+  @@index([managementFeeAllocationId], map: "management_fee_allocation_payments_alloc_idx")
+  @@map("management_fee_allocation_payments")
+}
+
+/// LP Distribution header — one event per fund (carry split off the top per fund.carryRate).
+model Distribution {
+  id                  String    @id @default(cuid())
+  fundId              String    @map("fund_id")
+  currencyId          String    @map("currency_id")
+  distributionDate    DateTime  @map("distribution_date") @db.Date
+  /// DIVIDEND | EXIT_PROCEEDS | INTEREST | OTHER
+  source              String    @db.VarChar(32)
+  sourceCompanyId     String?   @map("source_company_id")
+  sourceDividendId    String?   @map("source_dividend_id")
+  grossAmount         Decimal   @map("gross_amount") @db.Decimal(15, 2)
+  /// GP carried interest amount deducted before LP allocation.
+  carryAmount         Decimal   @default(0) @map("carry_amount") @db.Decimal(15, 2)
+  /// netToLPs = grossAmount − carryAmount; split pro-rata to LPs in allocations.
+  netToLPs            Decimal   @map("net_to_lps") @db.Decimal(15, 2)
+  /// Portion of gross attributed to hurdle/preferred-return (for transparency in notices).
+  hurdleAppliedAmount Decimal?  @map("hurdle_applied_amount") @db.Decimal(15, 2)
+  status              String    @default("DECLARED") @db.VarChar(32)
+  noticesSentAt       DateTime? @map("notices_sent_at")
+  journalEntryId      String?   @unique @map("journal_entry_id")
+  notes               String?   @db.Text
+  createdById         String    @map("created_by_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  fund           Fund                       @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  currency       Currency                   @relation("DistributionCurrency", fields: [currencyId], references: [id], onDelete: Restrict)
+  sourceCompany  PortfolioCompany?          @relation("PortfolioDistributionSource", fields: [sourceCompanyId], references: [id], onDelete: SetNull)
+  sourceDividend PortfolioCompanyDividend?  @relation("DividendDistributions", fields: [sourceDividendId], references: [id], onDelete: SetNull)
+  journalEntry   JournalEntry?              @relation("DistributionJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy      User                       @relation("DistributionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  allocations    DistributionAllocation[]
+
+  @@index([fundId], map: "distributions_fund_idx")
+  @@index([fundId, distributionDate], map: "distributions_fund_date_idx")
+  @@map("distributions")
+}
+
+/// Per-LP share of one distribution (pro-rata by `paidInSnapshot`).
+model DistributionAllocation {
+  id                     String   @id @default(cuid())
+  distributionId         String   @map("distribution_id")
+  clientId               String   @map("client_id")
+  investmentCommitmentId String   @map("investment_commitment_id")
+  lpLegalNameSnapshot    String   @map("lp_legal_name_snapshot") @db.VarChar(512)
+  commitmentSnapshot     Decimal  @map("commitment_snapshot") @db.Decimal(15, 2)
+  /// Sum of capital paid-in by this LP at the distribution date (drives pro-rata split).
+  paidInSnapshot         Decimal  @default(0) @map("paid_in_snapshot") @db.Decimal(15, 2)
+  shareAmount            Decimal  @map("share_amount") @db.Decimal(15, 2)
+  amountPaid             Decimal  @default(0) @map("amount_paid") @db.Decimal(15, 2)
+  status                 String   @default("PENDING") @db.VarChar(32)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  distribution         Distribution                     @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  client               Client                           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  investmentCommitment InvestmentCommitment             @relation(fields: [investmentCommitmentId], references: [id], onDelete: Restrict)
+  payments             DistributionAllocationPayment[]
+
+  @@index([distributionId], map: "distribution_allocations_distribution_idx")
+  @@index([clientId], map: "distribution_allocations_client_idx")
+  @@index([investmentCommitmentId], map: "distribution_allocations_commitment_idx")
+  @@map("distribution_allocations")
+}
+
+/// Posted payout against one distribution allocation (append-only).
+model DistributionAllocationPayment {
+  id                       String   @id @default(cuid())
+  distributionAllocationId String   @map("distribution_allocation_id")
+  amount                   Decimal  @db.Decimal(15, 2)
+  recordedAt               DateTime @default(now()) @map("recorded_at")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  allocation DistributionAllocation @relation(fields: [distributionAllocationId], references: [id], onDelete: Cascade)
+
+  @@index([distributionAllocationId], map: "distribution_allocation_payments_alloc_idx")
+  @@map("distribution_allocation_payments")
+}
+
+/// Dividends received from a portfolio company (Dr cash/bank, Cr 4100). Promoted from raw SQL.
+model PortfolioCompanyDividend {
+  id                 String   @id @default(cuid())
+  portfolioCompanyId String   @map("portfolioCompanyId")
+  amount             Decimal  @db.Decimal(15, 2)
+  dividendDate       DateTime @map("dividendDate") @db.Date
+  approvedById       String   @map("approvedById")
+  journalEntryId     String?  @map("journalEntryId")
+  notes              String?  @db.Text
+  createdAt          DateTime @default(now()) @map("createdAt")
+  updatedAt          DateTime @updatedAt @map("updatedAt")
+
+  portfolioCompany PortfolioCompany @relation("PortfolioCompanyDividends", fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
+  approvedBy       User             @relation("PortfolioDividendApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  journalEntry     JournalEntry?    @relation("PortfolioDividendJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  distributions    Distribution[]   @relation("DividendDistributions")
+
+  @@index([portfolioCompanyId, dividendDate(sort: Desc)], map: "portfolio_company_dividends_company_idx")
+  @@map("portfolio_company_dividends")
+}
+
 model FundManager {
   id        String             @id @default(cuid())
   fundId    String
@@ -1410,6 +1614,8 @@ model Application {
   /// Analyst "Initial Screening Scorecard" (UAT); separate from AI `initialScreeningScore`.
   screeningScore           Decimal?                  @db.Decimal(5, 2)
   screeningOutcome         String?
+  /// Internal only: AI/auto screening narrative when rejected at screening (not sent to applicant in email).
+  screeningRejectionReason String?                   @db.Text
   /// Human-readable sequential deal id: `{PREFIX}-{year}-{6-digit-seq}`; PREFIX from env `DEAL_REFERENCE_PREFIX` (default VST).
   dealReference            String?                   @unique
   assignedAnalystId        String?
@@ -2233,6 +2439,8 @@ model PurchaseRequisition {
   approvedById      String?
   approvedAt        DateTime?
   rejectionReason   String?                   @db.Text
+  /// SHA-256 hex of header + line items at rejection; submit blocked until content differs from this snapshot.
+  rejectionContentFingerprint String?         @map("rejection_content_fingerprint") @db.VarChar(64)
   totalAmount       Decimal                   @default(0.00) @db.Decimal(15, 2)
   currencyId        String?
   /// Matches vendor.category for automated / filtered RFQ vendor lists (e.g. AGROTECH, SOLAR, IT_SERVICES).
@@ -2303,6 +2511,8 @@ model PurchaseOrder {
   sentById             String?
   approvedById         String?
   approvedAt           DateTime?
+  rejectionReason      String?              @map("rejection_reason") @db.Text
+  rejectionContentFingerprint String?       @map("rejection_content_fingerprint") @db.VarChar(64)
   createdById          String
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
@@ -2368,6 +2578,9 @@ model VendorQuotation {
   requisitionId   String?
   /// Suite 03: link to formal RFQ row (when created after migration).
   procurementRfqId String?              @map("procurement_rfq_id")
+  /// Identified vendor for public RFQ submissions (from signed vendor portal token).
+  vendorId        String?               @map("vendor_id")
+  vendor          Vendor?               @relation("VendorQuotationVendor", fields: [vendorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   vendorName      String
   vendorEmail     String
   companyName     String?
@@ -2392,6 +2605,7 @@ model VendorQuotation {
   reviewedAt      DateTime?
   reviewNotes     String?               @db.Text
   rejectionReason String?               @db.Text
+  rejectionContentFingerprint String?   @map("rejection_content_fingerprint") @db.VarChar(64)
   invoiceId       String?               @unique
   submittedAt     DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
@@ -2402,6 +2616,7 @@ model VendorQuotation {
   items           VendorQuotationItem[]
 
   @@index([procurementRfqId])
+  @@index([vendorId])
   @@map("vendor_quotations")
 }
 
@@ -2426,6 +2641,8 @@ model ProcurementRfq {
   expectedDeliveryDate DateTime?            @map("expected_delivery_date")
   specialRequirements  String?              @map("special_requirements") @db.Text
   itemsSnapshot        Json?                @map("items_snapshot")
+  rejectionReason      String?              @map("rejection_reason") @db.Text
+  rejectionContentFingerprint String?       @map("rejection_content_fingerprint") @db.VarChar(64)
   createdById          String               @map("created_by_id")
   createdAt            DateTime             @default(now()) @map("created_at")
   updatedAt            DateTime             @updatedAt @map("updated_at")
@@ -2445,7 +2662,8 @@ model RfqVendorInvitation {
   id                 String          @id @default(cuid())
   procurementRfqId   String          @map("procurement_rfq_id")
   vendorId           String          @map("vendor_id")
-  invitationToken    String          @unique @map("invitation_token") @db.VarChar(64)
+  /// Legacy opaque token; RFQ emails now use stateless signed tokens (see `vendorPortalToken`). Optional.
+  invitationToken    String?         @map("invitation_token") @db.VarChar(512)
   emailSentAt        DateTime?       @map("email_sent_at")
   createdAt          DateTime        @default(now()) @map("created_at")
   procurementRfq     ProcurementRfq  @relation(fields: [procurementRfqId], references: [id], onDelete: Cascade)
@@ -2527,6 +2745,8 @@ model ProcurementInvoice {
   documentType     String?
   approvedById     String?
   approvedAt       DateTime?
+  rejectionReason  String?                  @map("rejection_reason") @db.Text
+  rejectionContentFingerprint String?       @map("rejection_content_fingerprint") @db.VarChar(64)
   paymentStatus    String                   @default("PENDING")
   paymentDate      DateTime?
   paymentReference String?
@@ -2670,6 +2890,8 @@ model GoodsReceivedNote {
   qualityNotes    String?                 @db.Text
   approvedById    String?
   approvedAt      DateTime?
+  rejectionReason String?                 @map("rejection_reason") @db.Text
+  rejectionContentFingerprint String?     @map("rejection_content_fingerprint") @db.VarChar(64)
   /// Suite 05: delivery note / waybill URLs for 3-way match.
   attachmentUrls  Json?                   @map("attachment_urls")
   latitude        Decimal?                @db.Decimal(10, 7)

@@ -12,6 +12,7 @@ import {
   inferBusinessUnitLabel,
   liquidityRag,
   numFromKpiField,
+  fairValueCarriedThroughPeriod,
   priorPeriodFairValueFromKpiValues,
   profitRag,
   revenueGrowthRag,
@@ -22,6 +23,7 @@ import {
   computeAnalystFlagsForCompany,
   rollupAnalystFlags,
 } from "../utils/portfolioDashboardAnalystFlags";
+import { xirr } from "../utils/xirr";
 
 /**
  * Portfolio company relations needed for the dashboard. `financialKpis` is a Json column on
@@ -62,7 +64,7 @@ export interface PortfolioDashboardData {
     fundGrossIRR: number;
     lpNetIRR: number;
     tvpi: number;
-    /** Realized proceeds and income / paid-in capital (LP committed). Simplified DPI-style ratio. */
+    /** Realized proceeds and income / deployed capital when deployed > 0, else committed fund size. Simplified DPI-style ratio. */
     dpi: number;
     /** Portfolio NAV-style multiple: total value / aggregate invested cost (disbursed). */
     moicOnCost: number;
@@ -528,36 +530,73 @@ export class PortfolioDashboardService {
         )
       : Date.now();
     const years = (end - earliest) / (365.25 * 24 * 3600 * 1000);
-    return Math.max(0.25, Math.min(30, years || 1));
+    /** Floor at 1 year so MOIC^(1/y) annualization does not explode on young portfolios (was 0.25y → 4× exponent). */
+    return Math.max(1, Math.min(30, years || 1));
+  }
+
+  private static dateToPeriodKeyUTC(d: Date): string {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  private static asUtcNoon(d: Date): Date {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0, 0));
+  }
+
+  private static fundGrossXirrPct(fundCompanies: any[], asOf: Date): number {
+    const cashflows: Array<{ amount: number; date: Date }> = [];
+    let earliestDisb: Date | null = null;
+    let deployed = 0;
+    for (const company of fundCompanies) {
+      const disb = PortfolioDashboardService.disbursedUpTo(company, asOf);
+      for (const d of disb) {
+        if (!d.disbursementDate) continue;
+        const t = new Date(d.disbursementDate);
+        if (Number.isNaN(t.getTime())) continue;
+        const amt = parseFloat((d.amount || new Decimal(0)).toString());
+        if (!Number.isFinite(amt) || amt === 0) continue;
+        deployed += Math.abs(amt);
+        earliestDisb = earliestDisb == null ? t : new Date(Math.min(earliestDisb.getTime(), t.getTime()));
+        cashflows.push({ amount: -Math.abs(amt), date: PortfolioDashboardService.asUtcNoon(t) });
+      }
+    }
+    const terminalValue =
+      fundCompanies.reduce(
+        (sum, c) => sum + PortfolioDashboardService.getFairMarketValue(c) + PortfolioDashboardService.getRealizedValue(c),
+        0
+      ) || 0;
+    if (terminalValue > 0) {
+      cashflows.push({ amount: terminalValue, date: PortfolioDashboardService.asUtcNoon(asOf) });
+    }
+
+    // If we don't have a meaningful time span yet, prefer a simple cumulative return % over annualized IRR.
+    if (earliestDisb && deployed > 0) {
+      const spanDays = (PortfolioDashboardService.asUtcNoon(asOf).getTime() - PortfolioDashboardService.asUtcNoon(earliestDisb).getTime()) / (24 * 3600 * 1000);
+      if (spanDays < 365) {
+        return ((terminalValue / deployed) - 1) * 100;
+      }
+    }
+
+    const res = xirr(cashflows, { guess: 0.2 });
+    if (!res.ok || !Number.isFinite(res.rate)) return 0;
+    return res.rate * 100;
   }
 
   /**
-   * Fund-level gross return proxy: MOIC (total value / deployed) annualized over the holding period.
-   * Replaces `DataIntegrationService.fundGrossIrrFromLoadedFund`, which compared disbursements to LP commitment
-   * and clamped to 0% whenever deployed &lt; committed — unrelated to approved financials / FMV.
+   * Fund-level gross IRR (%): XIRR on cashflows.
+   * Contributions = DISBURSED disbursements (negative), terminal value = FMV + realized at `disbursementAsOf` (positive).
    */
   private static fundGrossIrrProxy(
     fundCompanies: any[],
     disbursementAsOf?: Date
   ): number {
-    const deployed = fundCompanies.reduce((sum, company) => {
-      const disbursements = PortfolioDashboardService.disbursedUpTo(company, disbursementAsOf);
-      return (
-        sum +
-        disbursements.reduce((s: number, d: any) => {
-          return s + parseFloat((d.amount || new Decimal(0)).toString());
-        }, 0)
-      );
-    }, 0);
-    if (deployed <= 0) return 0;
-    const totalValue = fundCompanies.reduce(
-      (sum, c) => sum + PortfolioDashboardService.getFairMarketValue(c) + PortfolioDashboardService.getRealizedValue(c),
-      0
-    );
-    const moic = totalValue / deployed;
-    const years = PortfolioDashboardService.estimateFundHoldingYears(fundCompanies, disbursementAsOf);
-    const rate = Math.pow(moic, 1 / years) - 1;
-    return Math.round(Math.max(0, rate * 100) * 100) / 100;
+    const asOf = disbursementAsOf || new Date();
+    const irrPct = PortfolioDashboardService.fundGrossXirrPct(fundCompanies, asOf);
+    // Keep legacy behavior: clamp at -100% floor, otherwise allow negatives.
+    const clamped = Math.max(-100, irrPct);
+    return Math.round(clamped * 100) / 100;
   }
 
   /**
@@ -759,8 +798,11 @@ export class PortfolioDashboardService {
           : `All Funds (${funds.length})`;
 
       const paidIn = performanceOverview.paidIn;
+      const dpiDenominator = metrics.totalInvested > 0 ? metrics.totalInvested : paidIn;
       const dpi =
-        paidIn > 0 ? Math.round((performanceOverview.realizedProceedsAndIncome / paidIn) * 10000) / 10000 : 0;
+        dpiDenominator > 0
+          ? Math.round((performanceOverview.realizedProceedsAndIncome / dpiDenominator) * 10000) / 10000
+          : 0;
       const moicOnCost =
         totals.totalInvestmentCost > 0
           ? Math.round((totals.totalValue / totals.totalInvestmentCost) * 10000) / 10000
@@ -914,7 +956,9 @@ export class PortfolioDashboardService {
       const realized = this.getRealizedValue(company);
       return sum + fmv + realized;
     }, 0);
-    const tvpi = paidIn > 0 ? totalValue / paidIn : 0;
+    /** ILPA-style multiple on capital at work: (RV+dist) / deployed when deployed > 0; else NAV+realized / committed. */
+    const tvpi =
+      totalInvested > 0 ? totalValue / totalInvested : paidIn > 0 ? totalValue / paidIn : 0;
     
     // Calculate Fund Gross IRR (weighted average across all funds)
     let totalWeightedIRR = 0;
@@ -923,9 +967,18 @@ export class PortfolioDashboardService {
       try {
         const fundCompanies = portfolioCompanies.filter((c) => c.fundId === fund.id);
         const irr = PortfolioDashboardService.fundGrossIrrProxy(fundCompanies, disbursementAsOf);
-        const fundPaidIn = parseFloat((fund.totalAmount || new Decimal(0)).toString());
-        totalWeightedIRR += irr * fundPaidIn;
-        totalWeight += fundPaidIn;
+        // Weight by deployed capital (more meaningful than committed) with committed fallback.
+        const deployedWeight = fundCompanies.reduce((sum: number, c: any) => {
+          const disb = PortfolioDashboardService.disbursedUpTo(c, disbursementAsOf);
+          return (
+            sum +
+            disb.reduce((s: number, d: any) => s + parseFloat((d.amount || new Decimal(0)).toString()), 0)
+          );
+        }, 0);
+        const committedFallback = parseFloat((fund.totalAmount || new Decimal(0)).toString());
+        const fundWeight = deployedWeight > 0 ? deployedWeight : committedFallback;
+        totalWeightedIRR += irr * fundWeight;
+        totalWeight += fundWeight;
       } catch (error) {
         console.error(`Error calculating IRR for fund ${fund.id}:`, error);
       }
@@ -934,7 +987,7 @@ export class PortfolioDashboardService {
     
     // LP Net IRR = Fund Gross IRR - management fees (simplified, assume 2% management fee)
     const managementFeeRate = 0.02; // 2% annual management fee
-    const lpNetIRR = Math.max(0, fundGrossIRR - (managementFeeRate * 100));
+    const lpNetIRR = fundGrossIRR - managementFeeRate * 100;
     
     return {
       totalInvested: Math.round(totalInvested * 100) / 100,
@@ -1130,10 +1183,14 @@ export class PortfolioDashboardService {
       return sum + parseFloat(total.toString());
     }, 0);
     
-    // Calculate IRR for each quarter (simplified - would need proper cash flow analysis)
+    // Calculate IRR for each quarter (XIRR on disbursements with quarter-end FMV terminal when available)
     const irrByQuarter = quarters.map(({ quarter, year }) => {
       // For each quarter, calculate cumulative performance
       const quarterEndDate = new Date(year, quarter * 3 - 1, 0); // Last day of quarter
+      const quarterEndUtcNoon = PortfolioDashboardService.asUtcNoon(
+        new Date(Date.UTC(year, quarter * 3 - 1, quarterEndDate.getDate(), 12, 0, 0, 0))
+      );
+      const periodKey = PortfolioDashboardService.dateToPeriodKeyUTC(quarterEndUtcNoon);
       
       // Get investments made up to this quarter
       const investmentsUpToQuarter = portfolioCompanies.reduce((sum, company) => {
@@ -1150,21 +1207,54 @@ export class PortfolioDashboardService {
         return sum + companyTotal;
       }, 0);
       
-      // Get total value up to this quarter
+      // Get total value up to this quarter (best-effort using carried FMV from kpiValues)
       const totalValueUpToQuarter = portfolioCompanies.reduce((sum, company) => {
-        const fmv = this.getFairMarketValue(company);
-        const realized = this.getRealizedValue(company);
+        const kv = company.financialKpis?.kpiValues;
+        const fmv = fairValueCarriedThroughPeriod(kv, periodKey);
+        const realized =
+          company.endDate && new Date(company.endDate).getTime() <= quarterEndDate.getTime()
+            ? this.getRealizedValue(company)
+            : 0;
         return sum + fmv + realized;
       }, 0);
       
-      // Simplified IRR calculation
-      const fundGrossIRR = totalPaidIn > 0 && investmentsUpToQuarter > 0
-        ? ((totalValueUpToQuarter / totalPaidIn) - 1) * 100
-        : 0;
+      // XIRR over cashflows up to quarter end: negative disbursements + terminal FMV at quarter end.
+      const cashflows: Array<{ amount: number; date: Date }> = [];
+      for (const company of portfolioCompanies) {
+        const disb = company.investmentImplementation?.fundDisbursements || [];
+        for (const d of disb) {
+          if (d.status !== "DISBURSED") continue;
+          if (!d.disbursementDate) continue;
+          const disbDate = new Date(d.disbursementDate);
+          if (disbDate > quarterEndDate) continue;
+          const amt = parseFloat((d.amount || new Decimal(0)).toString());
+          if (!Number.isFinite(amt) || amt === 0) continue;
+          cashflows.push({ amount: -Math.abs(amt), date: PortfolioDashboardService.asUtcNoon(disbDate) });
+        }
+      }
+      if (totalValueUpToQuarter > 0) {
+        cashflows.push({ amount: totalValueUpToQuarter, date: quarterEndUtcNoon });
+      }
+      let fundGrossIRR = 0;
+      if (investmentsUpToQuarter > 0) {
+        // Short span: show simple cumulative return % for stability.
+        const earliest = cashflows.length ? cashflows[0].date : null;
+        const spanDays =
+          earliest != null
+            ? (quarterEndUtcNoon.getTime() - earliest.getTime()) / (24 * 3600 * 1000)
+            : null;
+        if (spanDays != null && spanDays < 365) {
+          fundGrossIRR = ((totalValueUpToQuarter / investmentsUpToQuarter) - 1) * 100;
+        } else {
+          const res = xirr(cashflows, { guess: 0.2 });
+          fundGrossIRR = res.ok ? res.rate * 100 : 0;
+        }
+      }
+      fundGrossIRR = Math.max(-100, fundGrossIRR);
       
       // Fund Net IRR = Gross IRR - management fees
       const managementFeeRate = 0.02;
-      const fundNetIRR = Math.max(0, fundGrossIRR - (managementFeeRate * 100));
+      const fundNetIRR = fundGrossIRR - managementFeeRate * 100;
       
       // Investor Net IRR = Fund Net IRR - carried interest (simplified, assume 20% carry)
       const carryRate = 0.20;
@@ -1269,15 +1359,41 @@ export class PortfolioDashboardService {
         ? totalValue / totalInvestmentCost 
         : 0;
 
-      // Gross IRR (simplified calculation). Floor holding period at ~1 day so brand-new positions do not explode.
-      const yearsSinceInvestmentRaw = initialInvestment
-        ? (holdingEnd.getTime() - new Date(initialInvestment).getTime()) / (1000 * 60 * 60 * 24 * 365)
-        : 1;
-      const yearsSinceInvestment = Math.max(yearsSinceInvestmentRaw, 1 / 365);
-      const grossIRR =
-        totalInvestmentCost > 0 && yearsSinceInvestment > 0
-          ? (Math.pow(totalValue / totalInvestmentCost, 1 / yearsSinceInvestment) - 1) * 100
-          : 0;
+      // Company gross IRR (%): XIRR on disbursements + terminal value at holdingEnd.
+      const cashflows: Array<{ amount: number; date: Date }> = [];
+      let earliest: Date | null = null;
+      let deployed = 0;
+      for (const d of disbursements) {
+        if (!d.disbursementDate) continue;
+        const dt = new Date(d.disbursementDate);
+        if (Number.isNaN(dt.getTime())) continue;
+        const amt = parseFloat((d.amount || new Decimal(0)).toString());
+        if (!Number.isFinite(amt) || amt === 0) continue;
+        deployed += Math.abs(amt);
+        earliest = earliest == null ? dt : new Date(Math.min(earliest.getTime(), dt.getTime()));
+        cashflows.push({ amount: -Math.abs(amt), date: PortfolioDashboardService.asUtcNoon(dt) });
+      }
+      if (totalValue > 0) {
+        cashflows.push({ amount: totalValue, date: PortfolioDashboardService.asUtcNoon(holdingEnd) });
+      }
+
+      // Short holding periods: show simple cumulative return % (stable) instead of annualized IRR.
+      let grossIRR: number;
+      if (earliest && deployed > 0) {
+        const spanDays =
+          (PortfolioDashboardService.asUtcNoon(holdingEnd).getTime() - PortfolioDashboardService.asUtcNoon(earliest).getTime()) /
+          (24 * 3600 * 1000);
+        if (spanDays < 365) {
+          grossIRR = ((totalValue / deployed) - 1) * 100;
+        } else {
+          const irrRes = xirr(cashflows, { guess: 0.25 });
+          grossIRR = irrRes.ok ? irrRes.rate * 100 : totalInvestmentCost > 0 && totalValue === 0 ? -100 : 0;
+        }
+      } else {
+        const irrRes = xirr(cashflows, { guess: 0.25 });
+        grossIRR = irrRes.ok ? irrRes.rate * 100 : totalInvestmentCost > 0 && totalValue === 0 ? -100 : 0;
+      }
+      grossIRR = Math.max(-100, grossIRR);
 
       // Get KPI values from financialKpis
       const financialKpis = company.financialKpis as any;
@@ -1798,13 +1914,18 @@ export class PortfolioDashboardService {
       ? totals.totalValue / totals.totalInvestmentCost
       : 0;
     
-    // Gross IRR as weighted average (simplified)
-    const totalCost = totals.totalInvestmentCost;
-    const totalValue = totals.totalValue;
-    const avgYears = 3; // Simplified - would need actual calculation
-    totals.grossIRR = totalCost > 0 && avgYears > 0
-      ? (Math.pow(totalValue / totalCost, 1 / avgYears) - 1) * 100
-      : 0;
+    // Portfolio gross IRR (%): XIRR on company disbursements with terminal totalValue at "today".
+    // Note: we don't have dated distributions in this module yet; realized is included in terminal.
+    const asOf = new Date();
+    const cashflows: Array<{ amount: number; date: Date }> = [];
+    // We don't have access to disbursement dates here; keep totals.grossIRR as value-weighted average of company IRRs.
+    // This stays stable and consistent with `portfolioSummary[].grossIRR` which is XIRR-backed.
+    const weightSum = portfolioSummary.reduce((s, r) => s + (r.totalInvestmentCost > 0 ? r.totalInvestmentCost : 0), 0);
+    totals.grossIRR =
+      weightSum > 0
+        ? portfolioSummary.reduce((s, r) => s + (r.grossIRR || 0) * (r.totalInvestmentCost > 0 ? r.totalInvestmentCost : 0), 0) /
+          weightSum
+        : 0;
     
     return {
       totalInvestmentCost: Math.round(totals.totalInvestmentCost * 100) / 100,

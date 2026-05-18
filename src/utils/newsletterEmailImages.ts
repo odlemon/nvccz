@@ -160,18 +160,46 @@ export function coverImageInlineAttachment(params: {
   };
 }
 
-/** Fetch remote cover URL and return inline attachment, or null. */
-export async function fetchCoverInlineAttachment(imageUrl: string): Promise<NewsletterInlineAttachment | null> {
+export type FetchCoverInlineOptions = {
+  /** Shown as attachment name in clients like Gmail; default `newsletter-cover` (hero image). */
+  filenameBase?: string;
+  /** CID referenced in HTML; default `newsletter-cover@nvccz`. */
+  cid?: string;
+  maxBytes?: number;
+};
+
+/** Fetch remote **hero/cover** image URL as inline attachment; default filename `newsletter-cover`. For letterhead logos use {@link fetchLogoInlineAttachment}. */
+export async function fetchCoverInlineAttachment(
+  imageUrl: string,
+  opts?: FetchCoverInlineOptions
+): Promise<NewsletterInlineAttachment | null> {
   const abs = resolveAbsoluteImageUrl(imageUrl);
   if (!abs) return null;
-  const got = await fetchImageBytes(abs, MAX_COVER_IMAGE_BYTES);
+  const maxBytes = opts?.maxBytes ?? MAX_COVER_IMAGE_BYTES;
+  const got = await fetchImageBytes(abs, maxBytes);
   if (!got) return null;
   const ext = extFromType(got.contentType);
+  const filenameBase = (opts?.filenameBase || "newsletter-cover").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const cid = opts?.cid || "newsletter-cover@nvccz";
   return {
-    filename: `newsletter-cover.${ext}`,
+    filename: `${filenameBase}.${ext}`,
     content: got.buffer,
-    cid: `newsletter-cover@nvccz`,
+    cid,
     contentType: got.contentType,
     contentDisposition: "inline"
   };
+}
+
+/**
+ * Letterhead / company logo as a CID inline attachment.
+ * Uses filename `logo.<ext>` (never `newsletter-cover`) so general and transactional mail look correct in Gmail.
+ */
+export async function fetchLogoInlineAttachment(
+  imageUrl: string,
+  opts?: { cid?: string; filenameBase?: string }
+): Promise<NewsletterInlineAttachment | null> {
+  return fetchCoverInlineAttachment(imageUrl, {
+    filenameBase: opts?.filenameBase ?? "logo",
+    cid: opts?.cid ?? "branding-logo@nvccz",
+  });
 }

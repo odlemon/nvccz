@@ -1,5 +1,12 @@
 import { prisma } from "../utils/database";
 import { CompanyProfileAddressService } from "../services/CompanyProfileAddressService";
+import {
+  buildNewsletterFooterTr,
+  buildNewsletterHeaderTr,
+  buildNewsletterTitleTr,
+  escapeAttrForEmail,
+  escapeHtmlForEmail,
+} from "./newsletterEmailLayout";
 
 export type EmailBranding = {
   companyName: string;
@@ -29,6 +36,16 @@ function resolveCompanyName(profileLegalName?: string | null) {
   );
 }
 
+/** Prefer active letterhead `label` (Company Profile → Addresses); else profile legal name / env. */
+function resolveDisplayCompanyName(
+  activeAddr: { label?: string | null } | null,
+  profileLegalName?: string | null
+) {
+  const fromLetterhead = clean(activeAddr?.label ?? null);
+  if (fromLetterhead) return fromLetterhead;
+  return resolveCompanyName(profileLegalName);
+}
+
 function joinAddressLines(parts: Array<string | null | undefined>) {
   const out: string[] = [];
   for (const p of parts) {
@@ -38,11 +55,8 @@ function joinAddressLines(parts: Array<string | null | undefined>) {
   return out;
 }
 
-export async function getEmailBrandingCached(): Promise<EmailBranding> {
-  if (_cache && Date.now() - _cache.ts < BRANDING_CACHE_TTL_MS) {
-    return _cache.branding;
-  }
-
+/** Load branding from DB (active letterhead address + company profile). Does not read/write cache. */
+export async function loadEmailBrandingFromDb(): Promise<EmailBranding> {
   const [profile, activeAddr] = await Promise.all([
     prisma.companyProfile.findFirst({
       orderBy: { updatedAt: "desc" },
@@ -51,7 +65,7 @@ export async function getEmailBrandingCached(): Promise<EmailBranding> {
     CompanyProfileAddressService.getActive(),
   ]);
 
-  const companyName = resolveCompanyName(profile?.legalName ?? null);
+  const companyName = resolveDisplayCompanyName(activeAddr, profile?.legalName ?? null);
   const logoUrl =
     clean(activeAddr?.logoUrl ?? null) ||
     clean(profile?.logoUrl ?? null) ||
@@ -67,7 +81,7 @@ export async function getEmailBrandingCached(): Promise<EmailBranding> {
       ])
     : [];
 
-  const branding: EmailBranding = {
+  return {
     companyName,
     logoUrl,
     addressLines,
@@ -75,39 +89,48 @@ export async function getEmailBrandingCached(): Promise<EmailBranding> {
     contactPhone: clean(profile?.phone ?? null) || null,
     website: clean(profile?.website ?? null) || clean(process.env.FRONTEND_URL) || null,
   };
+}
+
+export async function getEmailBrandingCached(): Promise<EmailBranding> {
+  if (_cache && Date.now() - _cache.ts < BRANDING_CACHE_TTL_MS) {
+    return _cache.branding;
+  }
+
+  const branding = await loadEmailBrandingFromDb();
 
   _cache = { branding, ts: Date.now() };
   return branding;
 }
 
-export function renderEmailHeader(branding: EmailBranding, opts?: { title?: string | null }) {
-  const title = clean(opts?.title ?? null);
-  const logo = branding.logoUrl
-    ? `<img src="${branding.logoUrl}" alt="${branding.companyName} logo" style="width:64px;height:64px;border-radius:999px;object-fit:cover;display:block;" />`
+/**
+ * Newsletter-style header + Georgia title rows (matches internal newsletter card).
+ * Logo uses public URL (transactional sends); internal newsletters may CID-embed separately.
+ */
+export function renderTransactionalEmailHeaderRows(
+  branding: EmailBranding,
+  opts: { emailHeading: string; headerTagline?: string | null }
+): string {
+  const tagline = clean(opts.headerTagline) || "Notification";
+  const heading = clean(opts.emailHeading) || "Update";
+  const logoTag = branding.logoUrl
+    ? `<img src="${escapeAttrForEmail(branding.logoUrl)}" alt="${escapeHtmlForEmail(branding.companyName)}" width="64" height="64" style="width:64px;height:64px;border-radius:999px;object-fit:cover;display:inline-block;border:2px solid rgba(255,255,255,0.6);" />`
     : "";
+  return (
+    buildNewsletterHeaderTr(branding, {
+      taglineEscaped: escapeHtmlForEmail(tagline),
+      logoImgTagOrEmpty: logoTag,
+    }) + buildNewsletterTitleTr(escapeHtmlForEmail(heading))
+  );
+}
 
-  const addressHtml = branding.addressLines.length
-    ? `<div style="margin-top:6px;color:#eef2ff;font-size:12px;line-height:1.4;">${branding.addressLines
-        .map((l) => `<div>${l}</div>`)
-        .join("")}</div>`
-    : "";
-
-  return `
-    <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:24px 24px;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-        <tr>
-          <td style="vertical-align:middle;">
-            <div style="font-size:18px;font-weight:700;line-height:1.2;">${branding.companyName}</div>
-            ${title ? `<div style="margin-top:6px;font-size:13px;opacity:0.95;">${title}</div>` : ""}
-            ${addressHtml}
-          </td>
-          <td style="vertical-align:middle;text-align:right;width:80px;">
-            ${logo}
-          </td>
-        </tr>
-      </table>
-    </div>
-  `;
+/** @param opts.tagline Small-caps line under company name (e.g. Procurement, Events). */
+export function renderEmailHeader(
+  branding: EmailBranding,
+  opts?: { title?: string | null; tagline?: string | null }
+) {
+  const heading = clean(opts?.title) || "Update";
+  const tagline = clean(opts?.tagline) || "Notification";
+  return renderTransactionalEmailHeaderRows(branding, { emailHeading: heading, headerTagline: tagline });
 }
 
 export function renderEmailSignature(teamLabel: string, branding: EmailBranding) {
@@ -120,18 +143,6 @@ export function renderEmailSignature(teamLabel: string, branding: EmailBranding)
 }
 
 export function renderEmailFooter(branding: EmailBranding) {
-  const year = new Date().getFullYear();
-  const contactBits = [branding.contactEmail ? `Email: ${branding.contactEmail}` : null, branding.contactPhone ? `Tel: ${branding.contactPhone}` : null]
-    .filter(Boolean)
-    .join(" · ");
-  const website = branding.website ? `<div style="margin-top:4px;"><a href="${branding.website}" style="color:#666;text-decoration:none;">${branding.website}</a></div>` : "";
-  return `
-    <div style="background-color:#f8f9fa;padding:18px;text-align:center;font-size:12px;color:#666;">
-      <div>This is an automated message. Please do not reply to this email.</div>
-      ${contactBits ? `<div style="margin-top:6px;">${contactBits}</div>` : ""}
-      ${website}
-      <div style="margin-top:10px;">© ${year} ${branding.companyName}. All rights reserved.</div>
-    </div>
-  `;
+  return buildNewsletterFooterTr(branding);
 }
 

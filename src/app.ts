@@ -73,6 +73,7 @@ import termSheetRoutes from "./routes/termSheetRoutes"
 import investmentImplementationRoutes from "./routes/investmentImplementationRoutes"
 import investmentMonitoringRoutes from "./routes/investmentMonitoringRoutes"
 import fundRoutes from "./routes/fundRoutes"
+import lpFeesAndDistributionsRoutes from "./routes/lpFeesAndDistributionsRoutes"
 import clientRoutes from "./routes/clientRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
@@ -220,7 +221,7 @@ app.use(cors({
 }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
-// Newsletter (and future) uploads: `Newsletter.imageUrl` uses `/api/uploads/...` (see `newsletterImageStorage.ts`).
+// Legacy local uploads. New media uploads use `/api/public-media/...` via `RemoteUploadService`.
 app.use(
   "/api/uploads",
   express.static(path.join(process.cwd(), "uploads"), {
@@ -538,6 +539,10 @@ app.use("/api/investments", investmentMonitoringRoutes)
 
 // Fund Management routes
 app.use("/api/funds", fundRoutes)
+
+// LP Fees & Distributions (fee policy, management fees, distributions). Mounted on the same prefix
+// since paths are scoped under `/:fundId/...`; siblings to Capital Calls inside fundRoutes.
+app.use("/api/funds", lpFeesAndDistributionsRoutes)
 
 // Client Management routes
 app.use("/api/clients", clientRoutes)

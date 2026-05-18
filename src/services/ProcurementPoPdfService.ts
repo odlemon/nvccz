@@ -8,7 +8,7 @@ import {
 } from "../utils/capitalCallAccountingLetterhead";
 
 /**
- * Suite 04.3 — Purchase Order PDF with shared letterhead, QR placeholder, and signature block.
+ * Suite 04.3 — Purchase Order PDF with shared letterhead.
  *
  * The same letterhead pipeline used by payslips, capital call notices, sales/procurement invoices,
  * and vendor quotations is applied here, so all outbound NVCCZ documents render an identical header.
@@ -38,8 +38,6 @@ export class ProcurementPoPdfService {
       opts && Object.prototype.hasOwnProperty.call(opts, "letterhead")
         ? opts.letterhead
         : await loadCapitalCallAccountingLetterhead().catch(() => null);
-
-    const verifyToken = po.poPdfVerificationToken || "pending-send";
 
     const doc = new PDFDocument({ margin: 50, size: "A4" });
     const chunks: Buffer[] = [];
@@ -107,24 +105,6 @@ export class ProcurementPoPdfService {
       taxAmount: Number(po.taxAmount ?? 0),
       totalAmount: Number(po.totalAmount ?? 0),
     });
-
-    doc.moveDown(0.8);
-    doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111").text("Verification", margin, doc.y);
-    doc.moveDown(0.2);
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#000000")
-      .text("[QR placeholder — verification payload]", margin, doc.y, { width: contentW });
-    doc.font("Courier").fontSize(8).fillColor("#444444");
-    doc.text(`VERIFY:${verifyToken}`, margin, doc.y, { width: contentW });
-    doc.font("Helvetica").fillColor("#000000");
-
-    doc.moveDown(1.5);
-    doc.font("Helvetica").fontSize(10).fillColor("#000000");
-    doc.text("_______________________________", margin, doc.y);
-    doc.text("Authorised signature (placeholder)", margin, doc.y);
-    doc.text("VC CFO / delegated approver — digital signature block (MVP)", margin, doc.y);
 
     doc.moveDown(1.0);
     doc

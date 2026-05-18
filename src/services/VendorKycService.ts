@@ -1,7 +1,13 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
-import { remoteUploadService } from "./RemoteUploadService";
-import { encryptVendorArtifact } from "../utils/vendorArtifactCrypto";
+import {
+  remoteUploadService,
+  rewritePublicMediaUrl,
+  extractRelativeMediaPath,
+  collapseDuplicatePublicMediaPath,
+  resolveMediaBaseUrl,
+} from "./RemoteUploadService";
+import { FirebaseStorageService } from "./FirebaseStorageService";
 import { VENDOR_PORTAL_ACTOR_ID } from "../constants/vendorPortalActor";
 
 export const VENDOR_PORTAL_KYC_UPLOADED_BY = VENDOR_PORTAL_ACTOR_ID;
@@ -54,6 +60,44 @@ const TYPE_LABEL_BY_CODE = Object.fromEntries(
   VENDOR_KYC_PORTAL_DOCUMENT_TYPES.map((d) => [d.code, d.label])
 );
 
+/** Drop `cb` cache-buster from KYC API `fileUrl` only (DB may still store `?cb=1` from upload). */
+function stripKycPublicMediaCacheQuery(url: string): string {
+  if (!url || !/[?&]cb=/.test(url)) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.delete("cb");
+    const q = u.searchParams.toString();
+    u.search = q ? `?${q}` : "";
+    return u.toString();
+  } catch {
+    return String(url)
+      .replace(/\?cb=1(?:&|$)/i, "?")
+      .replace(/&cb=1(?=&|$)/gi, "")
+      .replace(/\?$/, "");
+  }
+}
+
+function guessMimeFromFileName(fileName: string): string | null {
+  const n = String(fileName || "").toLowerCase();
+  const i = n.lastIndexOf(".");
+  const ext = i >= 0 ? n.slice(i + 1) : "";
+  const map: Record<string, string> = {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    txt: "text/plain",
+    csv: "text/csv",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  };
+  return map[ext] || null;
+}
+
 export class VendorKycService {
   static assertDocumentType(t: string) {
     const u = String(t || "").trim().toUpperCase().replace(/\s+/g, "_");
@@ -72,7 +116,8 @@ export class VendorKycService {
   static async getPortalKycRequirements(token: string) {
     const { VendorSelfRegistrationService } = await import("./VendorSelfRegistrationService");
     const { id: vendorId } = await VendorSelfRegistrationService.assertTokenOpenForPortalKyc(token);
-    const uploads = await this.listForVendor(vendorId);
+    const uploadsRaw = await this.listForVendor(vendorId);
+    const uploads = uploadsRaw.map((u) => this.formatKycDocumentResponse(u));
     const requiredCodes = VENDOR_KYC_PORTAL_DOCUMENT_TYPES.filter((d) => d.requiredForPortal).map(
       (d) => d.code
     );
@@ -110,18 +155,84 @@ export class VendorKycService {
         vendorId: true,
         documentType: true,
         fileName: true,
-        filePath: true,
-        fileSize: true,
-        mimeType: true,
+        fileUrl: true,
         isVerified: true,
+        verifiedById: true,
         verifiedAt: true,
         uploadedById: true,
         createdAt: true,
+        updatedAt: true,
         isEncrypted: true,
       },
     });
   }
 
+  /**
+   * Normalizes stored `file_url` for KYC JSON only: collapse duplicates, rewrite legacy `/uploads/` paths,
+   * resolve path-only URLs to absolute when env allows, then strip `cb` (never return `?cb=1` in API bodies).
+   */
+  static resolveKycFileUrlForResponse(stored: string | null | undefined): string | null {
+    const raw = String(stored || "").trim();
+    if (!raw) return null;
+    let u = collapseDuplicatePublicMediaPath(raw);
+    const rw = rewritePublicMediaUrl(u);
+    if (rw != null && rw !== "") u = String(rw);
+
+    if (!/^https?:\/\//i.test(u)) {
+      const originForJoin = (
+        process.env.BASE_URL ||
+        process.env.API_PUBLIC_BASE_URL ||
+        process.env.FRONTEND_URL ||
+        ""
+      )
+        .trim()
+        .replace(/\/+$/, "");
+      if (u.startsWith("/") && originForJoin && /^https?:\/\//i.test(originForJoin)) {
+        try {
+          const baseWithSlash = originForJoin.endsWith("/") ? originForJoin : `${originForJoin}/`;
+          u = new URL(u, baseWithSlash).href;
+        } catch {
+          /* fall through */
+        }
+      }
+    }
+
+    if (!/^https?:\/\//i.test(u)) {
+      const base = resolveMediaBaseUrl().replace(/\/+$/, "");
+      if (/^https?:\/\//i.test(base)) {
+        const rel = u.replace(/^\/+/, "");
+        u = `${base}/${rel}`;
+      }
+    }
+    return stripKycPublicMediaCacheQuery(u);
+  }
+
+  /** Staff, portal, and nested vendor payloads: only id, type, name, absolute fileUrl, verification, encryption flag, timestamps. */
+  static formatKycDocumentResponse(d: Record<string, unknown>) {
+    const fileUrl = this.resolveKycFileUrlForResponse(
+      d.fileUrl != null && String(d.fileUrl).trim() ? String(d.fileUrl) : null
+    );
+    return {
+      id: d.id,
+      vendorId: d.vendorId,
+      documentType: d.documentType,
+      fileName: d.fileName,
+      fileUrl,
+      isVerified: d.isVerified,
+      verifiedById: d.verifiedById,
+      verifiedAt: d.verifiedAt,
+      uploadedById: d.uploadedById,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+      isEncrypted: d.isEncrypted,
+    };
+  }
+
+  /**
+   * Same as portfolio application uploads (`ApplicationController` / `FirebaseStorageService.uploadApplicationDocument`):
+   * persist `downloadURL` from the remote upload service as `fileUrl` (no extra rewriting at insert time).
+   * Legacy DB rows may still use at-rest encryption (`isEncrypted: true`).
+   */
   static async uploadEncrypted(params: {
     vendorId: string;
     documentType: string;
@@ -132,33 +243,22 @@ export class VendorKycService {
     const vendor = await prisma.vendor.findUnique({ where: { id: params.vendorId } });
     if (!vendor) throw new Error("Vendor not found");
 
-    const { ciphertext, iv, authTag } = encryptVendorArtifact(params.file.buffer);
-    const safeName = params.file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-    const remoteName = `${Date.now()}-${safeName}.enc`;
-
-    const upload = await remoteUploadService.uploadSingleFile(
-      {
-        buffer: ciphertext,
-        originalname: remoteName,
-        mimetype: "application/octet-stream",
-      },
-      "application-documents"
+    const { downloadURL } = await FirebaseStorageService.uploadApplicationDocument(
+      params.file.buffer,
+      params.file.originalname,
+      params.vendorId,
+      docType
     );
-
-    const logicalPath = `/artifacts/vendor-kyc/${params.vendorId}/${remoteName}`;
 
     const row = await prisma.vendorKycDocument.create({
       data: {
         vendorId: params.vendorId,
         documentType: docType,
         fileName: params.file.originalname,
-        fileUrl: upload.downloadURL,
-        filePath: logicalPath,
-        fileSize: ciphertext.length,
-        mimeType: params.file.mimetype || "application/octet-stream",
-        isEncrypted: true,
-        encryptionIv: iv,
-        encryptionAuthTag: authTag,
+        fileUrl: downloadURL,
+        isEncrypted: false,
+        encryptionIv: null,
+        encryptionAuthTag: null,
         uploadedById: params.uploadedById,
       },
     });
@@ -207,16 +307,39 @@ export class VendorKycService {
     fileName: string;
     mimeType: string | null;
   }> {
-    const { decryptVendorArtifact } = await import("../utils/vendorArtifactCrypto");
     const doc = await prisma.vendorKycDocument.findUnique({ where: { id: documentId } });
     if (!doc) throw new Error("Document not found");
-    if (!doc.isEncrypted || !doc.encryptionIv || !doc.encryptionAuthTag) {
-      throw new Error("Document is not encrypted or missing crypto metadata");
+
+    const url = doc.fileUrl && String(doc.fileUrl).trim();
+    if (!url) {
+      throw new Error("Document has no retrievable file URL");
     }
+
     const axios = (await import("axios")).default;
-    const res = await axios.get(doc.fileUrl, { responseType: "arraybuffer", timeout: 60000 });
-    const buf = Buffer.from(res.data);
-    const plain = decryptVendorArtifact(buf, doc.encryptionIv, doc.encryptionAuthTag);
-    return { buffer: plain, fileName: doc.fileName, mimeType: doc.mimeType };
+    const fetchUrl = rewritePublicMediaUrl(url) ?? url;
+    let raw: Buffer;
+    try {
+      const res = await axios.get(fetchUrl, { responseType: "arraybuffer", timeout: 60000 });
+      raw = Buffer.from(res.data);
+    } catch {
+      const rel = extractRelativeMediaPath(url);
+      if (!rel || String(rel).startsWith("/artifacts")) {
+        throw new Error("Document file could not be retrieved from storage");
+      }
+      raw = await remoteUploadService.downloadFile(rel);
+    }
+
+    const mimeType = guessMimeFromFileName(doc.fileName);
+
+    if (!doc.isEncrypted) {
+      return { buffer: raw, fileName: doc.fileName, mimeType };
+    }
+
+    const { decryptVendorArtifact } = await import("../utils/vendorArtifactCrypto");
+    if (!doc.encryptionIv || !doc.encryptionAuthTag) {
+      throw new Error("Document is marked encrypted but missing crypto metadata");
+    }
+    const plain = decryptVendorArtifact(raw, doc.encryptionIv, doc.encryptionAuthTag);
+    return { buffer: plain, fileName: doc.fileName, mimeType };
   }
 }

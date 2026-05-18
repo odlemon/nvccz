@@ -7,6 +7,7 @@
 
 const http = require('http');
 const https = require('https');
+const { signRfqSubmit, defaultRfqExpFromClosingOr365d } = require('./vendor-portal-token-sign.cjs');
 
 const BASE_URL = 'http://localhost:3000/api';
 let ADMIN_TOKEN = '';
@@ -453,17 +454,22 @@ async function createAndSendRFQ(token, requisitionId, vendorIds) {
   }
 }
 
-async function submitVendorQuotations(rfqNumber) {
+async function submitVendorQuotations(rfqNumber, procurementRfqId, vendorIds, rfqDeadlineIso) {
   console.log('\n════════════════════════════════════════════════════════════════');
   console.log('💻 STEP 5: VENDORS SUBMIT QUOTATIONS (SIMULATED)');
   console.log('════════════════════════════════════════════════════════════════\n');
   console.log('   📝 Note: In production, vendors submit via public form link in email');
   console.log('');
 
+  const exp = defaultRfqExpFromClosingOr365d(rfqDeadlineIso);
+  const tokenV1 = signRfqSubmit(vendorIds[0], procurementRfqId, exp);
+  const tokenV2 = signRfqSubmit(vendorIds[1], procurementRfqId, exp);
+
   // Vendor 1: ABC Supplies
   console.log('   📋 Vendor 1: ABC Supplies Ltd...');
   try {
     const quotation1 = {
+      vendorPortalToken: tokenV1,
       rfqNumber: rfqNumber,
       vendorName: 'John Doe',
       vendorEmail: TEST_VENDORS[0].email,
@@ -525,6 +531,7 @@ async function submitVendorQuotations(rfqNumber) {
   console.log('\n   📋 Vendor 2: XYZ Equipment Co...');
   try {
     const quotation2 = {
+      vendorPortalToken: tokenV2,
       rfqNumber: rfqNumber,
       vendorName: 'Jane Smith',
       vendorEmail: TEST_VENDORS[1].email,
@@ -798,7 +805,7 @@ async function main() {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Submit vendor quotations
-    await submitVendorQuotations(RFQ_NUMBER);
+    await submitVendorQuotations(RFQ_NUMBER, rfq.procurementRfqId, vendorIds, rfq.rfqDeadline);
 
     // Wait a bit
     await new Promise(resolve => setTimeout(resolve, 1000));

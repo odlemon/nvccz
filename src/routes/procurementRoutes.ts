@@ -90,20 +90,27 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - vendorId
- *               - invoiceDate
  *               - items
  *             properties:
+ *               vendorPortalToken:
+ *                 type: string
+ *                 description: >
+ *                   Required for **unauthenticated** vendor submits. Signed token from the PO email
+ *                   (`PO_VENDOR_INVOICE`); embeds `vendorId` and `purchaseOrderId`. Alias body field `token`.
+ *               token:
+ *                 type: string
+ *                 description: Alias of `vendorPortalToken`.
  *               purchaseOrderId:
  *                 type: string
- *                 description: Related purchase order ID
+ *                 description: Required unless `vendorPortalToken` supplies it (must match token when both sent).
  *               vendorId:
  *                 type: string
- *                 description: Vendor ID
+ *                 description: Required for **staff** (authenticated) creates; for vendor self-serve, derived from token.
  *               invoiceDate:
  *                 type: string
  *                 format: date-time
- *                 description: Invoice date
+ *                 description: >
+ *                   Staff only. Vendor portal submits ignore this and use the server date at create time.
  *               dueDate:
  *                 type: string
  *                 format: date-time
@@ -217,7 +224,7 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  * /procurement/requisitions:
  *   get:
  *     summary: Get all purchase requisitions (filtered by user's department)
- *     description: **Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user's department only. Requisitions are filtered by the department they target.
+ *     description: **Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user's department only. Requisitions are filtered by the department they target. **Draft (unsubmitted) requisitions are never returned** unless you filter by another status; `status=DRAFT` is rejected — use `GET /procurement/requisitions/my` for your own drafts.
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -226,8 +233,8 @@ router.post("/requisitions", ProcurementController.createPurchaseRequisition);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO]
- *         description: Filter by status
+ *           enum: [PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO, PENDING_VC_EXECUTIVE_REVIEW]
+ *         description: Filter by status (DRAFT not supported — drafts excluded from this list by default)
  *       - in: query
  *         name: requestedById
  *         schema:
@@ -417,7 +424,7 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  * /procurement/requisitions/{id}/reject:
  *   put:
  *     summary: Reject a purchase requisition
- *     description: **Required Role:** Department HEAD or DEPUTY for the department that owns the requisition. ⚠️ Once rejected, status becomes REJECTED and cannot be modified
+ *     description: **Required Role:** Department HEAD or DEPUTY for the department that owns the requisition. Sets status **REJECTED**, stores a content fingerprint, and notifies the submitter. The requester may **PUT** `/api/procurement/requisitions/{id}` to edit while rejected, then **PUT** `/submit` again only after line/header details change from the rejected snapshot.
  *     tags: [Procurement - Requisitions]
  *     security:
  *       - bearerAuth: []
@@ -443,7 +450,7 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  *                 example: "Budget no longer available"
  *     responses:
  *       200:
- *         description: Requisition rejected successfully
+ *         description: Requisition rejected successfully. Response body includes `rejectionReason`, `rejectionContentFingerprint`, and full requisition row.
  *       400:
  *         description: Bad request (missing reason or invalid state)
  *       401:
@@ -452,6 +459,46 @@ router.put("/requisitions/:id/approve", ProcurementController.approvePurchaseReq
  *         description: Forbidden (not department head/deputy)
  */
 router.put("/requisitions/:id/reject", ProcurementController.rejectPurchaseRequisition);
+
+/**
+ * @swagger
+ * /procurement/requisitions/{id}:
+ *   put:
+ *     summary: Update own purchase requisition (DRAFT or REJECTED)
+ *     description: Requester only. After rejection, edit here so the content fingerprint differs, then call submit again.
+ *     tags:
+ *       - Procurement
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title: { type: string }
+ *               description: { type: string }
+ *               department: { type: string }
+ *               priority: { type: string }
+ *               justification: { type: string }
+ *               sourcingCategory: { type: string }
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: Updated
+ *       400:
+ *         description: Validation error
+ */
+router.put("/requisitions/:id", ProcurementController.updatePurchaseRequisition);
 
 router.post("/purchase-orders", ProcurementController.createPurchaseOrder);
 router.get("/purchase-orders", ProcurementController.getAllPurchaseOrders);
@@ -479,11 +526,10 @@ router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.conver
  *             required:
  *               - title
  *               - vendorIds
- *               - items
  *             properties:
  *               requisitionId:
  *                 type: string
- *                 description: Link to approved requisition
+ *                 description: Link to approved requisition. When set, items may be omitted — PR line items are copied.
  *               title:
  *                 type: string
  *                 description: RFQ title
@@ -513,6 +559,7 @@ router.post("/purchase-orders/:id/convert-to-bill", ProcurementController.conver
  *                 type: string
  *               items:
  *                 type: array
+ *                 description: Omit when requisitionId is set — line items are copied from the approved PR
  *                 items:
  *                   type: object
  *                   properties:
@@ -576,9 +623,109 @@ router.post("/rfq", ProcurementController.createAndSendRFQ);
  */
 router.get("/rfq", ProcurementController.getAllRFQs);
 
+/**
+ * @swagger
+ * /procurement/rfqs/{id}/comparison-matrix:
+ *   get:
+ *     summary: RFQ comparison matrix
+ *     description: |
+ *       **Required Role:** PROC_MGR, PROC_OFF, or BUYER.
+ *       Compare all vendor quotations for a procurement RFQ (`procurement_rfqs.id`).
+ *       Returns full quotation detail, FX-normalized totals, weighted scores, and UI-friendly highlights (vendor names and amounts).
+ *       Not gated on RFQ closing time.
+ *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Procurement RFQ id
+ *     responses:
+ *       200:
+ *         description: Comparison matrix retrieved successfully
+ *       400:
+ *         description: RFQ not found
+ *       401:
+ *         description: Unauthorized
+ */
 router.get("/rfqs/:id/comparison-matrix", ProcurementController.getRfqComparisonMatrix);
+
+/**
+ * @swagger
+ * /procurement/rfqs/{id}/award:
+ *   post:
+ *     summary: "[Deprecated] Award RFQ"
+ *     description: |
+ *       **410 Gone** — use `POST /api/vendor-quotations/{id}/accept` for the winning quotation
+ *       and `POST /api/vendor-quotations/{id}/reject` for others.
+ *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
+ *     deprecated: true
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       410:
+ *         description: Use vendor-quotations accept/reject instead
+ */
 router.post("/rfqs/:id/award", ProcurementController.awardRfq);
 router.patch("/rfqs/:id/closing", ProcurementController.patchRfqExtend);
+/**
+ * @swagger
+ * /procurement/rfqs/{id}/clarifications:
+ *   post:
+ *     summary: Post RFQ clarification (staff)
+ *     description: |
+ *       **Required Role:** PROC_MGR, PROC_OFF, or BUYER.
+ *       Clarification text is stored in one `body` field. Send **`body`**, or **`answer`**, or **`question`** + **`answer`** (formatted as Q/A).
+ *       Staff rows use **`userId`** (vendorId is null). Invited vendors are emailed (RFQ-style template + portal link).
+ *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               body:
+ *                 type: string
+ *               question:
+ *                 type: string
+ *               answer:
+ *                 type: string
+ *               attachmentUrl:
+ *                 type: string
+ *           example:
+ *             answer: "Yes, delivery to multiple sites is allowed."
+ *     responses:
+ *       201:
+ *         description: Clarification created
+ *       400:
+ *         description: Missing clarification text
+ *   get:
+ *     summary: List RFQ clarifications
+ *     tags: [Procurement - RFQ, Procurement — RFQ & Bidding (Suite 03)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Clarifications list
+ */
 router.post("/rfqs/:id/clarifications", ProcurementController.postRfqClarification);
 router.get("/rfqs/:id/clarifications", ProcurementController.getRfqClarifications);
 
@@ -1009,6 +1156,104 @@ router.get("/goods-received-notes", ProcurementController.getGoodsReceivedNotes)
  */
 router.get("/goods-received-notes/:id", ProcurementController.getGoodsReceivedNoteById);
 router.post("/goods-received-notes", ProcurementController.createGoodsReceivedNote);
+
+/**
+ * @swagger
+ * /procurement/goods-received-notes/{id}/approve:
+ *   put:
+ *     summary: QC-approve a goods received note
+ *     description: |
+ *       **Required Role:** Authenticated procurement user (PROC_MGR, PROC_OFF, BUYER, etc.).
+ *       Sets the GRN header **`qualityStatus`** and every line **`qualityStatus`** to **`PASSED`**,
+ *       records **`approvedById`** / **`approvedAt`**, and promotes header **`status`** from
+ *       `RECEIVED` or `PENDING_GP_REVIEW` to **`APPROVED`** when applicable.
+ *       Optional body **`qualityNotes`** is stored on the GRN header.
+ *       Does not email the vendor. PO delivery status is unchanged (set at GRN create).
+ *     tags: [Procurement - GRN]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Goods received note id
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               qualityNotes:
+ *                 type: string
+ *                 description: Optional overall QC notes (header)
+ *           example:
+ *             qualityNotes: "All items inspected and accepted"
+ *     responses:
+ *       200:
+ *         description: GRN approved; qualityStatus PASSED on header and lines
+ *       400:
+ *         description: Bad request (e.g. GRN rejected)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: GRN not found
+ */
+router.put("/goods-received-notes/:id/approve", ProcurementController.approveGoodsReceivedNote);
+
+/**
+ * @swagger
+ * /procurement/goods-received-notes/{id}/reject:
+ *   put:
+ *     summary: QC-reject a goods received note
+ *     description: |
+ *       **Required Role:** Authenticated procurement user.
+ *       Sets the GRN header **`qualityStatus`** and every line **`qualityStatus`** to **`FAILED`**,
+ *       sets header **`status`** to **`REJECTED`**, and persists **`rejectionReason`** (required) plus
+ *       **`rejectionContentFingerprint`**. Clears **`approvedById`** / **`approvedAt`** if set.
+ *       Optional alias: body field **`qualityNotes`** is accepted as the rejection reason when
+ *       **`rejectionReason`** is omitted.
+ *       Does not reverse PO receipt quantities or PO delivery status.
+ *     tags: [Procurement - GRN]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Goods received note id
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - rejectionReason
+ *             properties:
+ *               rejectionReason:
+ *                 type: string
+ *                 description: Why the GRN failed QC (required)
+ *               qualityNotes:
+ *                 type: string
+ *                 description: Alias for rejectionReason
+ *           example:
+ *             rejectionReason: "Damaged packaging; 5 units short"
+ *     responses:
+ *       200:
+ *         description: GRN rejected; qualityStatus FAILED on header and lines
+ *       400:
+ *         description: Bad request (missing reason or already rejected)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: GRN not found
+ */
+router.put("/goods-received-notes/:id/reject", ProcurementController.rejectGoodsReceivedNote);
 
 /**
  * @swagger

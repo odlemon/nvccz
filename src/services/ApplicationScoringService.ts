@@ -445,6 +445,7 @@ export class ApplicationScoringService {
         data: {
           currentStage: stage,
           screeningOutcome: outcome,
+          screeningRejectionReason: rejectionReason,
           updatedAt: new Date()
         }
       });
@@ -467,7 +468,6 @@ export class ApplicationScoringService {
         rejectionReason: rejectionReason.substring(0, 500)
       });
 
-      // Fetch application data with updated score for detailed rejection email
       const updatedApplication = await prisma.application.findUnique({
         where: { id: application.id },
         select: {
@@ -479,7 +479,6 @@ export class ApplicationScoringService {
         }
       });
 
-      // Use the score from parameter or from updated application
       const finalScore = score || updatedApplication?.initialScreeningScore || 0;
 
       logger.info('📧 Preparing to send rejection email', {
@@ -489,33 +488,14 @@ export class ApplicationScoringService {
         hasReasoning: !!rejectionReason
       });
 
-      const documentUrls = await prisma.applicationDocument.findMany({
-        where: { applicationId: application.id },
-        select: {
-          documentType: true,
-          fileName: true,
-          fileUrl: true
-        }
-      });
-
-      // Send rejection email with AI reasoning
+      // Generic rejection notice only — no detailed reasons, scores, or documents in email
       try {
         await EmailNotificationService.sendApplicationRejectedEmail({
           applicantName: application.applicantName,
           applicantEmail: application.applicantEmail,
           businessName: application.businessName,
           applicationId: application.id,
-          currentStage: stage,
-          additionalInfo: {
-            rejectionReason: rejectionReason,
-            score: finalScore,
-            aiReasoning: rejectionReason, // AI-generated reasoning
-            documents: documentUrls.map(doc => ({
-              type: doc.documentType,
-              fileName: doc.fileName,
-              url: doc.fileUrl
-            }))
-          }
+          currentStage: stage
         });
 
         logger.info('✅ Rejection email sent successfully', {

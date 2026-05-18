@@ -26,41 +26,36 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
   },
   "/procurement/rfqs/{id}/comparison-matrix": {
     get: {
-      summary: "RFQ comparison matrix (FX-normalized; sealed bids until close)",
+      summary: "RFQ comparison matrix",
+      description:
+        "PROC_MGR / PROC_OFF / BUYER. Full quotation rows + FX-normalized comparison; highlights use quotationNumber and vendorName (not cuid ids).",
       tags: [S03, TAG_RFQ],
       security: bearer,
-      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
-      responses: { 200: { description: "OK" }, 401: { description: "Unauthorized" } },
+      parameters: [
+        {
+          in: "path",
+          name: "id",
+          required: true,
+          schema: { type: "string" },
+          description: "procurement_rfqs.id",
+        },
+      ],
+      responses: {
+        200: {
+          description: "Matrix with rfq, rows[], highlights { lowestNormalizedCost, highestVendorRating, highestCompositeScore }",
+        },
+        400: { description: "RFQ not found" },
+        401: { description: "Unauthorized" },
+      },
     },
   },
   "/procurement/rfqs/{id}/award": {
     post: {
-      summary: "Award RFQ to vendor (regret emails to others)",
+      summary: "[Deprecated] Award RFQ — use vendor-quotations accept",
+      deprecated: true,
       tags: [S03, TAG_RFQ],
       security: bearer,
-      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
-      requestBody: {
-        required: true,
-        content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["vendorId"],
-              properties: {
-                vendorId: { type: "string", example: "vend_cuid_123" },
-                awardNotes: { type: "string", example: "Lowest evaluated total price (FX-normalized)" },
-                sendRegretEmails: { type: "boolean", example: true },
-              },
-            },
-            example: {
-              vendorId: "vend_cuid_123",
-              awardNotes: "Best overall value for money; meets delivery SLA",
-              sendRegretEmails: true,
-            },
-          },
-        },
-      },
-      responses: { 200: { description: "OK" }, 400: { description: "Bad request" } },
+      responses: { 410: { description: "Use POST /vendor-quotations/{id}/accept" } },
     },
   },
   "/procurement/rfqs/{id}/closing": {
@@ -110,17 +105,17 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
           "application/json": {
             schema: {
               type: "object",
-              required: ["question", "answer"],
+              description:
+                "Stored as one `body` text field. Send `body` OR `answer` OR `question`+`answer` (combined as Q/A).",
               properties: {
-                question: { type: "string", example: "Can vendors propose equivalent brands?" },
-                answer: { type: "string", example: "Yes, provided specs meet or exceed the minimum requirements." },
-                visibleToVendors: { type: "boolean", example: true },
+                body: { type: "string", example: "Delivery to multiple sites is allowed." },
+                question: { type: "string", example: "Is delivery to multiple sites allowed?" },
+                answer: { type: "string", example: "Yes. Specify unit pricing per location in your quote." },
+                attachmentUrl: { type: "string", example: "https://storage.example.com/clarification.pdf" },
               },
             },
             example: {
-              question: "Is delivery to multiple sites allowed?",
               answer: "Yes. Specify unit pricing per delivery location in your quotation notes.",
-              visibleToVendors: true,
             },
           },
         },
@@ -446,6 +441,67 @@ export const procurementSuiteSectionsFallbackEndpoints: Record<string, Record<st
       security: bearer,
       parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
       responses: { 200: { description: "OK" }, 404: { description: "Not found" } },
+    },
+  },
+  "/procurement/goods-received-notes/{id}/approve": {
+    put: {
+      summary: "QC-approve GRN (qualityStatus PASSED on header and all lines)",
+      description:
+        "Sets header and line qualityStatus to PASSED, records approvedBy/approvedAt, and promotes status RECEIVED or PENDING_GP_REVIEW to APPROVED. Optional body qualityNotes on header.",
+      tags: [S05, "Procurement - GRN"],
+      security: bearer,
+      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: false,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                qualityNotes: { type: "string", example: "All items inspected and accepted" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "GRN approved" },
+        400: { description: "Bad request" },
+        404: { description: "Not found" },
+      },
+    },
+  },
+  "/procurement/goods-received-notes/{id}/reject": {
+    put: {
+      summary: "QC-reject GRN (qualityStatus FAILED; status REJECTED)",
+      description:
+        "Sets header and line qualityStatus to FAILED, status REJECTED, rejectionReason and fingerprint. Clears approver fields. Does not reverse PO quantities.",
+      tags: [S05, "Procurement - GRN"],
+      security: bearer,
+      parameters: [{ in: "path", name: "id", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["rejectionReason"],
+              properties: {
+                rejectionReason: {
+                  type: "string",
+                  example: "Damaged packaging; quantity short",
+                },
+                qualityNotes: { type: "string", description: "Alias for rejectionReason" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: "GRN rejected" },
+        400: { description: "Bad request" },
+        404: { description: "Not found" },
+      },
     },
   },
   "/applicant/procurement/goods-received-notes": {
