@@ -156,8 +156,9 @@ export class VendorPublicRegistrationController {
           documentType,
           file,
         });
+        const formatted = VendorKycService.formatKycDocumentResponse(row as Record<string, unknown>);
         rows.push({
-          ...row,
+          ...formatted,
           documentTypeLabel: VendorKycService.documentTypeLabel(row.documentType),
         });
       }
@@ -179,7 +180,8 @@ export class VendorPublicRegistrationController {
     try {
       const { token } = req.params;
       const rows = await VendorKycService.listForPortalToken(token);
-      res.status(200).json({ success: true, data: rows });
+      const data = rows.map((r) => VendorKycService.formatKycDocumentResponse(r as Record<string, unknown>));
+      res.status(200).json({ success: true, data });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
     }

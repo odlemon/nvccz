@@ -79,7 +79,7 @@ type QuotationDb = Pick<PrismaClient, "vendorQuotation">;
 async function maxQuoSuffixForDate(prisma: QuotationDb, ymd: string): Promise<number> {
   const prefix = `QUO_${ymd}_`;
   const rows = await prisma.vendorQuotation.findMany({
-    where: { quotationNumber: { startsWith: prefix } },
+    where: { quotationNumber: { startsWith: prefix } }, 
     select: { quotationNumber: true },
   });
   let max = 0;

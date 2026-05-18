@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
 import { VendorQuotationService } from "../services/VendorQuotationService";
+import { serializeDecimalsDeep } from "../utils/prismaDecimalJson";
+import { enrichRfqItemsSnapshotForApi } from "../utils/rfqItemInput";
 
 export class VendorQuotationController {
   /**
@@ -9,12 +11,16 @@ export class VendorQuotationController {
    */
   static async createVendorQuotation(req: Request, res: Response, next: NextFunction) {
     try {
-      const quotation = await VendorQuotationService.createVendorQuotation(req.body);
+      const body = { ...req.body };
+      if (!body.vendorPortalToken && body.token) {
+        body.vendorPortalToken = body.token;
+      }
+      const quotation = await VendorQuotationService.createVendorQuotation(body);
 
       res.status(201).json({
         success: true,
         message: "Quotation submitted successfully. We will review your quote and contact you soon.",
-        data: quotation
+        data: serializeDecimalsDeep(quotation),
       });
     } catch (error: any) {
       next(error);
@@ -37,7 +43,9 @@ export class VendorQuotationController {
       });
 
       // Ensure each quotation in list includes auto-generated quotationNumber
-      const data = (result.quotations || []).map((q: any) => ({ ...q, quotationNumber: q.quotationNumber ?? null }));
+      const data = (result.quotations || []).map((q: any) =>
+        serializeDecimalsDeep({ ...q, quotationNumber: q.quotationNumber ?? null })
+      );
       res.json({
         success: true,
         message: "Quotations retrieved successfully",
@@ -61,7 +69,9 @@ export class VendorQuotationController {
       const quotation = await VendorQuotationService.getQuotationById(id);
 
       // Ensure auto-generated quotationNumber is always in response
-      const data = quotation ? { ...quotation, quotationNumber: (quotation as any).quotationNumber ?? null } : null;
+      const data = quotation
+        ? serializeDecimalsDeep({ ...quotation, quotationNumber: (quotation as any).quotationNumber ?? null })
+        : null;
       res.json({
         success: true,
         message: "Quotation retrieved successfully",
@@ -79,14 +89,21 @@ export class VendorQuotationController {
     try {
       const { rfqNumber } = req.params;
 
-      const quotations = await VendorQuotationService.getQuotationsByRFQ(rfqNumber);
-      // Ensure each quotation includes auto-generated quotationNumber
-      const data = (quotations || []).map((q: any) => ({ ...q, quotationNumber: q.quotationNumber ?? null }));
+      const result = await VendorQuotationService.getQuotationsByRFQ(rfqNumber);
+      const quotations = result.quotations || [];
+      const data = quotations.map((q: any) =>
+        serializeDecimalsDeep({ ...q, quotationNumber: q.quotationNumber ?? null })
+      );
+      let rfq = result.rfq ? serializeDecimalsDeep(result.rfq) : null;
+      if (rfq && rfq.itemsSnapshot != null) {
+        rfq = { ...rfq, itemsSnapshot: enrichRfqItemsSnapshotForApi(rfq.itemsSnapshot) };
+      }
       res.json({
         success: true,
         message: "Quotations retrieved successfully",
         data,
-        count: data.length
+        rfq,
+        count: data.length,
       });
     } catch (error: any) {
       next(error);
@@ -94,8 +111,7 @@ export class VendorQuotationController {
   }
 
   /**
-   * Accept a vendor quotation (AUTHENTICATED)
-   * This will automatically create an invoice from the quotation
+   * Accept a vendor quotation (AUTHENTICATED) — creates PO by default
    */
   static async acceptQuotation(req: Request, res: Response, next: NextFunction) {
     try {
@@ -106,7 +122,7 @@ export class VendorQuotationController {
       if (!userId) {
         return res.status(401).json({
           success: false,
-          message: "User not authenticated"
+          message: "User not authenticated",
         });
       }
 
@@ -114,12 +130,15 @@ export class VendorQuotationController {
         quotationId: id,
         action: "ACCEPT",
         reviewedById: userId,
-        reviewNotes
+        reviewNotes,
       });
 
       let message = "Quotation accepted successfully. Vendor has been notified.";
       if (result.purchaseOrder) {
-        message = `Quotation accepted and Purchase Order created successfully (${result.purchaseOrder.poNumber}). Vendor has been notified. Next: Send PO to vendor.`;
+        const sent = result.purchaseOrder.status === "SENT";
+        message = sent
+          ? `Quotation accepted. Purchase order ${result.purchaseOrder.poNumber} created and emailed to the vendor.`
+          : `Quotation accepted and purchase order ${result.purchaseOrder.poNumber} created.`;
       } else if (result.invoice) {
         message = "Quotation accepted and invoice created successfully. Vendor has been notified.";
       }
@@ -127,11 +146,11 @@ export class VendorQuotationController {
       res.json({
         success: true,
         message,
-        data: {
+        data: serializeDecimalsDeep({
           quotation: result.quotation,
           purchaseOrder: result.purchaseOrder,
-          invoice: result.invoice
-        }
+          invoice: result.invoice,
+        }),
       });
     } catch (error: any) {
       next(error);
@@ -173,7 +192,7 @@ export class VendorQuotationController {
       res.json({
         success: true,
         message: "Quotation rejected successfully. Vendor has been notified.",
-        data: result.quotation
+        data: serializeDecimalsDeep(result.quotation),
       });
     } catch (error: any) {
       next(error);

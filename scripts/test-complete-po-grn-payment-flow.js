@@ -20,6 +20,7 @@
 
 const http = require('http');
 const https = require('https');
+const { signRfqSubmit, defaultRfqExpFromClosingOr365d } = require('./vendor-portal-token-sign.cjs');
 
 // Configuration
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
@@ -41,6 +42,8 @@ let invoiceId = null;
 let vendorId = null;
 let vendorEmail = null;
 let rfqNumber = null;
+let procurementRfqIdGlobal = '';
+let rfqDeadlineIsoGlobal = '';
 
 /**
  * Make HTTP request
@@ -262,6 +265,7 @@ async function approveRequisition() {
 async function createAndSendRFQ() {
   console.log('📢 Step 6: Creating and sending RFQ...');
   try {
+    const rfqDeadline = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
     const response = await makeRequest({ 
       path: '/procurement/rfq', 
       method: 'POST' 
@@ -271,6 +275,7 @@ async function createAndSendRFQ() {
       description: 'RFQ for complete PO/GRN/Payment flow test',
       vendorIds: [vendorId],
       priority: 'MEDIUM',
+      rfqDeadline,
       items: [
         {
           itemName: 'Office Supplies Bundle',
@@ -282,6 +287,8 @@ async function createAndSendRFQ() {
 
     if (response.status === 201 || response.status === 200) {
       rfqNumber = response.data.data?.rfqNumber || 'RFQ-XXX';
+      procurementRfqIdGlobal = response.data.data?.procurementRfqId || '';
+      rfqDeadlineIsoGlobal = rfqDeadline;
       console.log(`✅ RFQ created and sent: ${rfqNumber}\n`);
       return true;
     } else {
@@ -299,11 +306,14 @@ async function createAndSendRFQ() {
 async function submitVendorQuotation() {
   console.log('📝 Step 7: Submitting vendor quotation (public API)...');
   try {
+    const exp = defaultRfqExpFromClosingOr365d(rfqDeadlineIsoGlobal);
+    const portalToken = signRfqSubmit(vendorId, procurementRfqIdGlobal, exp);
     const response = await makeRequest({ 
       path: '/vendor-quotations/submit', 
       method: 'POST',
       headers: {} // No auth for public endpoint
     }, {
+      vendorPortalToken: portalToken,
       rfqNumber: rfqNumber,
       vendorName: 'Complete Flow Test Vendor',
       vendorEmail: vendorEmail || 'vendor.flow@testnvccz.com',

@@ -845,6 +845,12 @@ router.post(
   applicantPortalController.cancelInvesteePurchaseRequisition
 );
 
+router.put(
+  "/procurement/requisitions/:id",
+  authenticate,
+  applicantPortalController.updateInvesteePurchaseRequisition
+);
+
 /**
  * @swagger
  * /applicant/procurement/goods-received-notes:

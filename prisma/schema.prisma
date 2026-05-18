@@ -641,6 +641,7 @@ model Vendor {
   banks                 VendorBank[]
   kycDocuments          VendorKycDocument[]
   rfqInvitations        RfqVendorInvitation[]
+  vendorQuotations      VendorQuotation[]      @relation("VendorQuotationVendor")
   rfqClarifications     RfqClarification[]
   vendorInvoiceIntakes  VendorInvoiceIntake[]
   invoiceFieldCorrections VendorInvoiceFieldCorrection[]
@@ -681,9 +682,6 @@ model VendorKycDocument {
   documentType  String    @map("document_type")
   fileName      String    @map("file_name")
   fileUrl       String    @map("file_url") @db.Text
-  filePath      String?   @map("file_path") @db.Text
-  fileSize      Int?      @map("file_size")
-  mimeType      String?   @map("mime_type")
   /// At-rest encryption (AES-256-GCM) before remote upload; IV + tag stored for decryption by authorized roles.
   isEncrypted   Boolean   @default(true) @map("is_encrypted")
   encryptionIv  String?   @map("encryption_iv") @db.Text
@@ -1612,6 +1610,8 @@ model Application {
   /// Analyst "Initial Screening Scorecard" (UAT); separate from AI `initialScreeningScore`.
   screeningScore           Decimal?                  @db.Decimal(5, 2)
   screeningOutcome         String?
+  /// Internal only: AI/auto screening narrative when rejected at screening (not sent to applicant in email).
+  screeningRejectionReason String?                   @db.Text
   /// Human-readable sequential deal id: `{PREFIX}-{year}-{6-digit-seq}`; PREFIX from env `DEAL_REFERENCE_PREFIX` (default VST).
   dealReference            String?                   @unique
   assignedAnalystId        String?
@@ -2385,6 +2385,8 @@ model PurchaseRequisition {
   approvedById      String?
   approvedAt        DateTime?
   rejectionReason   String?                   @db.Text
+  /// SHA-256 hex of header + line items at rejection; submit blocked until content differs from this snapshot.
+  rejectionContentFingerprint String?         @map("rejection_content_fingerprint") @db.VarChar(64)
   totalAmount       Decimal                   @default(0.00) @db.Decimal(15, 2)
   currencyId        String?
   /// Matches vendor.category for automated / filtered RFQ vendor lists (e.g. AGROTECH, SOLAR, IT_SERVICES).
@@ -2455,6 +2457,8 @@ model PurchaseOrder {
   sentById             String?
   approvedById         String?
   approvedAt           DateTime?
+  rejectionReason      String?              @map("rejection_reason") @db.Text
+  rejectionContentFingerprint String?       @map("rejection_content_fingerprint") @db.VarChar(64)
   createdById          String
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
@@ -2520,6 +2524,9 @@ model VendorQuotation {
   requisitionId   String?
   /// Suite 03: link to formal RFQ row (when created after migration).
   procurementRfqId String?              @map("procurement_rfq_id")
+  /// Identified vendor for public RFQ submissions (from signed vendor portal token).
+  vendorId        String?               @map("vendor_id")
+  vendor          Vendor?               @relation("VendorQuotationVendor", fields: [vendorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   vendorName      String
   vendorEmail     String
   companyName     String?
@@ -2544,6 +2551,7 @@ model VendorQuotation {
   reviewedAt      DateTime?
   reviewNotes     String?               @db.Text
   rejectionReason String?               @db.Text
+  rejectionContentFingerprint String?   @map("rejection_content_fingerprint") @db.VarChar(64)
   invoiceId       String?               @unique
   submittedAt     DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
@@ -2554,6 +2562,7 @@ model VendorQuotation {
   items           VendorQuotationItem[]
 
   @@index([procurementRfqId])
+  @@index([vendorId])
   @@map("vendor_quotations")
 }
 
@@ -2578,6 +2587,8 @@ model ProcurementRfq {
   expectedDeliveryDate DateTime?            @map("expected_delivery_date")
   specialRequirements  String?              @map("special_requirements") @db.Text
   itemsSnapshot        Json?                @map("items_snapshot")
+  rejectionReason      String?              @map("rejection_reason") @db.Text
+  rejectionContentFingerprint String?       @map("rejection_content_fingerprint") @db.VarChar(64)
   createdById          String               @map("created_by_id")
   createdAt            DateTime             @default(now()) @map("created_at")
   updatedAt            DateTime             @updatedAt @map("updated_at")
@@ -2597,7 +2608,8 @@ model RfqVendorInvitation {
   id                 String          @id @default(cuid())
   procurementRfqId   String          @map("procurement_rfq_id")
   vendorId           String          @map("vendor_id")
-  invitationToken    String          @unique @map("invitation_token") @db.VarChar(64)
+  /// Legacy opaque token; RFQ emails now use stateless signed tokens (see `vendorPortalToken`). Optional.
+  invitationToken    String?         @map("invitation_token") @db.VarChar(512)
   emailSentAt        DateTime?       @map("email_sent_at")
   createdAt          DateTime        @default(now()) @map("created_at")
   procurementRfq     ProcurementRfq  @relation(fields: [procurementRfqId], references: [id], onDelete: Cascade)
@@ -2679,6 +2691,8 @@ model ProcurementInvoice {
   documentType     String?
   approvedById     String?
   approvedAt       DateTime?
+  rejectionReason  String?                  @map("rejection_reason") @db.Text
+  rejectionContentFingerprint String?       @map("rejection_content_fingerprint") @db.VarChar(64)
   paymentStatus    String                   @default("PENDING")
   paymentDate      DateTime?
   paymentReference String?
@@ -2822,6 +2836,8 @@ model GoodsReceivedNote {
   qualityNotes    String?                 @db.Text
   approvedById    String?
   approvedAt      DateTime?
+  rejectionReason String?                 @map("rejection_reason") @db.Text
+  rejectionContentFingerprint String?     @map("rejection_content_fingerprint") @db.VarChar(64)
   /// Suite 05: delivery note / waybill URLs for 3-way match.
   attachmentUrls  Json?                   @map("attachment_urls")
   latitude        Decimal?                @db.Decimal(10, 7)

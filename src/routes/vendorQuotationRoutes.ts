@@ -19,14 +19,23 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required:
+ *               - vendorPortalToken
  *               - vendorName
  *               - vendorEmail
  *               - items
  *             properties:
+ *               vendorPortalToken:
+ *                 type: string
+ *                 description: >
+ *                   Signed portal token from the RFQ invitation email (`token` query param).
+ *                   Embeds vendor id and procurement RFQ id; server verifies HMAC and invitation.
+ *               token:
+ *                 type: string
+ *                 description: Alias of `vendorPortalToken` (same value).
  *               rfqNumber:
  *                 type: string
- *                 description: RFQ number this quotation responds to
- *                 example: "RFQ-1729012345-123"
+ *                 description: Optional cross-check; must match the RFQ embedded in the token if supplied.
+ *                 example: "RFQ_20260511_0001"
  *               requisitionId:
  *                 type: string
  *                 description: Requisition ID (optional)
@@ -123,6 +132,7 @@ const router = express.Router();
  *                       type: string
  *                       example: "2 years"
  *           example:
+ *             vendorPortalToken: "<signed token from RFQ email link>"
  *             rfqNumber: "RFQ-1729012345-123"
  *             vendorName: "John Doe"
  *             vendorEmail: "john@abcsupplies.com"
@@ -245,9 +255,25 @@ router.get("/", VendorQuotationController.getAllQuotations);
  *         example: "RFQ-1729012345-123"
  *     responses:
  *       200:
- *         description: List of quotations for the RFQ
- *       401:
- *         description: Unauthorized
+ *         description: List of quotations for the RFQ; `rfq` carries procurement row + itemsSnapshot when the RFQ exists (even if `data` is empty).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                   description: Vendor quotations (empty until vendors submit)
+ *                 rfq:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Procurement RFQ header including itemsSnapshot (null if RFQ row was deleted or number unknown)
+ *                 count:
+ *                   type: number
  */
 router.get("/rfq/:rfqNumber", VendorQuotationController.getQuotationsByRFQ);
 
@@ -282,7 +308,10 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  * /vendor-quotations/{id}/accept:
  *   post:
  *     summary: Accept a vendor quotation
- *     description: **Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and triggers the invoice flow. Once accepted, status becomes ACCEPTED and cannot be modified.
+ *     description: |
+ *       **Required Role:** PROC_MGR or PROC_OFF.
+ *       Accepts the quotation, notifies the vendor, auto-rejects other bids on the same RFQ number,
+ *       builds PO lines from the RFQ item snapshot (priced from the quote), creates the PO, and emails it to the vendor (PDF).
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []
@@ -298,27 +327,9 @@ router.get("/:id", VendorQuotationController.getQuotationById);
  *         schema:
  *           type: string
  *         description: Optional notes about the acceptance
- *         example: "Best price and delivery time"
  *     responses:
  *       200:
- *         description: Quotation accepted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 data:
- *                   type: object
- *                   properties:
- *                     quotation:
- *                       type: object
- *                     invoice:
- *                       type: object
- *                       description: Created invoice (if any)
+ *         description: Quotation accepted; purchase order may be included in data
  *       400:
  *         description: Bad request
  *       401:
@@ -333,7 +344,7 @@ router.post("/:id/accept", VendorQuotationController.acceptQuotation);
  * /vendor-quotations/{id}/reject:
  *   post:
  *     summary: Reject a vendor quotation
- *     description: **Required Role:** PROC_MGR or PROC_OFF. ⚠️ Once rejected, status becomes REJECTED and cannot be modified
+ *     description: **Required Role:** PROC_MGR or PROC_OFF. Sets status **REJECTED**, persists `rejectionReason`, and stores `rejectionContentFingerprint` on the quotation row. Response `data` includes those fields.
  *     tags: [Procurement - Vendor Quotations]
  *     security:
  *       - bearerAuth: []

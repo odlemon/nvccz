@@ -68,7 +68,7 @@ export const procurementEndpoints = {
     },
     get: {
       summary: 'Get all purchase requisitions (filtered by user\'s department)',
-      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target. **Suite 02:** investee-linked rows are further scoped by fund for FundManagers (CFO/SYSADMIN/PROC_MGR see all).',
+      description: '**Required Role:** Department HEAD, DEPUTY, or PROC_MGR. Returns requisitions for the user\'s department only. Requisitions are filtered by the department they target. **Suite 02:** investee-linked rows are further scoped by fund for FundManagers (unrestricted roles — admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, etc. — see all).',
       tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -112,7 +112,7 @@ export const procurementEndpoints = {
   '/procurement/requisitions/{id}': {
     get: {
       summary: 'Get purchase requisition by ID',
-      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). **Suite 02:** investee-linked PRs require portfolio owner, requester, CFO/SYSADMIN/PROC_MGR, or FundManager for that fund.',
+      description: '**Required Role:** ANY user in Procurement department (PROC_MGR, PROC_OFF, BUYER, PROC_COORD, PROC_MEM). **Suite 02:** investee-linked PRs require portfolio owner, requester, unrestricted role (admin viewer, CFO, SYSADMIN, PROC_MGR, CEO, FIN_MGR, etc.), or FundManager for that fund.',
       tags: ['Procurement - Requisitions', 'Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       parameters: [
@@ -185,11 +185,14 @@ export const procurementEndpoints = {
         }
       },
       responses: {
-        200: { description: 'Requisition rejected successfully' },
+        200: {
+          description:
+            'Requisition rejected successfully. Response `data` includes `rejectionReason`, `rejectionContentFingerprint`, and full requisition scalars for resubmit/edit flows.',
+        },
         400: { description: 'Bad request (missing reason or invalid state)' },
         401: { description: 'Unauthorized' },
-        403: { description: 'Forbidden - only department HEAD or DEPUTY can reject' }
-      }
+        403: { description: 'Forbidden - only department HEAD or DEPUTY can reject' },
+      },
     }
   },
 
@@ -222,9 +225,12 @@ export const procurementEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['title', 'vendorIds', 'items'],
+              required: ['title', 'vendorIds'],
               properties: {
-                requisitionId: { type: 'string', description: 'Link to approved requisition' },
+                requisitionId: {
+                  type: 'string',
+                  description: 'Link to approved requisition; when set, items may be omitted (PR lines copied)',
+                },
                 title: { type: 'string', example: 'Office Supplies RFQ' },
                 description: { type: 'string', description: 'Detailed description' },
                 vendorIds: { type: 'array', items: { type: 'string' }, description: 'Array of vendor IDs to send RFQ to' },
@@ -235,6 +241,7 @@ export const procurementEndpoints = {
                 specialRequirements: { type: 'string' },
                 items: {
                   type: 'array',
+                  description: 'Optional when requisitionId is set — defaults to PR line items',
                   items: {
                     type: 'object',
                     properties: {
@@ -259,6 +266,96 @@ export const procurementEndpoints = {
     }
   },
 
+  '/procurement/rfqs/{id}/comparison-matrix': {
+    get: {
+      summary: 'RFQ comparison matrix',
+      description:
+        '**Required Role:** PROC_MGR, PROC_OFF, or BUYER. Compare all vendor quotations for a procurement RFQ (`procurement_rfqs.id`). Returns full quotation detail (header, line items, vendor master, review info), FX-normalized totals for cross-currency comparison, weighted scores, and UI-friendly **highlights** (vendor names and amounts — not internal ids). Available whenever quotations exist; not gated on RFQ closing time.',
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'id',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Procurement RFQ id (`procurement_rfqs.id`)',
+        },
+      ],
+      responses: {
+        200: {
+          description: 'Comparison matrix retrieved successfully',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      rfq: { type: 'object', description: 'RFQ header and items snapshot' },
+                      quotationCount: { type: 'integer', example: 2 },
+                      reportingCurrencyId: { type: 'string', nullable: true },
+                      rows: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            quotation: { type: 'object', description: 'Full vendor quotation + items + vendor + reviewedBy' },
+                            comparison: {
+                              type: 'object',
+                              description: 'Derived scores and FX-normalized totals for ranking',
+                            },
+                          },
+                        },
+                      },
+                      highlights: {
+                        type: 'object',
+                        description: 'Best bids for UI badges (display labels, not cuid ids)',
+                        properties: {
+                          lowestNormalizedCost: { type: 'object', nullable: true },
+                          highestVendorRating: { type: 'object', nullable: true },
+                          highestCompositeScore: { type: 'object', nullable: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              example: {
+                success: true,
+                data: {
+                  rfq: {
+                    rfqNumber: 'RFQ_20260513_0001',
+                    title: 'Office supplies',
+                    status: 'OPEN',
+                  },
+                  quotationCount: 2,
+                  rows: [],
+                  highlights: {
+                    lowestNormalizedCost: {
+                      quotationNumber: 'QUO_20260514_0001',
+                      vendorName: 'Kays',
+                      totalAmount: 1238.74,
+                      currencyCode: 'USD',
+                      normalizedTotalReporting: 1238.74,
+                      reportingCurrencyCode: 'USD',
+                    },
+                    highestVendorRating: null,
+                    highestCompositeScore: null,
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: { description: 'RFQ not found or bad request' },
+        401: { description: 'Unauthorized' },
+      },
+    },
+  },
+
   // ========== PROCUREMENT - VENDOR QUOTATIONS ==========
   '/vendor-quotations/submit': {
     post: {
@@ -271,8 +368,13 @@ export const procurementEndpoints = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['vendorName', 'vendorEmail', 'items'],
+              required: ['vendorPortalToken', 'vendorName', 'vendorEmail', 'items'],
               properties: {
+                vendorPortalToken: {
+                  type: 'string',
+                  description: 'Signed token from RFQ email (query `token`). Same as optional `token` field.',
+                },
+                token: { type: 'string', description: 'Alias of vendorPortalToken' },
                 rfqNumber: { type: 'string', example: 'RFQ-1729012345-123' },
                 requisitionId: { type: 'string' },
                 vendorName: { type: 'string', example: 'John Doe' },
@@ -347,7 +449,10 @@ export const procurementEndpoints = {
         { in: 'path', name: 'rfqNumber', required: true, schema: { type: 'string' }, description: 'RFQ number', example: 'RFQ-1729012345-123' }
       ],
       responses: {
-        200: { description: 'List of quotations for the RFQ' },
+        200: {
+          description:
+            'Quotations in `data` (may be empty). `rfq` is the procurement_rfqs row with itemsSnapshot when the RFQ exists.',
+        },
         401: { description: 'Unauthorized' }
       }
     }
@@ -387,19 +492,31 @@ export const procurementEndpoints = {
   '/vendor-quotations/{id}/accept': {
     post: {
       summary: 'Accept a vendor quotation',
-      description: '**Required Role:** PROC_MGR or PROC_OFF. Accepts a quotation and automatically creates a Purchase Order. Once accepted, status becomes ACCEPTED and cannot be modified.',
+      description:
+        '**Required Role:** PROC_MGR or PROC_OFF. Accepts the quotation, auto-rejects other bids on the same RFQ, builds PO lines from RFQ items (unit prices from the quote), creates the PO, and emails it to the vendor with PDF.',
       tags: ['Procurement - Vendor Quotations'],
       security: [{ bearerAuth: [] }],
       parameters: [
-        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' }
+        { in: 'path', name: 'id', required: true, schema: { type: 'string' }, description: 'Quotation ID' },
+        { in: 'query', name: 'reviewNotes', schema: { type: 'string' }, description: 'Optional acceptance notes' },
       ],
       responses: {
-        200: { description: 'Quotation accepted successfully' },
+        200: { description: 'Quotation accepted; PO may be in response data' },
         400: { description: 'Bad request' },
         401: { description: 'Unauthorized' },
-        404: { description: 'Quotation not found' }
-      }
-    }
+        404: { description: 'Quotation not found' },
+      },
+    },
+  },
+  '/procurement/rfqs/{id}/award': {
+    post: {
+      summary: '[Deprecated] Award RFQ',
+      description: '**410 Gone** — use `POST /vendor-quotations/{id}/accept` and `/reject` instead.',
+      deprecated: true,
+      tags: ['Procurement - RFQ', 'Procurement — RFQ & Bidding (Suite 03)'],
+      security: [{ bearerAuth: [] }],
+      responses: { 410: { description: 'Use vendor-quotations accept/reject' } },
+    },
   },
   '/vendor-quotations/{id}/reject': {
     post: {
@@ -624,7 +741,7 @@ export const procurementEndpoints = {
     get: {
       summary: 'List investee (portfolio-linked) purchase requisitions (Suite 02)',
       description:
-        '**Scope:** CFO, SYSADMIN, or PROC_MGR see all; active **FundManager** users only see PRs for their fund(s). Others receive 403.',
+        '**Scope:** CFO, SYSADMIN, PROC_MGR, ADMIN, CEO, FIN_MGR, CIO, COO, application admin (`isAdminViewer`), or active **FundManager**; FundManagers only see PRs for their fund(s). Others receive 403.',
       tags: ['Investee Portal — Investment Drawdown'],
       security: [{ bearerAuth: [] }],
       responses: {

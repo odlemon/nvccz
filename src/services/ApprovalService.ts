@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
+import { persistProcurementEntityRejection } from "../utils/procurementRejectionPersistence";
 import { Department, DepartmentRole } from "./ProcurementService";
 
 export class ApprovalService {
@@ -160,16 +161,26 @@ export class ApprovalService {
                 console.log(`      - ${u.firstName} ${u.lastName} (${u.email}) [${u.roleCode || 'no roleCode'}]`);
               });
             }
-          } else if (stage.stepType === "DEPARTMENT" && stage.departmentId) {
-            // Get department head/deputy
-            const deptUsers = await tx.user.findMany({
-              where: {
-                departmentId: stage.departmentId,
-                ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {})
-              },
-              select: { id: true }
-            });
-            approverIds = deptUsers.map(u => u.id);
+          } else if (stage.stepType === "DEPARTMENT") {
+            if (stage.departmentId) {
+              const deptUsers = await tx.user.findMany({
+                where: {
+                  departmentId: stage.departmentId,
+                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+                },
+                select: { id: true },
+              });
+              approverIds = deptUsers.map((u) => u.id);
+            } else if (stage.requiredUserDepartment) {
+              const deptUsers = await tx.user.findMany({
+                where: {
+                  userDepartment: stage.requiredUserDepartment,
+                  ...(stage.requiredDepartmentRole ? { departmentRole: stage.requiredDepartmentRole } : {}),
+                },
+                select: { id: true },
+              });
+              approverIds = deptUsers.map((u) => u.id);
+            }
           } else if (stage.stepType === "AMOUNT_THRESHOLD") {
             let entityAmount = 0;
             if (params.stageType === "PURCHASE_ORDER") {
@@ -224,32 +235,30 @@ export class ApprovalService {
         console.log("════════════════════════════════════════════════════════════════");
         console.log("");
 
-        // Send email notifications to first step approvers
-        try {
-          const firstStage = stages.find(s => s.stepNumber === 1);
-          if (firstStage && approvals.length > 0) {
-            // Get first step approvals only
-            const firstStepApprovals = approvals.filter(a => {
-              const approvalStage = stages.find(s => s.id === a.stageId);
-              return approvalStage && approvalStage.stepNumber === 1;
-            });
-
-            if (firstStepApprovals.length > 0) {
-              const { ProcurementApprovalConfigService } = await import('./ProcurementApprovalConfigService');
-              await ProcurementApprovalConfigService.sendApprovalStepNotifications(
-                approvalRequest.id,
-                firstStage,
-                params.stageType
-              );
-            }
-          }
-        } catch (emailError: any) {
-          console.error("⚠️  Error sending initial approval notifications:", emailError.message || emailError);
-          // Don't throw - email failure shouldn't block approval request creation
-        }
-
         return { approvalRequest, approvals };
       });
+
+      // After commit: notify first-step approvers (pending rows visible; sendApprovalStepNotifications reads DB)
+      try {
+        const firstStage = stages.find((s) => s.stepNumber === 1);
+        if (firstStage && result.approvals.length > 0) {
+          const firstStepApprovals = result.approvals.filter((a) => {
+            const approvalStage = stages.find((s) => s.id === a.stageId);
+            return approvalStage && approvalStage.stepNumber === 1;
+          });
+
+          if (firstStepApprovals.length > 0) {
+            const { ProcurementApprovalConfigService } = await import("./ProcurementApprovalConfigService");
+            await ProcurementApprovalConfigService.sendApprovalStepNotifications(
+              result.approvalRequest.id,
+              firstStage,
+              params.stageType
+            );
+          }
+        }
+      } catch (emailError: any) {
+        console.error("⚠️  Error sending initial approval notifications:", emailError.message || emailError);
+      }
 
       return result;
     } catch (error) {
@@ -637,38 +646,19 @@ export class ApprovalService {
 
       switch (stageType) {
         case "PURCHASE_REQUISITION":
-          await tx.purchaseRequisition.update({
-            where: { id: entityId },
-            data: { 
-              status: "REJECTED",
-              rejectionReason: reason
-            }
-          });
-          console.log(`   ❌ Purchase Requisition ${entityId} marked as REJECTED`);
-          break;
-
         case "PURCHASE_ORDER":
-          await tx.purchaseOrder.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Purchase Order ${entityId} marked as REJECTED`);
-          break;
-
         case "INVOICE":
-          await tx.procurementInvoice.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Procurement Invoice ${entityId} marked as REJECTED`);
-          break;
-
         case "GRN":
-          await tx.goodsReceivedNote.update({
-            where: { id: entityId },
-            data: { status: "REJECTED" }
-          });
-          console.log(`   ❌ Goods Received Note ${entityId} marked as REJECTED`);
+          await persistProcurementEntityRejection(tx, stageType, entityId, reason);
+          if (stageType === "PURCHASE_REQUISITION") {
+            console.log(`   ❌ Purchase Requisition ${entityId} marked as REJECTED`);
+          } else if (stageType === "PURCHASE_ORDER") {
+            console.log(`   ❌ Purchase Order ${entityId} marked as REJECTED`);
+          } else if (stageType === "INVOICE") {
+            console.log(`   ❌ Procurement Invoice ${entityId} marked as REJECTED`);
+          } else {
+            console.log(`   ❌ Goods Received Note ${entityId} marked as REJECTED`);
+          }
           break;
 
         default:
