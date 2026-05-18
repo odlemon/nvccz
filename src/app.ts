@@ -72,6 +72,7 @@ import boardReviewRoutes from "./routes/boardReviewRoutes"
 import termSheetRoutes from "./routes/termSheetRoutes"
 import investmentImplementationRoutes from "./routes/investmentImplementationRoutes"
 import fundRoutes from "./routes/fundRoutes"
+import lpFeesAndDistributionsRoutes from "./routes/lpFeesAndDistributionsRoutes"
 import clientRoutes from "./routes/clientRoutes"
 import targetRoutes from "./routes/targetRoutes"
 import targetTrackingRoutes from "./routes/targetTrackingRoutes"
@@ -535,6 +536,10 @@ app.use("/api/investment-implementations", investmentImplementationRoutes)
 
 // Fund Management routes
 app.use("/api/funds", fundRoutes)
+
+// LP Fees & Distributions (fee policy, management fees, distributions). Mounted on the same prefix
+// since paths are scoped under `/:fundId/...`; siblings to Capital Calls inside fundRoutes.
+app.use("/api/funds", lpFeesAndDistributionsRoutes)
 
 // Client Management routes
 app.use("/api/clients", clientRoutes)

@@ -22,6 +22,8 @@ import {
   inlineExternalImagesInNewsletterHtml,
   type NewsletterInlineAttachment,
 } from "../utils/newsletterEmailImages";
+import { CompanyProfileAddressService } from "./CompanyProfileAddressService";
+import { CompanyProfileService } from "./CompanyProfileService";
 
 export interface EmailNotificationData {
   applicantName: string;
@@ -5530,7 +5532,7 @@ export class EmailNotificationService {
       branding = await getEmailBrandingCached();
     } catch {
       branding = {
-        companyName: process.env.COMPANY_NAME_SHORT || "NVCCZ",
+        companyName: "",
         logoUrl: null,
         addressLines: [],
         contactEmail: null,
@@ -5538,7 +5540,29 @@ export class EmailNotificationService {
         website: null,
       };
     }
-    const companyNameEsc = esc(branding.companyName);
+
+    /**
+     * Newsletter letterhead name comes from the active CompanyProfileAddress.label
+     * (managed in Settings → Addresses), with CompanyProfile.legalName as the only
+     * fallback. Never `process.env` — that was producing wrong names like "Niakazi".
+     */
+    let letterheadName = "";
+    try {
+      const [activeAddr, profile] = await Promise.all([
+        CompanyProfileAddressService.getActive(),
+        CompanyProfileService.getCompanyProfile(),
+      ]);
+      letterheadName =
+        (activeAddr?.label && String(activeAddr.label).trim()) ||
+        (profile?.legalName && String(profile.legalName).trim()) ||
+        "";
+    } catch {
+      letterheadName = "";
+    }
+    if (!letterheadName) {
+      letterheadName = branding.companyName || "Company";
+    }
+    const companyNameEsc = esc(letterheadName);
 
     /** Inline the company logo as a CID attachment so Gmail/Outlook render it without remote fetch. */
     let logoAttachment: NewsletterInlineAttachment | null = null;
@@ -5731,7 +5755,7 @@ export class EmailNotificationService {
         await emailTransport.sendMail({
           from: `"${from.name}" <${from.address}>`,
           to: { name: displayName, address: to },
-          subject: `${data.title} — ${branding.companyName}`,
+          subject: `${data.title} — ${letterheadName}`,
           html,
           attachments: mimeAttachments.length ? mimeAttachments : undefined,
         });

@@ -155,6 +155,7 @@
     "db:migrate:deal-workflow-deal-reference": "ts-node scripts/run-deal-workflow-deal-reference-migration.ts",
     "db:migrate:capital-calls": "ts-node scripts/run-capital-calls-migration.ts",
     "db:migrate:capital-call-allocation-payments": "ts-node scripts/run-capital-call-allocation-payments-migration.ts",
+    "db:migrate:lp-fees-distributions": "ts-node --transpile-only -r dotenv/config scripts/run-lp-fees-and-distributions-migration.ts",
     "db:print:capital-call-postman": "ts-node scripts/print-capital-call-postman-seed.ts",
     "db:reset:capital-call-notice-sent": "ts-node scripts/reset-capital-call-notice-sent.ts",
     "db:reset:application-screening-retest": "ts-node scripts/reset-application-screening-for-retest.ts",

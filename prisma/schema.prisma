@@ -174,6 +174,9 @@ model User {
   bscStatutorySubmissionsSubmitted     BscStatutorySubmission[]        @relation("BscStatutorySubmitter")
   bscStatutorySubmissionsManagerSigned BscStatutorySubmission[]        @relation("BscStatutoryManagerSigner")
   newsletterAudienceConfigsUpdated     NewsletterAudienceConfig[]
+  managementFeePeriodsCreated          ManagementFeePeriod[]            @relation("ManagementFeePeriodCreator")
+  distributionsCreated                 Distribution[]                   @relation("DistributionCreator")
+  portfolioDividendsApproved           PortfolioCompanyDividend[]       @relation("PortfolioDividendApprover")
 
   @@map("users")
 }
@@ -540,6 +543,8 @@ model Currency {
   investmentImplementationsCommitmentCurrency InvestmentImplementation[] @relation("ImplementationCommitmentCurrency")
   fundDisbursementsPaymentCurrency          FundDisbursement[]          @relation("FundDisbursementPaymentCurrency")
   fundDisbursementsCommitmentCurrency       FundDisbursement[]          @relation("FundDisbursementCommitmentCurrency")
+  managementFeePeriods                  ManagementFeePeriod[]            @relation("ManagementFeePeriodCurrency")
+  distributions                         Distribution[]                   @relation("DistributionCurrency")
 
   @@map("currencies")
 }
@@ -751,6 +756,9 @@ model JournalEntry {
   stiLiquidationInstruments ShortTermInvestmentInstrument[] @relation("StiLiquidationJe")
   stiFxRevaluationEntries   ShortTermInvestmentFxRevaluation[] @relation("StiFxRevaluationJe")
   capitalCall               CapitalCall?
+  managementFeePeriod       ManagementFeePeriod?              @relation("ManagementFeeJournal")
+  distribution              Distribution?                     @relation("DistributionJournal")
+  portfolioDividends        PortfolioCompanyDividend[]        @relation("PortfolioDividendJournal")
 
   @@map("journal_entries")
 }
@@ -1158,6 +1166,8 @@ model PortfolioCompany {
   investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteePortfolioRequisition")
   reportingPeriodOperationalKpis ReportingPeriodOperationalKpi[]
   letterhead                   PortfolioCompanyLetterhead?
+  dividends                    PortfolioCompanyDividend[]      @relation("PortfolioCompanyDividends")
+  distributionsSourced         Distribution[]                  @relation("PortfolioDistributionSource")
 
   @@map("portfolio_companies")
 }
@@ -1222,6 +1232,23 @@ model Fund {
   createdById               String
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
+  /// LP Fee policy (annual rate, e.g. 0.0200 = 2%/yr). See ManagementFeeService.
+  managementFeeRate         Decimal?                   @map("management_fee_rate") @db.Decimal(7, 4)
+  /// COMMITTED | INVESTED | NAV — base used when computing each period's fee.
+  managementFeeBase         String?                    @map("management_fee_base") @db.VarChar(32)
+  /// MONTHLY | QUARTERLY | SEMI_ANNUAL | ANNUAL — drives `accrueForPeriod` period length default.
+  managementFeeFrequency    String?                    @map("management_fee_frequency") @db.VarChar(16)
+  managementFeeStartDate    DateTime?                  @map("management_fee_start_date") @db.Date
+  /// Carried interest rate (e.g. 0.2000 = 20%) — applied to LP distributions over the hurdle.
+  carryRate                 Decimal?                   @map("carry_rate") @db.Decimal(7, 4)
+  /// LP preferred return / hurdle rate (e.g. 0.0800 = 8%/yr).
+  hurdleRate                Decimal?                   @map("hurdle_rate") @db.Decimal(7, 4)
+  /// PREFERRED_RETURN | NONE
+  hurdleType                String?                    @map("hurdle_type") @db.VarChar(16)
+  /// GP catch-up rate after the hurdle is met (e.g. 1.0000 = 100%).
+  catchUpRate               Decimal?                   @map("catch_up_rate") @db.Decimal(7, 4)
+  /// EUROPEAN | AMERICAN — whole-fund vs deal-by-deal waterfall.
+  waterfallType             String?                    @map("waterfall_type") @db.VarChar(32)
   createdBy                 User                       @relation(fields: [createdById], references: [id])
   applications              Application[]
   fundManagers              FundManager[]
@@ -1231,6 +1258,8 @@ model Fund {
   investmentCommitments     InvestmentCommitment[]
   investeePurchaseRequisitions PurchaseRequisition[] @relation("InvesteeFundRequisition")
   capitalCalls              CapitalCall[]
+  managementFeePeriods      ManagementFeePeriod[]
+  distributions             Distribution[]
 
   @@map("funds")
 }
@@ -1274,6 +1303,8 @@ model Client {
   updatedAt             DateTime               @updatedAt
   investmentCommitments InvestmentCommitment[]
   capitalCallAllocations CapitalCallAllocation[]
+  managementFeeAllocations ManagementFeeAllocation[]
+  distributionAllocations  DistributionAllocation[]
 
   @@map("clients")
 }
@@ -1293,6 +1324,8 @@ model InvestmentCommitment {
   client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   fund          Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
   capitalCallAllocations CapitalCallAllocation[]
+  managementFeeAllocations ManagementFeeAllocation[]
+  distributionAllocations  DistributionAllocation[]
 
   @@unique([clientId, fundId])
   @@map("investment_commitments")
@@ -1363,6 +1396,179 @@ model CapitalCallAllocationPayment {
 
   @@index([capitalCallAllocationId], map: "capital_call_allocation_payments_allocation_idx")
   @@map("capital_call_allocation_payments")
+}
+
+/// LP Management Fee accrual header (one period per fund). Posts Dr 1220 / Cr 4010 at accrual.
+model ManagementFeePeriod {
+  id              String    @id @default(cuid())
+  fundId          String    @map("fund_id")
+  currencyId      String    @map("currency_id")
+  periodStart     DateTime  @map("period_start") @db.Date
+  periodEnd       DateTime  @map("period_end") @db.Date
+  /// Snapshot of fund.managementFeeBase used for this period (COMMITTED | INVESTED | NAV).
+  feeBase         String    @map("fee_base") @db.VarChar(32)
+  /// The base amount (sum of LP commitments, invested capital, or NAV) used in calc.
+  feeBaseAmount   Decimal   @map("fee_base_amount") @db.Decimal(15, 2)
+  /// Snapshot of fund.managementFeeRate (annualized).
+  rate            Decimal   @map("rate") @db.Decimal(7, 4)
+  /// totalFee = feeBaseAmount × rate × (periodDays / 365); rounded HALF_UP to 2dp.
+  totalFee        Decimal   @map("total_fee") @db.Decimal(15, 2)
+  status          String    @default("ACCRUED") @db.VarChar(32)
+  invoicesSentAt  DateTime? @map("invoices_sent_at")
+  journalEntryId  String?   @unique @map("journal_entry_id")
+  notes           String?   @db.Text
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  fund         Fund                       @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  currency     Currency                   @relation("ManagementFeePeriodCurrency", fields: [currencyId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry?              @relation("ManagementFeeJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy    User                       @relation("ManagementFeePeriodCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  allocations  ManagementFeeAllocation[]
+
+  @@index([fundId], map: "management_fee_periods_fund_idx")
+  @@index([fundId, periodEnd], map: "management_fee_periods_fund_period_idx")
+  @@map("management_fee_periods")
+}
+
+/// Per-LP management fee allocation for one period (split pro-rata by commitment).
+model ManagementFeeAllocation {
+  id                     String   @id @default(cuid())
+  managementFeePeriodId  String   @map("management_fee_period_id")
+  clientId               String   @map("client_id")
+  investmentCommitmentId String   @map("investment_commitment_id")
+  lpLegalNameSnapshot    String   @map("lp_legal_name_snapshot") @db.VarChar(512)
+  commitmentSnapshot     Decimal  @map("commitment_snapshot") @db.Decimal(15, 2)
+  shareOfFee             Decimal  @map("share_of_fee") @db.Decimal(15, 2)
+  amountPaid             Decimal  @default(0) @map("amount_paid") @db.Decimal(15, 2)
+  status                 String   @default("PENDING") @db.VarChar(32)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  period               ManagementFeePeriod              @relation(fields: [managementFeePeriodId], references: [id], onDelete: Cascade)
+  client               Client                           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  investmentCommitment InvestmentCommitment             @relation(fields: [investmentCommitmentId], references: [id], onDelete: Restrict)
+  payments             ManagementFeeAllocationPayment[]
+
+  @@index([managementFeePeriodId], map: "management_fee_allocations_period_idx")
+  @@index([clientId], map: "management_fee_allocations_client_idx")
+  @@index([investmentCommitmentId], map: "management_fee_allocations_commitment_idx")
+  @@map("management_fee_allocations")
+}
+
+/// Posted receipt against one management-fee allocation (append-only).
+model ManagementFeeAllocationPayment {
+  id                        String   @id @default(cuid())
+  managementFeeAllocationId String   @map("management_fee_allocation_id")
+  amount                    Decimal  @db.Decimal(15, 2)
+  recordedAt                DateTime @default(now()) @map("recorded_at")
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  allocation ManagementFeeAllocation @relation(fields: [managementFeeAllocationId], references: [id], onDelete: Cascade)
+
+  @@index([managementFeeAllocationId], map: "management_fee_allocation_payments_alloc_idx")
+  @@map("management_fee_allocation_payments")
+}
+
+/// LP Distribution header — one event per fund (carry split off the top per fund.carryRate).
+model Distribution {
+  id                  String    @id @default(cuid())
+  fundId              String    @map("fund_id")
+  currencyId          String    @map("currency_id")
+  distributionDate    DateTime  @map("distribution_date") @db.Date
+  /// DIVIDEND | EXIT_PROCEEDS | INTEREST | OTHER
+  source              String    @db.VarChar(32)
+  sourceCompanyId     String?   @map("source_company_id")
+  sourceDividendId    String?   @map("source_dividend_id")
+  grossAmount         Decimal   @map("gross_amount") @db.Decimal(15, 2)
+  /// GP carried interest amount deducted before LP allocation.
+  carryAmount         Decimal   @default(0) @map("carry_amount") @db.Decimal(15, 2)
+  /// netToLPs = grossAmount − carryAmount; split pro-rata to LPs in allocations.
+  netToLPs            Decimal   @map("net_to_lps") @db.Decimal(15, 2)
+  /// Portion of gross attributed to hurdle/preferred-return (for transparency in notices).
+  hurdleAppliedAmount Decimal?  @map("hurdle_applied_amount") @db.Decimal(15, 2)
+  status              String    @default("DECLARED") @db.VarChar(32)
+  noticesSentAt       DateTime? @map("notices_sent_at")
+  journalEntryId      String?   @unique @map("journal_entry_id")
+  notes               String?   @db.Text
+  createdById         String    @map("created_by_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  fund           Fund                       @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  currency       Currency                   @relation("DistributionCurrency", fields: [currencyId], references: [id], onDelete: Restrict)
+  sourceCompany  PortfolioCompany?          @relation("PortfolioDistributionSource", fields: [sourceCompanyId], references: [id], onDelete: SetNull)
+  sourceDividend PortfolioCompanyDividend?  @relation("DividendDistributions", fields: [sourceDividendId], references: [id], onDelete: SetNull)
+  journalEntry   JournalEntry?              @relation("DistributionJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy      User                       @relation("DistributionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  allocations    DistributionAllocation[]
+
+  @@index([fundId], map: "distributions_fund_idx")
+  @@index([fundId, distributionDate], map: "distributions_fund_date_idx")
+  @@map("distributions")
+}
+
+/// Per-LP share of one distribution (pro-rata by `paidInSnapshot`).
+model DistributionAllocation {
+  id                     String   @id @default(cuid())
+  distributionId         String   @map("distribution_id")
+  clientId               String   @map("client_id")
+  investmentCommitmentId String   @map("investment_commitment_id")
+  lpLegalNameSnapshot    String   @map("lp_legal_name_snapshot") @db.VarChar(512)
+  commitmentSnapshot     Decimal  @map("commitment_snapshot") @db.Decimal(15, 2)
+  /// Sum of capital paid-in by this LP at the distribution date (drives pro-rata split).
+  paidInSnapshot         Decimal  @default(0) @map("paid_in_snapshot") @db.Decimal(15, 2)
+  shareAmount            Decimal  @map("share_amount") @db.Decimal(15, 2)
+  amountPaid             Decimal  @default(0) @map("amount_paid") @db.Decimal(15, 2)
+  status                 String   @default("PENDING") @db.VarChar(32)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  distribution         Distribution                     @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  client               Client                           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  investmentCommitment InvestmentCommitment             @relation(fields: [investmentCommitmentId], references: [id], onDelete: Restrict)
+  payments             DistributionAllocationPayment[]
+
+  @@index([distributionId], map: "distribution_allocations_distribution_idx")
+  @@index([clientId], map: "distribution_allocations_client_idx")
+  @@index([investmentCommitmentId], map: "distribution_allocations_commitment_idx")
+  @@map("distribution_allocations")
+}
+
+/// Posted payout against one distribution allocation (append-only).
+model DistributionAllocationPayment {
+  id                       String   @id @default(cuid())
+  distributionAllocationId String   @map("distribution_allocation_id")
+  amount                   Decimal  @db.Decimal(15, 2)
+  recordedAt               DateTime @default(now()) @map("recorded_at")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  allocation DistributionAllocation @relation(fields: [distributionAllocationId], references: [id], onDelete: Cascade)
+
+  @@index([distributionAllocationId], map: "distribution_allocation_payments_alloc_idx")
+  @@map("distribution_allocation_payments")
+}
+
+/// Dividends received from a portfolio company (Dr cash/bank, Cr 4100). Promoted from raw SQL.
+model PortfolioCompanyDividend {
+  id                 String   @id @default(cuid())
+  portfolioCompanyId String   @map("portfolioCompanyId")
+  amount             Decimal  @db.Decimal(15, 2)
+  dividendDate       DateTime @map("dividendDate") @db.Date
+  approvedById       String   @map("approvedById")
+  journalEntryId     String?  @map("journalEntryId")
+  notes              String?  @db.Text
+  createdAt          DateTime @default(now()) @map("createdAt")
+  updatedAt          DateTime @updatedAt @map("updatedAt")
+
+  portfolioCompany PortfolioCompany @relation("PortfolioCompanyDividends", fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
+  approvedBy       User             @relation("PortfolioDividendApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  journalEntry     JournalEntry?    @relation("PortfolioDividendJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+  distributions    Distribution[]   @relation("DividendDistributions")
+
+  @@index([portfolioCompanyId, dividendDate(sort: Desc)], map: "portfolio_company_dividends_company_idx")
+  @@map("portfolio_company_dividends")
 }
 
 model FundManager {

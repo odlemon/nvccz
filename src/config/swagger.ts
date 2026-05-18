@@ -6,6 +6,7 @@ import { procurementEndpoints } from './procurement-endpoints';
 import { financialReportingEndpoints } from './financial-reporting-endpoints';
 import { investeeReportingEndpoints } from './investee-reporting-endpoints';
 import { reportingScheduleSwaggerEndpoints } from './reporting-schedule-swagger-endpoints';
+import { lpFeesAndDistributionsEndpoints } from './lp-fees-and-distributions-endpoints';
 import { eventsEndpoints } from './events-endpoints';
 import { dashboardsEndpoints } from './dashboards-endpoints';
 import { userSavedFilterFavoriteEndpoints } from './user-saved-filter-favorite-endpoints';
@@ -60,6 +61,11 @@ const options = {
         name: 'Capital Calls (LP drawdowns)',
         description:
           '**Start here:** add the LP (**`POST /clients`** — full URL with default server: `/api/clients`) and fund **investment commitment** (same call or **`PUT /clients/{id}`**). Then **`/funds/.../capital-calls`**: list/initiate (**Dr 1210 / Cr 3010**), **lp-summary**, detail, **GET …/notice**, **send-notices** (HTML + **PDF**), **GET/POST …/payments**. **Docs:** **`docs/capital-calls-lp-drawdowns.md`**. **DB:** **`npm run db:migrate:capital-calls`**, **`npm run db:migrate:capital-call-allocation-payments`**, **`npm run db:ensure:capital-call-accounts`**. **IDs:** **`npm run db:print:capital-call-postman`**.'
+      },
+      {
+        name: 'LP Fees & Distributions',
+        description:
+          '**LP fee policy**, **management fee** billing, and **LP distributions** (carry / hurdle). All routes: **`/funds/{fundId}/...`**. **Prerequisites:** LPs + **ACTIVE/PENDING** commitments on the fund (one currency) — see **Capital Calls** / **Client Management**.\n\n**Recommended order (numbered in Swagger summaries):**\n1. `GET/PUT …/fee-policy` — configure rates\n2. `GET/POST …/management-fees` — accrue a period\n3. `GET …/management-fees/{periodId}` — inspect LP lines\n4. `POST …/send-invoices` — email LPs\n5. `POST …/allocations/{allocationId}/payments` — record fee receipts\n6. `GET/POST …/distributions` — declare payout to LPs\n7. `GET …/distributions/{distributionId}` — inspect\n8. `POST …/send-notices` — email LPs\n9. `POST …/allocations/{allocationId}/payouts` — pay LPs out\n\n**DB:** `npm run db:migrate:lp-fees-distributions` then `npx prisma generate`.'
       },
       {
         name: 'Fund Management',
@@ -280,6 +286,298 @@ const options = {
         }
       },
       schemas: {
+        // ───────── LP Fees & Distributions ─────────
+        FundFeePolicy: {
+          type: 'object',
+          description: 'LP fee/carry policy attached to a Fund. All rate fields are fractions (0.02 = 2%).',
+          properties: {
+            id: { type: 'string', example: 'clx0fundid' },
+            name: { type: 'string', example: 'Sports Growth Fund I' },
+            managementFeeRate: { type: 'number', nullable: true, example: 0.02 },
+            managementFeeBase: { type: 'string', nullable: true, enum: ['COMMITTED', 'INVESTED', 'NAV'], example: 'COMMITTED' },
+            managementFeeFrequency: { type: 'string', nullable: true, enum: ['MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL'], example: 'QUARTERLY' },
+            managementFeeStartDate: { type: 'string', nullable: true, format: 'date', example: '2025-01-01' },
+            carryRate: { type: 'number', nullable: true, example: 0.20 },
+            hurdleRate: { type: 'number', nullable: true, example: 0.08 },
+            hurdleType: { type: 'string', nullable: true, enum: ['NONE', 'PREFERRED_RETURN'], example: 'PREFERRED_RETURN' },
+            catchUpRate: { type: 'number', nullable: true, example: 1.0 },
+            waterfallType: { type: 'string', nullable: true, enum: ['EUROPEAN', 'AMERICAN'], example: 'EUROPEAN' }
+          }
+        },
+        FundFeePolicyUpsertRequest: {
+          type: 'object',
+          description: 'Upsert payload. Pass null to clear a field.',
+          properties: {
+            managementFeeRate: { type: 'number', nullable: true, example: 0.02 },
+            managementFeeBase: { type: 'string', nullable: true, enum: ['COMMITTED', 'INVESTED', 'NAV'], example: 'COMMITTED' },
+            managementFeeFrequency: { type: 'string', nullable: true, enum: ['MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL'], example: 'QUARTERLY' },
+            managementFeeStartDate: { type: 'string', nullable: true, format: 'date', example: '2025-01-01' },
+            carryRate: { type: 'number', nullable: true, example: 0.20 },
+            hurdleRate: { type: 'number', nullable: true, example: 0.08 },
+            hurdleType: { type: 'string', nullable: true, enum: ['NONE', 'PREFERRED_RETURN'], example: 'PREFERRED_RETURN' },
+            catchUpRate: { type: 'number', nullable: true, example: 1.0 },
+            waterfallType: { type: 'string', nullable: true, enum: ['EUROPEAN', 'AMERICAN'], example: 'EUROPEAN' }
+          }
+        },
+        ManagementFeeAccrueRequest: {
+          type: 'object',
+          required: ['periodStart', 'periodEnd'],
+          properties: {
+            periodStart: { type: 'string', format: 'date', example: '2026-01-01' },
+            periodEnd: { type: 'string', format: 'date', example: '2026-03-31' },
+            feeBase: {
+              type: 'string',
+              nullable: true,
+              enum: ['COMMITTED', 'INVESTED', 'NAV'],
+              description: 'Overrides Fund.managementFeeBase for this run.',
+              example: 'COMMITTED'
+            },
+            rateOverride: {
+              type: 'number',
+              nullable: true,
+              description: 'Fraction; overrides Fund.managementFeeRate for this run. e.g. 0.02 = 2%/yr.',
+              example: 0.02
+            },
+            feeBaseAmountOverride: {
+              type: 'number',
+              nullable: true,
+              description: 'Force-set the fee base (e.g. external NAV). When omitted, computed from the selected feeBase.',
+              example: 10000000
+            },
+            transactionDate: { type: 'string', nullable: true, format: 'date', example: '2026-03-31' },
+            notes: { type: 'string', nullable: true, example: 'Q1 2026 management fee accrual' }
+          }
+        },
+        DistributionCreateRequest: {
+          type: 'object',
+          required: ['distributionDate', 'source', 'grossAmount'],
+          properties: {
+            distributionDate: { type: 'string', format: 'date', example: '2026-05-30' },
+            source: { type: 'string', enum: ['DIVIDEND', 'EXIT_PROCEEDS', 'INTEREST', 'OTHER'], example: 'DIVIDEND' },
+            grossAmount: { type: 'number', example: 250000 },
+            sourceCompanyId: {
+              type: 'string',
+              nullable: true,
+              description: 'Optional FK to the source PortfolioCompany.',
+              example: 'cmpxxxxxxxxxxxxxxxxxxxxxxx'
+            },
+            sourceDividendId: {
+              type: 'string',
+              nullable: true,
+              description: 'Optional FK to the originating PortfolioCompanyDividend (dividend pass-through).',
+              example: 'cmdyxxxxxxxxxxxxxxxxxxxxx'
+            },
+            carryRateOverride: {
+              type: 'number',
+              nullable: true,
+              description: 'Overrides Fund.carryRate for this event (fraction).',
+              example: 0.20
+            },
+            currencyCode: {
+              type: 'string',
+              nullable: true,
+              description: 'Optional ISO code; must match the LP commitment currency.',
+              example: 'USD'
+            },
+            notes: { type: 'string', nullable: true, example: 'FY2025 interim dividend pass-through' }
+          }
+        },
+        AllocationPaymentRequest: {
+          type: 'object',
+          required: ['amount'],
+          properties: {
+            amount: { type: 'number', example: 25000, description: 'Must be > 0 and ≤ remaining balance for this allocation.' },
+            transactionDate: { type: 'string', nullable: true, format: 'date', example: '2026-04-10' },
+            cashChartOfAccountId: {
+              type: 'string',
+              nullable: true,
+              description: 'Chart of accounts id for the bank/cash account that received or paid funds. Strongly recommended.',
+              example: 'clx0bankglacctid'
+            }
+          }
+        },
+        ManagementFeePeriodSummary: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            periodStart: { type: 'string', format: 'date-time' },
+            periodEnd: { type: 'string', format: 'date-time' },
+            feeBase: { type: 'string', enum: ['COMMITTED', 'INVESTED', 'NAV'] },
+            feeBaseAmount: { type: 'string', example: '110000.00' },
+            rate: { type: 'string', example: '0.02' },
+            totalFee: { type: 'string', example: '542.47' },
+            status: { type: 'string', enum: ['ACCRUED', 'INVOICED', 'PARTIALLY_PAID', 'PAID'] },
+            statusLabel: { type: 'string', example: 'Accrued' },
+            invoicesSentAt: { type: 'string', nullable: true, format: 'date-time' },
+            journalEntryId: { type: 'string', nullable: true },
+            currency: {
+              type: 'object',
+              properties: {
+                code: { type: 'string', example: 'USD' },
+                symbol: { type: 'string', example: '$' }
+              }
+            },
+            _count: {
+              type: 'object',
+              properties: { allocations: { type: 'integer', example: 3 } }
+            }
+          }
+        },
+        ManagementFeeAllocationLine: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            lpLegalNameSnapshot: { type: 'string' },
+            commitmentSnapshot: { type: 'string' },
+            shareOfFee: { type: 'string' },
+            amountPaid: { type: 'string' },
+            status: { type: 'string', enum: ['PENDING', 'PARTIALLY_PAID', 'PAID'] },
+            statusLabel: { type: 'string' },
+            client: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                legalName: { type: 'string' },
+                email: { type: 'string', format: 'email' }
+              }
+            },
+            payments: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  amount: { type: 'string' },
+                  recordedAt: { type: 'string', format: 'date-time' }
+                }
+              }
+            }
+          }
+        },
+        ManagementFeePeriodDetail: {
+          allOf: [
+            { $ref: '#/components/schemas/ManagementFeePeriodSummary' },
+            {
+              type: 'object',
+              properties: {
+                notes: { type: 'string', nullable: true },
+                fund: { type: 'object', properties: { name: { type: 'string' } } },
+                journalEntry: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    referenceNumber: { type: 'string', example: 'MGTFEE-cmjfpk-1779093542669' },
+                    transactionDate: { type: 'string', format: 'date-time' },
+                    status: { type: 'string', example: 'POSTED' },
+                    auditTrailSequenceNumber: { type: 'integer', nullable: true }
+                  }
+                },
+                allocations: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/ManagementFeeAllocationLine' }
+                },
+                invoiceDispatch: {
+                  type: 'object',
+                  description: 'Present after POST send-invoices',
+                  properties: {
+                    sentCount: { type: 'integer' },
+                    failedCount: { type: 'integer' },
+                    skippedCount: { type: 'integer' }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        DistributionSummary: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            distributionDate: { type: 'string', format: 'date-time' },
+            source: { type: 'string', enum: ['DIVIDEND', 'EXIT_PROCEEDS', 'INTEREST', 'OTHER'] },
+            grossAmount: { type: 'string' },
+            carryAmount: { type: 'string' },
+            netToLPs: { type: 'string' },
+            hurdleAppliedAmount: { type: 'string', nullable: true },
+            status: { type: 'string', enum: ['DECLARED', 'NOTICES_SENT', 'PARTIALLY_PAID', 'PAID'] },
+            statusLabel: { type: 'string' },
+            noticesSentAt: { type: 'string', nullable: true, format: 'date-time' },
+            journalEntryId: { type: 'string', nullable: true },
+            currency: {
+              type: 'object',
+              properties: {
+                code: { type: 'string' },
+                symbol: { type: 'string' }
+              }
+            },
+            _count: {
+              type: 'object',
+              properties: { allocations: { type: 'integer' } }
+            }
+          }
+        },
+        DistributionAllocationLine: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            lpLegalNameSnapshot: { type: 'string' },
+            commitmentSnapshot: { type: 'string' },
+            paidInSnapshot: { type: 'string' },
+            shareAmount: { type: 'string' },
+            amountPaid: { type: 'string' },
+            status: { type: 'string' },
+            statusLabel: { type: 'string' },
+            client: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                legalName: { type: 'string' },
+                email: { type: 'string' }
+              }
+            },
+            payments: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  amount: { type: 'string' },
+                  recordedAt: { type: 'string', format: 'date-time' }
+                }
+              }
+            }
+          }
+        },
+        DistributionDetail: {
+          allOf: [
+            { $ref: '#/components/schemas/DistributionSummary' },
+            {
+              type: 'object',
+              properties: {
+                notes: { type: 'string', nullable: true },
+                sourceCompanyId: { type: 'string', nullable: true },
+                sourceDividendId: { type: 'string', nullable: true },
+                fund: { type: 'object', properties: { name: { type: 'string' } } },
+                sourceCompany: {
+                  type: 'object',
+                  nullable: true,
+                  properties: { id: { type: 'string' }, name: { type: 'string' } }
+                },
+                journalEntry: {
+                  type: 'object',
+                  properties: {
+                    referenceNumber: { type: 'string', example: 'DIST-cmjfpk-...' }
+                  }
+                },
+                allocations: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/DistributionAllocationLine' }
+                },
+                noticeDispatch: { type: 'object' }
+              }
+            }
+          ]
+        },
         User: {
           type: 'object',
           properties: {
@@ -1877,6 +2175,7 @@ const fallbackSpec = {
     ...dashboardsEndpoints,
     ...userSavedFilterFavoriteEndpoints,
     ...reportingScheduleSwaggerEndpoints,
+    ...lpFeesAndDistributionsEndpoints,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -9099,6 +9398,7 @@ try {
       ...capitalCallsEndpoints,
       ...investeeReportingEndpoints,
       ...reportingScheduleSwaggerEndpoints,
+      ...lpFeesAndDistributionsEndpoints,
       ...procurementEndpoints,
       ...eventsEndpoints,
       ...dashboardsEndpoints,
@@ -9121,6 +9421,7 @@ try {
       ...capitalCallsEndpoints,
       ...investeeReportingEndpoints,
       ...reportingScheduleSwaggerEndpoints,
+      ...lpFeesAndDistributionsEndpoints,
       ...procurementEndpoints,
       ...eventsEndpoints,
       ...dashboardsEndpoints,
@@ -9147,6 +9448,7 @@ try {
     ...capitalCallsEndpoints,
     ...investeeReportingEndpoints,
     ...reportingScheduleSwaggerEndpoints,
+    ...lpFeesAndDistributionsEndpoints,
     ...procurementEndpoints,
     ...eventsEndpoints,
     ...dashboardsEndpoints,
@@ -9156,6 +9458,7 @@ try {
 
 specs.paths = {
   ...specs.paths,
+  ...lpFeesAndDistributionsEndpoints,
   ...updatedInvestmentFlowExtraPaths,
   ...updatedPerformanceSwaggerPaths,
   ...fundManagementEndpoints,
