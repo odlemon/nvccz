@@ -9,6 +9,7 @@ import {
   PerformanceContractDuplicateError,
   resolveCeoSubjectUserIdFromOrg
 } from "../services/PerformanceContractSetupService";
+import { PerformanceContractEnrichmentService } from "../services/PerformanceContractEnrichmentService";
 
 function createdBy(req: Request, body: Record<string, unknown>): string {
   const fromBody = body.createdById != null ? String(body.createdById).trim() : "";
@@ -115,13 +116,15 @@ export class PerformanceContractController {
         })
       ]);
 
+      const data = await PerformanceContractEnrichmentService.enrichContractRows(contracts);
+
       res.json({
         success: true,
-        count: contracts.length,
+        count: data.length,
         total,
         skip,
         take,
-        data: contracts
+        data
       });
     } catch (e: any) {
       res.status(400).json({
