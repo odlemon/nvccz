@@ -1,12 +1,40 @@
 // @ts-nocheck
 import { Router } from 'express';
+import multer from 'multer';
 import { PayrollController } from '../controllers/PayrollController';
 import { authenticate } from '../middleware/authenticate';
 
 const router = Router();
+const employeePictureUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+/** Parse multipart only when client sends form-data; JSON create still works. */
+function employeeCreateMultipart(req: any, res: any, next: any) {
+  const ct = String(req.headers['content-type'] || '');
+  if (ct.includes('multipart/form-data')) {
+    return employeePictureUpload.single('picture')(req, res, (err: any) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.code === 'LIMIT_FILE_SIZE' ? 'Picture must be 10MB or less' : err.message
+        });
+      }
+      next();
+    });
+  }
+  next();
+}
 
 // ===== EMPLOYEE MANAGEMENT ROUTES =====
-router.post('/employees', authenticate, PayrollController.createEmployee);
+/* Swagger: full multipart spec in src/config/payroll-endpoints.ts (Payroll - Employees) */
+router.post(
+  '/employees',
+  authenticate,
+  employeeCreateMultipart,
+  PayrollController.createEmployee
+);
 router.get('/employees', authenticate, PayrollController.getEmployees);
 router.get('/employees/:id/reimbursement-vendor', authenticate, PayrollController.getEmployeeReimbursementVendor);
 router.post('/employees/:id/reimbursement-vendor', authenticate, PayrollController.ensureEmployeeReimbursementVendor);

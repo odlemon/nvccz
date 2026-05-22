@@ -26,6 +26,7 @@ import { procurementSuiteSectionsFallbackEndpoints } from './procurement-suite-s
 import { eventsEventsyncFallbackEndpoints } from './events-eventsync-fallback-endpoints';
 import { fundManagementEndpoints } from './fund-management-endpoints';
 import { portfolioLetterheadsEndpoints } from './portfolio-letterheads-endpoints';
+import { payrollEndpoints } from './payroll-endpoints';
 import { portfolioMonitoringEndpoints } from './portfolio-monitoring-endpoints';
 import { boardReviewOpenApiOverridePaths } from './board-review-openapi';
 
@@ -81,6 +82,11 @@ const options = {
         name: 'Portfolio Letterheads',
         description:
           'Investee letterhead CRUD per portfolio company — legal name, address lines, contact, social links, logo (`GET/PUT/DELETE /portfolio-companies/{id}/letterhead`, `POST …/letterhead/logo`). Authenticated users only; not tied to a specific financial report.'
+      },
+      {
+        name: 'Payroll - Employees',
+        description:
+          'Payroll roster — create/list/update employees. **`POST /payroll/employees`** uses **`multipart/form-data`**: upload profile photo as field **`picture`** (remote storage, same as portfolio letterhead logos) or optional text **`pictureUrl`** for a pre-hosted URL.'
       },
       {
         name: 'Portfolio Monitoring & Exit Management',
@@ -9470,6 +9476,7 @@ specs.paths = {
   ...updatedPerformanceSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
+  ...payrollEndpoints,
   ...portfolioMonitoringEndpoints,
   ...boardReviewOpenApiOverridePaths
 };
