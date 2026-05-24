@@ -7,6 +7,7 @@ import {
 } from "./performanceGoalRollupUtils";
 import {
   diversitySpreadFromPercents,
+  isCurrencyPerformanceTarget,
   safeGrowthPercent,
   safeRatioPercent,
   toPositiveNumber
@@ -17,9 +18,60 @@ import {
   PerformanceGoalService
 } from "./PerformanceGoalService";
 import { resolveGoalEscalationStatus, round, toNumber } from "./performanceScorecardSupport";
-import { getPostedPeriodRevenueExpenseNetProfit } from "./AccountingGlPeriodTotalsService";
+import {
+  getPostedPeriodRevenueExpenseNetProfit,
+  getPostedPeriodRevenueExpenseNetProfitExcludingPerformance
+} from "./AccountingGlPeriodTotalsService";
+import { PerformanceGoalProgressEventService } from "./PerformanceGoalProgressEventService";
+import { AccountingGoalSyncService } from "./AccountingGoalSyncService";
 
 const BSC_FREQ = new Set(["MONTHLY", "QUARTERLY", "ANNUAL", "YEARLY", "ANNUALLY"]);
+
+async function applyGlPeriodMergeToGoal(params: {
+  goalId: string;
+  glNativeAmount: number;
+  periodStart: Date;
+  periodEnd: Date;
+  actorId: string;
+  entryKind: string;
+  syncExtra?: Record<string, unknown>;
+}) {
+  const actorId = params.actorId || (await prisma.user.findFirst({ select: { id: true } }))?.id;
+  if (!actorId) throw new Error("No actor for GL period merge");
+
+  await PerformanceGoalProgressEventService.ensureBaselineFromGoalCurrent(params.goalId, actorId);
+  await PerformanceGoalProgressEventService.upsertGlSyncEvent({
+    goalId: params.goalId,
+    glNativeAmount: params.glNativeAmount,
+    periodStart: params.periodStart,
+    periodEnd: params.periodEnd,
+    createdById: actorId
+  });
+
+  const goal = await prisma.performanceGoal.findUnique({
+    where: { id: params.goalId },
+    select: { syncConfig: true, kpiId: true }
+  });
+  const prevCfg =
+    goal?.syncConfig != null && typeof goal.syncConfig === "object" && !Array.isArray(goal.syncConfig)
+      ? (goal.syncConfig as Record<string, unknown>)
+      : {};
+
+  await prisma.performanceGoal.update({
+    where: { id: params.goalId },
+    data: {
+      syncConfig: {
+        ...prevCfg,
+        source: "posted_journal_lines",
+        bscEntryKind: params.entryKind,
+        glSyncedAt: new Date().toISOString(),
+        ...(params.syncExtra || {})
+      }
+    }
+  });
+
+  await AccountingGoalSyncService.cascadeAfterGoalUpdate(params.goalId, goal?.kpiId ?? null);
+}
 
 /** Same calendar window one year earlier (for YoY revenue growth %). */
 function priorYearSameWindow(periodStart: Date, periodEnd: Date): { priorStart: Date; priorEnd: Date } {
@@ -100,9 +152,9 @@ type EntryValidationRule = {
 
 const ENTRY_VALIDATION_RULES: Record<string, EntryValidationRule> = {
   FINANCIAL_OUTCOME_ROI: {
-    expectedLabel: "ROI / return on investment",
+    expectedLabel: "ROI / return on investment (percent)",
     formulaTypes: ["ROI"],
-    kpiNameHints: ["roi", "return on investment", "total revenue", "net profit"],
+    kpiNameHints: ["roi", "return on investment"],
     textHints: ["roi", "return on investment"]
   },
   INTERNAL_PROCESS_FUNDING_RATE: {
@@ -198,6 +250,38 @@ function normaliseFormulaType(raw: unknown): string {
     .replace(/[\s-]+/g, "_");
 }
 
+function assertFinancialOutcomeRoiCompatible(goal: {
+  title?: string | null;
+  formulaType?: string | null;
+  targetUnit?: string | null;
+  kpi?: { name?: string | null; unitCategory?: string | null } | null;
+}): void {
+  const goalName = String(goal.title || "this goal");
+  const goalFormula = normaliseFormulaType(goal.formulaType);
+
+  if (goalFormula && goalFormula !== "ROI") {
+    throw new Error(
+      `"${goalName}" uses formula ${goal.formulaType}. financial-outcome-roi only applies to ROI (percent) goals. ` +
+        `Use POST /api/performance/bsc-entry/accounting-period-from-gl for GL revenue or net profit in dollars.`
+    );
+  }
+
+  if (
+    isCurrencyPerformanceTarget({
+      targetUnit: goal.targetUnit,
+      unitCategory: goal.kpi?.unitCategory
+    })
+  ) {
+    throw new Error(
+      `"${goalName}" has a currency target (${goal.targetUnit || "USD"}). ` +
+        `financial-outcome-roi stores ROI as a percentage, not dollars — posting here would overwrite ` +
+        `dollar progress with a small ROI figure (e.g. 2 meaning 2%, not $2). ` +
+        `Use POST /api/performance/bsc-entry/accounting-period-from-gl with netProfitGoalId or revenueGoalId instead, ` +
+        `or set formulaType to ROI with a percent target for true ROI tracking.`
+    );
+  }
+}
+
 async function assertGoalMatchesEntryKind(goalId: string, entryKind: string): Promise<void> {
   const rule = ENTRY_VALIDATION_RULES[entryKind];
   if (!rule) return;
@@ -208,10 +292,15 @@ async function assertGoalMatchesEntryKind(goalId: string, entryKind: string): Pr
       id: true,
       title: true,
       formulaType: true,
+      targetUnit: true,
       kpi: { select: { name: true, unitCategory: true } }
     }
   });
   if (!goal) throw new Error("Performance goal not found");
+
+  if (entryKind === "FINANCIAL_OUTCOME_ROI") {
+    assertFinancialOutcomeRoiCompatible(goal);
+  }
 
   const goalFormula = normaliseFormulaType(goal.formulaType);
   const formulas = (rule.formulaTypes || []).map((f) => normaliseFormulaType(f));
@@ -1080,10 +1169,12 @@ export class BscDigitalEntryService {
       throw new Error("periodStart must be before periodEnd");
     }
     const glTotals = await getPostedPeriodRevenueExpenseNetProfit(ps, pe);
+    const glNativeTotals = await getPostedPeriodRevenueExpenseNetProfitExcludingPerformance(ps, pe);
     const goalUpdates: Array<{ role: string; goalId: string }> = [];
 
     const freq = normalizeFrequency(input.frequency);
     const label = input.periodLabel ?? glTotals.periodStart.slice(0, 10);
+    const actorId = input.responsibleUserId || "";
 
     if (input.revenueGoalId != null && String(input.revenueGoalId).trim() !== "") {
       const gid = String(input.revenueGoalId).trim();
@@ -1105,56 +1196,62 @@ export class BscDigitalEntryService {
         } else {
           revenueActualValue = 0;
         }
+        await applyNumericActualToGoal({
+          goalId: gid,
+          currentValue: revenueActualValue,
+          responsibleUserId: input.responsibleUserId,
+          entryKind: "ACCOUNTING_GL_REVENUE_PERIOD",
+          frequency: freq,
+          periodLabel: label,
+          periodStart: glTotals.periodStart,
+          periodEnd: glTotals.periodEnd,
+          currencyCode: input.currencyCode,
+          monetaryFieldsForAudit: {
+            glRevenue: glTotals.revenue,
+            glPriorYearRevenue: priorGl.revenue,
+            glRevenueYoYPercent: revenueActualValue,
+            currencyCode: input.currencyCode
+          },
+          syncExtra: {
+            source: "posted_journal_lines",
+            totalExpense: glTotals.totalExpense,
+            glCurrentPeriodRevenue: currRev,
+            glPriorPeriodRevenue: prevRev,
+            glRevenueYearOnYearPercent: revenueActualValue
+          }
+        });
       } else {
-        revenueActualValue = currRev;
+        revenueActualValue = glNativeTotals.revenue;
+        await applyGlPeriodMergeToGoal({
+          goalId: gid,
+          glNativeAmount: glNativeTotals.revenue,
+          periodStart: ps,
+          periodEnd: pe,
+          actorId,
+          entryKind: "ACCOUNTING_GL_REVENUE_PERIOD",
+          syncExtra: {
+            totalExpense: glTotals.totalExpense,
+            glCurrentPeriodRevenue: currRev,
+            glNativePeriodRevenue: glNativeTotals.revenue
+          }
+        });
       }
-      await applyNumericActualToGoal({
-        goalId: gid,
-        currentValue: revenueActualValue,
-        responsibleUserId: input.responsibleUserId,
-        entryKind: "ACCOUNTING_GL_REVENUE_PERIOD",
-        frequency: freq,
-        periodLabel: label,
-        periodStart: glTotals.periodStart,
-        periodEnd: glTotals.periodEnd,
-        currencyCode: input.currencyCode,
-        monetaryFieldsForAudit: {
-          glRevenue: glTotals.revenue,
-          glPriorYearRevenue: priorGl.revenue,
-          glRevenueYoYPercent: revFormula === "REVENUE_GROWTH" ? revenueActualValue : undefined,
-          currencyCode: input.currencyCode
-        },
-        syncExtra: {
-          source: "posted_journal_lines",
-          totalExpense: glTotals.totalExpense,
-          glCurrentPeriodRevenue: currRev,
-          glPriorPeriodRevenue: prevRev,
-          ...(revFormula === "REVENUE_GROWTH" ? { glRevenueYearOnYearPercent: revenueActualValue } : {})
-        }
-      });
       goalUpdates.push({ role: "revenue", goalId: gid });
     }
 
     if (input.netProfitGoalId != null && String(input.netProfitGoalId).trim() !== "") {
       const gid = String(input.netProfitGoalId).trim();
-      await applyNumericActualToGoal({
+      await applyGlPeriodMergeToGoal({
         goalId: gid,
-        currentValue: glTotals.netProfit,
-        responsibleUserId: input.responsibleUserId,
+        glNativeAmount: glNativeTotals.netProfit,
+        periodStart: ps,
+        periodEnd: pe,
+        actorId,
         entryKind: "ACCOUNTING_GL_NET_PROFIT_PERIOD",
-        frequency: freq,
-        periodLabel: label,
-        periodStart: glTotals.periodStart,
-        periodEnd: glTotals.periodEnd,
-        currencyCode: input.currencyCode,
-        monetaryFieldsForAudit: {
-          glNetProfit: glTotals.netProfit,
-          currencyCode: input.currencyCode
-        },
         syncExtra: {
-          source: "posted_journal_lines",
           glRevenue: glTotals.revenue,
-          glTotalExpense: glTotals.totalExpense
+          glTotalExpense: glTotals.totalExpense,
+          glNativeNetProfit: glNativeTotals.netProfit
         }
       });
       goalUpdates.push({ role: "netProfit", goalId: gid });

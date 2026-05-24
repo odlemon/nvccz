@@ -2,6 +2,24 @@
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 
+/** Exclude performance-originated KPI journals from GL native totals (anti double-count). */
+function performanceJournalExcludeFilter() {
+  return {
+    AND: [
+      { NOT: { referenceNumber: { startsWith: "PERF-GOAL-" } } },
+      { NOT: { referenceNumber: { startsWith: "KPI-GOAL-" } } }
+    ]
+  };
+}
+
+function postedJournalWhere(periodStart: Date, periodEnd: Date, excludePerformance: boolean) {
+  return {
+    status: "POSTED",
+    transactionDate: { gte: periodStart, lte: periodEnd },
+    ...(excludePerformance ? performanceJournalExcludeFilter() : {})
+  };
+}
+
 function dec(v: unknown): Decimal {
   if (v == null || v === "") return new Decimal(0);
   try {
@@ -18,7 +36,8 @@ function dec(v: unknown): Decimal {
  */
 export async function getPostedPeriodRevenueExpenseNetProfit(
   periodStart: Date,
-  periodEnd: Date
+  periodEnd: Date,
+  options?: { excludePerformanceJournals?: boolean }
 ): Promise<{
   revenue: number;
   totalExpense: number;
@@ -26,10 +45,8 @@ export async function getPostedPeriodRevenueExpenseNetProfit(
   periodStart: string;
   periodEnd: string;
 }> {
-  const je = {
-    status: "POSTED",
-    transactionDate: { gte: periodStart, lte: periodEnd }
-  };
+  const excludePerformance = options?.excludePerformanceJournals === true;
+  const je = postedJournalWhere(periodStart, periodEnd, excludePerformance);
 
   const [revAgg, expAgg] = await Promise.all([
     prisma.journalEntryLine.aggregate({
@@ -128,4 +145,16 @@ export async function getPostedPeriodExpenseByAccount(
   }
 
   return result.sort((a, b) => b.actualAmount - a.actualAmount);
+}
+
+/**
+ * Posted GL totals excluding journals tagged as performance KPI achievements.
+ */
+export async function getPostedPeriodRevenueExpenseNetProfitExcludingPerformance(
+  periodStart: Date,
+  periodEnd: Date
+) {
+  return getPostedPeriodRevenueExpenseNetProfit(periodStart, periodEnd, {
+    excludePerformanceJournals: true
+  });
 }

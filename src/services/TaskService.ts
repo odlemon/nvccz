@@ -1648,7 +1648,8 @@ export class TaskService {
       const task = await prisma.task.findUnique({
         where: { id: taskId },
         select: {
-          goalId: true
+          goalId: true,
+          createdById: true
         }
       });
 
@@ -1657,116 +1658,122 @@ export class TaskService {
         return;
       }
 
-      const goal = await this.recalculateGoalProgressFromTasks(task.goalId);
-      
-      // Calculate new goal progress based on task progress
-      const newCurrentValue = Number(goal.currentValue || 0);
-      const progressState = deriveGoalProgressState({
-        currentValue: newCurrentValue,
-        targetValue: goal.targetValue,
-        targetOperator: goal.targetOperator,
-        isReverseKpi: goal.isReverseKpi,
-        previousStage: goal.stage,
-        progressPercentage: goal.progressPercentage
-      });
-      const isCompleted = progressState.isTargetMet;
-
-      // Update the goal
-      const updatedGoal = await prisma.performanceGoal.update({
-        where: { id: goal.id },
-        data: {
-          currentValue: newCurrentValue,
-          progressPercentage: progressState.progressPercentage,
-          status: progressState.status,
-          stage: progressState.stage,
-          updatedAt: new Date()
-        }
-      });
-
-      console.log(`✅ Updated goal ${goal.id} progress: ${newCurrentValue}/${goal.targetValue} (${progressState.progressPercentage}%)`);
-
-      // If goal is completed and has KPI integration, trigger accounting
-      if (isCompleted && goal.kpiId) {
-        await this.triggerAccountingIntegration(goal.id, newCurrentValue);
-      }
-
-      // Keep KPI roll-ups in sync with KPIService (uses targetValue/currentValue when monetary* unset)
-      if (goal.kpiId) {
-        try {
-          const { PerformanceGoalService } = await import('./PerformanceGoalService');
-          await PerformanceGoalService.recalculateKPIProgress(goal.kpiId);
-        } catch (kpiErr) {
-          console.error(`⚠️ KPI recalc after task goal update failed for kpi ${goal.kpiId}:`, kpiErr);
-        }
-      }
-
-      // If this is a sub-goal, update parent goal progress
-      if (goal.parentGoalId) {
-        await this.updateParentGoalProgress(goal.parentGoalId);
-      }
-
-      // 🚀 NEW: Trigger automatic roll-up calculations
-      try {
-        const { RollupCalculationService } = await import('./RollupCalculationService');
-        await RollupCalculationService.recalculateAllRollups(goal.id);
-        console.log(`✅ Automatic roll-up triggered for task goal: ${goal.id}`);
-      } catch (rollupError) {
-        console.error(`❌ Roll-up calculation failed for task goal ${goal.id}:`, rollupError);
-      }
-
+      const actorId = task.createdById;
+      await this.syncGoalProgressFromTaskComputation(task.goalId, taskId, actorId);
     } catch (error) {
       console.error('❌ Error updating linked goal progress:', error);
       throw error;
     }
   }
 
-  static async recalculateGoalProgressFromTasks(goalId: string) {
-    const goal = await prisma.performanceGoal.findUnique({
-      where: { id: goalId }
+  /** Derive goal current from linked tasks (monetary sum or average task % × target). */
+  static computeGoalCurrentFromTasks(goal: { targetValue?: unknown }, linkedTasks: any[]): number {
+    const hasMonetaryTasks = linkedTasks.some((t) => {
+      const mv = Number(t.monetaryValue ?? 0);
+      return Number.isFinite(mv) && mv > 0;
     });
+    if (hasMonetaryTasks) {
+      const sum = linkedTasks.reduce((s, t) => {
+        const achieved = Number(t.monetaryValueAchieved ?? 0);
+        return s + (Number.isFinite(achieved) ? achieved : 0);
+      }, 0);
+      console.log(`📊 Goal progress from task monetary sum: ${sum}`);
+      return Math.max(0, sum);
+    }
+    const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+    const averageProgress =
+      linkedTasks.length > 0
+        ? linkedTasks.reduce((sum, t) => sum + computeTaskPercentage(t), 0) / linkedTasks.length
+        : 0;
+    return targetNum > 0 ? (targetNum * averageProgress) / 100 : averageProgress;
+  }
 
+  static async syncGoalProgressFromTaskComputation(
+    goalId: string,
+    taskId: string | null,
+    actorId: string
+  ) {
+    const goal = await prisma.performanceGoal.findUnique({
+      where: { id: goalId },
+      include: { kpi: { select: { id: true } } }
+    });
     if (!goal) {
       throw new Error("Linked performance goal not found");
     }
 
     const linkedTasks = await prisma.task.findMany({
-      where: {
-        goalId,
-        isTrashed: false
-      }
+      where: { goalId, isTrashed: false }
     });
 
-    const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-    const averageProgress = linkedTasks.length > 0
-      ? linkedTasks.reduce((sum, task) => sum + computeTaskPercentage(task), 0) / linkedTasks.length
-      : 0;
-    const newCurrentValue = targetNum > 0 ? (targetNum * averageProgress) / 100 : averageProgress;
+    const { parseProgressBaseline } = await import("./PerformanceGoalService");
+    const prev = parseProgressBaseline(goal);
+    const newCurrentValue = this.computeGoalCurrentFromTasks(goal, linkedTasks);
+    const delta = newCurrentValue - prev;
+
+    if (Math.abs(delta) >= 0.0005) {
+      const { PerformanceGoalProgressBridge } = await import("./PerformanceGoalProgressBridge");
+      await PerformanceGoalProgressBridge.applyDelta({
+        goalId,
+        delta,
+        source: "task",
+        sourceRef: taskId ?? `task_recalc:${goalId}`,
+        actorId: actorId || goal.createdById
+      });
+    }
+
+    const goalAfterEvents = await prisma.performanceGoal.findUnique({ where: { id: goalId } });
+    const currentForProgress = goalAfterEvents?.currentValue != null
+      ? parseFloat(String(goalAfterEvents.currentValue))
+      : newCurrentValue;
+
     const progressState = deriveGoalProgressState({
-      currentValue: newCurrentValue,
+      currentValue: currentForProgress,
       targetValue: goal.targetValue,
       targetOperator: goal.targetOperator,
       isReverseKpi: goal.isReverseKpi,
       previousStage: goal.stage,
       progressPercentage: goal.progressPercentage
     });
-    const isCompleted =
-      progressState.isTargetMet || averageProgress >= 100;
+    const averageProgress =
+      linkedTasks.length > 0
+        ? linkedTasks.reduce((sum, t) => sum + computeTaskPercentage(t), 0) / linkedTasks.length
+        : 0;
+    const isCompleted = progressState.isTargetMet || averageProgress >= 100;
 
-    return prisma.performanceGoal.update({
+    const updatedGoal = await prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {
-        currentValue: newCurrentValue,
         progressPercentage: progressState.progressPercentage,
         status: progressState.isTargetMet || averageProgress >= 100 ? "completed" : progressState.status,
-        stage:
-          isCompleted
-            ? "completed"
-            : linkedTasks.some((task) => task.stage === "in_progress") || newCurrentValue > 0
-              ? "in_progress"
-              : progressState.stage,
+        stage: isCompleted
+          ? "completed"
+          : linkedTasks.some((t) => t.stage === "in_progress") || newCurrentValue > 0
+            ? "in_progress"
+            : progressState.stage,
         updatedAt: new Date()
       }
     });
+
+    console.log(
+      `✅ Updated goal ${goal.id} progress: ${updatedGoal.currentValue}/${goal.targetValue} (${progressState.progressPercentage}%)`
+    );
+
+    if (goal.parentGoalId) {
+      await this.updateParentGoalProgress(goal.parentGoalId);
+    }
+
+    return updatedGoal;
+  }
+
+  static async recalculateGoalProgressFromTasks(goalId: string) {
+    const goal = await prisma.performanceGoal.findUnique({
+      where: { id: goalId },
+      select: { createdById: true }
+    });
+    if (!goal) {
+      throw new Error("Linked performance goal not found");
+    }
+    return this.syncGoalProgressFromTaskComputation(goalId, null, goal.createdById);
   }
 
   static async bulkUpdateTaskStage(taskIds: string[], stage: string, achievements: any = {}, updatedByUserId?: string) {

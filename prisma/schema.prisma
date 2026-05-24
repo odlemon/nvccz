@@ -68,6 +68,7 @@ model User {
   department                        Department?                  @relation("UserDepartment", fields: [departmentId], references: [id])
   performanceGoals                  PerformanceGoal[]            @relation("GoalAssignee")
   createdPerformanceGoals           PerformanceGoal[]            @relation("GoalCreator")
+  performanceGoalProgressEvents     PerformanceGoalProgressEvent[] @relation("PerformanceGoalProgressEventCreator")
   activityLogs                      ActivityLog[]
   createdTasks                      Task[]                       @relation("TaskCreator")
   managedStakeholders               Stakeholder[]                @relation("StakeholderManager")
@@ -761,6 +762,7 @@ model JournalEntry {
   managementFeePeriod       ManagementFeePeriod?              @relation("ManagementFeeJournal")
   distribution              Distribution?                     @relation("DistributionJournal")
   portfolioDividends        PortfolioCompanyDividend[]        @relation("PortfolioDividendJournal")
+  performanceProgressEvents PerformanceGoalProgressEvent[]
 
   @@map("journal_entries")
 }
@@ -2158,11 +2160,43 @@ model PerformanceGoal {
   activityLogs          ActivityLog[]
   bscBudgetVarianceReports BscBudgetVarianceReport[]
   bscStatutorySubmissions  BscStatutorySubmission[]
+  progressEvents           PerformanceGoalProgressEvent[]
 
   @@index([performanceContractId], map: "performance_goals_performance_contract_id_idx")
   @@index([type, assignedToId], map: "performance_goals_type_assigned_to_idx")
   @@index([type, departmentName], map: "performance_goals_type_department_name_idx")
   @@map("performance_goals")
+}
+
+/// Auditable progress amounts per goal (manual, task, activity, gl_sync).
+model PerformanceGoalProgressEvent {
+  id              String          @id @default(cuid())
+  goalId          String          @map("goal_id")
+  amount          Decimal         @db.Decimal(15, 3)
+  recordedAt      DateTime        @map("recorded_at")
+  /// manual | task | activity | gl_sync
+  source          String          @db.VarChar(32)
+  sourceRef       String?         @map("source_ref") @db.VarChar(191)
+  journalEntryId  String?         @map("journal_entry_id")
+  createdById     String          @map("created_by_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  goal            PerformanceGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  journalEntry    JournalEntry?   @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  createdBy       User            @relation("PerformanceGoalProgressEventCreator", fields: [createdById], references: [id])
+
+  @@index([goalId, source], map: "perf_goal_progress_events_goal_source_idx")
+  @@index([goalId, recordedAt], map: "perf_goal_progress_events_goal_recorded_idx")
+  @@map("performance_goal_progress_events")
+}
+
+/// Singleton login-sync throttle for performance↔accounting GL merge.
+model PerformanceSyncSettings {
+  id               String    @id @default("default")
+  lastLoginSyncAt  DateTime? @map("last_login_sync_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("performance_sync_settings")
 }
 
 /// SRD Flow 6: Finance manager narrative after strategic allocation overspend (links to BSC budget goal).

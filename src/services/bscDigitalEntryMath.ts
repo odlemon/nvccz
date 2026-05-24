@@ -9,6 +9,31 @@ export function toPositiveNumber(v: unknown, fallback = 0): number {
   return n;
 }
 
+const PERCENT_TARGET_UNITS = new Set(["%", "PERCENT", "PCT", "PERCENTAGE", "PERCENTAGE_POINTS"]);
+
+/** True when the goal target is denominated in currency (not ROI / percent). */
+export function isCurrencyPerformanceTarget(args: {
+  targetUnit?: unknown;
+  unitCategory?: unknown;
+}): boolean {
+  const unit = String(args.targetUnit || "")
+    .trim()
+    .toUpperCase();
+  if (unit && PERCENT_TARGET_UNITS.has(unit)) {
+    return false;
+  }
+  const category = String(args.unitCategory || "")
+    .trim()
+    .toLowerCase();
+  if (category === "currency") {
+    return true;
+  }
+  if (unit && /^[A-Z]{3}$/.test(unit)) {
+    return true;
+  }
+  return false;
+}
+
 /** (numerator / denominator) * 100, or null when denominator is zero / non-finite. */
 export function safeRatioPercent(numerator: unknown, denominator: unknown): number | null {
   const n = toPositiveNumber(numerator, NaN);

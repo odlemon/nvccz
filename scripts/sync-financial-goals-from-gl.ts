@@ -4,7 +4,7 @@
  * Optional env: PERIOD_START=2026-05-01 PERIOD_END=2026-05-31 KPI_CODES=TOTAL_REVENUE,NET_PROFIT
  */
 import { prisma } from "../src/utils/database";
-import { PerformanceGoalService } from "../src/services/PerformanceGoalService";
+import { AccountingGoalSyncService } from "../src/services/AccountingGoalSyncService";
 
 async function main() {
   const periodStart = new Date(
@@ -28,11 +28,11 @@ async function main() {
     `🔄 Syncing financial goals from GL ${periodStart.toISOString().slice(0, 10)} .. ${periodEnd.toISOString().slice(0, 10)}`
   );
 
-  await PerformanceGoalService.refreshFinancialGoalsFromGl({
+  await AccountingGoalSyncService.runFullSync({
     periodStart,
     periodEnd,
     kpiCodes,
-    createdById: actorId
+    actorId
   });
 
   console.log("✅ Done");

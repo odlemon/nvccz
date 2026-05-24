@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
 import { ShortTermInvestmentService } from "../services/ShortTermInvestmentService";
+import { AccountingGoalSyncService } from "../services/AccountingGoalSyncService";
 import { logger } from "../utils/logger";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import { companyNameShortFromEnv } from "../config/companyDisplay";
@@ -130,11 +131,14 @@ export class AuthController {
 
       if (!isApplicant) {
         setImmediate(() => {
-          logger.info("Auth login trigger: STI accrual run requested", {
+          logger.info("Auth login trigger: background sync requested", {
             userId: user.id,
             email: user.email,
           });
-          void ShortTermInvestmentService.maybeRunDailyAccrualAfterLogin(user.id);
+          void Promise.all([
+            ShortTermInvestmentService.maybeRunDailyAccrualAfterLogin(user.id),
+            AccountingGoalSyncService.maybeRunAfterLogin(user.id),
+          ]);
         });
       }
 

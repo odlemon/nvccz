@@ -1,5 +1,6 @@
 import {
   diversitySpreadFromPercents,
+  isCurrencyPerformanceTarget,
   safeGrowthPercent,
   safeRatioPercent
 } from "../services/bscDigitalEntryMath";
@@ -23,5 +24,12 @@ describe("bscDigitalEntryMath", () => {
     const uneven = diversitySpreadFromPercents({ a: 90, b: 10 });
     const even = diversitySpreadFromPercents({ a: 50, b: 50 });
     expect(even).toBeGreaterThan(uneven);
+  });
+
+  test("isCurrencyPerformanceTarget detects USD and currency category", () => {
+    expect(isCurrencyPerformanceTarget({ targetUnit: "USD" })).toBe(true);
+    expect(isCurrencyPerformanceTarget({ targetUnit: "USD", unitCategory: "currency" })).toBe(true);
+    expect(isCurrencyPerformanceTarget({ targetUnit: "%" })).toBe(false);
+    expect(isCurrencyPerformanceTarget({ targetUnit: "PERCENT" })).toBe(false);
   });
 });
