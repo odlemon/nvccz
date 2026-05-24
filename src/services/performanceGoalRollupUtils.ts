@@ -328,6 +328,24 @@ type KpiGoalCurrentInput = {
   syncConfig?: unknown;
 };
 
+/** KPI analytics: organisational (company) goals only — avoids double-counting dept/individual rollups. */
+export function filterCompanyGoalsForKpiAnalytics<T extends { type?: string | null }>(goals: T[]): T[] {
+  return goals.filter((g) => String(g.type || "").toLowerCase() === "company");
+}
+
+function sumGoalTargets(goals: KpiGoalCurrentInput[]): number {
+  return goals.reduce((sum, goal) => {
+    const { target } = parseGoalCurrentAndTarget(goal);
+    return sum + (Number.isFinite(target) ? target : 0);
+  }, 0);
+}
+
+export function resolveKpiTargetFromGoals(goals: KpiGoalCurrentInput[]): number {
+  const company = filterCompanyGoalsForKpiAnalytics(goals);
+  if (company.length) return sumGoalTargets(company);
+  return sumGoalTargets(goals);
+}
+
 function sumGoalCurrents(goals: KpiGoalCurrentInput[]): number {
   return goals.reduce((sum, goal) => {
     const { current } = parseGoalCurrentAndTarget(goal);
