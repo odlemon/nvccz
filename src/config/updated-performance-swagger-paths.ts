@@ -276,8 +276,8 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
   '/performance/bsc-entry/financial-outcome-roi': {
     post: {
       tags: ['Updated performance'],
-      summary: 'Record financial outcome ROI for a goal',
-      description: `**Purpose:** Submit **return on investment** inputs for a BSC financial goal — net profit vs capital invested for the period, used to drive the ROI KPI.\n\n**UI:** Form tied to a selected **performance goal** (financial / ROI measure). Collect period range and currency.\n\n**Body (JSON):** **goalId** (required). **netProfit**, **totalCapitalInvested** (numbers). ${PERIOD_FIELDS} **currencyCode** (e.g. USD). **skipCeoBoardMirror** (boolean, optional): when true, skips mirroring to CEO/board goal copies if your process requires it.\n\n${AUDIT}`,
+      summary: 'Record financial outcome ROI for a goal (percent only)',
+      description: `**Purpose:** Submit **return on investment** as a **percentage**: \`(netProfit ÷ totalCapitalInvested) × 100\`. The computed ROI % is written to the goal's **currentValue**.\n\n**Important:** Only for goals with **formulaType ROI** or a **percent** target — **not** currency goals (USD revenue/net-profit targets). Currency goals must use **accounting-period-from-gl** instead; using this endpoint on a $3,000 USD target will overwrite dollar progress with a small ROI figure (e.g. \`2\` = 2%).\n\n**Body (JSON):** **goalId** (required). **netProfit**, **totalCapitalInvested** (numbers). ${PERIOD_FIELDS} **currencyCode** (e.g. USD). **skipCeoBoardMirror** (boolean, optional).\n\n${AUDIT}`,
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,

@@ -109,10 +109,20 @@ export class ActivityService {
           await this.updateTaskStageBasedOnProgress(activityData.taskId, activityData.valueCollected);
           // Also update the linked goal progress
           if (finalGoalId) {
-            await this.updateGoalProgressBasedOnActivity(finalGoalId, activityData.valueCollected);
+            await this.updateGoalProgressBasedOnActivity(
+              finalGoalId,
+              activityData.valueCollected,
+              activityData.userId,
+              activity.id
+            );
           }
         } else if (activityData.activityType === 'goal' && activityData.goalId) {
-          await this.updateGoalProgressBasedOnActivity(activityData.goalId, activityData.valueCollected);
+          await this.updateGoalProgressBasedOnActivity(
+            activityData.goalId,
+            activityData.valueCollected,
+            activityData.userId,
+            activity.id
+          );
         }
       }
 
@@ -184,71 +194,38 @@ export class ActivityService {
   /**
    * Update goal progress based on activity
    */
-  static async updateGoalProgressBasedOnActivity(goalId: string, valueCollected: number) {
+  static async updateGoalProgressBasedOnActivity(
+    goalId: string,
+    valueCollected: number,
+    actorId: string,
+    activityId?: string
+  ) {
     try {
       const goal = await prisma.performanceGoal.findUnique({
         where: { id: goalId },
-        select: {
-          id: true,
-          title: true,
-          targetValue: true,
-          currentValue: true,
-          stage: true,
-          type: true,
-          parentGoalId: true,
-          targetOperator: true,
-          isReverseKpi: true,
-          progressPercentage: true,
-          targetUnit: true,
-          monetaryValue: true,
-          monetaryValueAchieved: true,
-          percentValue: true,
-          percentValueAchieved: true
-        }
+        select: { id: true, title: true, targetValue: true, createdById: true }
       });
 
       if (!goal) {
         throw new Error("Goal not found");
       }
 
-      const prev = parseProgressBaseline(goal);
-      const newCurrentValue = Math.max(0, prev + valueCollected);
-      const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      const progressState = deriveGoalProgressState({
-        currentValue: newCurrentValue,
-        targetValue: goal.targetValue,
-        targetOperator: goal.targetOperator,
-        isReverseKpi: goal.isReverseKpi,
-        previousStage: goal.stage,
-        progressPercentage: goal.progressPercentage
-      });
-
-      const legacyData = legacyProgressFieldsForGoal(goal, newCurrentValue);
-
-      await prisma.performanceGoal.update({
-        where: { id: goalId },
-        data: {
-          currentValue: newCurrentValue,
-          progressPercentage: progressState.progressPercentage,
-          stage: progressState.stage,
-          status: progressState.status,
-          preciseCurrentValue: String(newCurrentValue),
-          ...legacyData,
-          updatedAt: new Date()
-        }
+      const { PerformanceGoalProgressBridge } = await import("./PerformanceGoalProgressBridge");
+      await PerformanceGoalProgressBridge.applyDelta({
+        goalId,
+        delta: valueCollected,
+        source: "activity",
+        sourceRef: activityId ?? `activity:${Date.now()}`,
+        actorId: actorId || goal.createdById
       });
 
       await PerformanceGoalService.refreshPerformanceRiskZoneOnGoal(goalId).catch(() => undefined);
 
-      console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue} (${progressState.progressPercentage}%)`);
-
-      if (goal.parentGoalId) {
-        try {
-          await PerformanceGoalService.updateParentGoalProgress(goal.parentGoalId);
-        } catch (err) {
-          console.error(`Failed parent roll-up after activity on goal ${goalId}:`, err);
-        }
-      }
+      const updated = await prisma.performanceGoal.findUnique({ where: { id: goalId } });
+      const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+      console.log(
+        `📈 Goal ${goal.title} progress updated: ${updated?.currentValue}/${targetValue} (${updated?.progressPercentage}%)`
+      );
     } catch (error) {
       console.error('Error updating goal progress:', error);
       throw error;

@@ -24,6 +24,7 @@ import { ensureDepartmentPerformanceContractForGoal } from "./DepartmentPerforma
 import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
 import { FirebaseStorageService } from "./FirebaseStorageService";
 import { getPostedPeriodRevenueExpenseNetProfit } from "./AccountingGlPeriodTotalsService";
+import { PerformanceGoalProgressBridge } from "./PerformanceGoalProgressBridge";
 
 /** Prisma DateTime requires full ISO; breakdown JSON often sends "YYYY-MM-DD" only. */
 function isDateOnlyString(s: string): boolean {
@@ -190,7 +191,7 @@ const REVERSE_KPI_NAME_HINTS = [
   "cost of goods"
 ];
 
-function inferReverseKpiFromNameOrAccountType(
+export function inferReverseKpiFromNameOrAccountType(
   kpiName?: string | null,
   goalTitle?: string | null,
   catalogAccountType?: string | null
@@ -368,52 +369,17 @@ export class PerformanceGoalService {
             ? "<="
             : ">=";
 
-      const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      const prev = parseProgressBaseline(goal);
-      const currentValue = Math.max(0, prev + delta);
-
-      const progressState = deriveGoalProgressState({
-        currentValue,
-        targetValue: goal.targetValue,
-        targetOperator: effectiveTargetOperator,
-        isReverseKpi: effectiveIsReverseKpi,
-        previousStage: goal.stage,
-        progressPercentage: goal.progressPercentage
-      });
-      const isCompleted = progressState.isTargetMet;
-
-      const legacyData = legacyProgressFieldsForGoal(goal, currentValue);
-
-      const performanceRiskZone = resolveGoalEscalationStatus({
-        preciseCurrentValue: String(currentValue),
-        currentValue,
-        preciseTargetValue: goal.preciseTargetValue,
-        targetValue: goal.targetValue,
-        allowableVariance: goal.allowableVariance,
-        isReverseKpi: effectiveIsReverseKpi,
-        endDate: goal.endDate
+      await PerformanceGoalProgressBridge.applyDelta({
+        goalId,
+        delta,
+        source: "manual",
+        sourceRef: `manual:${Date.now()}`,
+        actorId: updatedById
       });
 
-      const updatedGoal = await prisma.performanceGoal.update({
-        where: { id: goalId },
-        data: {
-          currentValue: currentValue,
-          progressPercentage: progressState.progressPercentage,
-          status: progressState.status,
-          stage: progressState.stage,
-          isReverseKpi: effectiveIsReverseKpi,
-          targetOperator: effectiveTargetOperator,
-          preciseCurrentValue: String(currentValue),
-          performanceRiskZone,
-          performanceRiskZoneAt: new Date(),
-          ...legacyData,
-          updatedAt: new Date()
-        }
+      const updatedGoal = await prisma.performanceGoal.findUnique({
+        where: { id: goalId }
       });
-
-      if (isCompleted && goal.kpiId) {
-        await this.triggerAccountingIntegration(goalId, currentValue, updatedById);
-      }
 
       if (goal.parentGoalId) {
         const parentId = goal.parentGoalId;
@@ -1911,82 +1877,19 @@ export class PerformanceGoalService {
     kpiCodes?: string[];
     createdById: string;
   }): Promise<void> {
-    const codes = (input.kpiCodes?.length ? input.kpiCodes : ["TOTAL_REVENUE", "NET_PROFIT"]).map((c) =>
+    const { AccountingGoalSyncService } = await import("./AccountingGoalSyncService");
+    const kpiCodes = (input.kpiCodes?.length ? input.kpiCodes : ["TOTAL_REVENUE", "NET_PROFIT"]).map((c) =>
       String(c).toUpperCase()
     );
-    const glTotals = await getPostedPeriodRevenueExpenseNetProfit(input.periodStart, input.periodEnd);
-
-    for (const code of codes) {
-      if (code === "PAYROLL_EXPENSE") {
-        await PerformanceGoalService.refreshAllPayrollExpenseGoals(input.createdById);
-        continue;
-      }
-
-      let glValue: number | null = null;
-      if (code === "TOTAL_REVENUE") glValue = glTotals.revenue;
-      else if (code === "NET_PROFIT") glValue = glTotals.netProfit;
-      else {
-        console.log(`⚠️ refreshFinancialGoalsFromGl: unsupported KPI code ${code}, skipping`);
-        continue;
-      }
-
-      const kpi = await prisma.kPI.findFirst({
-        where: { code, isActive: true },
-        select: { id: true, name: true, accountType: true, isReverseKpi: true, code: true }
-      });
-      if (!kpi) {
-        console.log(`⚠️ KPI ${code} not found — skipping GL sync`);
-        continue;
-      }
-
-      const goals = await prisma.performanceGoal.findMany({
-        where: {
-          kpiId: kpi.id,
-          type: "company",
-          status: { in: ["active", "completed", "in_progress"] }
-        },
-        select: {
-          id: true,
-          title: true,
-          targetValue: true,
-          currentValue: true,
-          startDate: true,
-          endDate: true,
-          monetaryValue: true,
-          kpiId: true,
-          completedAt: true,
-          parentGoalId: true,
-          isReverseKpi: true,
-          targetOperator: true,
-          preciseTargetValue: true,
-          allowableVariance: true,
-          progressPercentage: true,
-          stage: true
-        }
-      });
-
-      console.log(`🔄 GL sync ${code}: ${goals.length} company goal(s), value=${glValue}`);
-
-      for (const goal of goals) {
-        const goalStart = new Date(goal.startDate);
-        const goalEnd = new Date(goal.endDate);
-        if (!dateRangesOverlap(goalStart, goalEnd, input.periodStart, input.periodEnd)) {
-          console.log(`⏭️ Skipping ${goal.title} — period does not overlap goal window`);
-          continue;
-        }
-
-        await PerformanceGoalService.applyFinancialGlValueToGoal(
-          goal,
-          kpi,
-          glValue,
-          input.createdById,
-          input.periodStart,
-          input.periodEnd,
-          code
-        );
-      }
-    }
-
+    console.log(
+      `🔄 Syncing financial goals from GL ${input.periodStart.toISOString().slice(0, 10)} .. ${input.periodEnd.toISOString().slice(0, 10)}`
+    );
+    await AccountingGoalSyncService.runFullSync({
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      actorId: input.createdById,
+      kpiCodes
+    });
     console.log("✅ Financial GL goal refresh completed");
   }
 
