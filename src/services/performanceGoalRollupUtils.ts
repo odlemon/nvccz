@@ -318,6 +318,51 @@ export function parseGoalCurrentAndTarget(goal: {
   };
 }
 
+type KpiGoalCurrentInput = {
+  type?: string | null;
+  currentValue?: unknown;
+  targetValue?: unknown;
+  preciseCurrentValue?: unknown;
+  preciseTargetValue?: unknown;
+  lastSyncedAt?: Date | string | null;
+  syncConfig?: unknown;
+};
+
+function sumGoalCurrents(goals: KpiGoalCurrentInput[]): number {
+  return goals.reduce((sum, goal) => {
+    const { current } = parseGoalCurrentAndTarget(goal);
+    return sum + (Number.isFinite(current) ? current : 0);
+  }, 0);
+}
+
+/**
+ * KPI analytics current total from linked goals — company level when present,
+ * else department, else all goals (avoids hierarchy double-count).
+ */
+export function resolveKpiCurrentFromGoals(goals: KpiGoalCurrentInput[]): number {
+  if (!goals.length) return 0;
+  const company = goals.filter((g) => String(g.type || "").toLowerCase() === "company");
+  if (company.length) return sumGoalCurrents(company);
+  const department = goals.filter((g) => String(g.type || "").toLowerCase() === "department");
+  if (department.length) return sumGoalCurrents(department);
+  return sumGoalCurrents(goals);
+}
+
+/** Whether any linked goal has been updated via BSC / GL / integration sync. */
+export function resolveKpiSyncStatus(
+  goals: KpiGoalCurrentInput[]
+): "synced" | "pending" {
+  for (const goal of goals) {
+    if (goal.lastSyncedAt) return "synced";
+    const cfg =
+      goal.syncConfig != null && typeof goal.syncConfig === "object" && !Array.isArray(goal.syncConfig)
+        ? (goal.syncConfig as Record<string, unknown>)
+        : null;
+    if (cfg?.bscUpdatedAt || cfg?.glSyncedAt) return "synced";
+  }
+  return "pending";
+}
+
 /**
  * 0–100 for a KPI line in analytics: respects reverse KPI, `computeAchievementPercent`,
  * and when there is a measured current value but no target, treats progress as 100% (not 0%),

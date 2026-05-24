@@ -10,7 +10,9 @@ import {
   formatProgressPercent,
   isTargetMet,
   parseGoalCurrentAndTarget,
-  resolveEffectiveReverseKpi
+  resolveEffectiveReverseKpi,
+  resolveKpiCurrentFromGoals,
+  resolveKpiSyncStatus
 } from "./performanceGoalRollupUtils";
 
 /** Prisma `KPI` has no `type` field — use `accountType` / `code`; expose legacy `type` on API payloads. */
@@ -41,24 +43,9 @@ export class PerformanceAnalyticsService {
     kpiId?: string,
     department?: string,
     dateRange?: { start: Date; end: Date },
-    currencyId?: string,
-    options?: { syncGoalsFromGl?: boolean; actorId?: string }
+    currencyId?: string
   ) {
     try {
-      if (options?.syncGoalsFromGl && dateRange) {
-        const { PerformanceGoalService } = await import("./PerformanceGoalService");
-        const actorId =
-          options.actorId ??
-          (await prisma.user.findFirst({ select: { id: true } }))?.id ??
-          "";
-        if (actorId) {
-          await PerformanceGoalService.refreshFinancialGoalsFromGl({
-            periodStart: dateRange.start,
-            periodEnd: dateRange.end,
-            createdById: actorId
-          });
-        }
-      }
       const whereClause: any = {};
       
       if (kpiId) {
@@ -134,9 +121,8 @@ export class PerformanceAnalyticsService {
         
         acc[kpiId].goals.push(goal);
         {
-          const { current: c, target: t } = parseGoalCurrentAndTarget(goal);
+          const { target: t } = parseGoalCurrentAndTarget(goal);
           acc[kpiId].totalTargetValue += t;
-          acc[kpiId].totalCurrentValue += c;
         }
         acc[kpiId].goalCount += 1;
         
@@ -285,22 +271,28 @@ export class PerformanceAnalyticsService {
           }
         }
 
-        const totalCurrentValue = accountingValue !== null ? accountingValue : group.totalCurrentValue;
+        const goalCurrentTotal = resolveKpiCurrentFromGoals(group.goals);
+        const hasGoals = group.goalCount > 0;
 
-        const goalProgressNum =
-          group.goalCount > 0
-            ? computeKpiLineProgressPercent(group.goals, {
-                ...group.kpi,
-                isReverseKpi,
-                accountType: catalogAccountType
-              })
-            : 0;
+        const totalCurrentValue = hasGoals
+          ? goalCurrentTotal
+          : accountingValue !== null
+            ? accountingValue
+            : goalCurrentTotal;
+
+        const goalProgressNum = hasGoals
+          ? computeKpiLineProgressPercent(group.goals, {
+              ...group.kpi,
+              isReverseKpi,
+              accountType: catalogAccountType
+            })
+          : 0;
 
         let accountingProgressPercentage: string | undefined;
         if (accountingValue !== null && group.totalTargetValue > 0) {
           accountingProgressPercentage = formatProgressPercent(
             computeAchievementPercent({
-              currentValue: totalCurrentValue,
+              currentValue: accountingValue,
               targetValue: group.totalTargetValue,
               targetOperator: isReverseKpi ? "<=" : ">=",
               isReverseKpi
@@ -308,13 +300,23 @@ export class PerformanceAnalyticsService {
           );
         }
 
-        const progressPercentage =
-          group.goalCount > 0
-            ? formatProgressPercent(goalProgressNum)
-            : accountingProgressPercentage ?? "0.00";
+        const progressPercentage = hasGoals
+          ? formatProgressPercent(goalProgressNum)
+          : accountingProgressPercentage ?? "0.00";
 
-        const progressSource: "goals" | "accounting" =
-          group.goalCount > 0 ? "goals" : accountingValue !== null ? "accounting" : "goals";
+        const progressSource: "goals" | "accounting" = hasGoals
+          ? "goals"
+          : accountingValue !== null
+            ? "accounting"
+            : "goals";
+
+        const sourceCurrentValue: "performance_goals" | "accounting" = hasGoals
+          ? "performance_goals"
+          : accountingValue !== null
+            ? "accounting"
+            : "performance_goals";
+
+        const syncStatus = hasGoals ? resolveKpiSyncStatus(group.goals) : undefined;
 
         const goalsTargetMet = group.goals.filter((g: any) => {
           const { current, target } = parseGoalCurrentAndTarget(g);
@@ -348,9 +350,11 @@ export class PerformanceAnalyticsService {
           goalsTargetMet,
           totalTargetValue: group.totalTargetValue,
           totalCurrentValue,
-          sourceCurrentValue: accountingValue !== null ? "accounting" : "performance_goals",
+          sourceCurrentValue,
           progressPercentage,
           progressSource,
+          ...(hasGoals && syncStatus ? { syncStatus } : {}),
+          ...(accountingValue !== null ? { accountingCurrentValue: accountingValue } : {}),
           ...(accountingProgressPercentage ? { accountingProgressPercentage } : {}),
           completionRate
         };

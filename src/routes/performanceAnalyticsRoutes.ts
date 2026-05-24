@@ -13,7 +13,12 @@ router.use(authenticate);
  * /api/performance/analytics/kpi:
  *   get:
  *     summary: Get KPI performance analysis
- *     description: Analyze KPI performance across goals with detailed metrics and trends
+ *     description: |
+ *       Analyze KPI performance across linked goals. When goals exist for a KPI,
+ *       `totalCurrentValue` and progress come from **synced goal data** (company-level
+ *       aggregation when a company goal exists). Ledger totals are exposed separately as
+ *       `accountingCurrentValue` for comparison when the KPI is financial.
+ *       Use BSC GL period sync to import accounting into goals before expecting non-zero currents.
  *     tags: [📊 Performance Analytics]
  *     security:
  *       - bearerAuth: []
@@ -89,14 +94,38 @@ router.use(authenticate);
  *                             type: number
  *                           notStartedGoals:
  *                             type: number
+ *                           goalsTargetMet:
+ *                             type: number
+ *                             description: Count of linked goals where target is met (isTargetMet)
  *                           totalTargetValue:
  *                             type: number
+ *                             description: Sum of all linked goal targets
  *                           totalCurrentValue:
  *                             type: number
+ *                             description: Current value from synced performance goals (company goal when present)
+ *                           sourceCurrentValue:
+ *                             type: string
+ *                             enum: [performance_goals, accounting]
+ *                             description: Source of totalCurrentValue (performance_goals when goals exist)
+ *                           accountingCurrentValue:
+ *                             type: number
+ *                             description: Optional ledger total for financial KPIs (reference only when goals exist)
+ *                           accountingProgressPercentage:
+ *                             type: string
+ *                             description: Optional GL-based progress vs summed targets (reference only)
+ *                           syncStatus:
+ *                             type: string
+ *                             enum: [synced, pending]
+ *                             description: Whether any linked goal has BSC/GL/integration sync metadata
+ *                           progressSource:
+ *                             type: string
+ *                             enum: [goals, accounting]
  *                           progressPercentage:
  *                             type: string
+ *                             description: Average per-goal achievement when goals exist
  *                           completionRate:
  *                             type: string
+ *                             description: Percent of goals where target is met
  *                     summary:
  *                       type: object
  *                       properties:
