@@ -5,8 +5,10 @@ import { HARDCODED_KPIS, HardcodedKPI } from "../config/hardcodedKPIs";
 import { IncomeStatementService } from "./IncomeStatementService";
 import { BalanceSheetService } from "./BalanceSheetService";
 import {
+  computeAchievementPercent,
   computeKpiLineProgressPercent,
-  parseGoalCurrentAndTarget
+  parseGoalCurrentAndTarget,
+  resolveEffectiveReverseKpi
 } from "./performanceGoalRollupUtils";
 
 /** Prisma `KPI` has no `type` field — use `accountType` / `code`; expose legacy `type` on API payloads. */
@@ -240,90 +242,86 @@ export class PerformanceAnalyticsService {
       const kpiAnalytics = await Promise.all(Object.values(kpiGroups).map(async (group: any) => {
         let accountingValue: number | null = null;
         const kpiNameKey = group.kpi?.name?.toLowerCase();
+        const hardcodedConfig = resolveHardcodedKpiConfig(group.kpi);
+        const catalogAccountType = hardcodedConfig?.accountType ?? group.kpi?.accountType ?? null;
+        const isReverseKpi = resolveEffectiveReverseKpi(
+          { isReverseKpi: group.kpi?.isReverseKpi, accountType: catalogAccountType },
+          group.goals
+        );
 
         // Only fetch accounting values for financial KPIs that use accounting data
         if (kpiNameKey && financialKPIMap.has(kpiNameKey)) {
-          const kpiConfig =
-            (group.kpi?.code && financialKpiByCode.get(String(group.kpi.code).toUpperCase())) ||
-            financialKPIMap.get(kpiNameKey)!;
-          
-          // Only use accounting data if KPI is marked as financial
-          // Currency filtering is automatically applied via loaders (only for Balance Sheet/Income Statement)
+          const kpiConfig = hardcodedConfig || financialKPIMap.get(kpiNameKey)!;
+
           if (kpiConfig.isFinancial) {
-          accountingValue = await this.getAccountingValueForKPI(
-            kpiConfig,
-            effectiveDateRange,
-            needsIncomeStatement ? loadIncomeStatement : null,
-            needsBalanceSheet ? loadBalanceSheet : null
-          );
+            accountingValue = await this.getAccountingValueForKPI(
+              kpiConfig,
+              effectiveDateRange,
+              needsIncomeStatement ? loadIncomeStatement : null,
+              needsBalanceSheet ? loadBalanceSheet : null
+            );
           }
         }
 
-        // For non-financial KPIs, use summed goal currents (precise* aware). Financial KPIs may override from statements.
         const totalCurrentValue = accountingValue !== null ? accountingValue : group.totalCurrentValue;
 
-        let progressPercentage: string;
-        let progressRatio: number;
-        if (accountingValue !== null) {
-          // If there are no goals/targets linked, show 0% progress (value is still provided via totalCurrentValue).
-          progressRatio = group.totalTargetValue > 0 ? totalCurrentValue / group.totalTargetValue : 0;
-          progressPercentage = (progressRatio * 100).toFixed(2);
-        } else {
-          const p = computeKpiLineProgressPercent(group.goals, group.kpi);
-          progressPercentage = p.toFixed(2);
-          progressRatio = p / 100;
-        }
-        
-        let completedGoals = group.goals.filter((g: any) => g.stage === 'completed').length;
-        let inProgressGoals = group.goals.filter((g: any) => g.stage === 'in_progress').length;
-        let notStartedGoals = group.goals.filter((g: any) => g.stage === 'planning').length;
-
+        let progressPercentage = "0.00";
         if (group.goalCount > 0) {
-          if (progressRatio >= 1) {
-            completedGoals = group.goalCount;
-            inProgressGoals = 0;
-            notStartedGoals = 0;
-          } else if (progressRatio > 0) {
-            if (completedGoals === 0 && inProgressGoals === 0) {
-              inProgressGoals = group.goalCount;
-              notStartedGoals = 0;
-            }
+          if (accountingValue !== null && group.totalTargetValue > 0) {
+            progressPercentage = computeAchievementPercent({
+              currentValue: totalCurrentValue,
+              targetValue: group.totalTargetValue,
+              targetOperator: isReverseKpi ? "<=" : ">=",
+              isReverseKpi
+            }).toFixed(2);
           } else {
-            completedGoals = 0;
-            inProgressGoals = 0;
-            notStartedGoals = group.goalCount;
+            progressPercentage = computeKpiLineProgressPercent(group.goals, {
+              ...group.kpi,
+              isReverseKpi,
+              accountType: catalogAccountType
+            }).toFixed(2);
           }
         }
 
-        const calculatedCompletionRate = group.goalCount > 0
-          ? Math.min((completedGoals / group.goalCount) * 100, 100)
-          : 0;
+        const completedGoals = group.goals.filter((g: any) => g.stage === "completed").length;
+        const inProgressGoals = group.goals.filter((g: any) => g.stage === "in_progress").length;
+        const notStartedGoals = group.goals.filter((g: any) => g.stage === "planning").length;
 
-        const adjustedCompletionRate = progressRatio > 0
-          ? Math.min(Math.max(calculatedCompletionRate, progressRatio * 100), 100)
-          : calculatedCompletionRate;
+        const completionRate =
+          group.goalCount > 0 ? ((completedGoals / group.goalCount) * 100).toFixed(2) : "0.00";
 
         return {
-          kpi: kpiWithLegacyTypeField(group.kpi),
+          kpi: kpiWithLegacyTypeField({
+            ...group.kpi,
+            accountType: catalogAccountType,
+            isReverseKpi
+          }),
           totalGoals: group.goalCount,
           completedGoals,
           inProgressGoals,
           notStartedGoals,
           totalTargetValue: group.totalTargetValue,
           totalCurrentValue,
-          sourceCurrentValue: accountingValue !== null ? 'accounting' : 'performance_goals',
+          sourceCurrentValue: accountingValue !== null ? "accounting" : "performance_goals",
           progressPercentage,
-          completionRate: adjustedCompletionRate.toFixed(2)
+          completionRate
         };
       }));
+
+      const kpisWithGoals = kpiAnalytics.filter((k) => k.totalGoals > 0);
 
       return {
         kpiAnalytics,
         summary: {
           totalKPIs: kpiAnalytics.length,
           totalGoals: goals.length,
-          averageProgress: kpiAnalytics.length > 0 ? 
-            (kpiAnalytics.reduce((sum, kpi) => sum + parseFloat(kpi.progressPercentage), 0) / kpiAnalytics.length).toFixed(2) : "0"
+          averageProgress:
+            kpisWithGoals.length > 0
+              ? (
+                  kpisWithGoals.reduce((sum, kpi) => sum + parseFloat(kpi.progressPercentage), 0) /
+                  kpisWithGoals.length
+                ).toFixed(2)
+              : "0"
         }
       };
     } catch (error) {
@@ -414,8 +412,13 @@ export class PerformanceAnalyticsService {
           title: goal.title,
           targetValue: goal.targetValue,
           currentValue: goal.currentValue,
-          progressPercentage: goal.targetValue ? 
-            ((goal.currentValue || 0) / parseFloat(goal.targetValue.toString()) * 100).toFixed(2) : "0",
+          progressPercentage: computeAchievementPercent({
+            currentValue: goal.currentValue,
+            targetValue: goal.targetValue,
+            targetOperator: goal.targetOperator,
+            isReverseKpi: goal.isReverseKpi ?? goal.kpi?.isReverseKpi,
+            progressPercentage: goal.progressPercentage
+          }).toFixed(2),
           stage: goal.stage,
           kpi: kpiWithLegacyTypeField(goal.kpi),
           departmentCount: goal.subGoals.length
@@ -506,8 +509,13 @@ export class PerformanceAnalyticsService {
         department: goal.departmentName,
         targetValue: goal.targetValue,
         currentValue: goal.currentValue,
-        progressPercentage: goal.targetValue ? 
-          ((goal.currentValue || 0) / parseFloat(goal.targetValue.toString()) * 100).toFixed(2) : "0",
+        progressPercentage: computeAchievementPercent({
+          currentValue: goal.currentValue,
+          targetValue: goal.targetValue,
+          targetOperator: goal.targetOperator,
+          isReverseKpi: goal.isReverseKpi ?? goal.kpi?.isReverseKpi,
+          progressPercentage: goal.progressPercentage
+        }).toFixed(2),
         stage: goal.stage,
         priority: goal.priority,
         startDate: goal.startDate,

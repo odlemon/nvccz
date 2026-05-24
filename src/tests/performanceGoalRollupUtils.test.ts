@@ -5,7 +5,8 @@ import {
   normalizedSiblingWeights,
   parseContributionWeightPercentFromActivities,
   isTargetMet,
-  resolveReverseScoring
+  resolveReverseScoring,
+  resolveEffectiveReverseKpi
 } from '../services/performanceGoalRollupUtils';
 
 describe('performanceGoalRollupUtils', () => {
@@ -202,5 +203,14 @@ describe('performanceGoalRollupUtils', () => {
   test('parseContributionWeightPercentFromActivities', () => {
     expect(parseContributionWeightPercentFromActivities({ contributionWeightPercent: 30 })).toBe(30);
     expect(parseContributionWeightPercentFromActivities([])).toBeNull();
+  });
+
+  test('resolveEffectiveReverseKpi infers expense and liability', () => {
+    expect(resolveEffectiveReverseKpi({ isReverseKpi: false, accountType: 'Expense' })).toBe(true);
+    expect(resolveEffectiveReverseKpi({ isReverseKpi: false, accountType: 'Liability' })).toBe(true);
+    expect(resolveEffectiveReverseKpi({ isReverseKpi: false, accountType: 'Revenue' })).toBe(false);
+    expect(
+      resolveEffectiveReverseKpi({ isReverseKpi: false, accountType: 'Revenue' }, [{ isReverseKpi: true }])
+    ).toBe(true);
   });
 });

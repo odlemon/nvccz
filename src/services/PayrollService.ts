@@ -704,6 +704,23 @@ export class PayrollService {
         console.error('Stack:', journalError.stack);
       }
 
+      try {
+        const { BudgetPayrollSyncService } = await import('./BudgetPayrollSyncService');
+        const budgetSync = await BudgetPayrollSyncService.syncPayrollRunToBudget(
+          payrollRunId,
+          createdById
+        );
+        if (budgetSync.synced) {
+          console.log(
+            `[OK] Accounting budget salary actual updated: ${budgetSync.actualAmount} (budget ${budgetSync.budgetId})`
+          );
+        } else {
+          console.log(`[WARN] Budget payroll sync: ${budgetSync.message || 'skipped'}`);
+        }
+      } catch (budgetSyncError: any) {
+        console.error('[FAIL] Failed to sync payroll to accounting budget:', budgetSyncError.message);
+      }
+
     } catch (error) {
       // Update status to cancelled on error
       await prisma.payrollRun.update({
@@ -1062,6 +1079,12 @@ export class PayrollService {
       new Decimal(run.totalGrossPay.toString()),
       run.createdById
     );
+    try {
+      const { BudgetPayrollSyncService } = await import('./BudgetPayrollSyncService');
+      await BudgetPayrollSyncService.syncPayrollRunToBudget(payrollRunId, run.createdById);
+    } catch (budgetSyncError: any) {
+      console.error('[FAIL] Budget payroll sync on repair:', budgetSyncError.message);
+    }
     return { deductions, deletedJournalEntryIds: deletedIds };
   }
 

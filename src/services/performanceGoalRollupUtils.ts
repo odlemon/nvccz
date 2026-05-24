@@ -58,6 +58,28 @@ export function resolveReverseScoring(goal: {
 }
 
 /**
+ * KPI-level reverse flag for analytics / aggregates: DB flag, linked goals, then account type.
+ */
+export function resolveEffectiveReverseKpi(
+  kpi?: {
+    isReverseKpi?: boolean | null;
+    accountType?: string | null;
+  } | null,
+  goals?: Array<{
+    isReverseKpi?: boolean | null;
+    targetOperator?: string | null;
+  }>
+): boolean {
+  if (kpi?.isReverseKpi === true) return true;
+  if (goals?.some((g) => g.isReverseKpi === true)) return true;
+  if (goals?.some((g) => String(g.targetOperator || "").trim() === "<=")) return true;
+  const accountType = String(kpi?.accountType || "").trim();
+  if (accountType === "Expense" || accountType === "Liability") return true;
+  if (kpi?.isReverseKpi === false) return false;
+  return false;
+}
+
+/**
  * Normalized weights summing to 1. Equal split if no weights set.
  * Partial weights: remaining share split among siblings without a weight; then scale to 100%.
  */

@@ -44,6 +44,12 @@ export interface CreateVarianceReportRequest {
   actionItems: any;
 }
 
+/** DB column is Decimal(5,2) — cap so payroll-heavy actuals do not overflow. */
+function capVariancePercentage(pct: number): number {
+  if (!Number.isFinite(pct)) return 0;
+  return Math.max(-999.99, Math.min(999.99, Math.round(pct * 100) / 100));
+}
+
 export class BudgetManagementService {
   // Create a new budget with items
   static async createBudget(request: CreateBudgetRequest, createdById: string) {
@@ -320,8 +326,13 @@ export class BudgetManagementService {
       const actualAmount = request.actualAmount !== undefined ? request.actualAmount : budgetItem.actualAmount;
       const budgetedAmount = request.budgetedAmount !== undefined ? request.budgetedAmount : budgetItem.budgetedAmount;
       const variance = actualAmount - budgetedAmount;
-      const variancePercentage = budgetedAmount > 0 ? (variance / budgetedAmount) * 100 : 0;
-      const isSignificantVariance = Math.abs(variancePercentage) > 5;
+      const variancePercentage =
+        budgetedAmount > 0
+          ? capVariancePercentage((variance / budgetedAmount) * 100)
+          : 0;
+      const isSignificantVariance =
+        Math.abs(variancePercentage) > 5 ||
+        Math.abs(variance) >= 1000;
 
       const updatedBudgetItem = await prisma.budgetItem.update({
         where: { id },
@@ -358,7 +369,10 @@ export class BudgetManagementService {
       const totalBudgeted = budgetItems.reduce((sum, item) => sum + Number(item.budgetedAmount), 0);
       const totalActual = budgetItems.reduce((sum, item) => sum + Number(item.actualAmount), 0);
       const totalVariance = totalActual - totalBudgeted;
-      const variancePercentage = totalBudgeted > 0 ? (totalVariance / totalBudgeted) * 100 : 0;
+      const variancePercentage =
+        totalBudgeted > 0
+          ? capVariancePercentage((totalVariance / totalBudgeted) * 100)
+          : 0;
 
       await prisma.budget.update({
         where: { id: budgetId },

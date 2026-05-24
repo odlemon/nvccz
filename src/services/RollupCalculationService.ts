@@ -1,9 +1,32 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
-import { computeParentRollupFromChildren, deriveParentStageFromRollup } from "./performanceGoalRollupUtils";
+import {
+  computeAchievementPercent,
+  computeParentRollupFromChildren,
+  deriveParentStageFromRollup
+} from "./performanceGoalRollupUtils";
 
 export class RollupCalculationService {
+  /** Reverse-aware 0–100 progress for breakdown rows (never uncapped straight ratios). */
+  private static goalProgressPercent(goal: {
+    currentValue?: unknown;
+    targetValue?: unknown;
+    targetOperator?: string | null;
+    isReverseKpi?: boolean | null;
+    progressPercentage?: unknown;
+    kpi?: { isReverseKpi?: boolean | null } | null;
+  }): string {
+    const pct = computeAchievementPercent({
+      currentValue: goal.currentValue,
+      targetValue: goal.targetValue,
+      targetOperator: goal.targetOperator,
+      isReverseKpi: goal.isReverseKpi ?? goal.kpi?.isReverseKpi,
+      progressPercentage: goal.progressPercentage
+    });
+    return pct.toFixed(2);
+  }
+
   /**
    * Calculate roll-up progress for a goal and all its children
    */
@@ -40,12 +63,11 @@ export class RollupCalculationService {
       // Calculate roll-up data
       const rollupData = await this.calculateRollupData(goal);
 
-      // Calculate progress percentage from stored values or recalculate
-      const currentValueNum = goal.currentValue ? parseFloat(goal.currentValue.toString()) : 0;
-      const targetValueNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      const progressPercentage = goal.progressPercentage 
-        ? parseFloat(goal.progressPercentage.toString()).toFixed(2)
-        : (targetValueNum > 0 ? ((currentValueNum / targetValueNum) * 100).toFixed(2) : "0");
+      // Prefer stored reverse-aware progress; recompute when missing
+      const progressPercentage =
+        goal.progressPercentage != null && String(goal.progressPercentage).trim() !== ""
+          ? parseFloat(String(goal.progressPercentage)).toFixed(2)
+          : RollupCalculationService.goalProgressPercent(goal);
 
       return {
         goal: {
@@ -87,13 +109,11 @@ export class RollupCalculationService {
     if (!goal.subGoals || goal.subGoals.length === 0) {
       const goalTarget = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
       const goalCurrent = goal.currentValue ? parseFloat(goal.currentValue.toString()) : 0;
-      
+
       rollup.totalTargetValue = goalTarget;
       rollup.totalCurrentValue = goalCurrent;
-      rollup.overallProgressPercentage = goalTarget > 0 
-        ? Math.min(((goalCurrent / goalTarget) * 100), 100).toFixed(2) 
-        : "0";
-      
+      rollup.overallProgressPercentage = RollupCalculationService.goalProgressPercent(goal);
+
       return rollup;
     }
 
@@ -118,9 +138,10 @@ export class RollupCalculationService {
         department: deptGoal.departmentName,
         targetValue: deptGoal.targetValue ? deptGoal.targetValue.toString() : "0",
         currentValue: deptGoal.currentValue ? deptGoal.currentValue.toString() : "0",
-        progressPercentage: deptTarget > 0 
-          ? ((deptCurrent / deptTarget) * 100).toFixed(2) 
-          : "0",
+        progressPercentage: RollupCalculationService.goalProgressPercent({
+          ...deptGoal,
+          kpi: goal.kpi
+        }),
         stage: deptGoal.stage,
         individualGoals: deptData.individualBreakdown
       });
@@ -128,9 +149,21 @@ export class RollupCalculationService {
       rollup.individualBreakdown.push(...deptData.individualBreakdown);
     }
 
-    // Calculate overall progress (capped at 100%)
-    rollup.overallProgressPercentage = rollup.totalTargetValue > 0 ? 
-      Math.min(((rollup.totalCurrentValue / rollup.totalTargetValue) * 100), 100).toFixed(2) : "0";
+    // Weighted roll-up for parent goals (respects reverse KPI on each child)
+    const subInputs = goal.subGoals.map((s: any) => ({
+      id: s.id,
+      activities: s.activities,
+      scorecardWeight: s.scorecardWeight,
+      currentValue: s.currentValue,
+      targetValue: s.targetValue,
+      targetOperator: s.targetOperator,
+      isReverseKpi: s.isReverseKpi ?? goal.isReverseKpi ?? goal.kpi?.isReverseKpi,
+      progressPercentage: s.progressPercentage,
+      stage: s.stage,
+      status: s.status
+    }));
+    const parentRollup = computeParentRollupFromChildren(subInputs, goal.targetValue);
+    rollup.overallProgressPercentage = parentRollup.progressPercentage.toFixed(2);
 
     return rollup;
   }
@@ -168,9 +201,10 @@ export class RollupCalculationService {
         assignedTo: indGoal.assignedToId,
         targetValue: indGoal.targetValue ? indGoal.targetValue.toString() : "0",
         currentValue: indGoal.currentValue ? indGoal.currentValue.toString() : "0",
-        progressPercentage: indTarget > 0 
-          ? ((indCurrent / indTarget) * 100).toFixed(2) 
-          : "0",
+        progressPercentage: RollupCalculationService.goalProgressPercent({
+          ...indGoal,
+          kpi: deptGoal.kpi
+        }),
         stage: indGoal.stage
       });
     }

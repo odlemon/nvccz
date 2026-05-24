@@ -60,3 +60,72 @@ export async function getPostedPeriodRevenueExpenseNetProfit(
     periodEnd: periodEnd.toISOString()
   };
 }
+
+export type PostedPeriodExpenseAccount = {
+  chartOfAccountId: string;
+  accountNo: string;
+  accountName: string;
+  actualAmount: number;
+};
+
+/**
+ * Posted expense (debits − credits) per GL account for a date window.
+ */
+export async function getPostedPeriodExpenseByAccount(
+  periodStart: Date,
+  periodEnd: Date
+): Promise<PostedPeriodExpenseAccount[]> {
+  const je = {
+    status: "POSTED",
+    transactionDate: { gte: periodStart, lte: periodEnd }
+  };
+
+  const lines = await prisma.journalEntryLine.findMany({
+    where: {
+      journalEntry: { is: je },
+      chartOfAccount: { accountType: "Expense" }
+    },
+    select: {
+      debitAmount: true,
+      creditAmount: true,
+      chartOfAccountId: true,
+      chartOfAccount: {
+        select: { accountNo: true, accountName: true }
+      }
+    }
+  });
+
+  const byAccount = new Map<string, PostedPeriodExpenseAccount & { _dec: Decimal }>();
+
+  for (const line of lines) {
+    const id = line.chartOfAccountId;
+    const net = dec(line.debitAmount).minus(dec(line.creditAmount));
+    const existing = byAccount.get(id);
+    if (existing) {
+      existing._dec = existing._dec.plus(net);
+    } else {
+      byAccount.set(id, {
+        chartOfAccountId: id,
+        accountNo: line.chartOfAccount.accountNo,
+        accountName: line.chartOfAccount.accountName,
+        actualAmount: 0,
+        _dec: net
+      });
+    }
+  }
+
+  const result: PostedPeriodExpenseAccount[] = [];
+  for (const row of byAccount.values()) {
+    const amount = row._dec.toNumber();
+    if (amount > 0.005) {
+      result.push({
+        chartOfAccountId: row.chartOfAccountId,
+        accountNo: row.accountNo,
+        accountName: row.accountName,
+        actualAmount: Math.round(amount * 100) / 100
+      });
+    }
+  }
+
+  return result.sort((a, b) => b.actualAmount - a.actualAmount);
+}

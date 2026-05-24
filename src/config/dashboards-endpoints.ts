@@ -406,7 +406,19 @@ export const dashboardsEndpoints = {
                           totalBudget: { type: 'number', example: 80000 },
                           totalSpend: { type: 'number', example: 60000 },
                           remaining: { type: 'number', example: 20000 },
-                          percentageUsed: { type: 'number', example: 75 }
+                          percentageUsed: { type: 'number', example: 75 },
+                          overBudget: { type: 'boolean', example: false },
+                          lineItems: {
+                            type: 'array',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                name: { type: 'string' },
+                                budgeted: { type: 'number' },
+                                actual: { type: 'number' }
+                              }
+                            }
+                          }
                         }
                       },
                       employeeOfTheMonth: {
