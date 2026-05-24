@@ -5,9 +5,6 @@ import { PerformanceGoalProgressEventService } from "./PerformanceGoalProgressEv
 import { KpiAccountingIntegrationService } from "./KpiAccountingIntegrationService";
 import { AccountingGoalSyncService } from "./AccountingGoalSyncService";
 import type { ProgressEventSource } from "./performanceGoalSyncUtils";
-import { resolveKpiAccountingConfig } from "../utils/kpiCatalogMetadata";
-
-const NET_PROFIT_CODE = "NET_PROFIT";
 
 export type ApplyProgressDeltaInput = {
   goalId: string;
@@ -45,17 +42,7 @@ export class PerformanceGoalProgressBridge {
       createdById: input.actorId
     });
 
-    const kpiCode = String(goal.kpi?.code || "").toUpperCase();
-    const kpiConfig = goal.kpi ? resolveKpiAccountingConfig(goal.kpi) : null;
-
-    const shouldPostJe =
-      goal.kpi &&
-      kpiConfig?.isFinancial &&
-      kpiCode !== NET_PROFIT_CODE &&
-      String(goal.formulaType || "").toUpperCase() !== NET_PROFIT_CODE &&
-      delta > 0;
-
-    if (shouldPostJe) {
+    if (goal.kpi && delta > 0) {
       try {
         const journalEntryId = await KpiAccountingIntegrationService.postPerformanceProgressJournal({
           goalId: input.goalId,

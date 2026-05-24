@@ -1,6 +1,11 @@
 // @ts-nocheck
 import type { HardcodedKPI } from "../config/hardcodedKPIs";
 import { HARDCODED_KPIS, getFinancialKPIs } from "../config/hardcodedKPIs";
+import {
+  isDbOrCatalogFinancial,
+  resolveKpiFinancialProfile,
+  type KpiFinancialProfile
+} from "./kpiFinancialAccountingRules";
 
 export const PERF_JE_REF_PREFIXES = ["PERF-GOAL-", "KPI-GOAL-"] as const;
 
@@ -21,6 +26,10 @@ export type GoalForSync = {
     name: string;
     isFinancial: boolean;
     accountType: string | null;
+    accountNumber?: string | null;
+    journalEntryType?: string | null;
+    catalogDescription?: string | null;
+    catalogDepartmentName?: string | null;
   } | null;
 };
 
@@ -34,7 +43,7 @@ export type SyncJobPlan = {
   canonicalGoalTitle: string;
   duplicateGoalIds: string[];
   isPayroll: boolean;
-  isBalanceSheet: boolean;
+  financialProfile: KpiFinancialProfile;
   hardcodedConfig: HardcodedKPI | null;
 };
 
@@ -130,8 +139,12 @@ export function groupGoalsIntoSyncJobs(
   for (const goal of goals) {
     if (!goal.kpiId || !goal.kpi) continue;
     const hc = resolveHardcodedByKpi(goal.kpi);
-    const isFinancial =
-      goal.kpi.isFinancial || (hc?.isFinancial ?? false) || financialCodes.has(String(goal.kpi.code || ""));
+    const isFinancial = isDbOrCatalogFinancial({
+      code: goal.kpi.code,
+      name: goal.kpi.name,
+      isFinancial:
+        goal.kpi.isFinancial || (hc?.isFinancial ?? false) || financialCodes.has(String(goal.kpi.code || ""))
+    });
     if (!isFinancial) continue;
     if (!dateRangesOverlap(goal.startDate, goal.endDate, periodStart, periodEnd)) continue;
 
@@ -144,7 +157,17 @@ export function groupGoalsIntoSyncJobs(
   for (const [kpiId, kpiGoals] of byKpi.entries()) {
     const kpi = kpiGoals[0].kpi!;
     const hc = resolveHardcodedByKpi(kpi);
-    const code = String(kpi.code || hc?.code || "").toUpperCase();
+    const profile = resolveKpiFinancialProfile({
+      name: kpi.name,
+      code: kpi.code,
+      catalogDescription: kpi.catalogDescription ?? null,
+      catalogDepartmentName: kpi.catalogDepartmentName ?? null,
+      accountType: kpi.accountType,
+      accountNumber: kpi.accountNumber ?? null,
+      journalEntryType: kpi.journalEntryType ?? null,
+      isFinancial: kpi.isFinancial
+    });
+    const code = profile.code;
     const { canonical, duplicates } = pickCanonicalCompanyGoal(kpiGoals);
     const win = intersectSyncWindow(canonical, periodStart, periodEnd);
     if (!win) continue;
@@ -158,8 +181,8 @@ export function groupGoalsIntoSyncJobs(
       canonicalGoalId: canonical.id,
       canonicalGoalTitle: canonical.title,
       duplicateGoalIds: duplicates.map((d) => d.id),
-      isPayroll: code === "PAYROLL_EXPENSE",
-      isBalanceSheet: isBalanceSheetKpi(hc, kpi.accountType),
+      isPayroll: profile.syncStrategy === "payroll_runs",
+      financialProfile: profile,
       hardcodedConfig: hc
     });
   }

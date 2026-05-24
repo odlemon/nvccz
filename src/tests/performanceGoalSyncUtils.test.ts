@@ -92,6 +92,8 @@ describe("performanceGoalSyncUtils", () => {
     expect(jobs.length).toBe(1);
     expect(jobs[0].canonicalGoalId).toBe("g1");
     expect(jobs[0].duplicateGoalIds).toEqual(["g2"]);
+    expect(jobs[0].financialProfile.syncStrategy).toBe("pl_revenue_total");
+    expect(jobs[0].isPayroll).toBe(false);
   });
 
   test("defaultLoginSyncPeriod uses current UTC month", () => {

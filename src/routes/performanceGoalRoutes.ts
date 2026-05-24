@@ -435,6 +435,8 @@ router.get("/:id", authenticate, PerformanceGoalController.getPerformanceGoalByI
  *         description: Unauthorized
  */
 router.put("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal);
+/** Same handler as PUT — frontend edit forms use PATCH. */
+router.patch("/:id", authenticate, PerformanceGoalController.updatePerformanceGoal);
 
 /**
  * @swagger
