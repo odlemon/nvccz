@@ -5,7 +5,8 @@ import {
   computeAchievementPercent,
   computeParentRollupFromChildren,
   deriveGoalProgressState,
-  deriveParentStageFromRollup
+  deriveParentStageFromRollup,
+  parseGoalCurrentAndTargetForAnalytics
 } from "./performanceGoalRollupUtils";
 import { uniqueGoalIdsForTaskBatch, buildTaskAttachmentsList } from "./performanceBackendSupport";
 import {
@@ -17,6 +18,9 @@ import {
   taskStageChatLabel
 } from "./TaskCollaborationService";
 import { emitToUsers } from "./RealtimeSocketService";
+import { PerformanceGoalService, legacyProgressFieldsForGoal } from "./PerformanceGoalService";
+import { PerformanceGoalProgressBridge } from "./PerformanceGoalProgressBridge";
+import { PerformanceGoalProgressEventService } from "./PerformanceGoalProgressEventService";
 
 /** Recompute overdue / red-zone flags from due date and stage (C.06: past due updates immediately). */
 function computeOverdueFieldsForTaskUpdate(
@@ -55,6 +59,82 @@ function kpiTracksPercentAchievement(kpi: { unitCategory?: string | null; type?:
   if (legacy === "percentage") return true;
   const c = String(kpi.unitCategory ?? "").toLowerCase();
   return c.includes("percent");
+}
+
+/** Parse Prisma Decimal / string / number to finite number (default 0). */
+export function parseMonetaryAmount(value: unknown): number {
+  if (value == null || value === "") return 0;
+  const n = typeof value === "number" ? value : parseFloat(String(value));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Round task/goal display numbers to 2 decimal places (avoids float noise in API responses). */
+export function roundTaskDisplayNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = typeof value === "number" ? value : parseFloat(String(value));
+  if (!Number.isFinite(n)) return null;
+  return parseFloat(n.toFixed(2));
+}
+
+const TASK_NUMERIC_RESPONSE_FIELDS = [
+  "monetaryValue",
+  "monetaryValueAchieved",
+  "percentValue",
+  "percentValueAchieved",
+  "targetValue"
+] as const;
+
+/** Format monetary / percent fields on a task for API responses. */
+export function formatTaskNumericFields<T extends Record<string, unknown>>(task: T): T {
+  const out = { ...task } as T & Record<string, unknown>;
+  for (const key of TASK_NUMERIC_RESPONSE_FIELDS) {
+    if (key in out && out[key] != null) {
+      out[key] = roundTaskDisplayNumber(out[key]);
+    }
+  }
+  if (out.goal && typeof out.goal === "object" && out.goal !== null) {
+    const goal = { ...(out.goal as Record<string, unknown>) };
+    for (const key of ["targetValue", "currentValue", "progressPercentage"] as const) {
+      if (key in goal && goal[key] != null) {
+        goal[key] = roundTaskDisplayNumber(goal[key]);
+      }
+    }
+    out.goal = goal;
+  }
+  if (Array.isArray(out.activities)) {
+    out.activities = out.activities.map((entry) => {
+      if (!entry || typeof entry !== "object") return entry;
+      const row = { ...(entry as Record<string, unknown>) };
+      for (const key of ["collectedMonetary", "collectedPercent"] as const) {
+        if (key in row && row[key] != null) {
+          row[key] = roundTaskDisplayNumber(row[key]);
+        }
+      }
+      return row;
+    });
+  }
+  return out as T;
+}
+
+/** Add achievement increment without string concatenation on Decimal fields. */
+export function addMonetaryAchieved(current: unknown, increment: unknown): number {
+  return parseMonetaryAmount(current) + parseMonetaryAmount(increment);
+}
+
+export function addPercentAchieved(current: unknown, increment: unknown): number {
+  return parseMonetaryAmount(current) + parseMonetaryAmount(increment);
+}
+
+/** Task stage from cumulative achievement vs target. */
+export function resolveTaskStageFromAchievement(
+  achieved: number,
+  target: unknown,
+  previousStage?: string | null
+): string {
+  const targetNum = parseMonetaryAmount(target);
+  if (targetNum > 0 && achieved >= targetNum) return "completed";
+  if (achieved > 0) return "in_progress";
+  return previousStage && previousStage !== "completed" ? previousStage : "todo";
 }
 
 const TASK_APPLICATION_FULL_INCLUDE = {
@@ -210,7 +290,7 @@ export function computeTaskPercentage(task: any): number {
     const monetaryValueAchieved = Number(task.monetaryValueAchieved || 0);
     if (monetaryValue > 0) {
       const percentage = (monetaryValueAchieved / monetaryValue) * 100;
-      return Math.min(Math.max(percentage, 0), 100); // Clamp between 0 and 100
+      return roundTaskDisplayNumber(Math.min(Math.max(percentage, 0), 100)) ?? 0;
     }
   }
 
@@ -220,7 +300,7 @@ export function computeTaskPercentage(task: any): number {
     const percentValueAchieved = Number(task.percentValueAchieved || 0);
     if (percentValue > 0) {
       const percentage = (percentValueAchieved / percentValue) * 100;
-      return Math.min(Math.max(percentage, 0), 100); // Clamp between 0 and 100
+      return roundTaskDisplayNumber(Math.min(Math.max(percentage, 0), 100)) ?? 0;
     }
   }
 
@@ -259,13 +339,15 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
   );
 
   if (applicationIds.length === 0) {
-    return tasks.map(task => ({
-      ...task,
-      application: task.application ?? null,
-      taskPercentage: computeTaskPercentage(task),
-      performanceZone: resolveTaskPerformanceZone(task),
-      attachments: buildTaskAttachmentsList(task)
-    }));
+    return tasks.map((task) =>
+      formatTaskNumericFields({
+        ...task,
+        application: task.application ?? null,
+        taskPercentage: computeTaskPercentage(task),
+        performanceZone: resolveTaskPerformanceZone(task),
+        attachments: buildTaskAttachmentsList(task)
+      })
+    );
   }
 
   const applications = await prisma.application.findMany({
@@ -281,18 +363,18 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
 
   const applicationMap = new Map(applications.map(app => [app.id, app]));
 
-  return tasks.map(task => {
+  return tasks.map((task) => {
     const existingApplication = task.application ?? null;
     const lookupId = task.applicationId || existingApplication?.id;
     const application = lookupId ? applicationMap.get(lookupId) || existingApplication || null : existingApplication || null;
 
-    return {
+    return formatTaskNumericFields({
       ...task,
       application: application || null,
       taskPercentage: computeTaskPercentage(task),
       performanceZone: resolveTaskPerformanceZone(task),
       attachments: buildTaskAttachmentsList(task)
-    };
+    });
   });
 }
 
@@ -869,11 +951,17 @@ export class TaskService {
 
       // Update achievements if provided
       if (achievements.monetaryValueAchieved !== undefined) {
-        updateData.monetaryValueAchieved = (task.monetaryValueAchieved || 0) + achievements.monetaryValueAchieved;
+        updateData.monetaryValueAchieved = addMonetaryAchieved(
+          task.monetaryValueAchieved,
+          achievements.monetaryValueAchieved
+        );
       }
 
       if (achievements.percentValueAchieved !== undefined) {
-        updateData.percentValueAchieved = (task.percentValueAchieved || 0) + achievements.percentValueAchieved;
+        updateData.percentValueAchieved = addPercentAchieved(
+          task.percentValueAchieved,
+          achievements.percentValueAchieved
+        );
       }
 
       // Update the task
@@ -1080,16 +1168,24 @@ export class TaskService {
       };
 
       // Handle KPI-based achievements
-      if (!kpiTracksPercentAchievement(task.kpi) && activity.monetaryValueAchieved) {
-        activityData.collectedMonetary = activity.monetaryValueAchieved;
-        updateData.monetaryValueAchieved = (task.monetaryValueAchieved || 0) + activity.monetaryValueAchieved;
-        
-        if (updateData.monetaryValueAchieved >= (task.monetaryValue || 0)) {
-          updateData.stage = "completed";
+      if (!kpiTracksPercentAchievement(task.kpi) && activity.monetaryValueAchieved != null) {
+        const increment = Number(activity.monetaryValueAchieved);
+        if (!Number.isFinite(increment)) {
+          throw new Error("monetaryValueAchieved must be a number");
         }
-      } else if (kpiTracksPercentAchievement(task.kpi) && activity.percentValueAchieved) {
-        activityData.collectedPercent = activity.percentValueAchieved;
-        updateData.percentValueAchieved = (task.percentValueAchieved || 0) + activity.percentValueAchieved;
+        activityData.collectedMonetary = increment;
+        const newAchieved = addMonetaryAchieved(task.monetaryValueAchieved, increment);
+        updateData.monetaryValueAchieved = newAchieved;
+        updateData.stage = resolveTaskStageFromAchievement(
+          newAchieved,
+          task.monetaryValue,
+          task.stage
+        );
+      } else if (kpiTracksPercentAchievement(task.kpi) && activity.percentValueAchieved != null) {
+        const increment = parseMonetaryAmount(activity.percentValueAchieved);
+        activityData.collectedPercent = increment;
+        const newPercent = addPercentAchieved(task.percentValueAchieved, increment);
+        updateData.percentValueAchieved = newPercent;
         
         if (task.ruleset) {
           let isCompleted = false;
@@ -1138,10 +1234,38 @@ export class TaskService {
       });
 
       if (updatedTask.goalId) {
-        await this.updateLinkedGoalProgress(updatedTask.id);
+        const increment =
+          activity.monetaryValueAchieved != null && !kpiTracksPercentAchievement(task.kpi)
+            ? Number(activity.monetaryValueAchieved)
+            : activity.percentValueAchieved != null && kpiTracksPercentAchievement(task.kpi)
+              ? Number(activity.percentValueAchieved)
+              : undefined;
+        const syncContext = {
+          goalId: updatedTask.goalId,
+          actorId: activity.userId,
+          activityIncrement: Number.isFinite(increment) ? increment : undefined,
+          newGoalCurrent:
+            updateData.monetaryValueAchieved != null
+              ? Number(updateData.monetaryValueAchieved)
+              : updateData.percentValueAchieved != null
+                ? Number(updateData.percentValueAchieved)
+                : undefined,
+          taskStage: updateData.stage ?? updatedTask.stage
+        };
+        setImmediate(() => {
+          void this.syncGoalProgressFromTaskComputation(
+            syncContext.goalId,
+            updatedTask.id,
+            syncContext.actorId,
+            syncContext.activityIncrement,
+            syncContext
+          ).catch((err) =>
+            console.error(`Background goal sync failed for task ${updatedTask.id}:`, err)
+          );
+        });
       }
 
-      const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask]);
+      const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask], { minimal: true });
       return taskWithApplication;
     } catch (error) {
       throw error;
@@ -1362,6 +1486,7 @@ export class TaskService {
           fromDueDiligence: true,
           monetaryValue: true,
           monetaryValueAchieved: true,
+          percentValue: true,
           percentValueAchieved: true,
           kpi: true,
           activityLogs: {
@@ -1641,7 +1766,11 @@ export class TaskService {
   /**
    * Update linked goal progress when task is updated
    */
-  static async updateLinkedGoalProgress(taskId: string): Promise<void> {
+  static async updateLinkedGoalProgress(
+    taskId: string,
+    actorId?: string,
+    activityIncrement?: number
+  ): Promise<void> {
     try {
       console.log(`🔄 Updating linked goal progress for task: ${taskId}`);
 
@@ -1649,7 +1778,7 @@ export class TaskService {
         where: { id: taskId },
         select: {
           goalId: true,
-          createdById: true
+          createdBy: true
         }
       });
 
@@ -1658,10 +1787,14 @@ export class TaskService {
         return;
       }
 
-      const actorId = task.createdById;
-      await this.syncGoalProgressFromTaskComputation(task.goalId, taskId, actorId);
+      await this.syncGoalProgressFromTaskComputation(
+        task.goalId,
+        taskId,
+        actorId || task.createdBy,
+        activityIncrement
+      );
     } catch (error) {
-      console.error('❌ Error updating linked goal progress:', error);
+      console.error("❌ Error updating linked goal progress:", error);
       throw error;
     }
   }
@@ -1674,10 +1807,8 @@ export class TaskService {
     });
     if (hasMonetaryTasks) {
       const sum = linkedTasks.reduce((s, t) => {
-        const achieved = Number(t.monetaryValueAchieved ?? 0);
-        return s + (Number.isFinite(achieved) ? achieved : 0);
+        return s + parseMonetaryAmount(t.monetaryValueAchieved);
       }, 0);
-      console.log(`📊 Goal progress from task monetary sum: ${sum}`);
       return Math.max(0, sum);
     }
     const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
@@ -1691,76 +1822,104 @@ export class TaskService {
   static async syncGoalProgressFromTaskComputation(
     goalId: string,
     taskId: string | null,
-    actorId: string
+    actorId: string,
+    activityIncrement?: number,
+    fastPath?: {
+      newGoalCurrent?: number;
+      taskStage?: string;
+    }
   ) {
     const goal = await prisma.performanceGoal.findUnique({
       where: { id: goalId },
-      include: { kpi: { select: { id: true } } }
+      include: { kpi: { select: { id: true, accountType: true } } }
     });
     if (!goal) {
       throw new Error("Linked performance goal not found");
     }
 
-    const linkedTasks = await prisma.task.findMany({
-      where: { goalId, isTrashed: false }
-    });
+    let linkedTasks: Array<{ stage?: string | null; monetaryValueAchieved?: unknown }> = [];
+    let newCurrentValue: number;
 
-    const { parseProgressBaseline } = await import("./PerformanceGoalService");
-    const prev = parseProgressBaseline(goal);
-    const newCurrentValue = this.computeGoalCurrentFromTasks(goal, linkedTasks);
-    const delta = newCurrentValue - prev;
-
-    if (Math.abs(delta) >= 0.0005) {
-      const { PerformanceGoalProgressBridge } = await import("./PerformanceGoalProgressBridge");
-      await PerformanceGoalProgressBridge.applyDelta({
-        goalId,
-        delta,
-        source: "task",
-        sourceRef: taskId ?? `task_recalc:${goalId}`,
-        actorId: actorId || goal.createdById
+    if (typeof fastPath?.newGoalCurrent === "number" && Number.isFinite(fastPath.newGoalCurrent)) {
+      newCurrentValue = fastPath.newGoalCurrent;
+    } else {
+      linkedTasks = await prisma.task.findMany({
+        where: { goalId, isTrashed: false },
+        select: { stage: true, monetaryValueAchieved: true, monetaryValue: true, percentValueAchieved: true, percentValue: true, kpi: true }
       });
+      newCurrentValue = this.computeGoalCurrentFromTasks(goal, linkedTasks);
     }
 
-    const goalAfterEvents = await prisma.performanceGoal.findUnique({ where: { id: goalId } });
-    const currentForProgress = goalAfterEvents?.currentValue != null
-      ? parseFloat(String(goalAfterEvents.currentValue))
-      : newCurrentValue;
+    const increment =
+      typeof activityIncrement === "number" && Number.isFinite(activityIncrement)
+        ? activityIncrement
+        : newCurrentValue - parseGoalCurrentAndTargetForAnalytics(goal).current;
 
     const progressState = deriveGoalProgressState({
-      currentValue: currentForProgress,
+      currentValue: newCurrentValue,
       targetValue: goal.targetValue,
       targetOperator: goal.targetOperator,
       isReverseKpi: goal.isReverseKpi,
       previousStage: goal.stage,
       progressPercentage: goal.progressPercentage
     });
+
+    const taskInProgress =
+      fastPath?.taskStage === "in_progress" ||
+      linkedTasks.some((t) => t.stage === "in_progress");
     const averageProgress =
       linkedTasks.length > 0
         ? linkedTasks.reduce((sum, t) => sum + computeTaskPercentage(t), 0) / linkedTasks.length
-        : 0;
+        : fastPath?.taskStage === "completed"
+          ? 100
+          : 0;
     const isCompleted = progressState.isTargetMet || averageProgress >= 100;
 
     const updatedGoal = await prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {
+        currentValue: newCurrentValue,
+        preciseCurrentValue: String(newCurrentValue),
         progressPercentage: progressState.progressPercentage,
         status: progressState.isTargetMet || averageProgress >= 100 ? "completed" : progressState.status,
         stage: isCompleted
           ? "completed"
-          : linkedTasks.some((t) => t.stage === "in_progress") || newCurrentValue > 0
+          : taskInProgress || newCurrentValue > 0
             ? "in_progress"
             : progressState.stage,
+        ...legacyProgressFieldsForGoal(goal, newCurrentValue),
         updatedAt: new Date()
       }
     });
 
-    console.log(
-      `✅ Updated goal ${goal.id} progress: ${updatedGoal.currentValue}/${goal.targetValue} (${progressState.progressPercentage}%)`
-    );
+    const rollupAndJournal = async () => {
+      const [{ companyGoalId, companyGoal }] = await Promise.all([
+        PerformanceGoalService.rollupParentChainFromLeaf(goalId),
+        Math.abs(increment) >= 0.0005 && taskId
+          ? PerformanceGoalProgressEventService.recordEvent({
+              goalId,
+              amount: increment,
+              source: "task",
+              sourceRef: taskId,
+              createdById: actorId || goal.createdById,
+              skipRecompute: true
+            })
+          : Promise.resolve(null)
+      ]);
 
-    if (goal.parentGoalId) {
-      await this.updateParentGoalProgress(goal.parentGoalId);
-    }
+      if (Math.abs(increment) >= 0.0005 && taskId) {
+        await PerformanceGoalProgressBridge.postCompanyJournalForTaskIncrement({
+          leafGoalId: goalId,
+          increment,
+          taskId,
+          actorId: actorId || goal.createdById,
+          companyGoalId,
+          preloadedCompanyGoal: companyGoal
+        });
+      }
+    };
+
+    await rollupAndJournal();
 
     return updatedGoal;
   }
@@ -1988,78 +2147,14 @@ export class TaskService {
   }
 
   /**
-   * Update parent goal progress when sub-goals are completed
+   * @deprecated Use PerformanceGoalService.updateParentGoalProgress directly.
    */
   static async updateParentGoalProgress(parentGoalId: string): Promise<void> {
-    try {
-      console.log(`🔄 Updating parent goal progress: ${parentGoalId}`);
-
-      const parentGoal = await prisma.performanceGoal.findUnique({
-        where: { id: parentGoalId },
-        include: {
-          subGoals: true
-        }
-      });
-
-      if (!parentGoal) {
-        console.log(`⚠️ Parent goal ${parentGoalId} not found`);
-        return;
-      }
-
-      const rollup = computeParentRollupFromChildren(
-        parentGoal.subGoals,
-        parentGoal.targetValue
-      );
-      const { stage: newStage, status: newStatus } = deriveParentStageFromRollup({
-        allCompleted: rollup.allCompleted,
-        anyInProgress: rollup.anyInProgress,
-        weightedProgress: rollup.progressPercentage,
-        suggestedCurrentValue: rollup.suggestedCurrentValue,
-        subGoalCount: parentGoal.subGoals.length,
-        previousStage: parentGoal.stage || "planning"
-      });
-
-      await prisma.performanceGoal.update({
-        where: { id: parentGoalId },
-        data: {
-          currentValue: rollup.suggestedCurrentValue,
-          progressPercentage: rollup.progressPercentage,
-          status: newStatus,
-          stage: newStage,
-          updatedAt: new Date()
-        }
-      });
-
-      console.log(
-        `✅ Updated parent goal ${parentGoalId} progress: ${rollup.progressPercentage.toFixed(1)}% (weighted)`
-      );
-
-      if (rollup.allCompleted && parentGoal.kpiId) {
-        await this.triggerAccountingIntegration(parentGoalId, rollup.suggestedCurrentValue);
-      }
-
-      // 🚀 NEW: Trigger automatic roll-up calculations
-      try {
-        const { RollupCalculationService } = await import('./RollupCalculationService');
-        await RollupCalculationService.recalculateAllRollups(parentGoalId);
-        console.log(`✅ Automatic roll-up triggered for parent goal: ${parentGoalId}`);
-      } catch (rollupError) {
-        console.error(`❌ Roll-up calculation failed for parent goal ${parentGoalId}:`, rollupError);
-      }
-
-      // Recursively update grandparent goal if exists
-      if (parentGoal.parentGoalId) {
-        await this.updateParentGoalProgress(parentGoal.parentGoalId);
-      }
-
-    } catch (error) {
-      console.error('❌ Error updating parent goal progress:', error);
-      throw error;
-    }
+    const { PerformanceGoalService } = await import("./PerformanceGoalService");
+    await PerformanceGoalService.updateParentGoalProgress(parentGoalId);
   }
 
-  static async triggerAccountingIntegration(goalId: string, achievedValue: number): Promise<void> {
-    const { KpiAccountingIntegrationService } = await import("./KpiAccountingIntegrationService");
-    await KpiAccountingIntegrationService.triggerKpiAchievementJournal(goalId, achievedValue);
+  static async triggerAccountingIntegration(_goalId: string, _achievedValue: number): Promise<void> {
+    // Task-driven progress posts incremental PERF-GOAL journals via PerformanceGoalProgressBridge.
   }
 }

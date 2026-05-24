@@ -346,6 +346,93 @@ export function resolveKpiTargetFromGoals(goals: KpiGoalCurrentInput[]): number 
   return sumGoalTargets(goals);
 }
 
+/**
+ * KPI analytics: read `currentValue` / `targetValue` on the goal row (same as GET /performance/goals).
+ * Do not prefer `preciseCurrentValue` — it can hold stale GL/event totals while `currentValue` is 0.
+ */
+export function parseGoalCurrentAndTargetForAnalytics(goal: {
+  currentValue?: unknown;
+  targetValue?: unknown;
+  preciseTargetValue?: unknown;
+  preciseCurrentValue?: unknown;
+}): { current: number; target: number } {
+  let current = 0;
+  if (goal.currentValue != null && String(goal.currentValue).trim() !== "") {
+    const v = parseFloat(String(goal.currentValue));
+    if (Number.isFinite(v)) current = v;
+  }
+
+  let target = 0;
+  if (goal.targetValue != null && String(goal.targetValue).trim() !== "") {
+    const v = parseFloat(String(goal.targetValue));
+    if (Number.isFinite(v)) target = v;
+  } else if (goal.preciseTargetValue != null && String(goal.preciseTargetValue).trim() !== "") {
+    const v = parseFloat(String(goal.preciseTargetValue));
+    if (Number.isFinite(v)) target = v;
+  }
+
+  return { current, target };
+}
+
+export function resolveKpiCurrentFromGoalsForAnalytics(goals: KpiGoalCurrentInput[]): number {
+  const company = filterCompanyGoalsForKpiAnalytics(goals);
+  const pool = company.length ? company : goals;
+  return pool.reduce((sum, goal) => {
+    const { current } = parseGoalCurrentAndTargetForAnalytics(goal);
+    return sum + (Number.isFinite(current) ? current : 0);
+  }, 0);
+}
+
+export function resolveKpiTargetFromGoalsForAnalytics(goals: KpiGoalCurrentInput[]): number {
+  const company = filterCompanyGoalsForKpiAnalytics(goals);
+  const pool = company.length ? company : goals;
+  return pool.reduce((sum, goal) => {
+    const { target } = parseGoalCurrentAndTargetForAnalytics(goal);
+    return sum + (Number.isFinite(target) ? target : 0);
+  }, 0);
+}
+
+/** Prefer stored `progressPercentage` on company goals; else derive from display current/target. */
+export function resolveKpiProgressPercentForAnalytics(
+  goals: Array<{
+    type?: string | null;
+    currentValue?: unknown;
+    targetValue?: unknown;
+    preciseTargetValue?: unknown;
+    progressPercentage?: unknown;
+    targetOperator?: string | null;
+    isReverseKpi?: boolean | null;
+  }>,
+  kpi: { isReverseKpi?: boolean | null } | null
+): number {
+  const company = filterCompanyGoalsForKpiAnalytics(goals);
+  const pool = company.length ? company : goals;
+  if (!pool.length) return 0;
+
+  const parts: number[] = [];
+  for (const goal of pool) {
+    const stored =
+      goal.progressPercentage != null && String(goal.progressPercentage).trim() !== ""
+        ? parseFloat(String(goal.progressPercentage))
+        : NaN;
+    if (Number.isFinite(stored)) {
+      parts.push(Math.max(0, Math.min(100, stored)));
+      continue;
+    }
+    const { current, target } = parseGoalCurrentAndTargetForAnalytics(goal);
+    parts.push(
+      computeAchievementPercent({
+        currentValue: current,
+        targetValue: target,
+        targetOperator: goal.targetOperator,
+        isReverseKpi: goal.isReverseKpi ?? kpi?.isReverseKpi
+      })
+    );
+  }
+  const avg = parts.reduce((a, b) => a + b, 0) / parts.length;
+  return Math.max(0, Math.min(100, Number.isFinite(avg) ? avg : 0));
+}
+
 function sumGoalCurrents(goals: KpiGoalCurrentInput[]): number {
   return goals.reduce((sum, goal) => {
     const { current } = parseGoalCurrentAndTarget(goal);
@@ -432,9 +519,26 @@ export function computeKpiLineProgressPercent(
   return Math.max(0, Math.min(100, Number.isFinite(s) ? s : 0));
 }
 
+export type ParentRollupMeta = {
+  targetOperator?: string | null;
+  isReverseKpi?: boolean | null;
+  accountType?: string | null;
+};
+
+/** Revenue / income goals roll up by summing child currentValue (additive), not target × weighted %. */
+export function isAdditiveMonetaryParentRollup(meta: ParentRollupMeta | null | undefined): boolean {
+  if (!meta) return false;
+  if (resolveReverseScoring(meta)) return false;
+  const op = String(meta.targetOperator || ">=").trim();
+  if (op !== ">=") return false;
+  const at = String(meta.accountType || "").trim();
+  return at === "Revenue" || at === "Income" || at === "";
+}
+
 export function computeParentRollupFromChildren(
   subGoals: SubGoalRollupInput[],
-  parentTargetValue: unknown
+  parentTargetValue: unknown,
+  parentMeta?: ParentRollupMeta | null
 ): {
   progressPercentage: number;
   suggestedCurrentValue: number;
@@ -459,20 +563,42 @@ export function computeParentRollupFromChildren(
     parentTargetValue != null && parentTargetValue !== ""
       ? parseFloat(String(parentTargetValue))
       : 0;
-  const rawProgress = Math.min(
-    100,
-    Math.max(0, Number.isFinite(weighted) ? weighted : 0)
-  );
-  const progressPercentage = round(rawProgress, BSC_WEIGHTED_AGGREGATION_DECIMALS);
   const sumChildCurrent = subGoals.reduce((sum, s) => {
     const x = parseFloat(String(s.currentValue ?? 0));
     return sum + (Number.isFinite(x) ? x : 0);
   }, 0);
-  const scaledFromParent =
-    pt > 0 && Number.isFinite(pt) ? (progressPercentage / 100) * pt : sumChildCurrent;
-  const suggestedCurrentValue = Number.isFinite(scaledFromParent)
-    ? round(scaledFromParent, BSC_WEIGHTED_AGGREGATION_DECIMALS)
-    : round(sumChildCurrent, BSC_WEIGHTED_AGGREGATION_DECIMALS);
+
+  const additive = isAdditiveMonetaryParentRollup(parentMeta);
+
+  let progressPercentage: number;
+  if (additive && sumChildCurrent >= 0) {
+    progressPercentage = round(
+      computeAchievementPercent({
+        currentValue: sumChildCurrent,
+        targetValue: pt,
+        targetOperator: parentMeta?.targetOperator,
+        isReverseKpi: parentMeta?.isReverseKpi
+      }),
+      BSC_WEIGHTED_AGGREGATION_DECIMALS
+    );
+  } else {
+    const rawProgress = Math.min(
+      100,
+      Math.max(0, Number.isFinite(weighted) ? weighted : 0)
+    );
+    progressPercentage = round(rawProgress, BSC_WEIGHTED_AGGREGATION_DECIMALS);
+  }
+
+  let suggestedCurrentValue: number;
+  if (additive) {
+    suggestedCurrentValue = round(sumChildCurrent, BSC_WEIGHTED_AGGREGATION_DECIMALS);
+  } else {
+    const scaledFromParent =
+      pt > 0 && Number.isFinite(pt) ? (progressPercentage / 100) * pt : sumChildCurrent;
+    suggestedCurrentValue = Number.isFinite(scaledFromParent)
+      ? round(scaledFromParent, BSC_WEIGHTED_AGGREGATION_DECIMALS)
+      : round(sumChildCurrent, BSC_WEIGHTED_AGGREGATION_DECIMALS);
+  }
 
   return {
     progressPercentage,

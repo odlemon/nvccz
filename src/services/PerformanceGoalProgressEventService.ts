@@ -20,6 +20,8 @@ export type RecordProgressEventInput = {
   journalEntryId?: string | null;
   /** When true, replace existing row with same goalId+source+sourceRef instead of inserting. */
   replaceExisting?: boolean;
+  /** Audit-only row (e.g. company JE trail) without overwriting goal.currentValue from event sum. */
+  skipRecompute?: boolean;
 };
 
 export class PerformanceGoalProgressEventService {
@@ -66,6 +68,10 @@ export class PerformanceGoalProgressEventService {
         createdById: input.createdById
       }
     });
+
+    if (input.skipRecompute) {
+      return { eventId: event.id, total: amount };
+    }
 
     const total = await this.recomputeGoalCurrentFromEvents(input.goalId);
     return { eventId: event.id, total };
