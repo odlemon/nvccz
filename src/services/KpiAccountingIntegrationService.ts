@@ -2,6 +2,10 @@
 import { prisma } from "../utils/database";
 import { createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
 import { resolveKpiAccountingConfig } from "../utils/kpiCatalogMetadata";
+import {
+  getKpiProgressJournalSkipReasonFromProfile,
+  resolveKpiFinancialProfile
+} from "./kpiFinancialAccountingRules";
 
 /** Stable reference — one posted JE per performance goal (legacy completion path). */
 export function kpiGoalJournalReference(goalId: string): string {
@@ -58,24 +62,41 @@ export type KpiProgressJournalSkipInput = {
 };
 
 export function getKpiProgressJournalSkipReason(input: KpiProgressJournalSkipInput): string | null {
-  if (input.parentGoalId) {
-    return "sub-goal; accounting posts at parent rollup only";
+  const profile = resolveKpiFinancialProfile({
+    name: "",
+    code: input.kpiCode,
+    catalogDescription: null,
+    catalogDepartmentName: null,
+    accountType: null,
+    accountNumber: input.accountNumber ?? null,
+    journalEntryType: null,
+    isFinancial: input.isFinancial
+  });
+  if (input.formulaType) {
+    const formula = String(input.formulaType).toUpperCase();
+    if (formula === PAYROLL_KPI_CODE || formula === "NET_PROFIT") {
+      const formulaProfile = resolveKpiFinancialProfile({
+        name: "",
+        code: formula,
+        catalogDescription: null,
+        catalogDepartmentName: null,
+        accountType: null,
+        accountNumber: input.accountNumber ?? null,
+        journalEntryType: null,
+        isFinancial: true
+      });
+      return getKpiProgressJournalSkipReasonFromProfile(formulaProfile, {
+        parentGoalId: input.parentGoalId,
+        formulaType: input.formulaType,
+        amount: input.amount
+      });
+    }
   }
-  const code = (input.kpiCode || "").toUpperCase();
-  const formula = (input.formulaType || "").toUpperCase();
-  if (code === PAYROLL_KPI_CODE || formula === PAYROLL_KPI_CODE) {
-    return "payroll expense is recorded by PayrollService, not KPI achievement";
-  }
-  if (code === "NET_PROFIT" || formula === "NET_PROFIT") {
-    return "net profit is derived from GL sync, not incremental performance journals";
-  }
-  if (!input.isFinancial || !input.accountNumber) {
-    return "KPI is not financial or has no GL account mapping";
-  }
-  if (!Number.isFinite(input.amount) || input.amount <= 0) {
-    return "non-positive amount";
-  }
-  return null;
+  return getKpiProgressJournalSkipReasonFromProfile(profile, {
+    parentGoalId: input.parentGoalId,
+    formulaType: input.formulaType,
+    amount: input.amount
+  });
 }
 
 /**
@@ -202,7 +223,16 @@ export class KpiAccountingIntegrationService {
     });
     if (!goal?.kpi) return null;
 
-    const kpiConfig = resolveKpiAccountingConfig(goal.kpi);
+    const profile = resolveKpiFinancialProfile({
+      name: goal.kpi.name,
+      code: goal.kpi.code,
+      catalogDescription: goal.kpi.catalogDescription ?? null,
+      catalogDepartmentName: goal.kpi.catalogDepartmentName ?? null,
+      accountType: goal.kpi.accountType,
+      accountNumber: goal.kpi.accountNumber,
+      journalEntryType: goal.kpi.journalEntryType,
+      isFinancial: goal.kpi.isFinancial
+    });
     const ref = performanceProgressJournalReference(params.goalId, params.eventId);
 
     const existingPosted = await prisma.journalEntry.findFirst({
@@ -214,12 +244,9 @@ export class KpiAccountingIntegrationService {
       return existingPosted.id;
     }
 
-    const skipReason = getKpiProgressJournalSkipReason({
+    const skipReason = getKpiProgressJournalSkipReasonFromProfile(profile, {
       parentGoalId: goal.parentGoalId,
-      kpiCode: goal.kpi.code,
       formulaType: goal.formulaType,
-      isFinancial: Boolean(kpiConfig?.isFinancial),
-      accountNumber: kpiConfig?.accountNumber,
       amount: params.amount
     });
     if (skipReason) {
@@ -236,12 +263,18 @@ export class KpiAccountingIntegrationService {
       throw new Error("No active bank with a GL account linked (banks.glAccountId).");
     }
 
+    const accountNo = profile.accountNumber;
+    const journalEntryType = profile.journalEntryType;
+    if (!accountNo || !journalEntryType) {
+      throw new Error(`KPI ${profile.code} has no GL account mapping for progress journals.`);
+    }
+
     const kpiAccount = await prisma.chartOfAccounts.findFirst({
-      where: { accountNo: kpiConfig!.accountNumber, isActive: true },
+      where: { accountNo, isActive: true },
       select: { id: true }
     });
     if (!kpiAccount) {
-      throw new Error(`No active chart account found for KPI account number ${kpiConfig!.accountNumber}.`);
+      throw new Error(`No active chart account found for KPI account number ${accountNo}.`);
     }
 
     const currency =
@@ -254,7 +287,6 @@ export class KpiAccountingIntegrationService {
     }
 
     const amount = params.amount;
-    const journalEntryType = kpiConfig!.journalEntryType;
     const posterId = params.actorId || goal.createdById;
 
     const journalEntry = await createJournalEntryWithAuditSequence({

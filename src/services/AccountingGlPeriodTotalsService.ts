@@ -90,12 +90,10 @@ export type PostedPeriodExpenseAccount = {
  */
 export async function getPostedPeriodExpenseByAccount(
   periodStart: Date,
-  periodEnd: Date
+  periodEnd: Date,
+  options?: { excludePerformanceJournals?: boolean }
 ): Promise<PostedPeriodExpenseAccount[]> {
-  const je = {
-    status: "POSTED",
-    transactionDate: { gte: periodStart, lte: periodEnd }
-  };
+  const je = postedJournalWhere(periodStart, periodEnd, options?.excludePerformanceJournals === true);
 
   const lines = await prisma.journalEntryLine.findMany({
     where: {
@@ -145,6 +143,43 @@ export async function getPostedPeriodExpenseByAccount(
   }
 
   return result.sort((a, b) => b.actualAmount - a.actualAmount);
+}
+
+/**
+ * Posted net movement for one GL account in a period (signed).
+ * Revenue/Income: credits − debits; Expense: debits − credits; other types: credits − debits.
+ */
+export async function getPostedPeriodNetForAccountNo(
+  accountNo: string,
+  periodStart: Date,
+  periodEnd: Date,
+  options?: { excludePerformanceJournals?: boolean }
+): Promise<number> {
+  const account = await prisma.chartOfAccounts.findFirst({
+    where: { accountNo, isActive: true },
+    select: { id: true, accountType: true }
+  });
+  if (!account) return 0;
+
+  const je = postedJournalWhere(periodStart, periodEnd, options?.excludePerformanceJournals === true);
+  const agg = await prisma.journalEntryLine.aggregate({
+    where: {
+      journalEntry: { is: je },
+      chartOfAccountId: account.id
+    },
+    _sum: { debitAmount: true, creditAmount: true }
+  });
+
+  const deb = dec(agg._sum.debitAmount);
+  const cred = dec(agg._sum.creditAmount);
+  const type = String(account.accountType || "");
+  if (type === "Expense") {
+    return deb.minus(cred).toNumber();
+  }
+  if (type === "Revenue" || type === "Income") {
+    return cred.minus(deb).toNumber();
+  }
+  return cred.minus(deb).toNumber();
 }
 
 /**

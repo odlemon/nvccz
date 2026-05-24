@@ -264,11 +264,18 @@ export interface UpdatePerformanceGoalRequest {
   title?: string;
   description?: string;
   type?: string;
+  parentGoalId?: string | null;
+  departmentName?: string | null;
   // Absolute value targets (replacing percentage-based)
   targetValue?: number; // Updated target value
   targetUnit?: string; // Updated target unit
   currentValue?: number; // Current progress value
   kpiId?: string;
+  kpiName?: string | null;
+  monetaryValue?: number;
+  percentValue?: number;
+  monetaryValueAchieved?: number;
+  percentValueAchieved?: number;
   priority?: string;
   status?: string;
   stage?: string;
@@ -1286,20 +1293,89 @@ export class PerformanceGoalService {
         throw new Error("Performance goal not found");
       }
 
-      // Validate KPI if provided
-      if (request.kpiId) {
-        const kpi = await prisma.kPI.findUnique({
-          where: { id: request.kpiId }
-        });
+      const nextType = String(request.type ?? existingGoal.type ?? "").toLowerCase();
 
+      let resolvedKpiId: string | null | undefined = request.kpiId;
+      if (request.kpiName !== undefined) {
+        const name = request.kpiName == null ? "" : String(request.kpiName).trim();
+        if (!name) {
+          resolvedKpiId = null;
+        } else {
+          const kpi = await prisma.kPI.findFirst({
+            where: { name },
+            select: { id: true }
+          });
+          if (!kpi) {
+            throw new Error(`KPI '${request.kpiName}' not found`);
+          }
+          resolvedKpiId = kpi.id;
+        }
+      }
+
+      if (resolvedKpiId) {
+        const kpi = await prisma.kPI.findUnique({
+          where: { id: resolvedKpiId }
+        });
         if (!kpi) {
           throw new Error("KPI not found");
         }
       }
 
+      if (request.parentGoalId !== undefined && request.parentGoalId !== null) {
+        if (request.parentGoalId === id) {
+          throw new Error("A goal cannot be its own parent");
+        }
+        const parentGoal = await prisma.performanceGoal.findUnique({
+          where: { id: request.parentGoalId },
+          select: { id: true, type: true, status: true }
+        });
+        if (!parentGoal) {
+          throw new Error("Parent goal not found");
+        }
+        if (String(parentGoal.status).toLowerCase() !== "active") {
+          throw new Error("Parent goal must be active");
+        }
+        if (nextType === "department" && String(parentGoal.type).toLowerCase() !== "company") {
+          throw new Error("Department goals must roll up to a company (organisational) parent goal");
+        }
+      }
+
+      if (request.departmentName !== undefined && request.departmentName !== null) {
+        const validDepartments = [
+          "Finance",
+          "Sales",
+          "Operations",
+          "Procurement",
+          "Human Resources",
+          "Marketing",
+          "Legal",
+          "IT",
+          "Investments"
+        ];
+        const dept = String(request.departmentName).trim();
+        if (dept && !validDepartments.includes(dept)) {
+          throw new Error(
+            `Invalid department name: ${dept}. Valid departments: ${validDepartments.join(", ")}`
+          );
+        }
+      }
+
+      if (nextType === "department") {
+        const dept =
+          request.departmentName !== undefined
+            ? request.departmentName
+            : existingGoal.departmentName;
+        if (!dept) {
+          throw new Error("departmentName is required for department goals");
+        }
+      }
+
+      if (nextType === "company" && request.parentGoalId) {
+        throw new Error("Company goals cannot have a parent goal");
+      }
+
       const companyPillarMsg =
         'Organisational (company) goals require scorecardPillar: Financial, Customer & Market, Internal Operations, or Learning, Growth & HR (or FINANCIAL, CUSTOMER, INTERNAL_OPS, LEARNING_GROWTH).';
-      const nextType = request.type ?? existingGoal.type;
       const pillarData: { scorecardPillar?: string | null; pillarId?: string | null } = {};
       if (nextType === "company") {
         const raw =
@@ -1313,7 +1389,7 @@ export class PerformanceGoalService {
         await ScorecardPillarService.assertCanonicalExists(normalized);
         pillarData.scorecardPillar = normalized;
         pillarData.pillarId = ORG_BSC_CANONICAL_TO_PILLAR_ID[normalized] ?? null;
-      } else if (existingGoal.type === "company" && nextType !== "company") {
+      } else if (String(existingGoal.type) === "company" && nextType !== "company") {
         pillarData.scorecardPillar = null;
         pillarData.pillarId = null;
       } else if (request.scorecardPillar !== undefined) {
@@ -1350,7 +1426,8 @@ export class PerformanceGoalService {
       let kpiNameForInference: string | null = null;
       let linkedKpiIsReverse: boolean | undefined;
       let linkedKpiAccountType: string | null = null;
-      const effectiveKpiId = request.kpiId ?? existingGoal.kpiId;
+      const effectiveKpiId =
+        resolvedKpiId !== undefined ? resolvedKpiId : existingGoal.kpiId;
       if (effectiveKpiId) {
         const k = await prisma.kPI.findUnique({
           where: { id: effectiveKpiId },
@@ -1382,25 +1459,73 @@ export class PerformanceGoalService {
             ? { targetOperator: "<=" }
             : { targetOperator: ">=" };
 
+      const nextTargetValue =
+        request.targetValue !== undefined ? request.targetValue : existingGoal.targetValue;
+      const nextCurrentValue =
+        request.currentValue !== undefined ? request.currentValue : existingGoal.currentValue;
+      const effectiveTargetOperator =
+        request.targetOperator !== undefined
+          ? request.targetOperator
+          : existingGoal.targetOperator ??
+            (resolvedIsReverseKpi ? "<=" : ">=");
+
+      let progressPatch: Record<string, unknown> = {};
+      if (request.targetValue !== undefined || request.currentValue !== undefined) {
+        const progressState = deriveGoalProgressState({
+          currentValue: nextCurrentValue,
+          targetValue: nextTargetValue,
+          targetOperator: effectiveTargetOperator,
+          isReverseKpi: resolvedIsReverseKpi,
+          previousStage: existingGoal.stage,
+          progressPercentage: existingGoal.progressPercentage
+        });
+        const tv = nextTargetValue != null ? parseFloat(String(nextTargetValue)) : 0;
+        const cv = nextCurrentValue != null ? parseFloat(String(nextCurrentValue)) : 0;
+        progressPatch = {
+          progressPercentage: progressState.progressPercentage,
+          stage: progressState.stage,
+          preciseTargetValue: nextTargetValue != null ? String(nextTargetValue) : null,
+          preciseCurrentValue: String(cv),
+          ...(request.monetaryValue === undefined && tv > 0 ? { monetaryValue: tv } : {}),
+          ...(request.monetaryValueAchieved === undefined ? { monetaryValueAchieved: cv } : {})
+        };
+      }
+
+      const parentGoalPatch: { parentGoalId?: string | null } = {};
+      if (request.parentGoalId !== undefined) {
+        parentGoalPatch.parentGoalId = request.parentGoalId;
+      } else if (nextType === "company") {
+        parentGoalPatch.parentGoalId = null;
+      }
+
+      const departmentPatch: { departmentName?: string | null } = {};
+      if (request.departmentName !== undefined) {
+        departmentPatch.departmentName = request.departmentName;
+      } else if (nextType === "company") {
+        departmentPatch.departmentName = null;
+      }
+
       // Update the goal
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id },
         data: {
           ...pillarData,
-          ...(request.title && { title: request.title }),
+          ...parentGoalPatch,
+          ...departmentPatch,
+          ...(request.title !== undefined && request.title !== "" && { title: request.title }),
           ...(request.description !== undefined && { description: request.description }),
-          ...(request.type && { type: request.type }),
+          ...(request.type !== undefined && { type: request.type }),
           ...(request.monetaryValue !== undefined && { monetaryValue: request.monetaryValue }),
           ...(request.percentValue !== undefined && { percentValue: request.percentValue }),
           ...(request.monetaryValueAchieved !== undefined && { monetaryValueAchieved: request.monetaryValueAchieved }),
           ...(request.percentValueAchieved !== undefined && { percentValueAchieved: request.percentValueAchieved }),
-          ...(request.kpiId && { kpiId: request.kpiId }),
-          ...(request.priority && { priority: request.priority }),
-          ...(request.status && { status: request.status }),
-          ...(request.stage && { stage: request.stage }),
-          ...(request.startDate && { startDate: request.startDate }),
-          ...(request.endDate && { endDate: request.endDate }),
-          ...(request.assignedToId && { assignedToId: request.assignedToId }),
+          ...(resolvedKpiId !== undefined && { kpiId: resolvedKpiId }),
+          ...(request.priority !== undefined && { priority: request.priority }),
+          ...(request.status !== undefined && { status: request.status }),
+          ...(request.stage !== undefined && { stage: request.stage }),
+          ...(request.startDate !== undefined && { startDate: request.startDate }),
+          ...(request.endDate !== undefined && { endDate: request.endDate }),
+          ...(request.assignedToId !== undefined && { assignedToId: request.assignedToId }),
           ...targetOperatorPatch,
           ...(request.targetValue !== undefined && { targetValue: request.targetValue }),
           ...(request.targetUnit !== undefined && { targetUnit: request.targetUnit }),
@@ -1408,6 +1533,7 @@ export class PerformanceGoalService {
             currentValue: request.currentValue,
             preciseCurrentValue: String(request.currentValue)
           }),
+          ...progressPatch,
           ...(request.dataSourceModule !== undefined && { dataSourceModule: request.dataSourceModule }),
           ...(request.dataSourceField !== undefined && { dataSourceField: request.dataSourceField }),
           ...(request.trackingFrequency !== undefined && { trackingFrequency: request.trackingFrequency }),
@@ -1878,11 +2004,12 @@ export class PerformanceGoalService {
     createdById: string;
   }): Promise<void> {
     const { AccountingGoalSyncService } = await import("./AccountingGoalSyncService");
-    const kpiCodes = (input.kpiCodes?.length ? input.kpiCodes : ["TOTAL_REVENUE", "NET_PROFIT"]).map((c) =>
-      String(c).toUpperCase()
-    );
+    const kpiCodes = input.kpiCodes?.length
+      ? input.kpiCodes.map((c) => String(c).toUpperCase())
+      : undefined;
     console.log(
-      `🔄 Syncing financial goals from GL ${input.periodStart.toISOString().slice(0, 10)} .. ${input.periodEnd.toISOString().slice(0, 10)}`
+      `🔄 Syncing financial goals from GL ${input.periodStart.toISOString().slice(0, 10)} .. ${input.periodEnd.toISOString().slice(0, 10)}` +
+        (kpiCodes ? ` (KPIs: ${kpiCodes.join(", ")})` : " (all financial KPIs with goals)")
     );
     await AccountingGoalSyncService.runFullSync({
       periodStart: input.periodStart,

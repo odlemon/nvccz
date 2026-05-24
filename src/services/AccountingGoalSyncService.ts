@@ -1,11 +1,8 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { logger } from "../utils/logger";
-import {
-  getPostedPeriodRevenueExpenseNetProfitExcludingPerformance,
-  getPostedPeriodExpenseByAccount
-} from "./AccountingGlPeriodTotalsService";
 import { PerformanceGoalProgressEventService } from "./PerformanceGoalProgressEventService";
+import { FinancialKpiGlValueService } from "./FinancialKpiGlValueService";
 import {
   defaultLoginSyncPeriod,
   groupGoalsIntoSyncJobs,
@@ -34,30 +31,6 @@ async function getOrCreateSyncSettings() {
   });
 }
 
-function resolveGlNativeAmount(
-  job: SyncJobPlan,
-  glTotals: { revenue: number; totalExpense: number; netProfit: number }
-): number | null {
-  const code = job.kpiCode;
-  const hc = job.hardcodedConfig;
-  if (code === "TOTAL_REVENUE" || hc?.accountType === "Revenue") {
-    return glTotals.revenue;
-  }
-  if (code === "NET_PROFIT") {
-    return glTotals.netProfit;
-  }
-  if (code === "OPERATING_EXPENSES" || hc?.accountType === "Expense") {
-    return glTotals.totalExpense;
-  }
-  if (hc?.accountType === "Revenue" || hc?.accountType === "Income") {
-    return glTotals.revenue;
-  }
-  if (hc?.accountType === "Expense") {
-    return glTotals.totalExpense;
-  }
-  return null;
-}
-
 export class AccountingGoalSyncService {
   static async planSyncJobs(
     periodStart: Date,
@@ -84,7 +57,11 @@ export class AccountingGoalSyncService {
             code: true,
             name: true,
             isFinancial: true,
-            accountType: true
+            accountType: true,
+            accountNumber: true,
+            journalEntryType: true,
+            catalogDescription: true,
+            catalogDepartmentName: true
           }
         }
       }
@@ -131,14 +108,6 @@ export class AccountingGoalSyncService {
     actorId: string,
     options?: { payrollAlreadyRan?: boolean }
   ): Promise<{ updated: boolean; glNative: number | null; newTotal: number | null; skippedReason?: string }> {
-    if (job.isBalanceSheet) {
-      logger.info("Performance sync job skipped (balance-sheet KPI)", {
-        kpiCode: job.kpiCode,
-        goalId: job.canonicalGoalId
-      });
-      return { updated: false, glNative: null, newTotal: null, skippedReason: "balance_sheet" };
-    }
-
     if (job.isPayroll) {
       if (options?.payrollAlreadyRan) {
         return { updated: false, glNative: null, newTotal: null, skippedReason: "payroll_delegated" };
@@ -152,22 +121,16 @@ export class AccountingGoalSyncService {
       return { updated: true, glNative: total, newTotal: total };
     }
 
-    const glTotals = await getPostedPeriodRevenueExpenseNetProfitExcludingPerformance(
-      job.periodStart,
-      job.periodEnd
-    );
+    const glNative = await FinancialKpiGlValueService.fetchNativeGlValue({
+      profile: job.financialProfile,
+      periodStart: job.periodStart,
+      periodEnd: job.periodEnd
+    });
 
-    let glNative = resolveGlNativeAmount(job, glTotals);
-
-    if (glNative == null && job.hardcodedConfig?.accountNumber) {
-      const byAcct = await getPostedPeriodExpenseByAccount(job.periodStart, job.periodEnd);
-      const match = byAcct.find((a) => a.accountNo === job.hardcodedConfig!.accountNumber);
-      glNative = match?.actualAmount ?? 0;
-    }
-
-    if (glNative == null) {
+    if (glNative == null || job.financialProfile.syncStrategy === "unsupported") {
       logger.info("Performance sync job skipped (no GL mapping)", {
         kpiCode: job.kpiCode,
+        syncStrategy: job.financialProfile.syncStrategy,
         goalId: job.canonicalGoalId
       });
       return { updated: false, glNative: null, newTotal: null, skippedReason: "no_mapping" };
@@ -192,6 +155,7 @@ export class AccountingGoalSyncService {
         syncConfig: {
           source: "posted_journal_lines",
           glKpiCode: job.kpiCode,
+          glSyncStrategy: job.financialProfile.syncStrategy,
           glPeriodStart: job.periodStart.toISOString(),
           glPeriodEnd: job.periodEnd.toISOString(),
           glSyncedAt: new Date().toISOString(),
