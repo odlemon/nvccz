@@ -5,8 +5,8 @@ import { KPIService } from "./KPIService";
 import {
   computeAchievementPercent,
   computeParentRollupFromChildren,
-  deriveParentStageFromRollup,
-  isTargetMet
+  deriveGoalProgressState,
+  deriveParentStageFromRollup
 } from "./performanceGoalRollupUtils";
 import { resolveDefaultDepartmentGoalAssigneeId } from "./performanceGoalDefaultAssignee";
 
@@ -223,28 +223,28 @@ export class PerformanceWorkflowService {
       // Update goal progress based on task completion
       const goal = task.goal;
       const newCurrentValue = (goal.currentValue || 0) + (task.currentValue || 0);
-      const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      const progressPercentage = computeAchievementPercent({
+      const progressState = deriveGoalProgressState({
         currentValue: newCurrentValue,
         targetValue: goal.targetValue,
         targetOperator: goal.targetOperator,
         isReverseKpi: goal.isReverseKpi,
+        previousStage: goal.stage,
         progressPercentage: goal.progressPercentage
       });
-      const isCompleted = isTargetMet(newCurrentValue, targetNum, goal.targetOperator, goal.isReverseKpi);
+      const isCompleted = progressState.isTargetMet;
 
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id: goal.id },
         data: {
           currentValue: newCurrentValue,
-          progressPercentage,
-          status: isCompleted ? "completed" : "active",
-          stage: isCompleted ? "completed" : goal.stage,
+          progressPercentage: progressState.progressPercentage,
+          status: progressState.status,
+          stage: progressState.stage,
           updatedAt: new Date()
         }
       });
 
-      console.log(`✅ Updated goal ${goal.id} progress: ${newCurrentValue}/${goal.targetValue} (${progressPercentage.toFixed(1)}%)`);
+      console.log(`✅ Updated goal ${goal.id} progress: ${newCurrentValue}/${goal.targetValue} (${progressState.progressPercentage}%)`);
 
       // If goal is completed and has KPI integration, trigger accounting
       if (isCompleted && goal.kpiId) {

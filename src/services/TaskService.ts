@@ -4,8 +4,8 @@ import { prisma } from "../utils/database";
 import {
   computeAchievementPercent,
   computeParentRollupFromChildren,
-  deriveParentStageFromRollup,
-  isTargetMet
+  deriveGoalProgressState,
+  deriveParentStageFromRollup
 } from "./performanceGoalRollupUtils";
 import { uniqueGoalIdsForTaskBatch, buildTaskAttachmentsList } from "./performanceBackendSupport";
 import {
@@ -1661,29 +1661,29 @@ export class TaskService {
       
       // Calculate new goal progress based on task progress
       const newCurrentValue = Number(goal.currentValue || 0);
-      const targetNum = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      const progressPercentage = computeAchievementPercent({
+      const progressState = deriveGoalProgressState({
         currentValue: newCurrentValue,
         targetValue: goal.targetValue,
         targetOperator: goal.targetOperator,
         isReverseKpi: goal.isReverseKpi,
+        previousStage: goal.stage,
         progressPercentage: goal.progressPercentage
       });
-      const isCompleted = isTargetMet(newCurrentValue, targetNum, goal.targetOperator, goal.isReverseKpi);
+      const isCompleted = progressState.isTargetMet;
 
       // Update the goal
       const updatedGoal = await prisma.performanceGoal.update({
         where: { id: goal.id },
         data: {
           currentValue: newCurrentValue,
-          progressPercentage: progressPercentage,
-          status: isCompleted ? "completed" : "active",
-          stage: isCompleted ? "completed" : goal.stage,
+          progressPercentage: progressState.progressPercentage,
+          status: progressState.status,
+          stage: progressState.stage,
           updatedAt: new Date()
         }
       });
 
-      console.log(`✅ Updated goal ${goal.id} progress: ${newCurrentValue}/${goal.targetValue} (${progressPercentage.toFixed(1)}%)`);
+      console.log(`✅ Updated goal ${goal.id} progress: ${newCurrentValue}/${goal.targetValue} (${progressState.progressPercentage}%)`);
 
       // If goal is completed and has KPI integration, trigger accounting
       if (isCompleted && goal.kpiId) {
@@ -1741,23 +1741,29 @@ export class TaskService {
       ? linkedTasks.reduce((sum, task) => sum + computeTaskPercentage(task), 0) / linkedTasks.length
       : 0;
     const newCurrentValue = targetNum > 0 ? (targetNum * averageProgress) / 100 : averageProgress;
-    const progressPercentage = computeAchievementPercent({
+    const progressState = deriveGoalProgressState({
       currentValue: newCurrentValue,
       targetValue: goal.targetValue,
       targetOperator: goal.targetOperator,
       isReverseKpi: goal.isReverseKpi,
+      previousStage: goal.stage,
       progressPercentage: goal.progressPercentage
     });
     const isCompleted =
-      isTargetMet(newCurrentValue, targetNum, goal.targetOperator, goal.isReverseKpi) || averageProgress >= 100;
+      progressState.isTargetMet || averageProgress >= 100;
 
     return prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {
         currentValue: newCurrentValue,
-        progressPercentage,
-        status: isCompleted ? "completed" : "active",
-        stage: isCompleted ? "completed" : linkedTasks.some((task) => task.stage === "in_progress") ? "in_progress" : "planning",
+        progressPercentage: progressState.progressPercentage,
+        status: progressState.isTargetMet || averageProgress >= 100 ? "completed" : progressState.status,
+        stage:
+          isCompleted
+            ? "completed"
+            : linkedTasks.some((task) => task.stage === "in_progress") || newCurrentValue > 0
+              ? "in_progress"
+              : progressState.stage,
         updatedAt: new Date()
       }
     });

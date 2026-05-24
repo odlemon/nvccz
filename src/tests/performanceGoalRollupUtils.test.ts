@@ -2,6 +2,8 @@ import {
   computeAchievementPercent,
   computeKpiLineProgressPercent,
   computeParentRollupFromChildren,
+  deriveGoalProgressState,
+  formatProgressPercent,
   normalizedSiblingWeights,
   parseContributionWeightPercentFromActivities,
   isTargetMet,
@@ -212,5 +214,65 @@ describe('performanceGoalRollupUtils', () => {
     expect(
       resolveEffectiveReverseKpi({ isReverseKpi: false, accountType: 'Revenue' }, [{ isReverseKpi: true }])
     ).toBe(true);
+  });
+
+  test('deriveGoalProgressState: planning → in_progress when current > 0', () => {
+    const s = deriveGoalProgressState({
+      currentValue: 100,
+      targetValue: 3000,
+      targetOperator: '>=',
+      isReverseKpi: false,
+      previousStage: 'planning'
+    });
+    expect(s.stage).toBe('in_progress');
+    expect(s.status).toBe('active');
+    expect(s.isTargetMet).toBe(false);
+    expect(s.progressPercentage).toBe('3.33');
+  });
+
+  test('deriveGoalProgressState: straight KPI completed at target', () => {
+    const s = deriveGoalProgressState({
+      currentValue: 3000,
+      targetValue: 3000,
+      targetOperator: '>=',
+      isReverseKpi: false,
+      previousStage: 'in_progress'
+    });
+    expect(s.stage).toBe('completed');
+    expect(s.status).toBe('completed');
+    expect(s.isTargetMet).toBe(true);
+    expect(s.progressPercentage).toBe('100.00');
+  });
+
+  test('deriveGoalProgressState: reverse KPI payroll overspend stays in progress', () => {
+    const s = deriveGoalProgressState({
+      currentValue: 166800,
+      targetValue: 30000,
+      targetOperator: '<=',
+      isReverseKpi: true,
+      previousStage: 'planning'
+    });
+    expect(s.stage).toBe('in_progress');
+    expect(s.isTargetMet).toBe(false);
+    expect(parseFloat(s.progressPercentage)).toBeCloseTo(17.99, 1);
+  });
+
+  test('deriveGoalProgressState: reverse KPI completed at or under cap', () => {
+    const s = deriveGoalProgressState({
+      currentValue: 25000,
+      targetValue: 30000,
+      targetOperator: '<=',
+      isReverseKpi: true,
+      previousStage: 'in_progress'
+    });
+    expect(s.stage).toBe('completed');
+    expect(s.isTargetMet).toBe(true);
+    expect(s.progressPercentage).toBe('100.00');
+  });
+
+  test('formatProgressPercent uses 2 decimals consistently', () => {
+    expect(formatProgressPercent(10.789)).toBe('10.79');
+    expect(formatProgressPercent(17.991)).toBe('17.99');
+    expect(formatProgressPercent(100)).toBe('100.00');
   });
 });
