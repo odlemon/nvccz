@@ -9,26 +9,24 @@ import {
   type GoalForSync,
   type SyncJobPlan
 } from "./performanceGoalSyncUtils";
-import { PerformanceGoalService } from "./PerformanceGoalService";
+import { PerformanceGoalService, legacyProgressFieldsForGoal } from "./PerformanceGoalService";
+import { deriveGoalProgressState, parseGoalCurrentAndTargetForAnalytics } from "./performanceGoalRollupUtils";
+import { resolveGoalEscalationStatus } from "./performanceScorecardSupport";
+import type { KpiSyncStrategy } from "./kpiFinancialAccountingRules";
 
 const SETTINGS_ID = "default";
+
+/** Login sync: incremental P&L merge only — no payroll refresh, no balance-sheet snapshots. */
+const LOGIN_SYNC_STRATEGIES = new Set<KpiSyncStrategy>([
+  "pl_revenue_total",
+  "pl_expense_total",
+  "pl_account_period",
+  "pl_net_profit"
+]);
 
 function isLoginSyncEnabled(): boolean {
   const raw = String(process.env.PERF_LOGIN_SYNC_ENABLED ?? "true").toLowerCase();
   return raw !== "false" && raw !== "0";
-}
-
-function loginSyncCooldownMs(): number {
-  const raw = Number(process.env.PERF_LOGIN_SYNC_COOLDOWN_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : 0;
-}
-
-async function getOrCreateSyncSettings() {
-  return prisma.performanceSyncSettings.upsert({
-    where: { id: SETTINGS_ID },
-    create: { id: SETTINGS_ID },
-    update: {}
-  });
 }
 
 export class AccountingGoalSyncService {
@@ -106,9 +104,12 @@ export class AccountingGoalSyncService {
   static async runSyncJob(
     job: SyncJobPlan,
     actorId: string,
-    options?: { payrollAlreadyRan?: boolean }
+    options?: { payrollAlreadyRan?: boolean; incrementalOnly?: boolean }
   ): Promise<{ updated: boolean; glNative: number | null; newTotal: number | null; skippedReason?: string }> {
     if (job.isPayroll) {
+      if (options?.incrementalOnly) {
+        return { updated: false, glNative: null, newTotal: null, skippedReason: "payroll_skipped_on_login" };
+      }
       if (options?.payrollAlreadyRan) {
         return { updated: false, glNative: null, newTotal: null, skippedReason: "payroll_delegated" };
       }
@@ -136,43 +137,97 @@ export class AccountingGoalSyncService {
       return { updated: false, glNative: null, newTotal: null, skippedReason: "no_mapping" };
     }
 
-    await PerformanceGoalProgressEventService.ensureBaselineFromGoalCurrent(
-      job.canonicalGoalId,
-      actorId
-    );
+    const goalRow = await prisma.performanceGoal.findUnique({
+      where: { id: job.canonicalGoalId },
+      include: { kpi: { select: { name: true, accountType: true } } }
+    });
+    if (!goalRow) {
+      return { updated: false, glNative: null, newTotal: null, skippedReason: "goal_not_found" };
+    }
 
-    const { total } = await PerformanceGoalProgressEventService.upsertGlSyncEvent({
-      goalId: job.canonicalGoalId,
-      glNativeAmount: glNative,
-      periodStart: job.periodStart,
-      periodEnd: job.periodEnd,
-      createdById: actorId
+    const { current: prevCurrent } = parseGoalCurrentAndTargetForAnalytics(goalRow);
+    const syncConfigRaw = goalRow.syncConfig;
+    const syncConfig =
+      syncConfigRaw && typeof syncConfigRaw === "object" && !Array.isArray(syncConfigRaw)
+        ? (syncConfigRaw as Record<string, unknown>)
+        : {};
+    const prevGlNative = Number(syncConfig.glNativeAmount ?? syncConfig.lastGlNative ?? 0);
+    const prevGl = Number.isFinite(prevGlNative) ? prevGlNative : 0;
+
+    const increment = glNative - prevGl;
+    if (Math.abs(increment) < 0.0005) {
+      logger.info("Performance GL sync skipped — no new posted GL since last sync", {
+        kpiCode: job.kpiCode,
+        goalId: job.canonicalGoalId,
+        glNative,
+        prevGl
+      });
+      return { updated: false, glNative, newTotal: prevCurrent, skippedReason: "no_gl_delta" };
+    }
+
+    const newCurrent = prevCurrent + increment;
+
+    const progressState = deriveGoalProgressState({
+      currentValue: newCurrent,
+      targetValue: goalRow.targetValue,
+      targetOperator: goalRow.targetOperator,
+      isReverseKpi: goalRow.isReverseKpi,
+      previousStage: goalRow.stage,
+      progressPercentage: goalRow.progressPercentage
+    });
+
+    const performanceRiskZone = resolveGoalEscalationStatus({
+      currentValue: newCurrent,
+      preciseCurrentValue: String(newCurrent),
+      targetValue: goalRow.targetValue,
+      preciseTargetValue: goalRow.preciseTargetValue,
+      allowableVariance: goalRow.allowableVariance,
+      isReverseKpi: goalRow.isReverseKpi,
+      endDate: goalRow.endDate
     });
 
     await prisma.performanceGoal.update({
       where: { id: job.canonicalGoalId },
       data: {
+        currentValue: newCurrent,
+        preciseCurrentValue: String(newCurrent),
+        progressPercentage: progressState.progressPercentage,
+        status: progressState.status,
+        stage: progressState.stage,
+        performanceRiskZone,
+        performanceRiskZoneAt: new Date(),
+        lastSyncedAt: new Date(),
+        lastSyncedValue: newCurrent,
+        ...legacyProgressFieldsForGoal(goalRow, newCurrent),
         syncConfig: {
+          ...syncConfig,
           source: "posted_journal_lines",
           glKpiCode: job.kpiCode,
           glSyncStrategy: job.financialProfile.syncStrategy,
           glPeriodStart: job.periodStart.toISOString(),
           glPeriodEnd: job.periodEnd.toISOString(),
           glSyncedAt: new Date().toISOString(),
-          glNativeAmount: glNative
+          glNativeAmount: glNative,
+          glLastIncrement: increment
         },
         lastSyncJobId: `login-sync-${job.kpiCode}`
       }
     });
 
-    const goalRow = await prisma.performanceGoal.findUnique({
-      where: { id: job.canonicalGoalId },
-      select: { kpiId: true }
+    await PerformanceGoalProgressEventService.recordEvent({
+      goalId: job.canonicalGoalId,
+      amount: increment,
+      recordedAt: job.periodEnd,
+      source: "gl_sync",
+      sourceRef: `gl_sync_delta:${job.periodStart.toISOString().slice(0, 10)}:${job.periodEnd.toISOString().slice(0, 10)}:${Date.now()}`,
+      createdById: actorId,
+      skipRecompute: true
     });
-    await this.cascadeAfterGoalUpdate(job.canonicalGoalId, goalRow?.kpiId ?? null);
+
+    await this.mirrorCompanyCurrentToDepartmentGoals(job.canonicalGoalId, newCurrent, progressState);
 
     console.log(
-      `🔄 Performance GL sync ${job.kpiCode} goal ${job.canonicalGoalTitle}: glNative=${glNative} total=${total}`
+      `🔄 Performance GL sync ${job.kpiCode} goal ${job.canonicalGoalTitle}: prev=${prevCurrent} +Δ${increment} (gl ${prevGl}→${glNative}) = ${newCurrent}`
     );
 
     if (job.duplicateGoalIds.length) {
@@ -183,7 +238,58 @@ export class AccountingGoalSyncService {
       });
     }
 
-    return { updated: true, glNative, newTotal: total };
+    return { updated: true, glNative, newTotal: newCurrent };
+  }
+
+  /** After company goal GL increment: mirror current to direct department children only (not individual / tasks). */
+  static async mirrorCompanyCurrentToDepartmentGoals(
+    companyGoalId: string,
+    newCurrent: number,
+    progressState: ReturnType<typeof deriveGoalProgressState>
+  ): Promise<void> {
+    const deptGoals = await prisma.performanceGoal.findMany({
+      where: {
+        parentGoalId: companyGoalId,
+        type: "department"
+      }
+    });
+
+    for (const dept of deptGoals) {
+      const deptProgress = deriveGoalProgressState({
+        currentValue: newCurrent,
+        targetValue: dept.targetValue,
+        targetOperator: dept.targetOperator,
+        isReverseKpi: dept.isReverseKpi,
+        previousStage: dept.stage,
+        progressPercentage: dept.progressPercentage
+      });
+      const deptRisk = resolveGoalEscalationStatus({
+        currentValue: newCurrent,
+        preciseCurrentValue: String(newCurrent),
+        targetValue: dept.targetValue,
+        preciseTargetValue: dept.preciseTargetValue,
+        allowableVariance: dept.allowableVariance,
+        isReverseKpi: dept.isReverseKpi,
+        endDate: dept.endDate
+      });
+
+      await prisma.performanceGoal.update({
+        where: { id: dept.id },
+        data: {
+          currentValue: newCurrent,
+          preciseCurrentValue: String(newCurrent),
+          progressPercentage: deptProgress.progressPercentage,
+          status: deptProgress.status,
+          stage: deptProgress.stage,
+          performanceRiskZone: deptRisk,
+          performanceRiskZoneAt: new Date(),
+          lastSyncedAt: new Date(),
+          lastSyncedValue: newCurrent,
+          ...legacyProgressFieldsForGoal(dept, newCurrent),
+          updatedAt: new Date()
+        }
+      });
+    }
   }
 
   static async runFullSync(input: {
@@ -191,15 +297,25 @@ export class AccountingGoalSyncService {
     periodEnd: Date;
     actorId: string;
     kpiCodes?: string[];
+    /** When true (login path): P&L incremental merge only; skip payroll + balance sheet. */
+    loginSyncOnly?: boolean;
   }): Promise<{
     jobCount: number;
     updated: number;
     skipped: number;
     errors: string[];
   }> {
-    const jobs = await this.planSyncJobs(input.periodStart, input.periodEnd, input.kpiCodes);
+    let jobs = await this.planSyncJobs(input.periodStart, input.periodEnd, input.kpiCodes);
+
+    if (input.loginSyncOnly) {
+      jobs = jobs.filter(
+        (j) => !j.isPayroll && LOGIN_SYNC_STRATEGIES.has(j.financialProfile.syncStrategy)
+      );
+    }
+
     logger.info("Performance sync plan", {
       jobCount: jobs.length,
+      loginSyncOnly: Boolean(input.loginSyncOnly),
       periodStart: input.periodStart.toISOString(),
       periodEnd: input.periodEnd.toISOString()
     });
@@ -225,7 +341,10 @@ export class AccountingGoalSyncService {
           periodStart: job.periodStart.toISOString().slice(0, 10),
           periodEnd: job.periodEnd.toISOString().slice(0, 10)
         });
-        const result = await this.runSyncJob(job, input.actorId, { payrollAlreadyRan: payrollRan });
+        const result = await this.runSyncJob(job, input.actorId, {
+          payrollAlreadyRan: payrollRan,
+          incrementalOnly: Boolean(input.loginSyncOnly)
+        });
         if (job.isPayroll && result.updated) payrollRan = true;
         if (result.updated) updated += 1;
         else skipped += 1;
@@ -252,32 +371,21 @@ export class AccountingGoalSyncService {
       return;
     }
 
-    const cooldownMs = loginSyncCooldownMs();
-
     try {
-      logger.info("Performance login sync started", { actorId, cooldownMs });
-
-      const settings = await getOrCreateSyncSettings();
-      const last = settings.lastLoginSyncAt;
-      if (last != null && cooldownMs > 0) {
-        const elapsed = Date.now() - last.getTime();
-        if (elapsed < cooldownMs) {
-          logger.info("Performance login sync skipped by cooldown", {
-            actorId,
-            cooldownMs,
-            elapsedMs: elapsed,
-            lastLoginSyncAt: last.toISOString()
-          });
-          return;
-        }
-      }
+      logger.info("Performance login sync started", { actorId });
 
       const { periodStart, periodEnd } = defaultLoginSyncPeriod();
-      const result = await this.runFullSync({ periodStart, periodEnd, actorId });
+      const result = await this.runFullSync({
+        periodStart,
+        periodEnd,
+        actorId,
+        loginSyncOnly: true
+      });
 
-      await prisma.performanceSyncSettings.update({
+      await prisma.performanceSyncSettings.upsert({
         where: { id: SETTINGS_ID },
-        data: { lastLoginSyncAt: new Date() }
+        create: { id: SETTINGS_ID, lastLoginSyncAt: new Date() },
+        update: { lastLoginSyncAt: new Date() }
       });
 
       if (result.jobCount === 0) {

@@ -13,6 +13,8 @@ export type ApplyProgressDeltaInput = {
   sourceRef?: string | null;
   recordedAt?: Date;
   actorId: string;
+  /** When true, record event but do not post a journal (task path posts at company goal). */
+  skipJournal?: boolean;
 };
 
 /**
@@ -42,7 +44,7 @@ export class PerformanceGoalProgressBridge {
       createdById: input.actorId
     });
 
-    if (goal.kpi && delta > 0) {
+    if (!input.skipJournal && goal.kpi && delta > 0) {
       try {
         const journalEntryId = await KpiAccountingIntegrationService.postPerformanceProgressJournal({
           goalId: input.goalId,
@@ -69,5 +71,109 @@ export class PerformanceGoalProgressBridge {
     await AccountingGoalSyncService.cascadeAfterGoalUpdate(input.goalId, goal.kpiId);
 
     return { eventId, total };
+  }
+
+  /** Walk up parentGoalId chain to the top-level company goal. */
+  static async findRootCompanyGoalId(startGoalId: string): Promise<string | null> {
+    let currentId: string | null = startGoalId;
+    const seen = new Set<string>();
+    while (currentId && !seen.has(currentId)) {
+      seen.add(currentId);
+      const row = await prisma.performanceGoal.findUnique({
+        where: { id: currentId },
+        select: { id: true, type: true, parentGoalId: true }
+      });
+      if (!row) return null;
+      if (String(row.type || "").toLowerCase() === "company" && !row.parentGoalId) {
+        return row.id;
+      }
+      if (String(row.type || "").toLowerCase() === "company" && row.parentGoalId) {
+        return row.id;
+      }
+      currentId = row.parentGoalId;
+    }
+    return null;
+  }
+
+  /**
+   * After task activity: record increment on leaf goal (no JE), roll up parents, post PERF-GOAL at company.
+   */
+  static async postCompanyJournalForTaskIncrement(input: {
+    leafGoalId: string;
+    increment: number;
+    taskId: string;
+    actorId: string;
+    companyGoalId?: string | null;
+    preloadedCompanyGoal?: {
+      id: string;
+      kpi: Record<string, unknown>;
+      parentGoalId?: string | null;
+      title?: string;
+      targetUnit?: string | null;
+      createdById?: string;
+      formulaType?: string | null;
+    } | null;
+  }): Promise<string | null> {
+    const increment = Number(input.increment);
+    if (!Number.isFinite(increment) || increment <= 0) {
+      return null;
+    }
+
+    const companyGoalId =
+      input.companyGoalId ??
+      (await this.findRootCompanyGoalId(input.leafGoalId));
+    if (!companyGoalId) {
+      logger.info("Task progress: no company goal in hierarchy — skip company JE", {
+        leafGoalId: input.leafGoalId
+      });
+      return null;
+    }
+
+    const companyGoal =
+      input.preloadedCompanyGoal?.id === companyGoalId
+        ? input.preloadedCompanyGoal
+        : await prisma.performanceGoal.findUnique({
+            where: { id: companyGoalId },
+            include: { kpi: true }
+          });
+    if (!companyGoal?.kpi) {
+      return null;
+    }
+
+    const sourceRef = `task:${input.taskId}:${Date.now()}`;
+    const { eventId } = await PerformanceGoalProgressEventService.recordEvent({
+      goalId: companyGoalId,
+      amount: increment,
+      recordedAt: new Date(),
+      source: "task",
+      sourceRef,
+      createdById: input.actorId,
+      skipRecompute: true
+    });
+
+    try {
+      const journalEntryId = await KpiAccountingIntegrationService.postPerformanceProgressJournal({
+        goalId: companyGoalId,
+        eventId,
+        amount: increment,
+        recordedAt: new Date(),
+        actorId: input.actorId,
+        preloadedGoal: companyGoal
+      });
+      if (journalEntryId) {
+        await prisma.performanceGoalProgressEvent.update({
+          where: { id: eventId },
+          data: { journalEntryId }
+        });
+      }
+      return journalEntryId;
+    } catch (err: any) {
+      logger.warn("Company task progress JE failed", {
+        companyGoalId,
+        eventId,
+        message: err?.message
+      });
+      return null;
+    }
   }
 }

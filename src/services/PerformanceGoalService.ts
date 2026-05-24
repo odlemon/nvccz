@@ -2361,11 +2361,188 @@ export class PerformanceGoalService {
   /**
    * Update parent goal progress based on child goals
    */
+  static async rollupParentChainFromLeaf(leafGoalId: string): Promise<{
+    companyGoalId: string | null;
+    companyGoal: { id: string; kpi: unknown; parentGoalId: string | null; title: string; targetUnit: string | null; createdById: string; formulaType: string | null } | null;
+  }> {
+    const leaf = await prisma.performanceGoal.findUnique({
+      where: { id: leafGoalId },
+      select: { parentGoalId: true }
+    });
+    if (!leaf?.parentGoalId) {
+      return { companyGoalId: null, companyGoal: null };
+    }
+
+    const ancestorIds: string[] = [];
+    let cursor: string | null = leaf.parentGoalId;
+    const visited = new Set<string>();
+    while (cursor && !visited.has(cursor)) {
+      visited.add(cursor);
+      ancestorIds.push(cursor);
+      const hop = await prisma.performanceGoal.findUnique({
+        where: { id: cursor },
+        select: { parentGoalId: true }
+      });
+      cursor = hop?.parentGoalId ?? null;
+    }
+
+    if (!ancestorIds.length) {
+      return { companyGoalId: null, companyGoal: null };
+    }
+
+    const parentRollupInclude = {
+      kpi: {
+        select: {
+          accountType: true,
+          name: true,
+          code: true,
+          catalogDescription: true,
+          catalogDepartmentName: true,
+          accountNumber: true,
+          journalEntryType: true,
+          isFinancial: true
+        }
+      },
+      subGoals: {
+        select: {
+          id: true,
+          activities: true,
+          currentValue: true,
+          targetValue: true,
+          targetOperator: true,
+          isReverseKpi: true,
+          scorecardWeight: true,
+          progressPercentage: true,
+          stage: true,
+          status: true
+        }
+      }
+    } as const;
+
+    let companyGoalId: string | null = null;
+    let companyGoal: Awaited<ReturnType<typeof prisma.performanceGoal.findUnique>> | null = null;
+
+    // Process leaf-adjacent parent first; re-fetch each level so subGoals reflect
+    // updates from the level below (batch findMany left company rollup stale).
+    for (const parentId of ancestorIds) {
+      const parentGoal = await prisma.performanceGoal.findUnique({
+        where: { id: parentId },
+        include: parentRollupInclude
+      });
+      if (!parentGoal) continue;
+      if (String(parentGoal.type || "").toLowerCase() === "company") {
+        companyGoalId = parentGoal.id;
+        companyGoal = parentGoal;
+      }
+      await this.applyParentRollupFromLoadedGoal(parentGoal);
+    }
+
+    return {
+      companyGoalId,
+      companyGoal: companyGoal
+        ? {
+            id: companyGoal.id,
+            kpi: companyGoal.kpi,
+            parentGoalId: companyGoal.parentGoalId,
+            title: companyGoal.title,
+            targetUnit: companyGoal.targetUnit,
+            createdById: companyGoal.createdById,
+            formulaType: companyGoal.formulaType
+          }
+        : null
+    };
+  }
+
+  static async applyParentRollupFromLoadedGoal(parentGoal: {
+    id: string;
+    targetValue: unknown;
+    targetOperator: string | null;
+    isReverseKpi: boolean | null;
+    preciseTargetValue: string | null;
+    allowableVariance: unknown;
+    endDate: Date | null;
+    stage: string | null;
+    parentGoalId: string | null;
+    type?: string | null;
+    kpi?: { accountType: string | null } | null;
+    subGoals: Parameters<typeof computeParentRollupFromChildren>[0];
+  }): Promise<void> {
+    if (!parentGoal.subGoals || parentGoal.subGoals.length === 0) {
+      const parentRiskZone = resolveGoalEscalationStatus({
+        currentValue: 0,
+        preciseCurrentValue: "0",
+        targetValue: parentGoal.targetValue,
+        preciseTargetValue: parentGoal.preciseTargetValue,
+        allowableVariance: parentGoal.allowableVariance,
+        isReverseKpi: parentGoal.isReverseKpi,
+        endDate: parentGoal.endDate
+      });
+
+      await prisma.performanceGoal.update({
+        where: { id: parentGoal.id },
+        data: {
+          currentValue: 0,
+          preciseCurrentValue: "0",
+          progressPercentage: 0,
+          stage: "planning",
+          status: "active",
+          performanceRiskZone: parentRiskZone,
+          performanceRiskZoneAt: new Date(),
+          updatedAt: new Date()
+        }
+      });
+      return;
+    }
+
+    const rollup = computeParentRollupFromChildren(
+      parentGoal.subGoals as Parameters<typeof computeParentRollupFromChildren>[0],
+      parentGoal.targetValue,
+      {
+        targetOperator: parentGoal.targetOperator,
+        isReverseKpi: parentGoal.isReverseKpi,
+        accountType: parentGoal.kpi?.accountType ?? null
+      }
+    );
+    const { stage: newStage, status: newStatus } = deriveParentStageFromRollup({
+      allCompleted: rollup.allCompleted,
+      anyInProgress: rollup.anyInProgress,
+      weightedProgress: rollup.progressPercentage,
+      suggestedCurrentValue: rollup.suggestedCurrentValue,
+      subGoalCount: parentGoal.subGoals.length,
+      previousStage: parentGoal.stage || "planning"
+    });
+
+    const parentRiskZone = resolveGoalEscalationStatus({
+      currentValue: rollup.suggestedCurrentValue,
+      preciseCurrentValue: String(rollup.suggestedCurrentValue),
+      targetValue: parentGoal.targetValue,
+      preciseTargetValue: parentGoal.preciseTargetValue,
+      allowableVariance: parentGoal.allowableVariance,
+      isReverseKpi: parentGoal.isReverseKpi,
+      endDate: parentGoal.endDate
+    });
+
+    await prisma.performanceGoal.update({
+      where: { id: parentGoal.id },
+      data: {
+        currentValue: rollup.suggestedCurrentValue,
+        preciseCurrentValue: String(rollup.suggestedCurrentValue),
+        progressPercentage: rollup.progressPercentage,
+        stage: newStage,
+        status: newStatus,
+        performanceRiskZone: parentRiskZone,
+        performanceRiskZoneAt: new Date(),
+        updatedAt: new Date()
+      }
+    });
+  }
+
   static async updateParentGoalProgress(parentGoalId: string): Promise<void> {
     try {
       const parentGoal = await prisma.performanceGoal.findUnique({
         where: { id: parentGoalId },
         include: {
+          kpi: { select: { accountType: true } },
           subGoals: {
             select: {
               id: true,
@@ -2387,75 +2564,8 @@ export class PerformanceGoalService {
         return;
       }
 
-      if (!parentGoal.subGoals || parentGoal.subGoals.length === 0) {
-        const parentRiskZone = resolveGoalEscalationStatus({
-          currentValue: 0,
-          preciseCurrentValue: "0",
-          targetValue: parentGoal.targetValue,
-          preciseTargetValue: parentGoal.preciseTargetValue,
-          allowableVariance: parentGoal.allowableVariance,
-          isReverseKpi: parentGoal.isReverseKpi,
-          endDate: parentGoal.endDate
-        });
+      await this.applyParentRollupFromLoadedGoal(parentGoal);
 
-        await prisma.performanceGoal.update({
-          where: { id: parentGoalId },
-          data: {
-            currentValue: 0,
-            preciseCurrentValue: "0",
-            progressPercentage: 0,
-            stage: "planning",
-            status: "active",
-            performanceRiskZone: parentRiskZone,
-            performanceRiskZoneAt: new Date(),
-            updatedAt: new Date()
-          }
-        });
-
-        if (parentGoal.parentGoalId) {
-          await this.updateParentGoalProgress(parentGoal.parentGoalId);
-        }
-        return;
-      }
-
-      const rollup = computeParentRollupFromChildren(
-        parentGoal.subGoals as Parameters<typeof computeParentRollupFromChildren>[0],
-        parentGoal.targetValue
-      );
-      const { stage: newStage, status: newStatus } = deriveParentStageFromRollup({
-        allCompleted: rollup.allCompleted,
-        anyInProgress: rollup.anyInProgress,
-        weightedProgress: rollup.progressPercentage,
-        suggestedCurrentValue: rollup.suggestedCurrentValue,
-        subGoalCount: parentGoal.subGoals.length,
-        previousStage: parentGoal.stage || "planning"
-      });
-
-      const parentRiskZone = resolveGoalEscalationStatus({
-        currentValue: rollup.suggestedCurrentValue,
-        preciseCurrentValue: String(rollup.suggestedCurrentValue),
-        targetValue: parentGoal.targetValue,
-        preciseTargetValue: parentGoal.preciseTargetValue,
-        allowableVariance: parentGoal.allowableVariance,
-        isReverseKpi: parentGoal.isReverseKpi,
-        endDate: parentGoal.endDate
-      });
-
-      await prisma.performanceGoal.update({
-        where: { id: parentGoalId },
-        data: {
-          currentValue: rollup.suggestedCurrentValue,
-          preciseCurrentValue: String(rollup.suggestedCurrentValue),
-          progressPercentage: rollup.progressPercentage,
-          stage: newStage,
-          status: newStatus,
-          performanceRiskZone: parentRiskZone,
-          performanceRiskZoneAt: new Date(),
-          updatedAt: new Date()
-        }
-      });
-
-      // Recursively update grandparent if exists
       if (parentGoal.parentGoalId) {
         await this.updateParentGoalProgress(parentGoal.parentGoalId);
       }

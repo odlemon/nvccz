@@ -14,9 +14,9 @@ router.use(authenticate);
  *   get:
  *     summary: Get KPI performance analysis
  *     description: |
- *       Analyze KPI performance across linked goals. When goals exist for a KPI,
- *       `totalCurrentValue` and progress come from **synced goal data** (company-level
- *       aggregation when a company goal exists). Ledger totals are exposed separately as
+ *       Analyze KPI performance across linked goals. **`totalCurrentValue` always comes from
+ *       company-level performance goals** (same as Total Revenue). KPIs with no company goal
+ *       show `0` until goals are linked and synced. Ledger totals are exposed separately as
  *       `accountingCurrentValue` for comparison when the KPI is financial.
  *       Use BSC GL period sync to import accounting into goals before expecting non-zero currents.
  *     tags: [📊 Performance Analytics]

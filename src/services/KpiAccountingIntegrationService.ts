@@ -20,6 +20,68 @@ export function performanceProgressJournalReference(goalId: string, eventId: str
 
 const PAYROLL_KPI_CODE = "PAYROLL_EXPENSE";
 
+const JE_LOOKUP_TTL_MS = 5 * 60 * 1000;
+
+type JeLookupCache = {
+  bankGlAccountId: string;
+  currencyId: string;
+  loadedAt: number;
+};
+
+const kpiAccountIdCache = new Map<string, { id: string; loadedAt: number }>();
+let jeLookupCache: JeLookupCache | null = null;
+
+async function resolvePerformanceJournalAccounts(accountNo: string): Promise<{
+  bankGlAccountId: string;
+  currencyId: string;
+  kpiAccountId: string;
+} | null> {
+  const now = Date.now();
+  let bankGlAccountId: string | undefined;
+  let currencyId: string | undefined;
+
+  if (jeLookupCache && now - jeLookupCache.loadedAt < JE_LOOKUP_TTL_MS) {
+    bankGlAccountId = jeLookupCache.bankGlAccountId;
+    currencyId = jeLookupCache.currencyId;
+  } else {
+    const [bank, defaultCurrency, usdCurrency, anyCurrency] = await Promise.all([
+      prisma.bank.findFirst({
+        where: { isActive: true, glAccountId: { not: null } },
+        orderBy: { createdAt: "asc" },
+        select: { glAccountId: true }
+      }),
+      prisma.currency.findFirst({ where: { isDefault: true, isActive: true }, select: { id: true } }),
+      prisma.currency.findFirst({ where: { code: "USD", isActive: true }, select: { id: true } }),
+      prisma.currency.findFirst({ where: { isActive: true }, select: { id: true } })
+    ]);
+    const currency = defaultCurrency || usdCurrency || anyCurrency;
+    if (!bank?.glAccountId || !currency?.id) {
+      return null;
+    }
+    bankGlAccountId = bank.glAccountId;
+    currencyId = currency.id;
+    jeLookupCache = { bankGlAccountId, currencyId, loadedAt: now };
+  }
+
+  const cachedAccount = kpiAccountIdCache.get(accountNo);
+  let kpiAccountId: string | undefined;
+  if (cachedAccount && now - cachedAccount.loadedAt < JE_LOOKUP_TTL_MS) {
+    kpiAccountId = cachedAccount.id;
+  } else {
+    const kpiAccount = await prisma.chartOfAccounts.findFirst({
+      where: { accountNo, isActive: true },
+      select: { id: true }
+    });
+    if (!kpiAccount?.id) {
+      return null;
+    }
+    kpiAccountId = kpiAccount.id;
+    kpiAccountIdCache.set(accountNo, { id: kpiAccountId, loadedAt: now });
+  }
+
+  return { bankGlAccountId: bankGlAccountId!, currencyId: currencyId!, kpiAccountId: kpiAccountId! };
+}
+
 export type KpiJournalSkipInput = {
   parentGoalId: string | null;
   kpiCode: string | null;
@@ -216,11 +278,15 @@ export class KpiAccountingIntegrationService {
     amount: number;
     recordedAt: Date;
     actorId: string;
+    /** Skip goal re-fetch when caller already loaded goal + kpi. */
+    preloadedGoal?: { kpi: Record<string, unknown>; parentGoalId?: string | null; formulaType?: string | null; title?: string; targetUnit?: string | null; createdById?: string };
   }): Promise<string | null> {
-    const goal = await prisma.performanceGoal.findUnique({
-      where: { id: params.goalId },
-      include: { kpi: true }
-    });
+    const goal =
+      params.preloadedGoal ??
+      (await prisma.performanceGoal.findUnique({
+        where: { id: params.goalId },
+        include: { kpi: true }
+      }));
     if (!goal?.kpi) return null;
 
     const profile = resolveKpiFinancialProfile({
@@ -254,37 +320,17 @@ export class KpiAccountingIntegrationService {
       return null;
     }
 
-    const bank = await prisma.bank.findFirst({
-      where: { isActive: true, glAccountId: { not: null } },
-      orderBy: { createdAt: "asc" },
-      select: { glAccountId: true }
-    });
-    if (!bank?.glAccountId) {
-      throw new Error("No active bank with a GL account linked (banks.glAccountId).");
-    }
-
     const accountNo = profile.accountNumber;
     const journalEntryType = profile.journalEntryType;
     if (!accountNo || !journalEntryType) {
       throw new Error(`KPI ${profile.code} has no GL account mapping for progress journals.`);
     }
 
-    const kpiAccount = await prisma.chartOfAccounts.findFirst({
-      where: { accountNo, isActive: true },
-      select: { id: true }
-    });
-    if (!kpiAccount) {
-      throw new Error(`No active chart account found for KPI account number ${accountNo}.`);
+    const accounts = await resolvePerformanceJournalAccounts(accountNo);
+    if (!accounts) {
+      throw new Error("No active bank with a GL account linked (banks.glAccountId).");
     }
-
-    const currency =
-      (await prisma.currency.findFirst({ where: { isDefault: true, isActive: true } })) ||
-      (await prisma.currency.findFirst({ where: { code: "USD", isActive: true } })) ||
-      (await prisma.currency.findFirst({ where: { isActive: true } }));
-
-    if (!currency) {
-      throw new Error("No active currency found for KPI journal entry.");
-    }
+    const { bankGlAccountId, currencyId, kpiAccountId } = accounts;
 
     const amount = params.amount;
     const posterId = params.actorId || goal.createdById;
@@ -295,19 +341,19 @@ export class KpiAccountingIntegrationService {
       description:
         `Performance: ${goal.title} — ${goal.kpi.name} — ${amount} ${goal.targetUnit || ""}`.trim(),
       totalAmount: amount,
-      currencyId: currency.id,
+      currencyId,
       status: "POSTED",
       createdById: posterId,
       journalEntryLines: {
         create: [
           {
-            chartOfAccountId: journalEntryType === "Debit" ? kpiAccount.id : bank.glAccountId,
+            chartOfAccountId: journalEntryType === "Debit" ? kpiAccountId : bankGlAccountId,
             debitAmount: journalEntryType === "Debit" ? amount : 0,
             creditAmount: journalEntryType === "Credit" ? amount : 0,
             description: `Performance KPI: ${goal.kpi.name}`
           },
           {
-            chartOfAccountId: journalEntryType === "Credit" ? kpiAccount.id : bank.glAccountId,
+            chartOfAccountId: journalEntryType === "Credit" ? kpiAccountId : bankGlAccountId,
             debitAmount: journalEntryType === "Credit" ? amount : 0,
             creditAmount: journalEntryType === "Debit" ? amount : 0,
             description: `Performance KPI: ${goal.kpi.name}`

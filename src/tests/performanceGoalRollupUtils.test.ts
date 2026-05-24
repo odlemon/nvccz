@@ -12,6 +12,9 @@ import {
   resolveKpiCurrentFromGoals,
   resolveKpiSyncStatus,
   resolveKpiTargetFromGoals,
+  resolveKpiCurrentFromGoalsForAnalytics,
+  resolveKpiProgressPercentForAnalytics,
+  parseGoalCurrentAndTargetForAnalytics,
   filterCompanyGoalsForKpiAnalytics
 } from '../services/performanceGoalRollupUtils';
 
@@ -310,6 +313,41 @@ describe('performanceGoalRollupUtils', () => {
     expect(resolveKpiTargetFromGoals(goals)).toBe(500000);
   });
 
+  test('parseGoalCurrentAndTargetForAnalytics uses currentValue not stale preciseCurrentValue', () => {
+    expect(
+      parseGoalCurrentAndTargetForAnalytics({
+        currentValue: 0,
+        targetValue: 35000,
+        preciseTargetValue: '35000'
+      })
+    ).toEqual({ current: 0, target: 35000 });
+    expect(
+      parseGoalCurrentAndTargetForAnalytics({
+        currentValue: 0,
+        targetValue: 35000,
+        preciseCurrentValue: '1924830.417'
+      })
+    ).toEqual({ current: 0, target: 35000 });
+  });
+
+  test('resolveKpiCurrentFromGoalsForAnalytics sums company currentValue only', () => {
+    expect(
+      resolveKpiCurrentFromGoalsForAnalytics([
+        { type: 'company', currentValue: 0, targetValue: 35000, preciseCurrentValue: '1924830' },
+        { type: 'department', currentValue: 999, targetValue: 1 }
+      ])
+    ).toBe(0);
+  });
+
+  test('resolveKpiProgressPercentForAnalytics prefers stored progressPercentage', () => {
+    expect(
+      resolveKpiProgressPercentForAnalytics(
+        [{ type: 'company', currentValue: 0, targetValue: 35000, progressPercentage: 12.5 }],
+        null
+      )
+    ).toBe(12.5);
+  });
+
   test('filterCompanyGoalsForKpiAnalytics excludes dept and individual', () => {
     const goals = [
       { type: 'company', id: 'c1' },
@@ -317,6 +355,57 @@ describe('performanceGoalRollupUtils', () => {
       { type: 'individual', id: 'i1' }
     ];
     expect(filterCompanyGoalsForKpiAnalytics(goals).map((g) => g.id)).toEqual(['c1']);
+  });
+
+  test('additive revenue parent rollup sums child currentValue (not target × weighted %)', () => {
+    const subGoals = [
+      {
+        id: 'ind1',
+        activities: {},
+        currentValue: 500,
+        targetValue: 35000,
+        targetOperator: '>=',
+        stage: 'in_progress',
+        status: 'active'
+      }
+    ];
+    const rollup = computeParentRollupFromChildren(subGoals, 35000, {
+      targetOperator: '>=',
+      isReverseKpi: false,
+      accountType: 'Revenue'
+    });
+    expect(rollup.suggestedCurrentValue).toBe(500);
+    expect(rollup.progressPercentage).toBeCloseTo((500 / 35000) * 100, 2);
+  });
+
+  test('additive rollup: 500 + 200 child currents → parent 700', () => {
+    const subGoals = [
+      {
+        id: 'ind1',
+        activities: {},
+        currentValue: 500,
+        targetValue: 35000,
+        targetOperator: '>=',
+        stage: 'in_progress',
+        status: 'active'
+      },
+      {
+        id: 'ind2',
+        activities: {},
+        currentValue: 200,
+        targetValue: 35000,
+        targetOperator: '>=',
+        stage: 'in_progress',
+        status: 'active'
+      }
+    ];
+    const rollup = computeParentRollupFromChildren(subGoals, 70000, {
+      targetOperator: '>=',
+      isReverseKpi: false,
+      accountType: 'Revenue'
+    });
+    expect(rollup.suggestedCurrentValue).toBe(700);
+    expect(rollup.progressPercentage).toBeCloseTo(1, 1);
   });
 
   test('resolveKpiSyncStatus detects BSC/GL sync metadata', () => {

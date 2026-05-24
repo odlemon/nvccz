@@ -2,19 +2,25 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "@prisma/client/runtime/library";
 import { HARDCODED_KPIS, HardcodedKPI } from "../config/hardcodedKPIs";
-import { IncomeStatementService } from "./IncomeStatementService";
-import { BalanceSheetService } from "./BalanceSheetService";
 import {
   computeAchievementPercent,
   formatProgressPercent,
   isTargetMet,
   parseGoalCurrentAndTarget,
   resolveEffectiveReverseKpi,
-  resolveKpiCurrentFromGoals,
+  resolveKpiCurrentFromGoalsForAnalytics,
+  resolveKpiProgressPercentForAnalytics,
   resolveKpiSyncStatus,
-  resolveKpiTargetFromGoals,
-  filterCompanyGoalsForKpiAnalytics
+  resolveKpiTargetFromGoalsForAnalytics,
+  filterCompanyGoalsForKpiAnalytics,
+  parseGoalCurrentAndTargetForAnalytics
 } from "./performanceGoalRollupUtils";
+import {
+  isDbOrCatalogFinancial,
+  resolveKpiFinancialProfile
+} from "./kpiFinancialAccountingRules";
+import { FinancialKpiGlValueService } from "./FinancialKpiGlValueService";
+import { getPostedPeriodNetForAccountNo } from "./AccountingGlPeriodTotalsService";
 
 /** Prisma `KPI` has no `type` field — use `accountType` / `code`; expose legacy `type` on API payloads. */
 const KPI_ANALYTICS_SELECT = {
@@ -123,7 +129,7 @@ export class PerformanceAnalyticsService {
         
         acc[kpiId].goals.push(goal);
         {
-          const { target: t } = parseGoalCurrentAndTarget(goal);
+          const { target: t } = parseGoalCurrentAndTargetForAnalytics(goal);
           acc[kpiId].totalTargetValue += t;
         }
         acc[kpiId].goalCount += 1;
@@ -168,90 +174,11 @@ export class PerformanceAnalyticsService {
         return null;
       };
 
-      const needsIncomeStatement = Object.values(kpiGroups).some((group: any) => {
-        const config = resolveHardcodedKpiConfig(group.kpi);
-        if (!config || !config.isFinancial) return false;
-        return ["Revenue", "Income", "Expense"].includes(config.accountType);
-      });
-
-      const needsBalanceSheet = Object.values(kpiGroups).some((group: any) => {
-        const config = resolveHardcodedKpiConfig(group.kpi);
-        if (!config || !config.isFinancial) return false;
-        return [
-          "Asset",
-          "Current Asset",
-          "Fixed Asset",
-          "Long-Term Asset",
-          "Other Asset",
-          "Liability",
-          "Current Liability",
-          "Long-Term Liability",
-          "Equity",
-        ].includes(config.accountType);
-      });
-
-      let effectiveDateRange = dateRange;
-
-      if (!effectiveDateRange && (needsIncomeStatement || needsBalanceSheet)) {
-        const earliestEntry = await prisma.journalEntry.findFirst({
-          where: { status: 'POSTED' },
-          orderBy: { transactionDate: 'asc' },
-          select: { transactionDate: true }
-        });
-
-        if (earliestEntry?.transactionDate) {
-          effectiveDateRange = {
-            start: earliestEntry.transactionDate,
-            end: new Date()
-          };
-        }
-      }
-
-      const incomeStatementRange = (() => {
-        if (!effectiveDateRange) {
-          const end = new Date();
-          const start = new Date(end.getFullYear(), end.getMonth(), 1);
-          return { startDate: start, endDate: end, currencyId: currencyId || undefined };
-        }
-        return { startDate: effectiveDateRange.start, endDate: effectiveDateRange.end, currencyId: currencyId || undefined };
-      })();
-
-      const balanceSheetParams: any = {
-        asOfDate: effectiveDateRange?.end ?? new Date()
-      };
-      
-      // Explicitly add currencyId if provided
-      if (currencyId && typeof currencyId === 'string' && currencyId.trim().length > 0) {
-        balanceSheetParams.currencyId = currencyId.trim();
-        console.log(`[PerformanceAnalytics] Setting currencyId in balanceSheetParams: ${balanceSheetParams.currencyId}`);
-      } else {
-        console.log(`[PerformanceAnalytics] ⚠️ No currencyId provided or currencyId is empty`);
-      }
-
-      let incomeStatementPromise: Promise<any> | null = null;
-      let balanceSheetPromise: Promise<any> | null = null;
-
-      const loadIncomeStatement = async () => {
-        if (!incomeStatementPromise) {
-          incomeStatementPromise = IncomeStatementService.generateIncomeStatement(incomeStatementRange);
-        }
-        return incomeStatementPromise;
-      };
-
-      const loadBalanceSheet = async () => {
-        if (!balanceSheetPromise) {
-          console.log(`\n[PerformanceAnalytics] Loading Balance Sheet with params:`);
-          console.log(`   asOfDate: ${balanceSheetParams.asOfDate.toISOString()}`);
-          console.log(`   currencyId: ${balanceSheetParams.currencyId || 'NOT PROVIDED ⚠️'}`);
-          balanceSheetPromise = BalanceSheetService.generateBalanceSheet(balanceSheetParams);
-        }
-        return balanceSheetPromise;
-      };
+      const analyticsPeriod = this.resolveAnalyticsPeriod(dateRange);
 
       // Calculate analytics for each KPI
       const kpiAnalytics = await Promise.all(Object.values(kpiGroups).map(async (group: any) => {
         let accountingValue: number | null = null;
-        const kpiNameKey = group.kpi?.name?.toLowerCase();
         const hardcodedConfig = resolveHardcodedKpiConfig(group.kpi);
         const catalogAccountType = hardcodedConfig?.accountType ?? group.kpi?.accountType ?? null;
         const isReverseKpi = resolveEffectiveReverseKpi(
@@ -259,42 +186,38 @@ export class PerformanceAnalyticsService {
           group.goals
         );
 
-        // Only fetch accounting values for financial KPIs that use accounting data
-        if (kpiNameKey && financialKPIMap.has(kpiNameKey)) {
-          const kpiConfig = hardcodedConfig || financialKPIMap.get(kpiNameKey)!;
+        const profile = resolveKpiFinancialProfile({
+          name: group.kpi?.name ?? "",
+          code: group.kpi?.code ?? hardcodedConfig?.code ?? null,
+          catalogDescription: hardcodedConfig?.description ?? null,
+          catalogDepartmentName: hardcodedConfig?.department ?? null,
+          accountType: catalogAccountType,
+          accountNumber: hardcodedConfig?.accountNumber ?? null,
+          journalEntryType: hardcodedConfig?.journalEntryType ?? null,
+          isFinancial: Boolean(group.kpi?.isFinancial || hardcodedConfig?.isFinancial)
+        });
 
-          if (kpiConfig.isFinancial) {
-            accountingValue = await this.getAccountingValueForKPI(
-              kpiConfig,
-              effectiveDateRange,
-              needsIncomeStatement ? loadIncomeStatement : null,
-              needsBalanceSheet ? loadBalanceSheet : null
-            );
-          }
+        if (isDbOrCatalogFinancial(profile)) {
+          accountingValue = await this.getAccountingValueForKpiProfile(
+            profile,
+            analyticsPeriod,
+            currencyId
+          );
         }
 
         const companyGoals = filterCompanyGoalsForKpiAnalytics(group.goals);
-        const goalCurrentTotal = resolveKpiCurrentFromGoals(companyGoals);
-        const companyTargetTotal = resolveKpiTargetFromGoals(companyGoals);
+        const goalCurrentTotal = resolveKpiCurrentFromGoalsForAnalytics(companyGoals);
+        const companyTargetTotal = resolveKpiTargetFromGoalsForAnalytics(companyGoals);
         const hasGoals = companyGoals.length > 0;
 
-        const totalCurrentValue = hasGoals
-          ? goalCurrentTotal
-          : accountingValue !== null
-            ? accountingValue
-            : goalCurrentTotal;
+        // Primary metrics always from performance goals (same as Total Revenue line).
+        const totalCurrentValue = goalCurrentTotal;
 
         const goalProgressNum = hasGoals
-          ? companyTargetTotal > 0
-            ? computeAchievementPercent({
-                currentValue: goalCurrentTotal,
-                targetValue: companyTargetTotal,
-                targetOperator: isReverseKpi ? "<=" : ">=",
-                isReverseKpi
-              })
-            : goalCurrentTotal > 0
-              ? 100
-              : 0
+          ? resolveKpiProgressPercentForAnalytics(companyGoals, {
+              isReverseKpi,
+              accountType: catalogAccountType
+            })
           : 0;
 
         let accountingProgressPercentage: string | undefined;
@@ -309,26 +232,14 @@ export class PerformanceAnalyticsService {
           );
         }
 
-        const progressPercentage = hasGoals
-          ? formatProgressPercent(goalProgressNum)
-          : accountingProgressPercentage ?? "0.00";
-
-        const progressSource: "goals" | "accounting" = hasGoals
-          ? "goals"
-          : accountingValue !== null
-            ? "accounting"
-            : "goals";
-
-        const sourceCurrentValue: "performance_goals" | "accounting" = hasGoals
-          ? "performance_goals"
-          : accountingValue !== null
-            ? "accounting"
-            : "performance_goals";
+        const progressPercentage = formatProgressPercent(goalProgressNum);
+        const progressSource: "goals" | "accounting" = "goals";
+        const sourceCurrentValue: "performance_goals" | "accounting" = "performance_goals";
 
         const syncStatus = hasGoals ? resolveKpiSyncStatus(companyGoals) : undefined;
 
         const goalsTargetMet = companyGoals.filter((g: any) => {
-          const { current, target } = parseGoalCurrentAndTarget(g);
+          const { current, target } = parseGoalCurrentAndTargetForAnalytics(g);
           return isTargetMet(
             current,
             target,
@@ -337,13 +248,19 @@ export class PerformanceAnalyticsService {
           );
         }).length;
 
-        const completedGoals = companyGoals.filter((g: any) => g.stage === "completed").length;
-        const inProgressGoals = companyGoals.filter((g: any) => g.stage === "in_progress").length;
-        const notStartedGoals = companyGoals.filter((g: any) => g.stage === "planning").length;
+        const completedGoals = companyGoals.filter(
+          (g: any) => String(g.stage || "").toLowerCase() === "completed"
+        ).length;
+        const inProgressGoals = companyGoals.filter(
+          (g: any) => String(g.stage || "").toLowerCase() === "in_progress"
+        ).length;
+        const notStartedGoals = companyGoals.filter(
+          (g: any) => String(g.stage || "").toLowerCase() === "planning"
+        ).length;
 
         const completionRate =
           companyGoals.length > 0
-            ? formatProgressPercent((goalsTargetMet / companyGoals.length) * 100)
+            ? formatProgressPercent((completedGoals / companyGoals.length) * 100)
             : "0.00";
 
         return {
@@ -691,106 +608,50 @@ export class PerformanceAnalyticsService {
     }
   }
 
-  private static async getAccountingValueForKPI(
-    kpiConfig: HardcodedKPI,
-    dateRange: { start: Date, end: Date } | undefined,
-    incomeStatementLoader: (() => Promise<any>) | null,
-    balanceSheetLoader: (() => Promise<any>) | null
-  ): Promise<number> {
-    if (!kpiConfig.isFinancial) {
-      return 0;
+  private static resolveAnalyticsPeriod(dateRange?: { start: Date; end: Date }): {
+    periodStart: Date;
+    periodEnd: Date;
+  } {
+    if (dateRange) {
+      return { periodStart: dateRange.start, periodEnd: dateRange.end };
+    }
+    const periodEnd = new Date();
+    const periodStart = new Date(
+      Date.UTC(periodEnd.getUTCFullYear(), periodEnd.getUTCMonth(), 1, 0, 0, 0, 0)
+    );
+    return { periodStart, periodEnd };
+  }
+
+  /**
+   * GL current value for analytics — same strategies as login sync (per-account period net,
+   * not whole P&L section totals shared across unrelated expense KPIs).
+   */
+  private static async getAccountingValueForKpiProfile(
+    profile: ReturnType<typeof resolveKpiFinancialProfile>,
+    period: { periodStart: Date; periodEnd: Date },
+    currencyId?: string
+  ): Promise<number | null> {
+    if (!isDbOrCatalogFinancial(profile) || profile.syncStrategy === "unsupported") {
+      return null;
     }
 
-    const accountNumber = kpiConfig.accountNumber;
-    const incomeTypes = ['Revenue', 'Income', 'Expense'];
-    const balanceTypes = ['Asset', 'Current Asset', 'Fixed Asset', 'Long-Term Asset', 'Other Asset', 'Liability', 'Current Liability', 'Long-Term Liability', 'Equity'];
+    let value = await FinancialKpiGlValueService.fetchNativeGlValue({
+      profile,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      currencyId: currencyId?.trim() || undefined
+    });
 
-    const sectionTotalCodes = new Set([
-      'TOTAL_REVENUE',
-      'OPERATING_EXPENSES',
-      'TOTAL_EXPENSES',
-      'NET_PROFIT'
-    ]);
-    const shouldUseSectionTotal = sectionTotalCodes.has(kpiConfig.code);
-
-    if (incomeTypes.includes(kpiConfig.accountType)) {
-      if (!incomeStatementLoader) return 0;
-      const incomeStatement = await incomeStatementLoader();
-      // IncomeStatementService returns `sections` (revenue / operatingExpenses / incomeTax / belowTheLine).
-      // Older callers sometimes expected top-level `revenue` / `expenses`. Support both shapes.
-      const sections = incomeStatement?.sections || {};
-      const section =
-        kpiConfig.accountType === "Expense"
-          ? sections.operatingExpenses || sections.expenses || incomeStatement.expenses || incomeStatement.operatingExpenses
-          : sections.revenue || incomeStatement.revenue;
-      const accounts = section?.accounts || [];
-
-      if (accountNumber && !shouldUseSectionTotal) {
-        const matches = accounts.filter((acc: any) => acc.accountNo === accountNumber);
-        if (matches.length > 0) {
-          return matches.reduce((sum: number, acc: any) => sum + Math.abs(Number(acc.netAmount ?? acc.total ?? 0)), 0);
-        }
-      }
-
-      return Math.abs(Number(section?.total ?? 0));
+    if (value == null && profile.syncStrategy === "payroll_runs" && profile.accountNumber) {
+      value = await getPostedPeriodNetForAccountNo(
+        profile.accountNumber,
+        period.periodStart,
+        period.periodEnd,
+        { excludePerformanceJournals: true }
+      );
     }
 
-    // Net profit should come from the Income Statement (period result), not the equity balance.
-    if (String(kpiConfig.code || "").toUpperCase() === "NET_PROFIT") {
-      if (!incomeStatementLoader) return 0;
-      const incomeStatement = await incomeStatementLoader();
-      const ni = Number(incomeStatement?.totals?.netIncome ?? incomeStatement?.netIncome ?? 0);
-      return Math.abs(ni);
-    }
-
-    if (balanceTypes.includes(kpiConfig.accountType)) {
-      if (!balanceSheetLoader) return 0;
-      const balanceSheet = await balanceSheetLoader();
-      const allAccounts: Array<{ accountNo: string; balance: number }> = [];
-
-      const pushAccounts = (list: any[]) => {
-        if (!Array.isArray(list)) return;
-        for (const acc of list) {
-          allAccounts.push({ accountNo: acc.accountNo, balance: Number(acc.balance) });
-        }
-      };
-
-      pushAccounts(balanceSheet.assets?.currentAssets?.accounts || []);
-      pushAccounts(balanceSheet.assets?.fixedAssets?.accounts || []);
-      pushAccounts(balanceSheet.assets?.otherAssets?.accounts || []);
-      pushAccounts(balanceSheet.liabilities?.currentLiabilities?.accounts || []);
-      pushAccounts(balanceSheet.liabilities?.longTermLiabilities?.accounts || []);
-      pushAccounts(balanceSheet.equity?.accounts || []);
-
-      if (accountNumber) {
-        const matches = allAccounts.filter(acc => acc.accountNo === accountNumber);
-        if (matches.length > 0) {
-          const balance = matches.reduce((sum, acc) => sum + Math.abs(acc.balance), 0);
-          console.log(`[PerformanceAnalytics] Found ${matches.length} account(s) with number ${accountNumber}, balance: $${balance}`);
-          return balance;
-        }
-
-        if (accountNumber === 'RETAINED_EARNINGS') {
-          return Math.abs(Number(balanceSheet.equity?.retainedEarnings ?? 0));
-        }
-      }
-
-      switch (kpiConfig.accountType) {
-        case 'Asset':
-        case 'Current Asset':
-        case 'Fixed Asset':
-        case 'Long-Term Asset':
-        case 'Other Asset':
-          return Math.abs(Number(balanceSheet.assets?.totalAssets ?? 0));
-        case 'Liability':
-        case 'Current Liability':
-        case 'Long-Term Liability':
-          return Math.abs(Number(balanceSheet.liabilities?.totalLiabilities ?? 0));
-        case 'Equity':
-          return Math.abs(Number(balanceSheet.equity?.total ?? 0) + Number(balanceSheet.equity?.retainedEarnings ?? 0));
-      }
-    }
-
-    return 0;
+    if (value == null) return null;
+    return Math.abs(value);
   }
 }
