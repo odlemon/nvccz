@@ -8,7 +8,9 @@ import {
   parseContributionWeightPercentFromActivities,
   isTargetMet,
   resolveReverseScoring,
-  resolveEffectiveReverseKpi
+  resolveEffectiveReverseKpi,
+  resolveKpiCurrentFromGoals,
+  resolveKpiSyncStatus
 } from '../services/performanceGoalRollupUtils';
 
 describe('performanceGoalRollupUtils', () => {
@@ -274,5 +276,38 @@ describe('performanceGoalRollupUtils', () => {
     expect(formatProgressPercent(10.789)).toBe('10.79');
     expect(formatProgressPercent(17.991)).toBe('17.99');
     expect(formatProgressPercent(100)).toBe('100.00');
+  });
+
+  test('resolveKpiCurrentFromGoals uses company goals only when present', () => {
+    const goals = [
+      { type: 'company', currentValue: 166800, targetValue: 30000 },
+      { type: 'department', currentValue: 166800, targetValue: 18000 },
+      { type: 'individual', currentValue: 166800, targetValue: 30000 }
+    ];
+    expect(resolveKpiCurrentFromGoals(goals)).toBe(166800);
+  });
+
+  test('resolveKpiCurrentFromGoals falls back to department then all', () => {
+    expect(
+      resolveKpiCurrentFromGoals([
+        { type: 'department', currentValue: 100, targetValue: 200 },
+        { type: 'individual', currentValue: 50, targetValue: 100 }
+      ])
+    ).toBe(100);
+    expect(
+      resolveKpiCurrentFromGoals([{ type: 'individual', currentValue: 50, targetValue: 100 }])
+    ).toBe(50);
+  });
+
+  test('resolveKpiSyncStatus detects BSC/GL sync metadata', () => {
+    expect(resolveKpiSyncStatus([{ currentValue: 0, syncConfig: null }])).toBe('pending');
+    expect(
+      resolveKpiSyncStatus([
+        { currentValue: 0, syncConfig: { glSyncedAt: '2026-05-01T00:00:00.000Z' } }
+      ])
+    ).toBe('synced');
+    expect(
+      resolveKpiSyncStatus([{ currentValue: 0, lastSyncedAt: new Date('2026-05-01') }])
+    ).toBe('synced');
   });
 });
