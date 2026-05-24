@@ -4,6 +4,13 @@ import { TaskService } from "../services/TaskService";
 import { TaskCollaborationService } from "../services/TaskCollaborationService";
 import { parseDate } from "../utils/dateHelper";
 
+/** Platform admin — sees all tasks on GET /tasks/my; others see team membership only. */
+function isTasksAdminUser(user: { role?: { name?: string } | null; roleCode?: string | null }): boolean {
+  const roleName = String(user?.role?.name || "").toLowerCase();
+  const roleCode = String(user?.roleCode || "").toLowerCase();
+  return roleName === "admin" || roleCode === "admin";
+}
+
 export class TaskController {
   // Create a new task
   static async createTask(req: Request, res: Response) {
@@ -129,9 +136,7 @@ export class TaskController {
         category
       } = req.query;
 
-      const filters: any = {
-        userId // Filter by current user
-      };
+      const filters: any = {};
       if (stage) filters.stage = stage as string;
       if (priority) filters.priority = priority as string;
       if (department) filters.department = department as string;
@@ -143,12 +148,16 @@ export class TaskController {
       if (applicationId) filters.applicationId = String(applicationId).trim();
       if (category) filters.category = String(category).trim();
 
-      const tasks = await TaskService.getUserTasks(userId, filters);
+      const adminView = isTasksAdminUser(req.user);
+      const tasks = adminView
+        ? await TaskService.getAllTasks(filters)
+        : await TaskService.getUserTasks(userId, filters);
 
       res.status(200).json({
         success: true,
-        message: "Your tasks retrieved successfully",
+        message: adminView ? "All tasks retrieved successfully" : "Your tasks retrieved successfully",
         count: tasks.length,
+        scope: adminView ? "all" : "mine",
         tasks
       });
     } catch (error: any) {

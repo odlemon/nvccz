@@ -1,6 +1,9 @@
 // @ts-nocheck
 import { Request, Response } from "express";
-import { PerformanceDashboardService, PerformanceDashboardParams } from "../services/PerformanceDashboardService";
+import {
+  PerformanceDashboardService,
+  type PerformanceDashboardParams
+} from "../services/PerformanceDashboardService";
 
 export class PerformanceDashboardController {
   /**
@@ -13,9 +16,19 @@ export class PerformanceDashboardController {
         year
       } = req.query;
 
+      let monthParam: PerformanceDashboardParams["month"];
+      if (month === undefined || month === "") {
+        monthParam = undefined;
+      } else if (String(month).toLowerCase() === "all") {
+        monthParam = "all";
+      } else {
+        const parsed = parseInt(month as string, 10);
+        monthParam = Number.isFinite(parsed) && parsed >= 1 && parsed <= 12 ? parsed : undefined;
+      }
+
       const params: PerformanceDashboardParams = {
-        month: month ? parseInt(month as string) : undefined,
-        year: year ? parseInt(year as string) : undefined
+        month: monthParam,
+        year: year ? parseInt(year as string, 10) : undefined
       };
 
       const dashboardData = await PerformanceDashboardService.getDashboardData(params);

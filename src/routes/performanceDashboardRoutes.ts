@@ -28,7 +28,7 @@ const router = Router();
  *           type: integer
  *           minimum: 1
  *           maximum: 12
- *         description: Month number (1-12). Defaults to current month.
+ *         description: Month (1-12), or `all`. Omit with `year` for full-calendar-year scope (UI “All Months”).
  *       - in: query
  *         name: year
  *         schema:

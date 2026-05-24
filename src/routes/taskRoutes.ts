@@ -284,8 +284,9 @@ router.get("/status-options", authenticate, TaskController.getTaskStageOptions);
  *   get:
  *     summary: Get current user's tasks (my board)
  *     description: |
- *       Tasks where the current user is in **team** (not trashed by default). **UAT — after reassign** via
- *       **PUT /tasks/{id}**, a removed assignee will not see the task here; the new assignee will on next fetch or via WebSocket-driven refresh.
+ *       **Non-admin:** tasks where the current user is in **team** (not trashed). **Admin** (`role.name` = `admin`):
+ *       returns **all** non-trashed tasks (same query filters as below). After reassign via **PUT /tasks/{id}**,
+ *       removed assignees no longer see the task; new assignees see it on next fetch.
  *     tags:
  *       - Performance UAT (Tasks & board)
  *       - Tasks
