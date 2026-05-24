@@ -10,7 +10,9 @@ import {
   resolveReverseScoring,
   resolveEffectiveReverseKpi,
   resolveKpiCurrentFromGoals,
-  resolveKpiSyncStatus
+  resolveKpiSyncStatus,
+  resolveKpiTargetFromGoals,
+  filterCompanyGoalsForKpiAnalytics
 } from '../services/performanceGoalRollupUtils';
 
 describe('performanceGoalRollupUtils', () => {
@@ -297,6 +299,24 @@ describe('performanceGoalRollupUtils', () => {
     expect(
       resolveKpiCurrentFromGoals([{ type: 'individual', currentValue: 50, targetValue: 100 }])
     ).toBe(50);
+  });
+
+  test('resolveKpiTargetFromGoals sums company targets only', () => {
+    const goals = [
+      { type: 'company', currentValue: 100, targetValue: 500000 },
+      { type: 'department', currentValue: 50000, targetValue: 200000 },
+      { type: 'individual', currentValue: 25000, targetValue: 100000 }
+    ];
+    expect(resolveKpiTargetFromGoals(goals)).toBe(500000);
+  });
+
+  test('filterCompanyGoalsForKpiAnalytics excludes dept and individual', () => {
+    const goals = [
+      { type: 'company', id: 'c1' },
+      { type: 'department', id: 'd1' },
+      { type: 'individual', id: 'i1' }
+    ];
+    expect(filterCompanyGoalsForKpiAnalytics(goals).map((g) => g.id)).toEqual(['c1']);
   });
 
   test('resolveKpiSyncStatus detects BSC/GL sync metadata', () => {

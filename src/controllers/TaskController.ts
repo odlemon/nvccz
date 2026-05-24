@@ -153,12 +153,18 @@ export class TaskController {
         ? await TaskService.getAllTasks(filters)
         : await TaskService.getUserTasks(userId, filters);
 
+      // Field name stays `goalId`; value is the linked goal title for display (not the UUID).
+      const tasksForClient = tasks.map((task: { goalId?: string | null; goal?: { title?: string } | null }) => ({
+        ...task,
+        goalId: task.goal?.title ?? null
+      }));
+
       res.status(200).json({
         success: true,
         message: adminView ? "All tasks retrieved successfully" : "Your tasks retrieved successfully",
-        count: tasks.length,
+        count: tasksForClient.length,
         scope: adminView ? "all" : "mine",
-        tasks
+        tasks: tasksForClient
       });
     } catch (error: any) {
       res.status(400).json({
