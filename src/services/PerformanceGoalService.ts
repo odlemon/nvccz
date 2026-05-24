@@ -2,7 +2,7 @@
 import { PrismaClient } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
-import { createJournalEntryWithAuditSequence } from "./AuditTrailSequenceService";
+import { KpiAccountingIntegrationService } from "./KpiAccountingIntegrationService";
 import { KPIService } from "./KPIService";
 import {
   computeAchievementPercent,
@@ -456,70 +456,12 @@ export class PerformanceGoalService {
     });
   }
 
-  // Trigger accounting integration when KPI goals are completed
   static async triggerAccountingIntegration(goalId: string, achievedValue: number, updatedById: string) {
-    try {
-      const loaded = await prisma.performanceGoal.findUnique({
-        where: { id: goalId },
-        include: { kpi: true }
-      });
-      if (!loaded?.kpi) {
-        return;
-      }
-
-      const { resolveKpiAccountingConfig } = await import("../utils/kpiCatalogMetadata");
-      const kpiConfig = resolveKpiAccountingConfig(loaded.kpi);
-
-      if (kpiConfig && kpiConfig.isFinancial && kpiConfig.accountNumber) {
-        // Create journal entry based on KPI completion
-        // Use a bank-linked GL account as the cash offset (Cash & Cash Equivalents is a reporting bucket).
-        const bank = await prisma.bank.findFirst({
-          where: { isActive: true, glAccountId: { not: null } },
-          orderBy: { createdAt: "asc" },
-          select: { glAccountId: true },
-        });
-        if (!bank?.glAccountId) {
-          throw new Error("No active bank with a GL account linked (banks.glAccountId).");
-        }
-        const kpiAccount = await prisma.chartOfAccounts.findFirst({
-          where: { accountNo: kpiConfig.accountNumber, isActive: true },
-          select: { id: true, accountNo: true, accountName: true },
-        });
-        if (!kpiAccount) {
-          throw new Error(`No active chart account found for KPI account number ${kpiConfig.accountNumber}.`);
-        }
-
-        const journalEntry = await createJournalEntryWithAuditSequence({
-          transactionDate: new Date(),
-          referenceNumber: `KPI-${loaded.id}-${Date.now()}`,
-          description: `KPI Achievement: ${loaded.title} - ${achievedValue} ${loaded.targetUnit}`,
-          totalAmount: achievedValue,
-          currencyId: "USD",
-          status: "POSTED",
-          createdById: updatedById,
-          journalEntryLines: {
-            create: [
-              {
-                chartOfAccountId: kpiConfig.journalEntryType === "Debit" ? kpiAccount.id : bank.glAccountId,
-                debitAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-                creditAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-                description: `KPI: ${loaded.kpi.name}`,
-              },
-              {
-                chartOfAccountId: kpiConfig.journalEntryType === "Credit" ? kpiAccount.id : bank.glAccountId,
-                debitAmount: kpiConfig.journalEntryType === "Credit" ? achievedValue : 0,
-                creditAmount: kpiConfig.journalEntryType === "Debit" ? achievedValue : 0,
-                description: `KPI: ${loaded.kpi.name}`,
-              },
-            ],
-          },
-        });
-
-        console.log(`✅ Accounting integration triggered for goal ${goalId}: Journal Entry ${journalEntry.id} created`);
-      }
-    } catch (error) {
-      console.error(`❌ Failed to trigger accounting integration for goal ${goalId}:`, error);
-    }
+    await KpiAccountingIntegrationService.triggerKpiAchievementJournal(
+      goalId,
+      achievedValue,
+      updatedById
+    );
   }
 
   // Create a new performance goal
@@ -2077,14 +2019,6 @@ export class PerformanceGoalService {
         console.error(`   ⚠️ Failed to recalculate KPI progress for ${goal.kpiId}:`, kpiError);
       }
     }
-
-    if (isCompleted && goal.kpiId) {
-      try {
-        await PerformanceGoalService.triggerAccountingIntegration(goal.id, totalPayrollValue, createdById);
-      } catch (accountingError) {
-        console.error(`   ⚠️ Failed to trigger accounting integration for goal ${goal.id}:`, accountingError);
-      }
-    }
   }
 
   /**
@@ -2125,10 +2059,11 @@ export class PerformanceGoalService {
       const payrollStartDate = new Date(payrollRun.startDate);
       const payrollEndDate = new Date(payrollRun.endDate);
 
-      // Goals tied to this KPI, or explicitly flagged with the payroll expense catalog code
+      // Company payroll total applies to root goals only; sub-goals track contributions/tasks.
       const goals = await prisma.performanceGoal.findMany({
         where: {
           OR: [{ kpiId: payrollKPI.id }, { formulaType: "PAYROLL_EXPENSE" }],
+          parentGoalId: null,
           status: {
             in: ['active', 'completed', 'in_progress']
           }
@@ -2193,6 +2128,7 @@ export class PerformanceGoalService {
           parseFloat(totalPayrollExpense.toString()),
           createdById
         );
+        // Payroll GL is posted by PayrollService; goal sync only updates progress.
       }
 
       console.log('✅ Payroll-to-goals sync completed');

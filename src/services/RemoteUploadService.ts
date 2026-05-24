@@ -175,6 +175,11 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   // Company profile / letterhead
   "company-profile": "application-documents",
   "company-profile-logos": "application-documents",
+  "portfolio-company-letterhead-logos": "application-documents",
+
+  // Payroll employee profile photos
+  "payroll-employee-pictures": "application-documents",
+  "payroll-employee-picture": "application-documents",
   
   // Default/temp
   "temp": "temp",

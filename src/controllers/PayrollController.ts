@@ -10,27 +10,50 @@ import { prisma } from '../utils/database';
 import { PerformancePayrollBscHookService } from '../services/PerformancePayrollBscHookService';
 import { EmployeeTerminationService } from '../services/EmployeeTerminationService';
 import { parseDate } from '../utils/dateHelper';
+import {
+  formatEmployeeForApi,
+  payrollFormField,
+  resolveEmployeePictureUrl
+} from '../services/payrollEmployeePictureUpload';
+
 export class PayrollController {
   /**
    * Create a new employee from user
    */
   static async createEmployee(req: Request, res: Response) {
     try {
-      // Optional: performance goal id for SRD vacant-posts / headcount counter (BSC).
-      const {
-        userId,
-        bankName,
-        branchCode,
-        accountNumber,
-        basicSalary,
-        currencyId,
-        idNumber,
-        nextOfKin,
-        nextOfKinContact,
-        address,
-        pictureUrl,
-        bscNewHireCounterGoalId
-      } = req.body;
+      const userId = payrollFormField(req, 'userId');
+      const basicSalaryRaw = payrollFormField(req, 'basicSalary');
+      const bankName = payrollFormField(req, 'bankName');
+      const branchCode = payrollFormField(req, 'branchCode');
+      const accountNumber = payrollFormField(req, 'accountNumber');
+      const currencyId = payrollFormField(req, 'currencyId');
+      const idNumber = payrollFormField(req, 'idNumber');
+      const nextOfKin = payrollFormField(req, 'nextOfKin');
+      const nextOfKinContact = payrollFormField(req, 'nextOfKinContact');
+      const address = payrollFormField(req, 'address');
+      const bscNewHireCounterGoalId = payrollFormField(req, 'bscNewHireCounterGoalId');
+
+      if (!userId) {
+        return res.status(400).json({ success: false, message: 'userId is required' });
+      }
+      if (basicSalaryRaw === undefined) {
+        return res.status(400).json({ success: false, message: 'basicSalary is required' });
+      }
+      const basicSalaryNum = parseFloat(basicSalaryRaw);
+      if (!Number.isFinite(basicSalaryNum)) {
+        return res.status(400).json({ success: false, message: 'basicSalary must be a number' });
+      }
+
+      let pictureUrl: string | null = null;
+      try {
+        pictureUrl = await resolveEmployeePictureUrl(req);
+      } catch (uploadErr) {
+        return res.status(400).json({
+          success: false,
+          message: uploadErr instanceof Error ? uploadErr.message : 'Picture upload failed'
+        });
+      }
 
       // Check if user exists
       const user = await prisma.user.findUnique({
@@ -83,7 +106,7 @@ export class PayrollController {
           bankName,
           branchCode,
           accountNumber,
-          basicSalary: parseFloat(basicSalary),
+          basicSalary: basicSalaryNum,
           currencyId,
           idNumber,
           nextOfKin,
@@ -108,7 +131,7 @@ export class PayrollController {
       res.status(201).json({
         success: true,
         message: 'Employee created successfully',
-        data: employee
+        data: formatEmployeeForApi(employee)
       });
     } catch (error) {
       console.error('Error creating employee:', error);
@@ -140,7 +163,7 @@ export class PayrollController {
 
       res.json({
         success: true,
-        data: employees
+        data: employees.map(formatEmployeeForApi)
       });
     } catch (error) {
       console.error('Error getting employees:', error);
@@ -1074,7 +1097,7 @@ export class PayrollController {
 
       res.json({
         success: true,
-        data: employee
+        data: formatEmployeeForApi(employee)
       });
     } catch (error) {
       console.error('Error getting employee payroll info:', error);
@@ -1980,7 +2003,7 @@ export class PayrollController {
       res.json({
         success: true,
         message: 'Employee updated successfully',
-        data: employee
+        data: formatEmployeeForApi(employee)
       });
     } catch (error) {
       console.error('Error updating employee:', error);
