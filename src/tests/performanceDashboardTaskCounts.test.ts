@@ -1,5 +1,6 @@
 import {
   classifyDashboardTaskStage,
+  countInProgressColumnTasks,
   taskBelongsToDashboardPeriod,
   taskCountsForDashboard
 } from "../services/PerformanceDashboardService";
@@ -29,6 +30,7 @@ describe("performanceDashboardTaskCounts", () => {
     expect(c.inProgress + c.overdue).toBe(4);
     expect(c.completed).toBe(4);
     expect(c.pending + c.inProgress + c.completed + c.overdue).toBe(8);
+    expect(countInProgressColumnTasks(tasks)).toBe(2);
   });
 
   test("taskBelongsToDashboardPeriod includes open tasks created before period end", () => {

@@ -44,6 +44,11 @@ export function taskCountsForDashboard(tasks: Array<{ stage: string }>) {
   return { pending, inProgress, completed, overdue, total };
 }
 
+/** Summary card “In Progress” — Kanban column: `stage === in_progress` only. */
+export function countInProgressColumnTasks(tasks: Array<{ stage: string }>) {
+  return tasks.filter((t) => normaliseTaskStage(t.stage) === "in_progress").length;
+}
+
 function buildSummaryCardSlice(
   value: number,
   total: number,
@@ -315,12 +320,12 @@ export class PerformanceDashboardService {
       const lastCounts = taskCountsForDashboard(lastMonthTasks);
 
       const pendingTasks = currentCounts.pending;
-      const inProgressTasks = currentCounts.inProgress + currentCounts.overdue;
+      const inProgressTasks = countInProgressColumnTasks(currentMonthTasks);
       const completedTasks = currentCounts.completed;
       const totalTasks = currentCounts.total;
 
       const lastMonthPending = lastCounts.pending;
-      const lastMonthInProgress = lastCounts.inProgress + lastCounts.overdue;
+      const lastMonthInProgress = countInProgressColumnTasks(lastMonthTasks);
       const lastMonthCompleted = lastCounts.completed;
 
       const pendingChange = pendingTasks - lastMonthPending;
