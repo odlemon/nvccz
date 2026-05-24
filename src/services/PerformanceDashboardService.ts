@@ -2,10 +2,135 @@
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { getPostedPeriodExpenseByAccount } from "./AccountingGlPeriodTotalsService";
+import { normaliseTaskStage } from "./TaskCollaborationService";
+
+export type PerformanceDashboardMonthParam = number | "all";
 
 export interface PerformanceDashboardParams {
-  month?: number; // 1-12, defaults to current month
-  year?: number; // defaults to current year
+  /** 1–12, `all`, or omit with `year` for full-year scope (matches UI “All Months”). */
+  month?: PerformanceDashboardMonthParam;
+  year?: number;
+}
+
+export type DashboardPeriodScope = "month" | "year";
+
+/** Kanban-aligned buckets so card numerators sum to `total`. */
+export function classifyDashboardTaskStage(stage: string): "pending" | "inProgress" | "completed" | "overdue" {
+  const s = normaliseTaskStage(stage);
+  if (s === "completed") return "completed";
+  if (s === "todo") return "pending";
+  if (s === "in_progress" || s === "delayed" || s === "amber") return "inProgress";
+  if (s === "overdue" || s === "red") return "overdue";
+  return "pending";
+}
+
+export function isDashboardTaskCompleted(stage: string): boolean {
+  return normaliseTaskStage(stage) === "completed";
+}
+
+export function taskCountsForDashboard(tasks: Array<{ stage: string }>) {
+  let pending = 0;
+  let inProgress = 0;
+  let completed = 0;
+  let overdue = 0;
+  for (const t of tasks) {
+    const bucket = classifyDashboardTaskStage(t.stage);
+    if (bucket === "pending") pending += 1;
+    else if (bucket === "inProgress") inProgress += 1;
+    else if (bucket === "completed") completed += 1;
+    else overdue += 1;
+  }
+  const total = tasks.length;
+  return { pending, inProgress, completed, overdue, total };
+}
+
+function buildSummaryCardSlice(
+  value: number,
+  total: number,
+  change: number,
+  changePercent: number
+) {
+  const sharePercent = total > 0 ? Math.round((value / total) * 10000) / 100 : 0;
+  return {
+    value,
+    change,
+    changePercent: Math.round(changePercent * 100) / 100,
+    progress: total > 0 ? Math.round((value / total) * 100) / 100 : 0,
+    /** Share of total tasks (0–100). Use for progress bars — not the ratio numerator. */
+    progressPercent: sharePercent,
+    /** Explicit ratio parts for UI (avoids showing `progressPercent/total` as “20/5”). */
+    ratioNumerator: value,
+    ratioDenominator: total,
+    ratioText: `${value}/${total}`,
+    total
+  };
+}
+
+function resolveDashboardPeriod(params: PerformanceDashboardParams): {
+  scope: DashboardPeriodScope;
+  currentMonth: number | null;
+  currentYear: number;
+  periodStart: Date;
+  periodEnd: Date;
+  compareStart: Date;
+  compareEnd: Date;
+} {
+  const now = new Date();
+  const currentYear = params.year ?? now.getFullYear();
+  const monthParam = params.month;
+
+  if (monthParam === "all" || monthParam === undefined) {
+    const periodStart = new Date(currentYear, 0, 1, 0, 0, 0, 0);
+    const periodEnd = new Date(currentYear, 11, 31, 23, 59, 59, 999);
+    const compareStart = new Date(currentYear - 1, 0, 1, 0, 0, 0, 0);
+    const compareEnd = new Date(currentYear - 1, 11, 31, 23, 59, 59, 999);
+    return {
+      scope: "year",
+      currentMonth: null,
+      currentYear,
+      periodStart,
+      periodEnd,
+      compareStart,
+      compareEnd
+    };
+  }
+
+  const m = Number(monthParam);
+  const periodStart = new Date(currentYear, m - 1, 1, 0, 0, 0, 0);
+  const periodEnd = new Date(currentYear, m, 0, 23, 59, 59, 999);
+  const lastMonth = m === 1 ? 12 : m - 1;
+  const lastMonthYear = m === 1 ? currentYear - 1 : currentYear;
+  const compareStart = new Date(lastMonthYear, lastMonth - 1, 1, 0, 0, 0, 0);
+  const compareEnd = new Date(lastMonthYear, lastMonth, 0, 23, 59, 59, 999);
+  return {
+    scope: "month",
+    currentMonth: m,
+    currentYear,
+    periodStart,
+    periodEnd,
+    compareStart,
+    compareEnd
+  };
+}
+
+/**
+ * Include tasks visible on the board for the period: due in range, created in range,
+ * completed in range, or still open and created before period end.
+ */
+export function taskBelongsToDashboardPeriod(
+  task: { stage: string; createdAt: Date | string; updatedAt: Date | string; date?: Date | string | null },
+  periodStart: Date,
+  periodEnd: Date
+): boolean {
+  const created = new Date(task.createdAt);
+  const updated = new Date(task.updatedAt);
+  const due = task.date != null ? new Date(task.date) : null;
+
+  if (created >= periodStart && created <= periodEnd) return true;
+  if (due && !Number.isNaN(due.getTime()) && due >= periodStart && due <= periodEnd) return true;
+  if (isDashboardTaskCompleted(task.stage) && updated >= periodStart && updated <= periodEnd) return true;
+  if (created <= periodEnd && !isDashboardTaskCompleted(task.stage)) return true;
+  return false;
 }
 
 export interface PerformanceDashboardData {
@@ -17,9 +142,11 @@ export interface PerformanceDashboardData {
       changePercent: number;
       /** Ratio 0..1 (value/total). */
       progress: number;
-      /** Percentage 0..100 (value/total*100). */
+      /** Share of total tasks, 0–100 (for progress bars only). */
       progressPercent: number;
-      /** Convenience label e.g. "9/21". */
+      ratioNumerator: number;
+      ratioDenominator: number;
+      /** Display as `${ratioNumerator}/${ratioDenominator}` — do not use progressPercent here. */
       ratioText: string;
       total: number;
     };
@@ -29,6 +156,8 @@ export interface PerformanceDashboardData {
       changePercent: number;
       progress: number;
       progressPercent: number;
+      ratioNumerator: number;
+      ratioDenominator: number;
       ratioText: string;
       total: number;
     };
@@ -38,6 +167,8 @@ export interface PerformanceDashboardData {
       changePercent: number;
       progress: number;
       progressPercent: number;
+      ratioNumerator: number;
+      ratioDenominator: number;
       ratioText: string;
       total: number;
     };
@@ -113,7 +244,8 @@ export interface PerformanceDashboardData {
   
   // Period Information
   period: {
-    currentMonth: number;
+    scope: DashboardPeriodScope;
+    currentMonth: number | null;
     currentYear: number;
     startDate: Date;
     endDate: Date;
@@ -143,20 +275,20 @@ export class PerformanceDashboardService {
    */
   static async getDashboardData(params: PerformanceDashboardParams = {}): Promise<PerformanceDashboardData> {
     try {
-      const now = new Date();
-      const currentMonth = params.month || now.getMonth() + 1;
-      const currentYear = params.year || now.getFullYear();
-      
-      // Calculate date ranges
-      const currentMonthStart = new Date(currentYear, currentMonth - 1, 1);
-      const currentMonthEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
-      
-      const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-      const lastMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
-      const lastMonthStart = new Date(lastMonthYear, lastMonth - 1, 1);
-      const lastMonthEnd = new Date(lastMonthYear, lastMonth, 0, 23, 59, 59, 999);
-      
-      // Get all tasks (not trashed)
+      const period = resolveDashboardPeriod(params);
+      const {
+        scope,
+        currentMonth,
+        currentYear,
+        periodStart: currentMonthStart,
+        periodEnd: currentMonthEnd,
+        compareStart: lastMonthStart,
+        compareEnd: lastMonthEnd
+      } = period;
+
+      const chartAnchorMonth = currentMonth ?? new Date().getMonth() + 1;
+
+      // All non-trashed tasks (performance, portfolio / due diligence, manual — same board).
       const allTasks = await prisma.task.findMany({
         where: { isTrashed: false },
         select: {
@@ -164,52 +296,52 @@ export class PerformanceDashboardService {
           stage: true,
           team: true,
           createdAt: true,
-          updatedAt: true
+          updatedAt: true,
+          date: true
         }
       });
-      
-      // Get current month tasks
-      const currentMonthTasks = allTasks.filter(task => {
-        const taskDate = new Date(task.createdAt);
-        return taskDate >= currentMonthStart && taskDate <= currentMonthEnd;
-      });
-      
-      // Get last month tasks
-      const lastMonthTasks = allTasks.filter(task => {
-        const taskDate = new Date(task.createdAt);
-        return taskDate >= lastMonthStart && taskDate <= lastMonthEnd;
-      });
-      
-      // Calculate summary cards (STRICTLY within requested period)
-      const pendingTasks = currentMonthTasks.filter(t => t.stage === 'todo').length;
-      const inProgressTasks = currentMonthTasks.filter(t => t.stage === 'in_progress').length;
-      const completedTasks = currentMonthTasks.filter(t => t.stage === 'completed').length;
-      const totalTasks = currentMonthTasks.length;
-      
-      const lastMonthPending = lastMonthTasks.filter(t => t.stage === 'todo').length;
-      const lastMonthInProgress = lastMonthTasks.filter(t => t.stage === 'in_progress').length;
-      const lastMonthCompleted = lastMonthTasks.filter(t => t.stage === 'completed').length;
-      
+
+      const filterForPeriod = (start: Date, end: Date) => {
+        if (scope === "year") {
+          return allTasks.filter((t) => new Date(t.createdAt) <= end);
+        }
+        return allTasks.filter((t) => taskBelongsToDashboardPeriod(t, start, end));
+      };
+
+      const currentMonthTasks = filterForPeriod(currentMonthStart, currentMonthEnd);
+      const lastMonthTasks = filterForPeriod(lastMonthStart, lastMonthEnd);
+
+      const currentCounts = taskCountsForDashboard(currentMonthTasks);
+      const lastCounts = taskCountsForDashboard(lastMonthTasks);
+
+      const pendingTasks = currentCounts.pending;
+      const inProgressTasks = currentCounts.inProgress + currentCounts.overdue;
+      const completedTasks = currentCounts.completed;
+      const totalTasks = currentCounts.total;
+
+      const lastMonthPending = lastCounts.pending;
+      const lastMonthInProgress = lastCounts.inProgress + lastCounts.overdue;
+      const lastMonthCompleted = lastCounts.completed;
+
       const pendingChange = pendingTasks - lastMonthPending;
       const pendingChangePercent = lastMonthPending > 0 ? (pendingChange / lastMonthPending) * 100 : 0;
-      
+
       const inProgressChange = inProgressTasks - lastMonthInProgress;
-      const inProgressChangePercent = lastMonthInProgress > 0 ? (inProgressChange / lastMonthInProgress) * 100 : 0;
-      
+      const inProgressChangePercent =
+        lastMonthInProgress > 0 ? (inProgressChange / lastMonthInProgress) * 100 : 0;
+
       const completedChange = completedTasks - lastMonthCompleted;
-      const completedChangePercent = lastMonthCompleted > 0 ? (completedChange / lastMonthCompleted) * 100 : 0;
-      
+      const completedChangePercent =
+        lastMonthCompleted > 0 ? (completedChange / lastMonthCompleted) * 100 : 0;
+
       const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-      const lastMonthCompletionRate = lastMonthTasks.length > 0 
-        ? (lastMonthCompleted / lastMonthTasks.length) * 100 
-        : 0;
+      const lastMonthCompletionRate =
+        lastCounts.total > 0 ? (lastMonthCompleted / lastCounts.total) * 100 : 0;
       const completionRateChange = completionRate - lastMonthCompletionRate;
-      const completionRateChangePercent = lastMonthCompletionRate > 0 
-        ? (completionRateChange / lastMonthCompletionRate) * 100 
-        : 0;
-      
-      // Get monthly productivity (last 12 months)
-      const monthlyProductivity = await this.getMonthlyProductivity(currentYear, currentMonth);
+      const completionRateChangePercent =
+        lastMonthCompletionRate > 0 ? (completionRateChange / lastMonthCompletionRate) * 100 : 0;
+
+      const monthlyProductivity = await this.getMonthlyProductivity(currentYear, chartAnchorMonth);
       
       // Get performance distribution (within period)
       const performanceDistribution = await this.getPerformanceDistribution(currentMonthTasks);
@@ -225,33 +357,24 @@ export class PerformanceDashboardService {
       
       return {
         summaryCards: {
-          pendingTasks: {
-            value: pendingTasks,
-            change: pendingChange,
-            changePercent: Math.round(pendingChangePercent * 100) / 100,
-            progress: totalTasks > 0 ? Math.round((pendingTasks / totalTasks) * 100) / 100 : 0,
-            progressPercent: totalTasks > 0 ? Math.round(((pendingTasks / totalTasks) * 100) * 100) / 100 : 0,
-            ratioText: `${pendingTasks}/${totalTasks}`,
-            total: totalTasks
-          },
-          inProgress: {
-            value: inProgressTasks,
-            change: inProgressChange,
-            changePercent: Math.round(inProgressChangePercent * 100) / 100,
-            progress: totalTasks > 0 ? Math.round((inProgressTasks / totalTasks) * 100) / 100 : 0,
-            progressPercent: totalTasks > 0 ? Math.round(((inProgressTasks / totalTasks) * 100) * 100) / 100 : 0,
-            ratioText: `${inProgressTasks}/${totalTasks}`,
-            total: totalTasks
-          },
-          completed: {
-            value: completedTasks,
-            change: completedChange,
-            changePercent: Math.round(completedChangePercent * 100) / 100,
-            progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) / 100 : 0,
-            progressPercent: totalTasks > 0 ? Math.round(((completedTasks / totalTasks) * 100) * 100) / 100 : 0,
-            ratioText: `${completedTasks}/${totalTasks}`,
-            total: totalTasks
-          },
+          pendingTasks: buildSummaryCardSlice(
+            pendingTasks,
+            totalTasks,
+            pendingChange,
+            pendingChangePercent
+          ),
+          inProgress: buildSummaryCardSlice(
+            inProgressTasks,
+            totalTasks,
+            inProgressChange,
+            inProgressChangePercent
+          ),
+          completed: buildSummaryCardSlice(
+            completedTasks,
+            totalTasks,
+            completedChange,
+            completedChangePercent
+          ),
           completionRate: {
             value: Math.round(completionRate * 100) / 100,
             change: Math.round(completionRateChange * 100) / 100,
@@ -264,6 +387,7 @@ export class PerformanceDashboardService {
         budgetTracker,
         employeeOfTheMonth,
         period: {
+          scope,
           currentMonth,
           currentYear,
           startDate: currentMonthStart,
@@ -367,7 +491,7 @@ export class PerformanceDashboardService {
         }
         const userTasks = userTaskMap.get(userId)!;
         userTasks.total++;
-        if (task.stage === 'completed') {
+        if (isDashboardTaskCompleted(task.stage)) {
           userTasks.completed++;
         }
       }
@@ -375,7 +499,7 @@ export class PerformanceDashboardService {
     
     // Calculate completion rates
     const completionRates: number[] = [];
-    for (const [userId, data] of userTaskMap.entries()) {
+    for (const [_userId, data] of userTaskMap.entries()) {
       if (data.total > 0) {
         const rate = (data.completed / data.total) * 100;
         completionRates.push(rate);
@@ -456,7 +580,7 @@ export class PerformanceDashboardService {
         }
         const stats = userTaskStats.get(userId)!;
         stats.total++;
-        if (task.stage === 'completed') {
+        if (isDashboardTaskCompleted(task.stage)) {
           stats.completed++;
         }
       }
@@ -743,7 +867,7 @@ export class PerformanceDashboardService {
 
     for (const task of monthTasks) {
       const team = this.parseTeam(task.team);
-      const stage = String(task.stage || '').toLowerCase();
+      const bucket = classifyDashboardTaskStage(task.stage);
       for (const userId of team) {
         if (!userTaskStats.has(userId)) {
           userTaskStats.set(userId, {
@@ -755,9 +879,9 @@ export class PerformanceDashboardService {
         }
         const stats = userTaskStats.get(userId)!;
         stats.total++;
-        if (stage === 'completed') {
+        if (bucket === "completed") {
           stats.completed++;
-        } else if (stage === 'in_progress') {
+        } else if (bucket === "inProgress" || bucket === "overdue") {
           stats.inProgress++;
         } else {
           stats.pending++;
