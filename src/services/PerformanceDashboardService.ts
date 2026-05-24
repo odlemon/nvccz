@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
+import { getPostedPeriodExpenseByAccount } from "./AccountingGlPeriodTotalsService";
 
 export interface PerformanceDashboardParams {
   month?: number; // 1-12, defaults to current month
@@ -78,12 +79,20 @@ export interface PerformanceDashboardData {
     progressPercentage: number; // completion rate
   }>;
   
-  // Budget Tracker
+  // Budget Tracker (month: GL actuals; budgeted from accounting budget lines)
   budgetTracker: {
     totalBudget: number;
     totalSpend: number;
     remaining: number;
+    /** 0–100 for charts; capped when spend exceeds budget. */
     percentageUsed: number;
+    /** True when spend in the period is above total budgeted. */
+    overBudget: boolean;
+    lineItems: Array<{
+      name: string;
+      budgeted: number;
+      actual: number;
+    }>;
   };
   
   // Employee Of The Month
@@ -492,83 +501,211 @@ export class PerformanceDashboardService {
     return workerPerformance.slice(0, 20);
   }
   
+  private static emptyBudgetTracker(): PerformanceDashboardData["budgetTracker"] {
+    return {
+      totalBudget: 0,
+      totalSpend: 0,
+      remaining: 0,
+      percentageUsed: 0,
+      overBudget: false,
+      lineItems: []
+    };
+  }
+
   /**
-   * Get budget tracker
+   * Progress % for UI: 0–100. Raw ratio can exceed 100% when spend >> budget (e.g. tiny test budget).
+   */
+  private static computePercentageUsed(
+    totalBudget: number,
+    totalSpend: number
+  ): { percentageUsed: number; overBudget: boolean } {
+    if (totalBudget <= 0) {
+      return {
+        percentageUsed: totalSpend > 0 ? 100 : 0,
+        overBudget: totalSpend > 0
+      };
+    }
+    const raw = (totalSpend / totalBudget) * 100;
+    return {
+      percentageUsed: Math.min(100, Math.round(raw * 100) / 100),
+      overBudget: totalSpend > totalBudget
+    };
+  }
+
+  private static toBudgetTrackerLine(
+    name: string,
+    budgeted: number,
+    actual: number
+  ): PerformanceDashboardData["budgetTracker"]["lineItems"][0] {
+    return {
+      name,
+      budgeted: Math.round(budgeted * 100) / 100,
+      actual: Math.round(actual * 100) / 100
+    };
+  }
+
+  /**
+   * Resolve the accounting budget that overlaps the dashboard period (prefer active, then newest).
+   */
+  private static async getAccountingBudgetForPeriod(windowStart: Date, windowEnd: Date) {
+    const budgets = await prisma.budget.findMany({
+      where: {
+        startDate: { lte: windowEnd },
+        endDate: { gte: windowStart }
+      },
+      include: {
+        budgetItems: {
+          orderBy: { category: "asc" }
+        }
+      },
+      orderBy: [{ isActive: "desc" }, { startDate: "desc" }],
+      take: 1
+    });
+    return budgets[0] ?? null;
+  }
+
+  /** Map budget category labels to GL account name hints (payroll, rent, etc.). */
+  private static readonly BUDGET_CATEGORY_GL_HINTS: Record<string, string[]> = {
+    salary: ["payroll", "salaries", "wages", "staff cost", "personnel"],
+    salaries: ["payroll", "salaries", "wages", "staff cost", "personnel"],
+    office_rent: ["rent", "lease"],
+    rent: ["rent", "lease"],
+    travel: ["travel"],
+    marketing: ["market", "advert"],
+    software_licenses: ["software", "licence", "license"],
+    utilities: ["utilit", "electric", "water"],
+    insurance: ["insur"],
+    depreciation: ["depreciat"],
+    professional_fees: ["legal", "audit", "consult"]
+  };
+
+  private static glAccountMatchesBudgetItem(
+    account: { accountNo: string; accountName: string },
+    item: {
+      category: string;
+      subcategory: string | null;
+      description: string;
+      accountCode?: string | null;
+    }
+  ): boolean {
+    const accountNo = (account.accountNo || "").trim();
+    const accountName = (account.accountName || "").toLowerCase();
+    if (item.accountCode && accountNo === String(item.accountCode).trim()) {
+      return true;
+    }
+    const cat = (item.category || "").toLowerCase().replace(/\s+/g, "_");
+    const sub = (item.subcategory || "").toLowerCase();
+    const desc = (item.description || "").toLowerCase();
+    if (cat && (accountName.includes(cat.replace(/_/g, " ")) || accountName.includes(cat))) {
+      return true;
+    }
+    if (sub && accountName.includes(sub)) return true;
+    if (desc && accountName.includes(desc)) return true;
+    const hints = this.BUDGET_CATEGORY_GL_HINTS[cat] || [];
+    return hints.some((h) => accountName.includes(h));
+  }
+
+  /**
+   * Merge budget line items with posted GL expense for the dashboard month.
+   */
+  private static mergeBudgetWithGlActuals(
+    budgetItems: Array<{
+      id: string;
+      category: string;
+      subcategory: string | null;
+      description: string;
+      accountCode?: string | null;
+      budgetedAmount: unknown;
+      actualAmount: unknown;
+      variance: unknown;
+      variancePercentage: unknown;
+      isSignificantVariance: boolean;
+    }>,
+    glAccounts: Awaited<ReturnType<typeof getPostedPeriodExpenseByAccount>>
+  ): PerformanceDashboardData["budgetTracker"]["lineItems"] {
+    const matchedGlIds = new Set<string>();
+    const lineItems: PerformanceDashboardData["budgetTracker"]["lineItems"] = [];
+
+    for (const item of budgetItems) {
+      const budgeted = Number(item.budgetedAmount);
+      let actualFromGl = 0;
+      for (const gl of glAccounts) {
+        if (this.glAccountMatchesBudgetItem(gl, item)) {
+          actualFromGl += gl.actualAmount;
+          matchedGlIds.add(gl.chartOfAccountId);
+        }
+      }
+      const storedActual = Number(item.actualAmount);
+      const actual = actualFromGl > 0 ? actualFromGl : storedActual;
+      const name =
+        (item.description && item.description.trim()) ||
+        (item.category && item.category.trim()) ||
+        "Other";
+      if (budgeted > 0 || actual > 0) {
+        lineItems.push(this.toBudgetTrackerLine(name, budgeted, actual));
+      }
+    }
+
+    for (const gl of glAccounts) {
+      if (matchedGlIds.has(gl.chartOfAccountId)) continue;
+      if (gl.actualAmount <= 0) continue;
+      lineItems.push(
+        this.toBudgetTrackerLine(gl.accountName, 0, gl.actualAmount)
+      );
+    }
+
+    return lineItems.sort((a, b) => b.actual - a.actual);
+  }
+
+  /**
+   * Budget tracker: planned amounts from accounting budget; actuals from posted GL in the month.
    */
   private static async getBudgetTracker(
     windowStart: Date,
     windowEnd: Date
-  ): Promise<{
-    totalBudget: number;
-    totalSpend: number;
-    remaining: number;
-    percentageUsed: number;
-  }> {
+  ): Promise<PerformanceDashboardData["budgetTracker"]> {
     try {
-      const notArchived = ["ARCHIVED", "CANCELLED", "archived", "cancelled"] as const;
+      const glAccounts = await getPostedPeriodExpenseByAccount(windowStart, windowEnd);
+      const totalGlExpense = Math.round(
+        glAccounts.reduce((s, a) => s + a.actualAmount, 0) * 100
+      ) / 100;
 
-      let contracts = await prisma.performanceContract.findMany({
-        where: {
-          status: { notIn: notArchived as unknown as string[] },
-          periodStart: { lte: windowEnd },
-          periodEnd: { gte: windowStart }
-        },
-        select: {
-          allocatedBudget: true,
-          actualSpend: true
-        }
-      });
-
-      if (contracts.length === 0) {
-        const activeBudget = await prisma.budget.findFirst({
-          where: { isActive: true },
-          include: {
-            budgetItems: true
-          }
-        });
-        if (!activeBudget) {
-          return {
-            totalBudget: 0,
-            totalSpend: 0,
-            remaining: 0,
-            percentageUsed: 0
-          };
-        }
-        const totalBudget = parseFloat(activeBudget.totalBudgeted.toString());
-        const totalSpend = parseFloat(activeBudget.totalActual.toString());
-        const remaining = totalBudget - totalSpend;
-        const percentageUsed = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0;
+      const budget = await this.getAccountingBudgetForPeriod(windowStart, windowEnd);
+      if (!budget) {
+        const lineItems = glAccounts
+          .filter((gl) => gl.actualAmount > 0)
+          .map((gl) => this.toBudgetTrackerLine(gl.accountName, 0, gl.actualAmount));
+        const { percentageUsed, overBudget } = this.computePercentageUsed(0, totalGlExpense);
         return {
-          totalBudget,
-          totalSpend,
-          remaining,
-          percentageUsed
+          totalBudget: 0,
+          totalSpend: totalGlExpense,
+          remaining: -totalGlExpense,
+          percentageUsed,
+          overBudget,
+          lineItems
         };
       }
 
-      let totalBudget = 0;
-      let totalSpend = 0;
-      for (const c of contracts) {
-        totalBudget += c.allocatedBudget != null ? Number(c.allocatedBudget) : 0;
-        totalSpend += c.actualSpend != null ? Number(c.actualSpend) : 0;
-      }
+      const lineItems = this.mergeBudgetWithGlActuals(budget.budgetItems, glAccounts);
+      const totalBudget = lineItems.reduce((sum, i) => sum + i.budgeted, 0);
+      const totalSpend = lineItems.reduce((sum, i) => sum + i.actual, 0);
       const remaining = totalBudget - totalSpend;
-      const percentageUsed = totalBudget > 0 ? (totalSpend / totalBudget) * 100 : 0;
+      const { percentageUsed, overBudget } = this.computePercentageUsed(
+        totalBudget,
+        totalSpend
+      );
 
       return {
-        totalBudget,
-        totalSpend,
-        remaining,
-        percentageUsed: Math.round(percentageUsed * 100) / 100
+        totalBudget: Math.round(totalBudget * 100) / 100,
+        totalSpend: Math.round(totalSpend * 100) / 100,
+        remaining: Math.round(remaining * 100) / 100,
+        percentageUsed,
+        overBudget,
+        lineItems
       };
     } catch (error) {
       console.error("Error getting budget tracker:", error);
-      return {
-        totalBudget: 0,
-        totalSpend: 0,
-        remaining: 0,
-        percentageUsed: 0
-      };
+      return this.emptyBudgetTracker();
     }
   }
   

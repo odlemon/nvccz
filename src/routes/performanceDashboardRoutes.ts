@@ -193,7 +193,19 @@ const router = Router();
  *                           example: 20000
  *                         percentageUsed:
  *                           type: number
+ *                           description: Capped at 100 for UI when over budget
  *                           example: 75
+ *                         overBudget:
+ *                           type: boolean
+ *                           example: false
+ *                         lineItems:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               name: { type: string, example: Salaries and Wages }
+ *                               budgeted: { type: number }
+ *                               actual: { type: number }
  *                     employeeOfTheMonth:
  *                       type: object
  *                       nullable: true

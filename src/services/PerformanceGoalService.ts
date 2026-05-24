@@ -1893,6 +1893,201 @@ export class PerformanceGoalService {
   }
 
   /**
+   * Re-sum all completed payroll runs per goal window and apply reverse-KPI progress.
+   * Use for backfill when stored progress used straight-KPI math.
+   */
+  static async refreshAllPayrollExpenseGoals(createdById: string): Promise<void> {
+    const payrollKPI = await PerformanceGoalService.resolvePayrollExpenseKpiForSync();
+    if (!payrollKPI) {
+      console.log(
+        "⚠️ Payroll Expense KPI not found (expected `code` PAYROLL_EXPENSE). Skipping refresh."
+      );
+      return;
+    }
+
+    const goals = await prisma.performanceGoal.findMany({
+      where: {
+        OR: [{ kpiId: payrollKPI.id }, { formulaType: "PAYROLL_EXPENSE" }],
+        status: { in: ["active", "completed", "in_progress"] }
+      },
+      select: {
+        id: true,
+        title: true,
+        targetValue: true,
+        currentValue: true,
+        startDate: true,
+        endDate: true,
+        monetaryValue: true,
+        kpiId: true,
+        completedAt: true,
+        parentGoalId: true,
+        isReverseKpi: true,
+        targetOperator: true,
+        preciseTargetValue: true,
+        allowableVariance: true,
+        progressPercentage: true,
+        stage: true
+      }
+    });
+
+    console.log(`🔄 Refreshing ${goals.length} payroll-linked goal(s) (reverse-KPI aware)...`);
+
+    for (const goal of goals) {
+      const goalStartDate = new Date(goal.startDate);
+      const goalEndDate = new Date(goal.endDate);
+
+      const relevantPayrollRuns = await prisma.payrollRun.findMany({
+        where: {
+          status: "COMPLETED",
+          startDate: { lte: goalEndDate },
+          endDate: { gte: goalStartDate }
+        },
+        select: { totalGrossPay: true }
+      });
+
+      let totalPayrollExpense = new Decimal(0);
+      for (const run of relevantPayrollRuns) {
+        if (run.totalGrossPay) {
+          totalPayrollExpense = totalPayrollExpense.add(run.totalGrossPay);
+        }
+      }
+
+      await PerformanceGoalService.applyPayrollExpenseTotalToGoal(
+        goal,
+        payrollKPI,
+        parseFloat(totalPayrollExpense.toString()),
+        createdById
+      );
+    }
+
+    console.log("✅ Payroll expense goal refresh completed");
+  }
+
+  private static async applyPayrollExpenseTotalToGoal(
+    goal: {
+      id: string;
+      title: string;
+      targetValue: unknown;
+      currentValue: unknown;
+      startDate: Date;
+      endDate: Date;
+      monetaryValue: unknown;
+      kpiId: string | null;
+      completedAt: Date | null;
+      parentGoalId: string | null;
+      isReverseKpi: boolean | null;
+      targetOperator: string | null;
+      preciseTargetValue: unknown;
+      allowableVariance: unknown;
+      progressPercentage: unknown;
+      stage: string | null;
+    },
+    payrollKPI: { name: string; accountType: string | null; isReverseKpi: boolean | null },
+    totalPayrollValue: number,
+    createdById: string
+  ): Promise<void> {
+    const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+
+    const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(
+      payrollKPI.name,
+      goal.title,
+      payrollKPI.accountType
+    );
+    const effectiveIsReverseKpi =
+      goal.isReverseKpi === true || goal.isReverseKpi === false
+        ? goal.isReverseKpi
+        : payrollKPI.isReverseKpi === true
+          ? true
+          : payrollKPI.isReverseKpi === false
+            ? false
+            : inferredReverseFromKpi;
+    const effectiveTargetOperator =
+      goal.targetOperator !== undefined && goal.targetOperator !== null && goal.targetOperator !== ""
+        ? goal.targetOperator
+        : effectiveIsReverseKpi
+          ? "<="
+          : ">=";
+
+    const progressPercentage = computeAchievementPercent({
+      currentValue: totalPayrollValue,
+      targetValue: goal.targetValue,
+      targetOperator: effectiveTargetOperator,
+      isReverseKpi: effectiveIsReverseKpi,
+      progressPercentage: goal.progressPercentage
+    });
+    const isCompleted = isTargetMet(
+      totalPayrollValue,
+      targetValue,
+      effectiveTargetOperator,
+      effectiveIsReverseKpi
+    );
+    const partialProgress = !isCompleted && targetValue > 0 && totalPayrollValue > 0;
+    const nextStage = isCompleted
+      ? "completed"
+      : partialProgress
+        ? "in_progress"
+        : goal.stage || "planning";
+
+    const monetaryValue = goal.monetaryValue ? parseFloat(goal.monetaryValue.toString()) : targetValue;
+
+    const performanceRiskZone = resolveGoalEscalationStatus({
+      preciseCurrentValue: String(totalPayrollValue),
+      currentValue: totalPayrollValue,
+      preciseTargetValue: goal.preciseTargetValue,
+      targetValue: goal.targetValue,
+      allowableVariance: goal.allowableVariance,
+      isReverseKpi: effectiveIsReverseKpi,
+      endDate: goal.endDate as Date
+    });
+
+    const updatedGoal = await prisma.performanceGoal.update({
+      where: { id: goal.id },
+      data: {
+        ...(goal.isReverseKpi == null && effectiveIsReverseKpi ? { isReverseKpi: true } : {}),
+        ...(goal.targetOperator == null && effectiveIsReverseKpi ? { targetOperator: "<=" } : {}),
+        currentValue: totalPayrollValue,
+        preciseCurrentValue: String(totalPayrollValue),
+        monetaryValue,
+        monetaryValueAchieved: totalPayrollValue,
+        progressPercentage,
+        performanceRiskZone,
+        status: isCompleted ? "completed" : "active",
+        stage: nextStage,
+        completedAt: isCompleted ? goal.completedAt ?? new Date() : null,
+        updatedAt: new Date()
+      },
+      include: {
+        parentGoal: { select: { id: true } }
+      }
+    });
+
+    await PerformanceGoalService.refreshPerformanceRiskZoneOnGoal(goal.id).catch(() => undefined);
+
+    console.log(
+      `   ✅ Updated goal "${goal.title}": $${totalPayrollValue.toFixed(2)}/$${targetValue.toFixed(2)} (${progressPercentage.toFixed(1)}%, reverse=${effectiveIsReverseKpi}, completed=${isCompleted})`
+    );
+
+    // Do not roll up payroll expense totals to parents here — each linked goal receives the
+    // same gross-pay aggregate; parent rollup would overwrite the company goal with weighted child %.
+
+    if (goal.kpiId) {
+      try {
+        await PerformanceGoalService.recalculateKPIProgress(goal.kpiId);
+      } catch (kpiError) {
+        console.error(`   ⚠️ Failed to recalculate KPI progress for ${goal.kpiId}:`, kpiError);
+      }
+    }
+
+    if (isCompleted && goal.kpiId) {
+      try {
+        await PerformanceGoalService.triggerAccountingIntegration(goal.id, totalPayrollValue, createdById);
+      } catch (accountingError) {
+        console.error(`   ⚠️ Failed to trigger accounting integration for goal ${goal.id}:`, accountingError);
+      }
+    }
+  }
+
+  /**
    * Sync payroll data to performance goals linked to Payroll Expense KPI
    * Called after payroll run is processed to update goal progress
    */
@@ -1947,7 +2142,14 @@ export class PerformanceGoalService {
           endDate: true,
           monetaryValue: true,
           kpiId: true,
-          completedAt: true
+          completedAt: true,
+          parentGoalId: true,
+          isReverseKpi: true,
+          targetOperator: true,
+          preciseTargetValue: true,
+          allowableVariance: true,
+          progressPercentage: true,
+          stage: true
         }
       });
 
@@ -1978,7 +2180,6 @@ export class PerformanceGoalService {
           }
         });
 
-        // Calculate total payroll expense for this goal
         let totalPayrollExpense = new Decimal(0);
         for (const run of relevantPayrollRuns) {
           if (run.totalGrossPay) {
@@ -1986,67 +2187,12 @@ export class PerformanceGoalService {
           }
         }
 
-        const totalPayrollValue = parseFloat(totalPayrollExpense.toString());
-        const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-        const progressPercentage = targetValue > 0 
-          ? Math.min((totalPayrollValue / targetValue) * 100, 100) 
-          : 0;
-        const isCompleted = totalPayrollValue >= targetValue;
-
-        // Set monetaryValue to targetValue if not already set (for KPI calculations)
-        const monetaryValue = goal.monetaryValue ? parseFloat(goal.monetaryValue.toString()) : targetValue;
-
-        // Update goal with all necessary fields
-        const updatedGoal = await prisma.performanceGoal.update({
-          where: { id: goal.id },
-          data: {
-            currentValue: totalPayrollValue,
-            monetaryValue: monetaryValue, // Set target monetary value
-            monetaryValueAchieved: totalPayrollValue, // Set achieved monetary value
-            progressPercentage: progressPercentage,
-            status: isCompleted ? 'completed' : 'active',
-            stage: isCompleted ? 'completed' : 'in_progress',
-            completedAt: isCompleted && !goal.completedAt ? new Date() : undefined,
-            updatedAt: new Date()
-          },
-          include: {
-            parentGoal: {
-              select: { id: true }
-            }
-          }
-        });
-
-        await this.refreshPerformanceRiskZoneOnGoal(goal.id).catch(() => undefined);
-
-        console.log(`   ✅ Updated goal "${goal.title}": ${totalPayrollValue.toFixed(2)}/${targetValue.toFixed(2)} (${progressPercentage.toFixed(1)}%)`);
-
-        // Update parent goal progress if this is a sub-goal
-        if (updatedGoal.parentGoalId) {
-          try {
-            await this.updateParentGoalProgress(updatedGoal.parentGoalId);
-          } catch (parentError) {
-            console.error(`   ⚠️ Failed to update parent goal ${updatedGoal.parentGoalId}:`, parentError);
-          }
-        }
-
-        // Recalculate KPI progress after goal update
-        if (goal.kpiId) {
-          try {
-            await this.recalculateKPIProgress(goal.kpiId);
-          } catch (kpiError) {
-            console.error(`   ⚠️ Failed to recalculate KPI progress for ${goal.kpiId}:`, kpiError);
-          }
-        }
-
-        // If goal is completed and has KPI integration, trigger accounting
-        if (isCompleted && goal.kpiId) {
-          try {
-            await this.triggerAccountingIntegration(goal.id, totalPayrollValue, createdById);
-          } catch (accountingError) {
-            console.error(`   ⚠️ Failed to trigger accounting integration for goal ${goal.id}:`, accountingError);
-            // Don't fail the sync if accounting integration fails
-          }
-        }
+        await PerformanceGoalService.applyPayrollExpenseTotalToGoal(
+          goal,
+          payrollKPI,
+          parseFloat(totalPayrollExpense.toString()),
+          createdById
+        );
       }
 
       console.log('✅ Payroll-to-goals sync completed');
