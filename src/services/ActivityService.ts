@@ -5,7 +5,7 @@ import { FirebaseStorageService } from './FirebaseStorageService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { logger } from '../utils/logger';
 import { computeTaskPercentage } from './TaskService';
-import { computeAchievementPercent, isTargetMet } from './performanceGoalRollupUtils';
+import { computeAchievementPercent, deriveGoalProgressState } from './performanceGoalRollupUtils';
 import {
   legacyProgressFieldsForGoal,
   parseProgressBaseline,
@@ -214,15 +214,14 @@ export class ActivityService {
       const prev = parseProgressBaseline(goal);
       const newCurrentValue = Math.max(0, prev + valueCollected);
       const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
-      const progressPercentage = computeAchievementPercent({
+      const progressState = deriveGoalProgressState({
         currentValue: newCurrentValue,
         targetValue: goal.targetValue,
         targetOperator: goal.targetOperator,
         isReverseKpi: goal.isReverseKpi,
+        previousStage: goal.stage,
         progressPercentage: goal.progressPercentage
       });
-      const met = isTargetMet(newCurrentValue, targetValue, goal.targetOperator, goal.isReverseKpi);
-      const stage = met ? 'completed' : 'in_progress';
 
       const legacyData = legacyProgressFieldsForGoal(goal, newCurrentValue);
 
@@ -230,9 +229,9 @@ export class ActivityService {
         where: { id: goalId },
         data: {
           currentValue: newCurrentValue,
-          progressPercentage,
-          stage,
-          status: stage === 'completed' ? 'completed' : 'active',
+          progressPercentage: progressState.progressPercentage,
+          stage: progressState.stage,
+          status: progressState.status,
           preciseCurrentValue: String(newCurrentValue),
           ...legacyData,
           updatedAt: new Date()
@@ -241,7 +240,7 @@ export class ActivityService {
 
       await PerformanceGoalService.refreshPerformanceRiskZoneOnGoal(goalId).catch(() => undefined);
 
-      console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue} (${progressPercentage.toFixed(1)}%)`);
+      console.log(`📈 Goal ${goal.title} progress updated: ${newCurrentValue}/${targetValue} (${progressState.progressPercentage}%)`);
 
       if (goal.parentGoalId) {
         try {

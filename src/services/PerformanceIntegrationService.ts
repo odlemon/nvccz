@@ -31,7 +31,7 @@ import {
   legacyProgressFieldsForGoal,
   PerformanceGoalService
 } from "./PerformanceGoalService";
-import { computeAchievementPercent, isTargetMet } from "./performanceGoalRollupUtils";
+import { deriveGoalProgressState } from "./performanceGoalRollupUtils";
 
 type AuditMeta = {
   ipAddress?: string | null;
@@ -192,7 +192,18 @@ export class PerformanceIntegrationService {
         goalUpdateData.isPendingApproval = true;
         goalUpdateData.pendingActualValue = normalizedValue;
       } else {
+        const progressState = deriveGoalProgressState({
+          currentValue: numericValue,
+          targetValue: goal.targetValue,
+          targetOperator: goal.targetOperator,
+          isReverseKpi: goal.isReverseKpi,
+          previousStage: goal.stage,
+          progressPercentage: goal.progressPercentage
+        });
         goalUpdateData.currentValue = numericValue;
+        goalUpdateData.progressPercentage = progressState.progressPercentage;
+        goalUpdateData.stage = progressState.stage;
+        goalUpdateData.status = progressState.status;
         goalUpdateData.isPendingApproval = false;
         goalUpdateData.pendingActualValue = null;
         goalUpdateData.lastApprovedValue = normalizedValue;
@@ -878,17 +889,14 @@ export class PerformanceIntegrationService {
       throw new Error("There is no valid pending value to approve.");
     }
 
-    const targetNum = goal.targetValue ? parseFloat(String(goal.targetValue)) : 0;
-    const progressPercentage = computeAchievementPercent({
+    const progressState = deriveGoalProgressState({
       currentValue: approvedNum,
       targetValue: goal.targetValue,
       targetOperator: goal.targetOperator,
       isReverseKpi: goal.isReverseKpi,
+      previousStage: goal.stage,
       progressPercentage: goal.progressPercentage
     });
-    const completed = isTargetMet(approvedNum, targetNum, goal.targetOperator, goal.isReverseKpi);
-    const partialProgress = !completed && targetNum > 0 && approvedNum > 0;
-    const nextStage = completed ? "completed" : partialProgress ? "in_progress" : goal.stage;
 
     const legacyData = legacyProgressFieldsForGoal(goal, approvedNum);
     const performanceRiskZone = resolveGoalEscalationStatus({
@@ -910,9 +918,9 @@ export class PerformanceIntegrationService {
         currentValue: approvedNum,
         lastApprovedValue: approvedNum,
         lastSyncedAt: new Date(),
-        progressPercentage,
-        status: completed ? "completed" : "active",
-        stage: nextStage,
+        progressPercentage: progressState.progressPercentage,
+        status: progressState.status,
+        stage: progressState.stage,
         performanceRiskZone,
         performanceRiskZoneAt: new Date(),
         ...legacyData
@@ -1000,12 +1008,24 @@ export class PerformanceIntegrationService {
 
     const overrideDigits = syncDecimalPlacesForIntegrationBatch([goal], (goal as any).syncConfig?.fieldPath);
     const normalizedValue = normaliseSyncedDecimal(params.value, overrideDigits);
+    const numericValue = Number(normalizedValue);
+    const progressState = deriveGoalProgressState({
+      currentValue: numericValue,
+      targetValue: goal.targetValue,
+      targetOperator: goal.targetOperator,
+      isReverseKpi: goal.isReverseKpi,
+      previousStage: goal.stage,
+      progressPercentage: goal.progressPercentage
+    });
     const updatedGoal = await prisma.performanceGoal.update({
       where: { id: goal.id },
       data: {
-        currentValue: Number(normalizedValue),
+        currentValue: numericValue,
         preciseCurrentValue: normalizedValue,
         lastApprovedValue: normalizedValue,
+        progressPercentage: progressState.progressPercentage,
+        stage: progressState.stage,
+        status: progressState.status,
         isPendingApproval: false,
         pendingActualValue: null,
         manualOverrideComment: params.comment,

@@ -4,7 +4,8 @@ import { Decimal } from "@prisma/client/runtime/library";
 import {
   computeAchievementPercent,
   computeParentRollupFromChildren,
-  deriveParentStageFromRollup
+  deriveParentStageFromRollup,
+  formatProgressPercent
 } from "./performanceGoalRollupUtils";
 
 export class RollupCalculationService {
@@ -24,7 +25,7 @@ export class RollupCalculationService {
       isReverseKpi: goal.isReverseKpi ?? goal.kpi?.isReverseKpi,
       progressPercentage: goal.progressPercentage
     });
-    return pct.toFixed(2);
+    return formatProgressPercent(pct);
   }
 
   /**
@@ -66,7 +67,7 @@ export class RollupCalculationService {
       // Prefer stored reverse-aware progress; recompute when missing
       const progressPercentage =
         goal.progressPercentage != null && String(goal.progressPercentage).trim() !== ""
-          ? parseFloat(String(goal.progressPercentage)).toFixed(2)
+          ? formatProgressPercent(parseFloat(String(goal.progressPercentage)))
           : RollupCalculationService.goalProgressPercent(goal);
 
       return {
@@ -163,7 +164,7 @@ export class RollupCalculationService {
       status: s.status
     }));
     const parentRollup = computeParentRollupFromChildren(subInputs, goal.targetValue);
-    rollup.overallProgressPercentage = parentRollup.progressPercentage.toFixed(2);
+    rollup.overallProgressPercentage = formatProgressPercent(parentRollup.progressPercentage);
 
     return rollup;
   }

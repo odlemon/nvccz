@@ -10,7 +10,7 @@ export class PerformanceAnalyticsController {
    */
   static async getKPIAnalysis(req: Request, res: Response) {
     try {
-      const { kpiId, department, startDate, endDate, currencyId } = req.query;
+      const { kpiId, department, startDate, endDate, currencyId, syncGoalsFromGl } = req.query;
 
       const dateRange = startDate && endDate ? {
         start: parseDate(startDate as string),
@@ -34,7 +34,11 @@ export class PerformanceAnalyticsController {
         kpiId as string,
         department as string,
         dateRange,
-        currencyIdValue
+        currencyIdValue,
+        {
+          syncGoalsFromGl: syncGoalsFromGl === "true" || syncGoalsFromGl === "1",
+          actorId: (req as any).user?.id
+        }
       );
 
       return ResponseHelper.success(res, "KPI analysis retrieved successfully", analysis);

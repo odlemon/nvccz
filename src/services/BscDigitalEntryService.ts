@@ -3,8 +3,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "../utils/database";
 import AuditService from "./AuditService";
 import {
-  computeAchievementPercent,
-  isTargetMet
+  deriveGoalProgressState
 } from "./performanceGoalRollupUtils";
 import {
   diversitySpreadFromPercents,
@@ -268,22 +267,18 @@ async function applyNumericActualToGoal(params: {
     }));
   if (!goal) throw new Error("Performance goal not found");
 
-  const progressPercentage = computeAchievementPercent({
+  const progressState = deriveGoalProgressState({
     currentValue: params.currentValue,
     targetValue: goal.targetValue,
     targetOperator: goal.targetOperator,
     isReverseKpi: goal.isReverseKpi,
+    previousStage: goal.stage,
     progressPercentage: goal.progressPercentage
   });
-  const targetNum = goal.targetValue ? parseFloat(String(goal.targetValue)) : 0;
-  const met = isTargetMet(
-    params.currentValue,
-    targetNum,
-    goal.targetOperator,
-    goal.isReverseKpi
-  );
-  const stage = met ? "completed" : "in_progress";
-  const status = met ? "completed" : "active";
+  const progressPercentage = progressState.progressPercentageNum;
+  const stage = progressState.stage;
+  const status = progressState.status;
+  const met = progressState.isTargetMet;
 
   const syncConfig = mergeSyncConfig(goal.syncConfig, {
     bscEntryKind: params.entryKind,

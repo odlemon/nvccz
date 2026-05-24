@@ -128,6 +128,79 @@ export function normalizedSiblingWeights(siblings: SubGoalRollupInput[]): Map<st
   return map;
 }
 
+/** Standard 2-decimal progress string for API responses and goal storage. */
+export const GOAL_PROGRESS_DISPLAY_DECIMALS = 2;
+
+export function formatProgressPercent(value: number): string {
+  const n = Number.isFinite(value) ? value : 0;
+  return round(Math.min(100, Math.max(0, n)), GOAL_PROGRESS_DISPLAY_DECIMALS).toFixed(
+    GOAL_PROGRESS_DISPLAY_DECIMALS
+  );
+}
+
+export type GoalProgressState = {
+  progressPercentage: string;
+  progressPercentageNum: number;
+  stage: string;
+  status: string;
+  isTargetMet: boolean;
+};
+
+/**
+ * Single source of truth for goal progress %, stage, and status after a current-value update.
+ */
+export function deriveGoalProgressState(args: {
+  currentValue: number;
+  targetValue?: unknown;
+  targetOperator?: string | null;
+  isReverseKpi?: boolean | null;
+  previousStage?: string | null;
+  progressPercentage?: unknown;
+}): GoalProgressState {
+  const current = Number.isFinite(args.currentValue) ? args.currentValue : 0;
+  const targetNum =
+    args.targetValue != null && String(args.targetValue).trim() !== ""
+      ? parseFloat(String(args.targetValue))
+      : 0;
+  const previousStage = String(args.previousStage || "planning").trim() || "planning";
+
+  const progressPercentageNum = computeAchievementPercent({
+    currentValue: current,
+    targetValue: args.targetValue,
+    targetOperator: args.targetOperator,
+    isReverseKpi: args.isReverseKpi,
+    progressPercentage: args.progressPercentage
+  });
+  const progressPercentage = formatProgressPercent(progressPercentageNum);
+
+  const met = isTargetMet(current, targetNum, args.targetOperator, args.isReverseKpi);
+  const hasPartialProgress = !met && targetNum > 0 && current > 0;
+
+  let stage: string;
+  let status: string;
+  if (met) {
+    stage = "completed";
+    status = "completed";
+  } else if (hasPartialProgress) {
+    stage = "in_progress";
+    status = "active";
+  } else if (current > 0) {
+    stage = "in_progress";
+    status = "active";
+  } else {
+    stage = previousStage === "completed" ? "in_progress" : previousStage;
+    status = "active";
+  }
+
+  return {
+    progressPercentage,
+    progressPercentageNum,
+    stage,
+    status,
+    isTargetMet: met
+  };
+}
+
 export function isTargetMet(
   current: number,
   target: number,

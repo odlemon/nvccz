@@ -5,10 +5,9 @@ import { prisma } from "../utils/database";
 import { KpiAccountingIntegrationService } from "./KpiAccountingIntegrationService";
 import { KPIService } from "./KPIService";
 import {
-  computeAchievementPercent,
   computeParentRollupFromChildren,
+  deriveGoalProgressState,
   deriveParentStageFromRollup,
-  isTargetMet,
   mergeContributionWeightIntoActivities
 } from "./performanceGoalRollupUtils";
 import {
@@ -24,7 +23,7 @@ import {
 import { ensureDepartmentPerformanceContractForGoal } from "./DepartmentPerformanceContractService";
 import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
 import { FirebaseStorageService } from "./FirebaseStorageService";
-import { asNumber, roundTo } from "./performanceBackendSupport";
+import { getPostedPeriodRevenueExpenseNetProfit } from "./AccountingGlPeriodTotalsService";
 
 /** Prisma DateTime requires full ISO; breakdown JSON often sends "YYYY-MM-DD" only. */
 function isDateOnlyString(s: string): boolean {
@@ -373,17 +372,15 @@ export class PerformanceGoalService {
       const prev = parseProgressBaseline(goal);
       const currentValue = Math.max(0, prev + delta);
 
-      const progressPercentage = computeAchievementPercent({
+      const progressState = deriveGoalProgressState({
         currentValue,
         targetValue: goal.targetValue,
         targetOperator: effectiveTargetOperator,
         isReverseKpi: effectiveIsReverseKpi,
+        previousStage: goal.stage,
         progressPercentage: goal.progressPercentage
       });
-      const isCompleted = isTargetMet(currentValue, targetNum, effectiveTargetOperator, effectiveIsReverseKpi);
-      const partialProgress =
-        !isCompleted && targetNum > 0 && Number(currentValue) > 0;
-      const nextStage = isCompleted ? "completed" : partialProgress ? "in_progress" : goal.stage;
+      const isCompleted = progressState.isTargetMet;
 
       const legacyData = legacyProgressFieldsForGoal(goal, currentValue);
 
@@ -401,9 +398,9 @@ export class PerformanceGoalService {
         where: { id: goalId },
         data: {
           currentValue: currentValue,
-          progressPercentage: progressPercentage,
-          status: isCompleted ? "completed" : "active",
-          stage: nextStage,
+          progressPercentage: progressState.progressPercentage,
+          status: progressState.status,
+          stage: progressState.stage,
           isReverseKpi: effectiveIsReverseKpi,
           targetOperator: effectiveTargetOperator,
           preciseCurrentValue: String(currentValue),
@@ -1905,6 +1902,209 @@ export class PerformanceGoalService {
     console.log("✅ Payroll expense goal refresh completed");
   }
 
+  /**
+   * Push posted GL totals onto company-level financial KPI goals for a period, then roll up parents.
+   */
+  static async refreshFinancialGoalsFromGl(input: {
+    periodStart: Date;
+    periodEnd: Date;
+    kpiCodes?: string[];
+    createdById: string;
+  }): Promise<void> {
+    const codes = (input.kpiCodes?.length ? input.kpiCodes : ["TOTAL_REVENUE", "NET_PROFIT"]).map((c) =>
+      String(c).toUpperCase()
+    );
+    const glTotals = await getPostedPeriodRevenueExpenseNetProfit(input.periodStart, input.periodEnd);
+
+    for (const code of codes) {
+      if (code === "PAYROLL_EXPENSE") {
+        await PerformanceGoalService.refreshAllPayrollExpenseGoals(input.createdById);
+        continue;
+      }
+
+      let glValue: number | null = null;
+      if (code === "TOTAL_REVENUE") glValue = glTotals.revenue;
+      else if (code === "NET_PROFIT") glValue = glTotals.netProfit;
+      else {
+        console.log(`⚠️ refreshFinancialGoalsFromGl: unsupported KPI code ${code}, skipping`);
+        continue;
+      }
+
+      const kpi = await prisma.kPI.findFirst({
+        where: { code, isActive: true },
+        select: { id: true, name: true, accountType: true, isReverseKpi: true, code: true }
+      });
+      if (!kpi) {
+        console.log(`⚠️ KPI ${code} not found — skipping GL sync`);
+        continue;
+      }
+
+      const goals = await prisma.performanceGoal.findMany({
+        where: {
+          kpiId: kpi.id,
+          type: "company",
+          status: { in: ["active", "completed", "in_progress"] }
+        },
+        select: {
+          id: true,
+          title: true,
+          targetValue: true,
+          currentValue: true,
+          startDate: true,
+          endDate: true,
+          monetaryValue: true,
+          kpiId: true,
+          completedAt: true,
+          parentGoalId: true,
+          isReverseKpi: true,
+          targetOperator: true,
+          preciseTargetValue: true,
+          allowableVariance: true,
+          progressPercentage: true,
+          stage: true
+        }
+      });
+
+      console.log(`🔄 GL sync ${code}: ${goals.length} company goal(s), value=${glValue}`);
+
+      for (const goal of goals) {
+        const goalStart = new Date(goal.startDate);
+        const goalEnd = new Date(goal.endDate);
+        if (!dateRangesOverlap(goalStart, goalEnd, input.periodStart, input.periodEnd)) {
+          console.log(`⏭️ Skipping ${goal.title} — period does not overlap goal window`);
+          continue;
+        }
+
+        await PerformanceGoalService.applyFinancialGlValueToGoal(
+          goal,
+          kpi,
+          glValue,
+          input.createdById,
+          input.periodStart,
+          input.periodEnd,
+          code
+        );
+      }
+    }
+
+    console.log("✅ Financial GL goal refresh completed");
+  }
+
+  private static async applyFinancialGlValueToGoal(
+    goal: {
+      id: string;
+      title: string;
+      targetValue: unknown;
+      currentValue: unknown;
+      startDate: Date;
+      endDate: Date;
+      monetaryValue: unknown;
+      kpiId: string | null;
+      completedAt: Date | null;
+      parentGoalId: string | null;
+      isReverseKpi: boolean | null;
+      targetOperator: string | null;
+      preciseTargetValue: unknown;
+      allowableVariance: unknown;
+      progressPercentage: unknown;
+      stage: string | null;
+    },
+    kpi: { name: string; accountType: string | null; isReverseKpi: boolean | null; code: string | null },
+    glValue: number,
+    createdById: string,
+    periodStart: Date,
+    periodEnd: Date,
+    kpiCode: string
+  ): Promise<void> {
+    const inferredReverseFromKpi = inferReverseKpiFromNameOrAccountType(
+      kpi.name,
+      goal.title,
+      kpi.accountType
+    );
+    const effectiveIsReverseKpi =
+      goal.isReverseKpi === true || goal.isReverseKpi === false
+        ? goal.isReverseKpi
+        : kpi.isReverseKpi === true
+          ? true
+          : kpi.isReverseKpi === false
+            ? false
+            : inferredReverseFromKpi;
+    const effectiveTargetOperator =
+      goal.targetOperator !== undefined && goal.targetOperator !== null && goal.targetOperator !== ""
+        ? goal.targetOperator
+        : effectiveIsReverseKpi
+          ? "<="
+          : ">=";
+
+    const progressState = deriveGoalProgressState({
+      currentValue: glValue,
+      targetValue: goal.targetValue,
+      targetOperator: effectiveTargetOperator,
+      isReverseKpi: effectiveIsReverseKpi,
+      previousStage: goal.stage,
+      progressPercentage: goal.progressPercentage
+    });
+    const isCompleted = progressState.isTargetMet;
+    const targetValue = goal.targetValue ? parseFloat(goal.targetValue.toString()) : 0;
+    const monetaryValue = goal.monetaryValue ? parseFloat(goal.monetaryValue.toString()) : targetValue;
+
+    const performanceRiskZone = resolveGoalEscalationStatus({
+      preciseCurrentValue: String(glValue),
+      currentValue: glValue,
+      preciseTargetValue: goal.preciseTargetValue,
+      targetValue: goal.targetValue,
+      allowableVariance: goal.allowableVariance,
+      isReverseKpi: effectiveIsReverseKpi,
+      endDate: goal.endDate as Date
+    });
+
+    const updatedGoal = await prisma.performanceGoal.update({
+      where: { id: goal.id },
+      data: {
+        ...(goal.isReverseKpi == null && effectiveIsReverseKpi ? { isReverseKpi: true } : {}),
+        ...(goal.targetOperator == null && effectiveIsReverseKpi ? { targetOperator: "<=" } : {}),
+        currentValue: glValue,
+        preciseCurrentValue: String(glValue),
+        monetaryValue,
+        monetaryValueAchieved: glValue,
+        progressPercentage: progressState.progressPercentage,
+        performanceRiskZone,
+        performanceRiskZoneAt: new Date(),
+        status: progressState.status,
+        stage: progressState.stage,
+        completedAt: isCompleted ? goal.completedAt ?? new Date() : null,
+        syncConfig: {
+          source: "posted_journal_lines",
+          glKpiCode: kpiCode,
+          glPeriodStart: periodStart.toISOString(),
+          glPeriodEnd: periodEnd.toISOString(),
+          glSyncedAt: new Date().toISOString()
+        },
+        updatedAt: new Date()
+      }
+    });
+
+    if (isCompleted && goal.kpiId) {
+      await PerformanceGoalService.triggerAccountingIntegration(goal.id, glValue, createdById);
+    }
+
+    if (goal.kpiId) {
+      await PerformanceGoalService.recalculateKPIProgress(goal.kpiId).catch((e) =>
+        console.error(`[GL sync] KPI recalc failed for ${goal.kpiId}:`, e)
+      );
+    }
+
+    if (goal.parentGoalId) {
+      await PerformanceGoalService.updateParentGoalProgress(goal.parentGoalId).catch((err) =>
+        console.warn(`[GL sync] parent rollup failed for ${goal.id}:`, err?.message)
+      );
+    }
+
+    console.log(
+      `✅ GL sync goal ${updatedGoal.title}: ${glValue} → ${progressState.progressPercentage}% (${progressState.stage})`
+    );
+  }
+
   private static async applyPayrollExpenseTotalToGoal(
     goal: {
       id: string;
@@ -1950,25 +2150,15 @@ export class PerformanceGoalService {
           ? "<="
           : ">=";
 
-    const progressPercentage = computeAchievementPercent({
+    const progressState = deriveGoalProgressState({
       currentValue: totalPayrollValue,
       targetValue: goal.targetValue,
       targetOperator: effectiveTargetOperator,
       isReverseKpi: effectiveIsReverseKpi,
+      previousStage: goal.stage,
       progressPercentage: goal.progressPercentage
     });
-    const isCompleted = isTargetMet(
-      totalPayrollValue,
-      targetValue,
-      effectiveTargetOperator,
-      effectiveIsReverseKpi
-    );
-    const partialProgress = !isCompleted && targetValue > 0 && totalPayrollValue > 0;
-    const nextStage = isCompleted
-      ? "completed"
-      : partialProgress
-        ? "in_progress"
-        : goal.stage || "planning";
+    const isCompleted = progressState.isTargetMet;
 
     const monetaryValue = goal.monetaryValue ? parseFloat(goal.monetaryValue.toString()) : targetValue;
 
@@ -1991,10 +2181,10 @@ export class PerformanceGoalService {
         preciseCurrentValue: String(totalPayrollValue),
         monetaryValue,
         monetaryValueAchieved: totalPayrollValue,
-        progressPercentage,
+        progressPercentage: progressState.progressPercentage,
         performanceRiskZone,
-        status: isCompleted ? "completed" : "active",
-        stage: nextStage,
+        status: progressState.status,
+        stage: progressState.stage,
         completedAt: isCompleted ? goal.completedAt ?? new Date() : null,
         updatedAt: new Date()
       },
