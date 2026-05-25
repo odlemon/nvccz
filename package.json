@@ -73,6 +73,7 @@
     "db:reset:performance-metrics-payroll": "ts-node --transpile-only -r dotenv/config scripts/reset-performance-metrics-and-payroll.ts",
     "db:reset:task-progress-chain": "ts-node --transpile-only -r dotenv/config scripts/reset-task-progress-chain.ts",
     "db:revert:gl-login-sync": "ts-node --transpile-only -r dotenv/config scripts/revert-gl-login-sync-damage.ts",
+    "db:delete:active-ceo-contracts": "ts-node --transpile-only -r dotenv/config scripts/delete-active-ceo-performance-contracts.ts",
     "uat:login-gl-sync-incremental": "ts-node --transpile-only -r dotenv/config scripts/test-login-gl-sync-incremental.ts",
     "uat:task-progress": "ts-node --transpile-only -r dotenv/config scripts/test-task-progress-uat.ts",
     "uat:seed-login-sync-revenue": "ts-node --transpile-only -r dotenv/config scripts/seed-login-sync-revenue-may-2026.ts",

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../utils/database";
+import { syncCompanyGoalsToCeoContract } from "./CeoPerformanceContractLinkService";
 import { isCEO } from "./performanceScorecardSupport";
 
 export type PerformanceContractDb = Prisma.TransactionClient | typeof prisma;
@@ -354,7 +355,12 @@ export async function createCEOPerformanceContract(params: {
         existing.id
       );
     }
-    return { contract: existing, created: false };
+    const { linkedCount } = await syncCompanyGoalsToCeoContract(
+      existing.id,
+      periodStart,
+      periodEnd
+    );
+    return { contract: existing, created: false, linkedGoalCount: linkedCount };
   }
 
   const contract = await prisma.performanceContract.create({
@@ -372,7 +378,12 @@ export async function createCEOPerformanceContract(params: {
       metadata: { source: "board_chair_period_setup" }
     }
   });
-  return { contract, created: true };
+  const { linkedCount } = await syncCompanyGoalsToCeoContract(
+    contract.id,
+    periodStart,
+    periodEnd
+  );
+  return { contract, created: true, linkedGoalCount: linkedCount };
 }
 
 /** Department PC: at most one ACTIVE per department name per calendar year. Default **rejectIfDuplicate** true. */

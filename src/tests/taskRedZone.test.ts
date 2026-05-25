@@ -1,6 +1,7 @@
 import {
   applyDueDateStageToTask,
   isRedZoneTask,
+  isTaskInOverdueState,
   isTaskPastDueByClock,
   resolveTaskPerformanceZone,
   resolveTaskStageAndOverdueFields
@@ -42,6 +43,17 @@ describe("C.06 task Red Zone", () => {
     expect(resolved.stage).toBe("overdue");
     expect(resolved.originalStage).toBe("todo");
     expect(resolved.isOverdue).toBe(true);
+  });
+
+  test("isTaskInOverdueState is true for overdue stage or past due date", () => {
+    const past = new Date(Date.now() - 60_000);
+    expect(isTaskInOverdueState({ stage: "overdue", date: past, isTrashed: false })).toBe(true);
+    expect(
+      isTaskInOverdueState({ stage: "todo", isOverdue: false, date: past, isTrashed: false })
+    ).toBe(true);
+    expect(
+      isTaskInOverdueState({ stage: "completed", date: past, isTrashed: false })
+    ).toBe(false);
   });
 
   test("list shaping sets stage overdue when due date passed", () => {

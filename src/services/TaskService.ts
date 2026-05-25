@@ -14,6 +14,7 @@ import {
   applyDueDateStageToTask,
   buildTaskDeepLink,
   isRedZoneTask,
+  isTaskInOverdueState,
   normaliseTaskStage,
   resolveTaskPerformanceZone,
   resolveTaskStageAndOverdueFields,
@@ -23,6 +24,10 @@ import { emitToUsers } from "./RealtimeSocketService";
 import { PerformanceGoalService, legacyProgressFieldsForGoal } from "./PerformanceGoalService";
 import { PerformanceGoalProgressBridge } from "./PerformanceGoalProgressBridge";
 import { PerformanceGoalProgressEventService } from "./PerformanceGoalProgressEventService";
+import {
+  applyValueDisplayHardening,
+  resolveTaskValueDisplay
+} from "./taskValueDisplay";
 
 /** Recompute overdue / red-zone flags from due date and stage (C.06: past due updates immediately). */
 function computeOverdueFieldsForTaskUpdate(
@@ -184,6 +189,7 @@ const TASK_LIST_SELECT = {
       id: true,
       title: true,
       type: true,
+      targetUnit: true,
       targetValue: true,
       currentValue: true,
       stage: true,
@@ -191,7 +197,10 @@ const TASK_LIST_SELECT = {
       kpi: {
         select: {
           id: true,
-          name: true
+          name: true,
+          unitSymbol: true,
+          unitCategory: true,
+          hasUnit: true
         }
       },
       parentGoal: {
@@ -209,6 +218,24 @@ const TASK_LIST_SELECT = {
     }
   }
 } as const;
+
+/** Single-task GET — same lean shape as list (no activityLogs / full application graph). */
+const TASK_DETAIL_SELECT = TASK_LIST_SELECT;
+
+function shapeTaskForApiResponse(task: any, application: any | null = null) {
+  const staged = applyDueDateStageToTask(task);
+  const valueDisplay = resolveTaskValueDisplay(staged);
+  const hardened = applyValueDisplayHardening(staged, valueDisplay);
+
+  return formatTaskNumericFields({
+    ...hardened,
+    valueDisplay,
+    application: application ?? hardened.application ?? null,
+    taskPercentage: computeTaskPercentage(hardened),
+    performanceZone: resolveTaskPerformanceZone(staged),
+    attachments: buildTaskAttachmentsList(hardened)
+  });
+}
 
 const TASK_APPLICATION_FULL_INCLUDE = {
   fund: {
@@ -412,16 +439,7 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
   );
 
   if (applicationIds.length === 0) {
-    return tasks.map((task) => {
-      const shaped = applyDueDateStageToTask(task);
-      return formatTaskNumericFields({
-        ...shaped,
-        application: shaped.application ?? null,
-        taskPercentage: computeTaskPercentage(shaped),
-        performanceZone: resolveTaskPerformanceZone(shaped),
-        attachments: buildTaskAttachmentsList(shaped)
-      });
-    });
+    return tasks.map((task) => shapeTaskForApiResponse(task, task.application ?? null));
   }
 
   const applications = await prisma.application.findMany({
@@ -441,15 +459,7 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
     const existingApplication = task.application ?? null;
     const lookupId = task.applicationId || existingApplication?.id;
     const application = lookupId ? applicationMap.get(lookupId) || existingApplication || null : existingApplication || null;
-    const shaped = applyDueDateStageToTask(task);
-
-    return formatTaskNumericFields({
-      ...shaped,
-      application: application || null,
-      taskPercentage: computeTaskPercentage(shaped),
-      performanceZone: resolveTaskPerformanceZone(shaped),
-      attachments: buildTaskAttachmentsList(shaped)
-    });
+    return shapeTaskForApiResponse(task, application || null);
   });
 }
 
@@ -1004,6 +1014,10 @@ export class TaskService {
         throw new Error("Task not found");
       }
 
+      if (isTaskInOverdueState(task)) {
+        throw new Error("The task is already overdue.");
+      }
+
       const beforeRedZone = isRedZoneTask(task);
 
       // Check if task is overdue
@@ -1543,81 +1557,19 @@ export class TaskService {
     }
   }
 
-  // Get task by ID
+  // Get task by ID (lean select; overdue/value display shaped in memory — no write on read)
   static async getTaskById(id: string) {
     try {
       const task = await prisma.task.findUnique({
         where: { id },
-        include: {
-          creator: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          },
-          goal: {
-            select: {
-              id: true,
-              title: true,
-              type: true
-            }
-          }
-        }
+        select: TASK_DETAIL_SELECT
       });
 
       if (!task) {
         throw new Error("Task not found");
       }
 
-      const wasPersistedRed =
-        Boolean(task.isOverdue) ||
-        normaliseTaskStage(task.stage) === "red" ||
-        normaliseTaskStage(task.stage) === "overdue";
-      if (isRedZoneTask(task) && !wasPersistedRed && !task.isTrashed) {
-        const st = normaliseTaskStage(task.stage);
-        const overdueFields =
-          st === "completed"
-            ? { isOverdue: false, overdueStatus: null, originalStage: null }
-            : {
-                isOverdue: true,
-                originalStage: task.stage,
-                overdueStatus: `overdue_${st}`
-              };
-        const updatedTask = await prisma.task.update({
-          where: { id },
-          data: {
-            ...overdueFields,
-            updatedAt: new Date()
-          },
-          include: {
-            creator: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            },
-            goal: {
-              select: {
-                id: true,
-                title: true,
-                type: true
-              }
-            }
-          }
-        });
-        await TaskCollaborationService.notifyTaskRedZone({
-          task: updatedTask,
-          reason: "The due date has passed and the task now requires immediate attention."
-        });
-        const [taskWithApplication] = await attachApplicationDataToTasks([updatedTask]);
-        return taskWithApplication;
-      }
-
-      const [taskWithApplication] = await attachApplicationDataToTasks([task]);
+      const [taskWithApplication] = await attachApplicationDataToTasks([task], { minimal: true });
       return taskWithApplication;
     } catch (error) {
       throw error;

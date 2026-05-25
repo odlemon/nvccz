@@ -21,6 +21,7 @@ import {
   resolveDefaultDepartmentGoalAssigneeId
 } from "./performanceGoalDefaultAssignee";
 import { ensureDepartmentPerformanceContractForGoal } from "./DepartmentPerformanceContractService";
+import { resolveCeoContractIdForCompanyGoal } from "./CeoPerformanceContractLinkService";
 import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
 import { FirebaseStorageService } from "./FirebaseStorageService";
 import { getPostedPeriodRevenueExpenseNetProfit } from "./AccountingGlPeriodTotalsService";
@@ -570,6 +571,14 @@ export class PerformanceGoalService {
             throw new Error("performanceContractId department does not match goal departmentName");
           }
         }
+        if (request.type === "company") {
+          const ct = String(pc.contractType || "").toUpperCase();
+          if (ct !== "CEO") {
+            throw new Error(
+              "performanceContractId for company goals must reference an active CEO performance contract"
+            );
+          }
+        }
       }
 
       if (request.type === "department" && request.departmentName && !performanceContractId) {
@@ -578,6 +587,13 @@ export class PerformanceGoalService {
           goalStart: request.startDate,
           createdById
         });
+      }
+
+      if (request.type === "company" && !performanceContractId) {
+        performanceContractId = await resolveCeoContractIdForCompanyGoal(
+          request.startDate,
+          request.endDate
+        );
       }
 
       let companyStrategyId: string | null = null;
