@@ -1,7 +1,9 @@
 import {
+  applyDueDateStageToTask,
   isRedZoneTask,
   isTaskPastDueByClock,
-  resolveTaskPerformanceZone
+  resolveTaskPerformanceZone,
+  resolveTaskStageAndOverdueFields
 } from "../services/TaskCollaborationService";
 
 describe("C.06 task Red Zone", () => {
@@ -32,5 +34,25 @@ describe("C.06 task Red Zone", () => {
 
   test("explicit overdue stage yields RED ZONE", () => {
     expect(resolveTaskPerformanceZone({ stage: "overdue", isOverdue: false })).toBe("RED ZONE");
+  });
+
+  test("create with past due date forces overdue stage (ignores todo from body)", () => {
+    const past = new Date(Date.now() - 86_400_000);
+    const resolved = resolveTaskStageAndOverdueFields("todo", past);
+    expect(resolved.stage).toBe("overdue");
+    expect(resolved.originalStage).toBe("todo");
+    expect(resolved.isOverdue).toBe(true);
+  });
+
+  test("list shaping sets stage overdue when due date passed", () => {
+    const past = new Date(Date.now() - 60_000);
+    const shaped = applyDueDateStageToTask({
+      stage: "in_progress",
+      isOverdue: false,
+      date: past,
+      isTrashed: false
+    });
+    expect(shaped.stage).toBe("overdue");
+    expect((shaped as Record<string, unknown>).originalStage).toBe("in_progress");
   });
 });

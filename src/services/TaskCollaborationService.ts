@@ -129,6 +129,72 @@ export function isTaskPastDueByClock(task: any): boolean {
   return d.getTime() < Date.now();
 }
 
+export type TaskOverdueFields = {
+  stage: string;
+  isOverdue: boolean;
+  overdueStatus: string | null;
+  originalStage: string | null;
+};
+
+/**
+ * Due date drives stage: past due (non-completed) → `overdue`, ignoring a fresh todo/in_progress from the client.
+ */
+export function resolveTaskStageAndOverdueFields(
+  requestedStage: string,
+  dueDate: Date,
+  existing?: { stage?: string | null; isOverdue?: boolean; originalStage?: string | null }
+): TaskOverdueFields {
+  const requestedNorm = normaliseTaskStage(requestedStage || "todo");
+  if (requestedNorm === "completed") {
+    return {
+      stage: "completed",
+      isOverdue: false,
+      overdueStatus: null,
+      originalStage: null
+    };
+  }
+
+  const pastDue = dueDate.getTime() < Date.now();
+  if (!pastDue) {
+    return {
+      stage: requestedNorm,
+      isOverdue: false,
+      overdueStatus: null,
+      originalStage: null
+    };
+  }
+
+  const prior =
+    existing?.originalStage != null && String(existing.originalStage).trim() !== ""
+      ? normaliseTaskStage(String(existing.originalStage))
+      : existing?.stage && normaliseTaskStage(existing.stage) !== "overdue"
+        ? normaliseTaskStage(existing.stage)
+        : requestedNorm;
+
+  return {
+    stage: "overdue",
+    isOverdue: true,
+    overdueStatus: `overdue_${prior}`,
+    originalStage: prior
+  };
+}
+
+/** Shape task for API when due date has passed (no extra DB round-trip on list endpoints). */
+export function applyDueDateStageToTask<T extends Record<string, unknown>>(task: T): T {
+  if (!task || task.isTrashed) return task;
+  if (!isTaskPastDueByClock(task)) return task;
+  const resolved = resolveTaskStageAndOverdueFields(
+    String(task.stage || "todo"),
+    new Date(task.date as string | Date),
+    {
+      stage: task.stage as string,
+      isOverdue: Boolean(task.isOverdue),
+      originalStage: task.originalStage as string | null
+    }
+  );
+  return { ...task, ...resolved };
+}
+
 export function isRedZoneTask(task: any) {
   const stage = normaliseTaskStage(task?.stage);
   if (stage === "red" || stage === "overdue" || Boolean(task?.isOverdue)) {
