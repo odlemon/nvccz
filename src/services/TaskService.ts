@@ -11,10 +11,12 @@ import {
 import { uniqueGoalIdsForTaskBatch, buildTaskAttachmentsList } from "./performanceBackendSupport";
 import {
   TaskCollaborationService,
+  applyDueDateStageToTask,
   buildTaskDeepLink,
   isRedZoneTask,
   normaliseTaskStage,
   resolveTaskPerformanceZone,
+  resolveTaskStageAndOverdueFields,
   taskStageChatLabel
 } from "./TaskCollaborationService";
 import { emitToUsers } from "./RealtimeSocketService";
@@ -136,6 +138,77 @@ export function resolveTaskStageFromAchievement(
   if (achieved > 0) return "in_progress";
   return previousStage && previousStage !== "completed" ? previousStage : "todo";
 }
+
+/** Lean list payload for GET /tasks and GET /tasks/my (no activityLogs / heavy joins). */
+const TASK_LIST_SELECT = {
+  id: true,
+  title: true,
+  description: true,
+  assets: true,
+  activities: true,
+  team: true,
+  stage: true,
+  date: true,
+  priority: true,
+  department: true,
+  category: true,
+  taskMetadata: true,
+  goalId: true,
+  performanceCategory: true,
+  isPerformanceTask: true,
+  isOverdue: true,
+  overdueStatus: true,
+  originalStage: true,
+  applicationId: true,
+  fromDueDiligence: true,
+  monetaryValue: true,
+  monetaryValueAchieved: true,
+  percentValue: true,
+  percentValueAchieved: true,
+  kpi: true,
+  status: true,
+  isTrashed: true,
+  createdBy: true,
+  createdAt: true,
+  updatedAt: true,
+  creator: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true
+    }
+  },
+  goal: {
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      targetValue: true,
+      currentValue: true,
+      stage: true,
+      kpiId: true,
+      kpi: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      parentGoal: {
+        select: {
+          id: true,
+          title: true,
+          parentGoal: {
+            select: {
+              id: true,
+              title: true
+            }
+          }
+        }
+      }
+    }
+  }
+} as const;
 
 const TASK_APPLICATION_FULL_INCLUDE = {
   fund: {
@@ -339,15 +412,16 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
   );
 
   if (applicationIds.length === 0) {
-    return tasks.map((task) =>
-      formatTaskNumericFields({
-        ...task,
-        application: task.application ?? null,
-        taskPercentage: computeTaskPercentage(task),
-        performanceZone: resolveTaskPerformanceZone(task),
-        attachments: buildTaskAttachmentsList(task)
-      })
-    );
+    return tasks.map((task) => {
+      const shaped = applyDueDateStageToTask(task);
+      return formatTaskNumericFields({
+        ...shaped,
+        application: shaped.application ?? null,
+        taskPercentage: computeTaskPercentage(shaped),
+        performanceZone: resolveTaskPerformanceZone(shaped),
+        attachments: buildTaskAttachmentsList(shaped)
+      });
+    });
   }
 
   const applications = await prisma.application.findMany({
@@ -367,13 +441,14 @@ async function attachApplicationDataToTasks(tasks: any[], options?: { minimal?: 
     const existingApplication = task.application ?? null;
     const lookupId = task.applicationId || existingApplication?.id;
     const application = lookupId ? applicationMap.get(lookupId) || existingApplication || null : existingApplication || null;
+    const shaped = applyDueDateStageToTask(task);
 
     return formatTaskNumericFields({
-      ...task,
+      ...shaped,
       application: application || null,
-      taskPercentage: computeTaskPercentage(task),
-      performanceZone: resolveTaskPerformanceZone(task),
-      attachments: buildTaskAttachmentsList(task)
+      taskPercentage: computeTaskPercentage(shaped),
+      performanceZone: resolveTaskPerformanceZone(shaped),
+      attachments: buildTaskAttachmentsList(shaped)
     });
   });
 }
@@ -596,11 +671,10 @@ export class TaskService {
         date: new Date(),
         by: createdBy
       };
-      const stageNorm = normaliseTaskStage(request.stage || "todo");
-      const overdueFields = computeOverdueFieldsForTaskUpdate(
-        { stage: stageNorm, isOverdue: false },
-        new Date(request.date),
-        stageNorm
+      const dueDate = new Date(request.date);
+      const { stage: stageNorm, ...overdueFields } = resolveTaskStageAndOverdueFields(
+        request.stage || "todo",
+        dueDate
       );
 
       // Create the task
@@ -610,6 +684,7 @@ export class TaskService {
           description: request.description,
           team: request.team,
           stage: stageNorm,
+          status: stageNorm,
           date: request.date,
           priority: (request.priority || "medium").toLowerCase(),
           assets: request.assets,
@@ -776,11 +851,16 @@ export class TaskService {
       }
 
       const effectiveDueDate = request.date ? new Date(request.date) : new Date(existingTask.date);
-      const effectiveStageNorm = request.stage
-        ? normaliseTaskStage(request.stage)
-        : normaliseTaskStage(existingTask.stage);
-
-      const overdueFields = computeOverdueFieldsForTaskUpdate(existingTask, effectiveDueDate, effectiveStageNorm);
+      const requestedStage = request.stage ?? existingTask.stage;
+      const { stage: effectiveStageNorm, ...overdueFields } = resolveTaskStageAndOverdueFields(
+        requestedStage,
+        effectiveDueDate,
+        {
+          stage: existingTask.stage,
+          isOverdue: existingTask.isOverdue,
+          originalStage: existingTask.originalStage
+        }
+      );
       const hasLinkedGoal = Boolean(nextGoalId);
       const nextIsPerformanceTask =
         request.isPerformanceTask !== undefined
@@ -809,7 +889,13 @@ export class TaskService {
           ...(request.title && { title: request.title }),
           ...(request.description !== undefined && { description: request.description }),
           ...(request.team && { team: request.team }),
-          ...(request.stage && { stage: effectiveStageNorm, status: effectiveStageNorm }),
+          ...((request.stage !== undefined ||
+            request.date !== undefined ||
+            effectiveStageNorm !== normaliseTaskStage(existingTask.stage) ||
+            overdueFields.isOverdue !== Boolean(existingTask.isOverdue)) && {
+            stage: effectiveStageNorm,
+            status: effectiveStageNorm
+          }),
           ...(request.date && { date: request.date }),
           ...(request.priority && { priority: request.priority.toLowerCase() }),
           ...(request.assets !== undefined && { assets: request.assets }),
@@ -1351,30 +1437,13 @@ export class TaskService {
 
       const tasks = await prisma.task.findMany({
         where,
-        include: {
-          creator: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          },
-          goal: {
-            select: {
-              id: true,
-              title: true,
-              type: true
-            }
-          }
-        },
+        select: TASK_LIST_SELECT,
         orderBy: {
-          createdAt: 'desc'
+          createdAt: "desc"
         }
       });
 
-      const tasksWithApplication = await attachApplicationDataToTasks(tasks);
-      return tasksWithApplication;
+      return attachApplicationDataToTasks(tasks, { minimal: true });
     } catch (error) {
       throw error;
     }
@@ -1462,161 +1531,13 @@ export class TaskService {
 
       const tasks = await prisma.task.findMany({
         where,
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          // Needed so `attachments` (derived field) can be built reliably.
-          assets: true,
-          activities: true,
-          team: true,
-          stage: true,
-          date: true,
-          priority: true,
-          department: true,
-          category: true,
-          taskMetadata: true,
-          goalId: true,
-          performanceCategory: true,
-          isPerformanceTask: true,
-          isOverdue: true,
-          overdueStatus: true,
-          originalStage: true,
-          applicationId: true,
-          fromDueDiligence: true,
-          monetaryValue: true,
-          monetaryValueAchieved: true,
-          percentValue: true,
-          percentValueAchieved: true,
-          kpi: true,
-          activityLogs: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  email: true
-                }
-              },
-              goal: {
-                select: {
-                  id: true,
-                  title: true,
-                  targetValue: true,
-                  currentValue: true,
-                  stage: true,
-                  kpiId: true,
-                  kpi: {
-                    select: {
-                      id: true,
-                      name: true
-                    }
-                  }
-                }
-              }
-            },
-            orderBy: {
-              createdAt: 'desc'
-            }
-          },
-          status: true,
-          isTrashed: true,
-          createdBy: true,
-          createdAt: true,
-          updatedAt: true,
-          creator: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          },
-          goal: {
-            select: {
-              id: true,
-              title: true,
-              type: true,
-              targetValue: true,
-              currentValue: true,
-              stage: true,
-              kpiId: true,
-        kpi: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-              parentGoal: {
-                select: {
-                  id: true,
-                  title: true,
-                  parentGoal: {
-                    select: {
-                      id: true,
-                      title: true
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
+        select: TASK_LIST_SELECT,
         orderBy: {
-          createdAt: 'desc'
+          createdAt: "desc"
         }
       });
 
-      // Extract document URLs from activity descriptions and add to activities
-      const tasksWithDocuments = tasks.map(task => {
-        const activitiesWithDocuments = task.activityLogs.map((activity: any) => {
-          let documents: Array<{ fileName: string; fileUrl: string; fileSize: number }> = [];
-          
-          // Extract documents from description if they exist
-          if (activity.description) {
-            const documentsMatch = activity.description.match(/\[DOCUMENTS:(.+?)\]/);
-            if (documentsMatch) {
-              const rawPayload = documentsMatch[1];
-              try {
-                const parsed = JSON.parse(rawPayload);
-                if (Array.isArray(parsed)) {
-                  documents = parsed.filter(doc => doc && doc.fileUrl && doc.fileName);
-                } else {
-                  throw new Error('Documents payload is not an array');
-                }
-              } catch (e: any) {
-                console.error('Failed to parse documents from activity description:', e);
-                console.error('Raw payload:', rawPayload);
-                // Attempt to recover by wrapping single object in array
-                if (rawPayload.trim().startsWith('{') && rawPayload.trim().endsWith('}')) {
-                  try {
-                    const single = JSON.parse(rawPayload);
-                    if (single && single.fileUrl && single.fileName) {
-                      documents = [single];
-                    }
-                  } catch {
-                    // swallow
-                  }
-                }
-              }
-            }
-          }
-
-          return {
-            ...activity,
-            documents
-          };
-        });
-
-        return {
-          ...task,
-          activityLogs: activitiesWithDocuments
-        };
-      });
-
-      const tasksWithApplication = await attachApplicationDataToTasks(tasksWithDocuments);
-      return tasksWithApplication;
+      return attachApplicationDataToTasks(tasks, { minimal: true });
     } catch (error) {
       throw error;
     }
