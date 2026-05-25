@@ -203,6 +203,17 @@ export function isRedZoneTask(task: any) {
   return isTaskPastDueByClock(task);
 }
 
+/** Task is in overdue state (persisted flag, overdue stage, or past due date). */
+export function isTaskInOverdueState(task: any): boolean {
+  if (!task || task.isTrashed) return false;
+  if (normaliseTaskStage(task.stage) === "completed") return false;
+  return (
+    Boolean(task.isOverdue) ||
+    normaliseTaskStage(task.stage) === "overdue" ||
+    isTaskPastDueByClock(task)
+  );
+}
+
 /** API-facing zone label (C.06 RED ZONE, delayed → AMBER ZONE, etc.). */
 export function resolveTaskPerformanceZone(task: any): string {
   if (!task) return "NEUTRAL";

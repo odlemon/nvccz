@@ -85,6 +85,11 @@ sequenceDiagram
 | **Board** | `BOARD` + period overlap or `periodLabel` | **`performanceContractId = Board PC id`** |
 | **Org BSC** | Optional `ORG_BSC` contract for weights | `type: company` and (linked `performanceContractId` **or** period overlap) |
 
+**CEO ↔ company goal automation** (`CeoPerformanceContractLinkService`):
+
+- On **`POST /performance/goals`** with `type: company`: if an ACTIVE CEO PC overlaps the goal dates, set `performanceContractId` automatically (no CEO PC → leave null).
+- On **`POST /performance/contracts/ceo`**: after create (or idempotent return of existing PC), link all overlapping `type: company` goals with null or matching `performanceContractId`; response includes **`linkedGoalCount`**.
+
 Default **period** when the client sends nothing: scorecard service uses **current calendar month** (`currentPeriodBounds`) unless `periodLabel` is a 4-digit year (then **UTC full year**, aligned with PC creation via `periodYear` / `periodLabel: "2026"`).
 
 **Recommendation:** for annual reviews, always pass **`periodLabel: "2026"`** (or explicit `periodStart` / `periodEnd`) on both **PC creation** and **scorecard** calls so behaviour matches.
@@ -141,7 +146,8 @@ flowchart LR
 | Step | API / behaviour |
 |------|------------------|
 | Create PCs for the year | `POST /api/performance/contracts/board`, `/ceo`, `/department`, `/employee` (idempotent) |
-| Link CEO/Board indicators | `POST /api/performance/goals` with **`performanceContractId`** set to the CEO or Board PC id |
+| Link CEO indicators | Auto on company goal create + backfill on `POST /api/performance/contracts/ceo` (`linkedGoalCount`); or set **`performanceContractId`** manually on `POST /api/performance/goals` |
+| Link Board indicators | `POST /api/performance/goals` with **`performanceContractId`** set to the Board PC id |
 | Link department goals | Optional explicit `performanceContractId`; else first department goal still **ensures** a DEPARTMENT PC |
 | Employee scorecard | Requires overlapping **EMPLOYEE** PC; goals typically by assignee + period |
 | Feed BSC metrics | `POST /api/performance/bsc-entry/<name>` — **`goalId`** on the configured goal, except **`accounting-period-from-gl`** (period + optional goal ids). See route list in §4. |
@@ -166,6 +172,7 @@ flowchart LR
 | Department PC fallback | `DepartmentPerformanceContractService.ts` |
 | Goal + contract link | `PerformanceGoalService.ts`, `PerformanceGoalController.ts` |
 | Scorecards | `PerformanceScorecardService.ts` |
+| CEO ↔ company link | `CeoPerformanceContractLinkService.ts` |
 | BSC entry | `BscDigitalEntryService.ts`, `performanceBscEntryRoutes.ts` |
 | Rating / weights helpers | `performanceScorecardSupport.ts`, `performanceGoalRollupUtils.ts` |
 
