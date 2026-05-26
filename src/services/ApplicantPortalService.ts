@@ -413,6 +413,8 @@ export class ApplicantPortalService {
           return sum + amount;
         }, 0);
 
+      const hasReceivedInvestment = disbursements.some((d) => d.status === "DISBURSED");
+
       // Get requested amount as number
       const requestedAmount = application?.requestedAmount
         ? (typeof application.requestedAmount === 'number' 
@@ -449,18 +451,28 @@ export class ApplicantPortalService {
         }
       });
 
+      const applicationPayload = application
+        ? (() => {
+            const { investmentImplementation: _impl, ...applicationFields } = application;
+            return {
+              ...applicationFields,
+              applicationProgress,
+              requestedAmount,
+              approvedAmount,
+              hasReceivedInvestment,
+            };
+          })()
+        : null;
+
       return {
-        application: application ? {
-          ...application,
-          applicationProgress: applicationProgress,
-          requestedAmount: requestedAmount,
-          approvedAmount: approvedAmount
-        } : null,
+        hasReceivedInvestment,
+        application: applicationPayload,
         portfolioCompany: portfolioCompany,
         recentActivities: recentActivities,
         summary: {
           hasApplication: !!application,
           hasPortfolioCompany: !!portfolioCompany,
+          hasReceivedInvestment,
           applicationStage: application?.currentStage || null,
           companyStatus: portfolioCompany?.status || null,
           applicationProgress: applicationProgress,
