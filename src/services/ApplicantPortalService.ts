@@ -66,6 +66,24 @@ export class ApplicantPortalService {
   }
 
   /**
+   * Portfolio source of truth: money left the fund for this applicant's deal.
+   * Application → investment_implementation → fund_disbursements (status DISBURSED).
+   * Indexed lookup only; no disbursement rows loaded into the application payload.
+   */
+  static async applicantHasDisbursedInvestment(applicantEmail: string): Promise<boolean> {
+    const disbursed = await prisma.fundDisbursement.findFirst({
+      where: {
+        status: "DISBURSED",
+        investmentImplementation: {
+          application: { applicantEmail },
+        },
+      },
+      select: { id: true },
+    });
+    return disbursed !== null;
+  }
+
+  /**
    * Get applicant's application details
    */
   static async getApplicantApplication(userId: string) {
@@ -80,8 +98,8 @@ export class ApplicantPortalService {
         throw new Error("User not found");
       }
 
-      // Find application by email
-      const application = await prisma.application.findFirst({
+      const [application, hasReceivedInvestment] = await Promise.all([
+        prisma.application.findFirst({
         where: { applicantEmail: user.email },
         include: {
           fund: {
@@ -140,13 +158,18 @@ export class ApplicantPortalService {
             }
           }
         }
-      });
+      }),
+        ApplicantPortalService.applicantHasDisbursedInvestment(user.email),
+      ]);
 
       if (!application) {
         throw new Error("No application found for this user");
       }
 
-      return application;
+      return {
+        ...application,
+        hasReceivedInvestment,
+      };
     } catch (error) {
       throw error;
     }
