@@ -2255,6 +2255,11 @@ export const performanceEndpoints = {
                   data: {
                     type: 'object',
                     properties: {
+                      hasReceivedInvestment: {
+                        type: 'boolean',
+                        description: 'True when fund_disbursements has a DISBURSED payout for this applicant',
+                        example: false
+                      },
                       application: {
                         type: 'object',
                         properties: {
@@ -2264,7 +2269,8 @@ export const performanceEndpoints = {
                           businessName: { type: 'string' },
                           requestedAmount: { type: 'number' },
                           industry: { type: 'string' },
-                          businessStage: { type: 'string' }
+                          businessStage: { type: 'string' },
+                          hasReceivedInvestment: { type: 'boolean', example: false }
                         }
                       },
                       portfolioCompany: {
@@ -2295,6 +2301,7 @@ export const performanceEndpoints = {
                         properties: {
                           hasApplication: { type: 'boolean' },
                           hasPortfolioCompany: { type: 'boolean' },
+                          hasReceivedInvestment: { type: 'boolean', example: false },
                           applicationStage: { type: 'string' },
                           companyStatus: { type: 'string' }
                         }

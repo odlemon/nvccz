@@ -198,6 +198,12 @@ const upload = multer({
  *               type: string
  *             businessStage:
  *               type: string
+ *             hasReceivedInvestment:
+ *               type: boolean
+ *               description: True when at least one fund disbursement for this deal has status DISBURSED
+ *         hasReceivedInvestment:
+ *           type: boolean
+ *           description: True when portfolio fund_disbursements has a DISBURSED payout for this applicant's application
  *         portfolioCompany:
  *           type: object
  *           properties:
@@ -233,6 +239,8 @@ const upload = multer({
  *             hasApplication:
  *               type: boolean
  *             hasPortfolioCompany:
+ *               type: boolean
+ *             hasReceivedInvestment:
  *               type: boolean
  *             applicationStage:
  *               type: string
