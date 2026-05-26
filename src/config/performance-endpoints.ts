@@ -2031,6 +2031,11 @@ export const performanceEndpoints = {
                       requestedAmount: { type: 'number', example: 500000 },
                       industry: { type: 'string', example: 'Technology' },
                       businessStage: { type: 'string', example: 'Early Stage' },
+                      hasReceivedInvestment: {
+                        type: 'boolean',
+                        description: 'True when fund_disbursements (via investment implementation) has a DISBURSED payout for this application',
+                        example: false
+                      },
                       fund: {
                         type: 'object',
                         properties: {

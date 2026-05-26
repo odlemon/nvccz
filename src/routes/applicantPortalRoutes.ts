@@ -90,6 +90,10 @@ const upload = multer({
  *         businessStage:
  *           type: string
  *           example: "Early Stage"
+ *         hasReceivedInvestment:
+ *           type: boolean
+ *           description: True when portfolio fund_disbursements has at least one DISBURSED row for this application (money paid out to the company)
+ *           example: false
  *         fund:
  *           type: object
  *           properties:
