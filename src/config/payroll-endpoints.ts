@@ -78,6 +78,47 @@ const createEmployeeMultipartSchema = {
   },
 };
 
+const updateEmployeeMultipartSchema = {
+  type: "object",
+  properties: {
+    bankName: { type: "string", example: "Standard Bank" },
+    branchCode: { type: "string", example: "001" },
+    accountNumber: { type: "string", example: "1234567890" },
+    basicSalary: {
+      type: "string",
+      description: "Basic Salary (number or numeric string in form-data)",
+      example: "4500",
+    },
+    currencyId: {
+      type: "string",
+      description: "Currency — `currencies.id`",
+      example: "cmh3bymy70000una4yk8leusu",
+    },
+    idNumber: { type: "string", example: "38-2024495Q38" },
+    nextOfKin: { type: "string", example: "Kundai" },
+    nextOfKinContact: { type: "string", example: "+263771234567" },
+    address: { type: "string", example: "Dan Judson Rd, Harare" },
+    isActive: {
+      type: "string",
+      description:
+        "Set to `false` to deactivate (terminates employee). Omit or `true` for normal field updates.",
+      example: "true",
+    },
+    picture: {
+      type: "string",
+      format: "binary",
+      description:
+        "New profile photo file. Field name must be exactly `picture`. Max 10MB. Omit to keep existing photo.",
+    },
+    pictureUrl: {
+      type: "string",
+      description:
+        "Only if NOT uploading `picture` — set or replace with a pre-hosted URL; send empty to clear",
+      example: "https://example.com/photo.jpg",
+    },
+  },
+};
+
 const employeeResponseSchema = {
   type: "object",
   properties: {
@@ -248,6 +289,81 @@ export const payrollEndpoints: Record<string, Record<string, unknown>> = {
             },
           },
         },
+      },
+    },
+  },
+  "/payroll/employees/{id}": {
+    put: {
+      tags: [TAG],
+      summary: "Update employee (multipart/form-data)",
+      description:
+        "Matches the **Edit Employee** payroll form — same upload pattern as create.\n\n" +
+        "**Postman:** Body → **form-data** (not raw JSON). Auth → Bearer token.\n\n" +
+        "| Form label | Field name | Type |\n" +
+        "|------------|------------|------|\n" +
+        "| Bank Name | `bankName` | Text |\n" +
+        "| Branch Code | `branchCode` | Text |\n" +
+        "| Account Number | `accountNumber` | Text |\n" +
+        "| Basic Salary | `basicSalary` | Text |\n" +
+        "| Currency | `currencyId` | Text (currency **id**) |\n" +
+        "| ID Number | `idNumber` | Text |\n" +
+        "| Next of Kin | `nextOfKin` | Text |\n" +
+        "| Next of Kin contact | `nextOfKinContact` | Text |\n" +
+        "| Address | `address` | Text |\n" +
+        "| Active | `isActive` | Text (`true` / `false`) |\n" +
+        "| Photo | `picture` | **File** (optional — omit to keep current) |\n\n" +
+        "Only fields you send are updated. Upload **`picture`** to replace the profile photo; response includes `data.pictureUrl`.",
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          name: "id",
+          in: "path",
+          required: true,
+          schema: { type: "string" },
+          description: "Employee id (CUID)",
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          "multipart/form-data": {
+            schema: updateEmployeeMultipartSchema,
+            encoding: {
+              picture: {
+                contentType: "image/png, image/jpeg, image/jpg, image/webp, image/gif",
+              },
+            },
+          },
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: {
+                bankName: { type: "string" },
+                branchCode: { type: "string" },
+                accountNumber: { type: "string" },
+                basicSalary: { type: "number" },
+                currencyId: { type: "string" },
+                idNumber: { type: "string" },
+                nextOfKin: { type: "string" },
+                nextOfKinContact: { type: "string" },
+                address: { type: "string" },
+                isActive: { type: "boolean" },
+                pictureUrl: { type: "string", nullable: true },
+              },
+            },
+            description: "Legacy — no file upload; use `pictureUrl` string only",
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: "Employee updated (or deactivated when isActive is false)",
+          content: { "application/json": { schema: employeeResponseSchema } },
+        },
+        400: { description: "Validation, terminated employee, or picture upload failed" },
+        401: { description: "Unauthorized" },
+        404: { description: "Employee not found" },
+        500: { description: "Server error" },
       },
     },
   },

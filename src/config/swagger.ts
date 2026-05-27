@@ -86,7 +86,7 @@ const options = {
       {
         name: 'Payroll - Employees',
         description:
-          'Payroll roster — create/list/update employees. **`POST /payroll/employees`** uses **`multipart/form-data`**: upload profile photo as field **`picture`** (remote storage, same as portfolio letterhead logos) or optional text **`pictureUrl`** for a pre-hosted URL.'
+          'Payroll roster — create/list/update employees. **`POST /payroll/employees`** and **`PUT /payroll/employees/{id}`** use **`multipart/form-data`**: upload profile photo as field **`picture`** (remote storage, same as portfolio letterhead logos) or optional text **`pictureUrl`** for a pre-hosted URL.'
       },
       {
         name: 'Portfolio Monitoring & Exit Management',

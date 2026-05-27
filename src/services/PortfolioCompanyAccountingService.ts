@@ -34,6 +34,7 @@ export class PortfolioCompanyAccountingService {
     transactionDateIso: string; // YYYY-MM-DD
     description: string;
     currencyId: string;
+    referenceNumber?: string;
     lines: Array<{
       accountCode: string;
       debitAmount: number;
@@ -63,7 +64,7 @@ export class PortfolioCompanyAccountingService {
 
     const result = await JournalEntryService.createManualJournalEntry({
       transactionDate: txDate,
-      referenceNumber: `AUTO-${Date.now()}`,
+      referenceNumber: args.referenceNumber ?? `AUTO-${Date.now()}`,
       description: args.description,
       currencyId: args.currencyId,
       journalEntryLines: args.lines.map((l) => ({
@@ -176,11 +177,15 @@ export class PortfolioCompanyAccountingService {
         ? `Unrealized Gain on ${company.name} Valuation Adjustment.`
         : `Unrealized Loss on ${company.name} Valuation Adjustment.`;
 
+    // Use valuationId as a stable reference so re-running the same valuation approval
+    // cannot create a second journal entry (previously used Date.now() which produced
+    // a new ref on every call, silently duplicating the entry).
     const { journalEntryId } = await this.createJournalEntryFromAccountCodes({
       createdById: params.approvedById,
       transactionDateIso: txDateIso,
       description,
       currencyId,
+      referenceNumber: `VAL-${valuationId.slice(0, 12).toUpperCase()}`,
       lines:
         difference > 0
           ? [

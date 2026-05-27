@@ -1945,14 +1945,31 @@ export class PayrollController {
   static async updateEmployee(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const {
-        bankName,
-        branchCode,
-        accountNumber,
-        basicSalary,
-        currencyId,
-        isActive
-      } = req.body;
+      const bankName = payrollFormField(req, 'bankName');
+      const branchCode = payrollFormField(req, 'branchCode');
+      const accountNumber = payrollFormField(req, 'accountNumber');
+      const basicSalaryRaw = payrollFormField(req, 'basicSalary');
+      const currencyId = payrollFormField(req, 'currencyId');
+      const idNumber = payrollFormField(req, 'idNumber');
+      const nextOfKin = payrollFormField(req, 'nextOfKin');
+      const nextOfKinContact = payrollFormField(req, 'nextOfKinContact');
+      const address = payrollFormField(req, 'address');
+      const isActiveRaw = payrollFormField(req, 'isActive');
+
+      let isActive: boolean | undefined;
+      if (isActiveRaw !== undefined) {
+        const lower = isActiveRaw.toLowerCase();
+        if (lower === 'true' || lower === '1') isActive = true;
+        else if (lower === 'false' || lower === '0') isActive = false;
+        else {
+          return res.status(400).json({
+            success: false,
+            message: 'isActive must be true or false'
+          });
+        }
+      } else if (req.body?.isActive !== undefined && typeof req.body.isActive === 'boolean') {
+        isActive = req.body.isActive;
+      }
 
       const existing = await prisma.employee.findUnique({ where: { id } });
       if (!existing) {
@@ -1979,19 +1996,53 @@ export class PayrollController {
         return res.json({
           success: true,
           message: 'Employee deactivated; treated as termination (payroll, scorecards, contracts, turnover KPI).',
-          data: out.employee
+          data: formatEmployeeForApi(out.employee)
         });
+      }
+
+      const hasPictureFile = Boolean((req as { file?: Express.Multer.File }).file?.buffer?.length);
+      const hasPictureUrlField =
+        req.body != null && Object.prototype.hasOwnProperty.call(req.body, 'pictureUrl');
+      let pictureUrl: string | null | undefined;
+      if (hasPictureFile || hasPictureUrlField) {
+        try {
+          pictureUrl = await resolveEmployeePictureUrl(req);
+        } catch (uploadErr) {
+          return res.status(400).json({
+            success: false,
+            message: uploadErr instanceof Error ? uploadErr.message : 'Picture upload failed'
+          });
+        }
+      }
+
+      const data: Record<string, unknown> = {};
+      if (bankName !== undefined) data.bankName = bankName;
+      if (branchCode !== undefined) data.branchCode = branchCode;
+      if (accountNumber !== undefined) data.accountNumber = accountNumber;
+      if (currencyId !== undefined) data.currencyId = currencyId;
+      if (idNumber !== undefined) data.idNumber = idNumber;
+      if (nextOfKin !== undefined) data.nextOfKin = nextOfKin;
+      if (nextOfKinContact !== undefined) data.nextOfKinContact = nextOfKinContact;
+      if (address !== undefined) data.address = address;
+      if (pictureUrl !== undefined) data.pictureUrl = pictureUrl;
+
+      if (basicSalaryRaw !== undefined) {
+        const basicSalaryNum = parseFloat(basicSalaryRaw);
+        if (!Number.isFinite(basicSalaryNum)) {
+          return res.status(400).json({ success: false, message: 'basicSalary must be a number' });
+        }
+        data.basicSalary = basicSalaryNum;
+      } else if (req.body?.basicSalary !== undefined && req.body.basicSalary !== '') {
+        const n = parseFloat(String(req.body.basicSalary));
+        if (!Number.isFinite(n)) {
+          return res.status(400).json({ success: false, message: 'basicSalary must be a number' });
+        }
+        data.basicSalary = n;
       }
 
       const employee = await prisma.employee.update({
         where: { id },
-        data: {
-          bankName,
-          branchCode,
-          accountNumber,
-          basicSalary: basicSalary ? parseFloat(basicSalary) : undefined,
-          currencyId
-        },
+        data,
         include: {
           user: {
             select: { firstName: true, lastName: true, email: true }

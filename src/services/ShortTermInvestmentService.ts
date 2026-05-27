@@ -2099,6 +2099,46 @@ export class ShortTermInvestmentService {
       userAgent: ctx.userAgent ?? undefined,
     });
 
+    // Post the placement journal entry: DR principalGlAccount (Investment Asset) / CR settlement bank.
+    // This records the cash outflow when the investment is placed, matching the settlement JE that
+    // credits the principal GL on maturity. Without this, the asset account has unmatched credits.
+    const placementRef = `STI-PLC-${row.id.slice(0, 8)}-${payload.startDateIso.replace(/-/g, "")}`;
+    const placementJEExists = await prisma.journalEntry.findFirst({
+      where: { referenceNumber: placementRef },
+      select: { id: true },
+    });
+    if (!placementJEExists) {
+      const settings2 = await getOrCreateSettingsRow();
+      const placementMode = settings2.postingMode as StiPostingMode;
+      const placementJE = await createJournalEntryWithAuditSequence({
+        transactionDate: accrualDateFromIso(payload.startDateIso),
+        referenceNumber: placementRef,
+        description: `Short-term investment placement — ${row.name} (${payload.startDateIso})`,
+        totalAmount: row.principal,
+        currencyId: row.currencyId,
+        status: placementMode === "APPROVED" ? "POSTED" : "PENDING",
+        createdById: ctx.userId,
+      });
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: placementJE.id,
+          chartOfAccountId: row.principalGlAccountId,
+          debitAmount: row.principal,
+          creditAmount: 0,
+          description: `Investment principal placed — ${row.name}`,
+        },
+      });
+      await prisma.journalEntryLine.create({
+        data: {
+          journalEntryId: placementJE.id,
+          chartOfAccountId: settlementBank.glAccountId!,
+          debitAmount: 0,
+          creditAmount: row.principal,
+          description: `Cash deployed to ${row.name}`,
+        },
+      });
+    }
+
     // Backfill from instrument `startDate` through fiscal "today" immediately so backdated
     // instruments do not appear to accrue only from `createdAt` (which happens if nothing
     // runs catch-up until the first login / daily job).
