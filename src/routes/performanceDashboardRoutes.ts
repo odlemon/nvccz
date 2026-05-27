@@ -181,6 +181,10 @@ const router = Router();
  *                             example: 85.5
  *                     budgetTracker:
  *                       type: object
+ *                       description: |
+ *                         Period budget vs spend. Payroll line uses sum of Payroll Expense KPI goal targets (budgeted)
+ *                         and completed payroll run gross pay (actual) for goals/runs overlapping the dashboard period.
+ *                         Other lines use accounting budget + posted GL.
  *                       properties:
  *                         totalBudget:
  *                           type: number
