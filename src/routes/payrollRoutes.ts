@@ -10,8 +10,8 @@ const employeePictureUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-/** Parse multipart only when client sends form-data; JSON create still works. */
-function employeeCreateMultipart(req: any, res: any, next: any) {
+/** Parse multipart only when client sends form-data; JSON body still works without a file. */
+function employeeMultipart(req: any, res: any, next: any) {
   const ct = String(req.headers['content-type'] || '');
   if (ct.includes('multipart/form-data')) {
     return employeePictureUpload.single('picture')(req, res, (err: any) => {
@@ -28,17 +28,22 @@ function employeeCreateMultipart(req: any, res: any, next: any) {
 }
 
 // ===== EMPLOYEE MANAGEMENT ROUTES =====
-/* Swagger: full multipart spec in src/config/payroll-endpoints.ts (Payroll - Employees) */
+/* Swagger: multipart create/update in src/config/payroll-endpoints.ts (Payroll - Employees) */
 router.post(
   '/employees',
   authenticate,
-  employeeCreateMultipart,
+  employeeMultipart,
   PayrollController.createEmployee
 );
 router.get('/employees', authenticate, PayrollController.getEmployees);
 router.get('/employees/:id/reimbursement-vendor', authenticate, PayrollController.getEmployeeReimbursementVendor);
 router.post('/employees/:id/reimbursement-vendor', authenticate, PayrollController.ensureEmployeeReimbursementVendor);
-router.put('/employees/:id', authenticate, PayrollController.updateEmployee);
+router.put(
+  '/employees/:id',
+  authenticate,
+  employeeMultipart,
+  PayrollController.updateEmployee
+);
 router.post('/employees/:id/terminate', authenticate, PayrollController.terminateEmployee);
 router.delete('/employees/:id', authenticate, PayrollController.deleteEmployee);
 router.delete('/employees/:id/permanent', authenticate, PayrollController.permanentlyDeleteEmployee);

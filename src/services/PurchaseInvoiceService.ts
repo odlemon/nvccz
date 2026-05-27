@@ -958,6 +958,17 @@ export class PurchaseInvoiceService {
         throw new Error("Expense account not found");
       }
 
+      // Guardrail: Purchase invoices are vendor procurement spend, not payroll.
+      // Prevent mis-posting vendor payments into payroll expense accounts (5010/5030),
+      // which corrupts payroll reporting and KPI rollups.
+      const expenseNo = String(expenseAccount.accountNo || "").trim();
+      if (expenseNo === "5010" || expenseNo === "5030") {
+        throw new Error(
+          `Invalid expense account for purchase invoice payment: ${expenseAccount.accountNo} (${expenseAccount.accountName}). ` +
+            "Payroll expense accounts are reserved for payroll journals; choose the correct procurement expense GL."
+        );
+      }
+
       // Get VAT Input account (2110)
       const vatInputAccount = await prisma.chartOfAccounts.findFirst({
         where: {
