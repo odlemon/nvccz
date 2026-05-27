@@ -3,6 +3,14 @@ import { prisma } from "../utils/database";
 import { Decimal } from "decimal.js";
 import { getPostedPeriodExpenseByAccount } from "./AccountingGlPeriodTotalsService";
 import { normaliseTaskStage } from "./TaskCollaborationService";
+import {
+  getPayrollExpenseBudgetSliceForPeriod,
+  isPayrollBudgetCategoryItem,
+  isPayrollGlExpenseAccount,
+  PAYROLL_BUDGET_LINE_NAME,
+  sumCompletedPayrollGrossOverlappingPeriod,
+  type PayrollBudgetSlice,
+} from "./performanceDashboardPayrollBudget";
 
 export type PerformanceDashboardMonthParam = number | "all";
 
@@ -215,7 +223,7 @@ export interface PerformanceDashboardData {
     progressPercentage: number; // completion rate
   }>;
   
-  // Budget Tracker (month: GL actuals; budgeted from accounting budget lines)
+  // Budget Tracker (non-payroll: accounting budget + GL; payroll: goal targets + payroll runs)
   budgetTracker: {
     totalBudget: number;
     totalSpend: number;
@@ -734,8 +742,32 @@ export class PerformanceDashboardService {
     return hints.some((h) => accountName.includes(h));
   }
 
+  private static markPayrollGlAccountsMatched(
+    glAccounts: Awaited<ReturnType<typeof getPostedPeriodExpenseByAccount>>,
+    matchedGlIds: Set<string>
+  ): void {
+    for (const gl of glAccounts) {
+      if (isPayrollGlExpenseAccount(gl)) {
+        matchedGlIds.add(gl.chartOfAccountId);
+      }
+    }
+  }
+
+  private static pushPayrollBudgetLine(
+    lineItems: PerformanceDashboardData["budgetTracker"]["lineItems"],
+    payrollSlice: PayrollBudgetSlice,
+    payrollLineEmitted: { value: boolean }
+  ): void {
+    if (payrollLineEmitted.value) return;
+    if (payrollSlice.budgeted <= 0 && payrollSlice.actual <= 0) return;
+    lineItems.push(
+      this.toBudgetTrackerLine(payrollSlice.name, payrollSlice.budgeted, payrollSlice.actual)
+    );
+    payrollLineEmitted.value = true;
+  }
+
   /**
-   * Merge budget line items with posted GL expense for the dashboard month.
+   * Merge accounting budget lines with GL actuals; payroll uses goal targets + payroll runs.
    */
   private static mergeBudgetWithGlActuals(
     budgetItems: Array<{
@@ -750,12 +782,28 @@ export class PerformanceDashboardService {
       variancePercentage: unknown;
       isSignificantVariance: boolean;
     }>,
-    glAccounts: Awaited<ReturnType<typeof getPostedPeriodExpenseByAccount>>
+    glAccounts: Awaited<ReturnType<typeof getPostedPeriodExpenseByAccount>>,
+    payrollSlice: PayrollBudgetSlice | null
   ): PerformanceDashboardData["budgetTracker"]["lineItems"] {
     const matchedGlIds = new Set<string>();
     const lineItems: PerformanceDashboardData["budgetTracker"]["lineItems"] = [];
+    const payrollLineEmitted = { value: false };
+
+    if (payrollSlice) {
+      this.markPayrollGlAccountsMatched(glAccounts, matchedGlIds);
+    }
 
     for (const item of budgetItems) {
+      if (payrollSlice && isPayrollBudgetCategoryItem(item)) {
+        for (const gl of glAccounts) {
+          if (this.glAccountMatchesBudgetItem(gl, item)) {
+            matchedGlIds.add(gl.chartOfAccountId);
+          }
+        }
+        this.pushPayrollBudgetLine(lineItems, payrollSlice, payrollLineEmitted);
+        continue;
+      }
+
       const budgeted = Number(item.budgetedAmount);
       let actualFromGl = 0;
       for (const gl of glAccounts) {
@@ -775,6 +823,34 @@ export class PerformanceDashboardService {
       }
     }
 
+    if (payrollSlice) {
+      this.pushPayrollBudgetLine(lineItems, payrollSlice, payrollLineEmitted);
+    }
+
+    for (const gl of glAccounts) {
+      if (matchedGlIds.has(gl.chartOfAccountId)) continue;
+      if (gl.actualAmount <= 0) continue;
+      lineItems.push(
+        this.toBudgetTrackerLine(gl.accountName, 0, gl.actualAmount)
+      );
+    }
+
+    return lineItems.sort((a, b) => b.actual - a.actual);
+  }
+
+  private static buildBudgetTrackerLineItemsWithoutAccountingBudget(
+    glAccounts: Awaited<ReturnType<typeof getPostedPeriodExpenseByAccount>>,
+    payrollSlice: PayrollBudgetSlice | null
+  ): PerformanceDashboardData["budgetTracker"]["lineItems"] {
+    const matchedGlIds = new Set<string>();
+    const lineItems: PerformanceDashboardData["budgetTracker"]["lineItems"] = [];
+    const payrollLineEmitted = { value: false };
+
+    if (payrollSlice) {
+      this.markPayrollGlAccountsMatched(glAccounts, matchedGlIds);
+      this.pushPayrollBudgetLine(lineItems, payrollSlice, payrollLineEmitted);
+    }
+
     for (const gl of glAccounts) {
       if (matchedGlIds.has(gl.chartOfAccountId)) continue;
       if (gl.actualAmount <= 0) continue;
@@ -787,35 +863,36 @@ export class PerformanceDashboardService {
   }
 
   /**
-   * Budget tracker: planned amounts from accounting budget; actuals from posted GL in the month.
+   * Budget tracker: payroll from performance goals + payroll module; other lines from accounting + GL.
    */
   private static async getBudgetTracker(
     windowStart: Date,
     windowEnd: Date
   ): Promise<PerformanceDashboardData["budgetTracker"]> {
     try {
-      const glAccounts = await getPostedPeriodExpenseByAccount(windowStart, windowEnd);
-      const totalGlExpense = Math.round(
-        glAccounts.reduce((s, a) => s + a.actualAmount, 0) * 100
-      ) / 100;
+      const [glAccounts, payrollSliceRaw, budget] = await Promise.all([
+        getPostedPeriodExpenseByAccount(windowStart, windowEnd),
+        getPayrollExpenseBudgetSliceForPeriod(windowStart, windowEnd),
+        this.getAccountingBudgetForPeriod(windowStart, windowEnd),
+      ]);
 
-      const budget = await this.getAccountingBudgetForPeriod(windowStart, windowEnd);
-      if (!budget) {
-        const lineItems = glAccounts
-          .filter((gl) => gl.actualAmount > 0)
-          .map((gl) => this.toBudgetTrackerLine(gl.accountName, 0, gl.actualAmount));
-        const { percentageUsed, overBudget } = this.computePercentageUsed(0, totalGlExpense);
-        return {
-          totalBudget: 0,
-          totalSpend: totalGlExpense,
-          remaining: -totalGlExpense,
-          percentageUsed,
-          overBudget,
-          lineItems
-        };
+      // Always prefer payroll-run gross for the payroll line (never GL), even when no KPI/goals exist.
+      let payrollSlice = payrollSliceRaw;
+      if (!payrollSlice) {
+        const actual = await sumCompletedPayrollGrossOverlappingPeriod(windowStart, windowEnd);
+        if (actual > 0) {
+          payrollSlice = {
+            name: PAYROLL_BUDGET_LINE_NAME,
+            budgeted: 0,
+            actual,
+          };
+        }
       }
 
-      const lineItems = this.mergeBudgetWithGlActuals(budget.budgetItems, glAccounts);
+      const lineItems = budget
+        ? this.mergeBudgetWithGlActuals(budget.budgetItems, glAccounts, payrollSlice)
+        : this.buildBudgetTrackerLineItemsWithoutAccountingBudget(glAccounts, payrollSlice);
+
       const totalBudget = lineItems.reduce((sum, i) => sum + i.budgeted, 0);
       const totalSpend = lineItems.reduce((sum, i) => sum + i.actual, 0);
       const remaining = totalBudget - totalSpend;
@@ -830,7 +907,7 @@ export class PerformanceDashboardService {
         remaining: Math.round(remaining * 100) / 100,
         percentageUsed,
         overBudget,
-        lineItems
+        lineItems,
       };
     } catch (error) {
       console.error("Error getting budget tracker:", error);
