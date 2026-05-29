@@ -49,6 +49,7 @@ import {
   resolveGoalEscalationStatus,
   resolvePeriodLabel,
   resolveSectionWeights,
+  formatScorecardSectionDocumentLabel,
   resolveWeight,
   resolveStoredGoalActual,
   periodLabelMatches,
@@ -3070,6 +3071,14 @@ export class PerformanceScorecardService {
       warnings.push(
         "No Board Chairperson assigned as reviewer on this contract. The scorecard cannot be finalised until a reviewer is assigned."
       );
+    } else if (
+      contract.subjectUserId &&
+      contract.reviewerUserId &&
+      String(contract.reviewerUserId) === String(contract.subjectUserId)
+    ) {
+      warnings.push(
+        "The contract reviewer is the same person as the CEO (subject). Assign a different Board Chairperson as reviewer before finalisation."
+      );
     }
     if (new Date(contract.periodEnd).getTime() > Date.now()) {
       warnings.push("This period has not ended. Scorecard reflects performance to date only.");
@@ -3144,7 +3153,12 @@ export class PerformanceScorecardService {
       const meta = sectionSummary.sections.find((x) => x.key === key);
       const secRows = flatRows.filter((r) => r.section === key);
       sectionTables[key] = {
-        sectionLabel: `${key} — ${CEO_SECTION_LABELS[key]} (${CEO_SECTION_WEIGHTS[key]}%)`,
+        sectionLabel: formatScorecardSectionDocumentLabel(
+          key,
+          CEO_SECTION_LABELS,
+          meta?.weightPercent,
+          sectionWeights
+        ),
         rows: secRows.map((r, idx) => ({
           index: idx + 1,
           indicatorName: r.indicatorName,
@@ -3298,7 +3312,7 @@ export class PerformanceScorecardService {
         }),
         periodStart: contract.periodStart,
         periodEnd: contract.periodEnd,
-        resultsDeliveryScore: decimalForStorage(finalScore),
+        resultsDeliveryScore: decimalForStorage(sectionBlendScore),
         budgetScore: decimalForStorage(budgetComponent.score),
         finalScore: decimalForStorage(finalScore),
         warnings,
@@ -3515,7 +3529,12 @@ export class PerformanceScorecardService {
       const meta = sectionSummary.sections.find((x) => x.key === key);
       const secRows = flatRows.filter((r) => r.section === key);
       sectionTables[key] = {
-        sectionLabel: `${key} — ${BOARD_SECTION_LABELS[key]} (${BOARD_SECTION_WEIGHTS[key]}%)`,
+        sectionLabel: formatScorecardSectionDocumentLabel(
+          key,
+          BOARD_SECTION_LABELS,
+          meta?.weightPercent,
+          sectionWeights
+        ),
         rows: secRows.map((r, idx) => ({
           index: idx + 1,
           indicatorName: r.indicatorName,

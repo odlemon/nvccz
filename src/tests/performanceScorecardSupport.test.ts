@@ -19,6 +19,9 @@ import {
   getContributionWeight,
   resolveGoalEscalationStatus,
   resolveSectionWeights,
+  formatScorecardSectionDocumentLabel,
+  CEO_SECTION_LABELS,
+  CEO_SECTION_WEIGHTS,
   resolveStoredGoalActual,
   isEmployeeGoalStoredActualMissing,
   summariseEmployeeResultsDelivery,
@@ -517,5 +520,29 @@ describe("performanceScorecardSupport", () => {
         archivedAt: new Date()
       }).phase
     ).toBe("ARCHIVED");
+  });
+});
+
+describe("formatScorecardSectionDocumentLabel", () => {
+  test("uses contract weight percent in document heading, not defaults", () => {
+    const label = formatScorecardSectionDocumentLabel(
+      "A1",
+      CEO_SECTION_LABELS,
+      35,
+      CEO_SECTION_WEIGHTS
+    );
+    expect(label).toContain("(35%)");
+    expect(label).not.toContain("(30%)");
+    expect(label).toContain("A1 — Outcomes");
+  });
+
+  test("falls back to default weight when contract weight missing", () => {
+    const label = formatScorecardSectionDocumentLabel(
+      "D",
+      CEO_SECTION_LABELS,
+      undefined,
+      CEO_SECTION_WEIGHTS
+    );
+    expect(label).toContain("(5%)");
   });
 });

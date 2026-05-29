@@ -80,6 +80,8 @@
     "db:dedupe:performance-contracts": "ts-node scripts/dedupe-performance-contracts.ts",
     "db:seed:ceo-performance-contract": "ts-node scripts/seed-ceo-performance-contract.ts",
     "uat:ceo-bsc-e2e": "ts-node scripts/run-ceo-bsc-e2e-2026.ts",
+    "uat:hdf-ceo-2026": "ts-node --transpile-only -r dotenv/config scripts/run-hdf-ceo-simulation-2026.ts",
+    "uat:hdf-ceo-extended": "ts-node --transpile-only -r dotenv/config scripts/run-hdf-ceo-extended-scorecard.ts",
     "db:seed:board-performance-contract": "ts-node scripts/seed-board-performance-contract.ts",
     "db:verify:board-scorecard": "ts-node --transpile-only scripts/verify-board-scorecard-flow.ts",
     "db:backfill:department-goal-performance-contracts": "ts-node scripts/backfill-department-goal-performance-contracts.ts",

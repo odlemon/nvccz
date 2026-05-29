@@ -842,6 +842,21 @@ export function resolveSectionWeights(config: any, defaults: Record<string, numb
   return resolved;
 }
 
+/** PDF / document table heading — uses contract weights when provided, not static defaults. */
+export function formatScorecardSectionDocumentLabel(
+  sectionKey: string,
+  sectionLabels: Record<string, string>,
+  weightPercent: number | null | undefined,
+  defaultWeightPercents: Record<string, number>
+): string {
+  const heading = sectionLabels[sectionKey] || sectionKey;
+  const pct =
+    weightPercent != null && Number.isFinite(Number(weightPercent))
+      ? round(toNumber(weightPercent, 0), 2)
+      : round(toNumber(defaultWeightPercents[sectionKey], 0), 2);
+  return `${sectionKey} — ${heading} (${pct}%)`;
+}
+
 export function buildPersonalAttributes(template?: any) {
   const configuredAttributes = Array.isArray(template?.personalAttributes)
     ? template.personalAttributes

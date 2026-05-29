@@ -1,335 +1,313 @@
-# Fictional performance simulation — Horizon Development Fund (HDF) 2026
+# Horizon Development Fund (HDF) — Performance walkthrough (2026)
 
-**Paper only.** Nothing in this document is written to any database. Use it to explain the performance module to a client or to enter the same values in Arcus/NVCCZ for UAT.
+**Purpose:** A simple story you can follow in Arcus, screen by screen, and then compare to the **CEO scorecard** the system generates.  
+**Not loaded into the database** — enter the numbers yourself for training or UAT.
 
-Scoring rules match the live backend: **1–6 raw ratings** with **10% allowable variance**, CEO sections **A1–D**, optional **10% budget blend**, default section blend **redistribute**.
+**Company:** Horizon Development Fund (HDF)  
+**CEO:** Alex Nkomo  
+**Period:** 1 January 2026 – 31 December 2026  
+**Simulation date:** 25 May 2026 (year in progress → scorecard shows **Live**)
 
 ---
 
-## 1. Company profile
+## Who is involved
+
+| Role | Name | What they do in this example |
+|------|------|------------------------------|
+| CEO | Alex Nkomo | Owns the **company goal** on the CEO performance contract |
+| Finance head | Tendai M | Gets the **individual goal** (system auto-creates the linked **task**); records revenue there |
+| Board reviewer | Dr. Chipo Moyo | Reviewer on the CEO contract (avoids “missing reviewer” warnings) |
+
+---
+
+## How the system fits together (plain language)
+
+```mermaid
+flowchart TD
+  A[Step 1: Create company goal on CEO contract] --> B[Step 2: Distribute to Finance department goal]
+  B --> C[Step 3: Assign individual goal to Tendai — task auto-created]
+  C --> D[Step 4: Record progress on that task e.g. USD 50,000]
+  D --> E[Progress rolls up: individual goal → department → company goal]
+  E --> F[Step 5: Generate CEO scorecard]
+  F --> G[Scorecard groups company goals by scorecard section A1, A2, …]
+```
+
+**Important**
+
+- The **CEO scorecard** only scores goals that are on the **CEO performance contract** (company / organisational goals).
+- Department and **individual** goals are **children** linked with **parent goal**. An **individual goal** for a user **automatically creates a linked task** in Arcus — you do not create the task separately.
+- When the user **records progress on the task**, the system updates the individual goal’s achieved value, then **rolls up** to the department goal, then to the **company goal**.
+- For **revenue**, roll-up **adds up** money achieved on child goals (it does not average percentages).
+
+---
+
+## CEO contract (create once in Performance → Contracts)
 
 | Field | Value |
-|--------|--------|
-| **Organisation** | Horizon Development Fund (HDF) |
-| **Tagline** | SME growth capital and development finance |
-| **CEO** | Alex Nkomo |
-| **Board reviewer** | Dr. Chipo Moyo (Board Chairperson) |
-| **Review period** | 1 Jan 2026 – 31 Dec 2026 (`periodLabel`: `"2026"`) |
-| **Simulation “as at”** | 25 May 2026 (period in progress → **LIVE** scorecard) |
+|-------|--------|
+| Type | CEO |
+| CEO | Alex Nkomo |
+| Period label | 2026 |
+| Reviewer | Dr. Chipo Moyo |
+| Section weights (example) | A1 **50%**, A2 **30%**, D **20%** (B and C left empty for this short demo) |
+| Budget (optional) | Allocated ZWL 12,000,000 — Spent ZWL 11,100,000 (92% utilisation) |
 
-### Performance contracts (fictional)
+---
 
-| Contract type | Status | Subject / scope | Notes |
-|---------------|--------|-----------------|--------|
-| **CEO** | ACTIVE | Alex Nkomo | 8 company indicators, all with `scorecardSection` A1–D |
-| **DEPARTMENT — Finance** | ACTIVE | Finance dept | 2 department goals |
-| **DEPARTMENT — Operations** | ACTIVE | Operations dept | 2 department goals |
-| **DEPARTMENT — Human Resources** | ACTIVE | HR dept | 2 department goals |
-| **EMPLOYEE** (×4) | ACTIVE | Tendai M, Rudo K, Farai P, + 1 ops analyst | Individual goals below |
+## Step 1 — Create the company goal (organisational goal)
 
-### CEO contract settings
+**Where in Arcus:** Performance → Goals → **Create goal**  
+**Type:** Company (organisational)  
+**Link to:** CEO performance contract (2026)
 
-| Setting | Value |
+This is the goal the CEO scorecard will score for revenue.
+
+| Field | What to enter |
+|-------|----------------|
+| Title | Annual revenue |
+| KPI | Revenue (financial KPI) |
+| Scorecard section | **A1** — shown in the UI as “Outcomes” |
+| Weight within section | **100%** (only revenue in A1 for this demo) |
+| Target | **USD 100,000** |
+| Current / achieved | **0** (start at zero) |
+| Allowable variance | **10%** (0.1) |
+| Reverse KPI? | **No** (more revenue is better) |
+| Period | 1 Jan 2026 – 31 Dec 2026 |
+| Formula | Direct (or leave as stored actual) |
+
+**After save — you should see**
+
+| Measure | Value |
 |---------|--------|
-| `stretchScoringEnabled` | `false` |
-| Section weights | A1 **30%**, A2 **20%**, B **20%**, C **25%**, D **5%** |
-| `allocatedBudget` | ZWL **12,000,000** |
-| `actualSpend` | ZWL **11,100,000** |
-| Budget utilisation | **92%** (included in final CEO score) |
-| `reviewerId` | Set (Dr. Chipo Moyo) — no “missing reviewer” warning |
+| Target | $100,000 |
+| Achieved | $0 |
+| Progress | 0% |
 
-### Org chart (compact)
+### How does the system “know” A1 (Outcomes)?
 
-```
-Board of Directors
-    └── CEO — Alex Nkomo
-            ├── Finance (Head: Tendai M)
-            ├── Operations (Head: Rudo K)
-            └── Human Resources (Head: Farai P)
-```
+When you pick **Scorecard section** on the goal form, Arcus saves a short code on that goal — **`A1`**. You do not type “Outcomes” into a separate field; the label is for people only.
 
----
+| What you see in the UI | What is stored on the goal | How the CEO scorecard uses it |
+|------------------------|---------------------------|-------------------------------|
+| **A1 — Outcomes** | `scorecardSection = "A1"` | Puts this indicator under the **A1** block on the scorecard |
+| **A2 — Outputs** | `A2` | A2 block |
+| **B, C, D** | `B`, `C`, `D` | Matching blocks |
 
-## 2. Layer 1 — Company goals (CEO contract indicators)
+The **CEO performance contract** also has **section weights** (e.g. A1 = 50% of the final score). At generate time, the system:
 
-All goals: `type: company`, linked to **CEO performance contract**, `allowableVariance: 0.1`, weights **sum to 100% per section**.
+1. Loads all **company goals** on that CEO contract.  
+2. Groups them by **`scorecardSection`** (A1, A2, B, C, D).  
+3. Scores each indicator (1–6), then blends section scores using the contract weights.
 
-| # | `scorecardSection` | Title | `formulaType` | `scorecardPillar` | Unit | Target | Actual (`currentValue`) | Weight % | Reverse KPI | `activities` / notes |
-|---|-------------------|-------|---------------|-------------------|------|--------|-------------------------|----------|-------------|----------------------|
-| 1 | **A1** | Annual revenue | `DIRECT` | Financial | USD | 5,000,000 | 5,600,000 | 50 | No | Stored actual |
-| 2 | **A1** | Return on investment | `ROI` | Financial | % | 12 | 14 | 50 | No | `initialCost`: 1,000,000; `finalValue`: 1,140,000 → ROI **14%** |
-| 3 | **A2** | Statutory reports produced | `STATUTORY_REPORTS` | Internal Operations | % | 100 | 100 | 50 | No | `completedCount`: 12, `targetCount`: 12 |
-| 4 | **A2** | Capital disbursed | `CAPITAL_DISBURSED` | Internal Operations | % | 100 | 88 | 50 | No | `capitalDisbursed`: 88,000,000; `budgetedCapital`: 100,000,000 |
-| 5 | **B** | Customer satisfaction index | `CUSTOMER_SATISFACTION_INDEX` | Customer & Market | % | 80 | 76 | 60 | No | `surveyScores`: [0.76, 0.78, 0.74] → avg **76%** |
-| 6 | **B** | Customer service charter | `CHARTER_SCORE` | Customer & Market | % | 100 | 91 | 40 | No | Composite checklist → **91%** (stored) |
-| 7 | **C** | Payroll expense cap | `DIRECT` | Learning, Growth & HR | USD | 2,400,000 | 2,520,000 | 50 | **Yes** | Over cap |
-| 8 | **C** | Strategic allocation compliance | `STRATEGIC_ALLOCATION_COMPLIANCE` | Internal Operations | % | 70 | 72 | 50 | No | `budgetAlignedToPolicy`: 72M; `totalBudget`: 100M |
-| 9 | **D** | Integrity and anti-corruption | `DIRECT` | Learning, Growth & HR | % | 100 | 98 | 100 | No | Stored **98%** |
+If you leave scorecard section blank, the goal lands in **Unassigned** and will not appear in the normal A1–D tables (you will see a warning).
 
 ---
 
-## 3. Layer 2 — Department goals (2026)
+## Step 2 — Distribute the goal to Finance (department breakdown)
 
-`type: department`, `departmentName` as below, period overlaps 2026. Not all are linked to the CEO contract; they feed **department scorecards** separately.
+**Where in Arcus:** Open the **company goal** → **Distribute / breakdown** → select **Finance**
 
-| Department | Goal | Target | Actual | Weight % | Reverse? | Progress % (display) |
-|------------|------|--------|--------|----------|----------|------------------------|
-| **Finance** | Month-end close on time | 12 closes | 11 | 50 | No | 91.7% |
-| **Finance** | Audit findings (major) | 0 | 1 | 50 | **Yes** | 0% (over target) |
-| **Operations** | Projects delivered on schedule | 20 | 17 | 60 | No | 85% |
-| **Operations** | Procurement plan compliance | 100% | 94% | 40 | No | 94% |
-| **Human Resources** | Staff retention | 95% | 93% | 50 | No | 97.9% |
-| **Human Resources** | Training hours per FTE | 40 hrs | 38 hrs | 50 | No | 95% |
+Creates a **department goal** linked as a **child** (`parent goal` = the company revenue goal).
 
-*Narrative links:* Finance statutory discipline supports CEO **A2**; Operations delivery supports **A2** capital/output; HR retention/training supports **D** / learning themes.
+| Field | What to enter |
+|-------|----------------|
+| Department | Finance |
+| Title | Finance contribution — annual revenue |
+| Target | **USD 100,000** (same as company for this simple demo) |
+| Current / achieved | **0** |
+| Contribution weight | **100%** (only Finance in this demo) |
+| Same KPI as parent | Revenue |
+| Same period | 2026 |
 
----
+**After save — you should see**
 
-## 4. Layer 3 — Individual goals (2026)
-
-`type: individual`, `assignedToId` per employee, overlapping 2026.
-
-| Employee | Department | Goal | Target | Actual | Weight % | Reverse? | Progress % |
-|----------|------------|------|--------|--------|----------|----------|------------|
-| **Tendai M** | Finance | Reconcile 100% bank accounts monthly | 12 months | 12 | 60 | No | 100% |
-| **Tendai M** | Finance | Complete compliance training | 1 course | 1 | 40 | No | 100% |
-| **Rudo K** | Operations | Close milestone tasks | 20 | 17 | 100 | No | 85% |
-| **Farai P** | Human Resources | Run wellness events | 4 | 4 | 50 | No | 100% |
-| **Farai P** | Human Resources | Reduce time-to-hire (days) | 45 | 52 | 50 | **Yes** | 86.5% |
-
-*Optional product feature:* link individual goals to department goals via `parentGoalId` for roll-up (not required for CEO scorecard).
+| Level | Target | Achieved | Progress |
+|-------|--------|----------|----------|
+| Company (CEO goal) | $100,000 | $0 | 0% |
+| Finance (department) | $100,000 | $0 | 0% |
 
 ---
 
-## 5. CEO scorecard — rating worksheet
+## Step 3 — Assign an individual goal (task is created automatically)
 
-**Rules:** Forward KPI — higher actual is better. Reverse KPI — lower actual is better. Variance **10%** on target. Rating scale **1–6** (see band labels below).
+**Where in Arcus:** From the Finance department goal → **break down to users** / assign individual goal to **Tendai M**
 
-### 5.1 Per-indicator ratings (verified against `computeRawRating`)
+You only create the **individual goal**. Arcus then **creates the linked task automatically** (same target, same assignee). In day-to-day work, Tendai works from **Tasks**; behind the scenes it stays tied to that individual goal.
 
-| Section | Indicator | Actual | Target | Raw (1–6) | Band label | Progress % |
-|---------|-----------|--------|--------|-----------|------------|------------|
-| A1 | Annual revenue | 5,600,000 | 5,000,000 | **6** | Exceeds — Beyond Variance | 100% (capped) |
-| A1 | Return on investment | 14% | 12% | **6** | Exceeds — Beyond Variance | 100% (capped) |
-| A2 | Statutory reports | 100% | 100% | **4** | Meets Target | 100% |
-| A2 | Capital disbursed | 88% | 100% | **2** | Requires Improvement | 88% |
-| B | Customer satisfaction | 76% | 80% | **3** | Within Variance | 95% |
-| B | Customer charter | 91% | 100% | **3** | Within Variance | 91% |
-| C | Payroll expense cap | 2,520,000 | 2,400,000 | **3** | Within Variance | 95.2% |
-| C | Strategic allocation | 72% | 70% | **5** | Exceeds — Within Variance | 100% (capped) |
-| D | Integrity | 98% | 100% | **3** | Within Variance | 98% |
+| Field | What to enter |
+|-------|----------------|
+| Type | Individual |
+| Parent goal | Finance contribution — annual revenue |
+| Assignee | Tendai M |
+| Target | **USD 100,000** (or **USD 50,000** if you want each collection to “fill” the task — see below) |
+| Current | **0** |
 
-**Variance intuition (examples):**
+**After save — you should see**
 
-- **Revenue:** Actual > target × 1.1 → rating **6**.
-- **Capital disbursed:** Actual 88% is below target × 0.9 (90%) but above 50% of target → rating **2**.
-- **Payroll (reverse):** Actual above target but within target × 1.1 → rating **3** (not yet in worst overspend band).
-
-### 5.2 Within-section weighted scores
-
-| Section | Indicators | Weights | Calculation | **Section score** | Section label |
-|---------|------------|---------|-------------|-------------------|---------------|
-| **A1** | Revenue 6, ROI 6 | 50% / 50% | (50×6 + 50×6) / 100 | **6.00** | Exceeds Expectations |
-| **A2** | Statutory 4, Capital 2 | 50% / 50% | (50×4 + 50×2) / 100 | **3.00** | Satisfactory |
-| **B** | CSAT 3, Charter 3 | 60% / 40% | (60×3 + 40×3) / 100 | **3.00** | Satisfactory |
-| **C** | Payroll 3, Strategic 5 | 50% / 50% | (50×3 + 50×5) / 100 | **4.00** | Meets Expectations |
-| **D** | Integrity 3 | 100% | 3 | **3.00** | Satisfactory |
-
-### 5.3 Section blend (results delivery)
-
-Default **`sectionBlendMode: redistribute`** — all five sections have scoreable indicators, so weights apply in full:
-
-| Section | Contract weight % | Section score | Contribution |
-|---------|-------------------|---------------|--------------|
-| A1 | 30 | 6.00 | 1.80 |
-| A2 | 20 | 3.00 | 0.60 |
-| B | 20 | 3.00 | 0.60 |
-| C | 25 | 4.00 | 1.00 |
-| D | 5 | 3.00 | 0.15 |
-| **Total** | 100 | — | **sectionBlendScore = 4.15** |
-
-### 5.4 Budget component (10% of final)
-
-| Field | Value |
-|-------|--------|
-| Allocated budget | ZWL 12,000,000 |
-| Actual spend | ZWL 11,100,000 |
-| Utilisation | **92%** |
-| Budget rating (reverse KPI vs 100% target) | **5** (Exceeds — Within Variance) |
-| Included in final? | **Yes** |
-
-**Final CEO score:**
-
-```
-finalScore = 0.9 × 4.15 + 0.1 × 5 = 4.235 → rounded 4.24
-```
-
-| Score | Label |
-|-------|--------|
-| **4.24** | **Meets Expectations** |
+- An **individual goal** for Tendai under Finance.  
+- A **task** for Tendai (auto-created, linked to that goal). Open **Tasks** to record progress.
 
 ---
 
-## 6. Expected CEO scorecard API response (preview)
+## Step 4 — Record progress on the task (the “moment of truth”)
 
-Simulated shape after `POST /api/performance/scorecards/ceo/generate` with `periodLabel: "2026"` and `persist: true`.
+**Where in Arcus:** Tasks → Tendai’s task → **Record progress** / add activity  
+**Enter:** Monetary value achieved = **USD 50,000**
 
-### 6.1 Header / contract
+### What the system does automatically
 
-```json
-{
-  "scorecardType": "CEO",
-  "ceo": { "name": "Alex Nkomo", "title": "Chief Executive Officer" },
-  "contract": {
-    "title": "CEO performance contract (2026)",
-    "periodLabel": "2026",
-    "stretchScoringEnabled": false,
-    "reviewerName": "Dr. Chipo Moyo"
-  },
-  "lifecycle": {
-    "phase": "LIVE",
-    "bannerMessage": "Live — period in progress. Scores reflect performance to date."
-  }
-}
-```
+1. **Task** — achieved updates (e.g. **$50,000**).  
+2. **Individual goal** — achieved updates to match (same linked record).  
+3. **Finance department goal** — achieved becomes **$50,000** (sum of child goals for revenue).  
+4. **Company CEO goal** — achieved becomes **$50,000** (rolls up to the organisational goal on the CEO contract).
 
-### 6.2 Warnings (expected)
+### Roll-up snapshot after first collection
 
-| Warning | Present? |
-|---------|----------|
-| No Board Chairperson reviewer | **No** (reviewer assigned) |
-| Period not ended | **Yes** (May 2026) |
-| Indicator in UNASSIGNED section | **No** (all sections set) |
-| Section weights not 100% | **No** |
+| Level | Target | Achieved | Progress |
+|-------|--------|----------|----------|
+| Individual goal / task (linked) | $100,000 | **$50,000** | **50%** |
+| Finance department | $100,000 | **$50,000** | **50%** |
+| **Company (CEO) goal** | $100,000 | **$50,000** | **50%** |
 
-### 6.3 `scores` block
+### Optional second collection (reach full target)
 
-```json
-{
-  "scores": {
-    "sectionScores": { "A1": 6, "A2": 3, "B": 3, "C": 4, "D": 3 },
-    "sectionBlendScore": 4.15,
-    "budgetScore": 5,
-    "finalScore": 4.24,
-    "performanceLabel": "Meets Expectations",
-    "ratingScale": { "min": 1, "max": 6 }
-  }
-}
-```
+Record **another USD 50,000** on the same task (or a second task linked to the same individual goal).
 
-### 6.4 `agreedRatingsSummary` (excerpt)
-
-| Section | Heading | sectionScore | label |
-|---------|---------|--------------|--------|
-| A1 | Outcomes | 6.00 | Exceeds Expectations |
-| A2 | Outputs | 3.00 | Satisfactory |
-| B | Service Delivery Standards | 3.00 | Satisfactory |
-| C | Management of Resources… | 4.00 | Meets Expectations |
-| D | Cross-Cutting… | 3.00 | Satisfactory |
-| TOTAL | Final Score | **4.24** | **Meets Expectations** |
-
-### 6.5 `matrixRows` (excerpt — all scoreable)
-
-| indicatorName | section | target | computedActual | rawRating | progressPct | weight | effectiveWeight | weightedScore |
-|---------------|---------|--------|----------------|-----------|-------------|--------|-----------------|---------------|
-| Annual revenue | A1 | 5000000 | 5600000 | 6 | 100 | 50 | 50 | 3.0 |
-| Return on investment | A1 | 12 | 14 | 6 | 100 | 50 | 50 | 3.0 |
-| Statutory reports produced | A2 | 100 | 100 | 4 | 100 | 50 | 50 | 2.0 |
-| Capital disbursed | A2 | 100 | 88 | 2 | 88 | 50 | 50 | 1.0 |
-| Customer satisfaction index | B | 80 | 76 | 3 | 95 | 60 | 60 | 1.8 |
-| Customer service charter | B | 100 | 91 | 3 | 91 | 40 | 40 | 1.2 |
-| Payroll expense cap | C | 2400000 | 2520000 | 3 | 95.24 | 50 | 50 | 1.5 |
-| Strategic allocation compliance | C | 70 | 72 | 5 | 100 | 50 | 50 | 2.5 |
-| Integrity and anti-corruption | D | 100 | 98 | 3 | 98 | 100 | 100 | 3.0 |
-
-### 6.6 Qualitative / signatures
-
-- **Personal attributes** grid: all `selected: null` (manual at review meeting).
-- **Training & development:** empty lists until captured.
-- **Signatures:** CEO name filled; board chair name filled; dates/signatures null until finalise.
+| Level | Achieved after 2 × $50k |
+|-------|-------------------------|
+| Company (CEO) goal | **$100,000** (100% progress) |
 
 ---
 
-## 7. Org BSC vs CEO scorecard (do not confuse)
+## Step 5 — Other CEO indicators (keep the demo small)
 
-Same company goals can power two different surfaces:
+Only **two** more company goals on the **same CEO contract** so the scorecard is easy to check. Enter achieved values directly (no tasks).
 
-| Surface | Formula (simplified) | HDF illustration |
-|---------|----------------------|------------------|
-| **Org BSC dashboard** | Σ (pillar/goal weight × **progress %**) | Dominated by many goals at ~90–100% progress → high **%** score (e.g. high 90s if equally weighted) |
-| **CEO scorecard** | Σ (section weight × **section score on 1–6 scale**) | **4.24** — Meets Expectations |
+| Section | Title | Target | Achieved | Notes |
+|---------|-------|--------|----------|--------|
+| **A2** | Statutory reports on time | 12 reports | 12 | 100% — “Meets target” |
+| **D** | Integrity & anti-corruption | 100% | 98% | Slightly below target — “Within variance” |
 
-Progress % is shown on CEO rows for transparency but **does not** drive `finalScore`; **raw rating 1–6** does.
+**Weights within each section:** 100% on each (one indicator per section).
 
----
-
-## 8. UAT checklist — entering HDF data in Arcus
-
-Use this order so generate succeeds and matches this document.
-
-### 8.1 Contracts
-
-- [ ] Create **CEO** contract 2026 for Alex Nkomo, ACTIVE, reviewer = Dr. Chipo Moyo.
-- [ ] Set `allocatedBudget` = 12,000,000 and `actualSpend` = 11,100,000 on CEO contract.
-- [ ] Create **DEPARTMENT** contracts for Finance, Operations, Human Resources (2026).
-- [ ] Create **EMPLOYEE** contracts for Tendai M, Rudo K, Farai P (and ops analyst if used).
-
-### 8.2 Company goals (CEO indicators)
-
-For each of the **8 rows in §2**, `POST` performance goal with:
-
-- [ ] `type: "company"`
-- [ ] `performanceContractId` = CEO contract id
-- [ ] `scorecardSection`: A1, A2, B, C, or D ( **required** — avoids UNASSIGNED)
-- [ ] `scorecardWeight`: as table (50/50, 60/40, etc.)
-- [ ] `targetValue` / `preciseTargetValue`, `currentValue` / `preciseCurrentValue`
-- [ ] `allowableVariance`: 0.1
-- [ ] `isReverseKpi`: true only for payroll cap
-- [ ] `formulaType` and `activities` as in table
-- [ ] `startDate` / `endDate` overlapping 2026
-
-### 8.3 Department and individual goals
-
-- [ ] Department goals: `type: "department"`, correct `departmentName`, weights, targets/actuals.
-- [ ] Individual goals: `type: "individual"`, `assignedToId`, weights, targets/actuals.
-
-### 8.4 Generate and verify
-
-- [ ] `POST /performance/scorecards/ceo/generate` with `periodLabel: "2026"`.
-- [ ] Compare `scores.finalScore` ≈ **4.24**, `performanceLabel` = **Meets Expectations**.
-- [ ] Confirm **no** UNASSIGNED warnings.
-- [ ] Confirm `sections.A1` has 2 indicators, `A2` has 2, etc.
-
-### 8.5 Contrast with Niakazi-style mistake
-
-| Issue | Niakazi (your earlier run) | HDF (this fiction) |
-|-------|---------------------------|---------------------|
-| `scorecardSection` | Missing → UNASSIGNED | Set on every CEO goal |
-| Section tables | Empty | Populated |
-| `finalScore` | 0 despite good `matrixRows` | **4.24** reflects ratings |
+You now have **three** CEO indicators total: one driven by **task roll-up** (revenue), two entered **manually**.
 
 ---
 
-## 9. Reference — rating band labels (1–6)
+## Step 6 — Generate the CEO scorecard
 
-| Rating | Label |
-|--------|--------|
-| 6 | Exceeds — Beyond Variance |
-| 5 | Exceeds — Within Variance |
-| 4 | Meets Target |
-| 3 | Within Variance |
-| 2 | Requires Improvement |
+**Where in Arcus:** Performance → Scorecards → **CEO scorecard** → Generate  
+**Period:** 2026
+
+The system:
+
+1. Loads **company goals** on the CEO contract.  
+2. Uses each goal’s **achieved** value (for revenue, that is the rolled-up **$50,000** or **$100,000** from Step 4).  
+3. Converts each indicator to a **rating 1–6** (with 10% allowable variance).  
+4. Blends **section scores** using contract section weights.  
+5. Optionally blends **budget utilisation** (10% of final score if budget is set on the contract).
+
+### Scoring scale (for the client)
+
+| Rating | Meaning |
+|--------|---------|
+| 6 | Exceeds — well above target |
+| 5 | Exceeds — within variance band |
+| 4 | Meets target |
+| 3 | Within variance (below target but not far) |
+| 2 | Requires improvement |
 | 1 | Unsatisfactory |
 
-| Final score | Overall label |
-|-------------|----------------|
-| ≥ 5.5 | Exceptional |
-| ≥ 4.5 | Exceeds Expectations |
-| ≥ 3.5 | **Meets Expectations** ← HDF **4.24** |
-| ≥ 2.5 | Satisfactory |
-| ≥ 2.0 | Requires Improvement |
-| &lt; 2.0 | Unsatisfactory |
+### Revenue indicator — ratings at a glance
+
+Target **$100,000**, variance **10%** (not a reverse KPI).
+
+| Achieved (after tasks) | Progress | Typical rating | Label |
+|------------------------|----------|----------------|--------|
+| $0 | 0% | 1 | Unsatisfactory |
+| **$50,000** | **50%** | **2** | Requires improvement |
+| $90,000 – $99,999 | 90–99% | 3 | Within variance |
+| **$100,000** | **100%** | **4** | Meets target |
+| Above $110,000 | >110% | 6 | Exceeds (beyond variance) |
+
+### Example CEO scorecard result — after **one** $50,000 collection
+
+| Section | Indicator | Achieved | Target | Rating (1–6) |
+|---------|-----------|----------|--------|----------------|
+| A1 | Annual revenue | **50,000** | 100,000 | **2** |
+| A2 | Statutory reports | 12 | 12 | **4** |
+| D | Integrity | 98 | 100 | **3** |
+
+**Section scores** (each section = weighted average of its indicators):
+
+| Section | Weight on contract | Section score |
+|---------|-------------------|---------------|
+| A1 | 50% | **2.00** |
+| A2 | 30% | **4.00** |
+| D | 20% | **3.00** |
+
+**Results blend (sections only, before budget):**  
+(50% × 2.00) + (30% × 4.00) + (20% × 3.00) = **2.80** → label **Requires improvement**
+
+If **budget** is included (92% spend vs 100% cap, reverse KPI → rating **5**):
+
+**Final score** ≈ 90% × 2.80 + 10% × 5.00 = **3.02** → still **Requires improvement** until revenue improves.
+
+### Example CEO scorecard result — after **two** $50,000 collections ($100,000 achieved)
+
+| Section | Indicator | Rating |
+|---------|-----------|--------|
+| A1 | Annual revenue | **4** (meets target) |
+| A2 | Statutory reports | **4** |
+| D | Integrity | **3** |
+
+**Section blend:** (50% × 4) + (30% × 4) + (20% × 3) = **3.80** → **Meets expectations** band  
+**With budget (10%):** final ≈ 0.9 × 3.80 + 0.1 × 5.00 = **3.92** → **Meets expectations**
 
 ---
 
-*Document version: fictional simulation HDF-2026. Calculations cross-checked with `computeRawRating`, `computeGoalProgress`, and `computeBudgetUtilisationRating` in `src/services/performanceScorecardSupport.ts`.*
+## What you should see on screen (checklist)
+
+Use this when presenting or doing UAT.
+
+- [ ] CEO contract 2026 exists and is **Active**, with a **reviewer** assigned.  
+- [ ] **One** company revenue goal on that contract (section **A1**).  
+- [ ] Finance department goal is a **child** of the company goal.  
+- [ ] **Individual goal** assigned to Tendai under Finance; **task appears automatically**.  
+- [ ] After recording **$50,000** on the task, **company goal achieved = 50,000**.  
+- [ ] CEO scorecard shows revenue **actual 50,000**, rating **2**, and a **live** period banner.  
+- [ ] After a second **$50,000**, company achieved **100,000**, revenue rating **4**, final score in the **~3.9** range (with budget on).
+
+---
+
+## CEO scorecard vs other dashboards (one sentence for the client)
+
+| Screen | What it shows |
+|--------|----------------|
+| **CEO scorecard** | Formal **1–6** ratings and section weights for the board / CEO review. |
+| **Goals list / KPI analytics** | Operational **progress %** and achieved amounts — good for monitoring; not the same formula as the CEO final score. |
+| **Accounting dashboard** | **Ledger revenue** (signed GL totals) — can differ from goal achieved if not all income is captured through goals/tasks. |
+
+---
+
+## Appendix — Technical reference (optional)
+
+<details>
+<summary>Original multi-goal simulation, API fields, and full 8-indicator CEO worksheet</summary>
+
+The first version of this file contained a fuller fictional data set (8 CEO indicators, three departments, five employees, and a target final score of **4.24**). That content is still valid for advanced UAT but is **not** required for the simple revenue walkthrough above.
+
+**Backend references (for developers):**
+
+- Task progress → goals: `TaskService` → `PerformanceGoalProgressBridge` → `PerformanceGoalService.updateParentGoalProgress`
+- Revenue roll-up: additive sum of child `currentValue` (`isAdditiveMonetaryParentRollup` in `performanceGoalRollupUtils.ts`)
+- CEO scorecard: `PerformanceScorecardService.getCEOScorecard` — goals where `performanceContractId` = CEO contract
+- Ratings: `computeRawRating` in `performanceScorecardSupport.ts` (10% variance, scale 1–6)
+
+**Generate API:** `POST /api/performance/scorecards/ceo/generate` with `periodLabel: "2026"`.
+
+</details>
+
+---
+
+*Document: HDF 2026 client walkthrough — aligned with Arcus performance module behaviour as of May 2026.*
