@@ -2846,9 +2846,6 @@ export class PerformanceScorecardService {
       throw new Error("No scoreable goals available.");
     }
 
-    const draftRollupCards = Array.from(rollupScorecardByEmployee.values()).filter(
-      (sc: any) => sc.status === "DRAFT"
-    );
     const rollupScorecardCount = rollupScorecardByEmployee.size;
     const subjectUserIds = departmentUsers.map((user) => user.id);
 
@@ -2861,12 +2858,6 @@ export class PerformanceScorecardService {
     if (departmentGoals.length > 0 && Math.abs(weightSum - 100) > 0.01) {
       warnings.push(
         `Department goal weights sum to ${round(weightSum, 2)}, not 100. Scores may be inaccurate.`
-      );
-    }
-
-    if (draftRollupCards.length > 0) {
-      warnings.push(
-        `${draftRollupCards.length} employee scorecard(s) are draft and included in the roll-up. Finalise for official sign-off only.`
       );
     }
 

@@ -579,8 +579,11 @@ describe("department qualitative evaluation helpers", () => {
     expect(merged.customNote).toBe("hod-review");
     expect(merged.beginningOfCycle).toEqual([{ text: "plan A" }]);
     const grid = buildPersonalAttributesRatingGrid(merged);
-    const teamwork = grid.find((r) => r.attribute === "Teamwork");
-    expect(teamwork?.columns.find((c) => c.label === "Very Good")?.selected).toBe(true);
+    const teamwork = grid.find((r: { attribute: string }) => r.attribute === "Teamwork");
+    expect(
+      teamwork?.columns.find((c: { label: string; selected: boolean | null }) => c.label === "Very Good")
+        ?.selected
+    ).toBe(true);
   });
 
   test("resolveDepartmentHeadUser: HEAD role in department (not generic manager code)", () => {
