@@ -8,6 +8,7 @@
 
 import {
   DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES,
+  EMPLOYEE_QUALITATIVE_EVALUATION_API_NOTES,
   EMPLOYEE_PERSONAL_ATTRIBUTES,
   EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS
 } from '../services/performanceScorecardSupport';
@@ -1491,6 +1492,135 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
         403: JSON_403,
         404: { description: 'Department or contract not found' },
         409: { description: 'Finalised department scorecard for period' }
+      }
+    }
+  },
+
+  '/performance/scorecards/employee/{employeeId}/qualitative-evaluation': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Save employee individual qualitative evaluation',
+      description: EMPLOYEE_QUALITATIVE_EVALUATION_API_NOTES,
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'employeeId',
+          required: true,
+          schema: { type: 'string', example: 'cmko4lub4002fkth45k7d5htz' }
+        }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['qualitativeEvaluation'],
+              properties: {
+                periodLabel: { type: 'string', example: '2026' },
+                periodStart: { type: 'string', format: 'date-time' },
+                periodEnd: { type: 'string', format: 'date-time' },
+                qualitativeEvaluation: {
+                  type: 'object',
+                  required: ['personalAttributes'],
+                  properties: {
+                    personalAttributes: {
+                      type: 'array',
+                      description:
+                        'Individual employee personal-attributes grid. Default attribute names (10): ' +
+                        EMPLOYEE_PERSONAL_ATTRIBUTES.join('; ') +
+                        '. Each row: one attribute + five columns.',
+                      items: {
+                        type: 'object',
+                        required: ['attribute', 'columns'],
+                        properties: {
+                          attribute: {
+                            type: 'string',
+                            enum: [...EMPLOYEE_PERSONAL_ATTRIBUTES],
+                            example: 'Teamwork'
+                          },
+                          columns: {
+                            type: 'array',
+                            minItems: 5,
+                            maxItems: 5,
+                            items: {
+                              type: 'object',
+                              required: ['label', 'selected'],
+                              properties: {
+                                label: {
+                                  type: 'string',
+                                  enum: [...EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS]
+                                },
+                                selected: {
+                                  type: 'boolean',
+                                  description: 'At most one `true` per row'
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    trainingAndDevelopment: { type: 'object' }
+                  }
+                }
+              }
+            },
+            example: {
+              periodLabel: '2026',
+              qualitativeEvaluation: {
+                personalAttributes: EMPLOYEE_PERSONAL_ATTRIBUTES.map((attribute) => ({
+                  attribute,
+                  columns: EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.map((label, index) => ({
+                    label,
+                    selected: attribute === 'Teamwork' && index === 2
+                  }))
+                }))
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description:
+            'Employee qualitative evaluation saved. `data.appraiser` is contract reviewer or department HEAD.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      employee: { type: 'object' },
+                      period: { type: 'object' },
+                      contractId: { type: 'string' },
+                      appraiser: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          name: { type: 'string' },
+                          title: { type: 'string', nullable: true }
+                        }
+                      },
+                      qualitativeEvaluation: { type: 'object' },
+                      savedTo: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'Employee or contract not found' },
+        409: { description: 'Finalised employee scorecard for period' }
       }
     }
   },

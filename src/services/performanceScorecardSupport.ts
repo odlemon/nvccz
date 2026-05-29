@@ -885,6 +885,37 @@ export const DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES = [
   "- If **more than one** head matches, the first user is returned and `multipleHeadsDetected: true` is set."
 ].join("\n");
 
+/** OpenAPI description for employee individual qualitative PUT (Sarah / API consumers). */
+export const EMPLOYEE_QUALITATIVE_EVALUATION_API_NOTES = [
+  "Saves the **individual employee qualitative evaluation** (personal attributes grid) for an employee performance period.",
+  "",
+  "**What this is (vs KPI matrix):**",
+  "- The **quantitative KPI matrix** (`resultsDeliveryScore`, goal rows, `finalScore` from goals/budget) is calculated automatically from individual goals and contract budget fields.",
+  "- This endpoint stores the **qualitative personal-attributes grid** only — behavioural/soft-skill ratings for the employee. It does **not** change numeric scores.",
+  "",
+  "**Who may call:** Administrator or CEO only.",
+  "",
+  "**Default personal attributes (10 rows):**",
+  ...EMPLOYEE_PERSONAL_ATTRIBUTES.map((a) => `- ${a}`),
+  "",
+  `**Rating columns (5 per row):** ${EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.join(", ")}.`,
+  "",
+  "**Validation:**",
+  "- Each row may have **at most one** column with `selected: true` (400 if more than one).",
+  "- Rows with no selection are allowed (partial save).",
+  "- Invalid column labels return 400.",
+  "",
+  "**Payload tips:**",
+  "- You may send **one row or all ten** in a single PUT; the server **merges** into the contract template.",
+  "- Sending only one row updates ratings for that attribute but may narrow the stored attribute name list — prefer sending **all ten rows** when bootstrapping.",
+  "",
+  "**Persistence:** `PerformanceContract.qualitativeTemplate` on the employee contract and any **draft** employee scorecard for the same period. **409** if a **FINAL** employee scorecard exists.",
+  "",
+  "**Generate is not blocked:** `POST …/employee/{employeeId}/generate` still works when the grid is empty.",
+  "",
+  "**Response `appraiser`:** When the contract has no `reviewer`, resolved from the **Head of Department** for the employee's department (same rules as scorecard document appraiser)."
+].join("\n");
+
 export function buildPersonalAttributesRatingGrid(template?: any) {
   const configuredAttributes = Array.isArray(template?.personalAttributes)
     ? template.personalAttributes
@@ -1160,6 +1191,11 @@ export function mergeQualitativeTemplate(
 export function canSaveDepartmentQualitativeEvaluation(viewer: any): boolean {
   if (!viewer?.id) return false;
   return isAdminViewer(viewer) || isCEO(viewer);
+}
+
+/** Admin or CEO may save employee individual qualitative evaluation. */
+export function canSaveEmployeeQualitativeEvaluation(viewer: any): boolean {
+  return canSaveDepartmentQualitativeEvaluation(viewer);
 }
 
 export function resolvePeriodLabel(input: {

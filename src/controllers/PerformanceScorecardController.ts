@@ -111,6 +111,23 @@ function statusForDepartmentQualitativeEvaluationError(message: string): number 
   return 500;
 }
 
+function statusForEmployeeQualitativeEvaluationError(message: string): number {
+  const m = String(message || "").toLowerCase();
+  if (m.includes("access denied")) return 403;
+  if (m.includes("employee not found")) return 404;
+  if (m.includes("no active performance contract")) return 404;
+  if (m.includes("a finalised scorecard already exists")) return 409;
+  if (
+    m.includes("qualitativeevaluation") ||
+    m.includes("personal attribute") ||
+    m.includes("invalid rating column") ||
+    m.includes("terminated")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
 function getQualitativeEvaluationFromBody(req: Request) {
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const qe = body.qualitativeEvaluation;
@@ -348,6 +365,30 @@ export class PerformanceScorecardController {
       return ResponseHelper.error(
         res,
         error.message || "Failed to save department qualitative evaluation",
+        undefined,
+        statusCode
+      );
+    }
+  }
+
+  static async putEmployeeQualitativeEvaluation(req: Request, res: Response) {
+    try {
+      const qualitativeEvaluation = getQualitativeEvaluationFromBody(req);
+      const data = await PerformanceScorecardService.saveEmployeeQualitativeEvaluation({
+        viewer: req.user,
+        employeeUserId: req.params.employeeId,
+        ...getPeriodParamsFromBodyOrQuery(req),
+        qualitativeEvaluation,
+        meta: buildMeta(req)
+      });
+
+      return ResponseHelper.success(res, "Employee qualitative evaluation saved", data);
+    } catch (error: any) {
+      console.error("Error saving employee qualitative evaluation:", error);
+      const statusCode = statusForEmployeeQualitativeEvaluationError(error.message);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to save employee qualitative evaluation",
         undefined,
         statusCode
       );
