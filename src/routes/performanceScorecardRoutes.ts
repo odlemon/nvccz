@@ -472,6 +472,65 @@ router.post(
   "/department/by-id/:departmentId/generate",
   PerformanceScorecardController.generateDepartmentScorecardById
 );
+/**
+ * @swagger
+ * /api/performance/scorecards/department/by-id/{departmentId}/qualitative-evaluation:
+ *   put:
+ *     summary: Save Head of Department qualitative evaluation (by department id)
+ *     description: |
+ *       Same as **PUT** `/api/performance/scorecards/department/{department}/qualitative-evaluation` — see that operation for the full Sarah-facing specification (all 10 personal attributes, 5 rating columns, validation, merge behaviour, and `headOfDepartment` resolution).
+ *       Path uses org **departmentId** instead of department name. **Administrator or CEO** only.
+ *     tags: [Performance Scorecards]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: departmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [qualitativeEvaluation]
+ *             properties:
+ *               periodLabel:
+ *                 type: string
+ *                 example: "2026"
+ *               periodStart:
+ *                 type: string
+ *                 format: date-time
+ *               periodEnd:
+ *                 type: string
+ *                 format: date-time
+ *               qualitativeEvaluation:
+ *                 type: object
+ *                 required: [personalAttributes]
+ *                 properties:
+ *                   personalAttributes:
+ *                     type: array
+ *                     description: HOD grid — 10 attributes × 5 columns (see department name route for full attribute list)
+ *                   trainingAndDevelopment:
+ *                     type: object
+ *     responses:
+ *       200:
+ *         description: Qualitative evaluation saved; includes resolved headOfDepartment
+ *       400:
+ *         description: Validation error
+ *       403:
+ *         description: Access denied (not admin or CEO)
+ *       404:
+ *         description: Department or contract not found
+ *       409:
+ *         description: Finalised scorecard exists for period
+ */
+router.put(
+  "/department/by-id/:departmentId/qualitative-evaluation",
+  PerformanceScorecardController.putDepartmentQualitativeEvaluationById
+);
 router.get("/department/:department", PerformanceScorecardController.getDepartmentScorecard);
 
 /**
@@ -514,6 +573,184 @@ router.get("/department/:department", PerformanceScorecardController.getDepartme
  *               $ref: '#/components/schemas/StandardErrorEnvelope'
  */
 router.post("/department/:department/generate", PerformanceScorecardController.generateDepartmentScorecard);
+
+/**
+ * @swagger
+ * /api/performance/scorecards/department/{department}/qualitative-evaluation:
+ *   put:
+ *     summary: Save Head of Department qualitative evaluation
+ *     description: |
+ *       **For Sarah / frontend:** Full specification for the HOD leadership qualitative grid on department scorecards.
+ *
+ *       **What this is (vs KPI matrix):**
+ *       - The **quantitative KPI matrix** (`departmentScore`, goal rows, employee roll-up) is calculated automatically from department goals and employee scorecards.
+ *       - This endpoint stores the **qualitative personal-attributes grid** only — how well the HOD led the department. It does **not** change numeric scores.
+ *
+ *       **Who may call:** Administrator or CEO only.
+ *
+ *       **Default personal attributes (10 rows):**
+ *       - Judgement in decision making
+ *       - Leadership and Management
+ *       - Ethics
+ *       - Teamwork
+ *       - Communication Skills
+ *       - Creativity and Innovation
+ *       - Knowledge of Standard Operating Procedures
+ *       - Quality of Work
+ *       - Interpersonal Relations
+ *       - Technical Skills
+ *
+ *       **Rating columns (5 per row):** Excellent, Very Good, Satisfactory, Requires Improvement, Unsatisfactory.
+ *
+ *       **Validation:**
+ *       - Each row may have **at most one** column with `selected: true` (400 if more than one).
+ *       - Rows with no selection are allowed (partial save).
+ *       - Invalid column labels return 400.
+ *
+ *       **Payload tips:**
+ *       - You may send **one row or all ten** in a single PUT; the server **merges** into the contract template.
+ *       - Prefer sending **all ten rows** when bootstrapping (sending only one row may narrow the stored attribute name list).
+ *
+ *       **Persistence:** `PerformanceContract.qualitativeTemplate` and any **draft** department scorecard for the same period. **409** if a **FINAL** department scorecard exists.
+ *
+ *       **Generate is not blocked:** `POST …/department/{department}/generate` still works when the grid is empty.
+ *
+ *       **Response `headOfDepartment`:** Resolved from org users in the department (`userDepartment` or `departmentId`).
+ *       - Uses the **first** user with `departmentRole` **HEAD** / **HOD**, head-of-department signals, or legacy department-manager signals.
+ *       - If **none** are found, `name` is **"This department does not have a head"** (not `null`).
+ *       - If **more than one** head matches, the first user is returned and `multipleHeadsDetected: true` is set.
+ *     tags: [Performance Scorecards]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: department
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: Finance
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [qualitativeEvaluation]
+ *             properties:
+ *               periodLabel:
+ *                 type: string
+ *                 example: "2026"
+ *               periodStart:
+ *                 type: string
+ *                 format: date-time
+ *               periodEnd:
+ *                 type: string
+ *                 format: date-time
+ *               departmentId:
+ *                 type: string
+ *                 description: Optional; resolves department by id instead of path name
+ *               qualitativeEvaluation:
+ *                 type: object
+ *                 required: [personalAttributes]
+ *                 properties:
+ *                   personalAttributes:
+ *                     type: array
+ *                     description: HOD personal-attributes grid (10 default attributes × 5 rating columns)
+ *                     items:
+ *                       type: object
+ *                       required: [attribute, columns]
+ *                       properties:
+ *                         attribute:
+ *                           type: string
+ *                           enum:
+ *                             - Judgement in decision making
+ *                             - Leadership and Management
+ *                             - Ethics
+ *                             - Teamwork
+ *                             - Communication Skills
+ *                             - Creativity and Innovation
+ *                             - Knowledge of Standard Operating Procedures
+ *                             - Quality of Work
+ *                             - Interpersonal Relations
+ *                             - Technical Skills
+ *                           example: Leadership and Management
+ *                         columns:
+ *                           type: array
+ *                           minItems: 5
+ *                           maxItems: 5
+ *                           items:
+ *                             type: object
+ *                             required: [label, selected]
+ *                             properties:
+ *                               label:
+ *                                 type: string
+ *                                 enum: [Excellent, Very Good, Satisfactory, Requires Improvement, Unsatisfactory]
+ *                               selected:
+ *                                 type: boolean
+ *                                 description: At most one true per row
+ *                   trainingAndDevelopment:
+ *                     type: object
+ *                     properties:
+ *                       beginningOfCycle:
+ *                         type: array
+ *                       endOfCycle:
+ *                         type: array
+ *                       interventions:
+ *                         type: array
+ *     responses:
+ *       200:
+ *         description: Department Head qualitative evaluation saved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     department:
+ *                       type: object
+ *                     period:
+ *                       type: object
+ *                     contractId:
+ *                       type: string
+ *                     headOfDepartment:
+ *                       type: object
+ *                       properties:
+ *                         userId:
+ *                           type: string
+ *                           nullable: true
+ *                         name:
+ *                           type: string
+ *                           description: HOD full name, or "This department does not have a head"
+ *                         title:
+ *                           type: string
+ *                           nullable: true
+ *                         hasHead:
+ *                           type: boolean
+ *                         multipleHeadsDetected:
+ *                           type: boolean
+ *                     qualitativeEvaluation:
+ *                       type: object
+ *                     savedTo:
+ *                       type: object
+ *       400:
+ *         description: Validation error (grid format, multiple selections per row)
+ *       403:
+ *         description: Access denied
+ *       404:
+ *         description: Department or contract not found
+ *       409:
+ *         description: Finalised scorecard for period — cannot edit
+ */
+router.put(
+  "/department/:department/qualitative-evaluation",
+  PerformanceScorecardController.putDepartmentQualitativeEvaluation
+);
 
 /**
  * @swagger

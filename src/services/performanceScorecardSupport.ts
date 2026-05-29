@@ -238,6 +238,129 @@ export function isDepartmentManager(user: any, departmentName?: string): boolean
   return manages && String(user?.userDepartment || "").toLowerCase() === String(departmentName).toLowerCase();
 }
 
+/** User is assigned to the department by name and/or org department id. */
+export function userBelongsToDepartment(
+  user: any,
+  departmentName: string,
+  departmentId?: string | null
+): boolean {
+  if (!user) return false;
+  const nameMatch =
+    Boolean(departmentName) &&
+    String(user.userDepartment || "")
+      .trim()
+      .toLowerCase() === String(departmentName).trim().toLowerCase();
+  const idMatch =
+    Boolean(departmentId) &&
+    Boolean(user.departmentId) &&
+    String(user.departmentId) === String(departmentId);
+  return nameMatch || idMatch;
+}
+
+/**
+ * Head of Department for scorecard documents: org `departmentRole` HEAD/HOD, explicit HOD signals,
+ * or legacy department manager signals — must belong to the department. When several match, callers
+ * use the first user in stable query order.
+ */
+export function isDepartmentHead(
+  user: any,
+  departmentName: string,
+  departmentId?: string | null
+): boolean {
+  if (!userBelongsToDepartment(user, departmentName, departmentId)) {
+    return false;
+  }
+  const deptRole = String(user?.departmentRole || "")
+    .trim()
+    .toUpperCase();
+  if (deptRole === "HEAD" || deptRole === "HOD") {
+    return true;
+  }
+  if (
+    hasAnySignal(user, [
+      "head of department",
+      "department head",
+      "head of dept",
+      "hod",
+      "head of finance"
+    ])
+  ) {
+    return true;
+  }
+  return isDepartmentManager(user, departmentName);
+}
+
+export function resolveDepartmentHeadUser(
+  users: any[],
+  departmentName: string,
+  departmentId?: string | null
+): { head: any | null; headCount: number } {
+  const heads = users.filter((user) => isDepartmentHead(user, departmentName, departmentId));
+  return { head: heads[0] || null, headCount: heads.length };
+}
+
+export const NO_DEPARTMENT_HEAD_MESSAGE = "This department does not have a head";
+
+export type HeadOfDepartmentPayload = {
+  userId: string | null;
+  name: string;
+  title: string | null;
+  hasHead: boolean;
+  multipleHeadsDetected?: boolean;
+};
+
+export function buildHeadOfDepartmentPayload(
+  head: any | null,
+  headCount = 0
+): HeadOfDepartmentPayload {
+  if (!head) {
+    return {
+      userId: null,
+      name: NO_DEPARTMENT_HEAD_MESSAGE,
+      title: null,
+      hasHead: false
+    };
+  }
+  const name = `${head.firstName || ""} ${head.lastName || ""}`.trim() || "Unknown";
+  return {
+    userId: head.id,
+    name,
+    title: head.departmentRole || head.role?.name || null,
+    hasHead: true,
+    ...(headCount > 1 ? { multipleHeadsDetected: true } : {})
+  };
+}
+
+/** Appraiser line on scorecard documents — typically the user who generated the draft. */
+export function formatScorecardAppraiserFromUser(user: any): {
+  id: string;
+  name: string;
+  title: string | null;
+} | null {
+  if (!user?.id) return null;
+  const name = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+  if (!name) return null;
+  return {
+    id: user.id,
+    name,
+    title: user.departmentRole || user.role?.name || null
+  };
+}
+
+/** Prisma `where` for users in a department (name and/or id). */
+export function departmentMembershipWhere(
+  departmentName: string,
+  departmentId?: string | null
+): { OR: Array<{ userDepartment: string } | { departmentId: string }> } {
+  const OR: Array<{ userDepartment: string } | { departmentId: string }> = [
+    { userDepartment: departmentName }
+  ];
+  if (departmentId) {
+    OR.push({ departmentId: String(departmentId) });
+  }
+  return { OR };
+}
+
 export function isComplianceLeader(user: any): boolean {
   return hasAnySignal(user, ["compliance head", "compliance officer", "compliance"]);
 }
@@ -728,6 +851,40 @@ export const EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS = [
   "Unsatisfactory"
 ] as const;
 
+/** OpenAPI description for department HOD qualitative PUT (Sarah / API consumers). */
+export const DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES = [
+  "Saves the **Head of Department (HOD) leadership evaluation** for a department performance period.",
+  "",
+  "**What this is (vs KPI matrix):**",
+  "- The **quantitative KPI matrix** (`departmentScore`, goal rows, employee roll-up) is calculated automatically from department goals and employee scorecards.",
+  "- This endpoint stores the **qualitative personal-attributes grid** only — how well the HOD led the department. It does **not** change numeric scores.",
+  "",
+  "**Who may call:** Administrator or CEO only.",
+  "",
+  "**Default personal attributes (10 rows):**",
+  ...EMPLOYEE_PERSONAL_ATTRIBUTES.map((a) => `- ${a}`),
+  "",
+  `**Rating columns (5 per row):** ${EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.join(", ")}.`,
+  "",
+  "**Validation:**",
+  "- Each row may have **at most one** column with `selected: true` (400 if more than one).",
+  "- Rows with no selection are allowed (partial save).",
+  "- Invalid column labels return 400.",
+  "",
+  "**Payload tips:**",
+  "- You may send **one row or all ten** in a single PUT; the server **merges** into the contract template.",
+  "- Sending only one row updates ratings for that attribute but may narrow the stored attribute name list — prefer sending **all ten rows** when bootstrapping.",
+  "",
+  "**Persistence:** `PerformanceContract.qualitativeTemplate` and any **draft** department scorecard for the same period. **409** if a **FINAL** department scorecard exists.",
+  "",
+  "**Generate is not blocked:** `POST …/department/{department}/generate` still works when the grid is empty.",
+  "",
+  "**Response `headOfDepartment`:** Resolved from org users in the department (`userDepartment` or `departmentId`).",
+  "- Uses the **first** user with `departmentRole` **HEAD** / **HOD**, head-of-department signals, or legacy department-manager signals.",
+  "- If **none** are found, `name` is the literal message **\"This department does not have a head\"** (not `null`).",
+  "- If **more than one** head matches, the first user is returned and `multipleHeadsDetected: true` is set."
+].join("\n");
+
 export function buildPersonalAttributesRatingGrid(template?: any) {
   const configuredAttributes = Array.isArray(template?.personalAttributes)
     ? template.personalAttributes
@@ -880,6 +1037,129 @@ export function buildTrainingSection(template?: any) {
       ? template.interventions
       : []
   };
+}
+
+export type PersonalAttributeGridRow = {
+  attribute: string;
+  columns: { label: string; selected: boolean | null }[];
+};
+
+const PERSONAL_ATTRIBUTE_COLUMN_SET = new Set<string>(EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS);
+
+/** Validate HOD qualitative grid rows (PUT save). Partial rows allowed; at most one tick per row. */
+export function validatePersonalAttributesGrid(rows: PersonalAttributeGridRow[]): void {
+  if (!Array.isArray(rows)) {
+    throw new Error("qualitativeEvaluation.personalAttributes must be an array.");
+  }
+  for (const row of rows) {
+    const attribute = String(row?.attribute ?? "").trim();
+    if (!attribute) {
+      throw new Error("Each personal attribute row must include a non-empty attribute name.");
+    }
+    if (!Array.isArray(row.columns)) {
+      throw new Error(`Personal attribute "${attribute}" must include a columns array.`);
+    }
+    let selectedCount = 0;
+    let selectedLabel: string | null = null;
+    for (const col of row.columns) {
+      const label = String(col?.label ?? "").trim();
+      if (!label) continue;
+      if (!PERSONAL_ATTRIBUTE_COLUMN_SET.has(label)) {
+        throw new Error(
+          `Invalid rating column "${label}" for "${attribute}". Allowed: ${EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.join(", ")}.`
+        );
+      }
+      if (col.selected === true) {
+        selectedCount += 1;
+        selectedLabel = label;
+      }
+    }
+    if (selectedCount > 1) {
+      throw new Error(
+        `Personal attribute "${attribute}" has more than one column selected; choose exactly one rating.`
+      );
+    }
+    if (selectedCount === 1 && selectedLabel) {
+      // valid single selection
+    }
+  }
+}
+
+/** Convert API grid rows to contract storage map `personalAttributeRatings`. */
+export function parsePersonalAttributesGridToRatings(
+  rows: PersonalAttributeGridRow[]
+): Record<string, Record<string, boolean>> {
+  const ratings: Record<string, Record<string, boolean>> = {};
+  for (const row of rows) {
+    const attribute = String(row.attribute).trim();
+    if (!attribute) continue;
+    const rowRatings: Record<string, boolean> = {};
+    for (const label of EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS) {
+      rowRatings[label] = false;
+    }
+    for (const col of row.columns || []) {
+      const label = String(col?.label ?? "").trim();
+      if (!PERSONAL_ATTRIBUTE_COLUMN_SET.has(label)) continue;
+      rowRatings[label] = col.selected === true;
+    }
+    ratings[attribute] = rowRatings;
+  }
+  return ratings;
+}
+
+export function mergeQualitativeTemplate(
+  existing: unknown,
+  patch: {
+    personalAttributeRatings?: Record<string, Record<string, boolean>>;
+    personalAttributes?: string[];
+    trainingAndDevelopment?: {
+      beginningOfCycle?: unknown[];
+      endOfCycle?: unknown[];
+      interventions?: unknown[];
+    };
+  }
+): Record<string, unknown> {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+
+  if (patch.personalAttributeRatings && typeof patch.personalAttributeRatings === "object") {
+    const prev =
+      base.personalAttributeRatings && typeof base.personalAttributeRatings === "object"
+        ? (base.personalAttributeRatings as Record<string, Record<string, boolean>>)
+        : {};
+    const merged: Record<string, Record<string, boolean>> = { ...prev };
+    for (const [attr, cols] of Object.entries(patch.personalAttributeRatings)) {
+      merged[attr] = { ...(merged[attr] || {}), ...cols };
+    }
+    base.personalAttributeRatings = merged;
+  }
+
+  if (Array.isArray(patch.personalAttributes) && patch.personalAttributes.length > 0) {
+    base.personalAttributes = patch.personalAttributes.map((a) => String(a).trim()).filter(Boolean);
+  }
+
+  const training = patch.trainingAndDevelopment;
+  if (training && typeof training === "object") {
+    if (Array.isArray(training.beginningOfCycle)) {
+      base.beginningOfCycle = training.beginningOfCycle;
+    }
+    if (Array.isArray(training.endOfCycle)) {
+      base.endOfCycle = training.endOfCycle;
+    }
+    if (Array.isArray(training.interventions)) {
+      base.interventions = training.interventions;
+    }
+  }
+
+  return base;
+}
+
+/** Admin or CEO may save department Head qualitative evaluation (loose vs department generate ACL). */
+export function canSaveDepartmentQualitativeEvaluation(viewer: any): boolean {
+  if (!viewer?.id) return false;
+  return isAdminViewer(viewer) || isCEO(viewer);
 }
 
 export function resolvePeriodLabel(input: {

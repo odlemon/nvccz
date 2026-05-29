@@ -14,6 +14,10 @@ import {
   normalizeEmployeeGoalWeightsForScorecard,
   buildPersonalAttributesRatingGrid,
   buildTrainingSection,
+  canSaveDepartmentQualitativeEvaluation,
+  mergeQualitativeTemplate,
+  parsePersonalAttributesGridToRatings,
+  validatePersonalAttributesGrid,
   computeBudgetUtilisationRating,
   computeGoalProgress,
   computeRawRating,
@@ -27,6 +31,10 @@ import {
   isCEO,
   isComplianceLeader,
   isDepartmentManager,
+  buildHeadOfDepartmentPayload,
+  departmentMembershipWhere,
+  resolveDepartmentHeadUser,
+  formatScorecardAppraiserFromUser,
   isExecutive,
   isFinalOrArchived,
   isAdminViewer,
@@ -1039,8 +1047,10 @@ export class PerformanceScorecardService {
     organisationName?: string;
     organisationLogoUrl?: string | null;
     generatedAt?: Date;
+    appraiser?: { id: string; name: string; title: string | null } | null;
   }) {
     const generatedAt = params.generatedAt || new Date();
+    const appraiser = params.appraiser || null;
     return {
       header: {
         organisationName: resolveOrganisationDisplayName(params.organisationName ?? null),
@@ -1063,6 +1073,8 @@ export class PerformanceScorecardService {
           ? `${params.manager.firstName} ${params.manager.lastName}`
           : null,
         departmentManagerTitle: params.manager?.departmentRole || params.manager?.role?.name || null,
+        appraiserName: appraiser?.name ?? null,
+        appraiserTitle: appraiser?.title ?? null,
         reviewPeriod: resolvePeriodLabel({
           periodLabel: params.period.periodLabel,
           periodStart: params.period.periodStart,
@@ -1128,24 +1140,6 @@ export class PerformanceScorecardService {
       qualitativeSections: {
         personalAttributes: buildPersonalAttributesRatingGrid(params.period?.qualitativeTemplate),
         trainingAndDevelopment: buildTrainingSection(params.period?.qualitativeTemplate)
-      },
-      signatureBlock: {
-        departmentManager: {
-          name: params.manager ? `${params.manager.firstName} ${params.manager.lastName}` : null,
-          signature: null,
-          date: null
-        },
-        appraiser: {
-          name: null,
-          title: "CEO / HR Manager",
-          signature: null,
-          date: null
-        },
-        approver: {
-          name: null,
-          signature: null,
-          date: null
-        }
       },
       status: params.status || "DRAFT"
     };
@@ -2529,6 +2523,192 @@ export class PerformanceScorecardService {
     }
   }
 
+  /**
+   * Save Head-of-Department qualitative evaluation (personal attributes grid) on the department contract.
+   * Does not gate scorecard generate; admin or CEO only.
+   */
+  static async saveDepartmentQualitativeEvaluation(params: {
+    viewer: any;
+    departmentName?: string;
+    departmentId?: string;
+    periodStart?: string;
+    periodEnd?: string;
+    periodLabel?: string;
+    qualitativeEvaluation: {
+      personalAttributes: { attribute: string; columns: { label: string; selected: boolean | null }[] }[];
+      trainingAndDevelopment?: {
+        beginningOfCycle?: unknown[];
+        endOfCycle?: unknown[];
+        interventions?: unknown[];
+      };
+    };
+    meta?: any;
+  }) {
+    if (!canSaveDepartmentQualitativeEvaluation(params.viewer)) {
+      throw new Error(
+        "Access denied. Only an administrator or CEO may save department Head qualitative evaluation."
+      );
+    }
+
+    const resolvedDept = await this.resolveDepartmentForScorecard({
+      departmentId: params.departmentId,
+      departmentName: params.departmentName
+    });
+    const departmentName = resolvedDept.name;
+
+    const period = this.buildPeriod(params);
+    const contractPeriodWhere = this.buildContractPeriodWhere(period);
+
+    const departmentContract = await prisma.performanceContract.findFirst({
+      where: {
+        contractType: "DEPARTMENT",
+        departmentName,
+        ...contractPeriodWhere,
+        status: { notIn: ["ARCHIVED", "CANCELLED"] }
+      },
+      select: {
+        id: true,
+        qualitativeTemplate: true,
+        periodLabel: true,
+        periodStart: true,
+        periodEnd: true
+      },
+      orderBy: { updatedAt: "desc" }
+    });
+
+    if (!departmentContract) {
+      throw new Error("No active performance contract found for this department and period.");
+    }
+
+    await this.assertNoFinalDepartmentScorecard(
+      departmentName,
+      period.periodStart,
+      period.periodEnd
+    );
+
+    const gridRows = params.qualitativeEvaluation?.personalAttributes;
+    if (!gridRows?.length) {
+      throw new Error("qualitativeEvaluation.personalAttributes is required and must not be empty.");
+    }
+
+    validatePersonalAttributesGrid(gridRows);
+
+    const personalAttributeRatings = parsePersonalAttributesGridToRatings(gridRows);
+    const attributeNames = gridRows.map((r) => String(r.attribute).trim()).filter(Boolean);
+
+    const mergedTemplate = mergeQualitativeTemplate(departmentContract.qualitativeTemplate, {
+      personalAttributeRatings,
+      personalAttributes: attributeNames,
+      trainingAndDevelopment: params.qualitativeEvaluation.trainingAndDevelopment
+    });
+
+    await prisma.performanceContract.update({
+      where: { id: departmentContract.id },
+      data: { qualitativeTemplate: mergedTemplate }
+    });
+
+    const qualitativeSections = {
+      personalAttributes: buildPersonalAttributesRatingGrid(mergedTemplate),
+      trainingAndDevelopment: buildTrainingSection(mergedTemplate)
+    };
+
+    let scorecardId: string | null = null;
+    const draftScorecard = await prisma.performanceScorecard.findFirst({
+      where: {
+        scorecardType: "DEPARTMENT",
+        departmentName,
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd,
+        status: { notIn: ["FINAL", "ARCHIVED"] },
+        isLocked: false
+      },
+      orderBy: { updatedAt: "desc" }
+    });
+
+    if (draftScorecard) {
+      const doc =
+        draftScorecard.documentPayload &&
+        typeof draftScorecard.documentPayload === "object" &&
+        !Array.isArray(draftScorecard.documentPayload)
+          ? { ...(draftScorecard.documentPayload as Record<string, unknown>) }
+          : {};
+      doc.qualitativeSections = qualitativeSections;
+
+      await prisma.performanceScorecard.update({
+        where: { id: draftScorecard.id },
+        data: {
+          qualitativeSections,
+          documentPayload: doc
+        }
+      });
+      scorecardId = draftScorecard.id;
+
+      await AuditService.log({
+        userId: params.viewer.id,
+        action: "UPDATE",
+        entityType: "PerformanceScorecard",
+        entityId: draftScorecard.id,
+        newValues: { qualitativeSections: true },
+        ...getRequestMetadata(params.meta)
+      }).catch(() => undefined);
+    }
+
+    await AuditService.log({
+      userId: params.viewer.id,
+      action: "UPDATE",
+      entityType: "PerformanceContract",
+      entityId: departmentContract.id,
+      newValues: {
+        departmentName,
+        qualitativeTemplateUpdated: true
+      },
+      ...getRequestMetadata(params.meta)
+    }).catch(() => undefined);
+
+    const departmentUsers = await prisma.user.findMany({
+      where: departmentMembershipWhere(departmentName, resolvedDept.id),
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        userDepartment: true,
+        departmentId: true,
+        departmentRole: true,
+        roleCode: true,
+        role: { select: { name: true } }
+      },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }]
+    });
+    const { head: departmentHead, headCount } = resolveDepartmentHeadUser(
+      departmentUsers,
+      departmentName,
+      resolvedDept.id
+    );
+
+    return {
+      department: {
+        id: resolvedDept.id,
+        name: departmentName
+      },
+      period: {
+        periodLabel: resolvePeriodLabel({
+          periodLabel: departmentContract.periodLabel || params.periodLabel,
+          periodStart: period.periodStart,
+          periodEnd: period.periodEnd
+        }),
+        periodStart: period.periodStart.toISOString(),
+        periodEnd: period.periodEnd.toISOString()
+      },
+      contractId: departmentContract.id,
+      headOfDepartment: buildHeadOfDepartmentPayload(departmentHead, headCount),
+      qualitativeEvaluation: qualitativeSections,
+      savedTo: {
+        contract: true,
+        scorecardId
+      }
+    };
+  }
+
   static async getDepartmentScorecard(params: {
     viewer: any;
     departmentName?: string;
@@ -2579,16 +2759,18 @@ export class PerformanceScorecardService {
         orderBy: { updatedAt: "desc" }
       }),
       prisma.user.findMany({
-        where: { userDepartment: departmentName },
+        where: departmentMembershipWhere(departmentName, resolvedDept.id),
         select: {
           id: true,
           firstName: true,
           lastName: true,
           userDepartment: true,
+          departmentId: true,
           departmentRole: true,
           roleCode: true,
           role: { select: { name: true } }
-        }
+        },
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }]
       }),
       prisma.performanceScorecard.findMany({
         where: {
@@ -2624,26 +2806,25 @@ export class PerformanceScorecardService {
       throw new Error("No active performance contract found for this department and period.");
     }
 
-    const departmentManager =
-      departmentUsers.find((user) => isDepartmentManager(user, departmentName)) || null;
+    const { head: departmentHead, headCount } = resolveDepartmentHeadUser(
+      departmentUsers,
+      departmentName,
+      resolvedDept.id
+    );
+    const headPayload = buildHeadOfDepartmentPayload(departmentHead, headCount);
 
-    const latestByEmployee = new Map<string, any>();
+    /** Latest employee scorecard per user (DRAFT or FINAL) — roll-up does not require finalisation. */
+    const rollupScorecardByEmployee = new Map<string, any>();
     for (const scorecard of employeeScorecards) {
-      if (!scorecard.subjectUserId || latestByEmployee.has(scorecard.subjectUserId)) continue;
-      latestByEmployee.set(scorecard.subjectUserId, scorecard);
-    }
-
-    const finalScorecardByEmployee = new Map<string, any>();
-    for (const scorecard of employeeScorecards) {
-      if (scorecard.status !== "FINAL" || !scorecard.subjectUserId) continue;
-      const prev = finalScorecardByEmployee.get(scorecard.subjectUserId);
+      if (!scorecard.subjectUserId) continue;
+      const prev = rollupScorecardByEmployee.get(scorecard.subjectUserId);
       if (!prev || new Date(scorecard.updatedAt).getTime() > new Date(prev.updatedAt).getTime()) {
-        finalScorecardByEmployee.set(scorecard.subjectUserId, scorecard);
+        rollupScorecardByEmployee.set(scorecard.subjectUserId, scorecard);
       }
     }
 
     let departmentGoals: any[] = departmentGoalsBase;
-    if (finalScorecardByEmployee.size > 0) {
+    if (departmentGoalsBase.length > 0) {
       const goalIds = departmentGoalsBase.map((g: any) => g.id);
       const subGoalsRaw = await prisma.performanceGoal.findMany({
         where: { parentGoalId: { in: goalIds } },
@@ -2665,8 +2846,10 @@ export class PerformanceScorecardService {
       throw new Error("No scoreable goals available.");
     }
 
-    const draftEmployees = Array.from(latestByEmployee.values()).filter((sc: any) => sc.status === "DRAFT");
-    const finalCount = finalScorecardByEmployee.size;
+    const draftRollupCards = Array.from(rollupScorecardByEmployee.values()).filter(
+      (sc: any) => sc.status === "DRAFT"
+    );
+    const rollupScorecardCount = rollupScorecardByEmployee.size;
     const subjectUserIds = departmentUsers.map((user) => user.id);
 
     const warnings: string[] = [];
@@ -2681,21 +2864,15 @@ export class PerformanceScorecardService {
       );
     }
 
-    if (!departmentContract.reviewer) {
+    if (draftRollupCards.length > 0) {
       warnings.push(
-        "No appraiser (contract reviewer) is assigned on this department performance contract. The scorecard cannot be finalised until an appraiser is assigned."
+        `${draftRollupCards.length} employee scorecard(s) are draft and included in the roll-up. Finalise for official sign-off only.`
       );
     }
 
-    if (draftEmployees.length > 0) {
+    if (rollupScorecardCount === 0 && subjectUserIds.length > 0) {
       warnings.push(
-        `${draftEmployees.length} employee scorecard(s) are not yet finalised and have been excluded from the roll-up. Department score may be incomplete.`
-      );
-    }
-
-    if (finalCount === 0 && subjectUserIds.length > 0) {
-      warnings.push(
-        "No finalised employee scorecards for this period; roll-up progress is 0 and only direct KPI values apply."
+        "No employee scorecards for this period; generate employee scorecards to populate the roll-up table. Direct department KPI values still apply."
       );
     }
 
@@ -2719,8 +2896,8 @@ export class PerformanceScorecardService {
         const childGoals = goal.subGoals || [];
         const eligibleChildren = childGoals.filter((cg) => {
           if (!cg.assignedToId) return false;
-          const fin = finalScorecardByEmployee.get(cg.assignedToId);
-          return Boolean(fin);
+          const empSc = rollupScorecardByEmployee.get(cg.assignedToId);
+          return Boolean(empSc);
         });
         const { weights: childRollupWeights, warnings: rollupWeightWarnings } =
           resolveDepartmentRollupChildWeights(eligibleChildren, goal.title);
@@ -2832,27 +3009,30 @@ export class PerformanceScorecardService {
       !isHRLeader(params.viewer) &&
       !isCEO(params.viewer);
 
-    const rollupSummary = departmentUsers.map((user, index) => {
-      const childGoalWeights = goalRows.reduce((sum, row) => {
-        const contribution = row.childContributions.find((item) => item.employeeId === user.id);
-        return sum + (contribution?.contributionWeight || 0);
-      }, 0);
-      const finalSc = finalScorecardByEmployee.get(user.id);
-      const finalScore =
-        finalSc?.finalScore != null ? toNumber(finalSc.finalScore, 0) : null;
-      const weightedContribution =
-        finalScore !== null ? round((finalScore * childGoalWeights) / 100, 4) : null;
+    const rollupSummary = departmentUsers
+      .map((user, index) => {
+        const childGoalWeights = goalRows.reduce((sum, row) => {
+          const contribution = row.childContributions.find((item) => item.employeeId === user.id);
+          return sum + (contribution?.contributionWeight || 0);
+        }, 0);
+        const empSc = rollupScorecardByEmployee.get(user.id);
+        const finalScore =
+          empSc?.finalScore != null ? toNumber(empSc.finalScore, 0) : null;
+        const weightedContribution =
+          finalScore !== null ? round((finalScore * childGoalWeights) / 100, 4) : null;
 
         return {
-        employeeId: user.id,
-        employeeName: limitedEmployeeVisibility
-          ? `Employee ${index + 1}`
-          : `${user.firstName} ${user.lastName}`,
-        finalScore,
-        rollupWeight: round(childGoalWeights, 4),
-        weightedContribution
-      };
-    });
+          employeeId: user.id,
+          employeeName: limitedEmployeeVisibility
+            ? `Employee ${index + 1}`
+            : `${user.firstName} ${user.lastName}`,
+          finalScore,
+          rollupWeight: round(childGoalWeights, 4),
+          weightedContribution
+        };
+      })
+      /** Only employees scored via department child goals / roll-up — omit dept members with no contribution. */
+      .filter((row) => row.rollupWeight > 0);
 
     const addressLogo =
       activeLetterhead?.logoUrl && String(activeLetterhead.logoUrl).trim()
@@ -2872,11 +3052,38 @@ export class PerformanceScorecardService {
       trainingAndDevelopment: buildTrainingSection(departmentContract.qualitativeTemplate)
     };
 
+    let appraiser = params.persist ? formatScorecardAppraiserFromUser(params.viewer) : null;
+    if (!appraiser) {
+      const savedForAppraiser = await prisma.performanceScorecard.findFirst({
+        where: {
+          scorecardType: "DEPARTMENT",
+          departmentName,
+          periodStart: period.periodStart,
+          periodEnd: period.periodEnd
+        },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          generatedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              departmentRole: true,
+              role: { select: { name: true } }
+            }
+          }
+        }
+      });
+      if (savedForAppraiser?.generatedBy) {
+        appraiser = formatScorecardAppraiserFromUser(savedForAppraiser.generatedBy);
+      }
+    }
+
     const documentPayload = this.buildDepartmentDocument({
       departmentId: resolvedDept.id,
       departmentName,
       period: departmentContract,
-      manager: departmentManager,
+      manager: departmentHead,
       rows: goalRows,
       rollupSummary,
       departmentScore,
@@ -2884,7 +3091,8 @@ export class PerformanceScorecardService {
       status: "DRAFT",
       organisationName,
       organisationLogoUrl,
-      generatedAt: new Date()
+      generatedAt: new Date(),
+      appraiser
     });
 
     const documentPayloadForStorage = { ...documentPayload };
@@ -2930,7 +3138,6 @@ export class PerformanceScorecardService {
         matrixRows: goalRows.map(({ childContributions: _cc, ...row }) => row),
         rollupSummary,
         qualitativeSections,
-        signatureState: documentPayload.signatureBlock,
         documentPayload: documentPayloadForStorage
       };
 
@@ -2985,16 +3192,12 @@ export class PerformanceScorecardService {
       department: {
         id: resolvedDept.id,
         name: departmentName,
-        managerId: departmentManager?.id || null,
-        managerName: departmentManager
-          ? `${departmentManager.firstName} ${departmentManager.lastName}`
-          : null,
-        headOfDepartmentName: departmentManager
-          ? `${departmentManager.firstName} ${departmentManager.lastName}`.trim()
-          : null,
-        headOfDepartmentTitle:
-          departmentManager?.departmentRole || departmentManager?.role?.name || null
+        managerId: headPayload.userId,
+        managerName: headPayload.hasHead ? headPayload.name : null,
+        headOfDepartmentName: headPayload.name,
+        headOfDepartmentTitle: headPayload.title
       },
+      appraiser,
       contract: {
         id: departmentContract.id,
         title: departmentContract.title,
