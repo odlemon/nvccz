@@ -39,6 +39,7 @@ import {
   buildPersonalAttributesRatingGrid,
   EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS,
   canSaveDepartmentQualitativeEvaluation,
+  canSaveEmployeeQualitativeEvaluation,
   resolveDepartmentHeadUser,
   buildHeadOfDepartmentPayload,
   isDepartmentHead,
@@ -637,6 +638,17 @@ describe("department qualitative evaluation helpers", () => {
     const none = buildHeadOfDepartmentPayload(null, 0);
     expect(none.name).toBe(NO_DEPARTMENT_HEAD_MESSAGE);
     expect(none.hasHead).toBe(false);
+  });
+
+  test("canSaveEmployeeQualitativeEvaluation: admin or CEO only", () => {
+    expect(canSaveEmployeeQualitativeEvaluation({ id: "1", role: { name: "Admin" } })).toBe(true);
+    expect(
+      canSaveEmployeeQualitativeEvaluation({
+        id: "3",
+        userDepartment: "Finance",
+        departmentRole: "HEAD"
+      })
+    ).toBe(false);
   });
 
   test("canSaveDepartmentQualitativeEvaluation: admin or CEO only", () => {

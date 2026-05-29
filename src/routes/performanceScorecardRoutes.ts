@@ -754,6 +754,131 @@ router.put(
 
 /**
  * @swagger
+ * /api/performance/scorecards/employee/{employeeId}/qualitative-evaluation:
+ *   put:
+ *     summary: Save employee individual qualitative evaluation
+ *     description: |
+ *       **For Sarah / frontend:** Full specification for the individual employee qualitative grid on employee scorecards.
+ *
+ *       **What this is (vs KPI matrix):**
+ *       - The **quantitative KPI matrix** (`resultsDeliveryScore`, goal rows, optional budget blend) is calculated automatically from individual goals.
+ *       - This endpoint stores the **qualitative personal-attributes grid** only — behavioural ratings for the employee. It does **not** change numeric scores.
+ *
+ *       **Who may call:** Administrator or CEO only.
+ *
+ *       **Default personal attributes (10 rows):**
+ *       - Judgement in decision making
+ *       - Leadership and Management
+ *       - Ethics
+ *       - Teamwork
+ *       - Communication Skills
+ *       - Creativity and Innovation
+ *       - Knowledge of Standard Operating Procedures
+ *       - Quality of Work
+ *       - Interpersonal Relations
+ *       - Technical Skills
+ *
+ *       **Rating columns (5 per row):** Excellent, Very Good, Satisfactory, Requires Improvement, Unsatisfactory.
+ *
+ *       **Validation:**
+ *       - Each row may have **at most one** column with `selected: true` (400 if more than one).
+ *       - Rows with no selection are allowed (partial save).
+ *       - Invalid column labels return 400.
+ *
+ *       **Payload tips:**
+ *       - You may send **one row or all ten** in a single PUT; the server **merges** into the contract template.
+ *       - Prefer sending **all ten rows** when bootstrapping.
+ *
+ *       **Persistence:** `PerformanceContract.qualitativeTemplate` on the **employee** contract and any **draft** employee scorecard for the period. **409** if **FINAL** employee scorecard exists.
+ *
+ *       **Generate is not blocked:** `POST …/employee/{employeeId}/generate` still works when the grid is empty.
+ *
+ *       **Response `appraiser`:** Contract reviewer if set; otherwise **Head of Department** for the employee's department.
+ *     tags: [Performance Scorecards]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: employeeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: cmko4lub4002fkth45k7d5htz
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [qualitativeEvaluation]
+ *             properties:
+ *               periodLabel:
+ *                 type: string
+ *                 example: "2026"
+ *               periodStart:
+ *                 type: string
+ *                 format: date-time
+ *               periodEnd:
+ *                 type: string
+ *                 format: date-time
+ *               qualitativeEvaluation:
+ *                 type: object
+ *                 required: [personalAttributes]
+ *                 properties:
+ *                   personalAttributes:
+ *                     type: array
+ *                     description: Employee personal-attributes grid (10 default attributes × 5 rating columns)
+ *                     items:
+ *                       type: object
+ *                       required: [attribute, columns]
+ *                       properties:
+ *                         attribute:
+ *                           type: string
+ *                           enum:
+ *                             - Judgement in decision making
+ *                             - Leadership and Management
+ *                             - Ethics
+ *                             - Teamwork
+ *                             - Communication Skills
+ *                             - Creativity and Innovation
+ *                             - Knowledge of Standard Operating Procedures
+ *                             - Quality of Work
+ *                             - Interpersonal Relations
+ *                             - Technical Skills
+ *                         columns:
+ *                           type: array
+ *                           minItems: 5
+ *                           maxItems: 5
+ *                           items:
+ *                             type: object
+ *                             required: [label, selected]
+ *                             properties:
+ *                               label:
+ *                                 type: string
+ *                                 enum: [Excellent, Very Good, Satisfactory, Requires Improvement, Unsatisfactory]
+ *                               selected:
+ *                                 type: boolean
+ *                   trainingAndDevelopment:
+ *                     type: object
+ *     responses:
+ *       200:
+ *         description: Employee qualitative evaluation saved
+ *       400:
+ *         description: Validation error
+ *       403:
+ *         description: Access denied
+ *       404:
+ *         description: Employee or contract not found
+ *       409:
+ *         description: Finalised employee scorecard for period
+ */
+router.put(
+  "/employee/:employeeId/qualitative-evaluation",
+  PerformanceScorecardController.putEmployeeQualitativeEvaluation
+);
+
+/**
+ * @swagger
  * /api/performance/scorecards/ceo:
  *   get:
  *     summary: Preview the CEO scorecard
