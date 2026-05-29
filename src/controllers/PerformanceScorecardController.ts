@@ -128,6 +128,40 @@ function statusForEmployeeQualitativeEvaluationError(message: string): number {
   return 500;
 }
 
+function statusForBoardQualitativeEvaluationError(message: string): number {
+  const m = String(message || "").toLowerCase();
+  if (m.includes("access denied")) return 403;
+  if (m.includes("no board performance contract found")) {
+    return 404;
+  }
+  if (m.includes("a finalised board scorecard already exists")) return 409;
+  if (
+    m.includes("qualitativeevaluation") ||
+    m.includes("personal attribute") ||
+    m.includes("invalid rating column")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
+function statusForCEOQualitativeEvaluationError(message: string): number {
+  const m = String(message || "").toLowerCase();
+  if (m.includes("access denied")) return 403;
+  if (m.includes("no ceo performance contract") || m.includes("no active ceo performance contract")) {
+    return 404;
+  }
+  if (m.includes("a finalised ceo scorecard already exists")) return 409;
+  if (
+    m.includes("qualitativeevaluation") ||
+    m.includes("personal attribute") ||
+    m.includes("invalid rating column")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
 function getQualitativeEvaluationFromBody(req: Request) {
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const qe = body.qualitativeEvaluation;
@@ -389,6 +423,62 @@ export class PerformanceScorecardController {
       return ResponseHelper.error(
         res,
         error.message || "Failed to save employee qualitative evaluation",
+        undefined,
+        statusCode
+      );
+    }
+  }
+
+  static async putBoardQualitativeEvaluation(req: Request, res: Response) {
+    try {
+      const qualitativeEvaluation = getQualitativeEvaluationFromBody(req);
+      const data = await PerformanceScorecardService.saveBoardQualitativeEvaluation({
+        viewer: req.user,
+        ...getPeriodParamsFromBodyOrQuery(req),
+        qualitativeEvaluation,
+        meta: buildMeta(req)
+      });
+
+      return ResponseHelper.success(res, "Board qualitative evaluation saved", data);
+    } catch (error: any) {
+      console.error("Error saving board qualitative evaluation:", error);
+      const msg = String(error.message || "");
+      if (msg === BOARD_CONTRACT_NOT_FOUND_MESSAGE) {
+        return ResponseHelper.error(res, msg, "BOARD_CONTRACT_NOT_FOUND", 404, {
+          code: "BOARD_CONTRACT_NOT_FOUND"
+        });
+      }
+      const statusCode = statusForBoardQualitativeEvaluationError(msg);
+      return ResponseHelper.error(
+        res,
+        msg || "Failed to save board qualitative evaluation",
+        undefined,
+        statusCode
+      );
+    }
+  }
+
+  static async putCEOQualitativeEvaluation(req: Request, res: Response) {
+    try {
+      const qualitativeEvaluation = getQualitativeEvaluationFromBody(req);
+      const data = await PerformanceScorecardService.saveCEOQualitativeEvaluation({
+        viewer: req.user,
+        ...getPeriodParamsFromBodyOrQuery(req),
+        qualitativeEvaluation,
+        meta: buildMeta(req)
+      });
+
+      return ResponseHelper.success(res, "CEO qualitative evaluation saved", data);
+    } catch (error: any) {
+      console.error("Error saving CEO qualitative evaluation:", error);
+      const msg = String(error.message || "");
+      if (msg === CEO_CONTRACT_NOT_FOUND_MESSAGE) {
+        return ResponseHelper.error(res, msg, "CEO_CONTRACT_NOT_FOUND", 404);
+      }
+      const statusCode = statusForCEOQualitativeEvaluationError(msg);
+      return ResponseHelper.error(
+        res,
+        msg || "Failed to save CEO qualitative evaluation",
         undefined,
         statusCode
       );

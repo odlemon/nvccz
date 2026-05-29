@@ -7,6 +7,8 @@
  */
 
 import {
+  BOARD_QUALITATIVE_EVALUATION_API_NOTES,
+  CEO_QUALITATIVE_EVALUATION_API_NOTES,
   DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES,
   EMPLOYEE_QUALITATIVE_EVALUATION_API_NOTES,
   EMPLOYEE_PERSONAL_ATTRIBUTES,
@@ -1621,6 +1623,252 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
         403: JSON_403,
         404: { description: 'Employee or contract not found' },
         409: { description: 'Finalised employee scorecard for period' }
+      }
+    }
+  },
+
+  '/performance/scorecards/board/qualitative-evaluation': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Save Board qualitative evaluation',
+      description: BOARD_QUALITATIVE_EVALUATION_API_NOTES,
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['qualitativeEvaluation'],
+              properties: {
+                periodLabel: { type: 'string', example: '2026' },
+                periodStart: { type: 'string', format: 'date-time' },
+                periodEnd: { type: 'string', format: 'date-time' },
+                qualitativeEvaluation: {
+                  type: 'object',
+                  required: ['personalAttributes'],
+                  properties: {
+                    personalAttributes: {
+                      type: 'array',
+                      description:
+                        'Board personal-attributes grid. Default attribute names (10): ' +
+                        EMPLOYEE_PERSONAL_ATTRIBUTES.join('; ') +
+                        '. Each row: one attribute + five columns.',
+                      items: {
+                        type: 'object',
+                        required: ['attribute', 'columns'],
+                        properties: {
+                          attribute: {
+                            type: 'string',
+                            enum: [...EMPLOYEE_PERSONAL_ATTRIBUTES],
+                            example: 'Ethics'
+                          },
+                          columns: {
+                            type: 'array',
+                            minItems: 5,
+                            maxItems: 5,
+                            items: {
+                              type: 'object',
+                              required: ['label', 'selected'],
+                              properties: {
+                                label: {
+                                  type: 'string',
+                                  enum: [...EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS]
+                                },
+                                selected: {
+                                  type: 'boolean',
+                                  description: 'At most one `true` per row'
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    trainingAndDevelopment: { type: 'object' }
+                  }
+                }
+              }
+            },
+            example: {
+              periodLabel: '2026',
+              qualitativeEvaluation: {
+                personalAttributes: EMPLOYEE_PERSONAL_ATTRIBUTES.map((attribute) => ({
+                  attribute,
+                  columns: EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.map((label, index) => ({
+                    label,
+                    selected: attribute === 'Ethics' && index === 1
+                  }))
+                }))
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description:
+            'Board qualitative evaluation saved. `data.qualitativeEvaluation` mirrors GET/generate `document.qualitativeSections`.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      period: { type: 'object' },
+                      contractId: { type: 'string' },
+                      qualitativeEvaluation: { type: 'object' },
+                      savedTo: {
+                        type: 'object',
+                        properties: {
+                          contract: { type: 'boolean' },
+                          scorecardIds: {
+                            type: 'array',
+                            items: { type: 'string' }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'No BOARD contract — **BOARD_CONTRACT_NOT_FOUND**' },
+        409: { description: 'Finalised Board scorecard for period' }
+      }
+    }
+  },
+
+  '/performance/scorecards/ceo/qualitative-evaluation': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Save CEO qualitative evaluation',
+      description: CEO_QUALITATIVE_EVALUATION_API_NOTES,
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['qualitativeEvaluation'],
+              properties: {
+                periodLabel: { type: 'string', example: '2026' },
+                periodStart: { type: 'string', format: 'date-time' },
+                periodEnd: { type: 'string', format: 'date-time' },
+                qualitativeEvaluation: {
+                  type: 'object',
+                  required: ['personalAttributes'],
+                  properties: {
+                    personalAttributes: {
+                      type: 'array',
+                      description:
+                        'CEO personal-attributes grid. Default attribute names (10): ' +
+                        EMPLOYEE_PERSONAL_ATTRIBUTES.join('; ') +
+                        '. Each row: one attribute + five columns.',
+                      items: {
+                        type: 'object',
+                        required: ['attribute', 'columns'],
+                        properties: {
+                          attribute: {
+                            type: 'string',
+                            enum: [...EMPLOYEE_PERSONAL_ATTRIBUTES],
+                            example: 'Leadership and Management'
+                          },
+                          columns: {
+                            type: 'array',
+                            minItems: 5,
+                            maxItems: 5,
+                            items: {
+                              type: 'object',
+                              required: ['label', 'selected'],
+                              properties: {
+                                label: {
+                                  type: 'string',
+                                  enum: [...EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS]
+                                },
+                                selected: {
+                                  type: 'boolean',
+                                  description: 'At most one `true` per row'
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    trainingAndDevelopment: { type: 'object' }
+                  }
+                }
+              }
+            },
+            example: {
+              periodLabel: '2026',
+              qualitativeEvaluation: {
+                personalAttributes: EMPLOYEE_PERSONAL_ATTRIBUTES.map((attribute) => ({
+                  attribute,
+                  columns: EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.map((label, index) => ({
+                    label,
+                    selected: attribute === 'Leadership and Management' && index === 0
+                  }))
+                }))
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description:
+            'CEO qualitative evaluation saved. `data.qualitativeEvaluation` mirrors GET/generate `document.qualitativeSections`.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      period: { type: 'object' },
+                      contractId: { type: 'string' },
+                      ceo: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string', nullable: true },
+                          name: { type: 'string', nullable: true }
+                        }
+                      },
+                      qualitativeEvaluation: { type: 'object' },
+                      savedTo: {
+                        type: 'object',
+                        properties: {
+                          contract: { type: 'boolean' },
+                          scorecardId: { type: 'string', nullable: true }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'No CEO contract — **CEO_CONTRACT_NOT_FOUND**' },
+        409: { description: 'Finalised CEO scorecard for period' }
       }
     }
   },

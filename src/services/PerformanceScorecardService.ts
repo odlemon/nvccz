@@ -14,6 +14,8 @@ import {
   normalizeEmployeeGoalWeightsForScorecard,
   buildPersonalAttributesRatingGrid,
   buildTrainingSection,
+  canSaveBoardQualitativeEvaluation,
+  canSaveCEOQualitativeEvaluation,
   canSaveDepartmentQualitativeEvaluation,
   canSaveEmployeeQualitativeEvaluation,
   mergeQualitativeTemplate,
@@ -2603,6 +2605,77 @@ export class PerformanceScorecardService {
     }
   }
 
+  private static async assertNoFinalCEOScorecard(
+    subjectUserId: string | null | undefined,
+    periodStart: Date,
+    periodEnd: Date
+  ) {
+    if (!subjectUserId) return;
+    const existing = await prisma.performanceScorecard.findFirst({
+      where: {
+        scorecardType: "CEO",
+        subjectUserId,
+        periodStart,
+        periodEnd,
+        OR: [{ status: "FINAL" }, { isLocked: true }]
+      }
+    });
+    if (existing) {
+      throw new Error("A finalised CEO scorecard already exists for this period.");
+    }
+  }
+
+  private static async assertNoFinalBoardScorecard(periodStart: Date, periodEnd: Date) {
+    const existing = await prisma.performanceScorecard.findFirst({
+      where: {
+        scorecardType: "BOARD",
+        periodStart,
+        periodEnd,
+        OR: [{ status: "FINAL" }, { isLocked: true }]
+      }
+    });
+    if (existing) {
+      throw new Error("A finalised Board scorecard already exists for this period.");
+    }
+  }
+
+  private static async syncQualitativeSectionsToDraftScorecards(
+    drafts: { id: string; documentPayload?: unknown }[],
+    qualitativeSections: Record<string, unknown>,
+    viewerId: string,
+    meta?: unknown
+  ): Promise<string[]> {
+    const scorecardIds: string[] = [];
+    for (const draft of drafts) {
+      const doc =
+        draft.documentPayload &&
+        typeof draft.documentPayload === "object" &&
+        !Array.isArray(draft.documentPayload)
+          ? { ...(draft.documentPayload as Record<string, unknown>) }
+          : {};
+      doc.qualitativeSections = qualitativeSections;
+
+      await prisma.performanceScorecard.update({
+        where: { id: draft.id },
+        data: {
+          qualitativeSections,
+          documentPayload: doc
+        }
+      });
+      scorecardIds.push(draft.id);
+
+      await AuditService.log({
+        userId: viewerId,
+        action: "UPDATE",
+        entityType: "PerformanceScorecard",
+        entityId: draft.id,
+        newValues: { qualitativeSections: true },
+        ...getRequestMetadata(meta)
+      }).catch(() => undefined);
+    }
+    return scorecardIds;
+  }
+
   /**
    * Save individual employee qualitative evaluation (personal attributes grid) on the employee contract.
    * Does not gate scorecard generate; admin or CEO only.
@@ -2976,6 +3049,245 @@ export class PerformanceScorecardService {
       },
       contractId: departmentContract.id,
       headOfDepartment: buildHeadOfDepartmentPayload(departmentHead, headCount),
+      qualitativeEvaluation: qualitativeSections,
+      savedTo: {
+        contract: true,
+        scorecardId
+      }
+    };
+  }
+
+  /**
+   * Save Board qualitative evaluation (personal attributes grid) on the BOARD contract.
+   * Does not gate scorecard generate; admin or CEO only.
+   */
+  static async saveBoardQualitativeEvaluation(params: {
+    viewer: any;
+    periodStart?: string;
+    periodEnd?: string;
+    periodLabel?: string;
+    qualitativeEvaluation: {
+      personalAttributes: { attribute: string; columns: { label: string; selected: boolean | null }[] }[];
+      trainingAndDevelopment?: {
+        beginningOfCycle?: unknown[];
+        endOfCycle?: unknown[];
+        interventions?: unknown[];
+      };
+    };
+    meta?: any;
+  }) {
+    if (!canSaveBoardQualitativeEvaluation(params.viewer)) {
+      throw new Error(
+        "Access denied. Only an administrator or CEO may save Board qualitative evaluation."
+      );
+    }
+
+    const period = this.buildPeriod(params);
+    const { contract } = await this.resolveBoardPerformanceContract(period);
+
+    if (!contract) {
+      throw new Error(BOARD_CONTRACT_NOT_FOUND_MESSAGE);
+    }
+
+    await this.assertNoFinalBoardScorecard(contract.periodStart, contract.periodEnd);
+
+    const gridRows = params.qualitativeEvaluation?.personalAttributes;
+    if (!gridRows?.length) {
+      throw new Error("qualitativeEvaluation.personalAttributes is required and must not be empty.");
+    }
+
+    validatePersonalAttributesGrid(gridRows);
+
+    const personalAttributeRatings = parsePersonalAttributesGridToRatings(gridRows);
+    const attributeNames = gridRows.map((r) => String(r.attribute).trim()).filter(Boolean);
+
+    const mergedTemplate = mergeQualitativeTemplate(contract.qualitativeTemplate, {
+      personalAttributeRatings,
+      personalAttributes: attributeNames,
+      trainingAndDevelopment: params.qualitativeEvaluation.trainingAndDevelopment
+    });
+
+    await prisma.performanceContract.update({
+      where: { id: contract.id },
+      data: { qualitativeTemplate: mergedTemplate }
+    });
+
+    const qualitativeSections = {
+      personalAttributes: buildPersonalAttributesRatingGrid(mergedTemplate),
+      trainingAndDevelopment: buildTrainingSection(mergedTemplate)
+    };
+
+    const draftScorecards = await prisma.performanceScorecard.findMany({
+      where: {
+        scorecardType: "BOARD",
+        periodStart: contract.periodStart,
+        periodEnd: contract.periodEnd,
+        status: { notIn: ["FINAL", "ARCHIVED"] },
+        isLocked: false
+      },
+      select: { id: true, documentPayload: true },
+      orderBy: { updatedAt: "desc" }
+    });
+
+    const scorecardIds = await this.syncQualitativeSectionsToDraftScorecards(
+      draftScorecards,
+      qualitativeSections,
+      params.viewer.id,
+      params.meta
+    );
+
+    await AuditService.log({
+      userId: params.viewer.id,
+      action: "UPDATE",
+      entityType: "PerformanceContract",
+      entityId: contract.id,
+      newValues: {
+        contractType: "BOARD",
+        qualitativeTemplateUpdated: true
+      },
+      ...getRequestMetadata(params.meta)
+    }).catch(() => undefined);
+
+    return {
+      period: {
+        periodLabel: resolvePeriodLabel({
+          periodLabel: contract.periodLabel || params.periodLabel,
+          periodStart: contract.periodStart,
+          periodEnd: contract.periodEnd
+        }),
+        periodStart: contract.periodStart.toISOString(),
+        periodEnd: contract.periodEnd.toISOString()
+      },
+      contractId: contract.id,
+      qualitativeEvaluation: qualitativeSections,
+      savedTo: {
+        contract: true,
+        scorecardIds
+      }
+    };
+  }
+
+  /**
+   * Save CEO qualitative evaluation (personal attributes grid) on the CEO contract.
+   * Does not gate scorecard generate; admin or CEO only.
+   */
+  static async saveCEOQualitativeEvaluation(params: {
+    viewer: any;
+    periodStart?: string;
+    periodEnd?: string;
+    periodLabel?: string;
+    qualitativeEvaluation: {
+      personalAttributes: { attribute: string; columns: { label: string; selected: boolean | null }[] }[];
+      trainingAndDevelopment?: {
+        beginningOfCycle?: unknown[];
+        endOfCycle?: unknown[];
+        interventions?: unknown[];
+      };
+    };
+    meta?: any;
+  }) {
+    if (!canSaveCEOQualitativeEvaluation(params.viewer)) {
+      throw new Error(
+        "Access denied. Only an administrator or CEO may save CEO qualitative evaluation."
+      );
+    }
+
+    const period = this.buildPeriod(params);
+    const { contract } = await this.resolveCEOPerformanceContract(period);
+
+    if (!contract) {
+      throw new Error(CEO_CONTRACT_NOT_FOUND_MESSAGE);
+    }
+
+    await this.assertNoFinalCEOScorecard(
+      contract.subjectUserId,
+      contract.periodStart,
+      contract.periodEnd
+    );
+
+    const gridRows = params.qualitativeEvaluation?.personalAttributes;
+    if (!gridRows?.length) {
+      throw new Error("qualitativeEvaluation.personalAttributes is required and must not be empty.");
+    }
+
+    validatePersonalAttributesGrid(gridRows);
+
+    const personalAttributeRatings = parsePersonalAttributesGridToRatings(gridRows);
+    const attributeNames = gridRows.map((r) => String(r.attribute).trim()).filter(Boolean);
+
+    const mergedTemplate = mergeQualitativeTemplate(contract.qualitativeTemplate, {
+      personalAttributeRatings,
+      personalAttributes: attributeNames,
+      trainingAndDevelopment: params.qualitativeEvaluation.trainingAndDevelopment
+    });
+
+    await prisma.performanceContract.update({
+      where: { id: contract.id },
+      data: { qualitativeTemplate: mergedTemplate }
+    });
+
+    const qualitativeSections = {
+      personalAttributes: buildPersonalAttributesRatingGrid(mergedTemplate),
+      trainingAndDevelopment: buildTrainingSection(mergedTemplate)
+    };
+
+    let scorecardId: string | null = null;
+    if (contract.subjectUserId) {
+      const draftScorecard = await prisma.performanceScorecard.findFirst({
+        where: {
+          scorecardType: "CEO",
+          subjectUserId: contract.subjectUserId,
+          periodStart: contract.periodStart,
+          periodEnd: contract.periodEnd,
+          status: { notIn: ["FINAL", "ARCHIVED"] },
+          isLocked: false
+        },
+        select: { id: true, documentPayload: true },
+        orderBy: { updatedAt: "desc" }
+      });
+
+      if (draftScorecard) {
+        const ids = await this.syncQualitativeSectionsToDraftScorecards(
+          [draftScorecard],
+          qualitativeSections,
+          params.viewer.id,
+          params.meta
+        );
+        scorecardId = ids[0] ?? null;
+      }
+    }
+
+    await AuditService.log({
+      userId: params.viewer.id,
+      action: "UPDATE",
+      entityType: "PerformanceContract",
+      entityId: contract.id,
+      newValues: {
+        contractType: "CEO",
+        qualitativeTemplateUpdated: true
+      },
+      ...getRequestMetadata(params.meta)
+    }).catch(() => undefined);
+
+    const ceoName = contract.subjectUser
+      ? `${contract.subjectUser.firstName} ${contract.subjectUser.lastName}`.trim()
+      : null;
+
+    return {
+      period: {
+        periodLabel: resolvePeriodLabel({
+          periodLabel: contract.periodLabel || params.periodLabel,
+          periodStart: contract.periodStart,
+          periodEnd: contract.periodEnd
+        }),
+        periodStart: contract.periodStart.toISOString(),
+        periodEnd: contract.periodEnd.toISOString()
+      },
+      contractId: contract.id,
+      ceo: {
+        id: contract.subjectUserId,
+        name: ceoName
+      },
       qualitativeEvaluation: qualitativeSections,
       savedTo: {
         contract: true,
