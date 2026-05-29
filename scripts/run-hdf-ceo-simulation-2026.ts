@@ -26,6 +26,7 @@ import {
   normaliseVariance,
   toNumber
 } from "../src/services/performanceScorecardSupport";
+import { deriveGoalProgressState } from "../src/services/performanceGoalRollupUtils";
 
 const YEAR = parseInt(process.env.HDF_YEAR || process.env.E2E_YEAR || "2026", 10);
 const API_BASE = (process.env.API_BASE || `http://127.0.0.1:${process.env.PORT || "3000"}`).replace(
@@ -296,6 +297,14 @@ async function createCompanyGoal(
   periodStart: Date,
   periodEnd: Date
 ) {
+  const progressState = deriveGoalProgressState({
+    currentValue: row.current,
+    targetValue: row.target,
+    targetOperator: ">=",
+    isReverseKpi: false,
+    previousStage: row.current > 0 ? "in_progress" : "planning"
+  });
+
   const goal = await prisma.performanceGoal.create({
     data: {
       title: `${MARKER} — ${row.title}`,
@@ -308,8 +317,9 @@ async function createCompanyGoal(
       endDate: periodEnd,
       createdById: adminId,
       assignedToId: ceoUserId,
-      status: "active",
-      stage: row.current > 0 ? "in_progress" : "planning",
+      status: progressState.status,
+      stage: progressState.stage,
+      progressPercentage: progressState.progressPercentage,
       targetValue: row.target,
       preciseTargetValue: String(row.target),
       currentValue: row.current,

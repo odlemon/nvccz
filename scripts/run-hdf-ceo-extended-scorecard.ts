@@ -10,6 +10,7 @@ import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import { prisma } from "../src/utils/database";
+import { deriveGoalProgressState } from "../src/services/performanceGoalRollupUtils";
 import {
   computeRawRating,
   computeBudgetUtilisationRating,
@@ -184,6 +185,14 @@ async function main() {
       continue;
     }
 
+    const progressState = deriveGoalProgressState({
+      currentValue: row.current,
+      targetValue: row.target,
+      targetOperator: ">=",
+      isReverseKpi: false,
+      previousStage: row.current > 0 ? "in_progress" : "planning"
+    });
+
     await prisma.performanceGoal.create({
       data: {
         title: `${EXTENDED_MARKER} — ${row.title}`,
@@ -196,8 +205,9 @@ async function main() {
         endDate: periodEnd,
         createdById: admin.id,
         assignedToId: ceoUserId,
-        status: "active",
-        stage: row.current > 0 ? "in_progress" : "planning",
+        status: progressState.status,
+        stage: progressState.stage,
+        progressPercentage: progressState.progressPercentage,
         targetValue: row.target,
         preciseTargetValue: String(row.target),
         currentValue: row.current,

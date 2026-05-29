@@ -94,6 +94,35 @@ function statusForDepartmentScorecardError(message: string): number {
   return 500;
 }
 
+function statusForDepartmentQualitativeEvaluationError(message: string): number {
+  const m = String(message || "").toLowerCase();
+  if (m.includes("access denied")) return 403;
+  if (m.includes("department not found")) return 404;
+  if (m.includes("no active performance contract")) return 404;
+  if (m.includes("a finalised scorecard already exists")) return 409;
+  if (
+    m.includes("qualitativeevaluation") ||
+    m.includes("personal attribute") ||
+    m.includes("invalid rating column") ||
+    m.includes("departmentid or department name is required")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
+function getQualitativeEvaluationFromBody(req: Request) {
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const qe = body.qualitativeEvaluation;
+  if (!qe || typeof qe !== "object") {
+    throw new Error("qualitativeEvaluation is required in the request body.");
+  }
+  return {
+    personalAttributes: qe.personalAttributes,
+    trainingAndDevelopment: qe.trainingAndDevelopment
+  };
+}
+
 function statusForCEOScorecardError(message: string): number {
   const m = String(message || "").toLowerCase();
   if (m.includes("access denied")) return 403;
@@ -264,6 +293,64 @@ export class PerformanceScorecardController {
       console.error("Error generating department scorecard by id:", error);
       const statusCode = statusForDepartmentScorecardError(error.message);
       return ResponseHelper.error(res, error.message || "Failed to generate department scorecard", undefined, statusCode);
+    }
+  }
+
+  static async putDepartmentQualitativeEvaluation(req: Request, res: Response) {
+    try {
+      const { departmentId, departmentName } = getDepartmentTargetFromRequest(req, req.params.department);
+      const qualitativeEvaluation = getQualitativeEvaluationFromBody(req);
+      const data = await PerformanceScorecardService.saveDepartmentQualitativeEvaluation({
+        viewer: req.user,
+        departmentId,
+        departmentName,
+        ...getPeriodParamsFromBodyOrQuery(req),
+        qualitativeEvaluation,
+        meta: buildMeta(req)
+      });
+
+      return ResponseHelper.success(
+        res,
+        "Department Head qualitative evaluation saved",
+        data
+      );
+    } catch (error: any) {
+      console.error("Error saving department qualitative evaluation:", error);
+      const statusCode = statusForDepartmentQualitativeEvaluationError(error.message);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to save department qualitative evaluation",
+        undefined,
+        statusCode
+      );
+    }
+  }
+
+  static async putDepartmentQualitativeEvaluationById(req: Request, res: Response) {
+    try {
+      const qualitativeEvaluation = getQualitativeEvaluationFromBody(req);
+      const data = await PerformanceScorecardService.saveDepartmentQualitativeEvaluation({
+        viewer: req.user,
+        departmentId: req.params.departmentId,
+        ...getPeriodParamsFromBodyOrQuery(req),
+        qualitativeEvaluation,
+        meta: buildMeta(req)
+      });
+
+      return ResponseHelper.success(
+        res,
+        "Department Head qualitative evaluation saved",
+        data
+      );
+    } catch (error: any) {
+      console.error("Error saving department qualitative evaluation by id:", error);
+      const statusCode = statusForDepartmentQualitativeEvaluationError(error.message);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to save department qualitative evaluation",
+        undefined,
+        statusCode
+      );
     }
   }
 

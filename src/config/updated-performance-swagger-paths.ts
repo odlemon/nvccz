@@ -6,6 +6,12 @@
  * Descriptions are written for **frontend** form design: fields, optional aliases, and responses.
  */
 
+import {
+  DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES,
+  EMPLOYEE_PERSONAL_ATTRIBUTES,
+  EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS
+} from '../services/performanceScorecardSupport';
+
 const AUDIT =
   'Optional **responsibleUserId** (string): if set, attributes the entry to that user for audit; otherwise the JWT user is used.';
 
@@ -1285,6 +1291,206 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
         401: JSON_401,
         403: JSON_403,
         404: { description: 'Contract / department context not found' }
+      }
+    }
+  },
+
+  '/performance/scorecards/department/{department}/qualitative-evaluation': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Save department Head qualitative evaluation (HOD leadership grid)',
+      description: DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES,
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'department',
+          required: true,
+          schema: { type: 'string', example: 'Finance' }
+        }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['qualitativeEvaluation'],
+              properties: {
+                periodLabel: { type: 'string', example: '2026' },
+                periodStart: { type: 'string', format: 'date-time' },
+                periodEnd: { type: 'string', format: 'date-time' },
+                departmentId: {
+                  type: 'string',
+                  description: 'Optional; resolves department by id instead of path name'
+                },
+                qualitativeEvaluation: {
+                  type: 'object',
+                  required: ['personalAttributes'],
+                  properties: {
+                    personalAttributes: {
+                      type: 'array',
+                      description:
+                        'HOD personal-attributes grid. Default attribute names (10): ' +
+                        EMPLOYEE_PERSONAL_ATTRIBUTES.join('; ') +
+                        '. Each row: one attribute + five columns.',
+                      items: {
+                        type: 'object',
+                        required: ['attribute', 'columns'],
+                        properties: {
+                          attribute: {
+                            type: 'string',
+                            enum: [...EMPLOYEE_PERSONAL_ATTRIBUTES],
+                            example: 'Leadership and Management'
+                          },
+                          columns: {
+                            type: 'array',
+                            minItems: 5,
+                            maxItems: 5,
+                            items: {
+                              type: 'object',
+                              required: ['label', 'selected'],
+                              properties: {
+                                label: {
+                                  type: 'string',
+                                  enum: [...EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS]
+                                },
+                                selected: {
+                                  type: 'boolean',
+                                  description: 'At most one `true` per row'
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    trainingAndDevelopment: {
+                      type: 'object',
+                      description: 'Optional training plan sections (beginning/end of cycle, interventions)'
+                    }
+                  }
+                }
+              }
+            },
+            example: {
+              periodLabel: '2026',
+              qualitativeEvaluation: {
+                personalAttributes: EMPLOYEE_PERSONAL_ATTRIBUTES.map((attribute) => ({
+                  attribute,
+                  columns: EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.map((label, index) => ({
+                    label,
+                    selected: attribute === 'Leadership and Management' && index === 2
+                  }))
+                }))
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description:
+            'Qualitative evaluation saved. `data.headOfDepartment` is resolved from org (first HEAD/HOD in department; friendly message if none).',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      department: { type: 'object' },
+                      period: { type: 'object' },
+                      contractId: { type: 'string' },
+                      headOfDepartment: {
+                        type: 'object',
+                        properties: {
+                          userId: { type: 'string', nullable: true },
+                          name: {
+                            type: 'string',
+                            description:
+                              'HOD full name, or "This department does not have a head" when none assigned'
+                          },
+                          title: { type: 'string', nullable: true },
+                          hasHead: { type: 'boolean' },
+                          multipleHeadsDetected: { type: 'boolean' }
+                        }
+                      },
+                      qualitativeEvaluation: { type: 'object' },
+                      savedTo: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'Department or contract not found' },
+        409: { description: 'Finalised department scorecard for period' }
+      }
+    }
+  },
+
+  '/performance/scorecards/department/by-id/{departmentId}/qualitative-evaluation': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Save department Head qualitative evaluation by department id',
+      description:
+        DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES +
+        '\n\nSame behaviour as **PUT** `/performance/scorecards/department/{department}/qualitative-evaluation`; path uses org **departmentId**.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'departmentId',
+          required: true,
+          schema: { type: 'string' }
+        }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['qualitativeEvaluation'],
+              properties: {
+                periodLabel: { type: 'string', example: '2026' },
+                periodStart: { type: 'string', format: 'date-time' },
+                periodEnd: { type: 'string', format: 'date-time' },
+                qualitativeEvaluation: {
+                  type: 'object',
+                  required: ['personalAttributes'],
+                  properties: {
+                    personalAttributes: {
+                      type: 'array',
+                      description:
+                        'Same schema as PUT …/department/{department}/qualitative-evaluation — 10 default attributes × 5 columns.'
+                    },
+                    trainingAndDevelopment: { type: 'object' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description:
+            'Qualitative evaluation saved. `data.headOfDepartment` resolved from org (see main department qualitative PUT).'
+        },
+        400: JSON_400,
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'Department or contract not found' },
+        409: { description: 'Finalised department scorecard for period' }
       }
     }
   },

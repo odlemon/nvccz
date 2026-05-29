@@ -32,7 +32,17 @@ import {
   normalisePillarWeightsTo100,
   normalizeOrgBscScorecardPillar,
   rawRatingBandLabel,
-  resolveScorecardLifecycleBanner
+  resolveScorecardLifecycleBanner,
+  validatePersonalAttributesGrid,
+  parsePersonalAttributesGridToRatings,
+  mergeQualitativeTemplate,
+  buildPersonalAttributesRatingGrid,
+  EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS,
+  canSaveDepartmentQualitativeEvaluation,
+  resolveDepartmentHeadUser,
+  buildHeadOfDepartmentPayload,
+  isDepartmentHead,
+  NO_DEPARTMENT_HEAD_MESSAGE
 } from "../services/performanceScorecardSupport";
 
 describe("performanceScorecardSupport", () => {
@@ -520,6 +530,130 @@ describe("performanceScorecardSupport", () => {
         archivedAt: new Date()
       }).phase
     ).toBe("ARCHIVED");
+  });
+});
+
+describe("department qualitative evaluation helpers", () => {
+  const sampleRow = (attribute: string, selectedLabel: string) => ({
+    attribute,
+    columns: EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.map((label) => ({
+      label,
+      selected: label === selectedLabel
+    }))
+  });
+
+  test("parsePersonalAttributesGridToRatings: one selected per row", () => {
+    const ratings = parsePersonalAttributesGridToRatings([
+      sampleRow("Leadership and Management", "Satisfactory")
+    ]);
+    expect(ratings["Leadership and Management"].Satisfactory).toBe(true);
+    expect(ratings["Leadership and Management"].Excellent).toBe(false);
+  });
+
+  test("validatePersonalAttributesGrid: rejects two selections", () => {
+    expect(() =>
+      validatePersonalAttributesGrid([
+        {
+          attribute: "Ethics",
+          columns: [
+            { label: "Excellent", selected: true },
+            { label: "Very Good", selected: true },
+            { label: "Satisfactory", selected: false },
+            { label: "Requires Improvement", selected: false },
+            { label: "Unsatisfactory", selected: false }
+          ]
+        }
+      ])
+    ).toThrow(/more than one column selected/i);
+  });
+
+  test("mergeQualitativeTemplate: preserves unrelated keys", () => {
+    const merged = mergeQualitativeTemplate(
+      { customNote: "hod-review", beginningOfCycle: [{ text: "plan A" }] },
+      {
+        personalAttributeRatings: parsePersonalAttributesGridToRatings([
+          sampleRow("Teamwork", "Very Good")
+        ])
+      }
+    );
+    expect(merged.customNote).toBe("hod-review");
+    expect(merged.beginningOfCycle).toEqual([{ text: "plan A" }]);
+    const grid = buildPersonalAttributesRatingGrid(merged);
+    const teamwork = grid.find((r) => r.attribute === "Teamwork");
+    expect(teamwork?.columns.find((c) => c.label === "Very Good")?.selected).toBe(true);
+  });
+
+  test("resolveDepartmentHeadUser: HEAD role in department (not generic manager code)", () => {
+    const users = [
+      {
+        id: "hod-1",
+        firstName: "Blessing",
+        lastName: "Finance",
+        userDepartment: "Finance",
+        departmentRole: "HEAD"
+      },
+      {
+        id: "staff-1",
+        firstName: "Ashley",
+        lastName: "Staff",
+        userDepartment: "Finance",
+        departmentRole: "MEMBER"
+      }
+    ];
+    const { head, headCount } = resolveDepartmentHeadUser(users, "Finance");
+    expect(head?.id).toBe("hod-1");
+    expect(headCount).toBe(1);
+    expect(isDepartmentHead(users[0], "Finance")).toBe(true);
+    expect(isDepartmentHead(users[1], "Finance")).toBe(false);
+  });
+
+  test("resolveDepartmentHeadUser: first head when multiple; no-head message", () => {
+    const users = [
+      {
+        id: "h1",
+        firstName: "A",
+        lastName: "One",
+        userDepartment: "Finance",
+        departmentRole: "HEAD"
+      },
+      {
+        id: "h2",
+        firstName: "B",
+        lastName: "Two",
+        userDepartment: "Finance",
+        departmentRole: "HEAD"
+      }
+    ];
+    const { head, headCount } = resolveDepartmentHeadUser(users, "Finance");
+    expect(head?.id).toBe("h1");
+    expect(headCount).toBe(2);
+    const payload = buildHeadOfDepartmentPayload(head, headCount);
+    expect(payload.hasHead).toBe(true);
+    expect(payload.multipleHeadsDetected).toBe(true);
+
+    const none = buildHeadOfDepartmentPayload(null, 0);
+    expect(none.name).toBe(NO_DEPARTMENT_HEAD_MESSAGE);
+    expect(none.hasHead).toBe(false);
+  });
+
+  test("canSaveDepartmentQualitativeEvaluation: admin or CEO only", () => {
+    expect(canSaveDepartmentQualitativeEvaluation({ id: "1", role: { name: "Admin" } })).toBe(
+      true
+    );
+    expect(
+      canSaveDepartmentQualitativeEvaluation({
+        id: "2",
+        role: { name: "Chief Executive" },
+        roleCode: "CEO"
+      })
+    ).toBe(true);
+    expect(
+      canSaveDepartmentQualitativeEvaluation({
+        id: "3",
+        userDepartment: "Finance",
+        departmentRole: "HEAD"
+      })
+    ).toBe(false);
   });
 });
 
