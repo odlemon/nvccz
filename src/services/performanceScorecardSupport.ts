@@ -1198,6 +1198,82 @@ export function canSaveEmployeeQualitativeEvaluation(viewer: any): boolean {
   return canSaveDepartmentQualitativeEvaluation(viewer);
 }
 
+/** Admin or CEO may save Board qualitative evaluation. */
+export function canSaveBoardQualitativeEvaluation(viewer: any): boolean {
+  return canSaveDepartmentQualitativeEvaluation(viewer);
+}
+
+/** Admin or CEO may save CEO qualitative evaluation. */
+export function canSaveCEOQualitativeEvaluation(viewer: any): boolean {
+  return canSaveDepartmentQualitativeEvaluation(viewer);
+}
+
+/** OpenAPI description for Board qualitative PUT (Sarah / API consumers). */
+export const BOARD_QUALITATIVE_EVALUATION_API_NOTES = [
+  "Saves the **Board qualitative evaluation** (personal attributes grid) for a Board performance period.",
+  "",
+  "**What this is (vs KPI matrix):**",
+  "- The **quantitative governance KPI matrix** (`finalScore`, section scores A1–D) is calculated automatically from Board contract indicators.",
+  "- This endpoint stores the **qualitative personal-attributes grid** only — behavioural/leadership ratings for the Board. It does **not** change numeric scores.",
+  "",
+  "**Who may call:** Administrator or CEO only.",
+  "",
+  "**No path identifiers:** Pass the period via **periodLabel** and/or **periodStart** / **periodEnd** in the request body or query (same as other scorecard routes).",
+  "",
+  "**Default personal attributes (10 rows):**",
+  ...EMPLOYEE_PERSONAL_ATTRIBUTES.map((a) => `- ${a}`),
+  "",
+  `**Rating columns (5 per row):** ${EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.join(", ")}.`,
+  "",
+  "**Validation:**",
+  "- Each row may have **at most one** column with `selected: true` (400 if more than one).",
+  "- Rows with no selection are allowed (partial save).",
+  "- Invalid column labels return 400.",
+  "",
+  "**Payload tips:**",
+  "- You may send **one row or all ten** in a single PUT; the server **merges** into the contract template.",
+  "- Prefer sending **all ten rows** when bootstrapping.",
+  "",
+  "**Persistence:** `PerformanceContract.qualitativeTemplate` on the **BOARD** contract and any **draft** Board scorecard(s) for the same period. **409** if a **FINAL** Board scorecard exists.",
+  "",
+  "**Generate is not blocked:** `POST …/board/generate` still works when the grid is empty.",
+  "",
+  "**GET / generate reflect saved data:** After save, `GET …/board` and `POST …/board/generate` return `document.qualitativeSections` built from the updated contract template."
+].join("\n");
+
+/** OpenAPI description for CEO qualitative PUT (Sarah / API consumers). */
+export const CEO_QUALITATIVE_EVALUATION_API_NOTES = [
+  "Saves the **CEO qualitative evaluation** (personal attributes grid) for a CEO performance period.",
+  "",
+  "**What this is (vs KPI matrix):**",
+  "- The **quantitative KPI matrix** (`resultsDeliveryScore`, section scores, budget blend, `finalScore`) is calculated automatically from CEO contract indicators and budget fields.",
+  "- This endpoint stores the **qualitative personal-attributes grid** only — behavioural/leadership ratings for the CEO. It does **not** change numeric scores.",
+  "",
+  "**Who may call:** Administrator or CEO only.",
+  "",
+  "**No path identifiers:** Pass the period via **periodLabel** and/or **periodStart** / **periodEnd** in the request body or query (same as other scorecard routes).",
+  "",
+  "**Default personal attributes (10 rows):**",
+  ...EMPLOYEE_PERSONAL_ATTRIBUTES.map((a) => `- ${a}`),
+  "",
+  `**Rating columns (5 per row):** ${EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.join(", ")}.`,
+  "",
+  "**Validation:**",
+  "- Each row may have **at most one** column with `selected: true` (400 if more than one).",
+  "- Rows with no selection are allowed (partial save).",
+  "- Invalid column labels return 400.",
+  "",
+  "**Payload tips:**",
+  "- You may send **one row or all ten** in a single PUT; the server **merges** into the contract template.",
+  "- Prefer sending **all ten rows** when bootstrapping.",
+  "",
+  "**Persistence:** `PerformanceContract.qualitativeTemplate` on the **CEO** contract and any **draft** CEO scorecard for the same period. **409** if a **FINAL** CEO scorecard exists.",
+  "",
+  "**Generate is not blocked:** `POST …/ceo/generate` still works when the grid is empty.",
+  "",
+  "**GET / generate reflect saved data:** After save, `GET …/ceo` and `POST …/ceo/generate` return `document.qualitativeSections` built from the updated contract template."
+].join("\n");
+
 export function resolvePeriodLabel(input: {
   periodLabel?: string | null;
   periodStart?: Date | string | null;

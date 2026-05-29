@@ -38,6 +38,8 @@ import {
   mergeQualitativeTemplate,
   buildPersonalAttributesRatingGrid,
   EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS,
+  canSaveBoardQualitativeEvaluation,
+  canSaveCEOQualitativeEvaluation,
   canSaveDepartmentQualitativeEvaluation,
   canSaveEmployeeQualitativeEvaluation,
   resolveDepartmentHeadUser,
@@ -669,6 +671,15 @@ describe("department qualitative evaluation helpers", () => {
         departmentRole: "HEAD"
       })
     ).toBe(false);
+  });
+
+  test("canSaveBoardQualitativeEvaluation and canSaveCEOQualitativeEvaluation: admin or CEO only", () => {
+    const admin = { id: "1", role: { name: "Admin" } };
+    const hod = { id: "3", userDepartment: "Finance", departmentRole: "HEAD" };
+    expect(canSaveBoardQualitativeEvaluation(admin)).toBe(true);
+    expect(canSaveCEOQualitativeEvaluation(admin)).toBe(true);
+    expect(canSaveBoardQualitativeEvaluation(hod)).toBe(false);
+    expect(canSaveCEOQualitativeEvaluation(hod)).toBe(false);
   });
 });
 

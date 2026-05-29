@@ -879,6 +879,184 @@ router.put(
 
 /**
  * @swagger
+ * /api/performance/scorecards/board/qualitative-evaluation:
+ *   put:
+ *     summary: Save Board qualitative evaluation
+ *     description: |
+ *       **For Sarah / frontend:** Full specification for the Board personal-attributes qualitative grid.
+ *
+ *       **No path identifiers** — pass **periodLabel** and/or **periodStart** / **periodEnd** in the body or query (same as other scorecard routes).
+ *
+ *       **What this is (vs KPI matrix):**
+ *       - The **quantitative governance KPI matrix** (`finalScore`, section scores A1–D) is calculated automatically from Board contract indicators.
+ *       - This endpoint stores the **qualitative personal-attributes grid** only. It does **not** change numeric scores.
+ *
+ *       **Who may call:** Administrator or CEO only.
+ *
+ *       **Default personal attributes (10 rows):** Judgement in decision making; Leadership and Management; Ethics; Teamwork; Communication Skills; Creativity and Innovation; Knowledge of Standard Operating Procedures; Quality of Work; Interpersonal Relations; Technical Skills.
+ *
+ *       **Rating columns (5 per row):** Excellent, Very Good, Satisfactory, Requires Improvement, Unsatisfactory.
+ *
+ *       **Validation:** At most one `selected: true` per row; partial saves allowed; invalid labels return 400.
+ *
+ *       **Persistence:** `PerformanceContract.qualitativeTemplate` on the **BOARD** contract and any **draft** Board scorecard(s) for the period. **409** if a **FINAL** Board scorecard exists.
+ *
+ *       **Generate is not blocked.** After save, `GET …/board` and `POST …/board/generate` return updated `document.qualitativeSections`.
+ *     tags: [Performance Scorecards]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [qualitativeEvaluation]
+ *             properties:
+ *               periodLabel:
+ *                 type: string
+ *                 example: "2026"
+ *               periodStart:
+ *                 type: string
+ *                 format: date-time
+ *               periodEnd:
+ *                 type: string
+ *                 format: date-time
+ *               qualitativeEvaluation:
+ *                 type: object
+ *                 required: [personalAttributes]
+ *                 properties:
+ *                   personalAttributes:
+ *                     type: array
+ *                     description: Board personal-attributes grid (10 default attributes × 5 rating columns)
+ *                     items:
+ *                       type: object
+ *                       required: [attribute, columns]
+ *                       properties:
+ *                         attribute:
+ *                           type: string
+ *                         columns:
+ *                           type: array
+ *                           minItems: 5
+ *                           maxItems: 5
+ *                           items:
+ *                             type: object
+ *                             required: [label, selected]
+ *                             properties:
+ *                               label:
+ *                                 type: string
+ *                               selected:
+ *                                 type: boolean
+ *                   trainingAndDevelopment:
+ *                     type: object
+ *     responses:
+ *       200:
+ *         description: Board qualitative evaluation saved
+ *       400:
+ *         description: Validation error (grid, missing personalAttributes)
+ *       403:
+ *         description: Access denied — admin or CEO only
+ *       404:
+ *         description: No BOARD contract for period (BOARD_CONTRACT_NOT_FOUND)
+ *       409:
+ *         description: Finalised Board scorecard for period
+ */
+router.put(
+  "/board/qualitative-evaluation",
+  PerformanceScorecardController.putBoardQualitativeEvaluation
+);
+
+/**
+ * @swagger
+ * /api/performance/scorecards/ceo/qualitative-evaluation:
+ *   put:
+ *     summary: Save CEO qualitative evaluation
+ *     description: |
+ *       **For Sarah / frontend:** Full specification for the CEO personal-attributes qualitative grid.
+ *
+ *       **No path identifiers** — pass **periodLabel** and/or **periodStart** / **periodEnd** in the body or query (same as other scorecard routes).
+ *
+ *       **What this is (vs KPI matrix):**
+ *       - The **quantitative KPI matrix** (`resultsDeliveryScore`, section scores, budget blend, `finalScore`) is calculated automatically from CEO contract indicators.
+ *       - This endpoint stores the **qualitative personal-attributes grid** only. It does **not** change numeric scores.
+ *
+ *       **Who may call:** Administrator or CEO only.
+ *
+ *       **Default personal attributes (10 rows):** Same 10 attributes as department/employee/board grids.
+ *
+ *       **Rating columns (5 per row):** Excellent, Very Good, Satisfactory, Requires Improvement, Unsatisfactory.
+ *
+ *       **Validation:** At most one `selected: true` per row; partial saves allowed; invalid labels return 400.
+ *
+ *       **Persistence:** `PerformanceContract.qualitativeTemplate` on the **CEO** contract and any **draft** CEO scorecard for the period. **409** if a **FINAL** CEO scorecard exists.
+ *
+ *       **Generate is not blocked.** After save, `GET …/ceo` and `POST …/ceo/generate` return updated `document.qualitativeSections`.
+ *     tags: [Performance Scorecards]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [qualitativeEvaluation]
+ *             properties:
+ *               periodLabel:
+ *                 type: string
+ *                 example: "2026"
+ *               periodStart:
+ *                 type: string
+ *                 format: date-time
+ *               periodEnd:
+ *                 type: string
+ *                 format: date-time
+ *               qualitativeEvaluation:
+ *                 type: object
+ *                 required: [personalAttributes]
+ *                 properties:
+ *                   personalAttributes:
+ *                     type: array
+ *                     description: CEO personal-attributes grid (10 default attributes × 5 rating columns)
+ *                     items:
+ *                       type: object
+ *                       required: [attribute, columns]
+ *                       properties:
+ *                         attribute:
+ *                           type: string
+ *                         columns:
+ *                           type: array
+ *                           minItems: 5
+ *                           maxItems: 5
+ *                           items:
+ *                             type: object
+ *                             required: [label, selected]
+ *                             properties:
+ *                               label:
+ *                                 type: string
+ *                               selected:
+ *                                 type: boolean
+ *                   trainingAndDevelopment:
+ *                     type: object
+ *     responses:
+ *       200:
+ *         description: CEO qualitative evaluation saved
+ *       400:
+ *         description: Validation error (grid, missing personalAttributes)
+ *       403:
+ *         description: Access denied — admin or CEO only
+ *       404:
+ *         description: No CEO contract for period (CEO_CONTRACT_NOT_FOUND)
+ *       409:
+ *         description: Finalised CEO scorecard for period
+ */
+router.put(
+  "/ceo/qualitative-evaluation",
+  PerformanceScorecardController.putCEOQualitativeEvaluation
+);
+
+/**
+ * @swagger
  * /api/performance/scorecards/ceo:
  *   get:
  *     summary: Preview the CEO scorecard
