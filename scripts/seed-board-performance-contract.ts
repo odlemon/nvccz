@@ -150,7 +150,7 @@ async function main() {
   const reviewerUserId = await resolveUserIdByEmailOptional("BOARD_SEED_REVIEWER_EMAIL");
   const approverUserId = await resolveUserIdByEmailOptional("BOARD_SEED_APPROVER_EMAIL");
 
-  let contract = await prisma.performanceContract.findFirst({
+  const boardCandidates = await prisma.performanceContract.findMany({
     where: {
       contractType: "BOARD",
       status: { notIn: ["ARCHIVED", "CANCELLED"] },
@@ -159,6 +159,27 @@ async function main() {
     },
     orderBy: { updatedAt: "desc" }
   });
+
+  let contract = boardCandidates[0] || null;
+  if (boardCandidates.length > 1) {
+    const ids = boardCandidates.map((c) => c.id);
+    const grouped = await prisma.performanceGoal.groupBy({
+      by: ["performanceContractId"],
+      where: { performanceContractId: { in: ids } },
+      _count: { id: true }
+    });
+    const countByContract = new Map(
+      grouped.map((g) => [g.performanceContractId, g._count.id])
+    );
+    contract = [...boardCandidates].sort((a, b) => {
+      const diff = (countByContract.get(b.id) || 0) - (countByContract.get(a.id) || 0);
+      if (diff !== 0) return diff;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    })[0];
+    console.log(
+      `[info] ${boardCandidates.length} BOARD contract(s) for ${periodLabel}; seeding indicators on ${contract.id} (${contract.title})`
+    );
+  }
 
   if (!contract) {
     contract = await prisma.performanceContract.create({
@@ -188,11 +209,13 @@ async function main() {
   });
 
   if (existingCount > 0) {
-    console.log(`[skip] Contract already has ${existingCount} goal(s); not inserting duplicates.`);
-    console.log(`       To re-seed, delete goals for contract ${contract.id} and run again.`);
+    console.log(`[skip] Contract ${contract.id} already has ${existingCount} goal(s).`);
+    console.log(`       GET /api/performance/scorecards/board?periodLabel=${periodLabel}`);
     await prisma.$disconnect();
     return;
   }
+
+  console.log(`[backfill] Contract ${contract.id} has no indicators — inserting seeded A1–D goals.`);
 
   const rows = buildSeedGoals();
   for (const row of rows) {

@@ -572,15 +572,53 @@ export class PerformanceScorecardService {
     const overlapsWindow = (c: { periodStart: Date; periodEnd: Date }) =>
       c.periodStart <= period.periodEnd && c.periodEnd >= period.periodStart;
 
-    const overlapMatch = candidates.find((c) => overlapsWindow(c));
-    if (overlapMatch) {
-      return { contract: overlapMatch, resolutionNotes: notes };
+    const overlapMatches = candidates.filter((c) => overlapsWindow(c));
+
+    const pickPreferredBoardContract = async (matches: typeof candidates) => {
+      if (!matches.length) return null;
+      if (matches.length === 1) return matches[0];
+
+      const ids = matches.map((c) => c.id);
+      const grouped = await prisma.performanceGoal.groupBy({
+        by: ["performanceContractId"],
+        where: { performanceContractId: { in: ids } },
+        _count: { id: true }
+      });
+      const countByContract = new Map(
+        grouped.map((g) => [g.performanceContractId, g._count.id])
+      );
+      const sorted = [...matches].sort((a, b) => {
+        const goalDiff =
+          (countByContract.get(b.id) || 0) - (countByContract.get(a.id) || 0);
+        if (goalDiff !== 0) return goalDiff;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+      const chosen = sorted[0];
+      const chosenGoals = countByContract.get(chosen.id) || 0;
+      if (chosenGoals > 0 && chosen.id !== matches[0].id) {
+        notes.push(
+          "Multiple Board contracts match this period; using the contract with the most linked governance indicators."
+        );
+      } else if (matches.length > 1 && chosenGoals === 0) {
+        notes.push(
+          "Multiple Board contracts match this period, but none have governance indicators linked. Add indicators with scorecardSection A1–D on the Board contract."
+        );
+      }
+      return chosen;
+    };
+
+    if (overlapMatches.length > 0) {
+      const overlapMatch = await pickPreferredBoardContract(overlapMatches);
+      if (overlapMatch) {
+        return { contract: overlapMatch, resolutionNotes: notes };
+      }
     }
 
     if (labelTrim) {
-      const byLabel = candidates.find(
+      const labelMatches = candidates.filter(
         (c) => c.periodLabel === labelTrim || periodLabelMatches(c.periodLabel, labelTrim)
       );
+      const byLabel = await pickPreferredBoardContract(labelMatches);
       if (byLabel) {
         notes.push(
           "Board contract matched by period label; contract dates may not overlap the requested window — verify period alignment."
@@ -3886,6 +3924,12 @@ export class PerformanceScorecardService {
     }
     if (new Date(contract.periodEnd).getTime() > Date.now()) {
       warnings.push("This period has not ended. Scorecard reflects performance to date only.");
+    }
+
+    if (goals.length === 0) {
+      warnings.push(
+        "No governance indicators are linked to this Board contract. Add indicators with scorecardSection A1–D (or run npm run db:seed:board-performance-contract) before scores can be calculated."
+      );
     }
 
     if (params.persist && goals.length === 0) {
