@@ -113,10 +113,15 @@ export class PerformanceAnalyticsService {
         return map;
       }, new Map<string, HardcodedKPI>());
 
-      // Group by KPI (company goals only — no department/individual double-count)
+      // Group by KPI (company goals only — organisational goals must have kpiId)
+      let goalsWithoutKpi = 0;
       const kpiGroups = goals.reduce((acc, goal) => {
-        const kpiId = goal.kpiId || 'no-kpi';
-        
+        if (!goal.kpiId) {
+          goalsWithoutKpi += 1;
+          return acc;
+        }
+        const kpiId = goal.kpiId;
+
         if (!acc[kpiId]) {
           acc[kpiId] = {
             kpi: goal.kpi,
@@ -126,16 +131,22 @@ export class PerformanceAnalyticsService {
             goalCount: 0
           };
         }
-        
+
         acc[kpiId].goals.push(goal);
         {
           const { target: t } = parseGoalCurrentAndTargetForAnalytics(goal);
           acc[kpiId].totalTargetValue += t;
         }
         acc[kpiId].goalCount += 1;
-        
+
         return acc;
       }, {} as any);
+
+      if (goalsWithoutKpi > 0) {
+        console.warn(
+          `[KPI analytics] Skipped ${goalsWithoutKpi} company goal(s) without kpiId. Run npm run db:backfill:company-goal-kpi-links`
+        );
+      }
 
       // Ensure *all* financial KPIs are present in analytics, even when no goals exist for them.
       // This makes the endpoint behave like a live accounting sync.
@@ -293,6 +304,7 @@ export class PerformanceAnalyticsService {
         summary: {
           totalKPIs: kpiAnalytics.length,
           totalGoals: goals.length,
+          goalsWithoutKpi,
           averageProgress:
             kpisWithGoals.length > 0
               ? formatProgressPercent(

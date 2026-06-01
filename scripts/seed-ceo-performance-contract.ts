@@ -11,6 +11,7 @@
  */
 // @ts-nocheck
 import { PrismaClient } from "@prisma/client";
+import { resolveCompanyGoalKpiId } from "../src/services/companyGoalKpiResolution";
 
 const prisma = new PrismaClient();
 
@@ -455,11 +456,25 @@ async function main() {
   const rows = buildSeedGoals();
   for (const row of rows) {
     const ph = ceoPillarFor(row);
+    const kpiId = await resolveCompanyGoalKpiId(
+      {
+        title: row.title,
+        formulaType: row.formulaType,
+        measureName: row.measureName,
+        scorecardPillar: ph.scorecardPillar,
+        scorecardSection: row.section
+      },
+      { createIfMissing: true }
+    );
+    if (!kpiId) {
+      throw new Error(`Could not resolve KPI for CEO indicator: ${row.title}`);
+    }
     await prisma.performanceGoal.create({
       data: {
         title: row.title,
         description: `Seeded organisational indicator for CEO scorecard (${row.section}).`,
         type: "company",
+        kpiId,
         scorecardPillar: ph.scorecardPillar,
         pillarId: ph.pillarId,
         performanceContractId: contract.id,

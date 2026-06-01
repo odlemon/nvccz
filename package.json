@@ -89,6 +89,8 @@
     "db:verify:board-scorecard": "ts-node --transpile-only scripts/verify-board-scorecard-flow.ts",
     "db:backfill:department-goal-performance-contracts": "ts-node scripts/backfill-department-goal-performance-contracts.ts",
     "db:backfill:performance-goal-assignees": "ts-node --transpile-only -r dotenv/config scripts/backfill-performance-goal-assignees.ts",
+    "db:backfill:company-goal-progress-owner": "ts-node --transpile-only -r dotenv/config scripts/backfill-company-goal-progress-and-owner.ts",
+    "db:backfill:company-goal-kpi-links": "ts-node --transpile-only -r dotenv/config scripts/backfill-company-goal-kpi-links.ts",
     "db:backfill:payroll-deductions-gl-goals": "ts-node --transpile-only -r dotenv/config scripts/backfill-payroll-run-deductions-gl-and-goals.ts",
     "db:ensure:payroll-deduction-types": "ts-node --transpile-only -r dotenv/config scripts/ensure-payroll-deduction-types.ts",
     "db:fix:clone-tax-rules-to-usd": "ts-node --transpile-only -r dotenv/config scripts/clone-tax-rules-to-usd.ts",
