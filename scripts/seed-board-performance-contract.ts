@@ -19,6 +19,10 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { companyNameShortFromEnv } from "../src/config/companyDisplay";
+import { deriveGoalProgressState } from "../src/services/performanceGoalRollupUtils";
+import { legacyProgressFieldsForGoal } from "../src/services/PerformanceGoalService";
+import { resolveDefaultCompanyGoalAssigneeId } from "../src/services/performanceGoalDefaultAssignee";
+import { resolveCompanyGoalKpiId } from "../src/services/companyGoalKpiResolution";
 
 const prisma = new PrismaClient();
 
@@ -217,26 +221,55 @@ async function main() {
 
   console.log(`[backfill] Contract ${contract.id} has no indicators — inserting seeded A1–D goals.`);
 
+  const assignedToId = await resolveDefaultCompanyGoalAssigneeId();
   const rows = buildSeedGoals();
   for (const row of rows) {
     const ph = BOARD_PILLAR_BY_SECTION[row.section] || BOARD_PILLAR_BY_SECTION.A1;
+    const progressState = deriveGoalProgressState({
+      currentValue: row.currentValue,
+      targetValue: row.targetValue,
+      targetOperator: ">=",
+      isReverseKpi: false,
+      previousStage: "planning",
+      progressPercentage: 0
+    });
+    const legacyFields = legacyProgressFieldsForGoal(
+      { targetUnit: row.measureName, targetValue: row.targetValue },
+      row.currentValue
+    );
+    const kpiId = await resolveCompanyGoalKpiId(
+      {
+        title: row.title,
+        formulaType: row.formulaType,
+        measureName: row.measureName,
+        scorecardPillar: ph.scorecardPillar,
+        scorecardSection: row.section
+      },
+      { createIfMissing: true }
+    );
+    if (!kpiId) {
+      throw new Error(`Could not resolve KPI for board indicator: ${row.title}`);
+    }
     await prisma.performanceGoal.create({
       data: {
         title: row.title,
         description: `Seeded governance indicator for Board scorecard (${row.section}).`,
         type: "company",
+        kpiId,
         scorecardPillar: ph.scorecardPillar,
         pillarId: ph.pillarId,
         performanceContractId: contract.id,
         startDate: periodStart,
         endDate: periodEnd,
         createdById,
+        assignedToId: assignedToId || undefined,
         status: "active",
-        stage: "planning",
+        stage: progressState.stage,
         targetValue: row.targetValue,
         preciseTargetValue: row.preciseTargetValue,
         currentValue: row.currentValue,
         preciseCurrentValue: row.preciseCurrentValue,
+        progressPercentage: progressState.progressPercentage,
         scorecardSection: row.section,
         scorecardWeight: row.weight,
         formulaType: row.formulaType,
@@ -244,7 +277,8 @@ async function main() {
         allowableVariance: 0.1,
         isReverseKpi: false,
         activities: row.activities as object,
-        displayOrder: row.displayOrder
+        displayOrder: row.displayOrder,
+        ...legacyFields
       }
     });
   }

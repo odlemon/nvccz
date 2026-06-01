@@ -19,6 +19,19 @@ import {
 } from '../services/performanceGoalRollupUtils';
 
 describe('performanceGoalRollupUtils', () => {
+  test("deriveGoalProgressState: 95/100 company-style row yields 95% progress", () => {
+    const state = deriveGoalProgressState({
+      currentValue: 95,
+      targetValue: 100,
+      targetOperator: ">=",
+      isReverseKpi: false,
+      previousStage: "planning",
+      progressPercentage: 0
+    });
+    expect(parseFloat(state.progressPercentage)).toBe(95);
+    expect(state.stage).toBe("in_progress");
+  });
+
   test('>= achievement scales with current/target', () => {
     expect(
       computeAchievementPercent({

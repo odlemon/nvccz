@@ -26,6 +26,8 @@ import { HARDCODED_KPIS } from "../config/hardcodedKPIs";
 import { FirebaseStorageService } from "./FirebaseStorageService";
 import { getPostedPeriodRevenueExpenseNetProfit } from "./AccountingGlPeriodTotalsService";
 import { PerformanceGoalProgressBridge } from "./PerformanceGoalProgressBridge";
+import { enrichPerformanceGoalForApi, enrichPerformanceGoalsForApi } from "./performanceGoalApiEnrichment";
+import { requireCompanyGoalKpiId } from "./companyGoalKpiResolution";
 
 /** Prisma DateTime requires full ISO; breakdown JSON often sends "YYYY-MM-DD" only. */
 function isDateOnlyString(s: string): boolean {
@@ -227,7 +229,11 @@ export interface CreatePerformanceGoalRequest {
   targetValue: number; // Absolute target value
   targetUnit: string; // "USD", "clients", "invoices", "percentage", "hours", etc.
   currentValue?: number; // Current progress value
+  kpiId?: string;
   kpiName?: string; // KPI name instead of ID
+  formulaType?: string;
+  measureName?: string;
+  scorecardSection?: string;
   priority?: string;
   startDate: Date;
   endDate: Date;
@@ -448,6 +454,19 @@ export class PerformanceGoalService {
         scorecardPillar: string | null;
       } | null = null;
 
+      if (request.kpiId) {
+        const kpi = await prisma.kPI.findUnique({
+          where: { id: String(request.kpiId).trim() },
+          select: { id: true, name: true, isReverseKpi: true, accountType: true, scorecardPillar: true }
+        });
+        if (!kpi) {
+          throw new Error(`KPI id '${request.kpiId}' not found`);
+        }
+        kpiId = kpi.id;
+        kpiName = kpi.name;
+        kpiCatalog = kpi;
+      }
+
       // Validate KPI if provided by name
       if (request.kpiName) {
         const kpi = await prisma.kPI.findFirst({
@@ -527,6 +546,23 @@ export class PerformanceGoalService {
         await ScorecardPillarService.assertCanonicalExists(p);
         scorecardPillarDb = p;
         pillarIdDb = ORG_BSC_CANONICAL_TO_PILLAR_ID[p] ?? null;
+
+        kpiId = await requireCompanyGoalKpiId({
+          kpiId,
+          kpiName: request.kpiName,
+          title: request.title,
+          formulaType: request.formulaType,
+          measureName: request.measureName,
+          scorecardPillar: scorecardPillarDb,
+          scorecardSection: request.scorecardSection
+        });
+        if (!kpiCatalog) {
+          kpiCatalog = await prisma.kPI.findUnique({
+            where: { id: kpiId },
+            select: { id: true, name: true, isReverseKpi: true, accountType: true, scorecardPillar: true }
+          });
+          kpiName = kpiCatalog?.name ?? kpiName;
+        }
       } else {
         const fromReq = request.scorecardPillar
           ? normalizeOrgBscScorecardPillar(request.scorecardPillar)
@@ -638,6 +674,29 @@ export class PerformanceGoalService {
         assignedToId = await resolveDefaultDepartmentGoalAssigneeId(request.departmentName);
       }
 
+      const createCurrentValue =
+        request.currentValue !== undefined && request.currentValue !== null
+          ? Number(request.currentValue)
+          : 0;
+      const createTargetValue = request.targetValue;
+      const progressOnCreate = deriveGoalProgressState({
+        currentValue: createCurrentValue,
+        targetValue: createTargetValue,
+        targetOperator: resolvedTargetOperator,
+        isReverseKpi: resolvedIsReverseKpi,
+        previousStage: "planning",
+        progressPercentage: 0
+      });
+      const legacyOnCreate = legacyProgressFieldsForGoal(
+        {
+          targetUnit: request.targetUnit,
+          monetaryValue: request.monetaryValue,
+          percentValue: request.percentValue,
+          targetValue: createTargetValue
+        },
+        createCurrentValue
+      );
+
       // Create the performance goal with absolute value targets
       const goal = await prisma.performanceGoal.create({
         data: {
@@ -653,7 +712,12 @@ export class PerformanceGoalService {
           // Store absolute value targets
           targetValue: request.targetValue,
           targetUnit: request.targetUnit,
-          currentValue: request.currentValue || 0,
+          currentValue: createCurrentValue,
+          preciseCurrentValue: String(createCurrentValue),
+          ...(createTargetValue != null && createTargetValue !== ""
+            ? { preciseTargetValue: String(createTargetValue) }
+            : {}),
+          progressPercentage: progressOnCreate.progressPercentage,
           kpiId: kpiId,
           priority: request.priority || "medium",
           startDate: request.startDate,
@@ -661,8 +725,10 @@ export class PerformanceGoalService {
           assignedToId,
           createdById: createdById,
           // Company goals participate in BSC scoring only after weights are set.
-          status: request.type === "company" ? "inactive" : "active",
-          stage: "planning",
+          status:
+            request.type === "company" ? "inactive" : progressOnCreate.status,
+          stage: progressOnCreate.stage,
+          ...legacyOnCreate,
           // NEW: Enhanced Goal Definition Form Fields
           targetOperator: resolvedTargetOperator,
           isReverseKpi: resolvedIsReverseKpi,
@@ -1179,7 +1245,8 @@ export class PerformanceGoalService {
         }
       });
 
-      return goals.map((goal) => withGoalAttachmentFields(goal));
+      const withAttachments = goals.map((goal) => withGoalAttachmentFields(goal));
+      return enrichPerformanceGoalsForApi(withAttachments);
     } catch (error) {
       throw error;
     }
@@ -1292,7 +1359,7 @@ export class PerformanceGoalService {
         throw new Error("Performance goal not found");
       }
 
-      return withGoalAttachmentFields(goal);
+      return enrichPerformanceGoalForApi(withGoalAttachmentFields(goal));
     } catch (error) {
       throw error;
     }
@@ -1315,6 +1382,9 @@ export class PerformanceGoalService {
       if (request.kpiName !== undefined) {
         const name = request.kpiName == null ? "" : String(request.kpiName).trim();
         if (!name) {
+          if (nextType === "company") {
+            throw new Error("Organisational (company) goals must remain linked to a KPI; kpiName cannot be cleared.");
+          }
           resolvedKpiId = null;
         } else {
           const kpi = await prisma.kPI.findFirst({
@@ -1334,6 +1404,21 @@ export class PerformanceGoalService {
         });
         if (!kpi) {
           throw new Error("KPI not found");
+        }
+      }
+
+      if (nextType === "company") {
+        const pendingKpiId =
+          resolvedKpiId !== undefined ? resolvedKpiId : existingGoal.kpiId;
+        if (!pendingKpiId) {
+          resolvedKpiId = await requireCompanyGoalKpiId({
+            title: request.title ?? existingGoal.title,
+            formulaType: request.formulaType ?? existingGoal.formulaType,
+            measureName: request.measureName ?? existingGoal.measureName,
+            scorecardPillar: request.scorecardPillar ?? existingGoal.scorecardPillar,
+            scorecardSection: request.scorecardSection ?? existingGoal.scorecardSection,
+            kpiName: request.kpiName ?? undefined
+          });
         }
       }
 
