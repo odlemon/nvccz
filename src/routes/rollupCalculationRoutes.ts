@@ -52,6 +52,10 @@ router.use(authenticate);
  *                           type: string
  *                         category:
  *                           type: string
+ *                         targetUnit:
+ *                           type: string
+ *                           nullable: true
+ *                           description: Unit for target/current (e.g. USD, %, ZiG m) — same as GET /performance/goals/{id}
  *                         targetValue:
  *                           type: string
  *                         currentValue:

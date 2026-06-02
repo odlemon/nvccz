@@ -13,7 +13,9 @@ import { parseDate } from '../utils/dateHelper';
 import {
   formatEmployeeForApi,
   payrollFormField,
-  resolveEmployeePictureUrl
+  resolveEmployeePictureUrl,
+  isEmployeePictureUrlFieldPresent,
+  resolveEmployeePictureUrlFromFormField
 } from '../services/payrollEmployeePictureUpload';
 
 export class PayrollController {
@@ -2001,10 +2003,8 @@ export class PayrollController {
       }
 
       const hasPictureFile = Boolean((req as { file?: Express.Multer.File }).file?.buffer?.length);
-      const hasPictureUrlField =
-        req.body != null && Object.prototype.hasOwnProperty.call(req.body, 'pictureUrl');
       let pictureUrl: string | null | undefined;
-      if (hasPictureFile || hasPictureUrlField) {
+      if (hasPictureFile) {
         try {
           pictureUrl = await resolveEmployeePictureUrl(req);
         } catch (uploadErr) {
@@ -2013,6 +2013,9 @@ export class PayrollController {
             message: uploadErr instanceof Error ? uploadErr.message : 'Picture upload failed'
           });
         }
+      } else if (isEmployeePictureUrlFieldPresent(req)) {
+        // Empty pictureUrl in form-data means user removed the photo.
+        pictureUrl = resolveEmployeePictureUrlFromFormField(req);
       }
 
       const data: Record<string, unknown> = {};

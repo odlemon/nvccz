@@ -9,6 +9,22 @@ export function payrollFormField(req: Request, key: string): string | undefined 
   return s === "" ? undefined : s;
 }
 
+/** PUT update: client included `pictureUrl` in form body (even when empty). */
+export function isEmployeePictureUrlFieldPresent(req: Request): boolean {
+  return req.body != null && Object.prototype.hasOwnProperty.call(req.body, "pictureUrl");
+}
+
+/**
+ * PUT update only: empty / whitespace `pictureUrl` → clear photo (`null` in DB).
+ * Non-empty → keep that URL.
+ */
+export function resolveEmployeePictureUrlFromFormField(req: Request): string | null {
+  const v = req.body.pictureUrl;
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
+}
+
 /**
  * Prefer multipart file field `picture`; fall back to `pictureUrl` text (legacy).
  */

@@ -1376,6 +1376,7 @@ export const performanceEndpoints = {
                           title: { type: 'string' },
                           type: { type: 'string' },
                           scorecardPillar: { type: 'string' },
+                          targetUnit: { type: 'string', nullable: true },
                           targetValue: { type: 'string' },
                           currentValue: { type: 'string' },
                           progressPercentage: { type: 'string' },

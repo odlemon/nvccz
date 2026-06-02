@@ -113,7 +113,7 @@ const updateEmployeeMultipartSchema = {
     pictureUrl: {
       type: "string",
       description:
-        "Only if NOT uploading `picture` — set or replace with a pre-hosted URL; send empty to clear",
+        "On update: include this field always when the photo section was shown. Empty string = remove photo. Non-empty = keep/set URL. Omit only when other fields change and photo is unchanged.",
       example: "https://example.com/photo.jpg",
     },
   },
@@ -311,8 +311,9 @@ export const payrollEndpoints: Record<string, Record<string, unknown>> = {
         "| Next of Kin contact | `nextOfKinContact` | Text |\n" +
         "| Address | `address` | Text |\n" +
         "| Active | `isActive` | Text (`true` / `false`) |\n" +
-        "| Photo | `picture` | **File** (optional — omit to keep current) |\n\n" +
-        "Only fields you send are updated. Upload **`picture`** to replace the profile photo; response includes `data.pictureUrl`.",
+        "| Photo | `picture` | **File** (optional — new upload) |\n" +
+        "| Picture URL | `pictureUrl` | Text — current URL to keep; **empty string** to remove photo |\n\n" +
+        "Photo rule on update: send `pictureUrl` empty when the user removed the image; send the existing URL when keeping it; upload `picture` when replacing with a new file.",
       security: [{ bearerAuth: [] }],
       parameters: [
         {
