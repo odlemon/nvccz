@@ -76,6 +76,7 @@ export class RollupCalculationService {
           title: goal.title,
           type: goal.type,
           scorecardPillar: goal.scorecardPillar,
+          targetUnit: goal.targetUnit ?? null,
           targetValue: goal.targetValue ? goal.targetValue.toString() : "0",
           currentValue: goal.currentValue ? goal.currentValue.toString() : "0",
           progressPercentage: progressPercentage,
@@ -137,6 +138,7 @@ export class RollupCalculationService {
         id: deptGoal.id,
         title: deptGoal.title,
         department: deptGoal.departmentName,
+        targetUnit: deptGoal.targetUnit ?? null,
         targetValue: deptGoal.targetValue ? deptGoal.targetValue.toString() : "0",
         currentValue: deptGoal.currentValue ? deptGoal.currentValue.toString() : "0",
         progressPercentage: RollupCalculationService.goalProgressPercent({
@@ -200,6 +202,7 @@ export class RollupCalculationService {
         id: indGoal.id,
         title: indGoal.title,
         assignedTo: indGoal.assignedToId,
+        targetUnit: indGoal.targetUnit ?? null,
         targetValue: indGoal.targetValue ? indGoal.targetValue.toString() : "0",
         currentValue: indGoal.currentValue ? indGoal.currentValue.toString() : "0",
         progressPercentage: RollupCalculationService.goalProgressPercent({
