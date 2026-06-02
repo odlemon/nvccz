@@ -7,6 +7,7 @@ import {
   deriveParentStageFromRollup,
   formatProgressPercent
 } from "./performanceGoalRollupUtils";
+import { resolveGoalTargetUnitForApi } from "./performanceGoalTargetUnit";
 
 export class RollupCalculationService {
   /** Reverse-aware 0–100 progress for breakdown rows (never uncapped straight ratios). */
@@ -47,6 +48,7 @@ export class RollupCalculationService {
               name: true,
               code: true,
               unitCategory: true,
+              unit: true,
               hasUnit: true,
               isReverseKpi: true,
               unitSymbol: true,
@@ -76,7 +78,7 @@ export class RollupCalculationService {
           title: goal.title,
           type: goal.type,
           scorecardPillar: goal.scorecardPillar,
-          targetUnit: goal.targetUnit ?? null,
+          targetUnit: resolveGoalTargetUnitForApi(goal),
           targetValue: goal.targetValue ? goal.targetValue.toString() : "0",
           currentValue: goal.currentValue ? goal.currentValue.toString() : "0",
           progressPercentage: progressPercentage,
@@ -138,7 +140,7 @@ export class RollupCalculationService {
         id: deptGoal.id,
         title: deptGoal.title,
         department: deptGoal.departmentName,
-        targetUnit: deptGoal.targetUnit ?? null,
+        targetUnit: resolveGoalTargetUnitForApi(deptGoal, goal.kpi),
         targetValue: deptGoal.targetValue ? deptGoal.targetValue.toString() : "0",
         currentValue: deptGoal.currentValue ? deptGoal.currentValue.toString() : "0",
         progressPercentage: RollupCalculationService.goalProgressPercent({
@@ -202,7 +204,7 @@ export class RollupCalculationService {
         id: indGoal.id,
         title: indGoal.title,
         assignedTo: indGoal.assignedToId,
-        targetUnit: indGoal.targetUnit ?? null,
+        targetUnit: resolveGoalTargetUnitForApi(indGoal, goal.kpi),
         targetValue: indGoal.targetValue ? indGoal.targetValue.toString() : "0",
         currentValue: indGoal.currentValue ? indGoal.currentValue.toString() : "0",
         progressPercentage: RollupCalculationService.goalProgressPercent({

@@ -45,12 +45,14 @@ describe("performanceGoalApiEnrichment", () => {
         isReverseKpi: false,
         stage: "planning",
         assignedTo: null,
-        assignedToId: null
+        assignedToId: null,
+        kpi: { unitSymbol: "%", unitCategory: "Percentage" }
       },
       createCompanyGoalAssigneeCache()
     );
 
     expect(enriched.progressPercentage).toBe(95);
+    expect(enriched.targetUnit).toBe("%");
     expect(enriched.assignedTo).toMatchObject({
       id: "ceo-user-1",
       firstName: "Tatenda",

@@ -5,6 +5,7 @@ import {
   parseGoalCurrentAndTargetForAnalytics
 } from "./performanceGoalRollupUtils";
 import { resolveDefaultCompanyGoalAssigneeId } from "./performanceGoalDefaultAssignee";
+import { resolveGoalTargetUnitForApi } from "./performanceGoalTargetUnit";
 
 export type CompanyGoalAssigneeCache = {
   ceoUser: { id: string; firstName: string; lastName: string; email: string } | null;
@@ -73,6 +74,7 @@ export async function enrichPerformanceGoalForApi(
 
   return {
     ...goal,
+    targetUnit: resolveGoalTargetUnitForApi(goal),
     progressPercentage: toProgressNumber(progressState.progressPercentage),
     stage: progressState.stage,
     assignedTo,
