@@ -750,6 +750,7 @@ export class PerformanceGoalService {
               id: true,
               name: true,
               unitCategory: true,
+              unit: true,
               unitSymbol: true,
               unitPosition: true,
               scorecardPillar: true
@@ -1188,6 +1189,7 @@ export class PerformanceGoalService {
               id: true,
               name: true,
               unitCategory: true,
+              unit: true,
               unitSymbol: true,
               unitPosition: true
             }
@@ -1292,6 +1294,7 @@ export class PerformanceGoalService {
               id: true,
               name: true,
               unitCategory: true,
+              unit: true,
               unitSymbol: true,
               unitPosition: true
             }
@@ -1647,6 +1650,7 @@ export class PerformanceGoalService {
               id: true,
               name: true,
               unitCategory: true,
+              unit: true,
               unitSymbol: true,
               unitPosition: true
             }
