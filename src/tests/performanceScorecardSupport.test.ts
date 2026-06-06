@@ -42,6 +42,8 @@ import {
   canSaveCEOQualitativeEvaluation,
   canSaveDepartmentQualitativeEvaluation,
   canSaveEmployeeQualitativeEvaluation,
+  canEditEmployeeScorecard,
+  canViewEmployeeScorecard,
   resolveDepartmentHeadUser,
   buildHeadOfDepartmentPayload,
   isDepartmentHead,
@@ -642,8 +644,20 @@ describe("department qualitative evaluation helpers", () => {
     expect(none.hasHead).toBe(false);
   });
 
-  test("canSaveEmployeeQualitativeEvaluation: admin or CEO only", () => {
+  test("canSaveEmployeeQualitativeEvaluation: admin, CEO, or manager/HR with employee context", () => {
     expect(canSaveEmployeeQualitativeEvaluation({ id: "1", role: { name: "Admin" } })).toBe(true);
+    expect(
+      canSaveEmployeeQualitativeEvaluation(
+        { id: "mgr1", userDepartment: "Finance", departmentRole: "HEAD" },
+        { employeeUser: { id: "emp1" }, employeeRecord: { lineManagerUserId: "mgr1" } }
+      )
+    ).toBe(true);
+    expect(
+      canSaveEmployeeQualitativeEvaluation(
+        { id: "hr1", departmentRole: "HR Head" },
+        { employeeUser: { id: "emp1" }, employeeRecord: { lineManagerUserId: "mgr1" } }
+      )
+    ).toBe(true);
     expect(
       canSaveEmployeeQualitativeEvaluation({
         id: "3",
@@ -651,6 +665,24 @@ describe("department qualitative evaluation helpers", () => {
         departmentRole: "HEAD"
       })
     ).toBe(false);
+    expect(
+      canSaveEmployeeQualitativeEvaluation(
+        { id: "emp1" },
+        { employeeUser: { id: "emp1" }, employeeRecord: { lineManagerUserId: "mgr1" } }
+      )
+    ).toBe(false);
+  });
+
+  test("canViewEmployeeScorecard and canEditEmployeeScorecard", () => {
+    const employee = { id: "emp1" };
+    const record = { lineManagerUserId: "mgr1" };
+    expect(canViewEmployeeScorecard({ id: "emp1" }, employee, record)).toBe(true);
+    expect(canViewEmployeeScorecard({ id: "mgr1" }, employee, record)).toBe(true);
+    expect(canEditEmployeeScorecard({ id: "emp1" }, employee, record)).toBe(false);
+    expect(canEditEmployeeScorecard({ id: "mgr1" }, employee, record)).toBe(true);
+    expect(canEditEmployeeScorecard({ id: "hr1", departmentRole: "HR Head" }, employee, record)).toBe(
+      true
+    );
   });
 
   test("canSaveDepartmentQualitativeEvaluation: admin or CEO only", () => {

@@ -1498,6 +1498,383 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
     }
   },
 
+  '/performance/scorecards/{scorecardId}': {
+    get: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Load persisted scorecard by id (any type)',
+      description:
+        'Phase two — Scorecard editing: load any persisted scorecard (EMPLOYEE, DEPARTMENT, CEO, or BOARD) by `scorecardId`. ' +
+        'Returns `savedRecord`, `document`, `matrixRows`, `scores`, `qualitativeSections`, and `lifecycle`.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'scorecardId',
+          required: true,
+          schema: { type: 'string' }
+        }
+      ],
+      responses: {
+        200: {
+          description: 'Employee scorecard loaded — envelope with savedRecord + document for edit UI reuse.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      scorecardId: { type: 'string' },
+                      savedRecord: { type: 'object' },
+                      document: { type: 'object' },
+                      matrixRows: { type: 'array', items: { type: 'object' } },
+                      scores: { type: 'object' },
+                      qualitativeSections: { type: 'object', nullable: true },
+                      lifecycle: { type: 'object' },
+                      sections: { type: 'object', nullable: true },
+                      rollupSummary: { type: 'array', nullable: true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'Scorecard not found' }
+      }
+    }
+  },
+
+  '/performance/scorecards/{scorecardId}/edit': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Manual correction of scorecard by id (any type)',
+      description:
+        'Phase two — Scorecard editing: manual correction of any persisted scorecard by id (DRAFT or FINAL). ' +
+        'Requires **editReason** (mandatory); writes **SCORECARD_MANUAL_EDIT** audit trail. ' +
+        'FINAL rows keep `status` and `isLocked` unchanged. Supports EMPLOYEE, DEPARTMENT, CEO, and BOARD.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        {
+          in: 'path',
+          name: 'scorecardId',
+          required: true,
+          schema: { type: 'string' }
+        }
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['editReason'],
+              properties: {
+                editReason: {
+                  type: 'string',
+                  description: 'Mandatory correction reason (audit + documentPayload.manualCorrection.reason)'
+                },
+                matrixRowPatches: {
+                  type: 'array',
+                  description: 'Patch matrix rows by goalId (matches matrixRows[].id)',
+                  items: {
+                    type: 'object',
+                    required: ['goalId'],
+                    properties: {
+                      goalId: { type: 'string' },
+                      actualValue: { type: 'number' },
+                      targetValue: { type: 'number' },
+                      rawRating: { type: 'number' },
+                      weight: { type: 'number' }
+                    }
+                  }
+                },
+                scores: {
+                  type: 'object',
+                  description: 'Optional explicit scores; omitted fields are recalculated from patched rows + contract budget',
+                  properties: {
+                    resultsDeliveryScore: { type: 'number' },
+                    budgetScore: { type: 'number' },
+                    finalScore: { type: 'number' }
+                  }
+                },
+                qualitativeEvaluation: {
+                  type: 'object',
+                  properties: {
+                    personalAttributes: { type: 'array', items: { type: 'object' } },
+                    trainingAndDevelopment: { type: 'object' }
+                  }
+                }
+              }
+            },
+            example: {
+              editReason: 'Corrected actuals after finance reconciliation',
+              matrixRowPatches: [{ goalId: 'goal_abc', actualValue: 92, targetValue: 100 }]
+            }
+          }
+        }
+      },
+      responses: {
+        200: {
+          description:
+            'Scorecard updated. `data` includes scorecardId, savedRecord, document, scores, manualCorrection metadata.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      scorecardId: { type: 'string' },
+                      savedRecord: { type: 'object' },
+                      document: { type: 'object' },
+                      scores: { type: 'object' },
+                      manualCorrection: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: { description: 'Missing editReason or validation error' },
+        401: JSON_401,
+        403: JSON_403,
+        404: { description: 'Scorecard not found' }
+      }
+    }
+  },
+
+  '/performance/scorecards/employee/{employeeId}/persisted': {
+    get: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Load persisted employee scorecard for a period',
+      description:
+        'Phase two — Scorecard editing: load the saved employee scorecard for `employeeId` and period (latest DRAFT or FINAL). ' +
+        'Use `periodStart`/`periodEnd` or `periodLabel` query params.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'employeeId', required: true, schema: { type: 'string' } },
+        { in: 'query', name: 'periodLabel', schema: { type: 'string', example: '2026' } },
+        { in: 'query', name: 'periodStart', schema: { type: 'string', format: 'date-time' } },
+        { in: 'query', name: 'periodEnd', schema: { type: 'string', format: 'date-time' } }
+      ],
+      responses: { 200: JSON_200, 401: JSON_401, 404: { description: 'No persisted scorecard for employee and period' } }
+    }
+  },
+
+  '/performance/scorecards/employee/{employeeId}/edit': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Manual correction of employee scorecard for a period',
+      description:
+        'Phase two — Scorecard editing: correct employee scorecard for `employeeId` + period. Requires **editReason**.',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'employeeId', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['editReason'],
+              properties: {
+                editReason: { type: 'string' },
+                periodLabel: { type: 'string' },
+                periodStart: { type: 'string', format: 'date-time' },
+                periodEnd: { type: 'string', format: 'date-time' },
+                matrixRowPatches: { type: 'array', items: { type: 'object' } },
+                scores: { type: 'object' },
+                qualitativeEvaluation: { type: 'object' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401, 404: { description: 'Scorecard not found' } }
+    }
+  },
+
+  '/performance/scorecards/department/{department}/persisted': {
+    get: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Load persisted department scorecard',
+      description:
+        'Phase two — Scorecard editing: load saved department scorecard by department name and period.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'department', required: true, schema: { type: 'string' } },
+        { in: 'query', name: 'periodLabel', schema: { type: 'string' } }
+      ],
+      responses: { 200: JSON_200, 401: JSON_401, 404: { description: 'Department scorecard not found' } }
+    }
+  },
+
+  '/performance/scorecards/department/{department}/edit': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Manual correction of department scorecard',
+      description: 'Phase two — Scorecard editing: correct department scorecard by name + period. Requires **editReason**.',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'department', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['editReason'],
+              properties: {
+                editReason: { type: 'string' },
+                periodLabel: { type: 'string' },
+                matrixRowPatches: { type: 'array', items: { type: 'object' } },
+                scores: { type: 'object' },
+                qualitativeEvaluation: { type: 'object' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401, 404: { description: 'Scorecard not found' } }
+    }
+  },
+
+  '/performance/scorecards/department/by-id/{departmentId}/persisted': {
+    get: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Load persisted department scorecard by department id',
+      description: 'Phase two — Scorecard editing: same as department name route; path uses org `departmentId`.',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { in: 'path', name: 'departmentId', required: true, schema: { type: 'string' } },
+        { in: 'query', name: 'periodLabel', schema: { type: 'string' } }
+      ],
+      responses: { 200: JSON_200, 401: JSON_401, 404: { description: 'Department scorecard not found' } }
+    }
+  },
+
+  '/performance/scorecards/department/by-id/{departmentId}/edit': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Manual correction of department scorecard by id',
+      description: 'Phase two — Scorecard editing: correct department scorecard by `departmentId` + period.',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'path', name: 'departmentId', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['editReason'],
+              properties: {
+                editReason: { type: 'string' },
+                periodLabel: { type: 'string' },
+                matrixRowPatches: { type: 'array', items: { type: 'object' } },
+                scores: { type: 'object' },
+                qualitativeEvaluation: { type: 'object' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401, 404: { description: 'Scorecard not found' } }
+    }
+  },
+
+  '/performance/scorecards/ceo/persisted': {
+    get: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Load persisted CEO scorecard for a period',
+      description:
+        'Phase two — Scorecard editing: load the single saved CEO scorecard for the period (one per cycle).',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'query', name: 'periodLabel', schema: { type: 'string', example: '2026' } }],
+      responses: { 200: JSON_200, 401: JSON_401, 404: { description: 'CEO scorecard not found' } }
+    }
+  },
+
+  '/performance/scorecards/ceo/edit': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Manual correction of CEO scorecard',
+      description:
+        'Phase two — Scorecard editing: correct CEO scorecard for the period. Requires **editReason**. ' +
+        'Optional **sectionBlendMode** (`redistribute` | `penalise`) for section score blend.',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['editReason'],
+              properties: {
+                editReason: { type: 'string' },
+                periodLabel: { type: 'string' },
+                sectionBlendMode: { type: 'string', enum: ['redistribute', 'penalise'] },
+                matrixRowPatches: { type: 'array', items: { type: 'object' } },
+                scores: { type: 'object' },
+                qualitativeEvaluation: { type: 'object' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401, 404: { description: 'CEO scorecard not found' } }
+    }
+  },
+
+  '/performance/scorecards/board/persisted': {
+    get: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Load persisted Board scorecard for a period',
+      description:
+        'Phase two — Scorecard editing: load the single saved Board scorecard for the period.',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ in: 'query', name: 'periodLabel', schema: { type: 'string', example: '2026' } }],
+      responses: { 200: JSON_200, 401: JSON_401, 404: { description: 'Board scorecard not found' } }
+    }
+  },
+
+  '/performance/scorecards/board/edit': {
+    put: {
+      tags: ['Updated performance', 'Performance Scorecards'],
+      summary: 'Manual correction of Board scorecard',
+      description:
+        'Phase two — Scorecard editing: correct Board scorecard for the period. Requires **editReason**.',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['editReason'],
+              properties: {
+                editReason: { type: 'string' },
+                periodLabel: { type: 'string' },
+                sectionBlendMode: { type: 'string', enum: ['redistribute', 'penalise'] },
+                matrixRowPatches: { type: 'array', items: { type: 'object' } },
+                scores: { type: 'object' },
+                qualitativeEvaluation: { type: 'object' }
+              }
+            }
+          }
+        }
+      },
+      responses: { 200: JSON_200, 400: JSON_400, 401: JSON_401, 404: { description: 'Board scorecard not found' } }
+    }
+  },
+
   '/performance/scorecards/employee/{employeeId}/qualitative-evaluation': {
     put: {
       tags: ['Updated performance', 'Performance Scorecards'],

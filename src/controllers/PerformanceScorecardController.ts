@@ -111,6 +111,38 @@ function statusForDepartmentQualitativeEvaluationError(message: string): number 
   return 500;
 }
 
+function statusForScorecardManualEditError(message: string): number {
+  const m = String(message || "").toLowerCase();
+  if (m.includes("access denied")) return 403;
+  if (
+    m.includes("scorecard not found") ||
+    m.includes("not found for this period") ||
+    m.includes("department not found")
+  ) {
+    return 404;
+  }
+  if (
+    m.includes("editreason is required") ||
+    m.includes("does not support manual editing") ||
+    m.includes("terminated") ||
+    m.includes("departmentid or department name is required")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
+function getScorecardEditBody(req: Request) {
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  return {
+    editReason: body.editReason,
+    matrixRowPatches: body.matrixRowPatches,
+    scores: body.scores,
+    qualitativeEvaluation: body.qualitativeEvaluation,
+    sectionBlendMode: parseSectionBlendMode(req, true)
+  };
+}
+
 function statusForEmployeeQualitativeEvaluationError(message: string): number {
   const m = String(message || "").toLowerCase();
   if (m.includes("access denied")) return 403;
@@ -605,6 +637,264 @@ export class PerformanceScorecardController {
         return ResponseHelper.error(res, "Access denied", undefined, 403, { code: "FORBIDDEN" });
       }
       return ResponseHelper.error(res, msg || "Failed to get organisational BSC dashboard", undefined, 500);
+    }
+  }
+
+  static async getScorecardById(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.loadPersistedScorecard({
+        scorecardId: req.params.scorecardId,
+        viewer: req.user,
+        meta: buildMeta(req)
+      });
+
+      return ResponseHelper.success(res, "Scorecard loaded successfully", data);
+    } catch (error: any) {
+      console.error("Error loading scorecard by id:", error);
+      const statusCode = statusForScorecardManualEditError(error.message);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to load scorecard",
+        undefined,
+        statusCode
+      );
+    }
+  }
+
+  static async editScorecard(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.editPersistedScorecard({
+        scorecardId: req.params.scorecardId,
+        viewer: req.user,
+        ...getScorecardEditBody(req),
+        meta: buildMeta(req)
+      });
+
+      return ResponseHelper.success(res, "Scorecard updated successfully", data);
+    } catch (error: any) {
+      console.error("Error editing scorecard:", error);
+      const statusCode = statusForScorecardManualEditError(error.message);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to edit scorecard",
+        undefined,
+        statusCode
+      );
+    }
+  }
+
+  static async getEmployeeScorecardPersisted(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.loadPersistedScorecard({
+        scorecardType: "EMPLOYEE",
+        employeeUserId: req.params.employeeId,
+        ...getPeriodParams(req),
+        viewer: req.user,
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "Employee scorecard loaded successfully", data);
+    } catch (error: any) {
+      console.error("Error loading persisted employee scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to load employee scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async editEmployeeScorecardPersisted(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.editPersistedScorecard({
+        scorecardType: "EMPLOYEE",
+        employeeUserId: req.params.employeeId,
+        ...getPeriodParamsFromBodyOrQuery(req),
+        viewer: req.user,
+        ...getScorecardEditBody(req),
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "Employee scorecard updated successfully", data);
+    } catch (error: any) {
+      console.error("Error editing persisted employee scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to edit employee scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async getCEOScorecardPersisted(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.loadPersistedScorecard({
+        scorecardType: "CEO",
+        ...getPeriodParams(req),
+        viewer: req.user,
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "CEO scorecard loaded successfully", data);
+    } catch (error: any) {
+      console.error("Error loading persisted CEO scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to load CEO scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async editCEOScorecardPersisted(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.editPersistedScorecard({
+        scorecardType: "CEO",
+        ...getPeriodParamsFromBodyOrQuery(req),
+        viewer: req.user,
+        ...getScorecardEditBody(req),
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "CEO scorecard updated successfully", data);
+    } catch (error: any) {
+      console.error("Error editing persisted CEO scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to edit CEO scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async getBoardScorecardPersisted(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.loadPersistedScorecard({
+        scorecardType: "BOARD",
+        ...getPeriodParams(req),
+        viewer: req.user,
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "Board scorecard loaded successfully", data);
+    } catch (error: any) {
+      console.error("Error loading persisted Board scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to load Board scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async editBoardScorecardPersisted(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.editPersistedScorecard({
+        scorecardType: "BOARD",
+        ...getPeriodParamsFromBodyOrQuery(req),
+        viewer: req.user,
+        ...getScorecardEditBody(req),
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "Board scorecard updated successfully", data);
+    } catch (error: any) {
+      console.error("Error editing persisted Board scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to edit Board scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async getDepartmentScorecardPersisted(req: Request, res: Response) {
+    try {
+      const target = getDepartmentTargetFromRequest(req, req.params.department);
+      const data = await PerformanceScorecardService.loadPersistedScorecard({
+        scorecardType: "DEPARTMENT",
+        departmentName: target.departmentName,
+        departmentId: target.departmentId,
+        ...getPeriodParams(req),
+        viewer: req.user,
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "Department scorecard loaded successfully", data);
+    } catch (error: any) {
+      console.error("Error loading persisted department scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to load department scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async editDepartmentScorecardPersisted(req: Request, res: Response) {
+    try {
+      const target = getDepartmentTargetFromRequest(req, req.params.department);
+      const data = await PerformanceScorecardService.editPersistedScorecard({
+        scorecardType: "DEPARTMENT",
+        departmentName: target.departmentName,
+        departmentId: target.departmentId,
+        ...getPeriodParamsFromBodyOrQuery(req),
+        viewer: req.user,
+        ...getScorecardEditBody(req),
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "Department scorecard updated successfully", data);
+    } catch (error: any) {
+      console.error("Error editing persisted department scorecard:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to edit department scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async getDepartmentScorecardPersistedById(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.loadPersistedScorecard({
+        scorecardType: "DEPARTMENT",
+        departmentId: req.params.departmentId,
+        ...getPeriodParams(req),
+        viewer: req.user,
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "Department scorecard loaded successfully", data);
+    } catch (error: any) {
+      console.error("Error loading persisted department scorecard by id:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to load department scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
+    }
+  }
+
+  static async editDepartmentScorecardPersistedById(req: Request, res: Response) {
+    try {
+      const data = await PerformanceScorecardService.editPersistedScorecard({
+        scorecardType: "DEPARTMENT",
+        departmentId: req.params.departmentId,
+        ...getPeriodParamsFromBodyOrQuery(req),
+        viewer: req.user,
+        ...getScorecardEditBody(req),
+        meta: buildMeta(req)
+      });
+      return ResponseHelper.success(res, "Department scorecard updated successfully", data);
+    } catch (error: any) {
+      console.error("Error editing persisted department scorecard by id:", error);
+      return ResponseHelper.error(
+        res,
+        error.message || "Failed to edit department scorecard",
+        undefined,
+        statusForScorecardManualEditError(error.message)
+      );
     }
   }
 
