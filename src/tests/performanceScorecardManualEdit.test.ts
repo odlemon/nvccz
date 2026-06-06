@@ -25,6 +25,10 @@ jest.mock("../services/AuditService", () => ({
 import { prisma } from "../utils/database";
 import AuditService from "../services/AuditService";
 import {
+  EMPLOYEE_PERSONAL_ATTRIBUTES,
+  EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS
+} from "../services/performanceScorecardSupport";
+import {
   applyScorecardManualEdit,
   loadScorecardForEdit,
   resolvePersistedScorecardId
@@ -44,6 +48,23 @@ const viewer = {
 
 const periodStart = new Date("2026-01-01");
 const periodEnd = new Date("2026-12-31");
+
+function buildQualitativeEvaluation(highlightAttribute = "Teamwork", selectedColumnIndex = 2) {
+  return {
+    personalAttributes: EMPLOYEE_PERSONAL_ATTRIBUTES.map((attribute) => ({
+      attribute,
+      columns: EMPLOYEE_PERSONAL_ATTRIBUTE_COLUMNS.map((label, index) => ({
+        label,
+        selected: attribute === highlightAttribute ? index === selectedColumnIndex : index === 2
+      }))
+    })),
+    trainingAndDevelopment: {
+      beginningOfCycle: [{ note: "Leadership workshop Q1" }],
+      endOfCycle: [],
+      interventions: []
+    }
+  };
+}
 
 function buildEmployeeScorecard(overrides: Record<string, unknown> = {}) {
   return {
@@ -187,7 +208,37 @@ describe("performanceScorecardManualEdit", () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  test("applyScorecardManualEdit: employee matrix patch recalculates scores", async () => {
+  test("applyScorecardManualEdit: rejects matrix row patches", async () => {
+    mockFindUnique.mockResolvedValue(buildEmployeeScorecard());
+
+    await expect(
+      applyScorecardManualEdit({
+        scorecardId: "sc-emp",
+        viewer,
+        editReason: "Should fail",
+        matrixRowPatches: [{ goalId: "goal1", rawRating: 6 }],
+        qualitativeEvaluation: buildQualitativeEvaluation()
+      })
+    ).rejects.toThrow(/matrixRowPatches are not editable/i);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  test("applyScorecardManualEdit: rejects score overrides", async () => {
+    mockFindUnique.mockResolvedValue(buildEmployeeScorecard());
+
+    await expect(
+      applyScorecardManualEdit({
+        scorecardId: "sc-emp",
+        viewer,
+        editReason: "Should fail",
+        scores: { finalScore: 6 },
+        qualitativeEvaluation: buildQualitativeEvaluation()
+      })
+    ).rejects.toThrow(/scores cannot be overridden/i);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  test("applyScorecardManualEdit: qualitative edit updates sections only", async () => {
     mockFindUnique.mockResolvedValue(buildEmployeeScorecard());
     let capturedUpdate: Record<string, unknown> | null = null;
     mockUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
@@ -195,20 +246,25 @@ describe("performanceScorecardManualEdit", () => {
       return { ...buildEmployeeScorecard(), ...data };
     });
 
-    await applyScorecardManualEdit({
+    const result = await applyScorecardManualEdit({
       scorecardId: "sc-emp",
       viewer,
-      editReason: "Corrected rating",
-      matrixRowPatches: [{ goalId: "goal1", rawRating: 6 }]
+      editReason: "Corrected Teamwork rating",
+      qualitativeEvaluation: buildQualitativeEvaluation()
     });
 
-    const rows = capturedUpdate!.matrixRows as any[];
-    expect(rows[0].rawRating).toBe(6);
-    expect(Number(capturedUpdate!.resultsDeliveryScore)).toBe(6);
+    expect(capturedUpdate!.matrixRows).toBeUndefined();
+    expect(capturedUpdate!.resultsDeliveryScore).toBeUndefined();
+    expect(capturedUpdate!.qualitativeSections).toBeDefined();
+    expect(result.scores.finalScore).toBe(2);
     expect(mockAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "SCORECARD_MANUAL_EDIT",
-        newValues: expect.objectContaining({ editReason: "Corrected rating", scorecardType: "EMPLOYEE" })
+        newValues: expect.objectContaining({
+          editReason: "Corrected Teamwork rating",
+          scorecardType: "EMPLOYEE",
+          editScope: "qualitativeEvaluation"
+        })
       })
     );
   });
@@ -226,15 +282,16 @@ describe("performanceScorecardManualEdit", () => {
     const result = await applyScorecardManualEdit({
       scorecardId: "sc-emp",
       viewer,
-      editReason: "Post-finalize correction",
-      matrixRowPatches: [{ goalId: "goal1", rawRating: 5 }]
+      editReason: "Post-finalize qualitative correction",
+      qualitativeEvaluation: buildQualitativeEvaluation()
     });
 
     expect(result.savedRecord.status).toBe("FINAL");
     expect(result.savedRecord.isLocked).toBe(true);
+    expect(result.scores.finalScore).toBe(2);
   });
 
-  test("applyScorecardManualEdit: CEO scorecard updates final score", async () => {
+  test("applyScorecardManualEdit: CEO qualitative edit preserves computed scores", async () => {
     mockFindUnique.mockResolvedValue(buildCeoScorecard());
     mockUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       ...buildCeoScorecard(),
@@ -246,12 +303,12 @@ describe("performanceScorecardManualEdit", () => {
     const result = await applyScorecardManualEdit({
       scorecardId: "sc-ceo",
       viewer,
-      editReason: "CEO correction",
-      matrixRowPatches: [{ goalId: "g1", rawRating: 6 }]
+      editReason: "CEO qualitative correction",
+      qualitativeEvaluation: buildQualitativeEvaluation()
     });
 
     expect(result.scorecardType).toBe("CEO");
-    expect(result.scores.finalScore).toBeGreaterThan(4);
+    expect(result.scores.finalScore).toBe(4);
     expect(result.savedRecord.status).toBe("FINAL");
   });
 });

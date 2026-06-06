@@ -622,6 +622,76 @@ export async function loadScorecardForEdit(scorecardId: string, viewer: any, met
   return response;
 }
 
+function assertQualitativeOnlyEditPayload(params: {
+  matrixRowPatches?: MatrixRowPatch[];
+  scores?: Record<string, number | null | undefined>;
+  sectionBlendMode?: string;
+}) {
+  if (params.matrixRowPatches?.length) {
+    throw new Error(
+      "matrixRowPatches are not editable. Goal actuals, targets, raw ratings, and weights are system-calculated from progress tracking."
+    );
+  }
+  if (params.scores && Object.keys(params.scores).length > 0) {
+    throw new Error(
+      "scores cannot be overridden manually. Numeric scores are computed by the system from goals and contract data."
+    );
+  }
+  if (params.sectionBlendMode) {
+    throw new Error("sectionBlendMode is not used for qualitative-only scorecard edits.");
+  }
+}
+
+function buildStoredScoresResponse(scorecard: any) {
+  const scorecardType = scorecard.scorecardType;
+  const finalScore = toNumber(scorecard.finalScore, 0);
+  const resultsDeliveryScore = toNumber(scorecard.resultsDeliveryScore, 0);
+  const budgetScore = scorecard.budgetScore != null ? toNumber(scorecard.budgetScore, 0) : null;
+
+  if (scorecardType === "DEPARTMENT") {
+    return {
+      departmentScore: finalScore,
+      performanceLabel: performanceLabelFromDepartmentScore(finalScore)
+    };
+  }
+  if (scorecardType === "CEO") {
+    const sectionScores: Record<string, number> = {};
+    const storedSections = scorecard.sections || {};
+    for (const [key, val] of Object.entries(storedSections)) {
+      if (val && typeof val === "object" && (val as any).sectionScore != null) {
+        sectionScores[key] = toNumber((val as any).sectionScore, 0);
+      }
+    }
+    return {
+      sectionScores,
+      sectionBlendScore: resultsDeliveryScore,
+      budgetScore,
+      finalScore,
+      performanceLabel: performanceLabelFromScore(finalScore)
+    };
+  }
+  if (scorecardType === "BOARD") {
+    const sectionScores: Record<string, number> = {};
+    const storedSections = scorecard.sections || {};
+    for (const [key, val] of Object.entries(storedSections)) {
+      if (val && typeof val === "object" && (val as any).sectionScore != null) {
+        sectionScores[key] = toNumber((val as any).sectionScore, 0);
+      }
+    }
+    return {
+      sectionScores,
+      finalScore,
+      performanceLabel: performanceLabelFromScore(finalScore)
+    };
+  }
+  return {
+    resultsDeliveryScore,
+    budgetScore,
+    finalScore,
+    performanceLabel: performanceLabelFromScore(finalScore)
+  };
+}
+
 export async function applyScorecardManualEdit(params: {
   scorecardId: string;
   viewer: any;
@@ -640,241 +710,55 @@ export async function applyScorecardManualEdit(params: {
     throw new Error("editReason is required for scorecard manual correction");
   }
 
+  assertQualitativeOnlyEditPayload(params);
+
+  if (!params.qualitativeEvaluation?.personalAttributes?.length) {
+    throw new Error("qualitativeEvaluation.personalAttributes is required for scorecard manual correction");
+  }
+
   const scorecard = await loadScorecardContext(params.scorecardId);
   const scorecardType = scorecard.scorecardType;
   const previousFinalScore =
     scorecard.finalScore != null ? toNumber(scorecard.finalScore, 0) : null;
+  const storedFinalScore = previousFinalScore ?? 0;
 
   const oldAuditSnapshot = {
     scorecardType,
-    matrixRows: scorecard.matrixRows,
-    resultsDeliveryScore: scorecard.resultsDeliveryScore,
-    budgetScore: scorecard.budgetScore,
-    finalScore: scorecard.finalScore,
-    sections: scorecard.sections,
     qualitativeSections: scorecard.qualitativeSections,
     status: scorecard.status,
     isLocked: scorecard.isLocked
   };
 
-  const baseRows = Array.isArray(scorecard.matrixRows) ? [...scorecard.matrixRows] : [];
-  const patchedRows = patchMatrixRows(baseRows, params.matrixRowPatches);
-  const budgetComponent = buildBudgetComponentFromContract(scorecard.contract);
-  const blendMode = params.sectionBlendMode ?? "redistribute";
+  validatePersonalAttributesGrid(params.qualitativeEvaluation.personalAttributes);
+  const personalAttributeRatings = parsePersonalAttributesGridToRatings(
+    params.qualitativeEvaluation.personalAttributes
+  );
+  const attributeNames = params.qualitativeEvaluation.personalAttributes
+    .map((r) => String(r.attribute).trim())
+    .filter(Boolean);
+  const mergedTemplate = mergeQualitativeTemplate(scorecard.contract?.qualitativeTemplate, {
+    personalAttributeRatings,
+    personalAttributes: attributeNames,
+    trainingAndDevelopment: params.qualitativeEvaluation.trainingAndDevelopment
+  });
 
-  let updateData: Record<string, unknown> = {};
-  let computedScores: Record<string, unknown> = {};
-  let performanceLabel = performanceLabelFromScore(0);
-
-  if (scorecardType === "EMPLOYEE") {
-    const summary = summariseEmployeeResultsDelivery(patchedRows);
-    let resultsDeliveryScore =
-      params.scores?.resultsDeliveryScore !== undefined
-        ? toNumber(params.scores.resultsDeliveryScore, 0)
-        : summary.resultsDeliveryScore;
-    let budgetScore =
-      params.scores?.budgetScore !== undefined
-        ? params.scores.budgetScore
-        : budgetComponent.included
-          ? budgetComponent.score
-          : null;
-    let finalScore: number;
-    if (params.scores?.finalScore !== undefined) {
-      finalScore = toNumber(params.scores.finalScore, 0);
-    } else if (budgetComponent.included && budgetScore != null) {
-      finalScore = round(resultsDeliveryScore * 0.9 + toNumber(budgetScore, 0) * 0.1, 2);
-    } else {
-      finalScore = round(resultsDeliveryScore, 2);
-    }
-    performanceLabel = performanceLabelFromScore(finalScore);
-    computedScores = { resultsDeliveryScore, budgetScore, finalScore, performanceLabel };
-    updateData = {
-      matrixRows: patchedRows,
-      resultsDeliveryScore: decimalForStorage(resultsDeliveryScore),
-      budgetScore: budgetScore != null ? decimalForStorage(budgetScore) : null,
-      finalScore: decimalForStorage(finalScore),
-      sections: {
-        resultsDeliveryScore: round(resultsDeliveryScore, 2),
-        budgetComponent: { included: budgetComponent.included, score: budgetScore }
-      }
-    };
-  } else if (scorecardType === "DEPARTMENT") {
-    const { departmentScore, performanceLabel: deptLabel } = recomputeDepartmentScore(patchedRows);
-    const finalScore =
-      params.scores?.finalScore !== undefined
-        ? toNumber(params.scores.finalScore, 0)
-        : params.scores?.departmentScore !== undefined
-          ? toNumber(params.scores.departmentScore, 0)
-          : departmentScore;
-    performanceLabel = deptLabel;
-    computedScores = { departmentScore: finalScore, performanceLabel };
-    updateData = {
-      matrixRows: patchedRows,
-      resultsDeliveryScore: decimalForStorage(finalScore),
-      finalScore: decimalForStorage(finalScore),
-      sections: { departmentScore: finalScore, performanceLabel }
-    };
-  } else if (scorecardType === "CEO") {
-    const sectionWeights = resolveSectionWeights(
-      scorecard.contract?.sectionWeights,
-      CEO_SECTION_WEIGHTS
-    );
-    const sectionSummary = summariseContractSectionScores(patchedRows, sectionWeights, {
-      sectionBlendMode: blendMode,
-      sectionLabels: CEO_SECTION_LABELS
+  if (scorecard.contractId) {
+    await prisma.performanceContract.update({
+      where: { id: scorecard.contractId },
+      data: { qualitativeTemplate: mergedTemplate }
     });
-    let sectionBlendScore =
-      params.scores?.sectionBlendScore !== undefined
-        ? toNumber(params.scores.sectionBlendScore, 0)
-        : sectionSummary.finalScore;
-    let budgetScore =
-      params.scores?.budgetScore !== undefined
-        ? params.scores.budgetScore
-        : budgetComponent.included
-          ? budgetComponent.score
-          : null;
-    let finalScore: number;
-    if (params.scores?.finalScore !== undefined) {
-      finalScore = toNumber(params.scores.finalScore, 0);
-    } else if (budgetComponent.included && budgetScore != null) {
-      finalScore = round(sectionBlendScore * 0.9 + toNumber(budgetScore, 0) * 0.1, 2);
-    } else {
-      finalScore = sectionBlendScore;
-    }
-    const sectionScores: Record<string, number> = {};
-    const sectionsDb: Record<string, unknown> = {};
-    for (const s of sectionSummary.sections) {
-      sectionScores[s.key] = s.sectionScore;
-      sectionsDb[s.key] = {
-        label: s.label,
-        weightPercent: s.weightPercent,
-        sectionScore: s.sectionScore,
-        performanceLabel: s.performanceLabel
-      };
-    }
-    performanceLabel = ceoPerformanceLabelOverall(
-      finalScore,
-      patchedRows.length,
-      patchedRows.filter((r) => !r.excludedFromScoring).length
-    );
-    computedScores = { sectionScores, sectionBlendScore, budgetScore, finalScore, performanceLabel };
-    updateData = {
-      matrixRows: patchedRows,
-      resultsDeliveryScore: decimalForStorage(sectionBlendScore),
-      budgetScore: budgetScore != null ? decimalForStorage(budgetScore) : null,
-      finalScore: decimalForStorage(finalScore),
-      sections: {
-        ...sectionsDb,
-        sectionBlendScore,
-        budgetComponent,
-        performanceLabel
-      }
-    };
-  } else if (scorecardType === "BOARD") {
-    const sectionWeights = resolveSectionWeights(
-      scorecard.contract?.sectionWeights,
-      BOARD_SECTION_WEIGHTS
-    );
-    const sectionSummary = summariseContractSectionScores(patchedRows, sectionWeights, {
-      sectionBlendMode: blendMode,
-      sectionLabels: BOARD_SECTION_LABELS
-    });
-    const finalScore =
-      params.scores?.finalScore !== undefined
-        ? toNumber(params.scores.finalScore, 0)
-        : sectionSummary.finalScore;
-    const sectionScores: Record<string, number> = {};
-    const sectionsDb: Record<string, unknown> = {};
-    for (const s of sectionSummary.sections) {
-      sectionScores[s.key] = s.sectionScore;
-      sectionsDb[s.key] = {
-        label: s.label,
-        weightPercent: s.weightPercent,
-        sectionScore: s.sectionScore,
-        performanceLabel: s.performanceLabel
-      };
-    }
-    performanceLabel = ceoPerformanceLabelOverall(
-      finalScore,
-      patchedRows.length,
-      patchedRows.filter((r) => !r.excludedFromScoring).length
-    );
-    computedScores = { sectionScores, finalScore, performanceLabel };
-    updateData = {
-      matrixRows: patchedRows,
-      resultsDeliveryScore: decimalForStorage(finalScore),
-      finalScore: decimalForStorage(finalScore),
-      sections: { ...sectionsDb, performanceLabel }
-    };
-  } else {
-    throw new Error(`Scorecard type ${scorecardType} does not support manual editing`);
   }
 
-  let qualitativeSections = scorecard.qualitativeSections;
-  if (params.qualitativeEvaluation?.personalAttributes?.length) {
-    validatePersonalAttributesGrid(params.qualitativeEvaluation.personalAttributes);
-    const personalAttributeRatings = parsePersonalAttributesGridToRatings(
-      params.qualitativeEvaluation.personalAttributes
-    );
-    const attributeNames = params.qualitativeEvaluation.personalAttributes
-      .map((r) => String(r.attribute).trim())
-      .filter(Boolean);
-    const mergedTemplate = mergeQualitativeTemplate(scorecard.contract?.qualitativeTemplate, {
-      personalAttributeRatings,
-      personalAttributes: attributeNames,
-      trainingAndDevelopment: params.qualitativeEvaluation.trainingAndDevelopment
-    });
-    if (scorecard.contractId) {
-      await prisma.performanceContract.update({
-        where: { id: scorecard.contractId },
-        data: { qualitativeTemplate: mergedTemplate }
-      });
-    }
-    qualitativeSections = {
-      personalAttributes: buildPersonalAttributesRatingGrid(mergedTemplate),
-      trainingAndDevelopment: buildTrainingSection(mergedTemplate)
-    };
-    updateData.qualitativeSections = qualitativeSections;
-  }
+  const qualitativeSections = {
+    personalAttributes: buildPersonalAttributesRatingGrid(mergedTemplate),
+    trainingAndDevelopment: buildTrainingSection(mergedTemplate)
+  };
 
   const doc =
     scorecard.documentPayload && typeof scorecard.documentPayload === "object"
       ? { ...(scorecard.documentPayload as Record<string, unknown>) }
       : {};
-
-  if (scorecardType === "EMPLOYEE" || scorecardType === "DEPARTMENT") {
-    syncEmployeeMatrixInDocument(doc, patchedRows);
-    if (scorecardType === "EMPLOYEE") {
-      doc.subtotals = {
-        resultsDeliveryScore: computedScores.resultsDeliveryScore,
-        budgetPerformanceScore: budgetComponent.included ? computedScores.budgetScore : null,
-        finalScore: computedScores.finalScore,
-        performanceLabel
-      };
-    } else {
-      doc.subtotals = {
-        departmentScore: computedScores.departmentScore,
-        finalScore: computedScores.departmentScore,
-        performanceLabel
-      };
-    }
-  } else {
-    const blendForDoc =
-      scorecardType === "CEO"
-        ? summariseContractSectionScores(
-            patchedRows,
-            resolveSectionWeights(scorecard.contract?.sectionWeights, CEO_SECTION_WEIGHTS),
-            { sectionBlendMode: blendMode, sectionLabels: CEO_SECTION_LABELS }
-          )
-        : summariseContractSectionScores(
-            patchedRows,
-            resolveSectionWeights(scorecard.contract?.sectionWeights, BOARD_SECTION_WEIGHTS),
-            { sectionBlendMode: blendMode, sectionLabels: BOARD_SECTION_LABELS }
-          );
-    syncCeoBoardDocument(doc, patchedRows, blendForDoc, performanceLabel, scorecardType);
-  }
-
-  if (qualitativeSections) doc.qualitativeSections = qualitativeSections;
+  doc.qualitativeSections = qualitativeSections;
 
   const editorName =
     `${params.viewer?.firstName || ""} ${params.viewer?.lastName || ""}`.trim() ||
@@ -884,23 +768,24 @@ export async function applyScorecardManualEdit(params: {
     viewer: params.viewer,
     editReason,
     previousFinalScore,
-    newFinalScore: toNumber(computedScores.finalScore ?? computedScores.departmentScore, 0),
+    newFinalScore: storedFinalScore,
     scorecardStatus: scorecard.status
   });
   doc.manualCorrection = manualCorrection;
 
   const warnings = Array.isArray(scorecard.warnings) ? [...scorecard.warnings] : [];
-  const warnLine = `Manually corrected by ${editorName} on ${new Date().toISOString().slice(0, 10)}`;
-  if (!warnings.some((w) => String(w).includes("Manually corrected by"))) {
+  const warnLine = `Qualitative evaluation corrected by ${editorName} on ${new Date().toISOString().slice(0, 10)}`;
+  if (!warnings.some((w) => String(w).includes("corrected by"))) {
     warnings.push(warnLine);
   }
 
-  updateData.warnings = warnings;
-  updateData.documentPayload = doc;
-
   const updated = await prisma.performanceScorecard.update({
     where: { id: scorecard.id },
-    data: updateData
+    data: {
+      qualitativeSections,
+      warnings,
+      documentPayload: doc
+    }
   });
 
   await AuditService.log({
@@ -911,21 +796,19 @@ export async function applyScorecardManualEdit(params: {
     oldValues: oldAuditSnapshot,
     newValues: {
       scorecardType,
-      matrixRows: updated.matrixRows,
-      resultsDeliveryScore: updated.resultsDeliveryScore,
-      budgetScore: updated.budgetScore,
-      finalScore: updated.finalScore,
-      sections: updated.sections,
       qualitativeSections: updated.qualitativeSections,
       editReason,
       subjectUserId: scorecard.subjectUserId,
       departmentName: scorecard.departmentName,
       scorecardStatus: updated.status,
       previousFinalScore,
-      newFinalScore: toNumber(computedScores.finalScore ?? computedScores.departmentScore, 0)
+      newFinalScore: storedFinalScore,
+      editScope: "qualitativeEvaluation"
     },
     ...getRequestMetadata(params.meta)
   }).catch((err) => console.error("Audit log (scorecard manual edit) failed:", err));
+
+  const scores = buildStoredScoresResponse(updated);
 
   return {
     scorecardId: updated.id,
@@ -934,7 +817,8 @@ export async function applyScorecardManualEdit(params: {
     document: updated.documentPayload,
     matrixRows: updated.matrixRows,
     sections: updated.sections,
-    scores: buildScoresResponse(scorecardType, computedScores),
+    qualitativeSections: updated.qualitativeSections,
+    scores,
     manualCorrection
   };
 }

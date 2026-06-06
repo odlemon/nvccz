@@ -123,6 +123,9 @@ function statusForScorecardManualEditError(message: string): number {
   }
   if (
     m.includes("editreason is required") ||
+    m.includes("qualitativeevaluation.personalattributes is required") ||
+    m.includes("matrixrowpatches are not editable") ||
+    m.includes("scores cannot be overridden") ||
     m.includes("does not support manual editing") ||
     m.includes("terminated") ||
     m.includes("departmentid or department name is required")
