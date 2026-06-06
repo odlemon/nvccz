@@ -258,10 +258,10 @@ const options = {
       {
         name: 'Phase two Scorecard Editing',
         description:
-          '**Phase 2 — qualitative scorecard correction only.** Load and edit **persisted** scorecards for **EMPLOYEE**, **DEPARTMENT**, **CEO**, and **BOARD** (DRAFT or FINAL). ' +
+          '**Phase 2 — qualitative scorecard correction only.** Load and edit **persisted** scorecards for **EMPLOYEE**, **DEPARTMENT** (by name), **CEO**, and **BOARD** (DRAFT or FINAL). ' +
           '**Editable:** `qualitativeEvaluation.personalAttributes` (+ optional `trainingAndDevelopment`) and mandatory **`editReason`**. ' +
           '**Not editable:** goal actuals, targets, raw ratings, matrix rows, or computed numeric scores (system-calculated from progress tracking). ' +
-          'Lookup: employee + period, department name/id + period, CEO/Board + period, or **`/scorecards/{scorecardId}`** when you have the row id.'
+          'PUT examples include the full 10×5 personal-attributes grid and populated `beginningOfCycle`, `endOfCycle`, and `interventions` arrays.'
       },
       {
         name: 'Performance collaboration and notifications',
