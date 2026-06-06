@@ -19,6 +19,7 @@ import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from '
 import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
 import { phaseTwoScorecardEditingSwaggerPaths } from './phase-two-scorecard-editing-swagger-paths';
+import { pruneSwaggerSpecByExcludedTags } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
 import { reviewsUatReviewCyclesIndependentEvalEndpoints } from './reviews-uat-review-cycles-independent-eval-endpoints';
@@ -257,9 +258,10 @@ const options = {
       {
         name: 'Phase two Scorecard Editing',
         description:
-          '**Phase 2 — manual scorecard correction.** Load and edit **persisted** scorecards for **EMPLOYEE**, **DEPARTMENT**, **CEO**, and **BOARD** (DRAFT or FINAL). ' +
-          'All **PUT …/edit** routes require **`editReason`** and write **`SCORECARD_MANUAL_EDIT`** audit logs; FINAL rows keep `status` and `isLocked` unchanged. ' +
-          'Lookup by type: **`GET/PUT …/employee/{employeeId}/persisted|edit`** (employee + period), **`…/department/{department}/…`** or **`…/department/by-id/{departmentId}/…`**, **`…/ceo/persisted|edit`**, **`…/board/persisted|edit`**, or universal **`GET/PUT …/scorecards/{scorecardId}`** / **`…/{scorecardId}/edit`** when you already have the persisted row id.'
+          '**Phase 2 — qualitative scorecard correction only.** Load and edit **persisted** scorecards for **EMPLOYEE**, **DEPARTMENT**, **CEO**, and **BOARD** (DRAFT or FINAL). ' +
+          '**Editable:** `qualitativeEvaluation.personalAttributes` (+ optional `trainingAndDevelopment`) and mandatory **`editReason`**. ' +
+          '**Not editable:** goal actuals, targets, raw ratings, matrix rows, or computed numeric scores (system-calculated from progress tracking). ' +
+          'Lookup: employee + period, department name/id + period, CEO/Board + period, or **`/scorecards/{scorecardId}`** when you have the row id.'
       },
       {
         name: 'Performance collaboration and notifications',
@@ -9567,6 +9569,11 @@ addTagToOps(
   'Procurement — UAT',
   { skipIfHasTagPrefix: 'Procurement — ' }
 );
+
+const beforePrune = Object.keys(specs.paths ?? {}).length;
+specs = pruneSwaggerSpecByExcludedTags(specs);
+const afterPrune = Object.keys(specs.paths ?? {}).length;
+console.log(`Swagger prune: ${beforePrune} path keys -> ${afterPrune} path keys`);
 
 export { specs }; 
 

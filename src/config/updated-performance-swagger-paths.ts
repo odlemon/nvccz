@@ -1300,7 +1300,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
 
   '/performance/scorecards/department/{department}/qualitative-evaluation': {
     put: {
-      tags: ['Updated performance', 'Performance Scorecards'],
+      tags: ['Updated performance'],
       summary: 'Save department Head qualitative evaluation (HOD leadership grid)',
       description: DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES,
       security: [{ bearerAuth: [] }],
@@ -1442,7 +1442,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
 
   '/performance/scorecards/department/by-id/{departmentId}/qualitative-evaluation': {
     put: {
-      tags: ['Updated performance', 'Performance Scorecards'],
+      tags: ['Updated performance'],
       summary: 'Save department Head qualitative evaluation by department id',
       description:
         DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES +
@@ -1500,7 +1500,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
 
   '/performance/scorecards/employee/{employeeId}/qualitative-evaluation': {
     put: {
-      tags: ['Updated performance', 'Performance Scorecards'],
+      tags: ['Updated performance'],
       summary: 'Save employee individual qualitative evaluation',
       description: EMPLOYEE_QUALITATIVE_EVALUATION_API_NOTES,
       security: [{ bearerAuth: [] }],
@@ -1629,7 +1629,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
 
   '/performance/scorecards/board/qualitative-evaluation': {
     put: {
-      tags: ['Updated performance', 'Performance Scorecards'],
+      tags: ['Updated performance'],
       summary: 'Save Board qualitative evaluation',
       description: BOARD_QUALITATIVE_EVALUATION_API_NOTES,
       security: [{ bearerAuth: [] }],
@@ -1750,7 +1750,7 @@ export const updatedPerformanceSwaggerPaths: Record<string, Record<string, unkno
 
   '/performance/scorecards/ceo/qualitative-evaluation': {
     put: {
-      tags: ['Updated performance', 'Performance Scorecards'],
+      tags: ['Updated performance'],
       summary: 'Save CEO qualitative evaluation',
       description: CEO_QUALITATIVE_EVALUATION_API_NOTES,
       security: [{ bearerAuth: [] }],
