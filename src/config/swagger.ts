@@ -18,6 +18,7 @@ import { fiscalCalendarEndpoints } from './fiscal-calendar-endpoints';
 import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from './capital-calls-endpoints';
 import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
+import { phaseTwoScorecardEditingSwaggerPaths } from './phase-two-scorecard-editing-swagger-paths';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
 import { reviewsUatReviewCyclesIndependentEvalEndpoints } from './reviews-uat-review-cycles-independent-eval-endpoints';
@@ -252,6 +253,13 @@ const options = {
         name: 'Updated performance',
         description:
           'BSC **data entry**, **workflow**, **performance contracts**, and **scorecard generate** (persist draft) — see `docs/performance-bsc-data-entry-flow.md` for paths, **example JSON bodies** (incl. contracts), and rules. **Contracts:** **`GET /performance/contracts`** (list all with optional filters: contractType, status, periodYear, periodLabel, subjectUserId, departmentName, skip, take). **`POST /performance/contracts/board|ceo|department|employee`** (annual `periodYear` or exact UTC year bounds; CEO may omit `subjectUserId` to resolve from roles). **Scorecards:** `GET /performance/scorecards/employees-for-generation` (EMPLOYEE contract holders for the period, CEO excluded) and **`POST /performance/scorecards/board/generate`, `…/ceo/generate`, `…/department/{department}/generate`, `…/employee/{employeeId}/generate`** — optional period + **sectionBlendMode** (Board/CEO). JWT only on these routes.'
+      },
+      {
+        name: 'Phase two Scorecard Editing',
+        description:
+          '**Phase 2 — manual scorecard correction.** Load and edit **persisted** scorecards for **EMPLOYEE**, **DEPARTMENT**, **CEO**, and **BOARD** (DRAFT or FINAL). ' +
+          'All **PUT …/edit** routes require **`editReason`** and write **`SCORECARD_MANUAL_EDIT`** audit logs; FINAL rows keep `status` and `isLocked` unchanged. ' +
+          'Lookup by type: **`GET/PUT …/employee/{employeeId}/persisted|edit`** (employee + period), **`…/department/{department}/…`** or **`…/department/by-id/{departmentId}/…`**, **`…/ceo/persisted|edit`**, **`…/board/persisted|edit`**, or universal **`GET/PUT …/scorecards/{scorecardId}`** / **`…/{scorecardId}/edit`** when you already have the persisted row id.'
       },
       {
         name: 'Performance collaboration and notifications',
@@ -9474,6 +9482,7 @@ specs.paths = {
   ...lpFeesAndDistributionsEndpoints,
   ...updatedInvestmentFlowExtraPaths,
   ...updatedPerformanceSwaggerPaths,
+  ...phaseTwoScorecardEditingSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
   ...payrollEndpoints,
