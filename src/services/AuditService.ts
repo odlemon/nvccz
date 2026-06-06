@@ -176,6 +176,24 @@ export default class AuditService {
           reason: n.reason ?? null
         };
       }
+      if (log.action === "SCORECARD_MANUAL_EDIT" && log.entityType === "PerformanceScorecard") {
+        const o = (log.oldValues || {}) as Record<string, unknown>;
+        const n = (log.newValues || {}) as Record<string, unknown>;
+        const prev = o.finalScore != null ? Number(o.finalScore) : null;
+        const next = n.finalScore != null ? Number(n.finalScore) : null;
+        entry.scorecardManualEdit = {
+          scorecardId: log.entityId,
+          subjectUserId: (n.subjectUserId as string | undefined) ?? null,
+          scorecardStatus: (n.scorecardStatus as string | undefined) ?? null,
+          reason: (n.editReason as string | undefined) ?? null,
+          previousFinalScore: prev,
+          newFinalScore: next,
+          finalScoreDelta:
+            prev != null && next != null && Number.isFinite(prev) && Number.isFinite(next)
+              ? Math.round((next - prev) * 100) / 100
+              : null
+        };
+      }
       if (log.entityType === "VendorBank" && log.action === "UPDATE") {
         const n = (log.newValues || {}) as Record<string, unknown>;
         if (n.auditPriority === "HIGH" || n._priority === "HIGH") {

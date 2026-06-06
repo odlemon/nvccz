@@ -887,13 +887,13 @@ export const DEPARTMENT_QUALITATIVE_EVALUATION_API_NOTES = [
 
 /** OpenAPI description for employee individual qualitative PUT (Sarah / API consumers). */
 export const EMPLOYEE_QUALITATIVE_EVALUATION_API_NOTES = [
-  "Saves the **individual employee qualitative evaluation** (personal attributes grid) for an employee performance period.",
+  "Phase two — Scorecard editing (qualitative): saves the **individual employee qualitative evaluation** (personal attributes grid) for an employee performance period.",
   "",
   "**What this is (vs KPI matrix):**",
   "- The **quantitative KPI matrix** (`resultsDeliveryScore`, goal rows, `finalScore` from goals/budget) is calculated automatically from individual goals and contract budget fields.",
   "- This endpoint stores the **qualitative personal-attributes grid** only — behavioural/soft-skill ratings for the employee. It does **not** change numeric scores.",
   "",
-  "**Who may call:** Administrator or CEO only.",
+  "**Who may call:** Direct line manager, HR leader, CEO, or administrator (not the employee). For **FINAL** scorecards use **PUT** `/performance/scorecards/{scorecardId}/edit` instead.",
   "",
   "**Default personal attributes (10 rows):**",
   ...EMPLOYEE_PERSONAL_ATTRIBUTES.map((a) => `- ${a}`),
@@ -1193,9 +1193,48 @@ export function canSaveDepartmentQualitativeEvaluation(viewer: any): boolean {
   return isAdminViewer(viewer) || isCEO(viewer);
 }
 
-/** Admin or CEO may save employee individual qualitative evaluation. */
-export function canSaveEmployeeQualitativeEvaluation(viewer: any): boolean {
-  return canSaveDepartmentQualitativeEvaluation(viewer);
+export function canViewEmployeeScorecard(
+  viewer: any,
+  employeeUser: { id: string },
+  employeeRecord: { lineManagerUserId?: string | null } | null
+): boolean {
+  if (!viewer?.id) return false;
+  const isSelf = viewer.id === employeeUser.id;
+  const lineManagerId = employeeRecord?.lineManagerUserId || null;
+  const isLineManager = Boolean(lineManagerId && viewer.id === lineManagerId);
+  return Boolean(isSelf || isLineManager || isHRLeader(viewer) || isCEO(viewer) || isAdminViewer(viewer));
+}
+
+/** Line manager, HR, CEO, or admin — not the employee themselves (Phase 2 scorecard edit). */
+export function canEditEmployeeScorecard(
+  viewer: any,
+  employeeUser: { id: string },
+  employeeRecord: { lineManagerUserId?: string | null } | null
+): boolean {
+  if (!viewer?.id) return false;
+  if (viewer.id === employeeUser.id) return false;
+  const lineManagerId = employeeRecord?.lineManagerUserId || null;
+  const isLineManager = Boolean(lineManagerId && viewer.id === lineManagerId);
+  return Boolean(isLineManager || isHRLeader(viewer) || isCEO(viewer) || isAdminViewer(viewer));
+}
+
+/**
+ * Phase 2: manager/HR may save employee qualitative evaluation on DRAFT scorecards.
+ * Admin/CEO always allowed.
+ */
+export function canSaveEmployeeQualitativeEvaluation(
+  viewer: any,
+  opts?: {
+    employeeUser?: { id: string };
+    employeeRecord?: { lineManagerUserId?: string | null } | null;
+  }
+): boolean {
+  if (!viewer?.id) return false;
+  if (isAdminViewer(viewer) || isCEO(viewer)) return true;
+  if (opts?.employeeUser) {
+    return canEditEmployeeScorecard(viewer, opts.employeeUser, opts.employeeRecord ?? null);
+  }
+  return false;
 }
 
 /** Admin or CEO may save Board qualitative evaluation. */

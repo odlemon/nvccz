@@ -77,6 +77,12 @@ import {
 import { CompanyProfileAddressService } from "./CompanyProfileAddressService";
 import { normaliseTaskStage, TASK_STAGE_OPTIONS } from "./TaskCollaborationService";
 import { isPrecisionSensitiveFormula, shouldRaiseDataQualityAlert } from "./performanceBackendSupport";
+import {
+  applyScorecardManualEdit,
+  loadScorecardForEdit,
+  resolvePersistedScorecardId,
+  type ScorecardLookup
+} from "./performanceScorecardManualEdit";
 
 type AccessContext = {
   entityId: string;
@@ -2696,12 +2702,6 @@ export class PerformanceScorecardService {
     };
     meta?: any;
   }) {
-    if (!canSaveEmployeeQualitativeEvaluation(params.viewer)) {
-      throw new Error(
-        "Access denied. Only an administrator or CEO may save employee qualitative evaluation."
-      );
-    }
-
     const employeeUser = await prisma.user.findUnique({
       where: { id: params.employeeUserId },
       select: {
@@ -2722,6 +2722,17 @@ export class PerformanceScorecardService {
     }
     if (employeeUser.employee?.terminated) {
       throw new Error("This employee has been terminated and is not eligible for qualitative evaluation.");
+    }
+
+    if (
+      !canSaveEmployeeQualitativeEvaluation(params.viewer, {
+        employeeUser: { id: employeeUser.id },
+        employeeRecord: employeeUser.employee
+      })
+    ) {
+      throw new Error(
+        "Access denied. Only direct manager, HR leader, CEO, or administrator may save employee qualitative evaluation."
+      );
     }
 
     const period = this.buildPeriod(params);
@@ -5109,5 +5120,75 @@ export class PerformanceScorecardService {
       },
       employees
     };
+  }
+
+  /** Phase 2 — resolve persisted scorecard id from scorecardId or type + period lookup. */
+  static async resolvePersistedScorecard(params: ScorecardLookup) {
+    return resolvePersistedScorecardId(params);
+  }
+
+  /** Phase 2 — load persisted scorecard for edit/review UI (all types). */
+  static async loadPersistedScorecard(params: ScorecardLookup & { viewer: any; meta?: any }) {
+    const scorecardId = await resolvePersistedScorecardId(params);
+    return loadScorecardForEdit(scorecardId, params.viewer, params.meta);
+  }
+
+  /** Phase 2 — controlled manual correction (DRAFT or FINAL; all types). */
+  static async editPersistedScorecard(
+    params: ScorecardLookup & {
+      viewer: any;
+      editReason: string;
+      matrixRowPatches?: {
+        goalId: string;
+        actualValue?: number;
+        targetValue?: number;
+        rawRating?: number;
+        weight?: number;
+      }[];
+      scores?: Record<string, number | null | undefined>;
+      qualitativeEvaluation?: {
+        personalAttributes: {
+          attribute: string;
+          columns: { label: string; selected: boolean | null }[];
+        }[];
+        trainingAndDevelopment?: Record<string, unknown>;
+      };
+      sectionBlendMode?: "penalise" | "redistribute";
+      meta?: any;
+    }
+  ) {
+    const scorecardId = await resolvePersistedScorecardId(params);
+    return applyScorecardManualEdit({ ...params, scorecardId });
+  }
+
+  /** @deprecated Use loadPersistedScorecard */
+  static async loadEmployeeScorecardById(params: {
+    scorecardId: string;
+    viewer: any;
+    meta?: any;
+  }) {
+    return this.loadPersistedScorecard({ scorecardId: params.scorecardId, viewer: params.viewer, meta: params.meta });
+  }
+
+  /** @deprecated Use editPersistedScorecard */
+  static async editEmployeeScorecard(params: {
+    scorecardId: string;
+    viewer: any;
+    editReason: string;
+    matrixRowPatches?: {
+      goalId: string;
+      actualValue?: number;
+      targetValue?: number;
+      rawRating?: number;
+      weight?: number;
+    }[];
+    scores?: Record<string, number | null | undefined>;
+    qualitativeEvaluation?: {
+      personalAttributes: { attribute: string; columns: { label: string; selected: boolean | null }[] }[];
+      trainingAndDevelopment?: Record<string, unknown>;
+    };
+    meta?: any;
+  }) {
+    return this.editPersistedScorecard({ scorecardId: params.scorecardId, ...params });
   }
 }
