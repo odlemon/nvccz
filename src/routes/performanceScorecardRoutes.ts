@@ -358,99 +358,12 @@ router.get("/employee/:employeeId", PerformanceScorecardController.getEmployeeSc
  */
 router.post("/employee/:employeeId/generate", PerformanceScorecardController.generateEmployeeScorecard);
 
-/**
- * @swagger
- * /api/performance/scorecards/employee/{employeeId}/persisted:
- *   get:
- *     summary: Load persisted employee scorecard for a period
- *     description: >
- *       Phase two — Scorecard editing: load the saved employee scorecard for the given employee and period
- *       (latest DRAFT or FINAL). Use periodStart/periodEnd or periodLabel to identify the cycle.
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: employeeId
- *         required: true
- *         schema:
- *           type: string
- *       - in: query
- *         name: periodStart
- *         schema:
- *           type: string
- *           format: date-time
- *       - in: query
- *         name: periodEnd
- *         schema:
- *           type: string
- *           format: date-time
- *       - in: query
- *         name: periodLabel
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Employee scorecard loaded successfully
- *       404:
- *         description: No persisted scorecard for employee and period
- */
+// Phase 2 scorecard editing — documented under Swagger tag "Phase two Scorecard Editing"
 router.get(
   "/employee/:employeeId/persisted",
   PerformanceScorecardController.getEmployeeScorecardPersisted
 );
 
-/**
- * @swagger
- * /api/performance/scorecards/employee/{employeeId}/edit:
- *   put:
- *     summary: Manual correction of employee scorecard for a period
- *     description: >
- *       Phase two — Scorecard editing: manual correction of the employee scorecard for the given period.
- *       Requires editReason; writes SCORECARD_MANUAL_EDIT audit trail. Works on DRAFT and FINAL.
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: employeeId
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [editReason]
- *             properties:
- *               editReason:
- *                 type: string
- *               periodLabel:
- *                 type: string
- *               periodStart:
- *                 type: string
- *                 format: date-time
- *               periodEnd:
- *                 type: string
- *                 format: date-time
- *               matrixRowPatches:
- *                 type: array
- *                 items:
- *                   type: object
- *               scores:
- *                 type: object
- *               qualitativeEvaluation:
- *                 type: object
- *     responses:
- *       200:
- *         description: Employee scorecard updated successfully
- *       400:
- *         description: Missing editReason
- *       404:
- *         description: No persisted scorecard for employee and period
- */
 router.put(
   "/employee/:employeeId/edit",
   PerformanceScorecardController.editEmployeeScorecardPersisted
@@ -640,78 +553,11 @@ router.put(
 );
 router.get("/department/:department", PerformanceScorecardController.getDepartmentScorecard);
 
-/**
- * @swagger
- * /api/performance/scorecards/department/{department}/persisted:
- *   get:
- *     summary: Load persisted department scorecard for a period
- *     description: >
- *       Phase two — Scorecard editing: load the saved department scorecard for the named department and period.
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: department
- *         required: true
- *         schema:
- *           type: string
- *       - in: query
- *         name: periodLabel
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Department scorecard loaded successfully
- *       404:
- *         description: Department scorecard not found for period
- */
 router.get(
   "/department/:department/persisted",
   PerformanceScorecardController.getDepartmentScorecardPersisted
 );
 
-/**
- * @swagger
- * /api/performance/scorecards/department/{department}/edit:
- *   put:
- *     summary: Manual correction of department scorecard
- *     description: >
- *       Phase two — Scorecard editing: manual correction of the department scorecard (DRAFT or FINAL).
- *       Requires editReason; writes audit trail.
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: department
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [editReason]
- *             properties:
- *               editReason:
- *                 type: string
- *               periodLabel:
- *                 type: string
- *               matrixRowPatches:
- *                 type: array
- *                 items:
- *                   type: object
- *               scores:
- *                 type: object
- *               qualitativeEvaluation:
- *                 type: object
- *     responses:
- *       200:
- *         description: Department scorecard updated successfully
- */
 router.put(
   "/department/:department/edit",
   PerformanceScorecardController.editDepartmentScorecardPersisted
@@ -1336,67 +1182,7 @@ router.get("/ceo", PerformanceScorecardController.getCEOScorecard);
  */
 router.post("/ceo/generate", PerformanceScorecardController.generateCEOScorecard);
 
-/**
- * @swagger
- * /api/performance/scorecards/ceo/persisted:
- *   get:
- *     summary: Load persisted CEO scorecard for a period
- *     description: >
- *       Phase two — Scorecard editing: load the saved CEO scorecard for the period (one CEO scorecard per cycle).
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: periodLabel
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: CEO scorecard loaded successfully
- *       404:
- *         description: CEO scorecard not found for period
- */
 router.get("/ceo/persisted", PerformanceScorecardController.getCEOScorecardPersisted);
-
-/**
- * @swagger
- * /api/performance/scorecards/ceo/edit:
- *   put:
- *     summary: Manual correction of CEO scorecard
- *     description: >
- *       Phase two — Scorecard editing: manual correction of the CEO scorecard (DRAFT or FINAL).
- *       Requires editReason; optional sectionBlendMode for section score recalculation.
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [editReason]
- *             properties:
- *               editReason:
- *                 type: string
- *               periodLabel:
- *                 type: string
- *               sectionBlendMode:
- *                 type: string
- *                 enum: [redistribute, penalise]
- *               matrixRowPatches:
- *                 type: array
- *                 items:
- *                   type: object
- *               scores:
- *                 type: object
- *               qualitativeEvaluation:
- *                 type: object
- *     responses:
- *       200:
- *         description: CEO scorecard updated successfully
- */
 router.put("/ceo/edit", PerformanceScorecardController.editCEOScorecardPersisted);
 
 /**
@@ -1486,67 +1272,7 @@ router.get("/board", PerformanceScorecardController.getBoardScorecard);
  */
 router.post("/board/generate", PerformanceScorecardController.generateBoardScorecard);
 
-/**
- * @swagger
- * /api/performance/scorecards/board/persisted:
- *   get:
- *     summary: Load persisted Board scorecard for a period
- *     description: >
- *       Phase two — Scorecard editing: load the saved Board scorecard for the period (one Board scorecard per cycle).
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: periodLabel
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Board scorecard loaded successfully
- *       404:
- *         description: Board scorecard not found for period
- */
 router.get("/board/persisted", PerformanceScorecardController.getBoardScorecardPersisted);
-
-/**
- * @swagger
- * /api/performance/scorecards/board/edit:
- *   put:
- *     summary: Manual correction of Board scorecard
- *     description: >
- *       Phase two — Scorecard editing: manual correction of the Board scorecard (DRAFT or FINAL).
- *       Requires editReason; optional sectionBlendMode for section score recalculation.
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [editReason]
- *             properties:
- *               editReason:
- *                 type: string
- *               periodLabel:
- *                 type: string
- *               sectionBlendMode:
- *                 type: string
- *                 enum: [redistribute, penalise]
- *               matrixRowPatches:
- *                 type: array
- *                 items:
- *                   type: object
- *               scores:
- *                 type: object
- *               qualitativeEvaluation:
- *                 type: object
- *     responses:
- *       200:
- *         description: Board scorecard updated successfully
- */
 router.put("/board/edit", PerformanceScorecardController.editBoardScorecardPersisted);
 
 /**
@@ -1588,133 +1314,7 @@ router.put("/board/edit", PerformanceScorecardController.editBoardScorecardPersi
  */
 router.get("/org-bsc", PerformanceScorecardController.getOrgBSCDashboard);
 
-/**
- * @swagger
- * /api/performance/scorecards/{scorecardId}:
- *   get:
- *     summary: Load persisted scorecard by id (any type)
- *     description: >
- *       Phase two — Scorecard editing: load any persisted scorecard (EMPLOYEE, DEPARTMENT, CEO, or BOARD) by scorecard id.
- *       Returns savedRecord, document, matrixRows, scores, qualitativeSections, and lifecycle.
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: scorecardId
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Employee scorecard loaded successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/PerformanceScorecardEnvelope'
- *       403:
- *         description: Access denied
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/StandardErrorEnvelope'
- *       404:
- *         description: Scorecard not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/StandardErrorEnvelope'
- */
 router.get("/:scorecardId", PerformanceScorecardController.getScorecardById);
-
-/**
- * @swagger
- * /api/performance/scorecards/{scorecardId}/edit:
- *   put:
- *     summary: Manual correction of scorecard by id (any type)
- *     description: >
- *       Phase two — Scorecard editing: manual correction of any persisted scorecard by id (DRAFT or FINAL).
- *       Requires editReason; writes SCORECARD_MANUAL_EDIT audit trail. Does not change status or isLocked on FINAL rows.
- *     tags: [Updated performance, Performance Scorecards]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: scorecardId
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [editReason]
- *             properties:
- *               editReason:
- *                 type: string
- *                 description: Mandatory reason for the correction (audit + documentPayload.manualCorrection)
- *               matrixRowPatches:
- *                 type: array
- *                 items:
- *                   type: object
- *                   required: [goalId]
- *                   properties:
- *                     goalId:
- *                       type: string
- *                     actualValue:
- *                       type: number
- *                     targetValue:
- *                       type: number
- *                     rawRating:
- *                       type: number
- *                     weight:
- *                       type: number
- *               scores:
- *                 type: object
- *                 properties:
- *                   resultsDeliveryScore:
- *                     type: number
- *                   budgetScore:
- *                     type: number
- *                   finalScore:
- *                     type: number
- *               qualitativeEvaluation:
- *                 type: object
- *                 properties:
- *                   personalAttributes:
- *                     type: array
- *                     items:
- *                       type: object
- *                   trainingAndDevelopment:
- *                     type: object
- *     responses:
- *       200:
- *         description: Employee scorecard updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/PerformanceScorecardEnvelope'
- *       400:
- *         description: Missing editReason or validation error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/StandardErrorEnvelope'
- *       403:
- *         description: Access denied
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/StandardErrorEnvelope'
- *       404:
- *         description: Scorecard not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/StandardErrorEnvelope'
- */
 router.put("/:scorecardId/edit", PerformanceScorecardController.editScorecard);
 
 /**
