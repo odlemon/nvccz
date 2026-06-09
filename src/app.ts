@@ -109,6 +109,7 @@ import payrollRoutes from "./routes/payrollRoutes"
 import payrollDashboardRoutes from "./routes/payrollDashboardRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import procurementSuite06Routes from "./routes/procurementSuite06Routes"
+import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
 import vendorQuotationRoutes from "./routes/vendorQuotationRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
@@ -622,6 +623,7 @@ app.use("/api/payroll/dashboard", payrollDashboardRoutes)
 
 // Procurement Management routes
 app.use("/api/procurement", procurementRoutes)
+app.use("/api/procurement/document-attachments", vendorDocumentAttachmentRoutes)
 app.use("/api/procurement/suite06", procurementSuite06Routes)
 
 // Vendor Quotation routes (some are public/unauthenticated)

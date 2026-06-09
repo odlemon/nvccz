@@ -131,6 +131,8 @@ export interface CreateProcurementInvoiceParams {
   currencyId?: string;
   documentPath?: string;
   documentType?: string;
+  /** Phase 2 — staged upload ids from document-attachments portal upload */
+  attachmentIds?: string[];
   createdById?: string; // Optional for public vendor submissions
   items: {
     itemName: string;
@@ -3313,6 +3315,7 @@ export class ProcurementService {
         currencyId,
         documentPath,
         documentType,
+        attachmentIds,
         createdById,
         items
       } = params;
@@ -3516,6 +3519,23 @@ export class ProcurementService {
             `   ✅ PO ${poForAck.poNumber} status → ${PO_STATUS.ACKNOWLEDGED} (vendor invoice submitted)`
           );
         }
+      }
+
+      if (attachmentIds?.length) {
+        const { VendorDocumentAttachmentService } = await import(
+          "./VendorDocumentAttachmentService"
+        );
+        await VendorDocumentAttachmentService.linkStagedAttachments({
+          attachmentIds,
+          entityType: "PROCUREMENT_INVOICE",
+          entityId: invoice.id,
+          vendorId: resolvedVendorId,
+          actorUserId: createdById ?? finalCreatedById
+        });
+        invoice = await prisma.procurementInvoice.findUnique({
+          where: { id: invoice.id },
+          include: procurementInvoiceInclude
+        });
       }
 
       // Audit log

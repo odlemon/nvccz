@@ -1026,12 +1026,14 @@ export class ProcurementController {
       );
       res.status(201).json({
         success: true,
-        message: "Document uploaded. Use documentUrl as documentPath when creating the invoice.",
+        message:
+          "Document uploaded (legacy). Prefer POST /api/procurement/document-attachments/portal/upload with vendorPortalToken. Use documentUrl as documentPath when creating the invoice.",
         data: {
           documentUrl: downloadURL,
           documentPath: downloadURL,
           filePath,
           documentType: "PDF",
+          deprecated: true
         },
       });
     } catch (error: any) {
@@ -1059,6 +1061,7 @@ export class ProcurementController {
         currencyId,
         documentPath,
         documentType,
+        attachmentIds,
         items
       } = req.body;
 
@@ -1118,6 +1121,7 @@ export class ProcurementController {
         currencyId,
         documentPath,
         documentType,
+        attachmentIds: Array.isArray(attachmentIds) ? attachmentIds : undefined,
         createdById: createdById || undefined, // Pass undefined if null
         items
       });
