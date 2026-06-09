@@ -78,6 +78,8 @@ export interface CreatePurchaseInvoiceParams {
   sourcePurchaseOrderId?: string | null;
   /** Suite 06: GRN for PO vs GRN vs bill line match. */
   sourceGoodsReceivedNoteId?: string | null;
+  /** Phase 2 — attachment ids to link after bill create */
+  attachmentIds?: string[];
 }
 
 export interface PurchaseInvoiceWithRelations extends PurchaseInvoice {
@@ -195,6 +197,7 @@ export class PurchaseInvoiceService {
         createdById,
         sourcePurchaseOrderId,
         sourceGoodsReceivedNoteId,
+        attachmentIds,
       } = params;
 
       // Validate input
@@ -353,6 +356,19 @@ export class PurchaseInvoiceService {
 
       if (!invoice) {
         throw new Error("Failed to generate unique invoice number after multiple attempts");
+      }
+
+      if (attachmentIds?.length) {
+        const { VendorDocumentAttachmentService } = await import(
+          "./VendorDocumentAttachmentService"
+        );
+        await VendorDocumentAttachmentService.linkStagedAttachments({
+          attachmentIds,
+          entityType: "PURCHASE_INVOICE",
+          entityId: invoice.id,
+          vendorId,
+          actorUserId: createdById
+        });
       }
 
       // Audit log

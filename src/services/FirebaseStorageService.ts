@@ -45,6 +45,30 @@ export class FirebaseStorageService {
    * Vendor invoice PDF for Suite 06 intake or public procurement invoice attachment.
    * Uses correct MIME type (unlike uploadImportFile which forces CSV).
    */
+  /** Phase 2 unified vendor record attachments (quotations / invoices). */
+  static async uploadVendorRecordAttachment(
+    file: Buffer,
+    fileName: string,
+    folderKey: string,
+    mimeType?: string
+  ): Promise<{ filePath: string; downloadURL: string }> {
+    const sanitizedName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    const safeFolder = (folderKey || "misc").replace(/[^a-zA-Z0-9.\-_/]/g, "_").slice(0, 120);
+    const timestamp = Date.now();
+    const result = await remoteUploadService.uploadSingleFile(
+      {
+        buffer: file,
+        originalname: `${timestamp}-${sanitizedName}`,
+        mimetype: mimeType || this.getMimeType(fileName)
+      },
+      "vendor-record-attachments"
+    );
+    return {
+      filePath: `vendor-record-attachments/${safeFolder}/${timestamp}-${sanitizedName}`,
+      downloadURL: result.downloadURL
+    };
+  }
+
   static async uploadProcurementVendorInvoice(
     file: Buffer,
     fileName: string,

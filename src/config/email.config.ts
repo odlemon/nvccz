@@ -9,12 +9,12 @@ export const emailConfig = {
     port: 587,
     auth: {
       user: "emailapikey",
-      pass: "wSsVR60l/RH4Bqx1mjyuJeg/y19XAFj/FUQujlLz6XP8HPnDpscywkDKUVCmHPgdRGNoEjoS8rJ/mR8H1DMN294lyVsCWyiF9mqRe1U4J3x17qnvhDzJWWlZkRqLJYsMxQRunGdhE8on+g=="
+      pass: "wSsVR61/qEShC6x4zjT7IOowmVlWBlKiF0gv3QfzvST8HqqT/cdqnkfNU1KnFfhOEmY7QTQVp7kvkEpU1zFdh9x+ngkICyiF9mqRe1U4J3x17qnvhDzIWmRdkxeKLY8IzwVommVjG88l+g=="
     }
   },
   
   // From Address Configuration
-  fromAddress: "noreply@kyntaro.com",
+  fromAddress: "noreply@ntsarcus.com",
   
   // From Names by Module (using environment variables)
   fromNames: {

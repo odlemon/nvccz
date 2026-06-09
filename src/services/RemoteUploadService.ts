@@ -151,6 +151,7 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   "financial-reports": "financial-reports",
   "financial-report": "financial-reports",
   "procurement-vendor-invoices": "financial-reports",
+  "vendor-record-attachments": "financial-reports",
   
   // Application documents
   "application-documents": "application-documents",

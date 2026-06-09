@@ -101,6 +101,8 @@ export interface CreateVendorQuotationParams {
   deliveryTime?: string;
   notes?: string;
   attachments?: any;
+  /** Phase 2 — staged upload ids from POST /procurement/document-attachments/portal/upload */
+  attachmentIds?: string[];
   items: {
     itemName: string;
     description?: string;
@@ -180,6 +182,7 @@ export class VendorQuotationService {
         deliveryTime,
         notes,
         attachments,
+        attachmentIds,
         items,
         technicalScoreJson,
       } = params;
@@ -394,6 +397,22 @@ export class VendorQuotationService {
         throw lastQuotationErr instanceof Error
           ? lastQuotationErr
           : new Error(String(lastQuotationErr));
+      }
+
+      if (attachmentIds?.length) {
+        const { VendorDocumentAttachmentService } = await import(
+          "./VendorDocumentAttachmentService"
+        );
+        await VendorDocumentAttachmentService.linkStagedAttachments({
+          attachmentIds,
+          entityType: "VENDOR_QUOTATION",
+          entityId: quotation.id,
+          vendorId: vendorIdFromToken
+        });
+        quotation = await prisma.vendorQuotation.findUnique({
+          where: { id: quotation.id },
+          include: { items: true }
+        });
       }
 
       console.log("✅ Quotation Created Successfully!");

@@ -19,6 +19,7 @@ import { capitalCallsEndpoints, mergeCapitalCallClientPrerequisitePaths } from '
 import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagger-paths';
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
 import { phaseTwoScorecardEditingSwaggerPaths } from './phase-two-scorecard-editing-swagger-paths';
+import { phaseTwoPdfUploadsSwaggerPaths, PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -262,6 +263,13 @@ const options = {
           '**Editable:** `qualitativeEvaluation.personalAttributes` (+ optional `trainingAndDevelopment`) and mandatory **`editReason`**. ' +
           '**Not editable:** goal actuals, targets, raw ratings, matrix rows, or computed numeric scores (system-calculated from progress tracking). ' +
           'PUT examples include the full 10×5 personal-attributes grid and populated `beginningOfCycle`, `endOfCycle`, and `interventions` arrays.'
+      },
+      {
+        name: PHASE_TWO_PDF_UPLOADS_TAG,
+        description:
+          '**Phase 2 — vendor PDF attachments (3.2).** Unified uploads for **quotations** (`VendorQuotation`), **procurement invoices**, and **accounting purchase invoices**. ' +
+          'Configure allowed types + max size via **settings**; portal uploads require **`vendorPortalToken`**. ' +
+          'Attachments are **optional** on submit; when provided they are validated (type, size, PDF integrity, SHA-256) and fully audited.'
       },
       {
         name: 'Performance collaboration and notifications',
@@ -9485,6 +9493,7 @@ specs.paths = {
   ...updatedInvestmentFlowExtraPaths,
   ...updatedPerformanceSwaggerPaths,
   ...phaseTwoScorecardEditingSwaggerPaths,
+  ...phaseTwoPdfUploadsSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
   ...payrollEndpoints,

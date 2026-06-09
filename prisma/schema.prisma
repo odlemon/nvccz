@@ -124,6 +124,8 @@ model User {
   grnsReceived                      GoodsReceivedNote[]          @relation("GRNReceivedBy")
   grnsApproved                      GoodsReceivedNote[]          @relation("GRNApprovedBy")
   vendorQuotationsReviewed          VendorQuotation[]            @relation("QuotationReviewedBy")
+  vendorDocumentAttachmentsUploaded VendorDocumentAttachment[] @relation("VendorDocumentAttachmentUploadedBy")
+  vendorDocumentAttachmentsDeleted  VendorDocumentAttachment[] @relation("VendorDocumentAttachmentDeletedBy")
   procurementApprovalConfigsCreated ProcurementApprovalConfig[]
   approvalStagesAssigned            ProcurementApprovalStage[]   @relation("ApprovalStageUser")
   approvalRequestsRequested         ApprovalRequest[]            @relation("ApprovalRequestedBy")
@@ -650,6 +652,7 @@ model Vendor {
   rfqClarifications     RfqClarification[]
   vendorInvoiceIntakes  VendorInvoiceIntake[]
   invoiceFieldCorrections VendorInvoiceFieldCorrection[]
+  vendorDocumentAttachments VendorDocumentAttachment[] @relation("VendorDocumentAttachments")
 
   @@map("vendors")
 }
@@ -2732,6 +2735,49 @@ model ProcurementSettings {
   updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@map("procurement_settings")
+}
+
+/// Phase 2 — vendor quotation/invoice PDF upload constraints (singleton).
+model VendorDocumentUploadSettings {
+  id                      String   @id @default("default")
+  maxFileSizeBytes        Int      @default(15728640) @map("max_file_size_bytes")
+  allowedFileTypes        Json     @map("allowed_file_types")
+  maxAttachmentsPerRecord Int      @default(5) @map("max_attachments_per_record")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("vendor_document_upload_settings")
+}
+
+/// Phase 2 — unified vendor document attachments for quotations and invoices.
+model VendorDocumentAttachment {
+  id               String    @id @default(cuid())
+  entityType       String    @map("entity_type")
+  entityId         String?   @map("entity_id")
+  vendorId         String?   @map("vendor_id")
+  fileName         String    @map("file_name")
+  originalFileName String    @map("original_file_name")
+  mimeType         String    @map("mime_type")
+  fileSizeBytes    Int       @map("file_size_bytes")
+  fileUrl          String    @map("file_url") @db.Text
+  storagePath      String?   @map("storage_path") @db.Text
+  sha256Checksum   String    @map("sha256_checksum") @db.VarChar(64)
+  status           String    @default("ACTIVE")
+  version          Int       @default(1)
+  uploadedById     String?   @map("uploaded_by_id")
+  uploadSource     String    @map("upload_source")
+  portalTokenKind  String?   @map("portal_token_kind")
+  deletedAt        DateTime? @map("deleted_at")
+  deletedById      String?   @map("deleted_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  vendor           Vendor?   @relation("VendorDocumentAttachments", fields: [vendorId], references: [id], onDelete: SetNull)
+  uploadedBy       User?     @relation("VendorDocumentAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  deletedBy        User?     @relation("VendorDocumentAttachmentDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([vendorId])
+  @@index([status])
+  @@map("vendor_document_attachments")
 }
 
 model VendorQuotationItem {
