@@ -110,6 +110,9 @@ import payrollDashboardRoutes from "./routes/payrollDashboardRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import procurementSuite06Routes from "./routes/procurementSuite06Routes"
 import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
+import forecastingRoutes from "./routes/forecastingRoutes"
+import forecastingV1Routes from "./routes/forecastingV1Routes"
+import forecastingCronRoutes from "./routes/forecastingCronRoutes"
 import vendorQuotationRoutes from "./routes/vendorQuotationRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
@@ -624,6 +627,12 @@ app.use("/api/payroll/dashboard", payrollDashboardRoutes)
 // Procurement Management routes
 app.use("/api/procurement", procurementRoutes)
 app.use("/api/procurement/document-attachments", vendorDocumentAttachmentRoutes)
+
+// Forecasting Engine
+app.use("/api/forecasting", forecastingRoutes)
+app.use("/api/v1/forecasting", forecastingV1Routes)
+app.use("/api/cron/forecasting", forecastingCronRoutes)
+
 app.use("/api/procurement/suite06", procurementSuite06Routes)
 
 // Vendor Quotation routes (some are public/unauthenticated)

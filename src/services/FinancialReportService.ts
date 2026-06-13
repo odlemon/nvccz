@@ -1514,6 +1514,23 @@ export class FinancialReportService {
           }
         }
 
+        try {
+          const { ForecastingPortfolioDispatchService } = await import(
+            "./ForecastingPortfolioDispatchService"
+          );
+          await ForecastingPortfolioDispatchService.dispatchFromAcceptedReport({
+            id: params.reportId,
+            portfolioCompanyId: report.portfolioCompanyId,
+            fundId: (report as any).fundId ?? null,
+            reportingPeriod: report.reportingPeriod || report.periodEnd,
+            totalRevenue,
+            netProfit,
+            parsedSnapshot: (report as any).parsedSnapshot
+          });
+        } catch (dispatchErr: any) {
+          console.warn("[reviewReport] Forecast portfolio dispatch failed:", dispatchErr?.message);
+        }
+
         await this.notifyOutcome(report, 'ACCEPTED', params.comment);
         await this.auditFinancialReportEvent({
           userId: params.reviewerId,
