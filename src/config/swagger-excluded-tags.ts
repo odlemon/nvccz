@@ -5,6 +5,7 @@
 
 import { PHASE_TWO_SCORECARD_EDITING_TAG } from './phase-two-scorecard-editing-swagger-paths';
 import { PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
+import { FORECASTING_ENGINE_TAG } from './forecasting-engine-swagger-paths';
 
 /** Tags whose operations are removed unless the operation also carries a protected tag. */
 export const SWAGGER_EXCLUDED_TAGS = new Set([
@@ -74,6 +75,7 @@ export const SWAGGER_EXCLUDED_TAGS = new Set([
 export const SWAGGER_PROTECTED_TAGS = new Set([
   PHASE_TWO_SCORECARD_EDITING_TAG,
   PHASE_TWO_PDF_UPLOADS_TAG,
+  FORECASTING_ENGINE_TAG,
   'Updated performance'
 ]);
 

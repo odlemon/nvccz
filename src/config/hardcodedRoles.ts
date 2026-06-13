@@ -53,6 +53,13 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
     description: "Executive responsible for overall financial strategy, reporting, and stewardship"
   },
   {
+    code: "FORECAST_LOCK",
+    name: "Forecast Lock Authority",
+    level: 5,
+    department: "Finance",
+    description: "Can lock forecasting scenarios into immutable approved versions"
+  },
+  {
     code: "FIN_OFF",
     name: "Finance Officer",
     level: 4,

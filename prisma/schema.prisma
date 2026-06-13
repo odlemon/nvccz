@@ -126,6 +126,11 @@ model User {
   vendorQuotationsReviewed          VendorQuotation[]            @relation("QuotationReviewedBy")
   vendorDocumentAttachmentsUploaded VendorDocumentAttachment[] @relation("VendorDocumentAttachmentUploadedBy")
   vendorDocumentAttachmentsDeleted  VendorDocumentAttachment[] @relation("VendorDocumentAttachmentDeletedBy")
+  forecastScenariosCreated          ForecastScenario[]           @relation("ForecastScenarioCreatedBy")
+  forecastScenariosLocked           ForecastScenario[]           @relation("ForecastScenarioLockedBy")
+  forecastCellsEdited                 ForecastCell[]               @relation("ForecastCellEditedBy")
+  forecastVersionsLocked            ForecastVersion[]            @relation("ForecastVersionLockedBy")
+  forecastAuditLogs                 ForecastAuditLog[]           @relation("ForecastAuditLogUser")
   procurementApprovalConfigsCreated ProcurementApprovalConfig[]
   approvalStagesAssigned            ProcurementApprovalStage[]   @relation("ApprovalStageUser")
   approvalRequestsRequested         ApprovalRequest[]            @relation("ApprovalRequestedBy")
@@ -572,6 +577,7 @@ model ChartOfAccounts {
   parent                        ChartOfAccounts?          @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children                      ChartOfAccounts[]         @relation("AccountHierarchy")
   journalEntryLines             JournalEntryLine[]
+  forecastCells                 ForecastCell[]            @relation("ForecastCellAccount")
   inventoryItems                InventoryItem[]           @relation("InventoryAssetAccount")
   assets                        Asset[]                   @relation("AssetAccount")
   accumulatedDepreciationAssets Asset[]                   @relation("AccumulatedDepreciationAccount")
@@ -1267,6 +1273,7 @@ model Fund {
   capitalCalls              CapitalCall[]
   managementFeePeriods      ManagementFeePeriod[]
   distributions             Distribution[]
+  forecastScenarios         ForecastScenario[]
 
   @@map("funds")
 }
@@ -2164,6 +2171,7 @@ model PerformanceGoal {
   bscBudgetVarianceReports BscBudgetVarianceReport[]
   bscStatutorySubmissions  BscStatutorySubmission[]
   progressEvents           PerformanceGoalProgressEvent[]
+  forecastGoalLinks        ForecastGoalLink[]           @relation("ForecastGoalLinkPerformanceGoal")
 
   @@index([performanceContractId], map: "performance_goals_performance_contract_id_idx")
   @@index([type, assignedToId], map: "performance_goals_type_assigned_to_idx")
@@ -5043,4 +5051,167 @@ enum CounterpartyType {
   GL
   CUSTOMER
   SUPPLIER
+}
+
+/// Forecasting Engine — multi-dimensional scenario hypercube.
+model ForecastScenario {
+  id                String    @id @default(cuid())
+  name              String    @db.VarChar(512)
+  description       String?   @db.Text
+  entityId          String    @map("entity_id")
+  fundId            String?   @map("fund_id")
+  baseCurrency      String    @map("base_currency") @db.VarChar(3)
+  horizonStartDate  DateTime  @map("horizon_start_date") @db.Date
+  horizonEndDate    DateTime  @map("horizon_end_date") @db.Date
+  granularity       String    @db.VarChar(16)
+  status            String    @default("DRAFT") @db.VarChar(16)
+  versionLabel      String?   @map("version_label") @db.VarChar(255)
+  lockedAt          DateTime? @map("locked_at")
+  lockedById        String?   @map("locked_by_id")
+  lastGlSyncAt      DateTime? @map("last_gl_sync_at")
+  lastComputeAt     DateTime? @map("last_compute_at")
+  createdById       String    @map("created_by_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  createdBy         User      @relation("ForecastScenarioCreatedBy", fields: [createdById], references: [id])
+  lockedBy          User?     @relation("ForecastScenarioLockedBy", fields: [lockedById], references: [id])
+  fund              Fund?     @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  dimensions        ForecastDimension[]
+  cells             ForecastCell[]
+  drivers           ForecastDriver[]
+  versions          ForecastVersion[]
+  auditLogs         ForecastAuditLog[]
+  computeJobs       ForecastComputeJob[]
+  goalLinks         ForecastGoalLink[]
+
+  @@index([entityId, status], map: "forecast_scenarios_entity_status_idx")
+  @@index([fundId, status], map: "forecast_scenarios_fund_status_idx")
+  @@index([createdById], map: "forecast_scenarios_created_by_idx")
+  @@map("forecast_scenarios")
+}
+
+model ForecastDimension {
+  id            String           @id @default(cuid())
+  scenarioId    String           @map("scenario_id")
+  dimensionType String           @map("dimension_type") @db.VarChar(64)
+  valueId       String           @map("value_id") @db.VarChar(191)
+  rangeStart    Int?             @map("range_start")
+  rangeEnd      Int?             @map("range_end")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  scenario      ForecastScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@unique([scenarioId, dimensionType, valueId], map: "forecast_dimensions_scenario_type_value_key")
+  @@index([scenarioId], map: "forecast_dimensions_scenario_idx")
+  @@map("forecast_dimensions")
+}
+
+model ForecastCell {
+  id                  String           @id @default(cuid())
+  scenarioId          String           @map("scenario_id")
+  periodKey           String           @map("period_key") @db.VarChar(32)
+  accountId           String           @map("account_id")
+  entityId            String           @map("entity_id")
+  fundId              String           @default("") @map("fund_id")
+  portfolioCompanyId  String           @default("") @map("portfolio_company_id")
+  analyticalTag       String           @default("") @map("analytical_tag")
+  naturalKeyHash      String           @map("natural_key_hash") @db.Char(64)
+  forecastValue       Decimal          @default(0) @map("forecast_value") @db.Decimal(15, 3)
+  actualValueOverride Decimal?         @map("actual_value_override") @db.Decimal(15, 3)
+  txCurrency          String           @map("tx_currency") @db.VarChar(3)
+  txCurrencyValue     Decimal          @default(0) @map("tx_currency_value") @db.Decimal(15, 3)
+  baseCurrencyValue   Decimal          @default(0) @map("base_currency_value") @db.Decimal(15, 3)
+  projectedRate       Decimal?         @map("projected_rate") @db.Decimal(18, 8)
+  actualRate          Decimal?         @map("actual_rate") @db.Decimal(18, 8)
+  varianceAbsolute    Decimal?         @map("variance_absolute") @db.Decimal(15, 3)
+  variancePercent     Decimal?         @map("variance_percent") @db.Decimal(8, 4)
+  isManualOverride    Boolean          @default(false) @map("is_manual_override")
+  lastEditedById      String?          @map("last_edited_by_id")
+  lastEditedAt        DateTime?        @map("last_edited_at")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  scenario            ForecastScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  account             ChartOfAccounts  @relation("ForecastCellAccount", fields: [accountId], references: [id])
+  lastEditedBy        User?            @relation("ForecastCellEditedBy", fields: [lastEditedById], references: [id])
+
+  @@unique([naturalKeyHash], map: "forecast_cells_natural_key_hash")
+  @@index([scenarioId, periodKey], map: "forecast_cells_scenario_period_idx")
+  @@index([scenarioId, accountId], map: "forecast_cells_scenario_account_idx")
+  @@map("forecast_cells")
+}
+
+model ForecastDriver {
+  id                      String           @id @default(cuid())
+  scenarioId              String           @map("scenario_id")
+  targetAccountRangeStart Int              @map("target_account_range_start")
+  targetAccountRangeEnd   Int              @map("target_account_range_end")
+  driverType              String           @map("driver_type") @db.VarChar(64)
+  formulaExpression       String           @map("formula_expression") @db.Text
+  parameters              Json
+  createdAt               DateTime         @default(now()) @map("created_at")
+  updatedAt               DateTime         @updatedAt @map("updated_at")
+  scenario                ForecastScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId], map: "forecast_drivers_scenario_idx")
+  @@map("forecast_drivers")
+}
+
+model ForecastVersion {
+  id              String           @id @default(cuid())
+  scenarioId      String           @map("scenario_id")
+  versionLabel    String           @map("version_label") @db.VarChar(255)
+  snapshotPayload Json             @map("snapshot_payload")
+  checksumSha256  String?          @map("checksum_sha256") @db.VarChar(64)
+  lockedById      String           @map("locked_by_id")
+  lockedAt        DateTime         @map("locked_at")
+  scenario        ForecastScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  lockedBy        User             @relation("ForecastVersionLockedBy", fields: [lockedById], references: [id])
+
+  @@index([scenarioId], map: "forecast_versions_scenario_idx")
+  @@map("forecast_versions")
+}
+
+model ForecastAuditLog {
+  id           String           @id @default(cuid())
+  scenarioId   String           @map("scenario_id")
+  userId       String?          @map("user_id")
+  actionType   String           @map("action_type") @db.VarChar(64)
+  deltaPayload Json             @map("delta_payload")
+  priority     String           @default("NORMAL") @db.VarChar(16)
+  createdAt    DateTime         @default(now()) @map("created_at")
+  scenario     ForecastScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  user         User?            @relation("ForecastAuditLogUser", fields: [userId], references: [id])
+
+  @@index([scenarioId, createdAt], map: "forecast_audit_scenario_created_idx")
+  @@index([actionType, priority], map: "forecast_audit_action_priority_idx")
+  @@map("forecast_audit_logs")
+}
+
+model ForecastComputeJob {
+  id                String           @id @default(cuid())
+  scenarioId        String           @map("scenario_id")
+  status            String           @default("PENDING") @db.VarChar(16)
+  triggerType       String           @map("trigger_type") @db.VarChar(64)
+  affectedCellCount Int?             @map("affected_cell_count")
+  durationMs        Int?               @map("duration_ms")
+  errorMessage      String?            @map("error_message") @db.Text
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  scenario          ForecastScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId], map: "forecast_compute_jobs_scenario_idx")
+  @@map("forecast_compute_jobs")
+}
+
+model ForecastGoalLink {
+  id                String           @id @default(cuid())
+  scenarioId        String           @map("scenario_id")
+  performanceGoalId String           @map("performance_goal_id")
+  accountId         String?          @map("account_id")
+  thresholdValue    Decimal?         @map("threshold_value") @db.Decimal(15, 3)
+  createdAt         DateTime         @default(now()) @map("created_at")
+  scenario          ForecastScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  performanceGoal   PerformanceGoal  @relation("ForecastGoalLinkPerformanceGoal", fields: [performanceGoalId], references: [id], onDelete: Cascade)
+
+  @@unique([scenarioId, performanceGoalId], map: "forecast_goal_links_scenario_goal_key")
+  @@map("forecast_goal_links")
 }

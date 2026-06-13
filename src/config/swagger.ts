@@ -20,6 +20,7 @@ import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagg
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
 import { phaseTwoScorecardEditingSwaggerPaths } from './phase-two-scorecard-editing-swagger-paths';
 import { phaseTwoPdfUploadsSwaggerPaths, PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
+import { forecastingEngineSwaggerPaths, FORECASTING_ENGINE_TAG } from './forecasting-engine-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -270,6 +271,11 @@ const options = {
           '**Phase 2 — vendor PDF attachments (3.2).** Unified uploads for **quotations** (`VendorQuotation`), **procurement invoices**, and **accounting purchase invoices**. ' +
           'Configure allowed types + max size via **settings**; portal uploads require **`vendorPortalToken`**. ' +
           'Attachments are **optional** on submit; when provided they are validated (type, size, PDF integrity, SHA-256) and fully audited.'
+      },
+      {
+        name: FORECASTING_ENGINE_TAG,
+        description:
+          '**Forecasting Engine** — multi-dimensional hypercube scenarios, drivers, DAG compute, variance (Eq. 1–10), version lock/snapshots, GL daily sync, and Phase 2 bridges (Investee dispatch, OPM goal links, Events budget accrual). See `docs/forecasting-engine-backend-requirements.md`.'
       },
       {
         name: 'Performance collaboration and notifications',
@@ -9494,6 +9500,7 @@ specs.paths = {
   ...updatedPerformanceSwaggerPaths,
   ...phaseTwoScorecardEditingSwaggerPaths,
   ...phaseTwoPdfUploadsSwaggerPaths,
+  ...forecastingEngineSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
   ...payrollEndpoints,
