@@ -395,10 +395,14 @@ const docsHandler = (req, res) => {
 app.get('/api-docs', docsHandler);
 app.get('/docs', docsHandler);
 
+// Bump this string when you deploy — curl /test-api or /health to confirm prod picked up the build.
+const DEPLOY_MARKER = "NVCCZ deploy marker — swagger Forecasting + PDF protected modules — 2026-06-15";
+
 // Test endpoint to verify API is working
 app.get('/test-api', (req, res) => {
   res.json({
     message: 'API is working',
+    customText: DEPLOY_MARKER,
     timestamp: new Date().toISOString(),
     swaggerUrl: '/api-docs'
   });
@@ -408,6 +412,7 @@ app.get('/test-api', (req, res) => {
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "OK",
+    customText: DEPLOY_MARKER,
     timestamp: new Date().toISOString(),
     environment: envConfig.get("NODE_ENV"),
     database: "connected", // Prisma handles connection status
