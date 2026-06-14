@@ -21,7 +21,7 @@ import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-pa
 import { phaseTwoScorecardEditingSwaggerPaths } from './phase-two-scorecard-editing-swagger-paths';
 import { phaseTwoPdfUploadsSwaggerPaths, PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
 import { forecastingEngineSwaggerPaths, FORECASTING_ENGINE_TAG } from './forecasting-engine-swagger-paths';
-import { pruneSwaggerSpecByExcludedTags } from './swagger-excluded-tags';
+import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
 import { reviewsUatReviewCyclesIndependentEvalEndpoints } from './reviews-uat-review-cycles-independent-eval-endpoints';
@@ -2212,6 +2212,8 @@ const fallbackSpec = {
     ...userSavedFilterFavoriteEndpoints,
     ...reportingScheduleSwaggerEndpoints,
     ...lpFeesAndDistributionsEndpoints,
+    ...phaseTwoPdfUploadsSwaggerPaths,
+    ...forecastingEngineSwaggerPaths,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -9591,5 +9593,37 @@ specs = pruneSwaggerSpecByExcludedTags(specs);
 const afterPrune = Object.keys(specs.paths ?? {}).length;
 console.log(`Swagger prune: ${beforePrune} path keys -> ${afterPrune} path keys`);
 
-export { specs }; 
+// Phase 2 protected modules — always publish in /api-docs (production + fallback), same as vendor PDF uploads.
+specs = applyProtectedSwaggerModules(specs, [
+  {
+    paths: phaseTwoPdfUploadsSwaggerPaths,
+    tagName: PHASE_TWO_PDF_UPLOADS_TAG,
+    tagDefinition: {
+      name: PHASE_TWO_PDF_UPLOADS_TAG,
+      description:
+        '**Phase 2 — vendor PDF attachments (3.2).** Unified uploads for **quotations** (`VendorQuotation`), **procurement invoices**, and **accounting purchase invoices**. ' +
+        'Configure allowed types + max size via **settings**; portal uploads require **`vendorPortalToken`**. ' +
+        'Attachments are **optional** on submit; when provided they are validated (type, size, PDF integrity, SHA-256) and fully audited.'
+    }
+  },
+  {
+    paths: forecastingEngineSwaggerPaths,
+    tagName: FORECASTING_ENGINE_TAG,
+    tagDefinition: {
+      name: FORECASTING_ENGINE_TAG,
+      description:
+        '**Forecasting Engine** — multi-dimensional hypercube scenarios, drivers, DAG compute, variance (Eq. 1–10), version lock/snapshots, GL daily sync, and Phase 2 bridges (Investee dispatch, OPM goal links, Events budget accrual). See `docs/forecasting-engine-backend-requirements.md`.'
+    }
+  }
+]);
+
+const protectedModules = Object.keys(specs.paths ?? {}).filter(
+  (p) => p.includes('/forecasting/') || p.includes('/v1/forecasting/') || p.includes('/cron/forecasting/') || p.includes('document-attachments')
+);
+console.log(
+  `Swagger protected modules: ${protectedModules.filter((p) => p.includes('forecasting')).length} forecasting paths, ` +
+    `${protectedModules.filter((p) => p.includes('document-attachments')).length} vendor PDF paths`
+);
+
+export { specs };
 

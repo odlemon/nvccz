@@ -87,6 +87,65 @@ function operationTags(op: unknown): string[] {
   return Array.isArray(tags) ? tags.filter((t): t is string => typeof t === 'string') : [];
 }
 
+function collectTagsFromPaths(paths: Record<string, unknown>): Set<string> {
+  const tagsUsed = new Set<string>();
+  for (const pathItem of Object.values(paths ?? {})) {
+    if (!pathItem || typeof pathItem !== 'object') continue;
+    for (const [key, op] of Object.entries(pathItem as Record<string, unknown>)) {
+      if (!HTTP_METHODS.has(key)) continue;
+      for (const t of operationTags(op)) tagsUsed.add(t);
+    }
+  }
+  return tagsUsed;
+}
+
+export interface ProtectedSwaggerModule {
+  paths: Record<string, unknown>;
+  tagName: string;
+  tagDefinition?: { name: string; description?: string };
+}
+
+/**
+ * Re-merge protected module paths after prune so /api-docs always lists them in production
+ * (same guarantee as vendor master Suite 01 last-merge in swagger.ts).
+ */
+export function applyProtectedSwaggerModules<T extends { paths?: Record<string, unknown>; tags?: unknown[] }>(
+  spec: T,
+  modules: ProtectedSwaggerModule[]
+): T {
+  const mergedPaths: Record<string, unknown> = { ...(spec.paths ?? {}) };
+  for (const mod of modules) {
+    Object.assign(mergedPaths, mod.paths);
+  }
+
+  const tagDefs: Array<{ name: string; description?: string }> = Array.isArray(spec.tags)
+    ? [...(spec.tags as Array<{ name: string; description?: string }>)]
+    : [];
+  const existingTagNames = new Set(tagDefs.map((t) => t.name));
+
+  for (const mod of modules) {
+    if (mod.tagDefinition && !existingTagNames.has(mod.tagName)) {
+      tagDefs.push(mod.tagDefinition);
+      existingTagNames.add(mod.tagName);
+    }
+  }
+
+  // If tag defs were pruned but paths remain, restore from module tagDefinition.
+  const tagsUsed = collectTagsFromPaths(mergedPaths);
+  for (const mod of modules) {
+    if (tagsUsed.has(mod.tagName) && mod.tagDefinition && !existingTagNames.has(mod.tagName)) {
+      tagDefs.push(mod.tagDefinition);
+      existingTagNames.add(mod.tagName);
+    }
+  }
+
+  return {
+    ...spec,
+    paths: mergedPaths,
+    tags: tagDefs,
+  };
+}
+
 function shouldRemoveOperation(op: unknown): boolean {
   const tags = operationTags(op);
   if (!tags.length) return false;
