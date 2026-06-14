@@ -17,20 +17,15 @@ async function pickUserId(): Promise<string> {
   return user.id;
 }
 
-async function pickEntityId(): Promise<string> {
-  const company = await prisma.companyProfile.findFirst({ select: { id: true } });
-  if (company) return company.id;
-  const pc = await prisma.portfolioCompany.findFirst({ select: { id: true } });
-  if (pc) return pc.id;
-  throw new Error("No CompanyProfile or PortfolioCompany for UAT");
-}
-
 async function pickAccount(): Promise<{ id: string; accountNo: string }> {
-  const account = await prisma.chartOfAccounts.findFirst({
-    where: { isActive: true, accountType: "Expense" },
+  // Use entity-scoped accounts (entity_chart_of_accounts) not global chart_of_accounts
+  const defaultEntity = await prisma.forecastEntity.findFirst({ where: { isDefault: true }, select: { id: true } });
+  if (!defaultEntity) throw new Error("No default forecast entity for UAT — run migration first");
+  const account = await prisma.entityChartOfAccount.findFirst({
+    where: { entityId: defaultEntity.id, isActive: true, accountType: "Expense" },
     select: { id: true, accountNo: true }
   });
-  if (!account) throw new Error("No expense account for UAT");
+  if (!account) throw new Error("No expense account in default entity COA for UAT");
   return { id: account.id, accountNo: String(account.accountNo).replace(/\D/g, "") };
 }
 
@@ -38,7 +33,6 @@ async function main() {
   console.log("UAT — Forecasting Engine core\n");
 
   const userId = await pickUserId();
-  const entityId = await pickEntityId();
   const account = await pickAccount();
   const accountNo = parseInt(account.accountNo, 10) || 5000;
 
@@ -47,7 +41,6 @@ async function main() {
 
   const created = await ForecastingScenarioService.create({
     name: `UAT Forecast ${Date.now()}`,
-    entityId,
     baseCurrency: "ZIG",
     horizonStartDate: "2026-07-01",
     horizonEndDate: "2027-06-30",
@@ -60,7 +53,7 @@ async function main() {
   });
   console.log("[ok] scenario created", created.id);
 
-  const driverResult = await ForecastingDriverService.replaceDrivers(created.id, userId, [
+  const driverResult = await ForecastingDriverService.replaceDrivers(created.id, { id: userId }, [
     {
       target_account_range_start: accountNo,
       target_account_range_end: accountNo,
@@ -78,10 +71,9 @@ async function main() {
   const futureKey = classifyPeriodKeys(periodKeys, new Date(Date.UTC(2026, 6, 1))).future[0];
   if (!futureKey) throw new Error("No future period key");
 
-  await ForecastingCellService.patchCell(created.id, userId, {
+  await ForecastingCellService.patchCell(created.id, { id: userId }, {
     period_key: futureKey,
     account_id: account.id,
-    entity_id: entityId,
     new_value: 99999,
     tx_currency: "USD"
   });
@@ -91,7 +83,7 @@ async function main() {
   if (Number(pct) !== 10) throw new Error(`Variance math failed: ${pct}`);
   console.log("[ok] variance math", Number(pct));
 
-  await ForecastingScenarioService.patch(created.id, userId, { status: "ACTIVE" });
+  await ForecastingScenarioService.patch(created.id, { id: userId }, { status: "ACTIVE" });
   console.log("[ok] promoted to ACTIVE");
 
   const cfo = await prisma.user.findFirst({
@@ -100,14 +92,14 @@ async function main() {
   });
   const lockUserId = cfo?.id || userId;
   if (cfo) {
-    await ForecastingVersionService.lock(created.id, lockUserId, "UAT_LOCKED");
+    await ForecastingVersionService.lock(created.id, { id: lockUserId, roleCode: cfo.roleCode }, "UAT_LOCKED");
     console.log("[ok] scenario locked");
   } else {
     console.log("[skip] lock — no FORECAST_LOCK/CFO user (promote + compute verified)");
   }
 
   try {
-    await ForecastingScenarioService.patch(created.id, userId, { name: "Should fail" });
+    await ForecastingScenarioService.patch(created.id, { id: userId }, { name: "Should fail" });
     if (cfo) throw new Error("Expected LOCKED edit to fail");
   } catch (e: any) {
     if (cfo && e?.code !== "FORECAST_LOCKED") throw e;

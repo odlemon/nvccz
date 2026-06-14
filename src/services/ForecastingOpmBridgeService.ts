@@ -8,8 +8,8 @@ import { ForecastingError } from "./ForecastingError";
 import { FORECAST_ERROR_CODES } from "../constants/forecastingEngine";
 
 export class ForecastingOpmBridgeService {
-  static async listGoalLinks(scenarioId: string) {
-    await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+  static async listGoalLinks(scenarioId: string, user?: any) {
+    await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     return prisma.forecastGoalLink.findMany({
       where: { scenarioId },
       include: { performanceGoal: { select: { id: true, title: true, targetValue: true, currentValue: true } } }
@@ -18,10 +18,10 @@ export class ForecastingOpmBridgeService {
 
   static async createGoalLink(
     scenarioId: string,
-    userId: string,
+    user: { id: string },
     body: { performance_goal_id: string; account_id?: string; threshold_value?: number }
   ) {
-    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     ForecastingAccessService.assertScenarioEditable(scenario);
     const goal = await prisma.performanceGoal.findUnique({ where: { id: body.performance_goal_id } });
     if (!goal) {
@@ -38,7 +38,7 @@ export class ForecastingOpmBridgeService {
       });
       await ForecastingAuditService.log(tx, {
         scenarioId,
-        userId,
+        userId: user.id,
         actionType: "GOAL_LINK_CREATE",
         deltaPayload: { performance_goal_id: body.performance_goal_id }
       });
@@ -47,14 +47,14 @@ export class ForecastingOpmBridgeService {
     return link;
   }
 
-  static async deleteGoalLink(scenarioId: string, linkId: string, userId: string) {
-    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+  static async deleteGoalLink(scenarioId: string, linkId: string, user: { id: string }) {
+    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     ForecastingAccessService.assertScenarioEditable(scenario);
     await prisma.$transaction(async (tx) => {
       await tx.forecastGoalLink.deleteMany({ where: { id: linkId, scenarioId } });
       await ForecastingAuditService.log(tx, {
         scenarioId,
-        userId,
+        userId: user.id,
         actionType: "GOAL_LINK_DELETE",
         deltaPayload: { link_id: linkId }
       });

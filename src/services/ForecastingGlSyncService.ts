@@ -21,16 +21,48 @@ export class ForecastingGlSyncService {
     const { elapsed } = classifyPeriodKeys(periodKeys);
     let updated = 0;
 
+    if (!elapsed.length) {
+      await prisma.forecastScenario.update({
+        where: { id: scenarioId },
+        data: { lastGlSyncAt: new Date() }
+      });
+      await ForecastingAuditService.log(prisma, {
+        scenarioId,
+        userId: actorId === "system" ? null : actorId,
+        actionType: "GL_SYNC",
+        deltaPayload: { updated_cells: 0, elapsed_periods: [], note: "No elapsed periods in horizon yet" }
+      });
+      return {
+        scenario_id: scenarioId,
+        updated_cells: 0,
+        elapsed_periods: [],
+        elapsed_period_count: 0,
+        note: "No elapsed periods in scenario horizon — nothing to pull from GL yet"
+      };
+    }
+
+    // Build a lookup: global chartOfAccountId -> entity clone id
+    // Only entity accounts with a sourceAccountId can receive GL actuals
+    const entityAccounts = await prisma.entityChartOfAccount.findMany({
+      where: { entityId: scenario.entityId, sourceAccountId: { not: null } },
+      select: { id: true, sourceAccountId: true }
+    });
+    const sourceToEntityAccountId = new Map(entityAccounts.map((a) => [a.sourceAccountId!, a.id]));
+
     for (const periodKey of elapsed) {
       const bounds = periodKeyToBounds(periodKey);
       const glRows = await getPostedPeriodExpenseByAccount(bounds.start, bounds.end, {
         excludePerformanceJournals: true
       });
       for (const row of glRows) {
+        // Map global account to per-entity account clone
+        const entityAccountId = sourceToEntityAccountId.get(row.chartOfAccountId);
+        if (!entityAccountId) continue; // account not cloned into this entity — skip
+
         const naturalKeyHash = buildCellNaturalKeyHash({
           scenarioId,
           periodKey,
-          accountId: row.chartOfAccountId,
+          accountId: entityAccountId,
           entityId: scenario.entityId,
           fundId: scenario.fundId,
           portfolioCompanyId: null,
@@ -56,7 +88,7 @@ export class ForecastingGlSyncService {
             data: {
               scenarioId,
               periodKey,
-              accountId: row.chartOfAccountId,
+              accountId: entityAccountId,
               entityId: scenario.entityId,
               fundId: normalizeCellDimension(scenario.fundId),
               portfolioCompanyId: "",
@@ -101,7 +133,12 @@ export class ForecastingGlSyncService {
       options: { skip_manual_overrides: true, include_elapsed_variance: true }
     });
 
-    return { scenario_id: scenarioId, updated_cells: updated };
+    return {
+      scenario_id: scenarioId,
+      updated_cells: updated,
+      elapsed_periods: elapsed,
+      elapsed_period_count: elapsed.length
+    };
   }
 
   static async syncAllActive() {

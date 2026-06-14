@@ -11,7 +11,7 @@ import { ForecastingError } from "./ForecastingError";
 export class ForecastingDriverService {
   static async replaceDrivers(
     scenarioId: string,
-    userId: string,
+    user: { id: string },
     drivers: Array<{
       target_account_range_start: number;
       target_account_range_end: number;
@@ -20,7 +20,7 @@ export class ForecastingDriverService {
       parameters: Record<string, unknown>;
     }>
   ) {
-    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     ForecastingAccessService.assertScenarioEditable(scenario);
 
     for (const d of drivers) {
@@ -38,39 +38,43 @@ export class ForecastingDriverService {
     );
     ForecastingDagEngine.assertAcyclic(graph);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.forecastDriver.deleteMany({ where: { scenarioId } });
-      for (const d of drivers) {
-        await tx.forecastDriver.create({
-          data: {
-            scenarioId,
-            targetAccountRangeStart: d.target_account_range_start,
-            targetAccountRangeEnd: d.target_account_range_end,
-            driverType: d.driver_type,
-            formulaExpression: d.formula_expression,
-            parameters: d.parameters || {}
-          }
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.forecastDriver.deleteMany({ where: { scenarioId } });
+        if (drivers.length) {
+          await tx.forecastDriver.createMany({
+            data: drivers.map((d) => ({
+              scenarioId,
+              targetAccountRangeStart: d.target_account_range_start,
+              targetAccountRangeEnd: d.target_account_range_end,
+              driverType: d.driver_type,
+              formulaExpression: d.formula_expression,
+              parameters: d.parameters || {}
+            }))
+          });
+        }
+        await ForecastingAuditService.log(tx, {
+          scenarioId,
+          userId: user.id,
+          actionType: "DRIVER_UPDATE",
+          deltaPayload: { driver_count: drivers.length }
         });
-      }
-      await ForecastingAuditService.log(tx, {
-        scenarioId,
-        userId,
-        actionType: "DRIVER_UPDATE",
-        deltaPayload: { driver_count: drivers.length }
-      });
-    });
+      },
+      { maxWait: 15_000, timeout: 30_000 }
+    );
 
     const compute = await ForecastingComputeService.run({
       scenarioId,
       editType: "DRIVER",
-      userId,
+      user,
+      userId: user.id,
       options: { skip_manual_overrides: false, include_elapsed_variance: true }
     });
     return { drivers_saved: drivers.length, compute };
   }
 
-  static async list(scenarioId: string) {
-    await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+  static async list(scenarioId: string, user?: any) {
+    await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     return prisma.forecastDriver.findMany({ where: { scenarioId }, orderBy: { createdAt: "asc" } });
   }
 }

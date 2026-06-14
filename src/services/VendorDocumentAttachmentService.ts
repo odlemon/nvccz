@@ -422,17 +422,24 @@ export class VendorDocumentAttachmentService {
   static async getFileBuffer(attachmentId: string, actor: AttachmentActor) {
     const row = await this.assertAccessToAttachment(attachmentId, actor);
     const url = row.fileUrl && String(row.fileUrl).trim();
-    if (!url) throw new Error("Attachment has no file URL");
+    const storagePath = row.storagePath && String(row.storagePath).trim();
+    if (!url && !storagePath) throw new Error("Attachment has no file URL");
 
-    let raw: Buffer;
-    try {
-      const axios = (await import("axios")).default;
-      const fetchUrl = rewritePublicMediaUrl(url) ?? url;
-      const res = await axios.get(fetchUrl, { responseType: "arraybuffer", timeout: 60000 });
-      raw = Buffer.from(res.data);
-    } catch {
-      const rel = extractRelativeMediaPath(url);
-      raw = await remoteUploadService.downloadFile(rel || url);
+    let raw: Buffer | undefined;
+    let lastError: unknown;
+    for (const source of [storagePath, url]) {
+      if (!source) continue;
+      try {
+        raw = await remoteUploadService.downloadFile(source);
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!raw) {
+      throw new Error(
+        lastError instanceof Error ? lastError.message : "Failed to download attachment"
+      );
     }
 
     const computed = sha256(raw);

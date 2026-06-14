@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { buildCellNaturalKeyHash, normalizeCellDimension } from "../utils/forecastCellKey";
+import { ForecastingAccessService } from "./ForecastingAccessService";
 import { ForecastingComputeService } from "./ForecastingComputeService";
 import { ForecastingAuditService } from "./ForecastingAuditService";
 import { ForecastingFxService } from "./ForecastingFxService";
@@ -18,10 +19,12 @@ export class ForecastingPortfolioDispatchService {
     netProfit?: number | null;
     parsedSnapshot?: any;
   }) {
+    const defaultEntityId = await ForecastingAccessService.getDefaultEntityId();
     const scenarios = await prisma.forecastScenario.findMany({
       where: {
         status: "ACTIVE",
-        entityId: report.portfolioCompanyId
+        entityId: defaultEntityId,
+        ...(report.fundId ? { fundId: report.fundId } : {})
       }
     });
     if (!scenarios.length) return { dispatched: 0 };
@@ -35,8 +38,8 @@ export class ForecastingPortfolioDispatchService {
 
     let dispatched = 0;
     for (const scenario of scenarios) {
-      const accounts = await prisma.chartOfAccounts.findMany({
-        where: { isActive: true, accountType: { in: ["Revenue", "Income", "Expense"] } },
+      const accounts = await prisma.entityChartOfAccount.findMany({
+        where: { entityId: scenario.entityId, isActive: true, accountType: { in: ["Revenue", "Income", "Expense"] } },
         select: { id: true, accountType: true, accountNo: true }
       });
       const revenueAccount = accounts.find((a) => String(a.accountType).match(/Revenue|Income/i));

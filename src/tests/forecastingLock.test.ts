@@ -19,6 +19,68 @@ import { ForecastingError } from "../services/ForecastingError";
 
 const mockFind = prisma.forecastScenario.findUnique as jest.Mock;
 
+describe("ForecastingAccessService admin and lock", () => {
+  test("isAdminViewer admin role is treated as forecasting admin", () => {
+    expect(
+      ForecastingAccessService.isAdminUser({ role: { name: "admin" }, roleCode: null })
+    ).toBe(true);
+    expect(ForecastingAccessService.canLockScenario({ role: { name: "Admin" } })).toBe(true);
+  });
+
+  test("regular user is not forecasting admin", () => {
+    expect(
+      ForecastingAccessService.isAdminUser({ role: { name: "Employee" }, roleCode: "FIN_ASST" })
+    ).toBe(false);
+  });
+
+  test("assertLockRole allows admin", () => {
+    expect(() =>
+      ForecastingAccessService.assertLockRole({ role: { name: "admin" } })
+    ).not.toThrow();
+  });
+
+  test("assertLockRole rejects unprivileged user", () => {
+    expect(() =>
+      ForecastingAccessService.assertLockRole({ role: { name: "Employee" }, roleCode: "FIN_ASST" })
+    ).toThrow(ForecastingError);
+  });
+});
+
+describe("ForecastingAccessService scenario and audit access", () => {
+  test("assertScenarioAccess allows admin on any scenario", () => {
+    expect(() =>
+      ForecastingAccessService.assertScenarioAccess(
+        { role: { name: "admin" }, id: "admin1" },
+        { createdById: "someone-else" }
+      )
+    ).not.toThrow();
+  });
+
+  test("assertScenarioAccess allows owner", () => {
+    expect(() =>
+      ForecastingAccessService.assertScenarioAccess(
+        { id: "u1", roleCode: "FIN_ASST" },
+        { createdById: "u1" }
+      )
+    ).not.toThrow();
+  });
+
+  test("assertScenarioAccess rejects non-owner non-admin", () => {
+    expect(() =>
+      ForecastingAccessService.assertScenarioAccess(
+        { id: "u1", roleCode: "FIN_ASST" },
+        { createdById: "u2" }
+      )
+    ).toThrow(ForecastingError);
+  });
+
+  test("assertAdminAuditAccess allows admin", () => {
+    expect(() =>
+      ForecastingAccessService.assertAdminAuditAccess({ role: { name: "admin" } })
+    ).not.toThrow();
+  });
+});
+
 describe("ForecastingAccessService lock immutability", () => {
   test("assertScenarioEditable throws on LOCKED", () => {
     expect(() => ForecastingAccessService.assertScenarioEditable({ status: "LOCKED" })).toThrow(

@@ -36,6 +36,7 @@ export class ForecastingComputeService {
   static async run(input: {
     scenarioId: string;
     editType: string;
+    user?: any;
     userId?: string;
     driverId?: string;
     coordinates?: { period_key?: string; account_id?: string };
@@ -51,7 +52,7 @@ export class ForecastingComputeService {
     let jobId: string | null = null;
 
     try {
-      const scenario = await ForecastingAccessService.loadScenarioOrThrow(input.scenarioId);
+      const scenario = await ForecastingAccessService.loadScenarioOrThrow(input.scenarioId, input.user);
       const mutating = input.editType !== "GL_SYNC";
       if (mutating && scenario.status === "LOCKED") {
         throw ForecastingError.locked();
@@ -127,14 +128,19 @@ export class ForecastingComputeService {
           if (params.historical_months_lookback && elapsed.length) {
             const lookback = Math.min(elapsed.length, Number(params.historical_months_lookback));
             let sum = 0;
+            // Use sourceAccountId to look up GL actuals (global chart_of_accounts)
+            // External startup entities (no sourceAccountId) will have historicalBase = 0
+            const glAccountId = account.sourceAccountId ?? null;
             for (let i = elapsed.length - lookback; i < elapsed.length; i++) {
               const pk = elapsed[i];
               const bounds = periodKeyToBounds(pk);
-              const glRows = await getPostedPeriodExpenseByAccount(bounds.start, bounds.end, {
-                excludePerformanceJournals: true
-              });
-              const row = glRows.find((r) => r.chartOfAccountId === account.id);
-              sum += row?.actualAmount ?? 0;
+              if (glAccountId) {
+                const glRows = await getPostedPeriodExpenseByAccount(bounds.start, bounds.end, {
+                  excludePerformanceJournals: true
+                });
+                const row = glRows.find((r) => r.chartOfAccountId === glAccountId);
+                sum += row?.actualAmount ?? 0;
+              }
             }
             historicalBase = lookback ? sum / lookback : historicalBase;
           }
@@ -175,14 +181,18 @@ export class ForecastingComputeService {
               case "LINEAR_REGRESSION": {
                 const lookback = Math.max(3, Number(params.lookback_periods ?? 3));
                 const points: Array<{ t: number; y: number }> = [];
+                const glAccountIdLR = account.sourceAccountId ?? null;
                 for (let i = Math.max(0, elapsed.length - lookback); i < elapsed.length; i++) {
                   const pk = elapsed[i];
                   const b = periodKeyToBounds(pk);
-                  const glRows = await getPostedPeriodExpenseByAccount(b.start, b.end, {
-                    excludePerformanceJournals: true
-                  });
-                  const row = glRows.find((r) => r.chartOfAccountId === account.id);
-                  points.push({ t: i, y: row?.actualAmount ?? 0 });
+                  let y = 0;
+                  if (glAccountIdLR) {
+                    const glRows = await getPostedPeriodExpenseByAccount(b.start, b.end, {
+                      excludePerformanceJournals: true
+                    });
+                    y = glRows.find((r) => r.chartOfAccountId === glAccountIdLR)?.actualAmount ?? 0;
+                  }
+                  points.push({ t: i, y });
                 }
                 const { m, b } = linearRegressionSlopeIntercept(points);
                 txValue = linearProjection(m, b, t);
@@ -259,30 +269,37 @@ export class ForecastingComputeService {
         throw new ForecastingError(FORECAST_ERROR_CODES.COMPUTE_TIMEOUT, "Compute exceeded timeout", 504);
       }
 
-      await prisma.$transaction(async (tx) => {
-        await tx.forecastComputeJob.update({
-          where: { id: jobId! },
-          data: {
-            status: "COMPLETED",
-            affectedCellCount: updatedCells.length,
-            durationMs
-          }
-        });
-        await tx.forecastScenario.update({
-          where: { id: input.scenarioId },
-          data: { lastComputeAt: new Date() }
-        });
-        if (input.userId) {
-          await ForecastingAuditService.log(tx, {
-            scenarioId: input.scenarioId,
-            userId: input.userId,
-            actionType: "COMPUTE",
-            deltaPayload: { edit_type: input.editType, affected: updatedCells.length, duration_ms: durationMs }
+      await prisma.$transaction(
+        async (tx) => {
+          await tx.forecastComputeJob.update({
+            where: { id: jobId! },
+            data: {
+              status: "COMPLETED",
+              affectedCellCount: updatedCells.length,
+              durationMs
+            }
           });
-        }
-      });
+          await tx.forecastScenario.update({
+            where: { id: input.scenarioId },
+            data: { lastComputeAt: new Date() }
+          });
+        },
+        { maxWait: 15_000, timeout: 30_000 }
+      );
 
-      await ForecastingOpmBridgeService.onComputeCompleted(input.scenarioId, input.userId || "system");
+      if (input.userId || input.user?.id) {
+        await ForecastingAuditService.log(prisma, {
+          scenarioId: input.scenarioId,
+          userId: input.userId || input.user?.id,
+          actionType: "COMPUTE",
+          deltaPayload: { edit_type: input.editType, affected: updatedCells.length, duration_ms: durationMs }
+        });
+      }
+
+      await ForecastingOpmBridgeService.onComputeCompleted(
+        input.scenarioId,
+        input.userId || input.user?.id || "system"
+      );
 
       return {
         compute_job_id: jobId,
@@ -293,14 +310,18 @@ export class ForecastingComputeService {
       };
     } catch (err) {
       if (jobId) {
-        await prisma.forecastComputeJob.update({
-          where: { id: jobId },
-          data: {
-            status: "FAILED",
-            errorMessage: (err as Error).message,
-            durationMs: Date.now() - started
-          }
-        });
+        try {
+          await prisma.forecastComputeJob.update({
+            where: { id: jobId },
+            data: {
+              status: "FAILED",
+              errorMessage: (err as Error).message,
+              durationMs: Date.now() - started
+            }
+          });
+        } catch {
+          // Job row may be missing after connection/transaction errors; compute failure still propagates.
+        }
       }
       throw err;
     } finally {
@@ -312,10 +333,13 @@ export class ForecastingComputeService {
     return ForecastFormulaParser.validate(expression);
   }
 
-  static async getJob(computeJobId: string) {
+  static async getJob(computeJobId: string, user?: any) {
     const job = await prisma.forecastComputeJob.findUnique({ where: { id: computeJobId } });
     if (!job) {
       throw new ForecastingError(FORECAST_ERROR_CODES.SCENARIO_NOT_FOUND, "Compute job not found", 404);
+    }
+    if (user) {
+      await ForecastingAccessService.loadScenarioForUser(user, job.scenarioId);
     }
     return job;
   }

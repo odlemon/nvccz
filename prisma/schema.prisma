@@ -128,9 +128,10 @@ model User {
   vendorDocumentAttachmentsDeleted  VendorDocumentAttachment[] @relation("VendorDocumentAttachmentDeletedBy")
   forecastScenariosCreated          ForecastScenario[]           @relation("ForecastScenarioCreatedBy")
   forecastScenariosLocked           ForecastScenario[]           @relation("ForecastScenarioLockedBy")
-  forecastCellsEdited                 ForecastCell[]               @relation("ForecastCellEditedBy")
+  forecastCellsEdited               ForecastCell[]               @relation("ForecastCellEditedBy")
   forecastVersionsLocked            ForecastVersion[]            @relation("ForecastVersionLockedBy")
   forecastAuditLogs                 ForecastAuditLog[]           @relation("ForecastAuditLogUser")
+  forecastEntitiesCreated           ForecastEntity[]             @relation("ForecastEntityCreatedBy")
   procurementApprovalConfigsCreated ProcurementApprovalConfig[]
   approvalStagesAssigned            ProcurementApprovalStage[]   @relation("ApprovalStageUser")
   approvalRequestsRequested         ApprovalRequest[]            @relation("ApprovalRequestedBy")
@@ -577,7 +578,6 @@ model ChartOfAccounts {
   parent                        ChartOfAccounts?          @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children                      ChartOfAccounts[]         @relation("AccountHierarchy")
   journalEntryLines             JournalEntryLine[]
-  forecastCells                 ForecastCell[]            @relation("ForecastCellAccount")
   inventoryItems                InventoryItem[]           @relation("InventoryAssetAccount")
   assets                        Asset[]                   @relation("AssetAccount")
   accumulatedDepreciationAssets Asset[]                   @relation("AccumulatedDepreciationAccount")
@@ -595,6 +595,8 @@ model ChartOfAccounts {
   stiNegYieldGlAccounts        ShortTermInvestmentInstrument[] @relation("StiNegYieldGl")
   stiUnrealizedFxGlAccounts    ShortTermInvestmentInstrument[] @relation("StiUnrealizedFxGl")
   stiRealizedFxGlAccounts      ShortTermInvestmentInstrument[] @relation("StiRealizedFxGl")
+
+  entityClones                  EntityChartOfAccount[]    @relation("EntityChartOfAccountSource")
 
   @@map("chart_of_accounts")
 }
@@ -1104,7 +1106,8 @@ model CompanyProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  addresses CompanyProfileAddress[]
+  addresses         CompanyProfileAddress[]
+  entities          ForecastEntity[]
 
   @@map("company_profile")
 }
@@ -1129,6 +1132,68 @@ model CompanyProfileAddress {
   @@index([companyProfileId], map: "company_profile_address_company_idx")
   @@index([companyProfileId, isActive], map: "company_profile_address_active_idx")
   @@map("company_profile_addresses")
+}
+
+/// Forecasting entity — internal legal subsidiary or external startup portfolio company.
+/// The default entity mirrors the singleton CompanyProfile (seeded by migration).
+model ForecastEntity {
+  id                  String    @id @default(cuid())
+  name                String    @db.VarChar(512)
+  /// INTERNAL_SUBSIDIARY | EXTERNAL_STARTUP
+  type                String    @map("entity_type") @db.VarChar(32)
+  baseCurrency        String?   @map("base_currency") @db.VarChar(3)
+  registrationNumber  String?   @map("registration_number") @db.VarChar(255)
+  isActive            Boolean   @default(true) @map("is_active")
+  /// True for exactly one row — the entity that maps to the singleton CompanyProfile.
+  isDefault           Boolean   @default(false) @map("is_default")
+  /// Nullable link back to CompanyProfile (for INTERNAL_SUBSIDIARY default entity).
+  companyProfileId    String?   @map("company_profile_id")
+  /// Optional link to an existing PortfolioCompany (for EXTERNAL_STARTUP).
+  portfolioCompanyId  String?   @map("portfolio_company_id")
+  createdById         String    @map("created_by_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  companyProfile      CompanyProfile?  @relation(fields: [companyProfileId], references: [id], onDelete: SetNull)
+  portfolioCompany    PortfolioCompany? @relation("EntityPortfolioCompany", fields: [portfolioCompanyId], references: [id], onDelete: SetNull)
+  createdBy           User             @relation("ForecastEntityCreatedBy", fields: [createdById], references: [id])
+  forecastScenarios   ForecastScenario[]
+  accounts            EntityChartOfAccount[]
+
+  @@index([isDefault], map: "forecast_entities_is_default_idx")
+  @@index([type, isActive], map: "forecast_entities_type_active_idx")
+  @@map("forecast_entities")
+}
+
+/// Per-entity cloned chart of accounts for the Forecasting Engine.
+/// Mirrors the global ChartOfAccounts structure; sourceAccountId links back for GL actuals sync.
+model EntityChartOfAccount {
+  id                String    @id @default(cuid())
+  entityId          String    @map("entity_id")
+  accountNo         String    @map("account_no") @db.VarChar(64)
+  accountName       String    @map("account_name")
+  accountType       String    @map("account_type")
+  naturalBalance    String    @default("DEBIT") @map("natural_balance")
+  financialStatement String   @map("financial_statement")
+  notes             String?   @db.Text
+  parentId          String?   @map("parent_id")
+  isActive          Boolean   @default(true) @map("is_active")
+  /// FK to global ChartOfAccounts row this was cloned from.
+  /// Null for accounts created directly on an external-startup entity.
+  sourceAccountId   String?   @map("source_account_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  entity            ForecastEntity       @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  parent            EntityChartOfAccount? @relation("EntityCOAHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children          EntityChartOfAccount[] @relation("EntityCOAHierarchy")
+  sourceAccount     ChartOfAccounts?      @relation("EntityChartOfAccountSource", fields: [sourceAccountId], references: [id], onDelete: SetNull)
+  forecastCells     ForecastCell[]        @relation("ForecastCellEntityAccount")
+
+  @@unique([entityId, accountNo], map: "entity_coa_entity_account_no_key")
+  @@index([entityId, accountType], map: "entity_coa_entity_type_idx")
+  @@index([entityId, isActive], map: "entity_coa_entity_active_idx")
+  @@map("entity_chart_of_accounts")
 }
 
 model VatRate {
@@ -1181,6 +1246,7 @@ model PortfolioCompany {
   letterhead                   PortfolioCompanyLetterhead?
   dividends                    PortfolioCompanyDividend[]      @relation("PortfolioCompanyDividends")
   distributionsSourced         Distribution[]                  @relation("PortfolioDistributionSource")
+  forecastEntities             ForecastEntity[]                @relation("EntityPortfolioCompany")
 
   @@map("portfolio_companies")
 }
@@ -5058,6 +5124,7 @@ model ForecastScenario {
   id                String    @id @default(cuid())
   name              String    @db.VarChar(512)
   description       String?   @db.Text
+  /// ForecastEntity id — which legal entity this scenario belongs to.
   entityId          String    @map("entity_id")
   fundId            String?   @map("fund_id")
   baseCurrency      String    @map("base_currency") @db.VarChar(3)
@@ -5073,9 +5140,10 @@ model ForecastScenario {
   createdById       String    @map("created_by_id")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
-  createdBy         User      @relation("ForecastScenarioCreatedBy", fields: [createdById], references: [id])
-  lockedBy          User?     @relation("ForecastScenarioLockedBy", fields: [lockedById], references: [id])
-  fund              Fund?     @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  createdBy         User           @relation("ForecastScenarioCreatedBy", fields: [createdById], references: [id])
+  lockedBy          User?          @relation("ForecastScenarioLockedBy", fields: [lockedById], references: [id])
+  entity            ForecastEntity @relation(fields: [entityId], references: [id])
+  fund              Fund?          @relation(fields: [fundId], references: [id], onDelete: SetNull)
   dimensions        ForecastDimension[]
   cells             ForecastCell[]
   drivers           ForecastDriver[]
@@ -5109,7 +5177,9 @@ model ForecastCell {
   id                  String           @id @default(cuid())
   scenarioId          String           @map("scenario_id")
   periodKey           String           @map("period_key") @db.VarChar(32)
+  /// FK to EntityChartOfAccount (per-entity cloned account).
   accountId           String           @map("account_id")
+  /// Denormalized entity id (same as scenario.entityId).
   entityId            String           @map("entity_id")
   fundId              String           @default("") @map("fund_id")
   portfolioCompanyId  String           @default("") @map("portfolio_company_id")
@@ -5130,7 +5200,7 @@ model ForecastCell {
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
   scenario            ForecastScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
-  account             ChartOfAccounts  @relation("ForecastCellAccount", fields: [accountId], references: [id])
+  account             EntityChartOfAccount @relation("ForecastCellEntityAccount", fields: [accountId], references: [id])
   lastEditedBy        User?            @relation("ForecastCellEditedBy", fields: [lastEditedById], references: [id])
 
   @@unique([naturalKeyHash], map: "forecast_cells_natural_key_hash")

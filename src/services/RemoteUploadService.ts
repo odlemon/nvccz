@@ -10,6 +10,22 @@ import { logger } from "../utils/logger";
 const DEFAULT_REMOTE_UPLOAD_SERVICE_URL = "http://31.220.82.129:3050/upload";
 /** Where files actually live — server-side fetch + upload proxy use this (HTTP is fine). Override with REMOTE_MEDIA_INTERNAL_BASE. */
 const DEFAULT_REMOTE_MEDIA_INTERNAL_BASE = "http://31.220.82.129/uploads";
+/** Local mock used when the remote upload service is unreachable (dev/UAT). */
+const LOCAL_FALLBACK_UPLOAD_SERVICE_URL = "http://127.0.0.1:3050/upload";
+const LOCAL_FALLBACK_MEDIA_INTERNAL_BASE = "http://127.0.0.1:3050/uploads";
+
+function usingDefaultRemoteUploadUrl(): boolean {
+  const configured = process.env.REMOTE_UPLOAD_SERVICE_URL?.trim();
+  return !configured || configured.replace(/\/+$/, "") === DEFAULT_REMOTE_UPLOAD_SERVICE_URL.replace(/\/+$/, "");
+}
+
+function usingDefaultRemoteMediaInternalBase(): boolean {
+  const configured = process.env.REMOTE_MEDIA_INTERNAL_BASE?.trim();
+  return (
+    !configured ||
+    configured.replace(/\/+$/, "") === DEFAULT_REMOTE_MEDIA_INTERNAL_BASE.replace(/\/+$/, "")
+  );
+}
 
 function resolveUploadServiceUrl(): string {
   return (
@@ -206,6 +222,103 @@ export interface UploadFileInput {
   size?: number;
 }
 
+interface NormalizedUploadFile {
+  buffer: Buffer;
+  filename: string;
+  mimetype: string;
+}
+
+function normalizeUploadFiles(
+  files: UploadFileInput | UploadFileInput[] | Express.Multer.File | Express.Multer.File[]
+): NormalizedUploadFile[] {
+  const fileArray = Array.isArray(files) ? files : [files];
+  return fileArray.map((file) => {
+    let buffer: Buffer;
+    let filename: string;
+    let mimetype = "application/octet-stream";
+
+    if ("buffer" in file && file.buffer) {
+      buffer = file.buffer;
+      filename = file.originalname || `file-${Date.now()}`;
+      mimetype = file.mimetype || mimetype;
+    } else if (file instanceof Buffer || (file as any).buffer) {
+      buffer = (file as any).buffer || file;
+      filename = (file as any).originalname || `file-${Date.now()}`;
+      mimetype = (file as any).mimetype || mimetype;
+    } else {
+      throw new Error(`Invalid file format: ${JSON.stringify(file)}`);
+    }
+
+    return { buffer, filename, mimetype };
+  });
+}
+
+function buildUploadFormData(
+  normalizedFiles: NormalizedUploadFile[],
+  serverType: string
+): FormData {
+  const formData = new FormData();
+  formData.append("type", serverType);
+  for (const file of normalizedFiles) {
+    formData.append("images", file.buffer, {
+      filename: file.filename,
+      contentType: file.mimetype,
+    });
+  }
+  return formData;
+}
+
+function isUploadNetworkError(error: any): boolean {
+  const code = error?.code;
+  return (
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNABORTED" ||
+    code === "ENOTFOUND" ||
+    code === "EHOSTUNREACH"
+  );
+}
+
+async function postUploadFormData(
+  formData: FormData,
+  uploadUrl: string,
+  timeoutMs = 60000
+): Promise<{ success: boolean; files?: any[]; message?: string; error?: string }> {
+  const response = await axios.post(uploadUrl, formData, {
+    headers: {
+      ...formData.getHeaders(),
+    },
+    timeout: timeoutMs,
+  });
+  return response.data;
+}
+
+function buildDownloadPathCandidates(filePath: string): string[] {
+  const rel = extractRelativeMediaPath(filePath);
+  const candidates: string[] = [];
+  if (rel) candidates.push(rel);
+  const trimmed = String(filePath || "").replace(/^\/+/, "");
+  if (trimmed && !candidates.includes(trimmed)) candidates.push(trimmed);
+  const fileName = (rel || trimmed).split("/").pop();
+  if (fileName) {
+    const tempCandidate = `temp/${fileName}`;
+    if (!candidates.includes(tempCandidate)) candidates.push(tempCandidate);
+  }
+  return candidates;
+}
+
+async function fetchMediaBuffer(url: string): Promise<Buffer> {
+  const response = await axios.get(url, {
+    responseType: "arraybuffer",
+    timeout: 30000,
+    validateStatus: (status) => status < 500,
+  });
+  if (response.status >= 400) {
+    throw new Error(`Request failed with status code ${response.status}`);
+  }
+  return Buffer.from(response.data);
+}
+
 export class RemoteUploadService {
   /**
    * Upload files to Ubuntu server
@@ -218,9 +331,9 @@ export class RemoteUploadService {
   ): Promise<RemoteUploadResult> {
     try {
       // Normalize input to array
-      const fileArray = Array.isArray(files) ? files : [files];
+      const normalizedFiles = normalizeUploadFiles(files);
 
-      if (fileArray.length === 0) {
+      if (normalizedFiles.length === 0) {
         return {
           success: false,
           error: "No files to upload",
@@ -229,56 +342,39 @@ export class RemoteUploadService {
 
       // Map upload type to server directory
       const serverType = this.mapUploadType(uploadType);
+      const formData = buildUploadFormData(normalizedFiles, serverType);
 
-      // Create FormData for multipart/form-data request
-      const formData = new FormData();
+      logger.info(`Uploading ${normalizedFiles.length} file(s) to remote server`, {
+        uploadType: serverType,
+        fileCount: normalizedFiles.length,
+      });
 
-      // Add all files to form data
-      for (const file of fileArray) {
-        // Handle both Multer files and raw buffers
-        let buffer: Buffer;
-        let filename: string;
-        let mimetype: string = "application/octet-stream";
+      const primaryUploadUrl = resolveUploadServiceUrl();
+      const canUseLocalFallback = usingDefaultRemoteUploadUrl();
+      let uploadData: { success: boolean; files?: any[]; message?: string; error?: string };
+      let usedUploadUrl = primaryUploadUrl;
 
-        if ("buffer" in file && file.buffer) {
-          // Multer file
-          buffer = file.buffer;
-          filename = file.originalname || `file-${Date.now()}`;
-          mimetype = file.mimetype || mimetype;
-        } else if (file instanceof Buffer || (file as any).buffer) {
-          // Raw buffer or UploadFileInput
-          buffer = (file as any).buffer || file;
-          filename = (file as any).originalname || `file-${Date.now()}`;
-          mimetype = (file as any).mimetype || mimetype;
-        } else {
-          throw new Error(`Invalid file format: ${JSON.stringify(file)}`);
-        }
-
-        formData.append("images", buffer, {
-          filename: filename,
-          contentType: mimetype,
-        });
+      try {
+        uploadData = await postUploadFormData(
+          formData,
+          primaryUploadUrl,
+          canUseLocalFallback ? 5000 : 60000
+        );
+      } catch (primaryError: any) {
+        if (!canUseLocalFallback || !isUploadNetworkError(primaryError)) throw primaryError;
+        logger.warn(
+          `Remote upload unreachable at ${primaryUploadUrl} (${primaryError?.code || primaryError?.message}); retrying local mock at ${LOCAL_FALLBACK_UPLOAD_SERVICE_URL}`
+        );
+        usedUploadUrl = LOCAL_FALLBACK_UPLOAD_SERVICE_URL;
+        uploadData = await postUploadFormData(
+          buildUploadFormData(normalizedFiles, serverType),
+          LOCAL_FALLBACK_UPLOAD_SERVICE_URL
+        );
       }
 
-      // Add upload type
-      formData.append("type", serverType);
-
-      logger.info(`Uploading ${fileArray.length} file(s) to remote server`, {
-        uploadType: serverType,
-        fileCount: fileArray.length,
-      });
-
-      // Upload to Ubuntu server
-      const response = await axios.post(resolveUploadServiceUrl(), formData, {
-        headers: {
-          ...formData.getHeaders(),
-        },
-        timeout: 60000, // 60 second timeout for large files
-      });
-
-      if (response.data.success && response.data.files) {
-        logger.info(`Successfully uploaded ${response.data.files.length} file(s) to remote server`);
-        const files = response.data.files.map((f: any) => ({
+      if (uploadData.success && uploadData.files) {
+        logger.info(`Successfully uploaded ${uploadData.files.length} file(s) via ${usedUploadUrl}`);
+        const files = uploadData.files.map((f: any) => ({
           ...f,
           url: toPublicMediaUrlFromUploadResponse(
             f.url || "",
@@ -290,10 +386,10 @@ export class RemoteUploadService {
           files,
         };
       } else {
-        logger.error("Upload failed", { response: response.data });
+        logger.error("Upload failed", { response: uploadData, uploadUrl: usedUploadUrl });
         return {
           success: false,
-          error: response.data.message || "Upload failed",
+          error: uploadData.message || uploadData.error || "Upload failed",
         };
       }
     } catch (error: any) {
@@ -420,27 +516,36 @@ export class RemoteUploadService {
    * Download file from server (for backward compatibility with Firebase download)
    */
   async downloadFile(filePath: string): Promise<Buffer> {
-    try {
-      const rel = extractRelativeMediaPath(filePath);
-      const url = `${resolveInternalMediaBaseUrl()}/${rel}`;
-
-      logger.info(`Downloading file from remote server: ${url}`);
-
-      const response = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 30000,
-      });
-
-      const buffer = Buffer.from(response.data);
-      logger.info(`Successfully downloaded file: ${filePath}`);
-      return buffer;
-    } catch (error: any) {
-      logger.error("Error downloading file from remote server:", {
-        error: error.message,
-        filePath,
-      });
-      throw new Error(`Failed to download file: ${error.message}`);
+    const candidates = buildDownloadPathCandidates(filePath);
+    const bases = [resolveInternalMediaBaseUrl()];
+    if (usingDefaultRemoteMediaInternalBase()) {
+      bases.push(LOCAL_FALLBACK_MEDIA_INTERNAL_BASE);
     }
+
+    let lastError: any;
+    for (let baseIndex = 0; baseIndex < bases.length; baseIndex++) {
+      const base = bases[baseIndex];
+      if (baseIndex > 0) {
+        logger.warn(`Retrying download via alternate media base ${base}`);
+      }
+      for (const rel of candidates) {
+        const url = `${base}/${rel}`;
+        try {
+          logger.info(`Downloading file from remote server: ${url}`);
+          const buffer = await fetchMediaBuffer(url);
+          logger.info(`Successfully downloaded file: ${filePath}`);
+          return buffer;
+        } catch (error: any) {
+          lastError = error;
+        }
+      }
+    }
+
+    logger.error("Error downloading file from remote server:", {
+      error: lastError?.message,
+      filePath,
+    });
+    throw new Error(`Failed to download file: ${lastError?.message || "unknown error"}`);
   }
 
   /**

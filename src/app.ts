@@ -624,16 +624,15 @@ app.use("/api/performance/individual-goals", individualGoalToTaskRoutes)
 app.use("/api/payroll", payrollRoutes)
 app.use("/api/payroll/dashboard", payrollDashboardRoutes)
 
-// Procurement Management routes
-app.use("/api/procurement", procurementRoutes)
+// Procurement Management routes — specific sub-routers BEFORE generic /procurement (which applies authenticate globally)
 app.use("/api/procurement/document-attachments", vendorDocumentAttachmentRoutes)
+app.use("/api/procurement/suite06", procurementSuite06Routes)
+app.use("/api/procurement", procurementRoutes)
 
 // Forecasting Engine
 app.use("/api/forecasting", forecastingRoutes)
 app.use("/api/v1/forecasting", forecastingV1Routes)
 app.use("/api/cron/forecasting", forecastingCronRoutes)
-
-app.use("/api/procurement/suite06", procurementSuite06Routes)
 
 // Vendor Quotation routes (some are public/unauthenticated)
 app.use("/api/vendor-quotations", vendorQuotationRoutes)

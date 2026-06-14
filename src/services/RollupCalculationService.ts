@@ -204,7 +204,7 @@ export class RollupCalculationService {
         id: indGoal.id,
         title: indGoal.title,
         assignedTo: indGoal.assignedToId,
-        targetUnit: resolveGoalTargetUnitForApi(indGoal, goal.kpi),
+        targetUnit: resolveGoalTargetUnitForApi(indGoal, deptGoal.kpi),
         targetValue: indGoal.targetValue ? indGoal.targetValue.toString() : "0",
         currentValue: indGoal.currentValue ? indGoal.currentValue.toString() : "0",
         progressPercentage: RollupCalculationService.goalProgressPercent({

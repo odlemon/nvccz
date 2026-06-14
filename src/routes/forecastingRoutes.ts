@@ -31,4 +31,11 @@ router.delete("/scenarios/:id/goal-links/:linkId", ForecastingController.deleteG
 router.get("/audit", ForecastingController.adminAudit);
 router.get("/audit/high-priority", ForecastingController.highPriorityAudit);
 
+// Entity routes
+router.get("/entities", ForecastingController.listEntities);
+router.post("/entities", ForecastingController.createEntity);
+router.get("/entities/:id", ForecastingController.getEntity);
+router.get("/entities/:id/chart-of-accounts", ForecastingController.listEntityAccounts);
+router.post("/entities/:id/resync-coa", ForecastingController.resyncEntityCoa);
+
 export default router;

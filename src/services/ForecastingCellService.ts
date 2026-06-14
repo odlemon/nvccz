@@ -16,11 +16,10 @@ const idempotencyCache = new Map<string, { at: number; result: unknown }>();
 export class ForecastingCellService {
   static async patchCell(
     scenarioId: string,
-    userId: string,
+    user: { id: string },
     body: {
       period_key: string;
       account_id: string;
-      entity_id: string;
       fund_id?: string;
       portfolio_company_id?: string;
       analytical_tag?: string;
@@ -35,7 +34,7 @@ export class ForecastingCellService {
       if (cached && Date.now() - cached.at < 3600000) return cached.result;
     }
 
-    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     ForecastingAccessService.assertScenarioEditable(scenario);
     if (!isFuturePeriod(body.period_key)) {
       throw new ForecastingError(FORECAST_ERROR_CODES.INVALID_PERIOD, "Only future periods are editable", 400);
@@ -45,8 +44,8 @@ export class ForecastingCellService {
       scenarioId,
       periodKey: body.period_key,
       accountId: body.account_id,
-      entityId: body.entity_id,
-      fundId: body.fund_id,
+      entityId: scenario.entityId,
+      fundId: body.fund_id ?? scenario.fundId,
       portfolioCompanyId: body.portfolio_company_id,
       analyticalTag: body.analytical_tag
     });
@@ -72,42 +71,48 @@ export class ForecastingCellService {
       body.tx_currency
     );
 
-    await prisma.$transaction(async (tx) => {
-      await tx.forecastCell.upsert({
-        where: { naturalKeyHash },
-        create: {
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.forecastCell.upsert({
+          where: { naturalKeyHash },
+          create: {
+            scenarioId,
+            periodKey: body.period_key,
+            accountId: body.account_id,
+            entityId: scenario.entityId,
+            fundId: normalizeCellDimension(body.fund_id ?? scenario.fundId),
+            portfolioCompanyId: normalizeCellDimension(body.portfolio_company_id),
+            analyticalTag: normalizeCellDimension(body.analytical_tag),
+            naturalKeyHash,
+            ...fx,
+            isManualOverride: true,
+            lastEditedById: user.id,
+            lastEditedAt: new Date()
+          },
+          update: {
+            ...fx,
+            isManualOverride: true,
+            lastEditedById: user.id,
+            lastEditedAt: new Date()
+          }
+        });
+        await ForecastingAuditService.log(tx, {
           scenarioId,
-          periodKey: body.period_key,
-          accountId: body.account_id,
-          entityId: body.entity_id,
-          fundId: normalizeCellDimension(body.fund_id),
-          portfolioCompanyId: normalizeCellDimension(body.portfolio_company_id),
-          analyticalTag: normalizeCellDimension(body.analytical_tag),
-          naturalKeyHash,
-          ...fx,
-          isManualOverride: true,
-          lastEditedById: userId,
-          lastEditedAt: new Date()
-        },
-        update: {
-          ...fx,
-          isManualOverride: true,
-          lastEditedById: userId,
-          lastEditedAt: new Date()
-        }
-      });
-      await ForecastingAuditService.log(tx, {
-        scenarioId,
-        userId,
-        actionType: "CELL_EDIT",
-        deltaPayload: { period_key: body.period_key, account_id: body.account_id, new_value: body.new_value }
-      });
-    });
+          userId: user.id,
+          actionType: "CELL_EDIT",
+          deltaPayload: { period_key: body.period_key, account_id: body.account_id, new_value: body.new_value }
+        });
+      },
+      { maxWait: 15_000, timeout: 30_000 }
+    );
+
+    const cell = await prisma.forecastCell.findUnique({ where: { naturalKeyHash } });
 
     const compute = await ForecastingComputeService.run({
       scenarioId,
       editType: "CELL",
-      userId,
+      user,
+      userId: user.id,
       coordinates: {
         period_key: body.period_key,
         account_id: body.account_id
@@ -115,7 +120,17 @@ export class ForecastingCellService {
       options: { skip_manual_overrides: true, include_elapsed_variance: true }
     });
 
-    const result = { cell_updated: true, compute };
+    const result = {
+      cell_updated: true,
+      cell,
+      compute: {
+        ...compute,
+        note:
+          compute.affected_cell_count === 0
+            ? "Manual cell saved above. Driver recalculation skipped manual overrides, so affected_cell_count may be 0."
+            : undefined
+      }
+    };
     if (body.idempotency_key) {
       idempotencyCache.set(body.idempotency_key, { at: Date.now(), result });
     }
@@ -124,7 +139,7 @@ export class ForecastingCellService {
 
   static async patchBatch(
     scenarioId: string,
-    userId: string,
+    user: { id: string },
     edits: Array<Record<string, unknown>>,
     atomic = true
   ) {
@@ -134,13 +149,13 @@ export class ForecastingCellService {
     const results = [];
     if (atomic) {
       for (const edit of edits) {
-        results.push(await ForecastingCellService.patchCell(scenarioId, userId, edit as any));
+        results.push(await ForecastingCellService.patchCell(scenarioId, user, edit as any));
       }
       return { edits: results.length, results };
     }
     for (const edit of edits) {
       try {
-        results.push(await ForecastingCellService.patchCell(scenarioId, userId, edit as any));
+        results.push(await ForecastingCellService.patchCell(scenarioId, user, edit as any));
       } catch (e) {
         results.push({ error: (e as Error).message });
       }
@@ -150,17 +165,17 @@ export class ForecastingCellService {
 
   static async clearOverride(
     scenarioId: string,
-    userId: string,
+    user: { id: string },
     query: Record<string, string>
   ) {
-    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     ForecastingAccessService.assertScenarioEditable(scenario);
     const naturalKeyHash = buildCellNaturalKeyHash({
       scenarioId,
       periodKey: query.period_key,
       accountId: query.account_id,
-      entityId: query.entity_id,
-      fundId: query.fund_id,
+      entityId: scenario.entityId,
+      fundId: query.fund_id ?? scenario.fundId,
       portfolioCompanyId: query.portfolio_company_id,
       analyticalTag: query.analytical_tag
     });
@@ -168,22 +183,26 @@ export class ForecastingCellService {
     if (!cell) {
       throw new ForecastingError(FORECAST_ERROR_CODES.INVALID_COORDINATES, "Cell not found", 400);
     }
-    await prisma.$transaction(async (tx) => {
-      await tx.forecastCell.update({
-        where: { id: cell.id },
-        data: { isManualOverride: false }
-      });
-      await ForecastingAuditService.log(tx, {
-        scenarioId,
-        userId,
-        actionType: "CELL_OVERRIDE_CLEAR",
-        deltaPayload: { period_key: query.period_key, account_id: query.account_id }
-      });
-    });
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.forecastCell.update({
+          where: { id: cell.id },
+          data: { isManualOverride: false }
+        });
+        await ForecastingAuditService.log(tx, {
+          scenarioId,
+          userId: user.id,
+          actionType: "CELL_OVERRIDE_CLEAR",
+          deltaPayload: { period_key: query.period_key, account_id: query.account_id }
+        });
+      },
+      { maxWait: 15_000, timeout: 30_000 }
+    );
     const compute = await ForecastingComputeService.run({
       scenarioId,
       editType: "CELL",
-      userId,
+      user,
+      userId: user.id,
       coordinates: { period_key: query.period_key, account_id: query.account_id },
       options: { skip_manual_overrides: false, include_elapsed_variance: true }
     });

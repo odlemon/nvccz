@@ -11,6 +11,7 @@ import { buildPeriodKeys, monthsBetweenInclusive, validateHorizonMonths } from "
 import { ForecastingAccessService } from "./ForecastingAccessService";
 import { ForecastingAuditService } from "./ForecastingAuditService";
 import { ForecastingError } from "./ForecastingError";
+import { formatForecastUserName } from "../utils/forecastUserDisplay";
 
 function parseDateOnly(v: string | Date): Date {
   if (v instanceof Date) return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()));
@@ -19,10 +20,16 @@ function parseDateOnly(v: string | Date): Date {
 }
 
 export class ForecastingScenarioService {
+  /** Strip internal fields and add entity_id to the public response. */
+  static omitInternalFields<T extends Record<string, unknown>>(row: T): T {
+    const { companyProfileId, ...rest } = row as any;
+    return rest;
+  }
+
   static async create(input: {
     name: string;
     description?: string;
-    entityId: string;
+    entityId?: string;
     fundId?: string;
     baseCurrency: string;
     horizonStartDate: string;
@@ -47,7 +54,8 @@ export class ForecastingScenarioService {
         400
       );
     }
-    await ForecastingAccessService.assertEntityExists(input.entityId);
+    // Resolve entity — use provided entity_id, or fall back to default entity
+    const entityId = await ForecastingAccessService.resolveEntityId(input.entityId);
     await ForecastingAccessService.assertFundExists(input.fundId);
 
     const dims = input.dimensions || [];
@@ -65,7 +73,7 @@ export class ForecastingScenarioService {
         data: {
           name: input.name.trim(),
           description: input.description?.trim() || null,
-          entityId: input.entityId,
+          entityId,
           fundId: input.fundId || null,
           baseCurrency: input.baseCurrency.toUpperCase(),
           horizonStartDate: start,
@@ -91,7 +99,7 @@ export class ForecastingScenarioService {
         scenarioId: created.id,
         userId: input.userId,
         actionType: "SCENARIO_CREATE",
-        deltaPayload: { name: input.name, entityId: input.entityId }
+        deltaPayload: { name: input.name, entity_id: entityId }
       });
       return created;
     });
@@ -100,6 +108,7 @@ export class ForecastingScenarioService {
       id: scenario.id,
       status: scenario.status,
       name: scenario.name,
+      entity_id: scenario.entityId,
       horizon_start_date: scenario.horizonStartDate.toISOString().slice(0, 10),
       horizon_end_date: scenario.horizonEndDate.toISOString().slice(0, 10),
       granularity: scenario.granularity,
@@ -111,7 +120,6 @@ export class ForecastingScenarioService {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
     const where: any = { ...ForecastingAccessService.listScopeFilter(user) };
-    if (query.entity_id) where.entityId = String(query.entity_id);
     if (query.fund_id) where.fundId = String(query.fund_id);
     if (query.status) {
       const statuses = String(query.status).split(",").map((s) => s.trim()).filter(Boolean);
@@ -145,6 +153,7 @@ export class ForecastingScenarioService {
         include: {
           createdBy: { select: { id: true, firstName: true, lastName: true } },
           fund: { select: { id: true, name: true } },
+          entity: { select: { id: true, name: true, type: true } },
           _count: { select: { cells: true, drivers: true } }
         }
       }),
@@ -156,6 +165,7 @@ export class ForecastingScenarioService {
       name: r.name,
       description: r.description,
       entity_id: r.entityId,
+      entity_name: (r as any).entity?.name ?? null,
       fund_id: r.fundId,
       fund_name: r.fund?.name ?? null,
       base_currency: r.baseCurrency,
@@ -167,8 +177,7 @@ export class ForecastingScenarioService {
       driver_count: r._count.drivers,
       cell_count: r._count.cells,
       last_gl_sync_at: r.lastGlSyncAt?.toISOString() ?? null,
-      created_by_id: r.createdById,
-      created_by_name: [r.createdBy?.firstName, r.createdBy?.lastName].filter(Boolean).join(" "),
+      created_by_name: formatForecastUserName(r.createdBy),
       updated_at: r.updatedAt.toISOString()
     }));
 
@@ -186,8 +195,8 @@ export class ForecastingScenarioService {
     return { draft, active, locked, total };
   }
 
-  static async getDetail(scenarioId: string) {
-    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+  static async getDetail(scenarioId: string, user?: any) {
+    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     const periodKeys = buildPeriodKeys(
       scenario.horizonStartDate,
       scenario.horizonEndDate,
@@ -198,15 +207,37 @@ export class ForecastingScenarioService {
       prisma.forecastDriver.count({ where: { scenarioId } })
     ]);
     return {
-      ...scenario,
+      id: scenario.id,
+      name: scenario.name,
+      description: scenario.description,
+      entity_id: scenario.entityId,
+      entity_name: scenario.entity?.name ?? null,
+      entity_type: scenario.entity?.type ?? null,
+      fund_id: scenario.fundId,
+      base_currency: scenario.baseCurrency,
+      horizon_start_date: scenario.horizonStartDate.toISOString().slice(0, 10),
+      horizon_end_date: scenario.horizonEndDate.toISOString().slice(0, 10),
+      granularity: scenario.granularity,
+      status: scenario.status,
+      version_label: scenario.versionLabel,
+      locked_at: scenario.lockedAt?.toISOString() ?? null,
+      locked_by_name: formatForecastUserName(scenario.lockedBy),
+      last_gl_sync_at: scenario.lastGlSyncAt?.toISOString() ?? null,
+      last_compute_at: scenario.lastComputeAt?.toISOString() ?? null,
+      created_by_name: formatForecastUserName(scenario.createdBy),
+      created_at: scenario.createdAt.toISOString(),
+      updated_at: scenario.updatedAt.toISOString(),
+      dimensions: scenario.dimensions,
+      drivers: scenario.drivers,
+      fund: scenario.fund,
       period_keys: periodKeys,
       cell_count: cellCount,
       driver_count: driverCount
     };
   }
 
-  static async getSummary(scenarioId: string) {
-    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+  static async getSummary(scenarioId: string, user?: any) {
+    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     const agg = await prisma.forecastCell.aggregate({
       where: { scenarioId },
       _sum: { forecastValue: true, varianceAbsolute: true },
@@ -225,10 +256,10 @@ export class ForecastingScenarioService {
 
   static async patch(
     scenarioId: string,
-    userId: string,
+    user: { id: string },
     body: { name?: string; description?: string; status?: string }
   ) {
-    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId);
+    const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     ForecastingAccessService.assertScenarioEditable(scenario);
     const data: any = {};
     if (body.name != null) data.name = String(body.name).trim();
@@ -240,17 +271,27 @@ export class ForecastingScenarioService {
       const row = await tx.forecastScenario.update({ where: { id: scenarioId }, data });
       await ForecastingAuditService.log(tx, {
         scenarioId,
-        userId,
+        userId: user.id,
         actionType: body.status === "ACTIVE" ? "SCENARIO_PROMOTE" : "SCENARIO_UPDATE",
         deltaPayload: { before: { status: scenario.status }, after: data }
       });
       return row;
     });
-    return updated;
+    return ForecastingScenarioService.omitInternalFields(updated);
   }
 
+  /**
+   * Resolve which EntityChartOfAccount rows drive this scenario's compute.
+   * Queries the per-entity cloned accounts (not the global ChartOfAccounts).
+   */
   static async resolveAccountsForScenario(scenarioId: string) {
-    const dims = await prisma.forecastDimension.findMany({ where: { scenarioId } });
+    const scenario = await prisma.forecastScenario.findUnique({
+      where: { id: scenarioId },
+      select: { entityId: true, dimensions: true }
+    });
+    if (!scenario) return [];
+
+    const dims = scenario.dimensions;
     const accountRanges = dims
       .filter((d) => d.dimensionType === "ACCOUNT")
       .map((d) => ({
@@ -260,9 +301,17 @@ export class ForecastingScenarioService {
     if (!accountRanges.length) {
       accountRanges.push({ start: 4000, end: 5999 });
     }
-    const accounts = await prisma.chartOfAccounts.findMany({
-      where: { isActive: true },
-      select: { id: true, accountNo: true, accountName: true, accountType: true }
+
+    // Load per-entity accounts — this is the core multi-entity change
+    const accounts = await prisma.entityChartOfAccount.findMany({
+      where: { entityId: scenario.entityId, isActive: true },
+      select: {
+        id: true,
+        accountNo: true,
+        accountName: true,
+        accountType: true,
+        sourceAccountId: true
+      }
     });
     return accounts.filter((a) =>
       accountRanges.some((r) => accountNoInRange(a.accountNo, r.start, r.end))
