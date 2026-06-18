@@ -14,14 +14,9 @@ import {
   periodKeyToBounds
 } from "../utils/forecastPeriodUtils";
 import {
-  cagrProjection,
-  linearProjection,
-  linearRegressionSlopeIntercept,
-  toDec
-} from "../utils/forecastMath";
+  computeDriverCellValue
+} from "../utils/forecastDriverCompute";
 import { ForecastFormulaParser } from "./ForecastFormulaParser";
-import { ForecastingDagEngine } from "./ForecastingDagEngine";
-import { ForecastingAccessService } from "./ForecastingAccessService";
 import { ForecastingAuditService } from "./ForecastingAuditService";
 import { ForecastingError } from "./ForecastingError";
 import { ForecastingFxService } from "./ForecastingFxService";
@@ -29,6 +24,7 @@ import { ForecastingOpmBridgeService } from "./ForecastingOpmBridgeService";
 import { ForecastingScenarioService } from "./ForecastingScenarioService";
 import { ForecastingVarianceService } from "./ForecastingVarianceService";
 import { getPostedPeriodExpenseByAccount } from "./AccountingGlPeriodTotalsService";
+import { isDefaultDriverFormula, validateDriverParameters } from "../utils/forecastFormulaDialect";
 
 const runningJobs = new Set<string>();
 
@@ -85,6 +81,16 @@ export class ForecastingComputeService {
           })
         : [];
       const manualSet = new Set(manualCells.map((c) => c.naturalKeyHash));
+
+      const existingCells = await prisma.forecastCell.findMany({
+        where: { scenarioId: input.scenarioId },
+        select: { naturalKeyHash: true, txCurrencyValue: true, forecastValue: true }
+      });
+      const cellValueCache = new Map<string, number>();
+      for (const c of existingCells) {
+        const v = c.txCurrencyValue != null ? Number(c.txCurrencyValue) : Number(c.forecastValue ?? 0);
+        cellValueCache.set(c.naturalKeyHash, v);
+      }
 
       const updatedCells: any[] = [];
       const rateCache = new Map<string, Decimal>();
@@ -155,60 +161,25 @@ export class ForecastingComputeService {
             const projectedRate = await resolveRate(txCurrency, bounds.end);
 
             let txValue = 0;
-            switch (driver.driverType) {
-              case "CAGR_DRIVEN": {
-                const rate = Number(params.cagr_scalar ?? params.cagr ?? 0);
-                const k = t;
-                txValue = cagrProjection(historicalBase, rate, k);
-                break;
-              }
-              case "HEADCOUNT_GROWTH": {
-                const headcount = Number(params.headcount ?? 1);
-                const costPerHead = Number(params.cost_per_head ?? params.unit_cost ?? 0);
-                const growth = Number(params.growth_rate ?? 0);
-                txValue = headcount * Math.pow(1 + growth, t) * costPerHead;
-                break;
-              }
-              case "INFLATION_MULTIPLIER": {
-                const inflation = Number(params.inflation_rate ?? 0);
-                txValue = historicalBase * Math.pow(1 + inflation, t);
-                break;
-              }
-              case "FX_SCALAR": {
-                txValue = historicalBase * Number(projectedRate);
-                break;
-              }
-              case "LINEAR_REGRESSION": {
-                const lookback = Math.max(3, Number(params.lookback_periods ?? 3));
-                const points: Array<{ t: number; y: number }> = [];
-                const glAccountIdLR = account.sourceAccountId ?? null;
-                for (let i = Math.max(0, elapsed.length - lookback); i < elapsed.length; i++) {
-                  const pk = elapsed[i];
-                  const b = periodKeyToBounds(pk);
-                  let y = 0;
-                  if (glAccountIdLR) {
-                    const glRows = await getPostedPeriodExpenseByAccount(b.start, b.end, {
-                      excludePerformanceJournals: true
-                    });
-                    y = glRows.find((r) => r.chartOfAccountId === glAccountIdLR)?.actualAmount ?? 0;
-                  }
-                  points.push({ t: i, y });
-                }
-                const { m, b } = linearRegressionSlopeIntercept(points);
-                txValue = linearProjection(m, b, t);
-                break;
-              }
-              case "MANUAL_OVERRIDE":
-                continue;
-              default:
-                txValue = ForecastFormulaParser.evaluate(driver.formulaExpression, {
-                  t,
-                  "t-1": t > 0 ? t - 1 : 0,
-                  "t-12": t >= 12 ? t - 12 : 0,
-                  HISTORICAL_BASE: historicalBase,
-                  parameters: params
-                });
+            if (driver.driverType === "MANUAL_OVERRIDE") {
+              continue;
             }
+            txValue = await computeDriverCellValue({
+              driver,
+              params,
+              historicalBase,
+              t,
+              periodKey,
+              projectedRate,
+              elapsed,
+              periodKeys,
+              account,
+              cellValueCache,
+              scenarioId: input.scenarioId,
+              entityId: scenario.entityId,
+              fundId: scenario.fundId,
+              accounts
+            });
 
             const naturalKeyHash = buildCellNaturalKeyHash({
               scenarioId: input.scenarioId,
@@ -248,6 +219,7 @@ export class ForecastingComputeService {
               }
             });
             updatedCells.push(cell);
+            cellValueCache.set(naturalKeyHash, txValue);
             if (updatedCells.length >= 5000) break;
           }
           if (updatedCells.length >= 5000) break;
@@ -292,7 +264,12 @@ export class ForecastingComputeService {
           scenarioId: input.scenarioId,
           userId: input.userId || input.user?.id,
           actionType: "COMPUTE",
-          deltaPayload: { edit_type: input.editType, affected: updatedCells.length, duration_ms: durationMs }
+          deltaPayload: {
+            edit_type: input.editType,
+            affected_cell_count: updatedCells.length,
+            affected: updatedCells.length,
+            duration_ms: durationMs
+          }
         });
       }
 
@@ -329,8 +306,88 @@ export class ForecastingComputeService {
     }
   }
 
-  static async validateFormula(expression: string) {
-    return ForecastFormulaParser.validate(expression);
+  static async validateFormula(input: {
+    expression?: string;
+    parameters?: Record<string, unknown>;
+    driver_type?: string;
+    sample_t?: number;
+  }) {
+    const expression = String(input.expression || "").trim();
+    const parameters = input.parameters;
+    const sampleT = Number(input.sample_t ?? 1);
+
+    const syntax = ForecastFormulaParser.validateRich(expression);
+
+    const expression_errors = [...syntax.errors];
+    const parameter_errors: Array<{ key: string; message: string }> = [];
+
+    const paramCheck = validateDriverParameters(expression, parameters);
+    for (const key of paramCheck.missing) {
+      parameter_errors.push({
+        key,
+        message: `Parameter "${key}" is referenced in the formula but missing from parameters`
+      });
+    }
+    parameter_errors.push(...paramCheck.invalid);
+
+    const missing_parameters = paramCheck.missing;
+    const valid = expression_errors.length === 0 && parameter_errors.length === 0;
+
+    const errors = [
+      ...expression_errors,
+      ...parameter_errors.map((e) => e.message)
+    ];
+
+    const historicalBase = Number(
+      (parameters as Record<string, unknown>)?.historical_base ??
+        (parameters as Record<string, unknown>)?.base_value ??
+        1000
+    );
+    const uses_builtin_path =
+      valid && input.driver_type
+        ? isDefaultDriverFormula(input.driver_type, syntax.normalized_expression || expression)
+        : false;
+
+    let sample_result: number | null = null;
+    if (valid) {
+      try {
+        const numericParams = Object.fromEntries(
+          Object.entries(parameters || {}).map(([k, v]) => [k, Number(v)])
+        ) as Record<string, number>;
+        const evalCtx = ForecastFormulaParser.buildEvalContext({
+          t: sampleT,
+          historicalBase,
+          parameters: numericParams,
+          lag: (n) => (n === 12 ? historicalBase * 0.9 : historicalBase * 0.95),
+          cellValues: {}
+        });
+        sample_result = ForecastFormulaParser.evaluate(expression, evalCtx);
+      } catch (e: any) {
+        expression_errors.push(e?.message || "Failed to evaluate sample result");
+        errors.push(e?.message || "Failed to evaluate sample result");
+      }
+    }
+
+    const finalValid =
+      expression_errors.length === 0 && parameter_errors.length === 0;
+
+    return {
+      valid: finalValid,
+      ok: finalValid,
+      normalized_expression: syntax.normalized_expression,
+      sample_result: finalValid ? sample_result : null,
+      errors: finalValid
+        ? []
+        : [
+            ...expression_errors,
+            ...parameter_errors.map((e) => e.message)
+          ],
+      expression_errors: finalValid ? [] : expression_errors,
+      parameter_errors: finalValid ? [] : parameter_errors,
+      missing_parameters: finalValid ? [] : missing_parameters,
+      warnings: syntax.warnings,
+      uses_builtin_path: finalValid ? uses_builtin_path : false
+    };
   }
 
   static async getJob(computeJobId: string, user?: any) {

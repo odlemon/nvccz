@@ -71,6 +71,21 @@ export class ForecastingCellService {
       body.tx_currency
     );
 
+    const [accountMeta, portfolioCompany] = await Promise.all([
+      prisma.entityChartOfAccount.findUnique({
+        where: { id: body.account_id },
+        select: { accountNo: true, accountName: true }
+      }),
+      body.portfolio_company_id
+        ? prisma.portfolioCompany.findUnique({
+            where: { id: body.portfolio_company_id },
+            select: { name: true }
+          })
+        : Promise.resolve(null)
+    ]);
+
+    const beforeValue = existing ? Number(existing.txCurrencyValue) : null;
+
     await prisma.$transaction(
       async (tx) => {
         await tx.forecastCell.upsert({
@@ -100,7 +115,20 @@ export class ForecastingCellService {
           scenarioId,
           userId: user.id,
           actionType: "CELL_EDIT",
-          deltaPayload: { period_key: body.period_key, account_id: body.account_id, new_value: body.new_value }
+          deltaPayload: {
+            period_key: body.period_key,
+            account_id: body.account_id,
+            account_no: accountMeta?.accountNo ?? null,
+            account_name: accountMeta?.accountName ?? null,
+            portfolio_company_id: body.portfolio_company_id ?? null,
+            portfolio_company_name: portfolioCompany?.name ?? null,
+            analytical_tag: body.analytical_tag ?? null,
+            tx_currency: body.tx_currency,
+            before_value: beforeValue,
+            after_value: body.new_value,
+            new_value: body.new_value,
+            is_manual_override: true
+          }
         });
       },
       { maxWait: 15_000, timeout: 30_000 }
@@ -183,6 +211,10 @@ export class ForecastingCellService {
     if (!cell) {
       throw new ForecastingError(FORECAST_ERROR_CODES.INVALID_COORDINATES, "Cell not found", 400);
     }
+    const accountMeta = await prisma.entityChartOfAccount.findUnique({
+      where: { id: query.account_id },
+      select: { accountNo: true, accountName: true }
+    });
     await prisma.$transaction(
       async (tx) => {
         await tx.forecastCell.update({
@@ -193,7 +225,13 @@ export class ForecastingCellService {
           scenarioId,
           userId: user.id,
           actionType: "CELL_OVERRIDE_CLEAR",
-          deltaPayload: { period_key: query.period_key, account_id: query.account_id }
+          deltaPayload: {
+            period_key: query.period_key,
+            account_id: query.account_id,
+            account_no: accountMeta?.accountNo ?? null,
+            account_name: accountMeta?.accountName ?? null,
+            cleared_value: Number(cell.txCurrencyValue)
+          }
         });
       },
       { maxWait: 15_000, timeout: 30_000 }

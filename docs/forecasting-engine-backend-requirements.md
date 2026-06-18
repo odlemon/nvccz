@@ -1129,11 +1129,68 @@ Frontend polls until `COMPLETED`, then calls `GET .../grid` with `compute_job_id
 
 #### 8.13.6 POST `/api/v1/forecasting/compute/validate`
 
-**Purpose:** Dry-run formula/driver validation without persisting — used by driver editor “Test formula” button.
+**Purpose:** Dry-run formula/driver validation without persisting — used by driver editor **Validate** button.
 
-**Request:** `{ "scenario_id", "formula_expression", "parameters", "sample_coordinates" }`
+**Request** (`expression` and `parameters` required):
 
-**Response:** `{ "valid": true, "sample_result": 12345.67 }` or `{ "valid": false, "errors": [...] }`
+```json
+{
+  "expression": "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+  "parameters": { "cagr_scalar": 0.05, "historical_base": 10000, "tx_currency": "USD" },
+  "driver_type": "CAGR_DRIVEN",
+  "sample_t": 6
+}
+```
+
+**Response 200** (`data.valid` is `true` only when syntax and all parameters pass):
+
+```json
+{
+  "success": true,
+  "data": {
+    "valid": true,
+    "ok": true,
+    "normalized_expression": "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+    "sample_result": 13401.13,
+    "expression_errors": [],
+    "parameter_errors": [],
+    "missing_parameters": [],
+    "errors": [],
+    "warnings": [],
+    "uses_builtin_path": true
+  }
+}
+```
+
+**Response 400** (`INVALID_FORMULA` — `data.valid` is always `false`):
+
+```json
+{
+  "success": false,
+  "code": "INVALID_FORMULA",
+  "message": "Parameter \"historical_base\" is referenced in the formula but missing from parameters",
+  "data": {
+    "valid": false,
+    "ok": false,
+    "normalized_expression": "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+    "sample_result": null,
+    "expression_errors": [],
+    "parameter_errors": [
+      {
+        "key": "historical_base",
+        "message": "Parameter \"historical_base\" is referenced in the formula but missing from parameters"
+      }
+    ],
+    "missing_parameters": ["historical_base"],
+    "errors": ["Parameter \"historical_base\" is referenced in the formula but missing from parameters"],
+    "uses_builtin_path": false
+  }
+}
+```
+
+**Frontend:** highlight `expression_errors` on the formula editor; highlight `parameter_errors[].key` on the parameters panel.
+
+**Formula dialect:** `IF cond THEN a ELSE b` (normalized to `IF(cond,a,b)`). `t-12` and `LAG(12)` resolve to year-ago **cell value** for the same account at compute time.
 
 ---
 
@@ -1287,26 +1344,37 @@ Comprehensive **audit trail** for compliance (Epic 4). Stored in `forecast_audit
 
 **Response 200:**
 
+Each item is **analyst-facing only** (no audit log id, scenario id, or raw `delta_payload`):
+
+| Field | Purpose |
+|-------|---------|
+| `scenario_name` | Scenario label (admin cross-scenario feed; also on scenario trail) |
+| `action_type` | Filter chips / icons |
+| `action_label` | Short human title (e.g. "Portfolio report imported") |
+| `summary` | **Only narrative line** — full analyst context (amounts, account, period, trigger) |
+| `actor_label` | Display name or `System` for automated actions |
+| `created_at` | When the event occurred |
+
 ```json
 {
   "success": true,
   "data": {
     "items": [
       {
-        "id": "fal_...",
-        "scenario_id": "clx...",
-        "user_id": "cml7...",
-        "user_name": "Nyasha K",
-        "action_type": "CELL_UPDATE",
-        "priority": "NORMAL",
-        "delta_payload": {
-          "period_key": "2026-09",
-          "account_id": "coa_4100",
-          "before": { "forecast_value": 120000.00 },
-          "after": { "forecast_value": 125000.50 },
-          "tx_currency": "USD"
-        },
+        "scenario_name": "ZimFund 2026",
+        "action_type": "CELL_EDIT",
+        "action_label": "Forecast cell updated",
+        "summary": "4000 Management Fees Income · Dec 2026: 275,000 USD → 600,000 USD · manual override",
+        "actor_label": "Nyasha K",
         "created_at": "2026-06-08T10:22:01Z"
+      },
+      {
+        "scenario_name": "ZimFund 2026",
+        "action_type": "COMPUTE",
+        "action_label": "Forecast recalculated",
+        "summary": "Model rechecked after manual cell edit; no other cells changed",
+        "actor_label": "Admin User",
+        "created_at": "2026-06-17T12:28:16.629Z"
       }
     ],
     "pagination": { "page": 1, "limit": 50, "total": 312 }

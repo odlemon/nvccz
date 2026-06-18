@@ -40,7 +40,12 @@ export class ForecastingOpmBridgeService {
         scenarioId,
         userId: user.id,
         actionType: "GOAL_LINK_CREATE",
-        deltaPayload: { performance_goal_id: body.performance_goal_id }
+        deltaPayload: {
+          performance_goal_id: body.performance_goal_id,
+          performance_goal_title: goal.title,
+          account_id: body.account_id ?? null,
+          threshold_value: body.threshold_value ?? null
+        }
       });
       return row;
     });
@@ -50,13 +55,21 @@ export class ForecastingOpmBridgeService {
   static async deleteGoalLink(scenarioId: string, linkId: string, user: { id: string }) {
     const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     ForecastingAccessService.assertScenarioEditable(scenario);
+    const existing = await prisma.forecastGoalLink.findFirst({
+      where: { id: linkId, scenarioId },
+      include: { performanceGoal: { select: { id: true, title: true } } }
+    });
     await prisma.$transaction(async (tx) => {
       await tx.forecastGoalLink.deleteMany({ where: { id: linkId, scenarioId } });
       await ForecastingAuditService.log(tx, {
         scenarioId,
         userId: user.id,
         actionType: "GOAL_LINK_DELETE",
-        deltaPayload: { link_id: linkId }
+        deltaPayload: {
+          link_id: linkId,
+          performance_goal_id: existing?.performanceGoalId ?? null,
+          performance_goal_title: existing?.performanceGoal?.title ?? null
+        }
       });
     });
     return { deleted: true };

@@ -68,6 +68,14 @@ export class ForecastingScenarioService {
       }
     }
 
+    const entity = await prisma.forecastEntity.findUnique({
+      where: { id: entityId },
+      select: { name: true }
+    });
+    const fund = input.fundId
+      ? await prisma.fund.findUnique({ where: { id: input.fundId }, select: { name: true } })
+      : null;
+
     const scenario = await prisma.$transaction(async (tx) => {
       const created = await tx.forecastScenario.create({
         data: {
@@ -99,7 +107,17 @@ export class ForecastingScenarioService {
         scenarioId: created.id,
         userId: input.userId,
         actionType: "SCENARIO_CREATE",
-        deltaPayload: { name: input.name, entity_id: entityId }
+        deltaPayload: {
+          name: input.name,
+          entity_id: entityId,
+          entity_name: entity?.name ?? null,
+          fund_id: input.fundId ?? null,
+          fund_name: fund?.name ?? null,
+          horizon_start: start.toISOString().slice(0, 10),
+          horizon_end: end.toISOString().slice(0, 10),
+          granularity: input.granularity,
+          base_currency: input.baseCurrency.toUpperCase()
+        }
       });
       return created;
     });
@@ -273,7 +291,12 @@ export class ForecastingScenarioService {
         scenarioId,
         userId: user.id,
         actionType: body.status === "ACTIVE" ? "SCENARIO_PROMOTE" : "SCENARIO_UPDATE",
-        deltaPayload: { before: { status: scenario.status }, after: data }
+        deltaPayload: {
+          before: { status: scenario.status, name: scenario.name },
+          after: data,
+          from: scenario.status,
+          to: data.status ?? scenario.status
+        }
       });
       return row;
     });

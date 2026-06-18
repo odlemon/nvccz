@@ -1515,13 +1515,17 @@ export class FinancialReportService {
         }
 
         try {
+          const pcFund = await prisma.portfolioCompany.findUnique({
+            where: { id: report.portfolioCompanyId },
+            select: { fundId: true },
+          });
           const { ForecastingPortfolioDispatchService } = await import(
             "./ForecastingPortfolioDispatchService"
           );
           await ForecastingPortfolioDispatchService.dispatchFromAcceptedReport({
             id: params.reportId,
             portfolioCompanyId: report.portfolioCompanyId,
-            fundId: (report as any).fundId ?? null,
+            fundId: (report as any).fundId ?? pcFund?.fundId ?? null,
             reportingPeriod: report.reportingPeriod || report.periodEnd,
             totalRevenue,
             netProfit,

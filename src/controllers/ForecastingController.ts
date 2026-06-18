@@ -758,7 +758,26 @@ export class ForecastingController {
 
       if (!assertEnabled(res)) return;
 
-      const result = await ForecastingComputeService.validateFormula(req.body.expression || "");
+      const result = await ForecastingComputeService.validateFormula({
+        expression: req.body.expression,
+        parameters: req.body.parameters,
+        driver_type: req.body.driver_type,
+        sample_t: req.body.sample_t
+      });
+
+      if (!result.valid) {
+        const primaryMessage =
+          result.parameter_errors?.[0]?.message ||
+          result.expression_errors?.[0] ||
+          result.errors?.[0] ||
+          "Invalid formula";
+        return res.status(400).json({
+          success: false,
+          code: "INVALID_FORMULA",
+          message: primaryMessage,
+          data: result
+        });
+      }
 
       res.json({ success: true, data: result });
 

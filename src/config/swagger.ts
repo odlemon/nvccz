@@ -21,6 +21,11 @@ import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-pa
 import { phaseTwoScorecardEditingSwaggerPaths } from './phase-two-scorecard-editing-swagger-paths';
 import { phaseTwoPdfUploadsSwaggerPaths, PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
 import { forecastingEngineSwaggerPaths, FORECASTING_ENGINE_TAG } from './forecasting-engine-swagger-paths';
+import {
+  payrollEmploymentTrainingSwaggerPaths,
+  PAYROLL_ET_PAYROLL_TAG,
+  PAYROLL_ET_COMPLIANCE_TAG,
+} from './payroll-employment-training-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -2214,6 +2219,7 @@ const fallbackSpec = {
     ...lpFeesAndDistributionsEndpoints,
     ...phaseTwoPdfUploadsSwaggerPaths,
     ...forecastingEngineSwaggerPaths,
+    ...payrollEmploymentTrainingSwaggerPaths,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -9503,6 +9509,7 @@ specs.paths = {
   ...phaseTwoScorecardEditingSwaggerPaths,
   ...phaseTwoPdfUploadsSwaggerPaths,
   ...forecastingEngineSwaggerPaths,
+  ...payrollEmploymentTrainingSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
   ...payrollEndpoints,
@@ -9613,6 +9620,24 @@ specs = applyProtectedSwaggerModules(specs, [
       name: FORECASTING_ENGINE_TAG,
       description:
         '**Forecasting Engine** — multi-dimensional hypercube scenarios, drivers, DAG compute, variance (Eq. 1–10), version lock/snapshots, GL daily sync, and Phase 2 bridges (Investee dispatch, OPM goal links, Events budget accrual). See `docs/forecasting-engine-backend-requirements.md`.'
+    }
+  },
+  {
+    paths: payrollEmploymentTrainingSwaggerPaths,
+    tagName: PAYROLL_ET_PAYROLL_TAG,
+    tagDefinition: {
+      name: PAYROLL_ET_PAYROLL_TAG,
+      description:
+        '**Payroll (Section A)** — employee lifecycle, maker-checker, dual-currency runs, ZIMRA statutory engine, payslip integrity, GL posting. See `docs/payroll-employment-training-backend-requirements.md`.'
+    }
+  },
+  {
+    paths: payrollEmploymentTrainingSwaggerPaths,
+    tagName: PAYROLL_ET_COMPLIANCE_TAG,
+    tagDefinition: {
+      name: PAYROLL_ET_COMPLIANCE_TAG,
+      description:
+        '**Employment & Training (Section B)** — courses, certifications, expiry cron, permission revocation on cert expiry.'
     }
   }
 ]);

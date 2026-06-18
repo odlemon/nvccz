@@ -25,7 +25,9 @@ export class ForecastingEventsBridgeService {
         deltaPayload: {
           internal_event: "PREPAID_EVENT_ACCRUAL",
           event_id: eventId,
-          amount
+          event_title: event.title,
+          amount,
+          edit_type: "SCENARIO_RECALC"
         }
       });
     }

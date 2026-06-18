@@ -104,7 +104,12 @@ model User {
   investmentExitEventsRecorded       InvestmentExitEvent[]       @relation("InvestmentExitRecorder")
   exitInterviewsConducted           ExitInterview[]              @relation("ExitInterviewConductedBy")
   employee                          Employee?
-  payrollRunsCreated                PayrollRun[]
+  payrollRunsCreated                PayrollRun[]                 @relation("PayrollRunCreatedBy")
+  payrollRunsApproved               PayrollRun[]                 @relation("PayrollRunApprovedBy")
+  payrollRunsSubmitted              PayrollRun[]                 @relation("PayrollRunSubmittedBy")
+  employeeChangeRequestsMade        EmployeeChangeRequest[]      @relation("EmployeeChangeRequestMaker")
+  employeeChangeRequestsChecked     EmployeeChangeRequest[]      @relation("EmployeeChangeRequestChecker")
+  employeeCertificationsVerified    EmployeeCertification[]      @relation("EmployeeCertificationVerifiedBy")
   taxRulesCreated                   TaxRules[]
   allowanceTypesCreated             AllowanceTypes[]
   deductionTypesCreated             DeductionTypes[]
@@ -774,6 +779,7 @@ model JournalEntry {
   distribution              Distribution?                     @relation("DistributionJournal")
   portfolioDividends        PortfolioCompanyDividend[]        @relation("PortfolioDividendJournal")
   performanceProgressEvents PerformanceGoalProgressEvent[]
+  payrollRuns               PayrollRun[]
 
   @@map("journal_entries")
 }
@@ -4065,6 +4071,13 @@ model Employee {
   terminationReason       String?             @db.Text
   /** Vendor used for staff reimbursement / creditor tracking (cashbook SUPPLIER payments). */
   reimbursementVendorId   String?             @unique @map("reimbursement_vendor_id")
+  lifecycleStatus         String              @default("ACTIVE") @map("lifecycle_status")
+  departmentCode          String?             @map("department_code")
+  zimraBpNumber           String?             @map("zimra_bp_number")
+  salarySplitUsdPct       Decimal             @default(1.0) @map("salary_split_usd_pct") @db.Decimal(8, 6)
+  salarySplitZigPct       Decimal             @default(0.0) @map("salary_split_zig_pct") @db.Decimal(8, 6)
+  contractEffectiveDate   DateTime?           @map("contract_effective_date") @db.Date
+  complianceBlockedPermissions Json?          @map("compliance_blocked_permissions")
   user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   lineManager             User?               @relation("EmployeeLineManager", fields: [lineManagerUserId], references: [id])
   currency                Currency?           @relation(fields: [currencyId], references: [id])
@@ -4074,28 +4087,42 @@ model Employee {
   payslips                Payslip[]
   employeePayrolls        EmployeePayroll[]
   employeeDeductions      EmployeeDeduction[]
+  changeRequests          EmployeeChangeRequest[]
+  certifications          EmployeeCertification[]
 
   @@map("employees")
 }
 
 model PayrollRun {
-  id               String            @id @default(cuid())
-  name             String
-  payPeriod        String
-  startDate        DateTime
-  endDate          DateTime
-  status           PayrollStatus     @default(DRAFT)
-  totalGrossPay    Decimal           @default(0.000000000000000000000000000000)
-  totalDeductions  Decimal           @default(0.000000000000000000000000000000)
-  totalNetPay      Decimal           @default(0.000000000000000000000000000000)
-  currencyId       String?
-  createdById      String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  currency         Currency?         @relation(fields: [currencyId], references: [id])
-  createdBy        User              @relation(fields: [createdById], references: [id])
-  employeePayrolls EmployeePayroll[]
-  payslips         Payslip[]
+  id                    String            @id @default(cuid())
+  name                  String
+  payPeriod             String
+  startDate             DateTime
+  endDate               DateTime
+  status                PayrollStatus     @default(DRAFT)
+  totalGrossPay         Decimal           @default(0.000000000000000000000000000000)
+  totalDeductions       Decimal           @default(0.000000000000000000000000000000)
+  totalNetPay           Decimal           @default(0.000000000000000000000000000000)
+  currencyId            String?
+  journalEntryId        String?           @map("journal_entry_id")
+  fxRateUsdZig          Decimal?          @map("fx_rate_usd_zig") @db.Decimal(18, 8)
+  dualCurrency          Boolean           @default(false) @map("dual_currency")
+  approvalStatus        String            @default("NONE") @map("approval_status")
+  submittedForApprovalAt DateTime?        @map("submitted_for_approval_at")
+  approvedAt            DateTime?         @map("approved_at")
+  approvedById          String?           @map("approved_by_id")
+  submittedById         String?           @map("submitted_by_id")
+  processError          String?           @map("process_error") @db.Text
+  createdById           String
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  currency              Currency?         @relation(fields: [currencyId], references: [id])
+  createdBy             User              @relation("PayrollRunCreatedBy", fields: [createdById], references: [id])
+  approvedBy            User?             @relation("PayrollRunApprovedBy", fields: [approvedById], references: [id])
+  submittedBy           User?             @relation("PayrollRunSubmittedBy", fields: [submittedById], references: [id])
+  journalEntry          JournalEntry?     @relation(fields: [journalEntryId], references: [id])
+  employeePayrolls      EmployeePayroll[]
+  payslips              Payslip[]
 
   @@map("payroll_runs")
 }
@@ -4117,6 +4144,7 @@ model EmployeePayroll {
   currency        Currency?          @relation(fields: [currencyId], references: [id])
   allowances      PayrollAllowance[]
   deductions      PayrollDeduction[]
+  legs            EmployeePayrollLeg[]
 
   @@unique([payrollRunId, employeeId])
   @@map("employee_payrolls")
@@ -4274,6 +4302,10 @@ model Payslip {
   currencyId      String?
   pdfPath         String?
   isGenerated     Boolean    @default(false)
+  sha256Checksum  String?    @map("sha256_checksum")
+  storagePath     String?    @map("storage_path")
+  fileUrl         String?    @map("file_url")
+  generatedAt     DateTime?  @map("generated_at")
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   employee        Employee   @relation(fields: [employeeId], references: [id])
@@ -4282,6 +4314,132 @@ model Payslip {
 
   @@unique([employeeId, payrollRunId])
   @@map("payslips")
+}
+
+model EmployeeChangeRequest {
+  id              String    @id @default(cuid())
+  employeeId      String    @map("employee_id")
+  changeType      String    @map("change_type")
+  payload         Json
+  status          String    @default("PENDING")
+  makerUserId     String    @map("maker_user_id")
+  checkerUserId   String?   @map("checker_user_id")
+  rejectionReason String?   @map("rejection_reason") @db.Text
+  submittedAt     DateTime  @default(now()) @map("submitted_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  maker           User      @relation("EmployeeChangeRequestMaker", fields: [makerUserId], references: [id])
+  checker         User?     @relation("EmployeeChangeRequestChecker", fields: [checkerUserId], references: [id])
+
+  @@index([employeeId, status])
+  @@map("employee_change_requests")
+}
+
+model EmployeePayrollLeg {
+  id                String          @id @default(cuid())
+  employeePayrollId String          @map("employee_payroll_id")
+  currencyCode      String          @map("currency_code")
+  grossPay          Decimal         @default(0) @map("gross_pay") @db.Decimal(15, 3)
+  payeAmount        Decimal         @default(0) @map("paye_amount") @db.Decimal(15, 3)
+  aidsLevyAmount    Decimal         @default(0) @map("aids_levy_amount") @db.Decimal(15, 3)
+  nssaAmount        Decimal         @default(0) @map("nssa_amount") @db.Decimal(15, 3)
+  sdlAmount         Decimal         @default(0) @map("sdl_amount") @db.Decimal(15, 3)
+  otherDeductions   Decimal         @default(0) @map("other_deductions") @db.Decimal(15, 3)
+  totalDeductions   Decimal         @default(0) @map("total_deductions") @db.Decimal(15, 3)
+  netPay            Decimal         @default(0) @map("net_pay") @db.Decimal(15, 3)
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  employeePayroll   EmployeePayroll @relation(fields: [employeePayrollId], references: [id], onDelete: Cascade)
+
+  @@unique([employeePayrollId, currencyCode])
+  @@map("employee_payroll_legs")
+}
+
+model ZimraTaxBracket {
+  id              String    @id @default(cuid())
+  currencyCode    String    @map("currency_code")
+  lowerBound      Decimal   @default(0) @map("lower_bound") @db.Decimal(15, 3)
+  upperBound      Decimal?  @map("upper_bound") @db.Decimal(15, 3)
+  marginalRate    Decimal   @map("marginal_rate") @db.Decimal(8, 6)
+  deductionOffset Decimal   @default(0) @map("deduction_offset") @db.Decimal(15, 3)
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([currencyCode, effectiveFrom, isActive])
+  @@map("zimra_tax_brackets")
+}
+
+model StatutoryLevyConfig {
+  id            String    @id @default(cuid())
+  levyCode      String    @map("levy_code")
+  currencyCode  String    @map("currency_code")
+  rate          Decimal?  @db.Decimal(8, 6)
+  ceiling       Decimal?  @db.Decimal(15, 3)
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([levyCode, currencyCode, effectiveFrom])
+  @@map("statutory_levy_config")
+}
+
+model TrainingCourse {
+  id                       String                @id @default(cuid())
+  code                     String                @unique
+  title                    String
+  description              String?               @db.Text
+  renewalPeriodMonths      Int                   @default(12) @map("renewal_period_months")
+  requiredPermissionCodes  Json?                 @map("required_permission_codes")
+  isActive                 Boolean               @default(true) @map("is_active")
+  createdAt                DateTime              @default(now()) @map("created_at")
+  updatedAt                DateTime              @updatedAt @map("updated_at")
+  assignments              TrainingAssignment[]
+  certifications             EmployeeCertification[]
+
+  @@map("training_courses")
+}
+
+model TrainingAssignment {
+  id          String         @id @default(cuid())
+  courseId    String         @map("course_id")
+  scopeType   String         @map("scope_type")
+  scopeValue  String?        @map("scope_value")
+  isActive    Boolean        @default(true) @map("is_active")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  course      TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@map("training_assignments")
+}
+
+model EmployeeCertification {
+  id             String         @id @default(cuid())
+  employeeId     String         @map("employee_id")
+  courseId       String         @map("course_id")
+  issuedDate     DateTime       @map("issued_date") @db.Date
+  expirationDate DateTime       @map("expiration_date") @db.Date
+  storagePath    String?        @map("storage_path")
+  fileUrl        String?        @map("file_url")
+  sha256Checksum String?        @map("sha256_checksum")
+  status         String         @default("VALID")
+  verifiedById   String?        @map("verified_by_id")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  employee       Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  course         TrainingCourse @relation(fields: [courseId], references: [id])
+  verifiedBy     User?          @relation("EmployeeCertificationVerifiedBy", fields: [verifiedById], references: [id])
+
+  @@index([employeeId])
+  @@index([expirationDate, status])
+  @@map("employee_certifications")
 }
 
 model BankFileTemplate {
@@ -5091,8 +5249,11 @@ enum ExpenseStatus {
 
 enum PayrollStatus {
   DRAFT
+  PENDING_APPROVAL
+  APPROVED
   PROCESSING
   COMPLETED
+  FAILED
   CANCELLED
 }
 

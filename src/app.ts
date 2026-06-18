@@ -107,6 +107,7 @@ import individualGoalToTaskRoutes from "./routes/individualGoalToTaskRoutes"
 import scorecardPillarRoutes from "./routes/scorecardPillarRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
 import payrollDashboardRoutes from "./routes/payrollDashboardRoutes"
+import payrollComplianceRoutes from "./routes/payrollComplianceRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import procurementSuite06Routes from "./routes/procurementSuite06Routes"
 import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
@@ -627,6 +628,7 @@ app.use("/api/performance/individual-goals", individualGoalToTaskRoutes)
 
 // Payroll Management routes
 app.use("/api/payroll", payrollRoutes)
+app.use("/api/payroll/compliance", payrollComplianceRoutes)
 app.use("/api/payroll/dashboard", payrollDashboardRoutes)
 
 // Procurement Management routes — specific sub-routers BEFORE generic /procurement (which applies authenticate globally)

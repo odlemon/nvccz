@@ -10,10 +10,21 @@ import {
   resolveNetWagesPayableAccount,
   resolveNssaPensionPayableAccount,
   resolvePayePayableAccount,
+  resolveSdlPayableAccount,
 } from './payrollLiabilityAccountHelpers';
 import { classifyDeductionForPayrollJournal } from './payrollJournalDeductionClassification';
 import { loadCapitalCallAccountingLetterhead } from "../utils/capitalCallAccountingLetterhead";
 import { buildPayslipPdfBuffer, safePayslipPdfFileBaseName } from "../utils/payslipPdf";
+import { PayrollRunApprovalService } from './payroll/PayrollRunApprovalService';
+import { PayslipDocumentService } from './payroll/PayslipDocumentService';
+import { EmployeeChangeRequestService } from './payroll/EmployeeChangeRequestService';
+import {
+  calculateEmployeePayrollWithLegs,
+  persistPayrollLegs,
+  resolveRunFxRate,
+  usesDualCurrency,
+} from './payroll/PayrollDualCurrencyService';
+import { resolvePayrollUsdZigRate } from './payroll/PayrollFxService';
 
 export interface PayrollCalculationResult {
   basicSalary: Decimal;
@@ -45,6 +56,12 @@ export interface BankFileData {
 }
 
 export class PayrollService {
+  private static payrollFxRate: Decimal | null = null;
+
+  static setPayrollFxRate(rate: Decimal) {
+    PayrollService.payrollFxRate = rate;
+  }
+
   /**
    * Calculate payroll for a single employee
    */
@@ -274,9 +291,18 @@ export class PayrollService {
         }
       }
 
-      // 3. Tax rules (PAYE, NSSA, AIDS Levy)
+      // 3. Tax rules (PAYE, NSSA, AIDS Levy) — AIDS = % of PAYE (Eq. 2)
+      let computedPaye = new Decimal(0);
       for (const taxRule of taxRules) {
-        // Double-check effective date logic for tax rules
+        const isTaxRuleEffective = taxRule.effectiveDate <= effectiveDate && 
+          (taxRule.endDate === null || taxRule.endDate >= effectiveDate);
+
+        if (isTaxRuleEffective && taxRule.type === 'PAYE') {
+          computedPaye = this.calculatePAYE(grossPay, taxRule);
+        }
+      }
+
+      for (const taxRule of taxRules) {
         const isTaxRuleEffective = taxRule.effectiveDate <= effectiveDate && 
           (taxRule.endDate === null || taxRule.endDate >= effectiveDate);
 
@@ -291,10 +317,9 @@ export class PayrollService {
               deductionAmount = this.calculateNSSA(grossPay, taxRule);
               break;
             case 'AIDS_LEVY':
-              deductionAmount = this.calculateAIDSLevy(grossPay, taxRule);
+              deductionAmount = this.calculateAIDSLevy(computedPaye.gt(0) ? computedPaye : grossPay, taxRule);
               break;
             default:
-              // Custom tax calculation
               deductionAmount = this.calculateCustomTax(grossPay, taxRule);
           }
 
@@ -491,8 +516,11 @@ export class PayrollService {
   /**
    * Calculate AIDS Levy
    */
-  private static calculateAIDSLevy(grossPay: Decimal, taxRule: any): Decimal {
-    return grossPay.mul(taxRule.rate).div(100);
+  private static calculateAIDSLevy(payeOrGross: Decimal, taxRule: any): Decimal {
+    const rateFraction = taxRule?.rate
+      ? new Decimal(taxRule.rate.toString()).div(100)
+      : new Decimal(0.03);
+    return payeOrGross.mul(rateFraction);
   }
 
   /**
@@ -527,20 +555,37 @@ export class PayrollService {
         throw new Error('Payroll run not found');
       }
 
-      if (payrollRun.status !== 'DRAFT') {
-        throw new Error('Payroll run is not in draft status');
+      PayrollRunApprovalService.assertCanProcess(payrollRun);
+
+      const employeeIds = (
+        await prisma.employee.findMany({
+          where: { isActive: true, terminated: false, lifecycleStatus: 'ACTIVE' },
+          select: { id: true },
+        })
+      ).map((e) => e.id);
+      const hasPending = await EmployeeChangeRequestService.hasPendingForEmployees(employeeIds);
+      if (hasPending) {
+        throw new Error('Cannot process payroll: pending employee change requests exist');
+      }
+
+      const fxRate = await resolveRunFxRate(payrollRun);
+      PayrollService.setPayrollFxRate(fxRate);
+      if (!payrollRun.fxRateUsdZig) {
+        await prisma.payrollRun.update({
+          where: { id: payrollRunId },
+          data: { fxRateUsdZig: fxRate },
+        });
       }
 
       // Update status to processing
       await prisma.payrollRun.update({
         where: { id: payrollRunId },
-        data: { status: 'PROCESSING' }
+        data: { status: 'PROCESSING', processError: null }
       });
 
-      // Active roster: not terminated (terminations also set isActive false)
       const employees = await prisma.employee.findMany({
-        where: { isActive: true, terminated: false },
-        include: { user: true }
+        where: { isActive: true, terminated: false, lifecycleStatus: 'ACTIVE' },
+        include: { user: true, salaryStructures: { include: { allowanceType: true } } }
       });
 
       let totalGrossPay = new Decimal(0);
@@ -549,11 +594,17 @@ export class PayrollService {
 
       // Process each employee
       for (const employee of employees) {
-        const calculation = await this.calculateEmployeePayroll(
-          employee.id,
-          payrollRunId,
-          payrollRun.currencyId || ''
-        );
+        const effectiveDate = payrollRun.endDate;
+        let calculation;
+        if (usesDualCurrency(employee, payrollRun)) {
+          calculation = await calculateEmployeePayrollWithLegs(employee, effectiveDate, fxRate);
+        } else {
+          calculation = await this.calculateEmployeePayroll(
+            employee.id,
+            payrollRunId,
+            payrollRun.currencyId || ''
+          );
+        }
 
         // Create or update employee payroll record
         await prisma.employeePayroll.upsert({
@@ -619,6 +670,10 @@ export class PayrollService {
           payrollRun.currencyId
         );
 
+        if (calculation.legs?.length) {
+          await persistPayrollLegs(employeePayrollRow.id, calculation.legs);
+        }
+
         // Create payslip record
         await prisma.payslip.upsert({
           where: {
@@ -643,12 +698,17 @@ export class PayrollService {
           }
         });
 
-        // Send payslip email to employee
+        try {
+          await PayslipDocumentService.generateAndStore(employee.id, payrollRunId);
+        } catch (pdfError) {
+          console.error(`Failed to store payslip PDF for ${employee.id}:`, pdfError);
+          throw pdfError;
+        }
+
         try {
           await this.sendPayslipEmail(employee.id, payrollRunId);
         } catch (emailError) {
           console.error(`Failed to send payslip email to ${employee.id}:`, emailError);
-          // Continue processing even if email fails
         }
 
         totalGrossPay = totalGrossPay.add(calculation.grossPay);
@@ -656,53 +716,52 @@ export class PayrollService {
         totalNetPay = totalNetPay.add(calculation.netPay);
       }
 
-      // Update payroll run totals
+      // Update payroll run totals (not COMPLETED until JE succeeds)
       await prisma.payrollRun.update({
         where: { id: payrollRunId },
         data: {
-          status: 'COMPLETED',
           totalGrossPay,
           totalDeductions,
           totalNetPay
         }
       });
 
-      // Sync payroll data to performance goals (before journal entry)
       try {
         const { PerformanceGoalService } = await import('./PerformanceGoalService');
         await PerformanceGoalService.syncPayrollToGoals(payrollRunId, totalGrossPay, createdById);
       } catch (syncError: any) {
-        // Log but don't fail payroll processing
         console.error('[FAIL] Failed to sync payroll to performance goals:', syncError.message);
-        console.error('Error type:', syncError.constructor.name);
-        console.error('Stack:', syncError.stack);
       }
 
-      // Create Payroll Journal Entry (SRD 2.0) - Gross Pay Expense + Liability Posting
-      // Requirement: DR Payroll Expense (5010) preferred, else Salaries and Wages (5030), for full Gross Pay
-      // Requirement: CR split between PAYE Payable (2150), NSSA/Pension Payable (2160), and Net Wages Payable (2250)
-      console.log('📝 Starting payroll journal entry creation...');
-      console.log(`   Payroll Run ID: ${payrollRunId}`);
-      console.log(`   Total Gross Pay: ${totalGrossPay.toString()}`);
-      console.log(`   Total Deductions: ${totalDeductions.toString()}`);
-      console.log(`   Total Net Pay: ${totalNetPay.toString()}`);
-      console.log(`   Currency ID: ${payrollRun.currencyId || 'N/A'}`);
+      let journalEntryId: string | null = null;
       try {
-        await PayrollService.createPayrollJournalEntry(
+        journalEntryId = await PayrollService.createPayrollJournalEntry(
           payrollRunId,
           totalGrossPay,
           totalDeductions,
           totalNetPay,
           createdById,
-          payrollRun.currencyId || ''
+          payrollRun.currencyId || '',
+          { rethrowOnError: true }
         );
-        console.log('[OK] Payroll journal entry creation completed successfully');
       } catch (journalError: any) {
-        // Log but don't fail payroll processing
-        console.error('[FAIL] Failed to create payroll journal entry:', journalError.message);
-        console.error('Error type:', journalError.constructor.name);
-        console.error('Stack:', journalError.stack);
+        await prisma.payrollRun.update({
+          where: { id: payrollRunId },
+          data: {
+            status: 'FAILED',
+            processError: journalError.message || 'Journal entry failed',
+          },
+        });
+        throw journalError;
       }
+
+      await prisma.payrollRun.update({
+        where: { id: payrollRunId },
+        data: {
+          status: 'COMPLETED',
+          journalEntryId,
+        },
+      });
 
       try {
         const { BudgetPayrollSyncService } = await import('./BudgetPayrollSyncService');
@@ -722,11 +781,16 @@ export class PayrollService {
       }
 
     } catch (error) {
-      // Update status to cancelled on error
-      await prisma.payrollRun.update({
-        where: { id: payrollRunId },
-        data: { status: 'CANCELLED' }
-      });
+      const run = await prisma.payrollRun.findUnique({ where: { id: payrollRunId } });
+      if (run?.status === 'PROCESSING') {
+        await prisma.payrollRun.update({
+          where: { id: payrollRunId },
+          data: {
+            status: 'FAILED',
+            processError: error?.message || String(error),
+          },
+        });
+      }
       console.error('Error processing payroll run:', error);
       throw error;
     }
@@ -745,7 +809,7 @@ export class PayrollService {
     createdById: string,
     currencyId: string,
     options?: { rethrowOnError?: boolean }
-  ): Promise<void> {
+  ): Promise<string | null> {
       console.log('═══════════════════════════════════════════════════════════════');
     console.log('🔵 createPayrollJournalEntry METHOD CALLED');
     console.log(`   Payroll Run ID: ${payrollRunId}`);
@@ -767,7 +831,8 @@ export class PayrollService {
                 include: {
                   deductionType: true
                 }
-              }
+              },
+              legs: true,
             }
           }
         }
@@ -783,8 +848,16 @@ export class PayrollService {
       let totalPAYE = new Decimal(0);
       let totalNSSA = new Decimal(0);
       let totalPension = new Decimal(0);
+      let totalSDL = new Decimal(0);
 
       for (const employeePayroll of payrollRun.employeePayrolls) {
+        if (employeePayroll.legs?.length) {
+          for (const leg of employeePayroll.legs) {
+            totalPAYE = totalPAYE.add(leg.payeAmount).add(leg.aidsLevyAmount);
+            totalNSSA = totalNSSA.add(leg.nssaAmount);
+            totalSDL = totalSDL.add(leg.sdlAmount);
+          }
+        }
         for (const deduction of employeePayroll.deductions) {
           const dt = deduction.deductionType;
           const bucket = classifyDeductionForPayrollJournal({
@@ -805,6 +878,8 @@ export class PayrollService {
               totalNSSA = totalNSSA.add(deduction.amount);
               console.log(`   Found NSSA deduction: ${deductionTypeName} = $${deduction.amount.toString()}`);
             }
+          } else if (bucket === 'SDL') {
+            totalSDL = totalSDL.add(deduction.amount);
           }
         }
       }
@@ -828,15 +903,14 @@ export class PayrollService {
       console.log(`   Total Net Wages Payable: $${totalNetPay.toString()}`);
       
       // Verify: PAYE + NSSA/Pension + Net Pay = Gross Pay (within rounding tolerance)
-      const calculatedTotal = totalPAYE.add(totalNSSAPension).add(totalNetPay);
+      const calculatedTotal = totalPAYE.add(totalNSSAPension).add(totalSDL).add(totalNetPay);
       const difference = totalGrossPay.sub(calculatedTotal).abs();
-      console.log(`   Verification: Gross Pay ($${totalGrossPay.toString()}) = PAYE + NSSA/Pension + Net Pay ($${calculatedTotal.toString()})`);
+      console.log(`   Verification: Gross Pay ($${totalGrossPay.toString()}) = PAYE + NSSA/Pension + SDL + Net Pay ($${calculatedTotal.toString()})`);
       console.log(`   Difference: $${difference.toString()}`);
       
       if (difference.gt(0.01)) {
         console.log(`⚠️  Warning: Liability breakdown doesn't match Gross Pay. Adjusting Net Wages Payable...`);
-        // Adjust Net Wages Payable to balance
-        totalNetPay = totalGrossPay.sub(totalPAYE).sub(totalNSSAPension);
+        totalNetPay = totalGrossPay.sub(totalPAYE).sub(totalNSSAPension).sub(totalSDL);
         console.log(`   Adjusted Net Wages Payable: $${totalNetPay.toString()}`);
       }
 
@@ -850,8 +924,9 @@ export class PayrollService {
       console.log('Step 3: Resolving payroll liability accounts (2150, 2160, 2250)...');
       const payePayableAccount = await resolvePayePayableAccount();
       const nssaPensionPayableAccount = await resolveNssaPensionPayableAccount();
+      const sdlPayableAccount = await resolveSdlPayableAccount();
       const netWagesPayableAccount = await resolveNetWagesPayableAccount();
-      console.log(`   [OK] PAYE: ${payePayableAccount.accountNo} — NSSA/Pension: ${nssaPensionPayableAccount.accountNo} — Net wages: ${netWagesPayableAccount.accountNo}`);
+      console.log(`   [OK] PAYE: ${payePayableAccount.accountNo} — NSSA/Pension: ${nssaPensionPayableAccount.accountNo} — SDL: ${sdlPayableAccount.accountNo} — Net wages: ${netWagesPayableAccount.accountNo}`);
 
       // Get default currency if not provided
       let finalCurrencyId = currencyId;
@@ -945,6 +1020,20 @@ export class PayrollService {
         console.log(`   [OK] CR NSSA/Pension Payable (${nssaPensionPayableAccount.accountNo}): $${totalNSSAPension.toString()}`);
       }
 
+      if (totalSDL.gt(0)) {
+        await prisma.journalEntryLine.create({
+          data: {
+            journalEntryId: journalEntry.id,
+            chartOfAccountId: sdlPayableAccount.id,
+            debitAmount: new Decimal(0),
+            creditAmount: totalSDL,
+            description: `SDL Payable: ${payrollRun.payPeriod}`,
+            vatAmount: new Decimal(0)
+          }
+        });
+        console.log(`   [OK] CR SDL Payable (${sdlPayableAccount.accountNo}): $${totalSDL.toString()}`);
+      }
+
       // CR Net Wages Payable (2250) - Net Pay amount
       if (totalNetPay.gt(0)) {
         await prisma.journalEntryLine.create({
@@ -961,7 +1050,7 @@ export class PayrollService {
       }
 
       // Verify journal entry is balanced
-      const totalCredit = totalPAYE.add(totalNSSAPension).add(totalNetPay);
+      const totalCredit = totalPAYE.add(totalNSSAPension).add(totalSDL).add(totalNetPay);
       const balanceCheck = totalGrossPay.sub(totalCredit).abs();
       
       console.log('\n Journal Entry Balance Verification:');
@@ -985,6 +1074,7 @@ export class PayrollService {
       if (totalNetPay.gt(0)) {
         console.log(`   CR Net Wages Payable (${netWagesPayableAccount.accountNo}): $${totalNetPay.toString()}`);
       }
+      return journalEntry.id;
     } catch (error: any) {
       console.error('[FAIL] Error creating payroll journal entry:', error);
       console.error('Error details:', error.message);
@@ -992,9 +1082,8 @@ export class PayrollService {
       if (options?.rethrowOnError) {
         throw error;
       }
-      // Don't throw - allow payroll processing to complete even if journal entry fails
-      // This ensures payroll data is saved, but log the error for manual correction
       console.error('⚠️  Payroll processed but journal entry creation failed. Manual correction may be required.');
+      return null;
     }
   }
 
@@ -1425,24 +1514,17 @@ export class PayrollService {
   }
 
   /**
-   * Convert currency using hardcoded exchange rate
-   * For now, using 1:40 rate where 1 payroll currency = 40 other currency
+   * Convert currency using payroll run FX snapshot (ZIG per USD).
    */
   private static convertCurrency(
     amount: Decimal,
     fromCurrencyId: string,
     toCurrencyId: string
   ): Decimal {
-    // If same currency, no conversion needed
     if (fromCurrencyId === toCurrencyId) {
       return amount;
     }
-
-    // Hardcoded exchange rate: 1 payroll currency = 40 other currency
-    // This means if we have 40 in other currency, we convert to 1 in payroll currency
-    const exchangeRate = new Decimal(40);
-    
-    // Convert from other currency to payroll currency
+    const exchangeRate = PayrollService.payrollFxRate || new Decimal(40);
     return amount.div(exchangeRate);
   }
 

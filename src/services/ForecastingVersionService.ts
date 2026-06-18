@@ -63,7 +63,11 @@ export class ForecastingVersionService {
         scenarioId,
         userId: user.id,
         actionType: "LOCK",
-        deltaPayload: { version_id: version.id, version_label: versionLabel },
+        deltaPayload: {
+          version_id: version.id,
+          version_label: versionLabel,
+          checksum_sha256: checksum
+        },
         priority: "HIGH"
       });
       return { version, scenario: updated };
@@ -241,7 +245,13 @@ export class ForecastingVersionService {
           scenarioId: scenario.id,
           userId: user.id,
           actionType: "VERSION_DUPLICATE",
-          deltaPayload: { source_scenario_id: scenarioId, source_version_id: versionId }
+          deltaPayload: {
+            source_scenario_id: scenarioId,
+            source_version_id: versionId,
+            source_version_label: version.versionLabel,
+            new_scenario_id: scenario.id,
+            new_scenario_name: scenario.name
+          }
         });
         return scenario;
       },

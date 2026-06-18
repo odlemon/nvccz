@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { extractFormulaDependencies, rangesOverlap } from "../utils/forecastFormulaDialect";
 import { ForecastFormulaParser } from "./ForecastFormulaParser";
 import { ForecastingError } from "./ForecastingError";
 
@@ -6,6 +7,13 @@ export type DagNode = {
   id: string;
   type: "driver" | "cell_ref";
   dependsOn: string[];
+};
+
+export type ScenarioDriverInput = {
+  id: string;
+  formulaExpression: string;
+  targetAccountRangeStart: number;
+  targetAccountRangeEnd: number;
 };
 
 export class ForecastingDagEngine {
@@ -23,6 +31,64 @@ export class ForecastingDagEngine {
       }
     }
     return graph;
+  }
+
+  static assertNoRangeOverlap(drivers: ScenarioDriverInput[]): void {
+    for (let i = 0; i < drivers.length; i++) {
+      for (let j = i + 1; j < drivers.length; j++) {
+        const a = drivers[i];
+        const b = drivers[j];
+        if (
+          rangesOverlap(
+            a.targetAccountRangeStart,
+            a.targetAccountRangeEnd,
+            b.targetAccountRangeStart,
+            b.targetAccountRangeEnd
+          )
+        ) {
+          throw ForecastingError.rangeOverlap([
+            { start: a.targetAccountRangeStart, end: a.targetAccountRangeEnd, index: i },
+            { start: b.targetAccountRangeStart, end: b.targetAccountRangeEnd, index: j }
+          ]);
+        }
+      }
+    }
+  }
+
+  /** Reject formulas that reference same-range CELL without lag (same-period self dependency). */
+  static assertNoSamePeriodCellSelfRef(drivers: ScenarioDriverInput[]): void {
+    for (const d of drivers) {
+      const refs = ForecastFormulaParser.extractCellRefs(d.formulaExpression);
+      if (!refs.length) continue;
+      const deps = extractFormulaDependencies(d.formulaExpression);
+      const hasLag = deps.lagPeriods.length > 0 || /\bLAG\s*\(/i.test(d.formulaExpression);
+      if (hasLag) continue;
+      for (const ref of refs) {
+        const parts = ref.split("|");
+        const accountPart = parts.length > 1 ? parts[1] : parts[0];
+        const accountNo = Number(accountPart);
+        if (
+          Number.isFinite(accountNo) &&
+          accountNo >= d.targetAccountRangeStart &&
+          accountNo <= d.targetAccountRangeEnd
+        ) {
+          throw ForecastingError.circularReference([
+            `driver:${d.id}`,
+            `cell:${ref}`,
+            "same-period without LAG"
+          ]);
+        }
+      }
+    }
+  }
+
+  static validateScenarioDrivers(drivers: ScenarioDriverInput[]): void {
+    ForecastingDagEngine.assertNoRangeOverlap(drivers);
+    ForecastingDagEngine.assertNoSamePeriodCellSelfRef(drivers);
+    const graph = ForecastingDagEngine.buildDriverGraph(
+      drivers.map((d) => ({ id: d.id, formulaExpression: d.formulaExpression }))
+    );
+    ForecastingDagEngine.assertAcyclic(graph);
   }
 
   static detectCycle(graph: Map<string, DagNode>): string[] | null {
@@ -96,10 +162,7 @@ export class ForecastingDagEngine {
     return sorted;
   }
 
-  static affectedFromEdit(
-    graph: Map<string, DagNode>,
-    seedIds: string[]
-  ): Set<string> {
+  static affectedFromEdit(graph: Map<string, DagNode>, seedIds: string[]): Set<string> {
     const affected = new Set<string>(seedIds);
     const reverse = new Map<string, string[]>();
     for (const [id, node] of graph) {

@@ -30,7 +30,12 @@ export class ForecastingGlSyncService {
         scenarioId,
         userId: actorId === "system" ? null : actorId,
         actionType: "GL_SYNC",
-        deltaPayload: { updated_cells: 0, elapsed_periods: [], note: "No elapsed periods in horizon yet" }
+        deltaPayload: {
+          updated_cells: 0,
+          elapsed_periods: [],
+          actor: "system",
+          note: "No elapsed periods in horizon yet"
+        }
       });
       return {
         scenario_id: scenarioId,
@@ -123,7 +128,11 @@ export class ForecastingGlSyncService {
       scenarioId,
       userId: actorId === "system" ? null : actorId,
       actionType: "GL_SYNC",
-      deltaPayload: { updated_cells: updated }
+      deltaPayload: {
+        updated_cells: updated,
+        elapsed_periods: elapsed,
+        actor: actorId === "system" ? "system" : "user"
+      }
     });
 
     await ForecastingComputeService.run({

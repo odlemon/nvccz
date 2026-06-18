@@ -20,14 +20,24 @@ export class ForecastingPortfolioDispatchService {
     parsedSnapshot?: any;
   }) {
     const defaultEntityId = await ForecastingAccessService.getDefaultEntityId();
+
+    let fundId = report.fundId ?? null;
+    if (!fundId && report.portfolioCompanyId) {
+      const pc = await prisma.portfolioCompany.findUnique({
+        where: { id: report.portfolioCompanyId },
+        select: { fundId: true },
+      });
+      fundId = pc?.fundId ?? null;
+    }
+
     const scenarios = await prisma.forecastScenario.findMany({
       where: {
         status: "ACTIVE",
         entityId: defaultEntityId,
-        ...(report.fundId ? { fundId: report.fundId } : {})
-      }
+        ...(fundId ? { fundId } : {}),
+      },
     });
-    if (!scenarios.length) return { dispatched: 0 };
+    if (!scenarios.length) return { dispatched: 0, scenarioIds: [] as string[] };
 
     const periodDate = report.reportingPeriod || report.periodEnd || new Date();
     const d = periodDate instanceof Date ? periodDate : new Date(periodDate);
@@ -36,7 +46,25 @@ export class ForecastingPortfolioDispatchService {
     const revenue = Number(report.totalRevenue ?? report.parsedSnapshot?.totalRevenue ?? 0);
     const netProfit = Number(report.netProfit ?? report.parsedSnapshot?.netProfit ?? 0);
 
+    const reportingPeriodIso =
+      d instanceof Date && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+
+    const portfolioCompany = await prisma.portfolioCompany.findUnique({
+      where: { id: report.portfolioCompanyId },
+      select: { name: true }
+    });
+
+    let reportTitle: string | null = null;
+    if (report.id) {
+      const rows = await prisma.$queryRawUnsafe<Array<{ title: string | null }>>(
+        `SELECT title FROM financial_reports WHERE id = ? LIMIT 1`,
+        report.id
+      );
+      reportTitle = rows[0]?.title ?? null;
+    }
+
     let dispatched = 0;
+    const scenarioIds: string[] = [];
     for (const scenario of scenarios) {
       const accounts = await prisma.entityChartOfAccount.findMany({
         where: { entityId: scenario.entityId, isActive: true, accountType: { in: ["Revenue", "Income", "Expense"] } },
@@ -51,6 +79,7 @@ export class ForecastingPortfolioDispatchService {
         periodKeyToBounds(periodKey).end
       );
 
+      let cellsWritten = 0;
       for (const [accountId, value] of [
         [revenueAccount?.id, revenue],
         [expenseAccount?.id, Math.abs(netProfit)]
@@ -88,22 +117,43 @@ export class ForecastingPortfolioDispatchService {
           },
           update: { ...fx }
         });
+        cellsWritten++;
       }
 
       await ForecastingAuditService.log(prisma, {
         scenarioId: scenario.id,
         userId: null,
         actionType: "PORTFOLIO_DISPATCH",
-        deltaPayload: { report_id: report.id, portfolio_company_id: report.portfolioCompanyId }
+        deltaPayload: {
+          report_id: report.id,
+          portfolio_company_id: report.portfolioCompanyId,
+          portfolio_company_name: portfolioCompany?.name ?? null,
+          period_key: periodKey,
+          reporting_period: reportingPeriodIso,
+          report_title: reportTitle,
+          total_revenue: revenue,
+          net_profit: netProfit,
+          tx_currency: "USD",
+          cells_written: cellsWritten,
+          analytical_tag: "PORTFOLIO_DISPATCH"
+        }
       });
 
-      await ForecastingComputeService.run({
-        scenarioId: scenario.id,
-        editType: "SCENARIO_RECALC",
-        options: { skip_manual_overrides: true, include_elapsed_variance: true }
-      });
+      try {
+        await ForecastingComputeService.run({
+          scenarioId: scenario.id,
+          editType: "SCENARIO_RECALC",
+          options: { skip_manual_overrides: true, include_elapsed_variance: true }
+        });
+      } catch (computeErr: any) {
+        console.warn(
+          `[ForecastingPortfolioDispatch] compute after dispatch (${scenario.id}):`,
+          computeErr?.message || computeErr
+        );
+      }
       dispatched++;
+      scenarioIds.push(scenario.id);
     }
-    return { dispatched };
+    return { dispatched, scenarioIds };
   }
 }

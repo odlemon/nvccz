@@ -494,10 +494,10 @@ async function main() {
     const actions = new Set(items.map((a: any) => a.actionType ?? a.action_type));
     const hasCreate = [...actions].some((a) => /SCENARIO_CREATE|CREATE/i.test(String(a)));
     const hasLock = [...actions].some((a) => /LOCK/i.test(String(a)));
-    const hasUserName = items.length === 0 || items.every((a: any) => a.user_name != null || a.userName != null);
+    const hasUserName = items.length === 0 || items.every((a: any) => a.actor_label != null);
     log("8b. Audit has CREATE", hasCreate, [...actions].join(", "));
     log("8c. Audit has LOCK", hasLock, [...actions].join(", "));
-    log("8d. user_name on entries", hasUserName, `entries=${items.length}`);
+    log("8d. actor_label on entries", hasUserName, `entries=${items.length}`);
   }
 
   {
@@ -530,15 +530,28 @@ async function main() {
 
   {
     const valid = await api("POST", "/v1/forecasting/compute/validate", {
-      expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t"
+      expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+      parameters: { cagr_scalar: 0.05, historical_base: 10000, tx_currency: "USD" },
+      driver_type: "CAGR_DRIVEN",
+      sample_t: 2
     });
     assertOk("9d. Validate formula (valid)", valid.status, valid.json);
+    const vData = (valid.json as any).data;
+    log(
+      "9d2. Validate sample_result",
+      vData?.valid === true && vData?.sample_result != null,
+      `sample=${vData?.sample_result}, builtin=${vData?.uses_builtin_path}`
+    );
 
     const invalid = await api("POST", "/v1/forecasting/compute/validate", {
       expression: "HISTORICAL_BASE ++ invalid syntax @@@"
     });
     const invData = (invalid.json as any).data ?? invalid.json;
-    log("9e. Validate formula (invalid)", invData?.ok === false || invalid.json.success === true, JSON.stringify(invData).slice(0, 120));
+    log(
+      "9e. Validate formula (invalid)",
+      invalid.status === 400 && invData?.valid === false,
+      JSON.stringify(invData).slice(0, 120)
+    );
   }
 
   {

@@ -144,4 +144,16 @@ export function requireApplicantRole() {
 
     next();
   };
-} 
+}
+
+/** Merge role permissions with employee compliance blocks (cert expiry revocations). */
+export async function getEffectivePermissionsForUser(
+  userId: string,
+  rolePermissions: Array<{ name: string; value: boolean }>
+): Promise<Array<{ name: string; value: boolean }>> {
+  const { CompliancePermissionService, filterPermissionsByCompliance } = await import(
+    "../services/payroll/CompliancePermissionService"
+  );
+  const blocked = await CompliancePermissionService.getBlockedPermissionsForUser(userId);
+  return filterPermissionsByCompliance(rolePermissions || [], blocked);
+}

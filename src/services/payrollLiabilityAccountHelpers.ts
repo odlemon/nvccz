@@ -7,7 +7,7 @@ type ChartDb = { chartOfAccounts: typeof prisma.chartOfAccounts };
  * Payroll posting must use exact COA codes — no fallback to arbitrary 21xx/22xx (would mis-post to VAT/AP/etc.).
  */
 async function requireLiabilityByAccountNo(
-  accountNo: "2150" | "2160" | "2250",
+  accountNo: "2150" | "2160" | "2170" | "2250",
   createData: {
     accountName: string;
     accountType: string;
@@ -78,6 +78,19 @@ export async function resolveNetWagesPayableAccount(db: ChartDb = prisma) {
     "2250",
     {
       accountName: "Net Wages Payable",
+      accountType: "Current Liability",
+      financialStatement: "Balance Sheet",
+      naturalBalance: "CREDIT",
+    },
+    db
+  );
+}
+
+export async function resolveSdlPayableAccount(db: ChartDb = prisma) {
+  return requireLiabilityByAccountNo(
+    "2170",
+    {
+      accountName: "SDL Payable",
       accountType: "Current Liability",
       financialStatement: "Balance Sheet",
       naturalBalance: "CREDIT",

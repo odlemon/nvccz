@@ -31,6 +31,15 @@ export class ForecastingError extends Error {
     );
   }
 
+  static rangeOverlap(ranges: Array<{ start: number; end: number; index: number }>) {
+    return new ForecastingError(
+      FORECAST_ERROR_CODES.DRIVER_RANGE_OVERLAP,
+      `Overlapping driver account ranges: ${ranges.map((r) => `${r.start}–${r.end}`).join(" vs ")}`,
+      409,
+      { ranges }
+    );
+  }
+
   static staleCellEdit() {
     return new ForecastingError(
       FORECAST_ERROR_CODES.STALE_CELL_EDIT,

@@ -2,7 +2,7 @@
  * Map persisted payroll deduction rows to PAYE vs NSSA/Pension buckets for GL (2150 / 2160).
  * Handles naming drift ("Pay As You Earn", "PAYE", "Payee" typos near tax, NSSA vs NSSF, etc.).
  */
-export type PayrollJournalLiabilityBucket = "PAYE" | "NSSA_PENSION";
+export type PayrollJournalLiabilityBucket = "PAYE" | "NSSA_PENSION" | "SDL";
 
 export function classifyDeductionForPayrollJournal(dt: { name: string; code?: string | null }): PayrollJournalLiabilityBucket | null {
   const code = String(dt.code || "").toUpperCase();
@@ -36,6 +36,14 @@ export function classifyDeductionForPayrollJournal(dt: { name: string; code?: st
     code.includes("PENSION") || name.includes("pension") || name.includes("provident") || name.includes("nec");
 
   if (nssaLike || pensionLike) return "NSSA_PENSION";
+
+  const sdlLike =
+    code.includes("SDL") ||
+    name.includes("sdl") ||
+    name.includes("standards development") ||
+    name.includes("development levy");
+
+  if (sdlLike) return "SDL";
 
   return null;
 }

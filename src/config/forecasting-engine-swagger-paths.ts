@@ -40,7 +40,221 @@ const EX = {
   duplicate_scenario_id: "cmqdsp6fd00counvohyzhxu1o",
   version_id: "cmqdsorht00ckunvo25ert6oo",
   compute_job_id: "cmqdsl8x100agunvo3wa3ajjq",
-  source_account_id: "cmi0az1xg000dun64y7ay570i"
+  source_account_id: "cmi0az1xg000dun64y7ay570i",
+  fund_id: "cmfund_example0001",
+  dept_id: "dept_finance_001",
+  portfolio_company_id: "cmportfolio_example01",
+  analytical_tag: "COST_CENTER_HQ"
+};
+
+/** Frontend dropdown reference — dimension `type` + allowed `value_id` shapes. */
+const DIMENSION_TYPE_ENUM = ["ACCOUNT", "DEPT", "TAG", "PORTFOLIO_COMPANY"] as const;
+
+const ACCOUNT_VALUE_IDS = [
+  { value_id: "COA_RANGE_REVENUE", label: "Revenue (accounts 4000–4999)", range: "4000–4999" },
+  { value_id: "COA_RANGE_OPEX", label: "Operating expense (5000–5999)", range: "5000–5999" },
+  { value_id: "COA_RANGE_COGS", label: "Cost of goods sold (6000–6999)", range: "6000–6999" },
+  { value_id: "COA_RANGE_ASSETS", label: "Assets (1000–1999)", range: "1000–1999" },
+  { value_id: "COA_RANGE_LIABILITIES", label: "Liabilities (2000–2999)", range: "2000–2999" },
+  { value_id: "COA_RANGE_EQUITY", label: "Equity (3000–3999)", range: "3000–3999" },
+  {
+    value_id: EX.revenue_account_id,
+    label: `Single account ${EX.revenue_account_no} — ${EX.revenue_account_name}`,
+    range: "single account id from entity COA"
+  },
+  {
+    value_id: EX.expense_account_id,
+    label: `Single account ${EX.expense_account_no} — Opex line`,
+    range: "single account id from entity COA"
+  }
+];
+
+const CREATE_SCENARIO_DIMENSIONS_EXAMPLE = [
+  { type: "ACCOUNT", value_id: "COA_RANGE_REVENUE" },
+  { type: "ACCOUNT", value_id: "COA_RANGE_OPEX" },
+  { type: "ACCOUNT", value_id: "COA_RANGE_COGS" },
+  { type: "ACCOUNT", value_id: EX.revenue_account_id },
+  { type: "DEPT", value_id: EX.dept_id },
+  { type: "TAG", value_id: EX.analytical_tag },
+  { type: "PORTFOLIO_COMPANY", value_id: EX.portfolio_company_id }
+];
+
+const DRIVER_FORMULA_EXAMPLES = {
+  cagrRevenue: {
+    summary: "CAGR_DRIVEN — revenue account range",
+    description: "Compound growth on historical GL base. Uses built-in CAGR projection when driver_type is CAGR_DRIVEN.",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: 4000,
+          target_account_range_end: 4999,
+          driver_type: "CAGR_DRIVEN",
+          formula_expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+          parameters: { cagr_scalar: 0.08, historical_base: 250000, tx_currency: "USD" }
+        }
+      ]
+    }
+  },
+  headcountOpex: {
+    summary: "HEADCOUNT_GROWTH — payroll / opex line",
+    description: "Headcount × cost-per-head × growth^t. Built-in when driver_type is HEADCOUNT_GROWTH.",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: EX.expense_account_no,
+          target_account_range_end: EX.expense_account_no,
+          driver_type: "HEADCOUNT_GROWTH",
+          formula_expression: "parameters.headcount * (1 + parameters.growth_rate)^t * parameters.cost_per_head",
+          parameters: {
+            headcount: 42,
+            growth_rate: 0.03,
+            cost_per_head: 2850,
+            tx_currency: "USD"
+          }
+        }
+      ]
+    }
+  },
+  inflationOpex: {
+    summary: "INFLATION_MULTIPLIER — opex inflation",
+    description: "Escalates historical base by inflation_rate each period.",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: 5000,
+          target_account_range_end: 5999,
+          driver_type: "INFLATION_MULTIPLIER",
+          formula_expression: "HISTORICAL_BASE * (1 + parameters.inflation_rate)^t",
+          parameters: { inflation_rate: 0.045, historical_base: 180000, tx_currency: "ZIG" }
+        }
+      ]
+    }
+  },
+  fxScalar: {
+    summary: "FX_SCALAR — USD base with FX revaluation",
+    description: "Multiplies historical base by projected FX rate (built-in FX_SCALAR path).",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: 6100,
+          target_account_range_end: 6100,
+          driver_type: "FX_SCALAR",
+          formula_expression: "HISTORICAL_BASE * parameters.fx_rate",
+          parameters: { fx_rate: 1.12, historical_base: 95000, tx_currency: "USD" }
+        }
+      ]
+    }
+  },
+  linearRegression: {
+    summary: "LINEAR_REGRESSION — trend from GL lookback",
+    description: "Projects from posted GL actuals over lookback_periods (built-in regression).",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: EX.expense_account_no,
+          target_account_range_end: EX.expense_account_no,
+          driver_type: "LINEAR_REGRESSION",
+          formula_expression: "parameters.slope * t + parameters.intercept",
+          parameters: { lookback_periods: 6, tx_currency: "USD" }
+        }
+      ]
+    }
+  },
+  customIfFormula: {
+    summary: "Custom formula — IF() step-up after period 3",
+    description: "Uses formula parser: IF, t, HISTORICAL_BASE, parameters.*",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: 4000,
+          target_account_range_end: 4100,
+          driver_type: "CAGR_DRIVEN",
+          formula_expression: "IF(t > 3, HISTORICAL_BASE * (1 + parameters.step_rate)^t, HISTORICAL_BASE)",
+          parameters: { step_rate: 0.06, historical_base: 120000, tx_currency: "USD" }
+        }
+      ]
+    }
+  },
+  customMinMaxRound: {
+    summary: "Custom formula — MIN / MAX / ROUND",
+    description: "Supported functions: IF, MIN, MAX, ABS, ROUND. Variables: t, t-1, t-12, HISTORICAL_BASE, parameters.*",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: 5000,
+          target_account_range_end: 5100,
+          driver_type: "INFLATION_MULTIPLIER",
+          formula_expression: "ROUND(MAX(HISTORICAL_BASE, parameters.floor) * (1 + parameters.inflation_rate)^t, 2)",
+          parameters: { inflation_rate: 0.04, floor: 50000, historical_base: 75000, tx_currency: "USD" }
+        }
+      ]
+    }
+  },
+  laggedGrowth: {
+    summary: "Custom formula — lagged period (t-1, t-12)",
+    description: "Reference prior periods in expression for YoY or MoM patterns.",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: 6000,
+          target_account_range_end: 6999,
+          driver_type: "CAGR_DRIVEN",
+          formula_expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t + parameters.seasonal * (t - t-12)",
+          parameters: { cagr_scalar: 0.05, seasonal: 1500, historical_base: 90000, tx_currency: "USD" }
+        }
+      ]
+    }
+  },
+  fullOperatingPlan: {
+    summary: "Multi-driver bundle (all driver types)",
+    description: "Replace entire driver set — one row per account range / driver type. Triggers cascade compute.",
+    value: {
+      drivers: [
+        {
+          target_account_range_start: 4000,
+          target_account_range_end: 4999,
+          driver_type: "CAGR_DRIVEN",
+          formula_expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+          parameters: { cagr_scalar: 0.07, historical_base: 320000, tx_currency: "USD" }
+        },
+        {
+          target_account_range_start: 5000,
+          target_account_range_end: 5999,
+          driver_type: "INFLATION_MULTIPLIER",
+          formula_expression: "HISTORICAL_BASE * (1 + parameters.inflation_rate)^t",
+          parameters: { inflation_rate: 0.05, historical_base: 210000, tx_currency: "USD" }
+        },
+        {
+          target_account_range_start: EX.expense_account_no,
+          target_account_range_end: EX.expense_account_no,
+          driver_type: "HEADCOUNT_GROWTH",
+          formula_expression: "parameters.headcount * (1 + parameters.growth_rate)^t * parameters.cost_per_head",
+          parameters: { headcount: 55, growth_rate: 0.025, cost_per_head: 3100, tx_currency: "USD" }
+        },
+        {
+          target_account_range_start: 6100,
+          target_account_range_end: 6100,
+          driver_type: "FX_SCALAR",
+          formula_expression: "HISTORICAL_BASE * parameters.fx_rate",
+          parameters: { fx_rate: 1.08, historical_base: 88000, tx_currency: "USD" }
+        },
+        {
+          target_account_range_start: 5200,
+          target_account_range_end: 5299,
+          driver_type: "LINEAR_REGRESSION",
+          formula_expression: "parameters.slope * t + parameters.intercept",
+          parameters: { lookback_periods: 12, tx_currency: "USD" }
+        },
+        {
+          target_account_range_start: 5300,
+          target_account_range_end: 5399,
+          driver_type: "CAGR_DRIVEN",
+          formula_expression: "IF(t > 6, HISTORICAL_BASE * 1.1, HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t)",
+          parameters: { cagr_scalar: 0.04, historical_base: 45000, tx_currency: "USD" }
+        }
+      ]
+    }
+  }
 };
 
 export const forecastingEngineSwaggerPaths = {
@@ -52,7 +266,12 @@ export const forecastingEngineSwaggerPaths = {
         "**entity_id** selects which legal entity (subsidiary or startup) this scenario belongs to. " +
         "Omit to use the default entity (derived from the singleton CompanyProfile). " +
         "Each entity maintains its own isolated chart of accounts — `account_id` on cell edits must come from that entity's COA (**GET /api/forecasting/entities/{entity_id}/chart-of-accounts**). " +
-        "**fund_id** and dimension **value_id** presets are documented below.",
+        "**fund_id** optional — fund vehicle id from **GET /api/funds**. " +
+        "**dimensions** — multi-select slices for the hypercube. Each item is `{ type, value_id }`. " +
+        "**type** enum: `ACCOUNT` | `DEPT` | `TAG` | `PORTFOLIO_COMPANY`. " +
+        "**value_id** by type: " +
+        "`ACCOUNT` → preset `COA_RANGE_*` keys or a single entity account id; " +
+        "`DEPT` → department id; `TAG` → analytical tag string; `PORTFOLIO_COMPANY` → portfolio company id.",
       security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
@@ -64,31 +283,110 @@ export const forecastingEngineSwaggerPaths = {
               properties: {
                 name: { type: "string" },
                 entity_id: { type: "string", description: ID_SOURCES.entity_id },
-                fund_id: { type: "string", description: ID_SOURCES.fund_id },
-                base_currency: { type: "string", example: "ZIG" },
+                fund_id: { type: "string", description: ID_SOURCES.fund_id, example: EX.fund_id },
+                base_currency: { type: "string", example: "USD", enum: ["USD", "ZIG", "ZWG"] },
                 horizon_start_date: { type: "string", format: "date" },
                 horizon_end_date: { type: "string", format: "date" },
                 granularity: { type: "string", enum: ["MONTHLY", "QUARTERLY", "ANNUAL"] },
                 dimensions: {
                   type: "array",
+                  description:
+                    "Multi-select dimension slices. Frontend: load ACCOUNT presets from COA_RANGE_* keys below; " +
+                    "single accounts from GET …/chart-of-accounts; DEPT/TAG/PORTFOLIO_COMPANY from your master-data pickers.",
                   items: {
                     type: "object",
+                    required: ["type", "value_id"],
                     properties: {
-                      type: { type: "string", example: "ACCOUNT" },
-                      value_id: { type: "string", description: ID_SOURCES.dimension_value_id }
+                      type: {
+                        type: "string",
+                        enum: DIMENSION_TYPE_ENUM,
+                        description: "Dimension axis — drives grid filtering and driver account ranges."
+                      },
+                      value_id: {
+                        type: "string",
+                        description: ID_SOURCES.dimension_value_id
+                      },
+                      range_start: {
+                        type: "integer",
+                        description: "Optional override when value_id is a custom ACCOUNT range (defaults from COA_RANGE_* preset)."
+                      },
+                      range_end: { type: "integer", description: "Optional ACCOUNT range end." }
                     }
                   }
                 }
               }
             },
-            example: {
-              name: "Q3 Strategic Growth Runway",
-              entity_id: EX.default_entity_id,
-              base_currency: "USD",
-              horizon_start_date: "2026-07-01",
-              horizon_end_date: "2027-06-30",
-              granularity: "MONTHLY",
-              dimensions: [{ type: "ACCOUNT", value_id: "COA_RANGE_OPEX" }]
+            examples: {
+              fullDimensionsWorkspace: {
+                summary: "Full workspace — all dimension types + fund (recommended for frontend)",
+                description:
+                  "Shows every dimension `type` and typical `value_id` values for dropdowns. " +
+                  "ACCOUNT presets map to COA ranges; single-account ids come from entity COA.",
+                value: {
+                  name: "FY2027 Operating Plan — full slice",
+                  description: "Revenue + opex + COGS + dept + tag + portfolio company",
+                  entity_id: EX.default_entity_id,
+                  fund_id: EX.fund_id,
+                  base_currency: "USD",
+                  horizon_start_date: "2026-07-01",
+                  horizon_end_date: "2027-06-30",
+                  granularity: "MONTHLY",
+                  dimensions: CREATE_SCENARIO_DIMENSIONS_EXAMPLE
+                }
+              },
+              accountPresetsOnly: {
+                summary: "ACCOUNT presets only — all COA_RANGE_* keys",
+                value: {
+                  name: "P&L account ranges only",
+                  entity_id: EX.default_entity_id,
+                  base_currency: "USD",
+                  horizon_start_date: "2026-07-01",
+                  horizon_end_date: "2027-06-30",
+                  granularity: "MONTHLY",
+                  dimensions: [
+                    { type: "ACCOUNT", value_id: "COA_RANGE_REVENUE" },
+                    { type: "ACCOUNT", value_id: "COA_RANGE_OPEX" },
+                    { type: "ACCOUNT", value_id: "COA_RANGE_COGS" },
+                    { type: "ACCOUNT", value_id: "COA_RANGE_ASSETS" },
+                    { type: "ACCOUNT", value_id: "COA_RANGE_LIABILITIES" },
+                    { type: "ACCOUNT", value_id: "COA_RANGE_EQUITY" }
+                  ]
+                }
+              },
+              singleAccountsFromCoa: {
+                summary: "Single entity accounts (from GET …/chart-of-accounts)",
+                value: {
+                  name: "Two-line revenue + opex scenario",
+                  entity_id: EX.default_entity_id,
+                  base_currency: "USD",
+                  horizon_start_date: "2026-07-01",
+                  horizon_end_date: "2027-06-30",
+                  granularity: "MONTHLY",
+                  dimensions: [
+                    { type: "ACCOUNT", value_id: EX.revenue_account_id },
+                    { type: "ACCOUNT", value_id: EX.expense_account_id }
+                  ]
+                }
+              },
+              accountValueIdDropdownReference: {
+                summary: "Reference — ACCOUNT value_id options for dropdowns (not a valid POST body alone)",
+                description: "Use these `value_id` strings when type is ACCOUNT. Presets expand to account number ranges on the server.",
+                value: {
+                  _note: "This example documents dropdown options; send dimensions[] items from the other examples.",
+                  account_value_ids: ACCOUNT_VALUE_IDS,
+                  dimension_types: DIMENSION_TYPE_ENUM.map((t) => ({
+                    type: t,
+                    value_id_hint:
+                      t === "ACCOUNT"
+                        ? "COA_RANGE_* or entity account id"
+                        : t === "DEPT"
+                          ? "department id string"
+                          : t === "TAG"
+                            ? "analytical tag string e.g. COST_CENTER_HQ"
+                            : "portfolio company id"
+                  }))
+                }
+              }
             }
           }
         }
@@ -173,25 +471,76 @@ export const forecastingEngineSwaggerPaths = {
     put: {
       tags: TAG,
       summary: "Replace scenario drivers (full replace + cascade compute)",
+      description:
+        "Replaces the entire driver set for the scenario and runs cascade compute. " +
+        "**driver_type** enum: `CAGR_DRIVEN` | `HEADCOUNT_GROWTH` | `INFLATION_MULTIPLIER` | `FX_SCALAR` | `LINEAR_REGRESSION` | `MANUAL_OVERRIDE`. " +
+        "**formula_expression** — validated by the formula parser. Supports `IF cond THEN a ELSE b` and `IF(cond,a,b)`. " +
+        "Variables: `t`, `t-1`, `t-12` (lagged cell values), `LAG(n)`, `HISTORICAL_BASE`, `parameters.<name>`, `CELL[period|account]`. " +
+        "Functions: `IF`, `LAG`, `MIN`, `MAX`, `ABS`, `ROUND`. " +
+        "Hybrid compute: default template per driver_type uses fast built-in math; customized formulas use full engine. " +
+        "Overlapping account ranges rejected with `409 DRIVER_RANGE_OVERLAP`.",
       security: [{ bearerAuth: [] }],
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", example: EX.scenario_id } }],
       requestBody: {
+        required: true,
         content: {
           "application/json": {
-            example: {
-              drivers: [
-                {
-                  target_account_range_start: EX.expense_account_no,
-                  target_account_range_end: EX.expense_account_no,
-                  driver_type: "CAGR_DRIVEN",
-                  formula_expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
-                  parameters: { cagr_scalar: 0.05, historical_base: 10000, tx_currency: "USD" }
+            schema: {
+              type: "object",
+              required: ["drivers"],
+              properties: {
+                drivers: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    required: [
+                      "target_account_range_start",
+                      "target_account_range_end",
+                      "driver_type",
+                      "formula_expression",
+                      "parameters"
+                    ],
+                    properties: {
+                      target_account_range_start: {
+                        type: "integer",
+                        example: EX.expense_account_no,
+                        description: "COA account number range start (inclusive)."
+                      },
+                      target_account_range_end: {
+                        type: "integer",
+                        example: EX.expense_account_no,
+                        description: "COA account number range end (inclusive)."
+                      },
+                      driver_type: {
+                        type: "string",
+                        enum: [
+                          "CAGR_DRIVEN",
+                          "HEADCOUNT_GROWTH",
+                          "INFLATION_MULTIPLIER",
+                          "FX_SCALAR",
+                          "LINEAR_REGRESSION",
+                          "MANUAL_OVERRIDE"
+                        ]
+                      },
+                      formula_expression: {
+                        type: "string",
+                        example: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t"
+                      },
+                      parameters: {
+                        type: "object",
+                        description: "Driver-specific numeric inputs + `tx_currency` (USD | ZIG | ZWG).",
+                        additionalProperties: true
+                      }
+                    }
+                  }
                 }
-              ]
-            }
+              }
+            },
+            examples: DRIVER_FORMULA_EXAMPLES
           }
         }
       },
-      responses: { 409: { description: "CIRCULAR_REFERENCE" } }
+      responses: { 409: { description: "CIRCULAR_REFERENCE | DRIVER_RANGE_OVERLAP" } }
     }
   },
   "/forecasting/scenarios/{id}/cells": {
@@ -358,8 +707,37 @@ export const forecastingEngineSwaggerPaths = {
     get: {
       tags: TAG,
       summary: "Scenario audit trail",
+      description:
+        "Paginated audit log for analysts. **Frontend:** use `summary` as the only narrative line; " +
+        "`action_label` as a badge/chip; `actor_label` + `created_at` as secondary metadata. " +
+        "Filter chips use `action_type`. No `detail_lines` — all analyst context is in `summary`.",
       security: [{ bearerAuth: [] }],
-      responses: { 200: { description: "Paginated audit logs" } }
+      responses: {
+        200: {
+          description: "Paginated audit logs with analyst-friendly presentation fields",
+          content: {
+            "application/json": {
+              example: {
+                success: true,
+                data: {
+                  items: [
+                    {
+                      scenario_name: "ZimFund 2026",
+                      action_type: "PORTFOLIO_DISPATCH",
+                      action_label: "Portfolio report imported",
+                      summary:
+                        "Test Company · Nov 2026: accepted investee report applied to forecast · Revenue 250,000 USD, Net profit 42,000 USD · Report: December 2026 Operational KPIs",
+                      actor_label: "System",
+                      created_at: "2026-06-17T12:08:18.000Z"
+                    }
+                  ],
+                  pagination: { page: 1, limit: 25, total: 1, total_pages: 1 }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "/forecasting/scenarios/{id}/goal-links": {
@@ -418,8 +796,10 @@ export const forecastingEngineSwaggerPaths = {
     get: {
       tags: TAG,
       summary: "Admin audit feed (admin / finance leadership — all scenarios)",
+      description:
+        "Cross-scenario audit feed. Each item includes `scenario_name` plus the same fields as scenario audit (`summary`, `action_label`, `actor_label`, `created_at`).",
       security: [{ bearerAuth: [] }],
-      responses: { 200: { description: "Audit list" } }
+      responses: { 200: { description: "Audit list with presentation fields" } }
     }
   },
   "/forecasting/audit/high-priority": {
@@ -469,16 +849,273 @@ export const forecastingEngineSwaggerPaths = {
   "/v1/forecasting/compute/validate": {
     post: {
       tags: TAG,
-      summary: "Validate driver formula expression",
+      summary: "Validate driver formula expression (dry-run)",
+      description:
+        "**Frontend Validate button** — send the same `expression`, `parameters`, and `driver_type` as the driver row being edited. " +
+        "**Binary result:** `data.valid` is `true` only when syntax, all referenced parameters, and numeric values pass. " +
+        "Any flaw → HTTP **400** `INVALID_FORMULA` with `expression_errors` (formula editor) and/or `parameter_errors` (parameters panel, each with `key`). " +
+        "If the formula uses `HISTORICAL_BASE`, `parameters.historical_base` is required. " +
+        "Supports `IF cond THEN a ELSE b` and `IF(cond,a,b)`. `t-12` / `LAG(12)` = year-ago cell value for same account.",
       security: [{ bearerAuth: [] }],
       requestBody: {
+        required: true,
         content: {
           "application/json": {
-            example: { expression: "IF(t > 3, HISTORICAL_BASE * 1.05, HISTORICAL_BASE)" }
+            schema: {
+              type: "object",
+              required: ["expression", "parameters"],
+              properties: {
+                expression: {
+                  type: "string",
+                  description: "Formula from the inline editor.",
+                  example: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t"
+                },
+                parameters: {
+                  type: "object",
+                  description:
+                    "Driver parameter key-value map from the Parameters panel. Keys must match formula references (`cagr_scalar`, `historical_base`, etc.).",
+                  additionalProperties: true,
+                  example: {
+                    cagr_scalar: 0.05,
+                    historical_base: 10000,
+                    tx_currency: "USD"
+                  }
+                },
+                driver_type: {
+                  type: "string",
+                  enum: [
+                    "CAGR_DRIVEN",
+                    "HEADCOUNT_GROWTH",
+                    "INFLATION_MULTIPLIER",
+                    "FX_SCALAR",
+                    "LINEAR_REGRESSION",
+                    "MANUAL_OVERRIDE"
+                  ],
+                  description: "Optional — sets `uses_builtin_path` when expression matches the default template."
+                },
+                sample_t: {
+                  type: "integer",
+                  description: "Period index for `sample_result` preview (default 1).",
+                  example: 6
+                }
+              }
+            },
+            examples: {
+              cagrDefault: {
+                summary: "CAGR driver (typical UI)",
+                value: {
+                  expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+                  parameters: {
+                    cagr_scalar: 0.05,
+                    historical_base: 10000,
+                    tx_currency: "USD"
+                  },
+                  driver_type: "CAGR_DRIVEN",
+                  sample_t: 6
+                }
+              },
+              ifThenElse: {
+                summary: "IF / THEN / ELSE dialect",
+                value: {
+                  expression: "IF t > 3 THEN HISTORICAL_BASE * 1.05 ELSE HISTORICAL_BASE",
+                  parameters: {
+                    cagr_scalar: 0.05,
+                    historical_base: 10000,
+                    tx_currency: "USD"
+                  },
+                  driver_type: "CAGR_DRIVEN",
+                  sample_t: 6
+                }
+              }
+            }
           }
         }
       },
-      responses: { 400: { description: "INVALID_FORMULA" } }
+      responses: {
+        200: {
+          description: "Formula valid — all checks passed",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: {
+                    type: "object",
+                    properties: {
+                      valid: { type: "boolean", example: true },
+                      ok: { type: "boolean", example: true },
+                      normalized_expression: { type: "string" },
+                      sample_result: { type: "number", nullable: true },
+                      expression_errors: { type: "array", items: { type: "string" } },
+                      parameter_errors: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            key: { type: "string" },
+                            message: { type: "string" }
+                          }
+                        }
+                      },
+                      missing_parameters: { type: "array", items: { type: "string" } },
+                      errors: { type: "array", items: { type: "string" } },
+                      warnings: { type: "array", items: { type: "string" } },
+                      uses_builtin_path: { type: "boolean" }
+                    }
+                  }
+                }
+              },
+              examples: {
+                cagrValid: {
+                  summary: "Success — default CAGR formula",
+                  value: {
+                    success: true,
+                    data: {
+                      valid: true,
+                      ok: true,
+                      normalized_expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+                      sample_result: 13401.13,
+                      expression_errors: [],
+                      parameter_errors: [],
+                      missing_parameters: [],
+                      errors: [],
+                      warnings: [],
+                      uses_builtin_path: true
+                    }
+                  }
+                },
+                ifValid: {
+                  summary: "Success — IF/THEN/ELSE normalized",
+                  value: {
+                    success: true,
+                    data: {
+                      valid: true,
+                      ok: true,
+                      normalized_expression: "IF(t > 3, HISTORICAL_BASE * 1.05, HISTORICAL_BASE)",
+                      sample_result: 10500,
+                      expression_errors: [],
+                      parameter_errors: [],
+                      missing_parameters: [],
+                      errors: [],
+                      warnings: [],
+                      uses_builtin_path: false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        400: {
+          description: "INVALID_FORMULA — syntax and/or parameter errors (`data.valid` is always false)",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: false },
+                  code: { type: "string", example: "INVALID_FORMULA" },
+                  message: { type: "string" },
+                  data: {
+                    type: "object",
+                    properties: {
+                      valid: { type: "boolean", example: false },
+                      ok: { type: "boolean", example: false },
+                      normalized_expression: { type: "string" },
+                      sample_result: { type: "number", nullable: true, example: null },
+                      expression_errors: { type: "array", items: { type: "string" } },
+                      parameter_errors: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            key: { type: "string" },
+                            message: { type: "string" }
+                          }
+                        }
+                      },
+                      missing_parameters: { type: "array", items: { type: "string" } },
+                      errors: { type: "array", items: { type: "string" } },
+                      uses_builtin_path: { type: "boolean", example: false }
+                    }
+                  }
+                }
+              },
+              examples: {
+                missingParameter: {
+                  summary: "Failure — missing historical_base",
+                  value: {
+                    success: false,
+                    code: "INVALID_FORMULA",
+                    message:
+                      'Parameter "historical_base" is referenced in the formula but missing from parameters',
+                    data: {
+                      valid: false,
+                      ok: false,
+                      normalized_expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+                      sample_result: null,
+                      expression_errors: [],
+                      parameter_errors: [
+                        {
+                          key: "historical_base",
+                          message:
+                            'Parameter "historical_base" is referenced in the formula but missing from parameters'
+                        }
+                      ],
+                      missing_parameters: ["historical_base"],
+                      errors: [
+                        'Parameter "historical_base" is referenced in the formula but missing from parameters'
+                      ],
+                      uses_builtin_path: false
+                    }
+                  }
+                },
+                syntaxError: {
+                  summary: "Failure — invalid expression syntax",
+                  value: {
+                    success: false,
+                    code: "INVALID_FORMULA",
+                    message: "Expression contains disallowed characters",
+                    data: {
+                      valid: false,
+                      ok: false,
+                      normalized_expression: "HISTORICAL_BASE ++ invalid @@@",
+                      sample_result: null,
+                      expression_errors: ["Expression contains disallowed characters"],
+                      parameter_errors: [],
+                      missing_parameters: [],
+                      errors: ["Expression contains disallowed characters"],
+                      uses_builtin_path: false
+                    }
+                  }
+                },
+                invalidParameterValue: {
+                  summary: "Failure — non-numeric parameter",
+                  value: {
+                    success: false,
+                    code: "INVALID_FORMULA",
+                    message: 'Parameter "cagr_scalar" must be a valid number',
+                    data: {
+                      valid: false,
+                      ok: false,
+                      normalized_expression: "HISTORICAL_BASE * (1 + parameters.cagr_scalar)^t",
+                      sample_result: null,
+                      expression_errors: [],
+                      parameter_errors: [
+                        { key: "cagr_scalar", message: 'Parameter "cagr_scalar" must be a valid number' }
+                      ],
+                      missing_parameters: [],
+                      errors: ['Parameter "cagr_scalar" must be a valid number'],
+                      uses_builtin_path: false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "/v1/forecasting/compute/{computeJobId}": {

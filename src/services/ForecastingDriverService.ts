@@ -1,6 +1,10 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
 import { FORECAST_DRIVER_TYPES, FORECAST_ERROR_CODES } from "../constants/forecastingEngine";
+import {
+  normalizeFormulaDialect,
+  resolveDefaultDriverFormula
+} from "../utils/forecastFormulaDialect";
 import { ForecastFormulaParser } from "./ForecastFormulaParser";
 import { ForecastingDagEngine } from "./ForecastingDagEngine";
 import { ForecastingAccessService } from "./ForecastingAccessService";
@@ -23,27 +27,42 @@ export class ForecastingDriverService {
     const scenario = await ForecastingAccessService.loadScenarioOrThrow(scenarioId, user);
     ForecastingAccessService.assertScenarioEditable(scenario);
 
-    for (const d of drivers) {
+    const normalizedDrivers = drivers.map((d) => {
+      const formula_expression =
+        String(d.formula_expression || "").trim() ||
+        resolveDefaultDriverFormula(d.driver_type) ||
+        "0";
+      return { ...d, formula_expression: normalizeFormulaDialect(formula_expression) };
+    });
+
+    for (const d of normalizedDrivers) {
       if (!FORECAST_DRIVER_TYPES.includes(d.driver_type as any)) {
         throw new ForecastingError(FORECAST_ERROR_CODES.INVALID_FORMULA, `Unknown driver_type ${d.driver_type}`, 400);
       }
-      const validation = ForecastFormulaParser.validate(d.formula_expression || "0");
-      if (!validation.ok) {
+      const validation = ForecastFormulaParser.validateRich(d.formula_expression, {
+        parameters: d.parameters || {},
+        requireParameters: true
+      });
+      if (!validation.valid) {
         throw ForecastingError.invalidFormula(validation.errors.join("; "));
       }
     }
 
-    const graph = ForecastingDagEngine.buildDriverGraph(
-      drivers.map((d, i) => ({ id: String(i), formulaExpression: d.formula_expression }))
+    ForecastingDagEngine.validateScenarioDrivers(
+      normalizedDrivers.map((d, i) => ({
+        id: String(i),
+        formulaExpression: d.formula_expression,
+        targetAccountRangeStart: d.target_account_range_start,
+        targetAccountRangeEnd: d.target_account_range_end
+      }))
     );
-    ForecastingDagEngine.assertAcyclic(graph);
 
     await prisma.$transaction(
       async (tx) => {
         await tx.forecastDriver.deleteMany({ where: { scenarioId } });
-        if (drivers.length) {
+        if (normalizedDrivers.length) {
           await tx.forecastDriver.createMany({
-            data: drivers.map((d) => ({
+            data: normalizedDrivers.map((d) => ({
               scenarioId,
               targetAccountRangeStart: d.target_account_range_start,
               targetAccountRangeEnd: d.target_account_range_end,
@@ -57,7 +76,16 @@ export class ForecastingDriverService {
           scenarioId,
           userId: user.id,
           actionType: "DRIVER_UPDATE",
-          deltaPayload: { driver_count: drivers.length }
+          deltaPayload: {
+            driver_count: normalizedDrivers.length,
+            drivers: normalizedDrivers.map((d) => ({
+              driver_type: d.driver_type,
+              target_account_range_start: d.target_account_range_start,
+              target_account_range_end: d.target_account_range_end,
+              formula_expression: d.formula_expression,
+              parameters: d.parameters || {}
+            }))
+          }
         });
       },
       { maxWait: 15_000, timeout: 30_000 }
@@ -70,7 +98,7 @@ export class ForecastingDriverService {
       userId: user.id,
       options: { skip_manual_overrides: false, include_elapsed_variance: true }
     });
-    return { drivers_saved: drivers.length, compute };
+    return { drivers_saved: normalizedDrivers.length, compute };
   }
 
   static async list(scenarioId: string, user?: any) {

@@ -1,5 +1,10 @@
 // @ts-nocheck
 import { FORECAST_FORMULA_MAX_LENGTH } from "../constants/forecastingEngine";
+import {
+  extractFormulaDependencies,
+  normalizeFormulaDialect,
+  preprocessCellRefs
+} from "../utils/forecastFormulaDialect";
 
 type Token =
   | { type: "number"; value: number }
@@ -11,14 +16,30 @@ type Token =
 
 export type FormulaValidationResult = { ok: true } | { ok: false; errors: string[] };
 
+export type FormulaRichValidationResult = {
+  valid: boolean;
+  normalized_expression: string;
+  errors: string[];
+  warnings: string[];
+  referenced_parameters: string[];
+};
+
 export type FormulaEvalContext = {
   t?: number;
   "t-1"?: number;
   "t-12"?: number;
   HISTORICAL_BASE?: number;
   parameters?: Record<string, number>;
+  lag?: (periodsAgo: number) => number;
+  cellValues?: Record<string, number>;
   [key: string]: unknown;
 };
+
+function prepareExpression(expression: string): { prepared: string; cellRefs: string[] } {
+  const normalized = normalizeFormulaDialect(expression);
+  const { expression: prepared, cellRefs } = preprocessCellRefs(normalized);
+  return { prepared, cellRefs };
+}
 
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
@@ -117,11 +138,21 @@ class Parser {
   }
 
   parseMulDiv(): AstNode {
-    let node = this.parseUnary();
-    while (this.peek()?.type === "op" && ["*", "/", "^"].includes((this.peek() as any).value)) {
+    let node = this.parsePower();
+    while (this.peek()?.type === "op" && ["*", "/"].includes((this.peek() as any).value)) {
       const op = (this.consume() as any).value;
-      const right = this.parseUnary();
+      const right = this.parsePower();
       node = { kind: "binary", op, left: node, right };
+    }
+    return node;
+  }
+
+  parsePower(): AstNode {
+    let node = this.parseUnary();
+    while (this.peek()?.type === "op" && (this.peek() as any).value === "^") {
+      this.consume();
+      const right = this.parseUnary();
+      node = { kind: "binary", op: "^", left: node, right };
     }
     return node;
   }
@@ -172,6 +203,13 @@ class Parser {
 }
 
 function resolveVar(name: string, ctx: FormulaEvalContext): number {
+  if (name.startsWith("__CELL_") && ctx.cellValues && name in ctx.cellValues) {
+    return ctx.cellValues[name] ?? 0;
+  }
+  const lagIdent = name.match(/^t-(\d+)$/);
+  if (lagIdent && typeof ctx.lag === "function") {
+    return ctx.lag(Number(lagIdent[1]));
+  }
   if (name in ctx && typeof ctx[name] === "number") return ctx[name] as number;
   if (name.startsWith("parameters.")) {
     const key = name.slice("parameters.".length);
@@ -227,6 +265,8 @@ function evalAst(node: AstNode, ctx: FormulaEvalContext): number {
       switch (node.name) {
         case "IF":
           return args[0] ? args[1] : args[2] ?? 0;
+        case "LAG":
+          return typeof ctx.lag === "function" ? ctx.lag(args[0] ?? 0) : 0;
         case "MIN":
           return Math.min(...args);
         case "MAX":
@@ -246,18 +286,35 @@ function evalAst(node: AstNode, ctx: FormulaEvalContext): number {
 
 export class ForecastFormulaParser {
   static validate(expression: string): FormulaValidationResult {
+    const rich = ForecastFormulaParser.validateRich(expression);
+    return rich.valid ? { ok: true } : { ok: false, errors: rich.errors };
+  }
+
+  static validateRich(
+    expression: string,
+    opts?: { parameters?: Record<string, unknown>; requireParameters?: boolean }
+  ): FormulaRichValidationResult {
     const errors: string[] = [];
+    const warnings: string[] = [];
     if (!expression || typeof expression !== "string") {
-      return { ok: false, errors: ["Expression is required"] };
+      return {
+        valid: false,
+        normalized_expression: "",
+        errors: ["Expression is required"],
+        warnings: [],
+        referenced_parameters: []
+      };
     }
-    if (expression.length > FORECAST_FORMULA_MAX_LENGTH) {
+    const normalized_expression = normalizeFormulaDialect(expression);
+    if (normalized_expression.length > FORECAST_FORMULA_MAX_LENGTH) {
       errors.push(`Expression exceeds max length ${FORECAST_FORMULA_MAX_LENGTH}`);
     }
-    if (!/^[\d\s+\-*/^().,<>=!a-zA-Z_\-]+$/.test(expression)) {
+    if (!/^[\d\s+\-*/^().,<>=!\[\]a-zA-Z_\-]+$/.test(expression.replace(/CELL\[[^\]]+\]/gi, "CELL_REF"))) {
       errors.push("Expression contains disallowed characters");
     }
     try {
-      const tokens = tokenize(expression);
+      const { prepared } = prepareExpression(expression);
+      const tokens = tokenize(prepared);
       const parser = new Parser(tokens);
       parser.parseExpression();
       if (parser.peek()) {
@@ -266,11 +323,27 @@ export class ForecastFormulaParser {
     } catch (e: any) {
       errors.push(e?.message || "Parse error");
     }
-    return errors.length ? { ok: false, errors } : { ok: true };
+
+    const deps = extractFormulaDependencies(expression);
+    const referenced_parameters = deps.parameterKeys;
+    const paramKeys = opts?.parameters ? Object.keys(opts.parameters) : [];
+    const missing = referenced_parameters.filter((k) => !paramKeys.includes(k));
+    if (missing.length && opts?.parameters != null && opts?.requireParameters) {
+      errors.push(`Missing parameters: ${missing.join(", ")}`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      normalized_expression,
+      errors,
+      warnings,
+      referenced_parameters
+    };
   }
 
   static parse(expression: string): AstNode {
-    const tokens = tokenize(expression);
+    const { prepared } = prepareExpression(expression);
+    const tokens = tokenize(prepared);
     const parser = new Parser(tokens);
     const ast = parser.parseExpression();
     if (parser.peek()) throw new Error("Unexpected tokens after expression end");
@@ -289,12 +362,25 @@ export class ForecastFormulaParser {
   }
 
   static extractCellRefs(expression: string): string[] {
-    const refs: string[] = [];
-    const re = /CELL\[([^\]]+)\]/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(expression))) {
-      refs.push(m[1]);
-    }
-    return refs;
+    return extractFormulaDependencies(expression).cellRefs;
+  }
+
+  static buildEvalContext(base: {
+    t: number;
+    historicalBase: number;
+    parameters: Record<string, number>;
+    lag?: (periodsAgo: number) => number;
+    cellValues?: Record<string, number>;
+  }): FormulaEvalContext {
+    const lag = base.lag ?? (() => 0);
+    return {
+      t: base.t,
+      "t-1": lag(1),
+      "t-12": lag(12),
+      HISTORICAL_BASE: base.historicalBase,
+      parameters: base.parameters,
+      lag,
+      cellValues: base.cellValues ?? {}
+    };
   }
 }

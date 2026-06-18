@@ -228,7 +228,8 @@ export class PayrollController {
         payPeriod,
         startDate,
         endDate,
-        currencyId
+        currencyId,
+        dualCurrency,
       } = req.body;
 
       const createdById = (req as any).user.id;
@@ -286,6 +287,9 @@ export class PayrollController {
         });
       }
 
+      const { resolvePayrollUsdZigRate } = await import('../services/payroll/PayrollFxService');
+      const fxRateUsdZig = await resolvePayrollUsdZigRate();
+
       const payrollRun = await prisma.payrollRun.create({
         data: {
           name,
@@ -293,7 +297,9 @@ export class PayrollController {
           startDate: startDateObj,
           endDate: endDateObj,
           currencyId,
-          createdById
+          createdById,
+          dualCurrency: Boolean(dualCurrency),
+          fxRateUsdZig,
         },
         include: {
           currency: true,
@@ -337,10 +343,13 @@ export class PayrollController {
       });
     } catch (error) {
       console.error('Error processing payroll run:', error);
-      res.status(500).json({
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      const isClientError =
+        /must be approved|not found|Cannot process|pending employee change|Only DRAFT/i.test(message);
+      res.status(isClientError ? 400 : 500).json({
         success: false,
-        message: 'Failed to process payroll run',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        message: isClientError ? message : 'Failed to process payroll run',
+        error: message
       });
     }
   }

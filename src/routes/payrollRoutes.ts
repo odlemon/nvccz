@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { PayrollController } from '../controllers/PayrollController';
+import { PayrollExtendedController } from '../controllers/PayrollExtendedController';
 import { authenticate } from '../middleware/authenticate';
 
 const router = Router();
@@ -45,12 +46,20 @@ router.put(
   PayrollController.updateEmployee
 );
 router.post('/employees/:id/terminate', authenticate, PayrollController.terminateEmployee);
+router.post('/employees/:id/suspend', authenticate, PayrollExtendedController.suspendEmployee);
+router.post('/employees/:id/reinstate', authenticate, PayrollExtendedController.reinstateEmployee);
+router.post('/employees/:id/change-requests', authenticate, PayrollExtendedController.submitChangeRequest);
+router.get('/employees/:id/change-requests', authenticate, PayrollExtendedController.listChangeRequests);
+router.post('/change-requests/:requestId/approve', authenticate, PayrollExtendedController.approveChangeRequest);
+router.post('/change-requests/:requestId/reject', authenticate, PayrollExtendedController.rejectChangeRequest);
 router.delete('/employees/:id', authenticate, PayrollController.deleteEmployee);
 router.delete('/employees/:id/permanent', authenticate, PayrollController.permanentlyDeleteEmployee);
 
 // ===== EMPLOYEE PORTAL ROUTES =====
 router.get('/employee/portal', authenticate, PayrollController.getEmployeePayrollInfo);
 router.get('/employee/payslips', authenticate, PayrollController.getEmployeePayslips);
+router.get('/employee/payslips/:payslipId/download', authenticate, PayrollExtendedController.downloadOwnPayslip);
+router.get('/employee/payslips/:payslipId/verify', authenticate, PayrollExtendedController.verifyOwnPayslip);
 router.get('/employee/leave-balances', authenticate, PayrollController.getEmployeeLeaveBalances);
 
 // ===== PAYROLL RUN ROUTES =====
@@ -59,6 +68,9 @@ router.get('/payroll-runs', authenticate, PayrollController.getAllPayrollRuns);
 router.put('/payroll-runs/:payrollRunId', authenticate, PayrollController.updatePayrollRun);
 router.delete('/payroll-runs/:payrollRunId', authenticate, PayrollController.deletePayrollRun);
 router.post('/payroll-runs/:payrollRunId/process', authenticate, PayrollController.processPayrollRun);
+router.post('/payroll-runs/:payrollRunId/submit-for-approval', authenticate, PayrollExtendedController.submitRunForApproval);
+router.post('/payroll-runs/:payrollRunId/approve', authenticate, PayrollExtendedController.approveRun);
+router.post('/payroll-runs/:payrollRunId/reject', authenticate, PayrollExtendedController.rejectRun);
 router.post('/payroll-runs/:payrollRunId/payment', authenticate, PayrollController.processPayrollPayment);
 router.get('/payroll-runs/:payrollRunId', authenticate, PayrollController.getPayrollRunSummary);
 
@@ -67,6 +79,15 @@ router.post('/payroll-runs/:payrollRunId/bank-file', authenticate, PayrollContro
 
 // ===== PAYSLIP ROUTES =====
 router.get('/payslips/:employeeId/:payrollRunId', authenticate, PayrollController.getEmployeePayslip);
+router.get('/payslips/by-id/:payslipId/download', authenticate, PayrollExtendedController.downloadPayslip);
+router.get('/payslips/by-id/:payslipId/verify', authenticate, PayrollExtendedController.verifyPayslip);
+
+router.get('/statutory/brackets', authenticate, PayrollExtendedController.listBrackets);
+router.post('/statutory/brackets', authenticate, PayrollExtendedController.createBracket);
+router.put('/statutory/brackets/:id', authenticate, PayrollExtendedController.updateBracket);
+router.delete('/statutory/brackets/:id', authenticate, PayrollExtendedController.deleteBracket);
+router.get('/statutory/levies', authenticate, PayrollExtendedController.listLevies);
+router.put('/statutory/levies', authenticate, PayrollExtendedController.upsertLevies);
 
 // ===== SALARY STRUCTURE MANAGEMENT =====
 router.post('/salary-structures', authenticate, PayrollController.createSalaryStructure);

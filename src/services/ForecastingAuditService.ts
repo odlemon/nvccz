@@ -4,34 +4,27 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "../utils/database";
 
-import { formatForecastAuditUserName } from "../utils/forecastUserDisplay";
+import { buildAuditPresentation } from "../utils/forecastAuditPresentation";
 
 import { ForecastingAccessService } from "./ForecastingAccessService";
 
-
-
-function serializeAuditItem(row: any) {
+/** Analyst-facing audit list item — no internal ids or raw delta_payload. */
+async function serializeAuditItem(row: any) {
+  const presentation = await buildAuditPresentation({
+    actionType: row.actionType,
+    deltaPayload: row.deltaPayload,
+    userId: row.userId,
+    user: row.user
+  });
 
   return {
-
-    id: row.id,
-
-    scenario_id: row.scenarioId,
-
     scenario_name: row.scenario?.name ?? null,
-
     action_type: row.actionType,
-
-    priority: row.priority,
-
-    delta_payload: row.deltaPayload,
-
-    user_name: formatForecastAuditUserName(row.user),
-
+    action_label: presentation.action_label,
+    summary: presentation.summary,
+    actor_label: presentation.actor_label,
     created_at: row.createdAt.toISOString()
-
   };
-
 }
 
 
@@ -139,9 +132,8 @@ export class ForecastingAuditService {
         take: limit,
 
         include: {
-
+          scenario: { select: { name: true } },
           user: { select: { firstName: true, lastName: true, email: true } }
-
         }
 
       }),
@@ -150,9 +142,11 @@ export class ForecastingAuditService {
 
     ]);
 
+    const serialized = await Promise.all(items.map(serializeAuditItem));
+
     return {
 
-      items: items.map(serializeAuditItem),
+      items: serialized,
 
       pagination: { page, limit, total, total_pages: Math.ceil(total / limit) || 1 }
 
@@ -210,9 +204,11 @@ export class ForecastingAuditService {
 
     ]);
 
+    const serialized = await Promise.all(items.map(serializeAuditItem));
+
     return {
 
-      items: items.map(serializeAuditItem),
+      items: serialized,
 
       pagination: { page, limit, total, total_pages: Math.ceil(total / limit) || 1 }
 
@@ -221,5 +217,4 @@ export class ForecastingAuditService {
   }
 
 }
-
 
