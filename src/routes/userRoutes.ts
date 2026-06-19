@@ -484,7 +484,7 @@ router.put("/:id", UserController.updateUser);
  * /users/{id}:
  *   delete:
  *     summary: Delete user
- *     description: Delete a user from the system. Cannot delete the last admin user.
+ *     description: Delete a user from the system. Cannot delete the last admin user. Journal entries and other owned records are automatically reassigned to another admin before deletion.
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []

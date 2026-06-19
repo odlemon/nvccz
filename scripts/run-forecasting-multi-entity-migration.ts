@@ -137,7 +137,7 @@ async function main() {
     const company = companyRows[0];
 
     const userRows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
-      `SELECT id FROM users ORDER BY created_at ASC LIMIT 1`
+      `SELECT id FROM users ORDER BY createdAt ASC LIMIT 1`
     );
     if (!userRows.length) throw new Error("No users found.");
     const createdById = userRows[0].id;

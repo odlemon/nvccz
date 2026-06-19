@@ -3,6 +3,13 @@ import { prisma } from "../utils/database";
 import bcrypt from "bcrypt";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import AuditService from "./AuditService";
+import {
+  deleteUserRecord,
+  formatReassignedRecordsMessage,
+  getUserDeleteBlockers,
+  reassignUserReferences,
+  resolveAdminReassignTarget
+} from "./userDeleteHelpers";
 
 const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER", "INV_COMM_MEM", "CIO"];
 
@@ -686,7 +693,7 @@ This is an automated message. Please do not reply to this email.
   }
 
   /**
-   * Delete user
+   * Delete user. Related records (journal entries, etc.) are reassigned to an admin user automatically.
    */
   static async deleteUser(id: string) {
     try {
@@ -717,14 +724,24 @@ This is an automated message. Please do not reply to this email.
         }
       }
 
-      // Delete user
-      await prisma.user.delete({
-        where: { id }
-      });
+      const blockers = await getUserDeleteBlockers(id);
+      const admin = await resolveAdminReassignTarget(id);
+      await reassignUserReferences(id, admin.id);
+      await deleteUserRecord(id);
 
-      return { message: "User deleted successfully" };
-    } catch (error) {
+      return { message: formatReassignedRecordsMessage(blockers, admin) };
+    } catch (error: any) {
       console.error("Error deleting user:", error);
+      const message = error?.message ?? "";
+      if (
+        message.includes("required relation") ||
+        message.includes("Foreign key constraint") ||
+        message.includes("P2003")
+      ) {
+        throw new Error(
+          "Cannot delete user: still referenced by records that could not be reassigned. Contact support."
+        );
+      }
       throw error;
     }
   }
