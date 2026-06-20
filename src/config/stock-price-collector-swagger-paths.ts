@@ -1,30 +1,19 @@
 /**
- * Stock Price Collector & Transaction Router — Swagger paths aligned to user stories.
+ * Stock Price Collector & Multi-Module Transaction Router — Swagger paths.
  * Requirements: docs/stock-price-collector-backend-requirements.md
+ * Design session: design-sessions/stock-price-collector.md
  */
 
-/** User-story tags (match client doc sections 2.1.x – 2.3.x). */
-export const US_3_4_1_TAG = "2.1.1 · US-3.4.1 · Domestic scraping (ZSE/VFEX/SECZIM)";
-export const US_3_4_2_TAG = "2.1.2 · US-3.4.2 · International market feeds";
-export const US_3_4_3_TAG = "2.2.1 · US-3.4.3 · Broker & custodian dispatch";
-export const US_3_4_4_TAG = "2.2.2 · US-3.4.4 · Core banking & GL sync";
-export const US_3_4_5_TAG = "2.3.1 · US-3.4.5 · Multi-currency P&L";
+export const STOCK_PRICE_COLLECTOR_TAG = "Stock Price Collector";
 
-/** @deprecated Use US_3_4_1_TAG — kept for imports */
-export const LISTED_EQUITY_MARKET_DATA_TAG = US_3_4_1_TAG;
-/** @deprecated Use US_3_4_5_TAG */
-export const LISTED_EQUITY_PORTFOLIO_TAG = US_3_4_5_TAG;
-/** @deprecated Use US_3_4_3_TAG */
-export const LISTED_EQUITY_TRADE_TAG = US_3_4_3_TAG;
+/** @deprecated Use STOCK_PRICE_COLLECTOR_TAG */
+export const LISTED_EQUITY_MARKET_DATA_TAG = STOCK_PRICE_COLLECTOR_TAG;
+/** @deprecated Use STOCK_PRICE_COLLECTOR_TAG */
+export const LISTED_EQUITY_PORTFOLIO_TAG = STOCK_PRICE_COLLECTOR_TAG;
+/** @deprecated Use STOCK_PRICE_COLLECTOR_TAG */
+export const LISTED_EQUITY_TRADE_TAG = STOCK_PRICE_COLLECTOR_TAG;
 
-export const LISTED_EQUITY_USER_STORY_TAGS = [
-  US_3_4_1_TAG,
-  US_3_4_2_TAG,
-  US_3_4_3_TAG,
-  US_3_4_4_TAG,
-  US_3_4_5_TAG,
-] as const;
-
+const TAG = [STOCK_PRICE_COLLECTOR_TAG];
 const bearer = [{ bearerAuth: [] }];
 
 type StoryDocInput = {
@@ -60,11 +49,10 @@ function storyDoc(s: StoryDocInput): string {
 function usOp(
   storyRef: string,
   summary: string,
-  tags: string[],
   description: string,
   extra: Record<string, unknown> = {}
 ) {
-  return { summary: `${storyRef} — ${summary}`, tags, description, security: bearer, ...extra };
+  return { summary: `${storyRef} — ${summary}`, tags: TAG, description, security: bearer, ...extra };
 }
 
 const STORY_341 = {
@@ -153,7 +141,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.1",
       "List securities master (domestic + international)",
-      [US_3_4_1_TAG, US_3_4_2_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: [
@@ -188,7 +175,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.1",
       "Register security (admin)",
-      [US_3_4_1_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: [
@@ -245,7 +231,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     put: usOp(
       "US-3.4.1",
       "Update security",
-      [US_3_4_1_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: ["Security master can be corrected without re-ingest."],
@@ -258,7 +243,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.2",
       "Price tick history (timestamp + frequency)",
-      [US_3_4_2_TAG, US_3_4_1_TAG],
       storyDoc({
         ...STORY_342,
         acceptance: [
@@ -276,7 +260,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.2",
       "Latest approved prices (bulk / watchlist feed)",
-      [US_3_4_2_TAG, US_3_4_5_TAG],
       storyDoc({
         ...STORY_342,
         acceptance: [
@@ -293,7 +276,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.1",
       "Run ingest / scrape (ZSE · VFEX · SECZIM · NASDAQ · NYSE)",
-      [US_3_4_1_TAG, US_3_4_2_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: [
@@ -346,7 +328,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.1",
       "List ingest batches (SHA-256 audit trail)",
-      [US_3_4_1_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: ["System calculates and logs SHA-256 hash for every ingested dataset."],
@@ -360,7 +341,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.1",
       "Verify batch checksum + tick detail",
-      [US_3_4_1_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: ["File integrity verifiable by recomputing SHA-256 over canonical tick JSON."],
@@ -374,7 +354,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.1",
       "Admin validation queue (>15% price deviation)",
-      [US_3_4_1_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: [
@@ -389,7 +368,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.1",
       "Approve pending price tick",
-      [US_3_4_1_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: ["Approved ticks enter valuation engine and holdings marks."],
@@ -403,7 +381,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.1",
       "Reject pending price tick",
-      [US_3_4_1_TAG],
       storyDoc({
         ...STORY_341,
         acceptance: ["Rejected ticks never affect portfolio marks."],
@@ -415,7 +392,7 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
   "/investments/market-data/webhooks/{providerCode}": {
     post: {
       summary: "US-3.4.2 — Licensed feed webhook ingress (HMAC)",
-      tags: [US_3_4_2_TAG],
+      tags: TAG,
       description: storyDoc({
         ...STORY_342,
         acceptance: [
@@ -433,7 +410,7 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
   "/investments/market-data/cron/scrape-domestic": {
     post: {
       summary: "US-3.4.1 — Cron: domestic + international scrape (09:00 / 16:00 CAT)",
-      tags: [US_3_4_1_TAG],
+      tags: TAG,
       description: storyDoc({
         ...STORY_341,
         acceptance: [
@@ -449,7 +426,7 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
   "/investments/market-data/cron/retry-failed-ingest": {
     post: {
       summary: "US-3.4.1 — Cron: retry failed ingest batches",
-      tags: [US_3_4_1_TAG],
+      tags: TAG,
       description: storyDoc({
         ...STORY_341,
         acceptance: ["Volatile network handled with backoff and scheduled retries."],
@@ -462,7 +439,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.5",
       "List funds with latest NAV snapshot",
-      [US_3_4_5_TAG],
       storyDoc({
         ...STORY_345,
         acceptance: ["Fund-level NAV aggregate available for dashboard header."],
@@ -475,7 +451,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.5",
       "Holdings grid (WAC · market value · unrealized P&L)",
-      [US_3_4_5_TAG],
       storyDoc({
         ...STORY_345,
         acceptance: [
@@ -493,7 +468,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.5",
       "Realized + unrealized P&L (USD + ZiG lines)",
-      [US_3_4_5_TAG],
       storyDoc({
         ...STORY_345,
         acceptance: [
@@ -512,7 +486,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.5",
       "Valuation snapshot history",
-      [US_3_4_5_TAG],
       storyDoc({
         ...STORY_345,
         acceptance: ["Historical NAV and dual-currency unrealized P&L for investor reporting."],
@@ -525,7 +498,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.5",
       "Force valuation run (recalc NAV + unrealized P&L)",
-      [US_3_4_5_TAG],
       storyDoc({
         ...STORY_345,
         acceptance: ["Unrealized P&L recalculates on demand from latest approved prices."],
@@ -539,7 +511,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.2",
       "User watchlist with price + frequency badge",
-      [US_3_4_2_TAG, US_3_4_5_TAG],
       storyDoc({
         ...STORY_342,
         acceptance: [
@@ -554,7 +525,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     put: usOp(
       "US-3.4.2",
       "Replace watchlist symbols",
-      [US_3_4_2_TAG],
       storyDoc({
         ...STORY_342,
         acceptance: ["Portfolio manager can curate symbols to monitor."],
@@ -566,7 +536,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.3",
       "List trades + routing status",
-      [US_3_4_3_TAG, US_3_4_4_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: ["Trade dashboard lists execution and quad-routing hop badges."],
@@ -577,7 +546,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.3",
       "Create draft trade",
-      [US_3_4_3_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: ["Investment officer captures trade intent before execution window dispatch."],
@@ -591,7 +559,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.3",
       "Trade detail + quad routing board",
-      [US_3_4_3_TAG, US_3_4_4_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: [
@@ -607,7 +574,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.3",
       "Execute trade + start settlement routing",
-      [US_3_4_3_TAG, US_3_4_4_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: [
@@ -637,7 +603,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.3",
       "Cancel draft or in-flight trade",
-      [US_3_4_3_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: ["Cannot cancel after SETTLED."],
@@ -650,7 +615,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.3",
       "Quad-target routing status board",
-      [US_3_4_3_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: [
@@ -666,7 +630,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.3",
       "Retry failed routing hop",
-      [US_3_4_3_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: ["Failed downstream dispatches can be retried with backoff."],
@@ -684,7 +647,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     post: usOp(
       "US-3.4.3",
       "Manual stakeholder confirm (broker / custodian / bank / GL)",
-      [US_3_4_3_TAG, US_3_4_4_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: [
@@ -718,7 +680,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
     get: usOp(
       "US-3.4.3",
       "Download settlement PDF",
-      [US_3_4_3_TAG],
       storyDoc({
         ...STORY_343,
         acceptance: [
@@ -734,7 +695,7 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
   "/investments/trades/cron/retry-failed-routing": {
     post: {
       summary: "US-3.4.3 — Cron: retry failed trade routing hops",
-      tags: [US_3_4_3_TAG],
+      tags: TAG,
       description: storyDoc({
         ...STORY_343,
         acceptance: ["Failed routing hops retried on schedule with exponential backoff."],
@@ -746,40 +707,16 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
   },
 };
 
-export const listedEquityUserStoryTagDefinitions = [
-  {
-    name: US_3_4_1_TAG,
-    description:
-      "**2.1.1 · US-3.4.1 · SECZIM, ZSE, and VFEX Data Scraping**\n\n" +
-      "**As an** Asset Management Operations Lead, **I want** automated scraping of official daily opening, closing, and reference prices, **so that** portfolio valuations use validated domestic pricing data without manual entry.\n\n" +
-      "Endpoints: securities master, cron scrape, ingest batches, SHA-256 verify, >15% validation queue.",
-  },
-  {
-    name: US_3_4_2_TAG,
-    description:
-      "**2.1.2 · US-3.4.2 · Real-Time International Market Integration**\n\n" +
-      "**As a** Global Fund Manager, **I want** near-live pricing for LSE/NYSE/NASDAQ via approved feeds, **so that** I can manage global holdings and spot market trends.\n\n" +
-      "Endpoints: webhook ingress, latest prices, tick history, watchlist. Current dev feeds: Yahoo/FastBull (DELAYED_15M).",
-  },
-  {
-    name: US_3_4_3_TAG,
-    description:
-      "**2.2.1 · US-3.4.3 · Straight-Through Broker and Custodian Instruction Dispatch**\n\n" +
-      "**As an** Investment Officer, **I want** automated settlement notifications to brokers and custodians from trade execution, **so that** we eliminate manual email instructions.\n\n" +
-      "Endpoints: create/execute trade, routing hop status board, manual confirm, settlement PDF. Custodian dispatch off by default.",
-  },
-  {
-    name: US_3_4_4_TAG,
-    description:
-      "**2.2.2 · US-3.4.4 · Core Banking and Accounting Ledger Updates**\n\n" +
-      "**As a** Fund Accountant, **I want** trade executions to update trust cash holds and post balanced GL entries, **so that** registers stay in sync.\n\n" +
-      "Triggered on execute: cash hold → release → holdings update → DR asset / CR clearing journal.",
-  },
-  {
-    name: US_3_4_5_TAG,
-    description:
-      "**2.3.1 · US-3.4.5 · Dynamic Multi-Currency P&L Dashboard**\n\n" +
-      "**As an** Institutional Portfolio Manager, **I want** realized and unrealized P&L in USD and ZiG, **so that** I can report fund valuations and align hedging.\n\n" +
-      "Endpoints: holdings (WAC), P&L, NAV snapshots, force valuation run.",
-  },
-] as const;
+export const STOCK_PRICE_COLLECTOR_TAG_DEFINITION = {
+  name: STOCK_PRICE_COLLECTOR_TAG,
+  description:
+    "**Stock Price Collector & Multi-Module Transaction Router** — listed-equity market data, portfolio valuation, and quad-target trade settlement for Arcus.\n\n" +
+    "**User stories covered (client sections 2.1–2.3):**\n" +
+    "- **2.1.1 · US-3.4.1** — Domestic scraping (ZSE, VFEX, SECZIM): cron ingest, SHA-256 batches, >15% validation queue\n" +
+    "- **2.1.2 · US-3.4.2** — International feeds (LSE, NYSE, NASDAQ): webhooks, latest prices, watchlist\n" +
+    "- **2.2.1 · US-3.4.3** — Broker & custodian dispatch: trade execute, routing hop status, settlement PDF\n" +
+    "- **2.2.2 · US-3.4.4** — Core banking & GL: cash holds, holdings update, balanced journal entries on settle\n" +
+    "- **2.3.1 · US-3.4.5** — Multi-currency P&L: WAC holdings, unrealized/realized P&L (USD + ZiG), NAV snapshots\n\n" +
+    "Each endpoint description includes the user story, acceptance criteria, and runtime behaviour. " +
+    "See `docs/stock-price-collector-backend-requirements.md` and `design-sessions/stock-price-collector.md`.",
+};

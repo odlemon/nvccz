@@ -28,7 +28,8 @@ import {
 } from './payroll-employment-training-swagger-paths';
 import {
   stockPriceCollectorSwaggerPaths,
-  listedEquityUserStoryTagDefinitions,
+  STOCK_PRICE_COLLECTOR_TAG,
+  STOCK_PRICE_COLLECTOR_TAG_DEFINITION,
 } from './stock-price-collector-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
@@ -285,6 +286,10 @@ const options = {
         name: FORECASTING_ENGINE_TAG,
         description:
           '**Forecasting Engine** — multi-dimensional hypercube scenarios, drivers, DAG compute, variance (Eq. 1–10), version lock/snapshots, GL daily sync, and Phase 2 bridges (Investee dispatch, OPM goal links, Events budget accrual). See `docs/forecasting-engine-backend-requirements.md`.'
+      },
+      {
+        name: STOCK_PRICE_COLLECTOR_TAG,
+        description: STOCK_PRICE_COLLECTOR_TAG_DEFINITION.description,
       },
       {
         name: 'Performance collaboration and notifications',
@@ -9646,11 +9651,11 @@ specs = applyProtectedSwaggerModules(specs, [
         '**Employment & Training (Section B)** — courses, certifications, expiry cron, permission revocation on cert expiry.'
     }
   },
-  ...listedEquityUserStoryTagDefinitions.map((tagDefinition) => ({
+  {
     paths: stockPriceCollectorSwaggerPaths,
-    tagName: tagDefinition.name,
-    tagDefinition,
-  })),
+    tagName: STOCK_PRICE_COLLECTOR_TAG,
+    tagDefinition: STOCK_PRICE_COLLECTOR_TAG_DEFINITION,
+  },
 ]);
 
 const protectedModules = Object.keys(specs.paths ?? {}).filter(

@@ -658,15 +658,13 @@ Configurable COA codes (defaults proposed):
 
 ## 19. Swagger and OpenAPI
 
-Register in `swagger.ts` with protected tags:
+Register in `swagger.ts` with a **single protected tag** (same pattern as **Forecasting Engine**):
 
 | Tag | Paths |
 |-----|-------|
-| **Investments — Market Data** | Section A |
-| **Investments — Portfolio** | Section B |
-| **Investments — Trade Router** | Section C |
+| **Stock Price Collector** | All `/api/investments/market-data/*`, `/api/investments/portfolio/*`, `/api/investments/trades/*` |
 
-Add `src/config/stock-price-collector-swagger-paths.ts` mirroring payroll/forecasting pattern.
+Implementation: `src/config/stock-price-collector-swagger-paths.ts` — constant `STOCK_PRICE_COLLECTOR_TAG`. Each endpoint summary is prefixed with the user story ID (`US-3.4.1`, etc.); descriptions include persona, acceptance criteria, and runtime behaviour.
 
 ---
 

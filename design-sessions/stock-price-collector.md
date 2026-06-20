@@ -24,7 +24,7 @@ The **Stock Price Collector & Multi-Module Transaction Router** is the real-time
 - Portfolio holdings with Weighted Average Cost (WAC) and dual-currency P&L (USD and ZiG)
 - Automated trade routing to **Broker**, **Custodian**, **Core Banking**, and **General Ledger**
 
-The UI is split into **five user-story workspaces** that match Swagger tags in `/api-docs` (sections **2.1.1–2.3.1**, IDs **US-3.4.1–US-3.4.5**). See [Section 14](#14-api-contract-summary-frontend-handoff).
+The UI is split into **five user-story workspaces** (client sections **2.1.1–2.3.1**, IDs **US-3.4.1–US-3.4.5**). All backend APIs live under one Swagger module: **Stock Price Collector** (same pattern as **Forecasting Engine**). See [Section 14](#14-api-contract-summary-frontend-handoff).
 
 ### Who uses it
 
@@ -39,13 +39,13 @@ The UI is split into **five user-story workspaces** that match Swagger tags in `
 
 ### Scope — workspaces mapped to user stories
 
-| Client section | User story | UI workspace | Swagger tag |
-|----------------|------------|--------------|-------------|
-| **2.1.1** | US-3.4.1 — Domestic scraping (ZSE/VFEX/SECZIM) | Price Collector Console | `2.1.1 · US-3.4.1 · Domestic scraping` |
-| **2.1.2** | US-3.4.2 — International market feeds | Watchlist / tick monitor | `2.1.2 · US-3.4.2 · International market feeds` |
-| **2.2.1** | US-3.4.3 — Broker & custodian dispatch | Trade Router + routing bar | `2.2.1 · US-3.4.3 · Broker & custodian dispatch` |
-| **2.2.2** | US-3.4.4 — Core banking & GL sync | Routing bar (bank + GL nodes) | `2.2.2 · US-3.4.4 · Core banking & GL sync` |
-| **2.3.1** | US-3.4.5 — Multi-currency P&L | Holdings & P&L pane | `2.3.1 · US-3.4.5 · Multi-currency P&L` |
+| Client section | User story | UI workspace |
+|----------------|------------|--------------|
+| **2.1.1** | US-3.4.1 — Domestic scraping (ZSE/VFEX/SECZIM) | Price Collector Console |
+| **2.1.2** | US-3.4.2 — International market feeds | Watchlist / tick monitor |
+| **2.2.1** | US-3.4.3 — Broker & custodian dispatch | Trade Router + routing bar |
+| **2.2.2** | US-3.4.4 — Core banking & GL sync | Routing bar (bank + GL nodes) |
+| **2.3.1** | US-3.4.5 — Multi-currency P&L | Holdings & P&L pane |
 
 The **unified terminal** (`/investments/terminal`) combines all five on one screen (left = 2.1.x, right = 2.3.1, bottom = 2.2.x).
 
@@ -477,7 +477,9 @@ From product spec Section 6.3:
 
 ## 14. API contract summary (frontend handoff)
 
-Wire screens to **Swagger user-story tags** at `/api-docs`. Each endpoint description follows the client story format:
+Wire screens to the single Swagger module **Stock Price Collector** at `/api-docs` (same pattern as **Forecasting Engine** — one tag, all endpoints grouped together).
+
+Each endpoint **summary** is prefixed with the user story ID (e.g. `US-3.4.1 — List securities`). Each **description** includes:
 
 - **User story header** (section + ID + title)
 - **As a / I want / so that**
@@ -486,15 +488,13 @@ Wire screens to **Swagger user-story tags** at `/api-docs`. Each endpoint descri
 
 Source: `src/config/stock-price-collector-swagger-paths.ts`
 
-### Swagger tags (match client doc sections)
+### Swagger module
 
-| Tag | User story |
-|-----|------------|
-| `2.1.1 · US-3.4.1 · Domestic scraping (ZSE/VFEX/SECZIM)` | SECZIM, ZSE, VFEX data scraping |
-| `2.1.2 · US-3.4.2 · International market feeds` | Real-time international integration |
-| `2.2.1 · US-3.4.3 · Broker & custodian dispatch` | Straight-through broker/custodian dispatch |
-| `2.2.2 · US-3.4.4 · Core banking & GL sync` | Core banking and ledger updates |
-| `2.3.1 · US-3.4.5 · Multi-currency P&L` | Dynamic P&L dashboard |
+| Swagger tag | Scope |
+|-------------|--------|
+| **Stock Price Collector** | All market-data, portfolio, and trade-router endpoints (`/api/investments/*`) |
+
+The tag description lists all five user stories (2.1.1–2.3.1). Endpoint ordering in Swagger follows path groups: `market-data` → `portfolio` → `trades`.
 
 Full spec: [`docs/stock-price-collector-backend-requirements.md`](../docs/stock-price-collector-backend-requirements.md).
 
@@ -612,4 +612,4 @@ Bearer JWT for all routes except webhooks (`HMAC` via `X-Market-Data-Signature`)
 
 ---
 
-*Document version: 1.2 — 2026-06-20*
+*Document version: 1.3 — 2026-06-20*
