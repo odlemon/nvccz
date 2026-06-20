@@ -690,40 +690,6 @@ export const accountingEndpoints = {
       },
     },
   },
-  '/cron/depreciation/monthly': {
-    post: {
-      summary:
-        'Cron: monthly depreciation (X-Depreciation-Cron-Secret; no JWT). Same as POST /accounting/assets/depreciation/cron/monthly.',
-      tags: ['Asset Management'],
-      parameters: [
-        {
-          in: 'header',
-          name: 'X-Depreciation-Cron-Secret',
-          required: true,
-          schema: { type: 'string' },
-        },
-      ],
-      requestBody: {
-        required: false,
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                asOfDate: { type: 'string', format: 'date' },
-                period: { type: 'string', example: '2026-03' },
-              },
-            },
-          },
-        },
-      },
-      responses: {
-        200: { description: 'Cron run completed' },
-        401: { description: 'Unauthorized' },
-        503: { description: 'Cron not configured' },
-      },
-    },
-  },
   '/accounting/assets/{assetId}/depreciation/backfill': {
     post: {
       summary: 'Backfill depreciation through a date (calculate + post each due month)',

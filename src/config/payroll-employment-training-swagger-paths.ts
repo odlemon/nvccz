@@ -1,6 +1,8 @@
 /**
  * Payroll, Employment & Training — Section A + B API paths.
  * Requirements: docs/payroll-employment-training-backend-requirements.md
+ *
+ * Cron routes (e.g. POST /payroll/compliance/cron/expiry-check) are omitted from Swagger — ops only.
  */
 
 export const PAYROLL_ET_PAYROLL_TAG = "Payroll";
@@ -120,8 +122,5 @@ export const payrollEmploymentTrainingSwaggerPaths: Record<string, unknown> = {
   },
   "/payroll/compliance/dashboard/expiring": {
     get: op("Certifications expiring in 30/60/90 days", PAYROLL_ET_COMPLIANCE_TAG),
-  },
-  "/payroll/compliance/cron/expiry-check": {
-    post: op("Cron — certification expiry + permission revocation", PAYROLL_ET_COMPLIANCE_TAG),
   },
 };

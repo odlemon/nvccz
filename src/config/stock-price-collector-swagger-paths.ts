@@ -2,6 +2,10 @@
  * Stock Price Collector & Multi-Module Transaction Router — Swagger paths.
  * Requirements: docs/stock-price-collector-backend-requirements.md
  * Design session: design-sessions/stock-price-collector.md
+ *
+ * Cron/schedule HTTP routes are intentionally omitted from Swagger — they remain
+ * callable for ops (crontab + secret headers) but are not part of the frontend API surface.
+ * See docs/stock-price-collector-ubuntu-cron-setup.md.
  */
 
 export const STOCK_PRICE_COLLECTOR_TAG = "Stock Price Collector";
@@ -279,7 +283,8 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
       storyDoc({
         ...STORY_341,
         acceptance: [
-          "Automated jobs parse official daily market reports at market open (09:00 CAT) and close (16:00 CAT) — use cron endpoints in production.",
+          "Automated jobs parse official daily market reports at market open (09:00 CAT) and market close (16:00 CAT). " +
+          "Production scheduling is server-side (crontab — ops only, not in Swagger).",
           "Scraper applies exponential backoff; unreachable sources fall back to last validated close (sourceStatus: FALLBACK).",
           "Each batch stores SHA-256 checksum; >15% deviation vs prior close → PENDING_REVIEW.",
         ],
@@ -402,37 +407,9 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
         ],
         whatHappens:
           "Accepts JSON tick payload from external market-data vendor. Verifies `X-Market-Data-Signature` HMAC when MARKET_DATA_WEBHOOK_SECRET is set. " +
-          "Normalises ticks and enqueues ingest batch. No JWT — cron/secret auth pattern.",
+          "Normalises ticks and enqueues ingest batch. No JWT — webhook HMAC only.",
       }),
       parameters: [{ name: "providerCode", in: "path", required: true, schema: { type: "string", example: "REFINITIV" } }],
-    },
-  },
-  "/investments/market-data/cron/scrape-domestic": {
-    post: {
-      summary: "US-3.4.1 — Cron: domestic + international scrape (09:00 / 16:00 CAT)",
-      tags: TAG,
-      description: storyDoc({
-        ...STORY_341,
-        acceptance: [
-          "Cron jobs run at market open (09:00 CAT) and market close (16:00 CAT) for ZSE, VFEX, SECZIM.",
-        ],
-        whatHappens:
-          "Runs scrape/ingest for all enabled source configs (ZSE, VFEX, SECZIM, NASDAQ, NYSE). " +
-          "Schedule via Ubuntu crontab — see docs/stock-price-collector-ubuntu-cron-setup.md. " +
-          "Auth: header `X-Market-Data-Cron-Secret`.",
-      }),
-    },
-  },
-  "/investments/market-data/cron/retry-failed-ingest": {
-    post: {
-      summary: "US-3.4.1 — Cron: retry failed ingest batches",
-      tags: TAG,
-      description: storyDoc({
-        ...STORY_341,
-        acceptance: ["Volatile network handled with backoff and scheduled retries."],
-        whatHappens:
-          "Re-runs scrape for up to 10 most recent FAILED batches. Marks original batch RETRIED on success.",
-      }),
     },
   },
   "/investments/portfolio/funds": {
@@ -692,19 +669,6 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
       { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }] }
     ),
   },
-  "/investments/trades/cron/retry-failed-routing": {
-    post: {
-      summary: "US-3.4.3 — Cron: retry failed trade routing hops",
-      tags: TAG,
-      description: storyDoc({
-        ...STORY_343,
-        acceptance: ["Failed routing hops retried on schedule with exponential backoff."],
-        whatHappens:
-          "Retries hops in RETRYING/FAILED status (excludes DISPATCHED awaiting manual confirm). " +
-          "Auth: header `X-Trade-Router-Cron-Secret`.",
-      }),
-    },
-  },
 };
 
 export const STOCK_PRICE_COLLECTOR_TAG_DEFINITION = {
@@ -712,7 +676,7 @@ export const STOCK_PRICE_COLLECTOR_TAG_DEFINITION = {
   description:
     "**Stock Price Collector & Multi-Module Transaction Router** — listed-equity market data, portfolio valuation, and quad-target trade settlement for Arcus.\n\n" +
     "**User stories covered (client sections 2.1–2.3):**\n" +
-    "- **2.1.1 · US-3.4.1** — Domestic scraping (ZSE, VFEX, SECZIM): cron ingest, SHA-256 batches, >15% validation queue\n" +
+    "- **2.1.1 · US-3.4.1** — Domestic scraping (ZSE, VFEX, SECZIM): ingest batches, SHA-256, >15% validation queue (scheduled scrape is ops/cron — omitted from Swagger)\n" +
     "- **2.1.2 · US-3.4.2** — International feeds (LSE, NYSE, NASDAQ): webhooks, latest prices, watchlist\n" +
     "- **2.2.1 · US-3.4.3** — Broker & custodian dispatch: trade execute, routing hop status, settlement PDF\n" +
     "- **2.2.2 · US-3.4.4** — Core banking & GL: cash holds, holdings update, balanced journal entries on settle\n" +

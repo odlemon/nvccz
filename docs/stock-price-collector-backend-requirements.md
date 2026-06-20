@@ -666,6 +666,8 @@ Register in `swagger.ts` with a **single protected tag** (same pattern as **Fore
 
 Implementation: `src/config/stock-price-collector-swagger-paths.ts` — constant `STOCK_PRICE_COLLECTOR_TAG`. Each endpoint summary is prefixed with the user story ID (`US-3.4.1`, etc.); descriptions include persona, acceptance criteria, and runtime behaviour.
 
+**Cron/schedule routes** (`/investments/market-data/cron/*`, `/investments/trades/cron/*`) are **omitted from Swagger** — ops only; see `docs/stock-price-collector-ubuntu-cron-setup.md`.
+
 ---
 
 *Document version: 1.0 — 2026-06-16*

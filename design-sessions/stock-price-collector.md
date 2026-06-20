@@ -396,7 +396,7 @@ When `LISTED_EQUITY_CUSTODIAN_ENABLED=true`:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Domestic scrape (ZSE/VFEX) | ✅ Shipped | Mansa (ZSE), VFEX price sheet; cron via `POST .../cron/scrape-domestic` |
+| Domestic scrape (ZSE/VFEX) | ✅ Shipped | Mansa (ZSE), VFEX price sheet; ops schedules via crontab (not in Swagger) |
 | SECZIM scrape | ⚠️ Partial | Requires `SECZIM_PRICE_URL`; no dedicated parser yet |
 | International feeds (NASDAQ/NYSE) | ⚠️ Dev scrape | Yahoo + FastBull (`DELAYED_15M`); webhook ingress ready for licensed feeds |
 | LSE | ❌ Not wired | Enum in schema only |
@@ -514,7 +514,8 @@ Full spec: [`docs/stock-price-collector-backend-requirements.md`](../docs/stock-
 - `POST /ingest/run` (sourceCode: `ZSE` | `VFEX` | `SECZIM`)
 - `GET /ingest/batches`, `GET /ingest/batches/:id` (SHA-256 `checksumValid`)
 - `GET /validation-queue`, `POST /validation-queue/:tickId/approve|reject`
-- `POST /cron/scrape-domestic`, `POST /cron/retry-failed-ingest`
+
+> **Ops only (omitted from Swagger):** scheduled scrape and retry jobs — see [`docs/stock-price-collector-ubuntu-cron-setup.md`](../docs/stock-price-collector-ubuntu-cron-setup.md).
 
 **2.1.2 · US-3.4.2 — International feeds**
 
@@ -529,7 +530,8 @@ Full spec: [`docs/stock-price-collector-backend-requirements.md`](../docs/stock-
 - `GET /trades/:id/routing-hops`, `POST /trades/:id/routing-hops/:hopId/retry`
 - `POST /trades/:id/routing-hops/:hopId/confirm` (when custodian/broker ACK needed)
 - `GET /trades/:id/settlement-document` (PDF — when custodian enabled)
-- `POST /trades/cron/retry-failed-routing`
+
+> **Ops only (omitted from Swagger):** `POST /trades/cron/retry-failed-routing` — see ubuntu cron setup doc.
 
 **2.2.2 · US-3.4.4 — Core banking & GL** *(triggered by execute — same endpoints)*
 
@@ -549,8 +551,8 @@ Full spec: [`docs/stock-price-collector-backend-requirements.md`](../docs/stock-
 |----------|---------|--------------|
 | `LISTED_EQUITY_CUSTODIAN_ENABLED` | **off** | Custodian hop = `SKIPPED_INTERNAL`; auto-settle on execute |
 | `LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER` | off | Dev/UAT: auto-confirms broker/custodian after dispatch |
-| `MARKET_DATA_CRON_SECRET` | — | Cron scrape auth |
-| `TRADE_ROUTER_CRON_SECRET` | — | Cron routing retry auth |
+
+Cron secrets (`MARKET_DATA_CRON_SECRET`, `TRADE_ROUTER_CRON_SECRET`) are **ops-only** — cron routes are not in Swagger.
 
 See [`docs/stock-price-collector-ubuntu-cron-setup.md`](../docs/stock-price-collector-ubuntu-cron-setup.md).
 
@@ -596,7 +598,7 @@ Standard envelope: `{ success: boolean, data?: T, message?: string }`. List endp
 
 ### Auth
 
-Bearer JWT for all routes except webhooks (`HMAC` via `X-Market-Data-Signature`) and cron (`X-Market-Data-Cron-Secret` / `X-Trade-Router-Cron-Secret`). Fund-scoped lists filter by user's `FundManager` assignments; admin bypasses scope.
+Bearer JWT for all documented routes except webhooks (`HMAC` via `X-Market-Data-Signature`). Cron/schedule routes use secret headers and are **not in Swagger** (ops only).
 
 ### Errors
 

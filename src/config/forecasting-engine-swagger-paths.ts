@@ -1,6 +1,8 @@
 /**
  * Forecasting Engine — hypercube scenario, grid, compute, versioning APIs.
  * Requirements: docs/forecasting-engine-backend-requirements.md
+ *
+ * Cron routes (e.g. POST /cron/forecasting/gl-sync) are omitted from Swagger — ops only.
  */
 
 export const FORECASTING_ENGINE_TAG = "Forecasting Engine";
@@ -1132,22 +1134,6 @@ export const forecastingEngineSwaggerPaths = {
         }
       ],
       responses: { 200: { description: "Job record" } }
-    }
-  },
-  "/cron/forecasting/gl-sync": {
-    post: {
-      tags: TAG,
-      summary: "Daily GL actuals sync cron",
-      description:
-        "Auth: header `X-Forecast-Gl-Sync-Cron-Secret` when `FORECAST_GL_SYNC_CRON_SECRET` is set; otherwise loopback only.",
-      requestBody: {
-        content: {
-          "application/json": {
-            example: { scenario_id: EX.duplicate_scenario_id }
-          }
-        }
-      },
-      responses: { 200: { description: "Sync completed" }, 401: { description: "Unauthorized" } }
     }
   },
 
