@@ -1,0 +1,10 @@
+{
+  "tradeRef": "TXN-MQKMWI1Z077442",
+  "side": "BUY",
+  "symbol": "VALW59K",
+  "exchange": "ZSE",
+  "quantity": 100,
+  "price": 9.5,
+  "currency": "USD",
+  "executedAt": "2026-06-19T07:55:46.047Z"
+}

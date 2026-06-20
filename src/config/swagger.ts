@@ -26,6 +26,10 @@ import {
   PAYROLL_ET_PAYROLL_TAG,
   PAYROLL_ET_COMPLIANCE_TAG,
 } from './payroll-employment-training-swagger-paths';
+import {
+  stockPriceCollectorSwaggerPaths,
+  listedEquityUserStoryTagDefinitions,
+} from './stock-price-collector-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -2220,6 +2224,7 @@ const fallbackSpec = {
     ...phaseTwoPdfUploadsSwaggerPaths,
     ...forecastingEngineSwaggerPaths,
     ...payrollEmploymentTrainingSwaggerPaths,
+    ...stockPriceCollectorSwaggerPaths,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -9510,6 +9515,7 @@ specs.paths = {
   ...phaseTwoPdfUploadsSwaggerPaths,
   ...forecastingEngineSwaggerPaths,
   ...payrollEmploymentTrainingSwaggerPaths,
+  ...stockPriceCollectorSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
   ...payrollEndpoints,
@@ -9639,7 +9645,12 @@ specs = applyProtectedSwaggerModules(specs, [
       description:
         '**Employment & Training (Section B)** — courses, certifications, expiry cron, permission revocation on cert expiry.'
     }
-  }
+  },
+  ...listedEquityUserStoryTagDefinitions.map((tagDefinition) => ({
+    paths: stockPriceCollectorSwaggerPaths,
+    tagName: tagDefinition.name,
+    tagDefinition,
+  })),
 ]);
 
 const protectedModules = Object.keys(specs.paths ?? {}).filter(

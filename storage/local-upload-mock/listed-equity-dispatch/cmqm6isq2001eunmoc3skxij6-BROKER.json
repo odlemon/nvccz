@@ -1,0 +1,10 @@
+{
+  "tradeRef": "TXN-MQM6ISQ1CA7C22",
+  "side": "SELL",
+  "symbol": "SEL6GRQD",
+  "exchange": "ZSE",
+  "quantity": 500,
+  "price": 7,
+  "currency": "ZWG",
+  "executedAt": "2026-06-20T09:52:43.548Z"
+}

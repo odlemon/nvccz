@@ -1,0 +1,10 @@
+{
+  "tradeRef": "TXN-MQL2ZSDJB4A815",
+  "side": "SELL",
+  "symbol": "ARIS",
+  "exchange": "ZSE",
+  "quantity": 500,
+  "price": 7,
+  "currency": "ZWG",
+  "executedAt": "2026-06-19T15:27:05.369Z"
+}

@@ -24,7 +24,7 @@ The **Stock Price Collector & Multi-Module Transaction Router** is the real-time
 - Portfolio holdings with Weighted Average Cost (WAC) and dual-currency P&L (USD and ZiG)
 - Automated trade routing to **Broker**, **Custodian**, **Core Banking**, and **General Ledger**
 
-The UI is split into **three workspaces** that match Swagger sections **Market Data** (Section A), **Portfolio** (Section B), and **Trade Router** (Section C).
+The UI is split into **five user-story workspaces** that match Swagger tags in `/api-docs` (sections **2.1.1–2.3.1**, IDs **US-3.4.1–US-3.4.5**). See [Section 14](#14-api-contract-summary-frontend-handoff).
 
 ### Who uses it
 
@@ -37,11 +37,21 @@ The UI is split into **three workspaces** that match Swagger sections **Market D
 | Fund Accountant | Confirm GL posting badges, settlement documents |
 | System Administrator | Broker/custodian profiles, signing keys, cron health |
 
-### Scope — three workspaces in one terminal
+### Scope — workspaces mapped to user stories
 
-1. **Workspace A — Price Collector Console** — securities watchlist, tick monitor, validation queue, ingest batch integrity.
-2. **Workspace B — Portfolio Valuation** — holdings grid, WAC, dual-currency P&L, NAV header, force valuation run.
-3. **Workspace C — Trade Router** — trade blotter, quad-target routing status bar, settlement PDF.
+| Client section | User story | UI workspace | Swagger tag |
+|----------------|------------|--------------|-------------|
+| **2.1.1** | US-3.4.1 — Domestic scraping (ZSE/VFEX/SECZIM) | Price Collector Console | `2.1.1 · US-3.4.1 · Domestic scraping` |
+| **2.1.2** | US-3.4.2 — International market feeds | Watchlist / tick monitor | `2.1.2 · US-3.4.2 · International market feeds` |
+| **2.2.1** | US-3.4.3 — Broker & custodian dispatch | Trade Router + routing bar | `2.2.1 · US-3.4.3 · Broker & custodian dispatch` |
+| **2.2.2** | US-3.4.4 — Core banking & GL sync | Routing bar (bank + GL nodes) | `2.2.2 · US-3.4.4 · Core banking & GL sync` |
+| **2.3.1** | US-3.4.5 — Multi-currency P&L | Holdings & P&L pane | `2.3.1 · US-3.4.5 · Multi-currency P&L` |
+
+The **unified terminal** (`/investments/terminal`) combines all five on one screen (left = 2.1.x, right = 2.3.1, bottom = 2.2.x).
+
+1. **Workspace A — Price Collector Console (US-3.4.1 + US-3.4.2)** — securities watchlist, tick monitor, validation queue, ingest batch integrity.
+2. **Workspace B — Portfolio Valuation (US-3.4.5)** — holdings grid, WAC, dual-currency P&L, NAV header, force valuation run.
+3. **Workspace C — Trade Router (US-3.4.3 + US-3.4.4)** — trade blotter, quad-target routing status bar, settlement PDF.
 
 **Backend alignment note:** This module is **net-new**. **Finance → Short-Term Investments** covers money-market instruments only — do not merge UI. **Portfolio → Quarterly Valuations** covers private-equity workflows — keep separate nav entry.
 
@@ -111,7 +121,8 @@ Product wireframe Section 6.2 — implement as a **three-pane** layout with stic
 │ BOTTOM: Real-Time Multi-Module Transaction Routing Status                    │
 │ Trade TXN-8a31e24c | OMIG.VF | Qty 25,000 | Total $31,250.00               │
 │ [Broker] ===> [Custodian] ===> [Core Banking] ===> [Acct Register]           │
-│ CONFIRMED      SENT TO BANK       LOCKED              POSTED                 │
+│ DISPATCHED    SKIPPED (int.)      CONFIRMED           CONFIRMED              │
+│              (or CONFIRMED when custodian enabled)                           │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -218,6 +229,19 @@ flowchart TB
 | `CONFIRMED` | Green | Confirmed |
 | `RETRYING` | Amber | Retrying (n/5) |
 | `FAILED` | Red | Failed |
+| `SKIPPED_INTERNAL` | Grey dashed | Skipped (custodian off) |
+
+**Custodian node (v1 default — internal settlement mode):**
+
+When `LISTED_EQUITY_CUSTODIAN_ENABLED` is **not** set (production default today), the custodian hop auto-confirms as **`SKIPPED_INTERNAL`** on execute. Show:
+
+- Badge: **Skipped** (grey dashed border) with tooltip: *“Custodian dispatch disabled — internal settlement mode. Holdings and GL updated automatically.”*
+- Do **not** show a Confirm button on custodian in this mode.
+- Re-enable custodian UI (PDF download, Confirm, DISPATCHED state) when ops sets `LISTED_EQUITY_CUSTODIAN_ENABLED=true`.
+
+**Broker node:** May stay `DISPATCHED` while settlement completes — broker email is best-effort; JSON payload is always saved server-side. Optional **Confirm** for Trade Ops when external ACK received.
+
+**Bank + GL nodes:** In internal settlement mode, both advance to **CONFIRMED** automatically on execute (no manual confirm required).
 
 **Micro-interaction (Section 6.3):** Hover tooltip shows `dispatchedAt`, `attemptCount`, `externalRef`, expandable “View payload” (JSON snippet, read-only).
 
@@ -269,7 +293,12 @@ flowchart TB
 | Execution price | Numeric; default latest tick |
 | Fees | Optional |
 
-**Execute** → confirmation showing quad-target preview → on success, bottom routing bar animates to new trade.
+**Execute** → confirmation showing quad-target preview → on success:
+
+- **Internal settlement (default):** trade moves to **SETTLED** immediately; routing bar animates all hops to green except broker (may stay blue DISPATCHED).
+- **Full custodian mode:** trade stays **ROUTING** until manual confirms on broker/custodian hops.
+
+Success toast (internal mode): *“Trade executed and settled — GL posted.”*
 
 **Guards:** Disable execute if price tick `PENDING_REVIEW` for selected security (tooltip explains).
 
@@ -307,12 +336,29 @@ flowchart TB
 3. Approved ticks refresh watchlist + holdings valuation.
 4. NAV header updates; “last valued at” timestamp shown.
 
-### 7.2 Execute buy trade (happy path)
+### 7.2 Execute buy trade (happy path — internal settlement mode, v1 default)
 
-1. Fund Manager opens Execute modal → BUY → Execute.
-2. Bottom bar: Broker **CONFIRMED** → Custodian **DISPATCHED** → Banking **LOCKED** → GL **STAGED**.
-3. Custodian confirms → Banking **CONFIRMED** (hold released) → GL **POSTED**.
-4. Holdings qty increases; WAC recalculated; trade status **SETTLED**.
+**As an** Investment Officer / Fund Accountant — one **Execute** action settles the trade end-to-end using in-system modules (cashbook, holdings, GL). Custodian dispatch is **skipped** until external integration is ready.
+
+1. Fund Manager opens Execute modal → BUY → **Execute**.
+2. Backend runs quad routing automatically:
+   - **Broker** → `DISPATCHED` (JSON payload saved; email optional)
+   - **Custodian** → `CONFIRMED` / `SKIPPED_INTERNAL` (holdings WAC updated)
+   - **Core Banking** → `CONFIRMED` (cash hold placed then released on trust account)
+   - **Acct Register (GL)** → `CONFIRMED` (balanced journal posted)
+3. Trade status → **`SETTLED`** without manual hop confirms.
+4. Holdings qty increases; WAC recalculated; NAV/P&L refresh on next valuation run or price tick.
+
+**UI copy for execute success toast:** *“Trade TXN-… executed and settled. Cash hold released, GL posted.”*
+
+### 7.2b Execute buy trade (full custodian mode — when enabled)
+
+When `LISTED_EQUITY_CUSTODIAN_ENABLED=true`:
+
+1. Execute → Broker **DISPATCHED** → await **Confirm** (or auto if configured).
+2. Custodian PDF generated → **DISPATCHED** → await custodian **Confirm**.
+3. Banking hold released → GL **POSTED** after custodian + bank confirmed.
+4. Manual **Confirm** actions required on broker/custodian hops (`POST .../routing-hops/:hopId/confirm`).
 
 ### 7.3 Failed custodian dispatch
 
@@ -335,52 +381,65 @@ flowchart TB
 | Price `PENDING_REVIEW` | Execute trade disabled for that security |
 | Price `FX_MISSING` | ZiG P&L shows “—”; amber banner on header |
 | Trade not `EXECUTED` | Routing bar hidden or greyed |
-| Hop `FAILED` | Show Retry; GL hop locked until custodian confirmed |
+| Hop `FAILED` | Show Retry; GL hop locked until upstream hops recover |
+| Custodian `SKIPPED_INTERNAL` | Custodian node grey-dashed; no Confirm button |
+| Internal settlement (default) | Bank + GL auto-CONFIRMED on execute — hide redundant Confirm buttons |
 | User lacks fund access | Fund not in selector; 403 on deep link |
 | NAV stale (> 24h) | Amber dot on NAV; prompt Force Aggregation |
-| Signing key missing | Custodian dispatch shows config warning (admin) |
+| Signing key missing | Only relevant when custodian routing enabled |
 
 ---
 
 ## 9. Backend alignment notes (summary)
 
-| Feature | Today | Target |
-|---------|-------|--------|
-| Listed security prices | ❌ | Scraper + webhook pipelines |
-| Holdings + WAC | ❌ | Portfolio holdings registry |
-| Trade routing | ❌ | Quad dispatcher with hop status |
-| GL on trade settle | ❌ | Listed-equity JE service |
-| Cash holds | ⚠️ Cashbook exists | Bridge service for trust holds |
-| FX ZiG/USD | ✅ `UsdZwgRateResolver` | Log rate per valuation |
-| Short-term investments | ✅ Separate module | Do not merge UI |
-| PE quarterly valuations | ✅ `PortfolioValuation` | Separate nav |
+*Updated 2026-06-20 — reflects implemented backend + UAT status.*
 
-Use **“Coming”** labels until backend phase ships (see [implementation phases](../docs/stock-price-collector-backend-requirements.md#17-implementation-phases)).
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Domestic scrape (ZSE/VFEX) | ✅ Shipped | Mansa (ZSE), VFEX price sheet; cron via `POST .../cron/scrape-domestic` |
+| SECZIM scrape | ⚠️ Partial | Requires `SECZIM_PRICE_URL`; no dedicated parser yet |
+| International feeds (NASDAQ/NYSE) | ⚠️ Dev scrape | Yahoo + FastBull (`DELAYED_15M`); webhook ingress ready for licensed feeds |
+| LSE | ❌ Not wired | Enum in schema only |
+| SHA-256 ingest batches | ✅ Shipped | `GET /ingest/batches/:id` → `checksumValid` |
+| >15% validation queue | ✅ Shipped | Admin approve/reject |
+| Holdings + WAC + lots | ✅ Shipped | Multi-lot `ListedEquityHoldingLot` |
+| Dual-currency P&L (USD + ZiG) | ✅ Shipped | `GET /funds/:id/pnl`, valuation snapshots |
+| CGT accrual | ❌ Schema only | `cgtAmount` column unused; no statutory engine |
+| Trade quad routing | ✅ Shipped | BROKER → CUSTODIAN → CORE_BANKING → ACCOUNTING_GL |
+| Internal settlement (custodian skip) | ✅ **Default** | `LISTED_EQUITY_CUSTODIAN_ENABLED=true` to restore custodian gate |
+| Cash holds (trust account) | ✅ Shipped | `CoreBankingBridgeService` + cashbook entry |
+| GL on settle | ✅ Shipped | Balanced JE; fail-closed on imbalance |
+| Broker/custodian live dispatch | ⚠️ On hold | JSON/PDF saved locally; SMTP often fails in dev; no SFTP/PGP/signing yet |
+| Frontend UI | ❌ Not started | This design doc + Swagger are the handoff |
+
+**Do not merge UI with:** Finance → Short-Term Investments (money market) or Portfolio → Quarterly Valuations (private equity).
 
 ---
 
 ## 10. Acceptance criteria — frontend mapping
 
-Each product acceptance criterion and the **primary screen** where the user sees it. Backend behaviour is in the [traceability matrix](../docs/stock-price-collector-backend-requirements.md#5-acceptance-criteria-traceability-matrix).
+Each product acceptance criterion, the **user story section**, and the **primary screen** where the user sees it. Backend behaviour and Swagger descriptions mirror the same story IDs.
 
-| ID | User-visible outcome | Primary screen |
-|----|----------------------|----------------|
-| US-3.4.1-A1 | Prices refresh after market open/close | Watchlist monitor |
-| US-3.4.1-A2 | Fallback indicator when source down | Watchlist row tooltip |
-| US-3.4.1-A3 | >15% deviation → review queue | Validation queue + amber tick |
-| US-3.4.1-A4 | Batch SHA-256 verify | Ingest batches |
-| US-3.4.2-A1 | Live international ticks | Watchlist with LIVE badge |
-| US-3.4.3-A1 | Broker dispatch status | Routing bar node 1 |
-| US-3.4.3-A2 | Custodian sent + PDF available | Routing bar node 2 + trade detail |
-| US-3.4.3-A3 | STAGED / DISPATCHED / CONFIRMED badges | Routing stepper |
-| US-3.4.4-A1 | Banking LOCKED on buy | Routing bar node 3 |
-| US-3.4.4-A2 | GL POSTED on settle | Routing bar node 4 + JE link |
-| US-3.4.4-A3 | Holdings qty updates after settle | Holdings table |
-| US-3.4.5-A1 | Avg Cost column reflects WAC | Holdings table |
-| US-3.4.5-A2 | Unrealized P&L updates on tick | Holdings footer + row |
-| US-3.4.5-A3 | Realized P&L on sell settle | Trade detail + P&L footer |
-| US-3.4.5-A4 | USD + ZiG P&L lines | Holdings footer + FX tooltip |
-| QA-7.2-A4 | Unauthorized access blocked | Toast 403 + audit (admin) |
+| Section | ID | User-visible outcome | Primary screen | Backend status |
+|---------|-----|----------------------|----------------|----------------|
+| 2.1.1 | US-3.4.1-A1 | Prices refresh after market open/close | Watchlist monitor | ⚠️ Cron external (09:00/16:00 CAT) |
+| 2.1.1 | US-3.4.1-A2 | Fallback indicator when source down | Watchlist row tooltip (`sourceStatus: FALLBACK`) | ✅ |
+| 2.1.1 | US-3.4.1-A3 | >15% deviation → review queue | Validation queue + amber tick | ✅ |
+| 2.1.1 | US-3.4.1-A4 | Batch SHA-256 verify | Ingest batches | ✅ |
+| 2.1.2 | US-3.4.2-A1 | Near-live international ticks | Watchlist with `DELAYED_15M` / `LIVE` badge | ⚠️ Scrape not streaming |
+| 2.1.2 | — | Direction + last tick timestamp | Watchlist Chg% column | ❌ UI; API has `pricedAt` |
+| 2.1.2 | — | Stale warning + last close fallback | Watchlist row banner | ⚠️ API only |
+| 2.2.1 | US-3.4.3-A1 | Broker dispatch status | Routing bar node 1 | ⚠️ Payload saved; email best-effort |
+| 2.2.1 | US-3.4.3-A2 | Custodian PDF + secure delivery | Routing bar node 2 | ❌ Skipped by default |
+| 2.2.1 | US-3.4.3-A3 | STAGED / DISPATCHED / CONFIRMED badges | Routing stepper | ✅ |
+| 2.2.2 | US-3.4.4-A1 | Banking hold on buy | Routing bar node 3 | ✅ Auto on execute |
+| 2.2.2 | US-3.4.4-A2 | GL posted + holdings update | Routing bar node 4 + JE link | ✅ Auto on execute |
+| 2.2.2 | US-3.4.4-A3 | Balanced DR asset / CR clearing | Trade detail JE lines | ✅ UAT verified |
+| 2.3.1 | US-3.4.5-A1 | Avg Cost column reflects WAC | Holdings table | ✅ |
+| 2.3.1 | US-3.4.5-A2 | Unrealized P&L updates on tick | Holdings footer + row | ✅ On ingest approve |
+| 2.3.1 | US-3.4.5-A3 | Realized P&L on sell settle | Trade detail + P&L footer | ✅ CGT not wired |
+| 2.3.1 | US-3.4.5-A4 | USD + ZiG P&L lines | Holdings footer + FX tooltip | ✅ |
+| QA | QA-7.2-A4 | Unauthorized access blocked | Toast 403 + audit (admin) | ✅ Fund scoping |
 
 ---
 
@@ -412,7 +471,145 @@ From product spec Section 6.3:
 3. **CGT line:** show on trade detail only or also in realized P&L footer breakdown?
 4. **Mobile:** is the unified terminal desktop-only for v1?
 5. **Multi-fund:** single fund per terminal session or split-screen compare?
+6. **Internal vs full custodian UI:** show custodian node as collapsed/hidden when `SKIPPED_INTERNAL`, or always visible with dashed “Skipped” badge?
 
 ---
 
-*Document version: 1.0 — 2026-06-16*
+## 14. API contract summary (frontend handoff)
+
+Wire screens to **Swagger user-story tags** at `/api-docs`. Each endpoint description follows the client story format:
+
+- **User story header** (section + ID + title)
+- **As a / I want / so that**
+- **Acceptance criteria (this endpoint)**
+- **What happens when you call this**
+
+Source: `src/config/stock-price-collector-swagger-paths.ts`
+
+### Swagger tags (match client doc sections)
+
+| Tag | User story |
+|-----|------------|
+| `2.1.1 · US-3.4.1 · Domestic scraping (ZSE/VFEX/SECZIM)` | SECZIM, ZSE, VFEX data scraping |
+| `2.1.2 · US-3.4.2 · International market feeds` | Real-time international integration |
+| `2.2.1 · US-3.4.3 · Broker & custodian dispatch` | Straight-through broker/custodian dispatch |
+| `2.2.2 · US-3.4.4 · Core banking & GL sync` | Core banking and ledger updates |
+| `2.3.1 · US-3.4.5 · Multi-currency P&L` | Dynamic P&L dashboard |
+
+Full spec: [`docs/stock-price-collector-backend-requirements.md`](../docs/stock-price-collector-backend-requirements.md).
+
+### Base paths
+
+| User story | Base path |
+|------------|-----------|
+| US-3.4.1 / US-3.4.2 | `/api/investments/market-data` |
+| US-3.4.5 | `/api/investments/portfolio` |
+| US-3.4.3 / US-3.4.4 | `/api/investments/trades` |
+
+### Primary endpoints by user story
+
+**2.1.1 · US-3.4.1 — Domestic scraping**
+
+- `GET /securities`, `POST /securities`, `PUT /securities/:id`
+- `POST /ingest/run` (sourceCode: `ZSE` | `VFEX` | `SECZIM`)
+- `GET /ingest/batches`, `GET /ingest/batches/:id` (SHA-256 `checksumValid`)
+- `GET /validation-queue`, `POST /validation-queue/:tickId/approve|reject`
+- `POST /cron/scrape-domestic`, `POST /cron/retry-failed-ingest`
+
+**2.1.2 · US-3.4.2 — International feeds**
+
+- `POST /webhooks/:providerCode` (HMAC — no JWT)
+- `POST /ingest/run` (sourceCode: `NASDAQ` | `NYSE`)
+- `GET /prices/latest`, `GET /securities/:id/prices`
+- `GET|PUT /portfolio/watchlist`
+
+**2.2.1 · US-3.4.3 — Broker & custodian dispatch**
+
+- `POST /trades` (draft), `POST /trades/:id/execute`, `GET /trades/:id`
+- `GET /trades/:id/routing-hops`, `POST /trades/:id/routing-hops/:hopId/retry`
+- `POST /trades/:id/routing-hops/:hopId/confirm` (when custodian/broker ACK needed)
+- `GET /trades/:id/settlement-document` (PDF — when custodian enabled)
+- `POST /trades/cron/retry-failed-routing`
+
+**2.2.2 · US-3.4.4 — Core banking & GL** *(triggered by execute — same endpoints)*
+
+- Execute chains: cash hold → release → holdings update → balanced GL JE
+- Trade detail returns `cashHolds`, `settlement.journalEntryId`, `settlement.realizedPnl`
+- GL hop `externalRef` / `confirmedAt` on success; `SETTLEMENT_FAILED` if JE imbalanced
+
+**2.3.1 · US-3.4.5 — Multi-currency P&L**
+
+- `GET /portfolio/funds`, `GET /portfolio/funds/:fundId/holdings`
+- `GET /portfolio/funds/:fundId/pnl`, `GET /portfolio/funds/:fundId/valuations`
+- `POST /portfolio/funds/:fundId/valuations/run`
+
+### Environment flags (ops / frontend behaviour)
+
+| Variable | Default | Effect on UI |
+|----------|---------|--------------|
+| `LISTED_EQUITY_CUSTODIAN_ENABLED` | **off** | Custodian hop = `SKIPPED_INTERNAL`; auto-settle on execute |
+| `LISTED_EQUITY_AUTO_CONFIRM_STAKEHOLDER` | off | Dev/UAT: auto-confirms broker/custodian after dispatch |
+| `MARKET_DATA_CRON_SECRET` | — | Cron scrape auth |
+| `TRADE_ROUTER_CRON_SECRET` | — | Cron routing retry auth |
+
+See [`docs/stock-price-collector-ubuntu-cron-setup.md`](../docs/stock-price-collector-ubuntu-cron-setup.md).
+
+### Status enums (UI badges)
+
+| Entity | Values |
+|--------|--------|
+| Price tick `validationStatus` | `APPROVED`, `PENDING_REVIEW`, `REJECTED` |
+| Trade `status` | `DRAFT`, `EXECUTED`, `ROUTING`, `SETTLED`, `SETTLEMENT_FAILED`, `CANCELLED` |
+| Routing hop `status` | `STAGED`, `DISPATCHED`, `CONFIRMED`, `RETRYING`, `FAILED` |
+| Routing hop `target` | `BROKER`, `CUSTODIAN`, `CORE_BANKING`, `ACCOUNTING_GL` |
+| Custodian hop `externalRef` (internal mode) | `SKIPPED_INTERNAL` |
+| Ingest `sourceStatus` | `OK`, `FALLBACK` |
+| Tick `tickFrequency` | `LIVE`, `DELAYED_15M`, `EOD` |
+
+### Broker / custodian hops (v1 behaviour)
+
+**Internal settlement mode (default):** Custodian skipped; bank + GL auto-complete on execute. Show custodian node as **Skipped** — no Confirm button.
+
+**Full dispatch mode** (`LISTED_EQUITY_CUSTODIAN_ENABLED=true`): Backend generates JSON payloads + PDF settlement instructions, emails configured contacts, and exposes **manual confirm** (`POST .../routing-hops/:hopId/confirm`) for Trade Ops when the stakeholder acknowledges. Show **Confirm** on `DISPATCHED` broker/custodian hops.
+
+Broker payload path (dev): `storage/local-upload-mock/listed-equity-dispatch/{tradeId}-BROKER.json`
+
+### Execute flow (what frontend should expect)
+
+```
+POST /trades/:id/execute
+  → trade.status: SETTLED (internal mode)
+  → routingHops:
+      BROKER: DISPATCHED (or CONFIRMED if auto-confirm)
+      CUSTODIAN: CONFIRMED, externalRef: SKIPPED_INTERNAL
+      CORE_BANKING: CONFIRMED
+      ACCOUNTING_GL: CONFIRMED
+  → settlement.journalEntryId: set
+  → cashHolds: PLACED → RELEASED
+```
+
+Poll `GET /trades/:id` after execute; no multi-step confirm wizard needed in v1 default mode.
+
+### Response shape
+
+Standard envelope: `{ success: boolean, data?: T, message?: string }`. List endpoints return arrays in `data`. Trade detail includes nested `routingHops`, `settlement`, `cashHolds`.
+
+### Auth
+
+Bearer JWT for all routes except webhooks (`HMAC` via `X-Market-Data-Signature`) and cron (`X-Market-Data-Cron-Secret` / `X-Trade-Router-Cron-Secret`). Fund-scoped lists filter by user's `FundManager` assignments; admin bypasses scope.
+
+### Errors
+
+- `403` + `FORBIDDEN_FUND_ACCESS` — user lacks fund scope (logged as security alert).
+- `LISTED_EQUITY_JE_IMBALANCED` — trade stays `SETTLEMENT_FAILED`; show GL hop `FAILED` with `lastError`.
+
+### UAT scripts (backend verification)
+
+| Script | npm command |
+|--------|-------------|
+| Sell settlement + auto routing | `npm run uat:investments:sell-settlement` |
+| Full trade router HTTP | `npm run uat:investments:trade-router` (if present) |
+
+---
+
+*Document version: 1.2 — 2026-06-20*

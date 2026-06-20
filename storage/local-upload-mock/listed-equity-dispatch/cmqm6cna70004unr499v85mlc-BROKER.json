@@ -1,0 +1,10 @@
+{
+  "tradeRef": "TXN-MQM6CN3P256C0C",
+  "side": "BUY",
+  "symbol": "SEL6CM3O",
+  "exchange": "ZSE",
+  "quantity": 1000,
+  "price": 6.4936,
+  "currency": "ZWG",
+  "executedAt": "2026-06-20T09:47:57.549Z"
+}

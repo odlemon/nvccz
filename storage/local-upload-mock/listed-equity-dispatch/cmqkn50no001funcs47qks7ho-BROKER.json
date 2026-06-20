@@ -1,0 +1,10 @@
+{
+  "tradeRef": "TXN-MQKN50NNB8E204",
+  "side": "BUY",
+  "symbol": "TRD4YOY",
+  "exchange": "ZSE",
+  "quantity": 50,
+  "price": 2.5,
+  "currency": "USD",
+  "executedAt": "2026-06-19T08:02:23.112Z"
+}

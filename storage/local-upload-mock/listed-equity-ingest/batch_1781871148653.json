@@ -1,0 +1,290 @@
+[
+  {
+    "symbol": "AFDS",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 1501,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "ARIS",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 6.4936,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "ARTD",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 20.05,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "BAT",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 20890,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "CAFCA",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 1610,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "CBZ",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 2214.02,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "CFI",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 600,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "DLTA",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 2995.12,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "DZL",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 280,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "FBC",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 1095.57,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "FIDL",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 59.05,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "FML",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 217.5492,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "FMP",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 94.4667,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "GBH",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 11.25,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "HIPO",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 880.7419,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "MASH",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 149,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "MEIK",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 272.3,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "MSHL",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 260.813,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "NMB",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 549,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "NPKZ",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 86.0067,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "PROL",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 129.4113,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "RIOZ",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 85,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "RTG",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 150,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "SACL",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 4,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "SEED",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 392.0333,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "TANG",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 415,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "TNCI",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 14.8755,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "TSL",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 744,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "TURN",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 11,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "UNIF",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 150,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "WILD",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 5.02,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "ZBFH",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 520,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "ZECO",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 0.0018,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "ZIMP",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 7.02,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "ZIMR",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 66.3027,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  },
+  {
+    "symbol": "ZSEH",
+    "exchangeCode": "ZSE",
+    "priceType": "CLOSE",
+    "price": 134.5,
+    "pricedAt": "2026-06-19T10:18:17.269Z",
+    "tickFrequency": "DELAYED_15M"
+  }
+]

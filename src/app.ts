@@ -71,6 +71,9 @@ import applicantPortalRoutes from "./routes/applicantPortalRoutes"
 import boardReviewRoutes from "./routes/boardReviewRoutes"
 import termSheetRoutes from "./routes/termSheetRoutes"
 import investmentImplementationRoutes from "./routes/investmentImplementationRoutes"
+import listedEquityMarketDataRoutes from "./routes/listedEquityMarketDataRoutes"
+import listedEquityPortfolioRoutes from "./routes/listedEquityPortfolioRoutes"
+import listedEquityTradeRoutes from "./routes/listedEquityTradeRoutes"
 import investmentMonitoringRoutes from "./routes/investmentMonitoringRoutes"
 import fundRoutes from "./routes/fundRoutes"
 import lpFeesAndDistributionsRoutes from "./routes/lpFeesAndDistributionsRoutes"
@@ -544,6 +547,10 @@ app.use("/api/term-sheets", termSheetRoutes)
 
 // Investment Implementation routes
 app.use("/api/investment-implementations", investmentImplementationRoutes)
+// Listed equity market terminal — literal paths before PE parametric routes
+app.use("/api/investments/market-data", listedEquityMarketDataRoutes)
+app.use("/api/investments/portfolio", listedEquityPortfolioRoutes)
+app.use("/api/investments/trades", listedEquityTradeRoutes)
 // Portfolio monitoring: investments/{id}/valuations & exit (spec §2.4)
 app.use("/api/investments", investmentMonitoringRoutes)
 

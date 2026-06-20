@@ -193,6 +193,9 @@ model User {
   managementFeePeriodsCreated          ManagementFeePeriod[]            @relation("ManagementFeePeriodCreator")
   distributionsCreated                 Distribution[]                   @relation("DistributionCreator")
   portfolioDividendsApproved           PortfolioCompanyDividend[]       @relation("PortfolioDividendApprover")
+  listedEquityWatchlistEntries         ListedEquityWatchlistEntry[]
+  listedEquityTradesExecuted           ListedEquityTrade[]              @relation("ListedEquityTradeExecutor")
+  listedEquityTicksReviewed             ListedEquityPriceTick[]          @relation("ListedEquityTickReviewer")
 
   @@map("users")
 }
@@ -780,6 +783,7 @@ model JournalEntry {
   portfolioDividends        PortfolioCompanyDividend[]        @relation("PortfolioDividendJournal")
   performanceProgressEvents PerformanceGoalProgressEvent[]
   payrollRuns               PayrollRun[]
+  listedEquityTradeSettlements ListedEquityTradeSettlement[] @relation("ListedEquityTradeJournal")
 
   @@map("journal_entries")
 }
@@ -1346,6 +1350,10 @@ model Fund {
   managementFeePeriods      ManagementFeePeriod[]
   distributions             Distribution[]
   forecastScenarios         ForecastScenario[]
+  listedEquityFundConfig    ListedEquityFundConfig?
+  listedEquityHoldings      ListedEquityHolding[]
+  listedEquityTrades        ListedEquityTrade[]
+  listedEquityValuationSnapshots ListedEquityValuationSnapshot[]
 
   @@map("funds")
 }
@@ -4567,6 +4575,8 @@ model Bank {
   transfersTo         CashbookTransfer[]    @relation("TransferToBank")
   cashbookReconciliationSessions CashbookReconciliationSession[]
   shortTermInvestmentsSettlement  ShortTermInvestmentInstrument[] @relation("StiSettlementBank")
+  listedEquityFundConfigs         ListedEquityFundConfig[]
+  listedEquityCashHolds           ListedEquityCashHold[]
 
   @@map("banks")
 }
@@ -5445,4 +5455,307 @@ model ForecastGoalLink {
 
   @@unique([scenarioId, performanceGoalId], map: "forecast_goal_links_scenario_goal_key")
   @@map("forecast_goal_links")
+}
+
+// --- Listed equity market terminal (Stock Price Collector) ---
+
+model ListedEquitySecurity {
+  id                  String   @id @default(cuid())
+  symbol              String   @db.VarChar(64)
+  isin                String?  @db.VarChar(32)
+  exchangeCode        String   @map("exchange_code") @db.VarChar(16)
+  name                String   @db.VarChar(512)
+  listingCurrencyCode String   @map("listing_currency_code") @db.VarChar(3)
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  vendorSymbols ListedEquitySecurityVendorSymbol[]
+  priceTicks    ListedEquityPriceTick[]
+  watchlist     ListedEquityWatchlistEntry[]
+  holdings      ListedEquityHolding[]
+  holdingLots   ListedEquityHoldingLot[]
+  trades        ListedEquityTrade[]
+
+  @@unique([symbol, exchangeCode], map: "listed_equity_securities_symbol_exchange_key")
+  @@index([exchangeCode, isActive], map: "listed_equity_securities_exchange_active_idx")
+  @@map("listed_equity_securities")
+}
+
+model ListedEquitySecurityVendorSymbol {
+  id           String   @id @default(cuid())
+  securityId   String   @map("security_id")
+  providerCode String   @map("provider_code") @db.VarChar(64)
+  vendorSymbol String   @map("vendor_symbol") @db.VarChar(128)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  security ListedEquitySecurity @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([providerCode, vendorSymbol], map: "listed_equity_vendor_symbol_provider_key")
+  @@index([securityId], map: "listed_equity_vendor_symbol_security_idx")
+  @@map("listed_equity_security_vendor_symbols")
+}
+
+model ListedEquityMarketDataSourceConfig {
+  id          String   @id @default(cuid())
+  sourceCode  String   @unique @map("source_code") @db.VarChar(32)
+  displayName String   @map("display_name") @db.VarChar(128)
+  sourceUrl   String?  @map("source_url") @db.Text
+  isEnabled   Boolean  @default(true) @map("is_enabled")
+  cronWindows Json?    @map("cron_windows")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("listed_equity_market_data_source_configs")
+}
+
+model ListedEquityMarketDataIngestBatch {
+  id             String   @id @default(cuid())
+  sourceType     String   @map("source_type") @db.VarChar(16)
+  sourceCode     String   @map("source_code") @db.VarChar(32)
+  asOfDate       DateTime @map("as_of_date") @db.Date
+  rawPayloadRef  String?  @map("raw_payload_ref") @db.Text
+  sha256Checksum String   @map("sha256_checksum") @db.VarChar(64)
+  recordCount    Int      @default(0) @map("record_count")
+  status         String   @default("COMPLETED") @db.VarChar(16)
+  sourceStatus   String   @default("OK") @map("source_status") @db.VarChar(16)
+  errorMessage   String?  @map("error_message") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  priceTicks ListedEquityPriceTick[]
+
+  @@index([sourceCode, asOfDate], map: "listed_equity_ingest_batch_source_date_idx")
+  @@map("listed_equity_market_data_ingest_batches")
+}
+
+model ListedEquityPriceTick {
+  id               String   @id @default(cuid())
+  securityId       String   @map("security_id")
+  batchId          String?  @map("batch_id")
+  priceType        String   @map("price_type") @db.VarChar(16)
+  price            Decimal  @db.Decimal(18, 6)
+  previousClose    Decimal? @map("previous_close") @db.Decimal(18, 6)
+  deviationPct     Decimal? @map("deviation_pct") @db.Decimal(10, 6)
+  validationStatus String   @default("APPROVED") @map("validation_status") @db.VarChar(16)
+  tickFrequency    String?  @map("tick_frequency") @db.VarChar(16)
+  fxRateUsed       Decimal? @map("fx_rate_used") @db.Decimal(18, 8)
+  fxRateSource     String?  @map("fx_rate_source") @db.VarChar(32)
+  sourceStatus     String   @default("OK") @map("source_status") @db.VarChar(16)
+  pricedAt         DateTime @map("priced_at")
+  reviewedById     String?  @map("reviewed_by_id")
+  reviewedAt       DateTime? @map("reviewed_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  security   ListedEquitySecurity              @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  batch      ListedEquityMarketDataIngestBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  reviewedBy User?                             @relation("ListedEquityTickReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([securityId, pricedAt], map: "listed_equity_price_ticks_security_priced_idx")
+  @@index([validationStatus, pricedAt], map: "listed_equity_price_ticks_validation_idx")
+  @@map("listed_equity_price_ticks")
+}
+
+model ListedEquityWatchlistEntry {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  securityId String   @map("security_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  security ListedEquitySecurity @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, securityId], map: "listed_equity_watchlist_user_security_key")
+  @@map("listed_equity_watchlist_entries")
+}
+
+model ListedEquityFundConfig {
+  id                String   @id @default(cuid())
+  fundId            String   @unique @map("fund_id")
+  baseCurrencyCode  String   @default("USD") @map("base_currency_code") @db.VarChar(3)
+  trustBankId       String?  @map("trust_bank_id")
+  coaMappingJson    Json?    @map("coa_mapping_json")
+  brokerProfileId   String?  @map("broker_profile_id")
+  custodianProfileId String? @map("custodian_profile_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  fund              Fund                          @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  trustBank         Bank?                         @relation(fields: [trustBankId], references: [id], onDelete: SetNull)
+  brokerProfile     ListedEquityStakeholderProfile? @relation("FundBrokerProfile", fields: [brokerProfileId], references: [id], onDelete: SetNull)
+  custodianProfile  ListedEquityStakeholderProfile? @relation("FundCustodianProfile", fields: [custodianProfileId], references: [id], onDelete: SetNull)
+  signingKeys       ListedEquityFundSigningKey[]
+
+  @@map("listed_equity_fund_configs")
+}
+
+model ListedEquityHolding {
+  id              String   @id @default(cuid())
+  fundId          String   @map("fund_id")
+  securityId      String   @map("security_id")
+  quantity        Decimal  @default(0) @db.Decimal(18, 6)
+  wac             Decimal  @default(0) @db.Decimal(18, 6)
+  wacCurrencyCode String   @map("wac_currency_code") @db.VarChar(3)
+  lastValuationAt DateTime? @map("last_valuation_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  fund     Fund                 @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  security ListedEquitySecurity @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, securityId], map: "listed_equity_holdings_fund_security_key")
+  @@map("listed_equity_holdings")
+}
+
+model ListedEquityHoldingLot {
+  id              String   @id @default(cuid())
+  fundId          String   @map("fund_id")
+  securityId      String   @map("security_id")
+  tradeId         String?  @map("trade_id")
+  quantity        Decimal  @db.Decimal(18, 6)
+  executionPrice  Decimal  @map("execution_price") @db.Decimal(18, 6)
+  currencyCode    String   @map("currency_code") @db.VarChar(3)
+  purchasedAt     DateTime @map("purchased_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  security ListedEquitySecurity @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@index([fundId, securityId], map: "listed_equity_holding_lots_fund_security_idx")
+  @@map("listed_equity_holding_lots")
+}
+
+model ListedEquityValuationSnapshot {
+  id                String   @id @default(cuid())
+  fundId            String   @map("fund_id")
+  asOf              DateTime @map("as_of")
+  navBaseCurrency   Decimal  @map("nav_base_currency") @db.Decimal(18, 2)
+  unrealizedPnlUsd  Decimal  @default(0) @map("unrealized_pnl_usd") @db.Decimal(18, 2)
+  unrealizedPnlZig  Decimal  @default(0) @map("unrealized_pnl_zig") @db.Decimal(18, 2)
+  realizedPnlUsd    Decimal  @default(0) @map("realized_pnl_usd") @db.Decimal(18, 2)
+  realizedPnlZig    Decimal  @default(0) @map("realized_pnl_zig") @db.Decimal(18, 2)
+  fxRateUsed        Decimal? @map("fx_rate_used") @db.Decimal(18, 8)
+  fxRateSource      String?  @map("fx_rate_source") @db.VarChar(32)
+  status            String   @default("OK") @db.VarChar(16)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@index([fundId, asOf], map: "listed_equity_valuation_snapshots_fund_asof_idx")
+  @@map("listed_equity_valuation_snapshots")
+}
+
+model ListedEquityStakeholderProfile {
+  id           String   @id @default(cuid())
+  profileType  String   @map("profile_type") @db.VarChar(16)
+  name         String   @db.VarChar(255)
+  contactEmail String?  @map("contact_email") @db.VarChar(255)
+  deliveryMode String   @default("EMAIL") @map("delivery_mode") @db.VarChar(16)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  brokerFunds    ListedEquityFundConfig[] @relation("FundBrokerProfile")
+  custodianFunds ListedEquityFundConfig[] @relation("FundCustodianProfile")
+
+  @@map("listed_equity_stakeholder_profiles")
+}
+
+model ListedEquityFundSigningKey {
+  id           String   @id @default(cuid())
+  fundConfigId String   @map("fund_config_id")
+  keyLabel     String   @map("key_label") @db.VarChar(128)
+  keyRef       String   @map("key_ref") @db.VarChar(512)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  fundConfig ListedEquityFundConfig @relation(fields: [fundConfigId], references: [id], onDelete: Cascade)
+
+  @@map("listed_equity_fund_signing_keys")
+}
+
+model ListedEquityTrade {
+  id                    String   @id @default(cuid())
+  tradeRef              String   @unique @map("trade_ref") @db.VarChar(64)
+  fundId                String   @map("fund_id")
+  securityId            String   @map("security_id")
+  side                  String   @db.VarChar(8)
+  quantity              Decimal  @db.Decimal(18, 6)
+  executionPrice        Decimal  @map("execution_price") @db.Decimal(18, 6)
+  executionCurrencyCode String   @map("execution_currency_code") @db.VarChar(3)
+  fees                  Decimal  @default(0) @db.Decimal(18, 2)
+  status                String   @default("DRAFT") @db.VarChar(24)
+  idempotencyKey        String?  @unique @map("idempotency_key") @db.VarChar(128)
+  executedAt            DateTime? @map("executed_at")
+  settledAt             DateTime? @map("settled_at")
+  executedById          String?  @map("executed_by_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  fund       Fund                 @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  security   ListedEquitySecurity @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  executedBy User?                @relation("ListedEquityTradeExecutor", fields: [executedById], references: [id], onDelete: SetNull)
+  routingHops ListedEquityTradeRoutingHop[]
+  settlement ListedEquityTradeSettlement?
+  cashHolds  ListedEquityCashHold[]
+
+  @@index([fundId, status], map: "listed_equity_trades_fund_status_idx")
+  @@map("listed_equity_trades")
+}
+
+model ListedEquityTradeRoutingHop {
+  id           String    @id @default(cuid())
+  tradeId      String    @map("trade_id")
+  target       String    @db.VarChar(16)
+  status       String    @default("STAGED") @db.VarChar(16)
+  attemptCount Int       @default(0) @map("attempt_count")
+  externalRef  String?   @map("external_ref") @db.VarChar(128)
+  payloadRef   String?   @map("payload_ref") @db.Text
+  receiptRef   String?   @map("receipt_ref") @db.Text
+  lastError    String?   @map("last_error") @db.Text
+  nextRetryAt  DateTime? @map("next_retry_at")
+  dispatchedAt DateTime? @map("dispatched_at")
+  confirmedAt  DateTime? @map("confirmed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  trade ListedEquityTrade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@unique([tradeId, target], map: "listed_equity_trade_routing_hops_trade_target_key")
+  @@index([status, nextRetryAt], map: "listed_equity_trade_routing_hops_retry_idx")
+  @@map("listed_equity_trade_routing_hops")
+}
+
+model ListedEquityTradeSettlement {
+  id                   String   @id @default(cuid())
+  tradeId              String   @unique @map("trade_id")
+  journalEntryId       String?  @map("journal_entry_id")
+  cashbookEntryId      String?  @map("cashbook_entry_id")
+  realizedPnl          Decimal? @map("realized_pnl") @db.Decimal(18, 2)
+  cgtAmount            Decimal? @map("cgt_amount") @db.Decimal(18, 2)
+  settlementDocumentRef String? @map("settlement_document_ref") @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  trade        ListedEquityTrade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  journalEntry JournalEntry?     @relation("ListedEquityTradeJournal", fields: [journalEntryId], references: [id], onDelete: SetNull)
+
+  @@map("listed_equity_trade_settlements")
+}
+
+model ListedEquityCashHold {
+  id          String    @id @default(cuid())
+  tradeId     String    @map("trade_id")
+  fundId      String    @map("fund_id")
+  bankId      String    @map("bank_id")
+  amount      Decimal   @db.Decimal(18, 2)
+  currencyCode String   @map("currency_code") @db.VarChar(3)
+  status      String    @default("PLACED") @db.VarChar(16)
+  placedAt    DateTime  @default(now()) @map("placed_at")
+  releasedAt  DateTime? @map("released_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  trade ListedEquityTrade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  bank  Bank              @relation(fields: [bankId], references: [id], onDelete: Restrict)
+
+  @@index([tradeId], map: "listed_equity_cash_holds_trade_idx")
+  @@map("listed_equity_cash_holds")
 }
