@@ -3,7 +3,9 @@
  * Server base URL already includes `/api` — paths are `/payroll/...`.
  */
 
-const TAG = "Payroll - Employees";
+import { PAYROLL_EMPLOYMENT_TRAINING_TAG } from "./payroll-employment-training-swagger-paths";
+
+const TAG = PAYROLL_EMPLOYMENT_TRAINING_TAG;
 
 const createEmployeeMultipartSchema = {
   type: "object",

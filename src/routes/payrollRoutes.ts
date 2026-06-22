@@ -29,7 +29,7 @@ function employeeMultipart(req: any, res: any, next: any) {
 }
 
 // ===== EMPLOYEE MANAGEMENT ROUTES =====
-/* Swagger: multipart create/update in src/config/payroll-endpoints.ts (Payroll - Employees) */
+/* Swagger: multipart create/update in src/config/payroll-endpoints.ts (Payroll tag) */
 router.post(
   '/employees',
   authenticate,

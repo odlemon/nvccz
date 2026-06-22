@@ -23,8 +23,8 @@ import { phaseTwoPdfUploadsSwaggerPaths, PHASE_TWO_PDF_UPLOADS_TAG } from './pha
 import { forecastingEngineSwaggerPaths, FORECASTING_ENGINE_TAG } from './forecasting-engine-swagger-paths';
 import {
   payrollEmploymentTrainingSwaggerPaths,
-  PAYROLL_ET_PAYROLL_TAG,
-  PAYROLL_ET_COMPLIANCE_TAG,
+  PAYROLL_EMPLOYMENT_TRAINING_TAG,
+  PAYROLL_EMPLOYMENT_TRAINING_TAG_DEFINITION,
 } from './payroll-employment-training-swagger-paths';
 import {
   stockPriceCollectorSwaggerPaths,
@@ -98,9 +98,8 @@ const options = {
           'Investee letterhead CRUD per portfolio company — legal name, address lines, contact, social links, logo (`GET/PUT/DELETE /portfolio-companies/{id}/letterhead`, `POST …/letterhead/logo`). Authenticated users only; not tied to a specific financial report.'
       },
       {
-        name: 'Payroll - Employees',
-        description:
-          'Payroll roster — create/list/update employees. **`POST /payroll/employees`** and **`PUT /payroll/employees/{id}`** use **`multipart/form-data`**: upload profile photo as field **`picture`** (remote storage, same as portfolio letterhead logos) or optional text **`pictureUrl`** for a pre-hosted URL.'
+        name: PAYROLL_EMPLOYMENT_TRAINING_TAG,
+        description: PAYROLL_EMPLOYMENT_TRAINING_TAG_DEFINITION.description,
       },
       {
         name: 'Portfolio Monitoring & Exit Management',
@@ -9519,11 +9518,11 @@ specs.paths = {
   ...phaseTwoScorecardEditingSwaggerPaths,
   ...phaseTwoPdfUploadsSwaggerPaths,
   ...forecastingEngineSwaggerPaths,
+  ...payrollEndpoints,
   ...payrollEmploymentTrainingSwaggerPaths,
   ...stockPriceCollectorSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
-  ...payrollEndpoints,
   ...portfolioMonitoringEndpoints,
   ...boardReviewOpenApiOverridePaths
 };
@@ -9635,21 +9634,8 @@ specs = applyProtectedSwaggerModules(specs, [
   },
   {
     paths: payrollEmploymentTrainingSwaggerPaths,
-    tagName: PAYROLL_ET_PAYROLL_TAG,
-    tagDefinition: {
-      name: PAYROLL_ET_PAYROLL_TAG,
-      description:
-        '**Payroll (Section A)** — employee lifecycle, maker-checker, dual-currency runs, ZIMRA statutory engine, payslip integrity, GL posting. See `docs/payroll-employment-training-backend-requirements.md`.'
-    }
-  },
-  {
-    paths: payrollEmploymentTrainingSwaggerPaths,
-    tagName: PAYROLL_ET_COMPLIANCE_TAG,
-    tagDefinition: {
-      name: PAYROLL_ET_COMPLIANCE_TAG,
-      description:
-        '**Employment & Training (Section B)** — courses, certifications, expiry cron, permission revocation on cert expiry.'
-    }
+    tagName: PAYROLL_EMPLOYMENT_TRAINING_TAG,
+    tagDefinition: PAYROLL_EMPLOYMENT_TRAINING_TAG_DEFINITION,
   },
   {
     paths: stockPriceCollectorSwaggerPaths,
