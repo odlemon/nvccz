@@ -419,6 +419,20 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
     description: "Limited partner with restricted access to investment information"
   },
   {
+    code: "LP_VIEWER",
+    name: "LP Viewer",
+    level: 1,
+    department: "Investments",
+    description: "External LP portal read-only access"
+  },
+  {
+    code: "LP_INSTITUTIONAL_MANAGER",
+    name: "LP Institutional Manager",
+    level: 3,
+    department: "Investments",
+    description: "External LP portal manager — can invite/revoke colleague viewers"
+  },
+  {
     code: "EXT_AUDITOR",
     name: "External Auditor",
     level: 3,

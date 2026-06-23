@@ -462,6 +462,7 @@ router.get("/investor/:investorId", authenticate, authorize(["admin", "fund_mana
  *       409:
  *         description: Conflict - duplicate investor ID or email
  */
+router.put("/:id/link-user", authenticate, authorize(["admin", "fund_manager"]), ClientController.linkUser);
 router.put("/:id", authenticate, authorize(["admin"]), ClientController.updateClient);
 
 /**

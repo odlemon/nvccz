@@ -7,6 +7,9 @@ import { PHASE_TWO_SCORECARD_EDITING_TAG } from './phase-two-scorecard-editing-s
 import { PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
 import { FORECASTING_ENGINE_TAG } from './forecasting-engine-swagger-paths';
 import { PAYROLL_EMPLOYMENT_TRAINING_TAG } from './payroll-employment-training-swagger-paths';
+import { FUND_PERFORMANCE_REPORTING_TAG } from './fund-performance-reporting-swagger-paths';
+import { LP_PORTAL_TAG } from './lp-portal-swagger-paths';
+import { INVESTMENT_MEMO_EDITING_TAG } from './investment-memo-editing-swagger-paths';
 
 /** Tags whose operations are removed unless the operation also carries a protected tag. */
 export const SWAGGER_EXCLUDED_TAGS = new Set([
@@ -78,6 +81,9 @@ export const SWAGGER_PROTECTED_TAGS = new Set([
   PHASE_TWO_PDF_UPLOADS_TAG,
   FORECASTING_ENGINE_TAG,
   PAYROLL_EMPLOYMENT_TRAINING_TAG,
+  FUND_PERFORMANCE_REPORTING_TAG,
+  LP_PORTAL_TAG,
+  INVESTMENT_MEMO_EDITING_TAG,
   'Updated performance'
 ]);
 

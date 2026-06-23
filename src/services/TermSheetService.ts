@@ -585,6 +585,20 @@ export class TermSheetService {
           });
           // Don't fail the term sheet signing if email fails
         }
+
+        try {
+          const { InvestmentMemoProvisionService } = await import("./investmentMemo/InvestmentMemoProvisionService");
+          const actorId =
+            updatedTermSheet.investorSignedById ||
+            updatedTermSheet.createdById ||
+            termSheet.createdById;
+          await InvestmentMemoProvisionService.ensureMemoForApplication(applicationId, actorId);
+        } catch (memoErr: any) {
+          console.error("Failed to provision investment memo on board review entry", {
+            applicationId,
+            error: memoErr?.message || memoErr,
+          });
+        }
       }
 
       // Create notification based on signature status

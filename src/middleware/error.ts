@@ -28,7 +28,7 @@ export const errorMiddleware = (err: any, req: Request, res: Response, next: Nex
   
   const error = {
     message: err.message || "Internal server error",
-    status: err.status || 500,
+    status: err.status || err.statusCode || 500,
   }
 
   if (err.name === "ValidationError") {

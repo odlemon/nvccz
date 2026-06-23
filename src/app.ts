@@ -111,6 +111,11 @@ import scorecardPillarRoutes from "./routes/scorecardPillarRoutes"
 import payrollRoutes from "./routes/payrollRoutes"
 import payrollDashboardRoutes from "./routes/payrollDashboardRoutes"
 import payrollComplianceRoutes from "./routes/payrollComplianceRoutes"
+import fundReportingRoutes from "./routes/fundReportingRoutes"
+import fundReportingCronRoutes from "./routes/fundReportingCronRoutes"
+import lpPortalRoutes from "./routes/lpPortalRoutes"
+import lpPortalCronRoutes from "./routes/lpPortalCronRoutes"
+import investmentMemoRoutes from "./routes/investmentMemoRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import procurementSuite06Routes from "./routes/procurementSuite06Routes"
 import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
@@ -637,6 +642,17 @@ app.use("/api/performance/individual-goals", individualGoalToTaskRoutes)
 app.use("/api/payroll", payrollRoutes)
 app.use("/api/payroll/compliance", payrollComplianceRoutes)
 app.use("/api/payroll/dashboard", payrollDashboardRoutes)
+
+// Fund Performance Reporting
+app.use("/api/fund-reporting", fundReportingRoutes)
+app.use("/api/cron/fund-reporting", fundReportingCronRoutes)
+
+// LP Portal
+app.use("/api/lp-portal", lpPortalRoutes)
+app.use("/api/cron/lp-portal", lpPortalCronRoutes)
+
+// Investment Memo Editing
+app.use("/api/investment-memos", investmentMemoRoutes)
 
 // Procurement Management routes — specific sub-routers BEFORE generic /procurement (which applies authenticate globally)
 app.use("/api/procurement/document-attachments", vendorDocumentAttachmentRoutes)

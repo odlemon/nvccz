@@ -31,6 +31,21 @@ import {
   STOCK_PRICE_COLLECTOR_TAG,
   STOCK_PRICE_COLLECTOR_TAG_DEFINITION,
 } from './stock-price-collector-swagger-paths';
+import {
+  fundPerformanceReportingSwaggerPaths,
+  FUND_PERFORMANCE_REPORTING_TAG,
+  FUND_PERFORMANCE_REPORTING_TAG_DEFINITION,
+} from './fund-performance-reporting-swagger-paths';
+import {
+  lpPortalSwaggerPaths,
+  LP_PORTAL_TAG,
+  LP_PORTAL_TAG_DEFINITION,
+} from './lp-portal-swagger-paths';
+import {
+  investmentMemoEditingSwaggerPaths,
+  INVESTMENT_MEMO_EDITING_TAG,
+  INVESTMENT_MEMO_EDITING_TAG_DEFINITION,
+} from './investment-memo-editing-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -289,6 +304,10 @@ const options = {
       {
         name: STOCK_PRICE_COLLECTOR_TAG,
         description: STOCK_PRICE_COLLECTOR_TAG_DEFINITION.description,
+      },
+      {
+        name: FUND_PERFORMANCE_REPORTING_TAG,
+        description: FUND_PERFORMANCE_REPORTING_TAG_DEFINITION.description,
       },
       {
         name: 'Performance collaboration and notifications',
@@ -2229,6 +2248,7 @@ const fallbackSpec = {
     ...forecastingEngineSwaggerPaths,
     ...payrollEmploymentTrainingSwaggerPaths,
     ...stockPriceCollectorSwaggerPaths,
+    ...fundPerformanceReportingSwaggerPaths,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
     '/cashbook/receipts': {
@@ -9521,6 +9541,7 @@ specs.paths = {
   ...payrollEndpoints,
   ...payrollEmploymentTrainingSwaggerPaths,
   ...stockPriceCollectorSwaggerPaths,
+  ...fundPerformanceReportingSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
   ...portfolioMonitoringEndpoints,
@@ -9641,6 +9662,21 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: stockPriceCollectorSwaggerPaths,
     tagName: STOCK_PRICE_COLLECTOR_TAG,
     tagDefinition: STOCK_PRICE_COLLECTOR_TAG_DEFINITION,
+  },
+  {
+    paths: fundPerformanceReportingSwaggerPaths,
+    tagName: FUND_PERFORMANCE_REPORTING_TAG,
+    tagDefinition: FUND_PERFORMANCE_REPORTING_TAG_DEFINITION,
+  },
+  {
+    paths: lpPortalSwaggerPaths,
+    tagName: LP_PORTAL_TAG,
+    tagDefinition: LP_PORTAL_TAG_DEFINITION,
+  },
+  {
+    paths: investmentMemoEditingSwaggerPaths,
+    tagName: INVESTMENT_MEMO_EDITING_TAG,
+    tagDefinition: INVESTMENT_MEMO_EDITING_TAG_DEFINITION,
   },
 ]);
 

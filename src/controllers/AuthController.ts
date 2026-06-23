@@ -12,7 +12,26 @@ import { AccountingGoalSyncService } from "../services/AccountingGoalSyncService
 import { logger } from "../utils/logger";
 import { emailTransport, getFromAddress } from "../config/email.config";
 import { companyNameShortFromEnv } from "../config/companyDisplay";
+import { LpPortalMfaService } from "../services/lpPortal/LpPortalMfaService";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
+
+function signUserJwt(user: any, roleDisplay: string | null, roleCodeEffective: string | null) {
+  return jwt.sign(
+    {
+      userId: user.id,
+      roleId: user.roleId,
+      roleName: roleDisplay,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      department: user.userDepartment,
+      roleCode: roleCodeEffective,
+      tokenVersion: user.tokenVersion ?? 0,
+    },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+}
 
 export class AuthController {
   async login(req: Request, res: Response, next: NextFunction) {
@@ -39,6 +58,7 @@ export class AuthController {
           userDepartment: true,
           roleCode: true,
           roleId: true,
+          tokenVersion: true,
           role: {
             select: {
               name: true
@@ -67,16 +87,24 @@ export class AuthController {
         (user.roleCode && String(user.roleCode).trim()) || roleNameFromDb || null;
       const roleDisplay = roleNameFromDb || roleCodeEffective;
 
-      const token = jwt.sign({
-        userId: user.id,
-        roleId: user.roleId,
-        roleName: roleDisplay,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        department: user.userDepartment,
-        roleCode: roleCodeEffective
-      }, JWT_SECRET, { expiresIn: "7d" });
+      const requiresMfa = await LpPortalMfaService.userRequiresMfaAtLogin(user.id);
+      if (requiresMfa) {
+        const mfaPendingToken = await LpPortalMfaService.createPendingToken(user.id);
+        return res.status(200).json({
+          success: true,
+          message: "MFA verification required",
+          mfaRequired: true,
+          mfaPendingToken,
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+          },
+        });
+      }
+
+      const token = signUserJwt(user, roleDisplay, roleCodeEffective);
 
       // Check if user is an applicant (applicants don't have roles - identified by having an application)
       const application = await prisma.application.findFirst({
@@ -202,11 +230,12 @@ export class AuthController {
       // Hash new password
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      // Update password
+      // Update password and invalidate existing JWTs
       await prisma.user.update({
         where: { id: userId },
         data: {
-          password: hashedPassword
+          password: hashedPassword,
+          tokenVersion: { increment: 1 },
         }
       });
 
@@ -460,7 +489,10 @@ export class AuthController {
       await prisma.$transaction([
         prisma.user.update({
           where: { id: user.id },
-          data: { password: hashedPassword }
+          data: {
+            password: hashedPassword,
+            tokenVersion: { increment: 1 },
+          }
         }),
         prisma.passwordResetToken.update({
           where: { id: resetRecord.id },
@@ -509,6 +541,74 @@ export class AuthController {
           lastName: user.lastName,
           department: user.userDepartment,
           role: user.roleCode
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async mfaEnroll(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const email = (req as any).user.email;
+      const data = await LpPortalMfaService.startEnrollment(userId, email);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async mfaConfirmEnrollment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user?.id;
+      const { token } = req.body;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+      if (!token) return res.status(400).json({ success: false, message: "token is required" });
+      const data = await LpPortalMfaService.confirmEnrollment(userId, String(token));
+      res.json({ success: true, data });
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ success: false, message: error.message });
+    }
+  }
+
+  async mfaVerifyLogin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { mfaPendingToken, token } = req.body;
+      if (!mfaPendingToken || !token) {
+        return res.status(400).json({ success: false, message: "mfaPendingToken and token are required" });
+      }
+      const userId = await LpPortalMfaService.consumePendingToken(String(mfaPendingToken));
+      if (!userId) return res.status(401).json({ success: false, message: "Invalid or expired MFA session" });
+
+      const ok = await LpPortalMfaService.verifyTotp(userId, String(token));
+      if (!ok) return res.status(401).json({ success: false, message: "Invalid TOTP code" });
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true },
+      });
+      if (!user) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+      const roleNameFromDb = user.role?.name ? String(user.role.name).trim() : null;
+      const roleCodeEffective =
+        (user.roleCode && String(user.roleCode).trim()) || roleNameFromDb || null;
+      const roleDisplay = roleNameFromDb || roleCodeEffective;
+      const jwtToken = signUserJwt(user, roleDisplay, roleCodeEffective);
+
+      res.json({
+        success: true,
+        message: "Logged in successfully",
+        token: jwtToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          department: user.userDepartment,
+          role: roleDisplay,
+          roleCode: user.roleCode ?? null,
         },
       });
     } catch (error) {

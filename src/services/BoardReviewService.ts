@@ -6,6 +6,8 @@ import { prisma } from '../utils/database';
 import { UserService } from './UserService';
 import { EmailNotificationService } from './EmailNotificationService';
 import { FirebaseStorageService } from './FirebaseStorageService';
+import { InvestmentMemoWorkflowService } from './investmentMemo/InvestmentMemoWorkflowService';
+import { InvestmentMemoProvisionService } from './investmentMemo/InvestmentMemoProvisionService';
 
 const BOARD_VOTING_ROLE_CODES = ["BOARD_CHAIR", "BOARD_MEMBER", "INV_COMM_MEM", "CIO"];
 
@@ -859,34 +861,14 @@ export class BoardReviewService {
     actorUserId: string,
     options: { resendNotifications?: boolean } = {}
   ): Promise<{ boardReview: BoardReviewWithRelations; createdNew: boolean }> {
-    const { resendNotifications } = options;
-    const existingBr = await prisma.boardReview.findUnique({ where: { applicationId } });
-
-    if (!existingBr) {
-      const boardReview = await BoardReviewService.createBoardReview({
-        applicationId,
-        reviewerId: actorUserId,
-        memorandumFile: file
-      });
-      return { boardReview, createdNew: true };
-    }
-
-    if (existingBr.status !== "IN_PROGRESS") {
-      throw new Error("Cannot upload IM — board review is not in progress");
-    }
-
-    await BoardReviewService.writeInvestmentMemorandumToReview(
-      existingBr,
-      applicationId,
-      file,
-      actorUserId
+    void file;
+    void actorUserId;
+    void options;
+    const err: any = new Error(
+      "Legacy investment memorandum upload is deprecated. Use /api/investment-memos to compose, submit, and CIO-approve the structured memo, then POST /api/board-reviews/:applicationId/call-to-vote."
     );
-
-    const boardReview = await BoardReviewService.callToVote(applicationId, actorUserId, {
-      resendNotifications
-    });
-
-    return { boardReview, createdNew: false };
+    err.statusCode = 409;
+    throw err;
   }
 
   /**
@@ -941,9 +923,8 @@ export class BoardReviewService {
     if (br.status !== "IN_PROGRESS") {
       throw new Error("Call to Vote is only available while the board review is in progress");
     }
-    if (!String(br.imDocumentUrl || "").trim()) {
-      throw new Error("Upload the final Investment Memorandum before Call to Vote.");
-    }
+
+    await InvestmentMemoWorkflowService.assertApprovedForCallToVote(applicationId);
 
     const resend = Boolean(options?.resendNotifications);
     if (br.imStatus === "READY_FOR_VOTE" && !resend) {
@@ -1034,6 +1015,8 @@ export class BoardReviewService {
         });
     }
 
+    await InvestmentMemoWorkflowService.lockOnCallToVote(applicationId, actorUserId);
+
     return updated as BoardReviewWithRelations;
   }
 
@@ -1098,10 +1081,16 @@ export class BoardReviewService {
         throw new Error("Cannot update completed board review");
       }
 
-      // Validate that voting is complete before allowing updates
+      // Decision flags require voting to complete; narrative fields are edited via investment memo module.
       const voteSummary = await this.calculateVoteSummary(boardReview.id);
-      if (!voteSummary.isVotingComplete) {
-        throw new Error("Cannot update board review. Voting process must be completed before making updates. All board members must submit their votes first.");
+      const updatingDecision =
+        params.investmentApproved !== undefined ||
+        params.investmentRejected !== undefined ||
+        params.conditionalApproval !== undefined;
+      if (updatingDecision && !voteSummary.isVotingComplete) {
+        throw new Error(
+          "Cannot set board decision before voting completes. All board members must submit their votes first."
+        );
       }
 
       // Handle decision flags update - ensure only one is true at a time

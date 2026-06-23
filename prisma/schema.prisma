@@ -26,6 +26,8 @@ model User {
   votingPower                       Decimal?                     @db.Decimal(5, 2)
   /// When true, user is excluded from board voting member lists and vote-invite emails.
   boardVotingDisabled               Boolean                      @default(false) @map("board_voting_disabled")
+  /// Bumped on LP access revocation to invalidate outstanding JWTs.
+  tokenVersion                      Int                          @default(0) @map("token_version")
   role                              Role                         @relation(fields: [roleId], references: [id])
   posts                             Post[]
   replies                           Reply[]
@@ -50,6 +52,9 @@ model User {
   cashbookEntries                   CashbookEntry[]
   dueDiligenceReviews               DueDiligenceReview[]
   boardReviews                      BoardReview[]
+  investmentMemosApproved           InvestmentMemo[]              @relation("InvestmentMemoApprovedBy")
+  investmentMemoVersionsCreated     InvestmentMemoVersion[]       @relation("InvestmentMemoVersionCreator")
+  investmentMemoApprovalEvents      InvestmentMemoApprovalEvent[] @relation("InvestmentMemoApprovalActor")
   termSheets                        TermSheet[]
   termSheetsSignedAsApplicant       TermSheet[]                    @relation("TermSheetApplicantSignedBy")
   termSheetsSignedAsInvestor        TermSheet[]                    @relation("TermSheetInvestorSignedBy")
@@ -80,6 +85,13 @@ model User {
   performanceReviewCyclesCreated    PerformanceReviewCycle[]     @relation("PerformanceReviewCycleCreatedBy")
   performanceReviewFeedback         PerformanceReviewFeedback[]  @relation("PerformanceReviewFeedbackProvider")
   reportTemplatesCreated            ReportTemplate[]             @relation("ReportTemplateCreator")
+  clientPortalProfile               Client?                      @relation("ClientPortalUser")
+  lpUserRelations                   LpUserRelation[]             @relation("LpUserRelationUser")
+  lpUserRelationsInvited            LpUserRelation[]             @relation("LpUserRelationInvitedBy")
+  lpPortalDocumentsPublished        LpPortalDocument[]           @relation("LpPortalDocumentPublisher")
+  userMfaTotp                       UserMfaTotp?
+  fundReportRunsTriggered           FundReportRun[]              @relation("FundReportRunTriggeredBy")
+  fundReportAuditEvents             FundReportAuditEvent[]       @relation("FundReportAuditAuthor")
   varianceReportsPrepared           VarianceReport[]             @relation("VarianceReportPreparer")
   varianceReportsApproved           VarianceReport[]             @relation("VarianceReportApprover")
   turnoverReportsPrepared           TurnoverAnalysisReport[]     @relation("TurnoverReportPreparer")
@@ -1354,6 +1366,12 @@ model Fund {
   listedEquityHoldings      ListedEquityHolding[]
   listedEquityTrades        ListedEquityTrade[]
   listedEquityValuationSnapshots ListedEquityValuationSnapshot[]
+  fundReportTemplates         FundReportTemplate[]
+  fundReportSchedules         FundReportSchedule[]
+  fundReportDistributionLists FundReportDistributionList[]
+  fundReportRuns              FundReportRun[]
+  lpPortalDocuments           LpPortalDocument[]
+  lpPortalMetricSnapshots     LpPortalMetricSnapshot[]
 
   @@map("funds")
 }
@@ -1393,12 +1411,18 @@ model Client {
   address               String?
   taxId                 String?
   status                String                 @default("ACTIVE")
+  userId                String?                @unique @map("user_id")
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
+  user                  User?                  @relation("ClientPortalUser", fields: [userId], references: [id], onDelete: SetNull)
   investmentCommitments InvestmentCommitment[]
   capitalCallAllocations CapitalCallAllocation[]
   managementFeeAllocations ManagementFeeAllocation[]
   distributionAllocations  DistributionAllocation[]
+  fundReportRecipientJobs FundReportRecipientJob[]
+  lpUserRelations         LpUserRelation[]
+  lpPortalDocuments       LpPortalDocument[]
+  lpPortalMetricSnapshots LpPortalMetricSnapshot[]
 
   @@map("clients")
 }
@@ -1720,6 +1744,7 @@ model Application {
   notifications            ApplicationNotification[]
   dueDiligenceReview       DueDiligenceReview?
   boardReview              BoardReview?
+  investmentMemo           InvestmentMemo?
   termSheet                TermSheet?
   investmentImplementation InvestmentImplementation?
   tasks                    Task[]
@@ -1819,8 +1844,70 @@ model BoardReview {
   completedAt           DateTime?
   application           Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   reviewer              User        @relation(fields: [reviewerId], references: [id])
+  investmentMemo        InvestmentMemo?
 
   @@map("board_reviews")
+}
+
+model InvestmentMemo {
+  id                String    @id @default(cuid())
+  applicationId     String    @unique @map("application_id")
+  boardReviewId     String?   @unique @map("board_review_id")
+  workflowStatus    String    @default("DRAFT") @map("workflow_status") @db.VarChar(32)
+  currentVersionId  String?   @map("current_version_id")
+  approvedVersionId String?   @map("approved_version_id")
+  approvedById      String?   @map("approved_by_id")
+  approvedAt        DateTime? @map("approved_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  boardReview       BoardReview? @relation(fields: [boardReviewId], references: [id], onDelete: SetNull)
+  approvedBy        User?     @relation("InvestmentMemoApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  versions          InvestmentMemoVersion[]
+  approvalEvents    InvestmentMemoApprovalEvent[]
+
+  @@index([workflowStatus], map: "investment_memos_status_idx")
+  @@map("investment_memos")
+}
+
+model InvestmentMemoVersion {
+  id                   String    @id @default(cuid())
+  memoId               String    @map("memo_id")
+  versionNumber        Int       @map("version_number")
+  sections             Json
+  attachmentUrl        String?   @map("attachment_url") @db.Text
+  attachmentFileName   String?   @map("attachment_file_name")
+  attachmentSha256     String?   @map("attachment_sha256") @db.VarChar(64)
+  changeSummary        String?   @map("change_summary") @db.Text
+  validationPassed     Boolean   @default(false) @map("validation_passed")
+  validationErrors     Json?     @map("validation_errors")
+  versionStatus        String    @default("DRAFT") @map("version_status") @db.VarChar(32)
+  createdById          String    @map("created_by_id")
+  submittedAt          DateTime? @map("submitted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  memo                 InvestmentMemo @relation(fields: [memoId], references: [id], onDelete: Cascade)
+  createdBy            User      @relation("InvestmentMemoVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvalEvents       InvestmentMemoApprovalEvent[]
+
+  @@unique([memoId, versionNumber], map: "investment_memo_versions_memo_num_key")
+  @@index([memoId], map: "investment_memo_versions_memo_idx")
+  @@map("investment_memo_versions")
+}
+
+model InvestmentMemoApprovalEvent {
+  id        String   @id @default(cuid())
+  memoId    String   @map("memo_id")
+  versionId String   @map("version_id")
+  action    String   @db.VarChar(32)
+  actorId   String   @map("actor_id")
+  comment   String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  memo      InvestmentMemo @relation(fields: [memoId], references: [id], onDelete: Cascade)
+  version   InvestmentMemoVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  actor     User     @relation("InvestmentMemoApprovalActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([memoId, createdAt], map: "investment_memo_approval_events_memo_idx")
+  @@map("investment_memo_approval_events")
 }
 
 model TermSheet {
@@ -3685,6 +3772,271 @@ model GeneratedReport {
   template        ReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@map("generated_reports")
+}
+
+model FundReportTemplate {
+  id           String   @id @default(cuid())
+  fundId       String?  @map("fund_id")
+  name         String
+  reportLevel  String   @map("report_level") @db.VarChar(16)
+  description  String?  @db.Text
+  sectionConfig Json    @map("section_config")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdById  String   @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  fund         Fund?    @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  schedules    FundReportSchedule[]
+  runs         FundReportRun[]
+
+  @@index([fundId], map: "fund_report_templates_fund_idx")
+  @@map("fund_report_templates")
+}
+
+model FundReportSchedule {
+  id           String   @id @default(cuid())
+  fundId       String   @map("fund_id")
+  templateId   String   @map("template_id")
+  name         String
+  periodType   String   @map("period_type") @db.VarChar(16)
+  cronExpression String @map("cron_expression") @db.VarChar(64)
+  timezone     String   @default("Africa/Harare") @db.VarChar(64)
+  dayOfMonth   Int?     @map("day_of_month")
+  hourOfDay    Int      @default(8) @map("hour_of_day")
+  isActive     Boolean  @default(true) @map("is_active")
+  nextRunAt    DateTime? @map("next_run_at")
+  distributionListId String? @map("distribution_list_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  fund         Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  template     FundReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  distributionList FundReportDistributionList? @relation(fields: [distributionListId], references: [id], onDelete: SetNull)
+
+  @@index([fundId], map: "fund_report_schedules_fund_idx")
+  @@index([nextRunAt], map: "fund_report_schedules_next_run_idx")
+  @@map("fund_report_schedules")
+}
+
+model FundReportDistributionList {
+  id          String   @id @default(cuid())
+  fundId      String   @map("fund_id")
+  name        String
+  sourceType  String   @map("source_type") @db.VarChar(32)
+  roleCodes   Json?    @map("role_codes")
+  cohortFilter Json?   @map("cohort_filter")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  fund        Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  schedules   FundReportSchedule[]
+
+  @@index([fundId], map: "fund_report_distribution_lists_fund_idx")
+  @@map("fund_report_distribution_lists")
+}
+
+model FundReportRun {
+  id              String   @id @default(cuid())
+  fundId          String   @map("fund_id")
+  templateId      String   @map("template_id")
+  scheduleId      String?  @map("schedule_id")
+  periodStart     DateTime @map("period_start") @db.Date
+  periodEnd       DateTime @map("period_end") @db.Date
+  status          String   @default("QUEUED") @db.VarChar(24)
+  triggerType     String   @default("MANUAL") @map("trigger_type") @db.VarChar(16)
+  triggeredById   String?  @map("triggered_by_id")
+  targetCount     Int      @default(0) @map("target_count")
+  compiledCount   Int      @default(0) @map("compiled_count")
+  dispatchedCount Int      @default(0) @map("dispatched_count")
+  deliveredCount  Int      @default(0) @map("delivered_count")
+  failedCount     Int      @default(0) @map("failed_count")
+  errorMessage    String?  @map("error_message") @db.Text
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  fund            Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  template        FundReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  triggeredBy     User?    @relation("FundReportRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
+  recipientJobs   FundReportRecipientJob[]
+
+  @@index([fundId], map: "fund_report_runs_fund_idx")
+  @@index([status], map: "fund_report_runs_status_idx")
+  @@map("fund_report_runs")
+}
+
+model FundReportRecipientJob {
+  id              String   @id @default(cuid())
+  runId           String   @map("run_id")
+  clientId        String   @map("client_id")
+  userId          String?  @map("user_id")
+  email           String   @db.VarChar(320)
+  lpLegalName     String   @map("lp_legal_name") @db.VarChar(255)
+  status          String   @default("PENDING") @db.VarChar(24)
+  pdfStatus       String   @default("PENDING") @map("pdf_status") @db.VarChar(16)
+  transportMethod String?  @map("transport_method") @db.VarChar(16)
+  pdfStoragePath  String?  @map("pdf_storage_path") @db.VarChar(512)
+  pdfFileUrl      String?  @map("pdf_file_url") @db.VarChar(1024)
+  pdfFileSize     Int?     @map("pdf_file_size")
+  pdfSha256       String?  @map("pdf_sha256") @db.VarChar(64)
+  metricsSnapshot Json?    @map("metrics_snapshot")
+  retryCount      Int      @default(0) @map("retry_count")
+  lastError       String?  @map("last_error") @db.Text
+  compiledAt      DateTime? @map("compiled_at")
+  dispatchedAt    DateTime? @map("dispatched_at")
+  deliveredAt     DateTime? @map("delivered_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  run             FundReportRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  distributionLogs FundReportDistributionLog[]
+  downloadTokens  FundReportDownloadToken[]
+
+  @@index([runId], map: "fund_report_recipient_jobs_run_idx")
+  @@index([clientId], map: "fund_report_recipient_jobs_client_idx")
+  @@index([status], map: "fund_report_recipient_jobs_status_idx")
+  @@map("fund_report_recipient_jobs")
+}
+
+model FundReportDistributionLog {
+  id          String   @id @default(cuid())
+  jobId       String   @map("job_id")
+  eventType   String   @map("event_type") @db.VarChar(24)
+  providerRef String?  @map("provider_ref") @db.VarChar(255)
+  payload     Json?
+  message     String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  job         FundReportRecipientJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId], map: "fund_report_distribution_logs_job_idx")
+  @@index([eventType], map: "fund_report_distribution_logs_event_idx")
+  @@map("fund_report_distribution_logs")
+}
+
+model FundReportDownloadToken {
+  id         String   @id @default(cuid())
+  jobId      String   @map("job_id")
+  tokenHash  String   @unique @map("token_hash") @db.VarChar(64)
+  expiresAt  DateTime @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  usedAt     DateTime? @map("used_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  job        FundReportRecipientJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId], map: "fund_report_download_tokens_job_idx")
+  @@index([expiresAt], map: "fund_report_download_tokens_expires_idx")
+  @@map("fund_report_download_tokens")
+}
+
+model FundReportAuditEvent {
+  id         String   @id @default(cuid())
+  entityType String   @map("entity_type") @db.VarChar(64)
+  entityId   String   @map("entity_id")
+  action     String   @db.VarChar(32)
+  authorId   String   @map("author_id")
+  diffJson   Json     @map("diff_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+  author     User     @relation("FundReportAuditAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId], map: "fund_report_audit_entity_idx")
+  @@map("fund_report_audit_events")
+}
+
+/// Many portal users per institutional LP client (viewer / manager roles).
+model LpUserRelation {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  lpRole      String    @default("VIEWER") @map("lp_role") @db.VarChar(16)
+  isActive    Boolean   @default(true) @map("is_active")
+  fundIds     Json?     @map("fund_ids")
+  invitedById String?   @map("invited_by_id")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  user        User      @relation("LpUserRelationUser", fields: [userId], references: [id], onDelete: Cascade)
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  invitedBy   User?     @relation("LpUserRelationInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, clientId], map: "lp_user_relations_user_client_key")
+  @@index([clientId], map: "lp_user_relations_client_idx")
+  @@index([userId, isActive], map: "lp_user_relations_user_active_idx")
+  @@map("lp_user_relations")
+}
+
+model LpPortalDocument {
+  id            String    @id @default(cuid())
+  clientId      String    @map("client_id")
+  fundId        String?   @map("fund_id")
+  category      String    @db.VarChar(32)
+  title         String    @db.VarChar(512)
+  fileUrl       String?   @map("file_url") @db.Text
+  storagePath   String?   @map("storage_path") @db.VarChar(512)
+  sha256        String?   @db.VarChar(64)
+  publishedAt   DateTime? @map("published_at")
+  publishedById String?   @map("published_by_id")
+  sourceType    String    @map("source_type") @db.VarChar(32)
+  sourceRefId   String?   @map("source_ref_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund          Fund?     @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  publishedBy   User?     @relation("LpPortalDocumentPublisher", fields: [publishedById], references: [id], onDelete: SetNull)
+
+  @@index([clientId], map: "lp_portal_documents_client_idx")
+  @@index([category], map: "lp_portal_documents_category_idx")
+  @@index([sourceType, sourceRefId], map: "lp_portal_documents_source_idx")
+  @@map("lp_portal_documents")
+}
+
+model LpPortalMetricSnapshot {
+  id        String   @id @default(cuid())
+  clientId  String   @map("client_id")
+  fundId    String   @map("fund_id")
+  asOfDate  DateTime @map("as_of_date") @db.Date
+  metrics   Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund      Fund     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, fundId, asOfDate], map: "lp_portal_metric_snapshots_client_fund_date_key")
+  @@index([clientId], map: "lp_portal_metric_snapshots_client_idx")
+  @@map("lp_portal_metric_snapshots")
+}
+
+model UserMfaTotp {
+  id              String    @id @default(cuid())
+  userId          String    @unique @map("user_id")
+  encryptedSecret String    @map("encrypted_secret") @db.Text
+  enabledAt       DateTime? @map("enabled_at")
+  backupCodes     Json?     @map("backup_codes")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_mfa_totp")
+}
+
+model LpPortalMfaPolicy {
+  id              String   @id @default("default")
+  requireMfaForLp Boolean  @default(false) @map("require_mfa_for_lp")
+  issuerName      String   @default("Arcus LP Portal") @map("issuer_name") @db.VarChar(128)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("lp_portal_mfa_policy")
+}
+
+model AuthMfaPending {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash") @db.VarChar(64)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId], map: "auth_mfa_pending_user_idx")
+  @@index([expiresAt], map: "auth_mfa_pending_expires_idx")
+  @@map("auth_mfa_pending")
 }
 
 model VarianceReport {

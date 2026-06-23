@@ -36,6 +36,7 @@ Legacy values in old databases may need migration (see scripts below).
 
 1. `npm run db:migrate:application-deal-workflow`
 2. `npm run db:migrate:deal-workflow-deal-reference`
+3. `npm run db:migrate:investment-memo-editing`
 
 Then `npx prisma generate`.
 
@@ -55,6 +56,8 @@ Then `npx prisma generate`.
 
 | Topic | Detail |
 |--------|--------|
+| **Investment memo (new)** | Structured editor at **`/api/investment-memos/:applicationId/*`** — draft → validate → submit → **CIO approve** before Call to Vote. See [`docs/investment-memo-editing-backend-requirements.md`](./investment-memo-editing-backend-requirements.md) |
+| Call to Vote | Requires memo `workflowStatus === APPROVED`; then `POST /api/board-reviews/:applicationId/call-to-vote` |
 | Votes | `POST /api/board-reviews/:applicationId/votes` with `{ "vote": "APPROVE" \| "REJECT", "comment"?: string }` — **comment required when vote is APPROVE** |
 | Double vote | One vote per `(boardReviewId, userId)` |
 | Quorum | Env **`BOARD_VOTE_QUORUM_YES_COUNT`** (default **3**); set **`0`** to disable auto-complete when majority APPROVE |

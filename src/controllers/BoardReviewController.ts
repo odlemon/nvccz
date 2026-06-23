@@ -552,7 +552,8 @@ export class BoardReviewController {
       );
     } catch (error: any) {
       logger.error("Error uploading investment memorandum", { error: error.message });
-      ResponseHelper.error(res, error.message || "Upload failed", undefined, 400);
+      const status = error.statusCode === 409 ? 409 : 400;
+      ResponseHelper.error(res, error.message || "Upload failed", undefined, status);
     }
   }
 

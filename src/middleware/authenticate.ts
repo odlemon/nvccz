@@ -55,8 +55,15 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       if (DEBUG_AUTH) console.log(`❌ User not found for ${req.path}`);
       res.status(401).json({ 
         success: false,
-        message: "Unauthorized" 
+        message: "Unauthorized"     
       });
+      return;
+    }
+
+    const tokenVersionClaim = decoded.tokenVersion ?? 0;
+    const dbTokenVersion = (user as any).tokenVersion ?? 0;
+    if (tokenVersionClaim !== dbTokenVersion) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
       return;
     }
     

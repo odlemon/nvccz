@@ -103,6 +103,9 @@ router.get("/google/callback", async (req, res) => {
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post("/login", authController.login);
+router.post("/mfa/verify", authController.mfaVerifyLogin);
+router.post("/mfa/enroll", authenticate, authController.mfaEnroll);
+router.post("/mfa/confirm-enrollment", authenticate, authController.mfaConfirmEnrollment);
 
 /**
  * @swagger

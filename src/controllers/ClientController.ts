@@ -141,6 +141,24 @@ export class ClientController {
     }
   }
 
+  /** Link portal User to LP Client record (fund performance reporting). */
+  static async linkUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const userId = req.body.userId || req.body.user_id;
+      if (!userId) {
+        return res.status(400).json({ success: false, message: "userId is required" });
+      }
+      const client = await ClientService.linkPortalUser(id, userId);
+      res.status(200).json({
+        success: true,
+        message: "Client linked to portal user",
+        data: client,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
 
   // Get client statistics
   static async getClientStatistics(req: Request, res: Response, next: NextFunction) {

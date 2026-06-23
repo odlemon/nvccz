@@ -531,6 +531,41 @@ export class ClientService {
     }
   }
 
+  static async linkPortalUser(clientId: string, userId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, include: { role: true } });
+    if (!user) throw new Error("User not found");
+    const existing = await prisma.client.findUnique({ where: { userId } });
+    if (existing && existing.id !== clientId) {
+      throw new Error("User is already linked to another client");
+    }
+    const client = await prisma.client.findUnique({ where: { id: clientId } });
+    if (!client) throw new Error("Client not found");
+    const userEmail = String(user.email).trim().toLowerCase();
+    const clientEmail = String(client.email).trim().toLowerCase();
+    if (userEmail !== clientEmail) {
+      throw new Error("User email must match client email before linking portal access");
+    }
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.client.update({
+        where: { id: clientId },
+        data: { userId },
+      });
+      const existing = await tx.lpUserRelation.findUnique({
+        where: { userId_clientId: { userId, clientId } },
+      });
+      if (existing) {
+        await tx.lpUserRelation.update({
+          where: { id: existing.id },
+          data: { isActive: true, lpRole: "VIEWER", revokedAt: null },
+        });
+      } else {
+        await tx.lpUserRelation.create({
+          data: { userId, clientId, lpRole: "VIEWER" },
+        });
+      }
+      return updated;
+    });
+  }
 
   // Get client statistics
   static async getClientStatistics() {
