@@ -1728,7 +1728,7 @@ export class JournalEntryService {
   static async postJournalEntry(
     journalEntryId: string,
     performedById?: string,
-    options?: { userPermissions?: Array<{ name: string; value: boolean }> }
+    options?: { userPermissions?: Array<{ name: string; value: boolean }>; user?: unknown }
   ): Promise<JournalEntry> {
     try {
       // Get the journal entry with its lines
@@ -1762,7 +1762,8 @@ export class JournalEntryService {
         userId: performedById ?? journalEntry.createdById,
         source: "API",
         actionType: "POST_JOURNAL",
-        userPermissions: options?.userPermissions
+        userPermissions: options?.userPermissions,
+        user: options?.user,
       });
 
       // Update the status to POSTED

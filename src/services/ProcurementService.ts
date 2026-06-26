@@ -17,7 +17,7 @@ import {
 } from "../utils/procurementDocumentNumbers";
 import { computePurchaseRequisitionContentFingerprint } from "../utils/purchaseRequisitionContentFingerprint";
 import { normalizeRfqItemLinesFromBody, prItemsToNormalizedRfqLines } from "../utils/rfqItemInput";
-import { isAdminViewer } from "./performanceScorecardSupport";
+import { isModulePrivilegedUser, isCfoUser } from "../config/cfoModulePermissions";
 
 // Hardcoded departments
 export enum Department {
@@ -1125,12 +1125,12 @@ export class ProcurementService {
       ) {
         const execApprover = await prisma.user.findUnique({
           where: { id: approvedById },
-          select: { roleCode: true, firstName: true, lastName: true, email: true },
+          select: { roleCode: true, firstName: true, lastName: true, email: true, role: true },
         });
         if (!execApprover) {
           throw new Error("Approver not found");
         }
-        if (execApprover.roleCode !== "CFO" && execApprover.roleCode !== "SYSADMIN") {
+        if (!isCfoUser(execApprover) && execApprover.roleCode !== "SYSADMIN") {
           throw new Error("Only VC CFO (or SYSADMIN) can approve investee drawdown requisitions at this stage.");
         }
 
@@ -1231,6 +1231,8 @@ export class ProcurementService {
           firstName: true,
           lastName: true,
           email: true,
+          roleCode: true,
+          role: true,
         },
       });
 
@@ -1238,12 +1240,16 @@ export class ProcurementService {
         throw new Error("Approver not found");
       }
 
-      if (!approver.userDepartment || approver.userDepartment !== requisition.department) {
-        throw new Error(`You are not assigned to the ${requisition.department} department`);
-      }
+      const privilegedApprover = isModulePrivilegedUser(approver);
 
-      if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
-        throw new Error(`Only department HEAD or DEPUTY can approve requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+      if (!privilegedApprover) {
+        if (!approver.userDepartment || approver.userDepartment !== requisition.department) {
+          throw new Error(`You are not assigned to the ${requisition.department} department`);
+        }
+
+        if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
+          throw new Error(`Only department HEAD or DEPUTY can approve requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+        }
       }
 
       const updatedRequisition = await prisma.purchaseRequisition.update({
@@ -1326,12 +1332,12 @@ export class ProcurementService {
       ) {
         const execRejector = await prisma.user.findUnique({
           where: { id: rejectedById },
-          select: { roleCode: true, firstName: true, lastName: true, email: true },
+          select: { roleCode: true, firstName: true, lastName: true, email: true, role: true },
         });
         if (!execRejector) {
           throw new Error("Approver not found");
         }
-        if (execRejector.roleCode !== "CFO" && execRejector.roleCode !== "SYSADMIN") {
+        if (!isCfoUser(execRejector) && execRejector.roleCode !== "SYSADMIN") {
           throw new Error("Only VC CFO (or SYSADMIN) can reject investee drawdown requisitions at this stage.");
         }
         const rejectionFingerprint = computePurchaseRequisitionContentFingerprint(requisition);
@@ -1406,6 +1412,8 @@ export class ProcurementService {
           firstName: true,
           lastName: true,
           email: true,
+          roleCode: true,
+          role: true,
         },
       });
 
@@ -1413,12 +1421,16 @@ export class ProcurementService {
         throw new Error("Approver not found");
       }
 
-      if (approver.userDepartment !== requisition.department) {
-        throw new Error(`You are not assigned to the ${requisition.department} department`);
-      }
+      const privilegedRejector = isModulePrivilegedUser(approver);
 
-      if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
-        throw new Error(`Only department HEAD or DEPUTY can reject requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+      if (!privilegedRejector) {
+        if (approver.userDepartment !== requisition.department) {
+          throw new Error(`You are not assigned to the ${requisition.department} department`);
+        }
+
+        if (!approver.departmentRole || (approver.departmentRole !== DepartmentRole.HEAD && approver.departmentRole !== DepartmentRole.DEPUTY)) {
+          throw new Error(`Only department HEAD or DEPUTY can reject requisitions. Your role: ${approver.departmentRole || 'MEMBER'}`);
+        }
       }
 
       const rejectionFingerprint = computePurchaseRequisitionContentFingerprint(requisition);
@@ -1489,7 +1501,7 @@ export class ProcurementService {
 
   /**
    * Investee drawdown PR lists (Suite 02): who may see **all** funds without a FundManager row.
-   * Uses `isAdminViewer` (role name/code signals) plus senior finance/procurement/exec role codes.
+   * Uses `isModulePrivilegedUser` plus senior finance/procurement/exec role codes.
    */
   static async userHasUnrestrictedInvesteePrViewScope(viewerUserId: string): Promise<boolean> {
     const u = await prisma.user.findUnique({
@@ -1502,10 +1514,9 @@ export class ProcurementService {
       },
     });
     if (!u) return false;
-    if (isAdminViewer(u)) return true;
+    if (isModulePrivilegedUser(u)) return true;
     const code = String(u.roleCode || "").trim().toUpperCase();
     const unrestrictedCodes = new Set([
-      "CFO",
       "SYSADMIN",
       "PROC_MGR",
       "ADMIN",
@@ -1519,7 +1530,7 @@ export class ProcurementService {
   }
 
   /**
-   * CFO / SYSADMIN / PROC_MGR / ADMIN / CEO / FIN_MGR / CIO / COO / isAdminViewer: all funds.
+   * CFO / module-privileged users / SYSADMIN / PROC_MGR / ADMIN / CEO / FIN_MGR / CIO / COO: all funds.
    * Otherwise must have at least one active FundManager row (Suite 02 fund isolation).
    */
   static async getInvesteePrViewerFundScopeOrThrow(viewerUserId: string): Promise<string[] | null> {

@@ -1,13 +1,20 @@
 // @ts-nocheck
 import express from "express";
-import { authenticate, authorize } from "../middleware/authenticate";
+import { authenticate } from "../middleware/authenticate";
+import { requireAnyPermission } from "../middleware/permissionAuth";
 import { AuditLogController } from "../controllers/AuditLogController";
 
 const router = express.Router();
 
 router.use(authenticate);
-router.use(authorize("admin"));
-
-router.get("/", AuditLogController.list);
+router.get(
+  "/",
+  requireAnyPermission([
+    "manage_accounting",
+    "view_accounting",
+    "accounting.period_lock.audit_view",
+  ]),
+  AuditLogController.list
+);
 
 export default router;

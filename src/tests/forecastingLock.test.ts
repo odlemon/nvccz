@@ -42,6 +42,14 @@ describe("ForecastingAccessService admin and lock", () => {
     ).not.toThrow();
   });
 
+  test("CFO by role name only is treated as forecasting admin", () => {
+    const cfoByName = { role: { name: "Chief Financial Officer" }, roleCode: null };
+    expect(ForecastingAccessService.isAdminUser(cfoByName)).toBe(true);
+    expect(() =>
+      ForecastingAccessService.assertScenarioAccess(cfoByName, { createdById: "other-user" })
+    ).not.toThrow();
+  });
+
   test("regular user is not forecasting admin", () => {
     expect(
       ForecastingAccessService.isAdminUser({ role: { name: "Employee" }, roleCode: "FIN_ASST" })

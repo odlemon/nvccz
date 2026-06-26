@@ -1,3 +1,4 @@
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
 import { prisma } from "../utils/database";
 import FiscalCalendarService from "./FiscalCalendarService";
 import {
@@ -35,7 +36,11 @@ function ymdString(d: Date, tz: string): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-function userHasOverride(userPermissions: Array<{ name: string; value: boolean }> | undefined): boolean {
+function userHasOverride(
+  userPermissions: Array<{ name: string; value: boolean }> | undefined,
+  user?: unknown
+): boolean {
+  if (user && userHasEffectivePermission(user, OVERRIDE_PERM)) return true;
   if (!userPermissions?.length) return false;
   return userPermissions.some((p) => p.name === OVERRIDE_PERM && p.value === true);
 }
@@ -236,6 +241,7 @@ export default class PeriodLockService {
     source: PeriodLockSource;
     actionType: string;
     userPermissions?: Array<{ name: string; value: boolean }>;
+    user?: unknown;
     policy: {
       lockedPeriodPolicy: string | null;
       allowOverridePosting: boolean | null;
@@ -256,7 +262,7 @@ export default class PeriodLockService {
     if (
       lockedPeriodPolicy === "WARN" &&
       allowOverridePosting &&
-      userHasOverride(params.userPermissions)
+      userHasOverride(params.userPermissions, params.user)
     ) {
       await this.logAudit({
         actionType: "PERIOD_LOCK_OVERRIDE_ALLOW",
@@ -294,6 +300,7 @@ export default class PeriodLockService {
     source: PeriodLockSource;
     actionType: string;
     userPermissions?: Array<{ name: string; value: boolean }>;
+    user?: unknown;
   }): Promise<void> {
     const tz = await FiscalCalendarService.getFiscalTimezone();
     const dateYmd = ymdString(params.accountingDate, tz);
@@ -315,6 +322,7 @@ export default class PeriodLockService {
         source: params.source,
         actionType: params.actionType,
         userPermissions: params.userPermissions,
+        user: params.user,
         policy,
       });
       return;
@@ -355,7 +363,7 @@ export default class PeriodLockService {
     if (
       lockedPeriodPolicy === "WARN" &&
       allowOverridePosting &&
-      userHasOverride(params.userPermissions)
+      userHasOverride(params.userPermissions, params.user)
     ) {
       await this.logAudit({
         actionType: "PERIOD_LOCK_OVERRIDE_ALLOW",
@@ -388,6 +396,7 @@ export default class PeriodLockService {
     source: PeriodLockSource;
     actionType: string;
     userPermissions?: Array<{ name: string; value: boolean }>;
+    user?: unknown;
   }): Promise<void> {
     const tz = await FiscalCalendarService.getFiscalTimezone();
     const dateYmd = ymdString(params.accountingDate, tz);
@@ -409,6 +418,7 @@ export default class PeriodLockService {
         source: params.source,
         actionType: params.actionType,
         userPermissions: params.userPermissions,
+        user: params.user,
         policy,
       });
       return;
@@ -450,7 +460,7 @@ export default class PeriodLockService {
       if (
         lockedPeriodPolicy === "WARN" &&
         allowOverridePosting &&
-        userHasOverride(params.userPermissions)
+        userHasOverride(params.userPermissions, params.user)
       ) {
         await this.logAudit({
           actionType: "PERIOD_LOCK_OVERRIDE_ALLOW",

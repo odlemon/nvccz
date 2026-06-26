@@ -1,7 +1,29 @@
 // @ts-nocheck
 import { prisma } from "../utils/database";
+import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
 import { persistProcurementEntityRejection } from "../utils/procurementRejectionPersistence";
 import { Department, DepartmentRole } from "./ProcurementService";
+
+const PROCUREMENT_APPROVAL_STAGES = new Set([
+  "PURCHASE_REQUISITION",
+  "PURCHASE_ORDER",
+  "INVOICE",
+  "GRN",
+]);
+
+async function approverCanActOnApproval(
+  tx: any,
+  approval: { approverId: string; request?: { stageType?: string } | null },
+  approverId: string
+): Promise<boolean> {
+  if (approval.approverId === approverId) return true;
+  const approver = await tx.user.findUnique({
+    where: { id: approverId },
+    include: { role: true },
+  });
+  if (!isModulePrivilegedUser(approver)) return false;
+  return PROCUREMENT_APPROVAL_STAGES.has(String(approval.request?.stageType || ""));
+}
 
 export class ApprovalService {
   /**
@@ -387,7 +409,7 @@ export class ApprovalService {
           throw new Error("Approval not found");
         }
 
-        if (approval.approverId !== params.approverId) {
+        if (!(await approverCanActOnApproval(tx, approval, params.approverId))) {
           throw new Error("You are not authorized to approve this request");
         }
 
@@ -527,7 +549,7 @@ export class ApprovalService {
           throw new Error("Approval not found");
         }
 
-        if (approval.approverId !== params.approverId) {
+        if (!(await approverCanActOnApproval(tx, approval, params.approverId))) {
           throw new Error("You are not authorized to reject this request");
         }
 

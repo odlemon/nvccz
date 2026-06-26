@@ -1,6 +1,16 @@
 // @ts-nocheck
 import { Request, Response } from "express";
+import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
 import { ProcurementApprovalConfigService } from "../services/ProcurementApprovalConfigService";
+
+function assertProcurementConfigAdmin(req: Request, res: Response): boolean {
+  if (isModulePrivilegedUser((req as any).user)) return true;
+  res.status(403).json({
+    success: false,
+    message: "Forbidden: insufficient permissions",
+  });
+  return false;
+}
 
 // Helper function to remove null/undefined values recursively
 function removeNullValues(obj: any): any {
@@ -23,6 +33,7 @@ export class ProcurementApprovalConfigController {
    */
   static async createProcurementApprovalConfig(req: Request, res: Response) {
     try {
+      if (!assertProcurementConfigAdmin(req, res)) return;
       const {
         name,
         description,
@@ -99,6 +110,7 @@ export class ProcurementApprovalConfigController {
    */
   static async updateProcurementApprovalConfig(req: Request, res: Response) {
     try {
+      if (!assertProcurementConfigAdmin(req, res)) return;
       const { id } = req.params;
       const {
         name,

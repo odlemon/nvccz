@@ -2,6 +2,10 @@
 // src/middleware/authenticate.ts
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import {
+  cfoPassesLegacyAuthorize,
+  userMatchesAuthorizeRoleList,
+} from "../config/cfoModulePermissions";
 import { prisma } from "../utils/database";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_here";
 const DEBUG_AUTH = process.env.DEBUG_AUTH === "1" || process.env.DEBUG_AUTH === "true";
@@ -92,18 +96,23 @@ export function authorize(roles: string[] | string) {
       return;
     }
 
-    const userRole = req.user.role.name;
     const allowedRoles = typeof roles === "string" ? [roles] : roles;
 
-    if (!allowedRoles.includes(userRole)) {
-      res.status(403).json({
-        success: false,
-        message: "Forbidden: insufficient permissions"
-      });
+    if (userMatchesAuthorizeRoleList(req.user, allowedRoles)) {
+      next();
       return;
     }
 
-    next();
+    if (cfoPassesLegacyAuthorize(req.user, allowedRoles)) {
+      next();
+      return;
+    }
+
+    res.status(403).json({
+      success: false,
+      message: "Forbidden: insufficient permissions"
+    });
+    return;
   };
 }
 

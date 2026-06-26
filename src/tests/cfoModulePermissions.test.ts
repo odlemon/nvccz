@@ -1,9 +1,12 @@
 import {
   CFO_MODULE_PERMISSIONS,
+  cfoPassesLegacyAuthorize,
+  cfoPassesLegacyAuthorize,
   isCfoUser,
   isModulePrivilegedUser,
   mergeCfoModulePermissions,
   userHasEffectivePermission,
+  userMatchesAuthorizeRoleList,
 } from "../config/cfoModulePermissions";
 
 const cfoUser = {
@@ -40,6 +43,42 @@ describe("cfoModulePermissions", () => {
     expect(isModulePrivilegedUser(cfoUser)).toBe(true);
     expect(isModulePrivilegedUser({ roleCode: "ADMIN", role: { name: "Admin" } })).toBe(true);
     expect(isModulePrivilegedUser(regularUser)).toBe(false);
+  });
+
+  test("userMatchesAuthorizeRoleList matches roleCode and CFO alias", () => {
+    expect(userMatchesAuthorizeRoleList(cfoUser, ["admin", "cfo"])).toBe(true);
+    expect(userMatchesAuthorizeRoleList(cfoUser, ["admin", "accountant"])).toBe(false);
+    expect(
+      userMatchesAuthorizeRoleList(
+        { roleCode: "FIN_ASST", role: { name: "Finance Assistant" } },
+        ["finance assistant"]
+      )
+    ).toBe(true);
+  });
+
+  test("cfoPassesLegacyAuthorize allows accounting routes but not admin-only", () => {
+    expect(cfoPassesLegacyAuthorize(cfoUser, ["admin", "accountant", "finance_manager"])).toBe(
+      true
+    );
+    expect(cfoPassesLegacyAuthorize(cfoUser, ["admin", "accountant"])).toBe(true);
+    expect(cfoPassesLegacyAuthorize(cfoUser, ["admin"])).toBe(false);
+    expect(
+      cfoPassesLegacyAuthorize(cfoUser, [
+        "admin",
+        "ceo",
+        "fund_manager",
+        "investments_manager",
+        "finance_manager",
+      ])
+    ).toBe(false);
+    expect(
+      cfoPassesLegacyAuthorize(cfoUser, ["admin", "hr_manager", "payroll_manager", "finance_manager"])
+    ).toBe(true);
+  });
+
+  test("cfoPassesLegacyAuthorize allows financial reporting manager routes", () => {
+    expect(cfoPassesLegacyAuthorize(cfoUser, ["ADMIN", "MANAGER"])).toBe(true);
+    expect(cfoPassesLegacyAuthorize(cfoUser, ["ADMIN", "MANAGER", "USER"])).toBe(true);
   });
 
   test("mergeCfoModulePermissions adds missing grants without dropping existing", () => {

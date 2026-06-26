@@ -49,7 +49,7 @@ const router = Router();
 router.get(
   "/pe/portfolio-irr",
   authenticate,
-  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager"]),
+  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager", "cfo"]),
   AccountingPeIntegrationController.getPortfolioIrr
 );
 
@@ -59,7 +59,7 @@ router.get(
 router.get(
   "/kpis/portfolio-irr",
   authenticate,
-  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager"]),
+  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager", "cfo"]),
   AccountingPeIntegrationController.getPortfolioIrr
 );
 
@@ -78,7 +78,7 @@ router.get(
 router.get(
   "/pe/portfolio-total-revenue",
   authenticate,
-  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager"]),
+  authorize(["admin", "ceo", "fund_manager", "investments_manager", "finance_manager", "cfo"]),
   AccountingPeIntegrationController.getPortfolioTotalRevenue
 );
 

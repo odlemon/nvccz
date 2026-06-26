@@ -63,6 +63,58 @@ export function isModulePrivilegedUser(user: any): boolean {
   return isCfoUser(user);
 }
 
+export function normalizeRoleToken(value: unknown): string {
+  return String(value || "").toLowerCase().trim();
+}
+
+/** Legacy `authorize([...])` role-name list match (case-insensitive, roleCode, CFO alias). */
+export function userMatchesAuthorizeRoleList(user: any, allowedRoles: string[]): boolean {
+  const allowed = allowedRoles.map(normalizeRoleToken);
+  const name = normalizeRoleToken(user?.role?.name);
+  const code = normalizeRoleToken(user?.roleCode);
+  if (allowed.includes(name) || (code && allowed.includes(code))) return true;
+  if (name === "chief financial officer" && allowed.includes("cfo")) return true;
+  return false;
+}
+
+/**
+ * CFO bypass for legacy `authorize(["admin","accountant",...])` routes.
+ * Does not grant admin-only or investment-manager routes.
+ */
+export function cfoPassesLegacyAuthorize(user: any, allowedRoles: string[]): boolean {
+  if (!isCfoUser(user)) return false;
+  const allowed = new Set(allowedRoles.map(normalizeRoleToken));
+  const hasInvestmentScope = ["fund_manager", "investments_manager"].some((s) => allowed.has(s));
+
+  if (allowed.has("accountant") && userHasEffectivePermission(user, "view_accounting")) {
+    return true;
+  }
+  if (
+    allowed.has("finance_manager") &&
+    !hasInvestmentScope &&
+    userHasEffectivePermission(user, "view_accounting")
+  ) {
+    return true;
+  }
+  if (["hr_manager", "payroll_manager"].some((s) => allowed.has(s))) {
+    return true;
+  }
+  if (
+    (allowed.has("manager") || allowed.has("user")) &&
+    userHasEffectivePermission(user, "view_financial_reports")
+  ) {
+    return true;
+  }
+  if (
+    allowed.has("procurement") ||
+    allowed.has("proc_mgr") ||
+    (allowed.has("operations") && userHasEffectivePermission(user, "view_business_operations"))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function mergeCfoModulePermissions(
   existing: PermissionEntry[] | null | undefined
 ): PermissionEntry[] {
@@ -74,4 +126,11 @@ export function mergeCfoModulePermissions(
     merged.set(p.name, { ...p });
   }
   return [...merged.values()];
+}
+
+/** Role JSON merged with CFO module grants — for period-lock override and similar checks. */
+export function getEffectiveRolePermissions(user: any): PermissionEntry[] {
+  return mergeCfoModulePermissions(
+    Array.isArray(user?.role?.permissions) ? user.role.permissions : []
+  );
 }

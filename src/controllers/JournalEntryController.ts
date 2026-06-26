@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { Request, Response } from "express";
+import { getEffectiveRolePermissions } from "../config/cfoModulePermissions";
 import JournalEntryService, { JournalEntryImmutableError } from "../services/JournalEntryService";
 import { getLastAuditTrailEntries, verifySequentialIntegrity } from "../services/AuditTrailSequenceService";
 import { ResponseHelper } from "../utils/responseHelper";
@@ -264,9 +265,10 @@ export class JournalEntryController {
     try {
       const { id } = req.params;
       const userId = (req as any).user?.id;
-      const perms = (req as any).user?.role?.permissions;
+      const user = (req as any).user;
       const journalEntry = await JournalEntryService.postJournalEntry(id, userId, {
-        userPermissions: perms,
+        userPermissions: getEffectiveRolePermissions(user),
+        user,
       });
 
       return ResponseHelper.success(res, "Journal entry posted successfully", journalEntry);

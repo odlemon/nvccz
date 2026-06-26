@@ -3,6 +3,7 @@ import { prisma } from "../utils/database";
 import { getForecastLockRoleCodes } from "../constants/forecastingEngine";
 import { ForecastingError } from "./ForecastingError";
 import { FORECAST_ERROR_CODES } from "../constants/forecastingEngine";
+import { isCfoUser } from "../config/cfoModulePermissions";
 import { isAdminViewer, isSysAdmin } from "./performanceScorecardSupport";
 
 /** Finance/exec role codes with cross-scenario forecasting access (list, lock, audit, etc.). */
@@ -23,6 +24,7 @@ export class ForecastingAccessService {
   static isAdminUser(user: any): boolean {
     if (!user) return false;
     if (isAdminViewer(user) || isSysAdmin(user)) return true;
+    if (isCfoUser(user)) return true;
     const code = String(user.roleCode || "")
       .trim()
       .toUpperCase();

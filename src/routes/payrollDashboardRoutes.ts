@@ -219,7 +219,7 @@ const router = Router();
 router.get(
   "/",
   authenticate,
-  authorize(["admin", "hr_manager", "payroll_manager", "finance_manager"]),
+  authorize(["admin", "hr_manager", "payroll_manager", "finance_manager", "cfo"]),
   PayrollDashboardController.getDashboard
 );
 
