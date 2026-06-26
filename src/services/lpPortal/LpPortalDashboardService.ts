@@ -77,6 +77,14 @@ export class LpPortalDashboardService {
       },
     });
 
+    let exchangeRateWidget = null;
+    if (String(presentation).toUpperCase() === "ZIG") {
+      const { resolveExchangeRateWidgetForContext } = await import(
+        "../exchangeRateDisplay/exchangeRateDisplayWidgetHelper"
+      );
+      exchangeRateWidget = await resolveExchangeRateWidgetForContext("LP_PORTAL");
+    }
+
     return {
       client: {
         id: client.id,
@@ -87,6 +95,7 @@ export class LpPortalDashboardService {
       lpRole: ctx.lpRole,
       presentationCurrency: presentation,
       funds: fundMetrics,
+      exchangeRateWidget,
       latestReports: latestJobs.map((j) => ({
         jobId: j.id,
         fundName: j.run.fund.name,

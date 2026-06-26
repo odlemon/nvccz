@@ -372,6 +372,12 @@ export class AccountingDashboardService {
           code: currency.code,
           name: currency.name,
         },
+        exchangeRateWidget: await (async () => {
+          const { resolveExchangeRateWidgetForContext } = await import(
+            "./exchangeRateDisplay/exchangeRateDisplayWidgetHelper"
+          );
+          return resolveExchangeRateWidgetForContext("DASHBOARD_ACCOUNTING");
+        })(),
         generatedAt: new Date(),
       };
     } catch (error) {

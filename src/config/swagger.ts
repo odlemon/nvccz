@@ -46,6 +46,11 @@ import {
   INVESTMENT_MEMO_EDITING_TAG,
   INVESTMENT_MEMO_EDITING_TAG_DEFINITION,
 } from './investment-memo-editing-swagger-paths';
+import {
+  streetExchangeRateDisplaySwaggerPaths,
+  STREET_EXCHANGE_RATE_DISPLAY_TAG,
+  STREET_EXCHANGE_RATE_DISPLAY_TAG_DEFINITION,
+} from './street-exchange-rate-display-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -9677,6 +9682,11 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: investmentMemoEditingSwaggerPaths,
     tagName: INVESTMENT_MEMO_EDITING_TAG,
     tagDefinition: INVESTMENT_MEMO_EDITING_TAG_DEFINITION,
+  },
+  {
+    paths: streetExchangeRateDisplaySwaggerPaths,
+    tagName: STREET_EXCHANGE_RATE_DISPLAY_TAG,
+    tagDefinition: STREET_EXCHANGE_RATE_DISPLAY_TAG_DEFINITION,
   },
 ]);
 

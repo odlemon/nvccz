@@ -905,6 +905,12 @@ export class PortfolioDashboardService {
           search: params.search?.trim() || null,
           currencyId: params.currencyId?.trim() || null,
         },
+        exchangeRateWidget: await (async () => {
+          const { resolveExchangeRateWidgetForContext } = await import(
+            "./exchangeRateDisplay/exchangeRateDisplayWidgetHelper"
+          );
+          return resolveExchangeRateWidgetForContext("DASHBOARD_PORTFOLIO");
+        })(),
         generatedAt: new Date(),
       };
     } catch (error) {

@@ -15,6 +15,7 @@ import {
   isUnifiedInvoiceNumberInUse,
   nextUnifiedInvoiceNumber,
 } from "../utils/accountingDocumentNumbers";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
 
 /** User-facing duplicate vendor bill reference (vendor invoice number) message. */
 export const DUPLICATE_VENDOR_BILL_REFERENCE_MESSAGE =
@@ -838,18 +839,15 @@ export class PurchaseInvoiceService {
 
   private static userCanOverridePoVariance(user: {
     role?: { name?: string | null; permissions?: unknown } | null;
+    roleCode?: string | null;
   } | null): boolean {
     if (!user?.role) return false;
     const rn = (user.role.name || "").toLowerCase();
     if (rn === "admin") return true;
-    const perms = user.role.permissions as { name: string; value: boolean }[] | undefined;
-    if (!Array.isArray(perms)) return false;
-    return perms.some(
-      (p) =>
-        p.value &&
-        (p.name === "manage_accounting" ||
-          p.name === "manage_ledger" ||
-          p.name === "manage_financial_reports")
+    return (
+      userHasEffectivePermission(user, "manage_accounting") ||
+      userHasEffectivePermission(user, "manage_ledger") ||
+      userHasEffectivePermission(user, "manage_financial_reports")
     );
   }
 

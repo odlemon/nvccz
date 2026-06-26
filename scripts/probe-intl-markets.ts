@@ -6,13 +6,21 @@ import "dotenv/config";
 import { FastBullMarketDataClient } from "../src/services/listedEquity/FastBullMarketDataClient";
 import { NasdaqMarketDataService, NyseMarketDataService } from "../src/services/listedEquity/InternationalMarketDataService";
 import { MarketDataScraperService } from "../src/services/listedEquity/MarketDataScraperService";
-import { fetchZimrateRatesFromWebsite } from "../src/services/ZimrateRateService";
+import { fetchZimrateRatesFromWebsite, parseOfficialAndStreetFromHtml } from "../src/services/ZimrateRateService";
 import { prisma } from "../src/utils/database";
 
 async function main() {
   console.log("=== Zimrate.com USD/ZWG ===");
   const fx = await fetchZimrateRatesFromWebsite();
-  console.log("USD/ZWG avg", fx.data.rates[0]?.avg, "updated", fx.meta.last_updated);
+  console.log("rates count", fx.data.rates.length, "updated", fx.meta.last_updated);
+  for (const r of fx.data.rates) {
+    console.log(`  ${r.rate_type || "UNKNOWN"} avg=${r.avg}`);
+  }
+  const { data: html } = await import("axios").then((m) =>
+    m.default.get<string>("https://zimrate.com/", { responseType: "text", timeout: 15000 })
+  );
+  const parsed = parseOfficialAndStreetFromHtml(typeof html === "string" ? html : String(html));
+  console.log("parsed official", parsed.official, "street", parsed.street);
 
   console.log("\n=== FastBull IXIC ===");
   const ixic = await FastBullMarketDataClient.fetchNasdaqComposite();

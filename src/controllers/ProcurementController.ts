@@ -8,7 +8,7 @@ import {
 import { prisma } from "../utils/database";
 import { parseDate } from "../utils/dateHelper";
 import { hasUsableRfqItemLines } from "../utils/rfqItemInput";
-import { isAdminViewer } from "../services/performanceScorecardSupport";
+import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
 
 export class ProcurementController {
   /**
@@ -131,7 +131,7 @@ export class ProcurementController {
         where: { id: userId },
         select: { id: true, roleCode: true, userDepartment: true, departmentRole: true, role: { select: { name: true } } },
       });
-      const isAdmin = user ? isAdminViewer(user) || user.roleCode === "ADMIN" : false;
+      const isAdmin = user ? isModulePrivilegedUser(user) : false;
 
       const requisitions = isAdmin
         ? await prisma.purchaseRequisition.findMany({
@@ -209,7 +209,7 @@ export class ProcurementController {
         }
       });
 
-      const isAdmin = user ? isAdminViewer(user) || user.roleCode === "ADMIN" : false;
+      const isAdmin = user ? isModulePrivilegedUser(user) : false;
 
       if (!user || (!isAdmin && !user.userDepartment)) {
         return res.status(403).json({

@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
+import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
 import { EventService } from "../services/EventService";
 import { GoogleCalendarService } from "../services/GoogleCalendarService";
 import { Decimal } from "@prisma/client/runtime/library";
@@ -200,7 +201,7 @@ export const eventController = {
         return;
       }
 
-      if (existingEvent.authorId !== userId) {
+      if (existingEvent.authorId !== userId && !isModulePrivilegedUser(req.user)) {
         res.status(403).json({
           success: false,
           message: "You can only edit your own events"
@@ -291,7 +292,7 @@ export const eventController = {
         return;
       }
 
-      if (existingEvent.authorId !== userId) {
+      if (existingEvent.authorId !== userId && !isModulePrivilegedUser(req.user)) {
         res.status(403).json({
           success: false,
           message: "You can only delete your own events"

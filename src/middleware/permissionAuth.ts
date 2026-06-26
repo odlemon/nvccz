@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from "express";
+import { userHasEffectivePermission } from "../config/cfoModulePermissions";
 import { AuthRequest, authorize } from "./authenticate";
 
 export { authorize };
@@ -14,22 +15,7 @@ export function requirePermission(permissionName: string) {
       return;
     }
 
-    const userPermissions = req.user.role.permissions;
-    
-    if (!userPermissions || !Array.isArray(userPermissions)) {
-      res.status(403).json({ 
-        success: false,
-        message: "No permissions found" 
-      });
-      return;
-    }
-
-    const hasPermission = userPermissions.some(
-      (permission: any) => 
-        permission.name === permissionName && permission.value === true
-    );
-
-    if (!hasPermission) {
+    if (!userHasEffectivePermission(req.user, permissionName)) {
       res.status(403).json({ 
         success: false,
         message: `Insufficient permissions. Required: ${permissionName}` 
@@ -51,21 +37,8 @@ export function requireAnyPermission(permissionNames: string[]) {
       return;
     }
 
-    const userPermissions = req.user.role.permissions;
-    
-    if (!userPermissions || !Array.isArray(userPermissions)) {
-      res.status(403).json({ 
-        success: false,
-        message: "No permissions found" 
-      });
-      return;
-    }
-
-    const hasAnyPermission = permissionNames.some(permissionName =>
-      userPermissions.some(
-        (permission: any) => 
-          permission.name === permissionName && permission.value === true
-      )
+    const hasAnyPermission = permissionNames.some((permissionName) =>
+      userHasEffectivePermission(req.user, permissionName)
     );
 
     if (!hasAnyPermission) {
@@ -90,21 +63,8 @@ export function requireAllPermissions(permissionNames: string[]) {
       return;
     }
 
-    const userPermissions = req.user.role.permissions;
-    
-    if (!userPermissions || !Array.isArray(userPermissions)) {
-      res.status(403).json({ 
-        success: false,
-        message: "No permissions found" 
-      });
-      return;
-    }
-
-    const hasAllPermissions = permissionNames.every(permissionName =>
-      userPermissions.some(
-        (permission: any) => 
-          permission.name === permissionName && permission.value === true
-      )
+    const hasAllPermissions = permissionNames.every((permissionName) =>
+      userHasEffectivePermission(req.user, permissionName)
     );
 
     if (!hasAllPermissions) {

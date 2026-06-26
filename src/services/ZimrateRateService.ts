@@ -24,6 +24,8 @@ export interface ZimrateUsdZwgRow {
   date_label: string;
   previous_avg?: number;
   change_pct?: number;
+  /** OFFICIAL | STREET when parsed from zimrate.com */
+  rate_type?: 'OFFICIAL' | 'STREET';
 }
 
 export interface ZimrateRatesPayload {
@@ -35,8 +37,79 @@ export interface ZimrateRatesPayload {
   };
 }
 
+export function parseLabeledRateFromHtml(html: string, labelPattern: RegExp): number | null {
+  const m = html.match(labelPattern);
+  if (!m?.[1]) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function parseOfficialAndStreetFromHtml(html: string): {
+  official: number | null;
+  street: number | null;
+} {
+  let official: number | null = null;
+  const ldBlocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
+  for (const block of ldBlocks) {
+    try {
+      const parsed = JSON.parse(block[1]);
+      const nodes = parsed['@graph'] || [parsed];
+      for (const node of nodes) {
+        if (node['@type'] === 'ExchangeRateSpecification') {
+          const price = Number(node?.currentExchangeRate?.price);
+          if (Number.isFinite(price) && price > 0) official = price;
+        }
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
+  if (official == null) {
+    official = parseLabeledRateFromHtml(
+      html,
+      /Official Rate[\s\S]{0,500}?([\d]{1,4}(?:\.[\d]+)?)\s*ZiG/i
+    );
+  }
+
+  let street =
+    parseLabeledRateFromHtml(html, /Street Rate[\s\S]{0,500}?([\d]{1,4}(?:\.[\d]+)?)\s*ZiG/i) ??
+    parseLabeledRateFromHtml(html, /Parallel[\s\S]{0,500}?([\d]{1,4}(?:\.[\d]+)?)\s*ZiG/i) ??
+    parseLabeledRateFromHtml(html, /Black Market[\s\S]{0,500}?([\d]{1,4}(?:\.[\d]+)?)\s*ZiG/i);
+
+  if (street == null && official != null) {
+    const allRates = [...html.matchAll(/([\d]{1,4}\.[\d]+)\s*ZiG/gi)].map((x) => Number(x[1])).filter((n) => n > 0);
+    const distinct = [...new Set(allRates)].sort((a, b) => b - a);
+    if (distinct.length >= 2 && official > 0) {
+      const candidate = distinct.find((n) => Math.abs(n - official) / official > 0.02);
+      if (candidate) street = candidate;
+    }
+  }
+
+  return { official, street };
+}
+
+function rowFromAvg(
+  avg: number,
+  rateType: 'OFFICIAL' | 'STREET',
+  dateLabel: string,
+  previousAvg?: number,
+  changePct?: number
+): ZimrateUsdZwgRow {
+  return {
+    currency_pair: 'USD/ZWG',
+    bid: avg,
+    ask: avg,
+    avg,
+    date_label: dateLabel,
+    rate_type: rateType,
+    previous_avg: previousAvg,
+    change_pct: changePct,
+  };
+}
+
 /**
- * Scrape official USD/ZWG from https://zimrate.com/ (JSON-LD + visible rate cards).
+ * Scrape official + street USD/ZWG from https://zimrate.com/ (JSON-LD + visible rate cards).
  */
 export async function fetchZimrateRatesFromWebsite(): Promise<ZimrateRatesPayload> {
   const { data } = await axios.get<string>(ZIMRATE_WEBSITE_URL, {
@@ -47,49 +120,23 @@ export async function fetchZimrateRatesFromWebsite(): Promise<ZimrateRatesPayloa
   const html = typeof data === 'string' ? data : String(data);
   if (!html?.trim()) throw new Error('Empty Zimrate website response');
 
-  let officialAvg: number | null = null;
-  const ldBlocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
-  for (const block of ldBlocks) {
-    try {
-      const parsed = JSON.parse(block[1]);
-      const nodes = parsed['@graph'] || [parsed];
-      for (const node of nodes) {
-        if (node['@type'] === 'ExchangeRateSpecification') {
-          const price = Number(node?.currentExchangeRate?.price);
-          if (Number.isFinite(price) && price > 0) officialAvg = price;
-        }
-      }
-    } catch {
-      /* skip malformed JSON-LD */
-    }
-  }
-
-  if (officialAvg == null) {
-    const m =
-      html.match(/Official Rate[\s\S]{0,400}?([\d]{1,3}\.[\d]+)\s*ZiG/i) ||
-      html.match(/"price"\s*:\s*"([\d.]+)"/);
-    if (m) officialAvg = Number(m[1]);
-  }
-  if (officialAvg == null || !Number.isFinite(officialAvg) || officialAvg <= 0) {
-    throw new Error('Could not parse USD/ZWG from zimrate.com');
+  const { official, street } = parseOfficialAndStreetFromHtml(html);
+  if (official == null || !Number.isFinite(official) || official <= 0) {
+    throw new Error('Could not parse official USD/ZWG from zimrate.com');
   }
 
   const now = new Date();
+  const dateLabel = now.toISOString().slice(0, 10);
+  const rates: ZimrateUsdZwgRow[] = [rowFromAvg(official, 'OFFICIAL', dateLabel)];
+  if (street != null && Number.isFinite(street) && street > 0) {
+    rates.push(rowFromAvg(street, 'STREET', dateLabel));
+  }
+
   return {
-    data: {
-      rates: [
-        {
-          currency_pair: 'USD/ZWG',
-          bid: officialAvg,
-          ask: officialAvg,
-          avg: officialAvg,
-          date_label: now.toISOString().slice(0, 10),
-        },
-      ],
-    },
+    data: { rates },
     meta: {
       last_updated: now.toISOString(),
-      count: 1,
+      count: rates.length,
       timestamp: now.toISOString(),
     },
   };
@@ -128,9 +175,28 @@ export async function fetchZimrateRates(): Promise<ZimrateRatesPayload> {
 
 export function pickUsdZwg(payload: ZimrateRatesPayload): ZimrateUsdZwgRow | null {
   const row = payload.data.rates.find(
-    (r) => r.currency_pair?.trim().toUpperCase() === 'USD/ZWG'
+    (r) =>
+      r.currency_pair?.trim().toUpperCase() === 'USD/ZWG' &&
+      (!r.rate_type || r.rate_type === 'OFFICIAL')
   );
-  return row ?? null;
+  if (row) return row;
+  return payload.data.rates.find((r) => r.currency_pair?.trim().toUpperCase() === 'USD/ZWG') ?? null;
+}
+
+export function pickUsdZwgStreet(payload: ZimrateRatesPayload): ZimrateUsdZwgRow | null {
+  return (
+    payload.data.rates.find(
+      (r) => r.currency_pair?.trim().toUpperCase() === 'USD/ZWG' && r.rate_type === 'STREET'
+    ) ?? null
+  );
+}
+
+export function pickUsdZwgOfficial(payload: ZimrateRatesPayload): ZimrateUsdZwgRow | null {
+  return (
+    payload.data.rates.find(
+      (r) => r.currency_pair?.trim().toUpperCase() === 'USD/ZWG' && r.rate_type === 'OFFICIAL'
+    ) ?? pickUsdZwg(payload)
+  );
 }
 
 /**

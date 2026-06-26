@@ -116,6 +116,8 @@ import fundReportingCronRoutes from "./routes/fundReportingCronRoutes"
 import lpPortalRoutes from "./routes/lpPortalRoutes"
 import lpPortalCronRoutes from "./routes/lpPortalCronRoutes"
 import investmentMemoRoutes from "./routes/investmentMemoRoutes"
+import exchangeRateDisplayRoutes from "./routes/exchangeRateDisplayRoutes"
+import exchangeRateDisplayCronRoutes from "./routes/exchangeRateDisplayCronRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
 import procurementSuite06Routes from "./routes/procurementSuite06Routes"
 import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
@@ -653,6 +655,10 @@ app.use("/api/cron/lp-portal", lpPortalCronRoutes)
 
 // Investment Memo Editing
 app.use("/api/investment-memos", investmentMemoRoutes)
+
+// Street Exchange Rate Display
+app.use("/api/exchange-rate-display", exchangeRateDisplayRoutes)
+app.use("/api/cron/exchange-rate-display", exchangeRateDisplayCronRoutes)
 
 // Procurement Management routes — specific sub-routers BEFORE generic /procurement (which applies authenticate globally)
 app.use("/api/procurement/document-attachments", vendorDocumentAttachmentRoutes)
