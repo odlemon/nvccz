@@ -1,7 +1,6 @@
 import {
   CFO_MODULE_PERMISSIONS,
   cfoPassesLegacyAuthorize,
-  cfoPassesLegacyAuthorize,
   isCfoUser,
   isModulePrivilegedUser,
   mergeCfoModulePermissions,
