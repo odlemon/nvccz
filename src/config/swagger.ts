@@ -64,6 +64,25 @@ import { payrollEndpoints } from './payroll-endpoints';
 import { portfolioMonitoringEndpoints } from './portfolio-monitoring-endpoints';
 import { boardReviewOpenApiOverridePaths } from './board-review-openapi';
 
+/** OpenAPI server base — paths are relative (e.g. `/auth/login` → `{base}/auth/login`). */
+function resolveSwaggerServers(): Array<{ url: string; description: string }> {
+  const raw = (process.env.SWAGGER_SERVER_URL || process.env.BASE_URL || 'https://dev-api.arcus.co.zw/api')
+    .trim()
+    .replace(/\/$/, '');
+  const primary = raw.endsWith('/api') ? raw : `${raw}/api`;
+  const localPort = process.env.PORT || '3009';
+  return [
+    {
+      url: primary,
+      description: 'Arcus API — use this server for Try it out (dev-api.arcus.co.zw)',
+    },
+    {
+      url: `http://localhost:${localPort}/api`,
+      description: 'Local development API',
+    },
+  ];
+}
+
 const options = {
   definition: {
     openapi: '3.0.0',
@@ -82,16 +101,7 @@ const options = {
     },
       // NOTE: `servers[].url` ends with `/api`. OpenAPI paths are relative to that base
       // (e.g. `/clients`, `/funds/...`) — do NOT prefix paths with `/api` or Swagger shows `/api/api/...`.
-      servers: [
-        {
-          url: 'https://nvccz-pi.vercel.app/api',
-          description: 'Production API base (paths are /accounting/..., /auth/..., etc.)'
-        },
-        {
-          url: 'http://localhost:3000/api',
-          description: 'Development API base'
-        }
-      ],
+      servers: resolveSwaggerServers(),
     tags: [
       {
         name: 'Capital Calls (LP drawdowns)',
@@ -714,7 +724,9 @@ const options = {
           properties: {
             success: { type: 'boolean', example: true },
             message: { type: 'string', example: 'Logged in successfully' },
-            token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+            token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbHgxMjMifQ.example' },
+            mfaRequired: { type: 'boolean', example: false, description: 'When true, complete MFA flow instead of using token' },
+            mfaPendingToken: { type: 'string', description: 'Present when mfaRequired is true (LP portal MFA)' },
             user: {
               type: 'object',
               properties: {
@@ -722,7 +734,12 @@ const options = {
                 email: { type: 'string', example: 'admin@nvccz.co.zw' },
                 firstName: { type: 'string', example: 'Admin' },
                 lastName: { type: 'string', example: 'User' },
+                department: { type: 'string', example: 'Finance' },
                 role: { type: 'string', example: 'admin' },
+                roleName: { type: 'string', example: 'Admin' },
+                roleCode: { type: 'string', nullable: true, example: 'ADMIN' },
+                isApplicant: { type: 'boolean', example: false },
+                passwordChanged: { type: 'boolean', example: true },
                 permissions: {
                   type: 'array',
                   items: { $ref: '#/components/schemas/Permission' }
@@ -3098,27 +3115,65 @@ const fallbackSpec = {
         '/auth/login': {
           post: {
             summary: 'User login',
-            description: 'Authenticate user with email and password',
+            description:
+              'Authenticate with email and password. On success, copy `token` from the response into **Authorize** (Bearer JWT), or use Try it out — the docs UI auto-fills the bearer token after a successful login.',
             tags: ['Authentication'],
             requestBody: {
               required: true,
               content: {
                 'application/json': {
-                  schema: { $ref: '#/components/schemas/LoginRequest' }
-                }
-              }
+                  schema: { $ref: '#/components/schemas/LoginRequest' },
+                  example: {
+                    email: 'admin@nvccz.co.zw',
+                    password: 'your-password-here',
+                  },
+                },
+              },
             },
             responses: {
               200: {
-                description: 'Login successful',
+                description: 'Login successful — use `token` as Bearer JWT for other endpoints',
                 content: {
                   'application/json': {
-                    schema: { $ref: '#/components/schemas/LoginResponse' }
-                  }
-                }
-              }
-            }
-          }
+                    schema: { $ref: '#/components/schemas/LoginResponse' },
+                    example: {
+                      success: true,
+                      message: 'Logged in successfully',
+                      token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example',
+                      user: {
+                        id: 'clx1234567890abcdef',
+                        email: 'admin@nvccz.co.zw',
+                        firstName: 'Admin',
+                        lastName: 'User',
+                        department: 'Finance',
+                        role: 'Admin',
+                        roleName: 'Admin',
+                        roleCode: 'ADMIN',
+                        isApplicant: false,
+                        passwordChanged: true,
+                      },
+                    },
+                  },
+                },
+              },
+              400: {
+                description: 'Missing email or password',
+                content: {
+                  'application/json': {
+                    example: { success: false, message: 'Email and password required.' },
+                  },
+                },
+              },
+              401: {
+                description: 'Invalid credentials',
+                content: {
+                  'application/json': {
+                    example: { success: false, message: 'Invalid credentials.' },
+                  },
+                },
+              },
+            },
+          },
         },
         '/auth/me': {
           get: {
@@ -9697,6 +9752,8 @@ console.log(
   `Swagger protected modules: ${protectedModules.filter((p) => p.includes('forecasting')).length} forecasting paths, ` +
     `${protectedModules.filter((p) => p.includes('document-attachments')).length} vendor PDF paths`
 );
+
+specs.servers = resolveSwaggerServers();
 
 export { specs };
 

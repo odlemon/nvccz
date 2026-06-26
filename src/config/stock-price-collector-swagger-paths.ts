@@ -56,7 +56,46 @@ function usOp(
   description: string,
   extra: Record<string, unknown> = {}
 ) {
-  return { summary: `${storyRef} — ${summary}`, tags: TAG, description, security: bearer, ...extra };
+  const exampleData =
+    extra.responseExample && typeof extra.responseExample === "object"
+      ? extra.responseExample
+      : { success: true, data: {} };
+  const { responseExample, ...rest } = extra;
+  const responses = {
+    "200": {
+      description: "Success",
+      content: {
+        "application/json": {
+          example: exampleData,
+        },
+      },
+    },
+    "401": {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          example: { success: false, message: "Unauthorized" },
+        },
+      },
+    },
+    "403": {
+      description: "Forbidden",
+      content: {
+        "application/json": {
+          example: { success: false, message: "Forbidden: insufficient permissions" },
+        },
+      },
+    },
+    ...(rest.responses as Record<string, unknown> | undefined),
+  };
+  return {
+    summary: `${storyRef} — ${summary}`,
+    tags: TAG,
+    description,
+    security: bearer,
+    ...rest,
+    responses,
+  };
 }
 
 const STORY_341 = {
@@ -297,6 +336,7 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
       }),
       {
         requestBody: {
+          required: true,
           content: {
             "application/json": {
               schema: {
@@ -323,7 +363,30 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
                   },
                 },
               },
+              example: {
+                sourceCode: "ZSE",
+                ticks: [
+                  {
+                    symbol: "ARIS",
+                    exchangeCode: "ZSE",
+                    priceType: "CLOSE",
+                    price: 0.045,
+                    pricedAt: "2026-06-23T16:00:00.000Z",
+                  },
+                ],
+              },
             },
+          },
+        },
+        responseExample: {
+          success: true,
+          data: {
+            batchId: "clxbatch001",
+            sourceCode: "ZSE",
+            recordCount: 42,
+            sha256Checksum: "a1b2c3…",
+            sourceStatus: "OK",
+            status: "COMPLETED",
           },
         },
       }
@@ -506,7 +569,27 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
         ...STORY_342,
         acceptance: ["Portfolio manager can curate symbols to monitor."],
         whatHappens: "Replaces the authenticated user's watchlist with the provided securityIds array.",
-      })
+      }),
+      {
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["securityIds"],
+                properties: {
+                  securityIds: { type: "array", items: { type: "string" } },
+                },
+              },
+              example: {
+                securityIds: ["clx9k2m8n0000qz8x9y8z7w6v", "clxsec002"],
+              },
+            },
+          },
+        },
+        responseExample: { success: true, data: { securityIds: ["clx9k2m8n0000qz8x9y8z7w6v", "clxsec002"] } },
+      }
     ),
   },
   "/investments/trades": {
@@ -529,7 +612,49 @@ export const stockPriceCollectorSwaggerPaths: Record<string, unknown> = {
         whatHappens:
           "Creates DRAFT trade with fundId, securityId, side (BUY|SELL), quantity, executionPrice, currency, fees. " +
           "Assigns tradeRef (TXN-…). Execute via POST /trades/{id}/execute.",
-      })
+      }),
+      {
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["fundId", "securityId", "side", "quantity", "executionPrice", "currencyCode"],
+                properties: {
+                  fundId: { type: "string" },
+                  securityId: { type: "string" },
+                  side: { type: "string", enum: ["BUY", "SELL"] },
+                  quantity: { type: "number" },
+                  executionPrice: { type: "number" },
+                  currencyCode: { type: "string", example: "USD" },
+                  fees: { type: "number", example: 25 },
+                },
+              },
+              example: {
+                fundId: "clxfund001",
+                securityId: "clx9k2m8n0000qz8x9y8z7w6v",
+                side: "BUY",
+                quantity: 10000,
+                executionPrice: 0.045,
+                currencyCode: "ZWG",
+                fees: 15.5,
+              },
+            },
+          },
+        },
+        responseExample: {
+          success: true,
+          data: {
+            id: "clxtrade001",
+            tradeRef: "TXN-2026-00042",
+            status: "DRAFT",
+            side: "BUY",
+            quantity: 10000,
+            executionPrice: 0.045,
+          },
+        },
+      }
     ),
   },
   "/investments/trades/{id}": {

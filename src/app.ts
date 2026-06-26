@@ -373,7 +373,8 @@ const docsHandler = (req, res) => {
       <script src="https://unpkg.com/swagger-ui-dist@5.27.1/swagger-ui-standalone-preset.js"></script>
       <script>
         window.onload = function() {
-          const ui = SwaggerUIBundle({
+          let ui;
+          ui = SwaggerUIBundle({
             spec: ${JSON.stringify(specs)},
             dom_id: '#swagger-ui',
             deepLinking: true,
@@ -394,8 +395,24 @@ const docsHandler = (req, res) => {
             defaultModelExpandDepth: 1,
             tryItOutEnabled: true,
             supportedSubmitMethods: ['get', 'post', 'put', 'delete', 'patch'],
-            validatorUrl: null
+            validatorUrl: null,
+            responseInterceptor: function(response) {
+              try {
+                var url = (response && response.url) ? String(response.url) : '';
+                if (url.indexOf('/auth/login') !== -1 && response.status >= 200 && response.status < 300) {
+                  var payload = response.obj;
+                  if (!payload && response.text) {
+                    payload = JSON.parse(response.text);
+                  }
+                  if (payload && payload.token && ui && ui.preauthorizeApiKey) {
+                    ui.preauthorizeApiKey('bearerAuth', payload.token);
+                  }
+                }
+              } catch (e) { /* ignore parse errors */ }
+              return response;
+            }
           });
+          window.ui = ui;
         };
       </script>
     </body>
