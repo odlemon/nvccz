@@ -5,6 +5,7 @@ import { AuthRequest } from "../middleware/authenticate";
 import { emitToUser } from "../services/RealtimeSocketService";
 import { mergeTaskNotificationData } from "../utils/taskNotificationDeepLink";
 import { PerformanceConfigService } from "../services/PerformanceConfigService";
+import { eventWithValidAuthorWhere } from "../utils/eventQuerySupport";
 
 // Helper function to get relative time
 function getTimeAgo(date: Date): string {
@@ -146,7 +147,8 @@ export const homepageController = {
         prisma.event.findMany({
           where: {
             isActive: true,
-            startDate: { gte: new Date() }
+            startDate: { gte: new Date() },
+            ...eventWithValidAuthorWhere,
           },
           include: {
             author: {
@@ -164,7 +166,7 @@ export const homepageController = {
 
         // Get all active events (regardless of date) with pagination
         prisma.event.findMany({
-          where: { isActive: true },
+          where: { isActive: true, ...eventWithValidAuthorWhere },
           include: {
             author: {
               select: {

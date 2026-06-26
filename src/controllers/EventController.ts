@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/database";
 import { AuthRequest } from "../middleware/authenticate";
 import { isModulePrivilegedUser } from "../config/cfoModulePermissions";
+import { eventWithValidAuthorWhere } from "../utils/eventQuerySupport";
 import { EventService } from "../services/EventService";
 import { GoogleCalendarService } from "../services/GoogleCalendarService";
 import { Decimal } from "@prisma/client/runtime/library";
@@ -80,7 +81,7 @@ export const eventController = {
   async getAllEvents(req: AuthRequest | Request, res: Response) {
     try {
       const events = await prisma.event.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...eventWithValidAuthorWhere },
         include: {
           author: {
             select: {
@@ -113,7 +114,8 @@ export const eventController = {
       const events = await prisma.event.findMany({
         where: {
           isActive: true,
-          startDate: { gte: new Date() }
+          startDate: { gte: new Date() },
+          ...eventWithValidAuthorWhere,
         },
         include: {
           author: {
@@ -146,8 +148,8 @@ export const eventController = {
     try {
       const { id } = req.params;
 
-      const event = await prisma.event.findUnique({
-        where: { id },
+      const event = await prisma.event.findFirst({
+        where: { id, ...eventWithValidAuthorWhere },
         include: {
           author: {
             select: {
