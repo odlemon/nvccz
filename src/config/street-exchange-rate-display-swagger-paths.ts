@@ -3,6 +3,8 @@
  * Requirements: docs/street-exchange-rate-display-backend-requirements.md
  */
 
+import { SWAGGER_JSON_RESPONSES } from "./swagger-default-responses";
+
 export const STREET_EXCHANGE_RATE_DISPLAY_TAG = "Street Exchange Rate Display";
 
 export const STREET_EXCHANGE_RATE_DISPLAY_TAG_DEFINITION = {
@@ -17,7 +19,13 @@ const TAG = [STREET_EXCHANGE_RATE_DISPLAY_TAG];
 const bearer = [{ bearerAuth: [] }];
 
 function op(summary: string, extra: Record<string, unknown> = {}) {
-  return { summary, tags: TAG, security: bearer, ...extra };
+  return {
+    summary,
+    tags: TAG,
+    security: bearer,
+    responses: SWAGGER_JSON_RESPONSES,
+    ...extra,
+  };
 }
 
 export const streetExchangeRateDisplaySwaggerPaths: Record<string, unknown> = {

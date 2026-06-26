@@ -6,6 +6,8 @@
  * Cron route POST /api/cron/lp-portal/snapshot-refresh is omitted from Swagger (ops only).
  */
 
+import { SWAGGER_JSON_RESPONSES } from "./swagger-default-responses";
+
 export const LP_PORTAL_TAG = "LP Portal";
 
 export const LP_PORTAL_TAG_DEFINITION = {
@@ -20,7 +22,13 @@ const TAG = [LP_PORTAL_TAG];
 const bearer = [{ bearerAuth: [] }];
 
 function op(summary: string, extra: Record<string, unknown> = {}) {
-  return { summary, tags: TAG, security: bearer, ...extra };
+  return {
+    summary,
+    tags: TAG,
+    security: bearer,
+    responses: SWAGGER_JSON_RESPONSES,
+    ...extra,
+  };
 }
 
 const LP_SCOPE =

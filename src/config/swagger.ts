@@ -71,17 +71,23 @@ function resolveSwaggerServers(): Array<{ url: string; description: string }> {
     .replace(/\/$/, '');
   const primary = raw.endsWith('/api') ? raw : `${raw}/api`;
   const localPort = process.env.PORT || '3009';
-  return [
-    {
-      url: primary,
-      description: 'Arcus API — use this server for Try it out (dev-api.arcus.co.zw)',
-    },
-    {
-      url: `http://localhost:${localPort}/api`,
-      description: 'Local development API',
-    },
-  ];
+  const preferLocal =
+    process.env.SWAGGER_PREFER_LOCAL === '1' ||
+    process.env.NODE_ENV === 'development' ||
+    !process.env.SWAGGER_SERVER_URL;
+  const local = {
+    url: `http://localhost:${localPort}/api`,
+    description: 'Local development API',
+  };
+  const remote = {
+    url: primary,
+    description: 'Arcus API (configured SWAGGER_SERVER_URL / BASE_URL)',
+  };
+  return preferLocal ? [local, remote] : [remote, local];
 }
+
+/** Build OpenAPI servers for the host serving /api-docs (fixes Try it out hitting wrong server). */
+export { resolveSwaggerServersForRequest } from './swagger-servers';
 
 const options = {
   definition: {

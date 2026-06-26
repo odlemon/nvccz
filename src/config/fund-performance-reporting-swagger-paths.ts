@@ -6,6 +6,8 @@
  * Cron route POST /api/cron/fund-reporting/schedule-tick is omitted from Swagger (ops only).
  */
 
+import { SWAGGER_JSON_RESPONSES } from "./swagger-default-responses";
+
 export const FUND_PERFORMANCE_REPORTING_TAG = "Fund Performance Reporting";
 
 export const FUND_PERFORMANCE_REPORTING_TAG_DEFINITION = {
@@ -23,7 +25,13 @@ const TAG = [FUND_PERFORMANCE_REPORTING_TAG];
 const bearer = [{ bearerAuth: [] }];
 
 function op(summary: string, extra: Record<string, unknown> = {}) {
-  return { summary, tags: TAG, security: bearer, ...extra };
+  return {
+    summary,
+    tags: TAG,
+    security: bearer,
+    responses: SWAGGER_JSON_RESPONSES,
+    ...extra,
+  };
 }
 
 function usOp(storyRef: string, summary: string, description: string, extra: Record<string, unknown> = {}) {

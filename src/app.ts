@@ -339,6 +339,11 @@ if (process.env.NODE_ENV === 'development') {
 
 // FASTEST FIX - Pure HTML with CDN resources (no swagger-ui-express)
 const docsHandler = (req, res) => {
+  const { resolveSwaggerServersForRequest } = require("./config/swagger-servers");
+  const specForDocs = {
+    ...specs,
+    servers: resolveSwaggerServersForRequest(req),
+  };
   res.setHeader('Content-Type', 'text/html');
   res.send(`
     <!DOCTYPE html>
@@ -375,7 +380,7 @@ const docsHandler = (req, res) => {
         window.onload = function() {
           let ui;
           ui = SwaggerUIBundle({
-            spec: ${JSON.stringify(specs)},
+            spec: ${JSON.stringify(specForDocs)},
             dom_id: '#swagger-ui',
             deepLinking: true,
             presets: [

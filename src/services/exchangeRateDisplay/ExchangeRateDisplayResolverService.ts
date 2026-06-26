@@ -42,10 +42,23 @@ export class ExchangeRateDisplayResolverService {
     const displayFormat = (cfg?.displayFormat as Record<string, unknown>) || {};
     const decimals = Number(displayFormat.decimals ?? 2);
 
-    const primaryQuote = await ExchangeRateQuoteService.getLatestQuote(primarySource, from, to, asOf);
-    const comparisonQuote = comparisonSource
+    let primaryQuote = await ExchangeRateQuoteService.getLatestQuote(primarySource, from, to, asOf);
+    let comparisonQuote = comparisonSource
       ? await ExchangeRateQuoteService.getLatestQuote(comparisonSource, from, to, asOf)
       : null;
+
+    if (!primaryQuote && !asOf) {
+      try {
+        const { StreetRateIngestService } = await import("./StreetRateIngestService");
+        await StreetRateIngestService.ingestLive();
+        primaryQuote = await ExchangeRateQuoteService.getLatestQuote(primarySource, from, to, asOf);
+        if (comparisonSource) {
+          comparisonQuote = await ExchangeRateQuoteService.getLatestQuote(comparisonSource, from, to, asOf);
+        }
+      } catch (e) {
+        console.warn("[ExchangeRateDisplay] live ingest fallback failed:", (e as Error)?.message);
+      }
+    }
 
     const primaryAvg = primaryQuote ? Number(primaryQuote.avg) : null;
     const comparisonAvg = comparisonQuote ? Number(comparisonQuote.avg) : null;
