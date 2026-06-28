@@ -51,6 +51,11 @@ import {
   STREET_EXCHANGE_RATE_DISPLAY_TAG,
   STREET_EXCHANGE_RATE_DISPLAY_TAG_DEFINITION,
 } from './street-exchange-rate-display-swagger-paths';
+import {
+  capTableManagementSwaggerPaths,
+  CAP_TABLE_MANAGEMENT_TAG,
+  CAP_TABLE_MANAGEMENT_TAG_DEFINITION,
+} from './cap-table-management-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -9748,6 +9753,11 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: streetExchangeRateDisplaySwaggerPaths,
     tagName: STREET_EXCHANGE_RATE_DISPLAY_TAG,
     tagDefinition: STREET_EXCHANGE_RATE_DISPLAY_TAG_DEFINITION,
+  },
+  {
+    paths: capTableManagementSwaggerPaths,
+    tagName: CAP_TABLE_MANAGEMENT_TAG,
+    tagDefinition: CAP_TABLE_MANAGEMENT_TAG_DEFINITION,
   },
 ]);
 

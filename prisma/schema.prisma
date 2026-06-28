@@ -1269,6 +1269,7 @@ model PortfolioCompany {
   dividends                    PortfolioCompanyDividend[]      @relation("PortfolioCompanyDividends")
   distributionsSourced         Distribution[]                  @relation("PortfolioDistributionSource")
   forecastEntities             ForecastEntity[]                @relation("EntityPortfolioCompany")
+  capTableRegistry             CapTableRegistry?
 
   @@map("portfolio_companies")
 }
@@ -6163,4 +6164,186 @@ model ListedEquityCashHold {
 
   @@index([tradeId], map: "listed_equity_cash_holds_trade_idx")
   @@map("listed_equity_cash_holds")
+}
+
+// ─── Cap Table Management (Phase 2 §3.8) ─────────────────────────────────────
+
+model CapTableRegistry {
+  id                 String   @id @default(cuid())
+  portfolioCompanyId String   @unique @map("portfolio_company_id")
+  baseCurrencyCode   String   @default("USD") @map("base_currency_code") @db.VarChar(8)
+  status             String   @default("ACTIVE") @db.VarChar(16)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  portfolioCompany PortfolioCompany              @relation(fields: [portfolioCompanyId], references: [id], onDelete: Cascade)
+  glMapping        CapTableGlMapping?
+  shareClasses     CapTableShareClass[]
+  stakeholders     CapTableStakeholder[]
+  convertibles     CapTableConvertibleInstrument[]
+  transactions     CapTableTransaction[]
+  optionGrants     CapTableOptionGrant[]
+
+  @@index([status], map: "cap_table_registries_status_idx")
+  @@map("cap_table_registries")
+}
+
+model CapTableGlMapping {
+  id                      String   @id @default(cuid())
+  registryId              String   @unique @map("registry_id")
+  cashAccountCode         String   @default("1010") @map("cash_account_code") @db.VarChar(16)
+  shareCapitalAccountCode String   @default("3000") @map("share_capital_account_code") @db.VarChar(16)
+  sharePremiumAccountCode String   @default("3050") @map("share_premium_account_code") @db.VarChar(16)
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  registry CapTableRegistry @relation(fields: [registryId], references: [id], onDelete: Cascade)
+
+  @@map("cap_table_gl_mappings")
+}
+
+model CapTableShareClass {
+  id                    String   @id @default(cuid())
+  registryId            String   @map("registry_id")
+  classCode             String   @map("class_code") @db.VarChar(32)
+  className             String   @map("class_name") @db.VarChar(128)
+  classType             String   @default("COMMON") @map("class_type") @db.VarChar(24)
+  parValue              Decimal  @default(0) @map("par_value") @db.Decimal(18, 6)
+  votingMultiplier      Decimal  @default(1) @map("voting_multiplier") @db.Decimal(8, 4)
+  seniorityIndex        Int      @default(99) @map("seniority_index")
+  liquidationMultiplier Decimal  @default(1) @map("liquidation_multiplier") @db.Decimal(8, 4)
+  isParticipating       Boolean  @default(false) @map("is_participating")
+  authorizedShares      Decimal  @default(0) @map("authorized_shares") @db.Decimal(20, 4)
+  status                String   @default("ACTIVE") @db.VarChar(16)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  registry      CapTableRegistry        @relation(fields: [registryId], references: [id], onDelete: Cascade)
+  transactions  CapTableTransaction[]
+  optionGrants  CapTableOptionGrant[]
+  txLines       CapTableTransactionLine[]
+
+  @@unique([registryId, classCode], map: "cap_table_share_classes_registry_code_key")
+  @@index([registryId], map: "cap_table_share_classes_registry_idx")
+  @@map("cap_table_share_classes")
+}
+
+model CapTableStakeholder {
+  id              String   @id @default(cuid())
+  registryId      String   @map("registry_id")
+  displayName     String   @map("display_name") @db.VarChar(256)
+  stakeholderType String   @default("INVESTOR") @map("stakeholder_type") @db.VarChar(24)
+  clientId        String?  @map("client_id")
+  email           String?  @db.VarChar(256)
+  externalRef     String?  @map("external_ref") @db.VarChar(128)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  registry           CapTableRegistry              @relation(fields: [registryId], references: [id], onDelete: Cascade)
+  convertibles       CapTableConvertibleInstrument[]
+  optionGrants       CapTableOptionGrant[]
+  txLines            CapTableTransactionLine[]
+  transactionsFrom   CapTableTransaction[]         @relation("CapTableTxFrom")
+  transactionsTo     CapTableTransaction[]         @relation("CapTableTxTo")
+
+  @@index([registryId], map: "cap_table_stakeholders_registry_idx")
+  @@index([clientId], map: "cap_table_stakeholders_client_idx")
+  @@map("cap_table_stakeholders")
+}
+
+model CapTableConvertibleInstrument {
+  id                  String    @id @default(cuid())
+  registryId          String    @map("registry_id")
+  holderStakeholderId String    @map("holder_stakeholder_id")
+  principal           Decimal   @db.Decimal(18, 2)
+  annualInterestRate  Decimal   @default(0) @map("annual_interest_rate") @db.Decimal(8, 6)
+  valuationCap        Decimal?  @map("valuation_cap") @db.Decimal(18, 2)
+  discountRate        Decimal?  @map("discount_rate") @db.Decimal(8, 6)
+  issueDate           DateTime  @map("issue_date") @db.Date
+  maturityDate        DateTime? @map("maturity_date") @db.Date
+  status              String    @default("OUTSTANDING") @db.VarChar(16)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  registry CapTableRegistry    @relation(fields: [registryId], references: [id], onDelete: Cascade)
+  holder   CapTableStakeholder @relation(fields: [holderStakeholderId], references: [id], onDelete: Restrict)
+
+  @@index([registryId], map: "cap_table_convertibles_registry_idx")
+  @@map("cap_table_convertible_instruments")
+}
+
+model CapTableTransaction {
+  id                   String    @id @default(cuid())
+  registryId           String    @map("registry_id")
+  transactionType      String    @map("transaction_type") @db.VarChar(24)
+  status               String    @default("DRAFT") @db.VarChar(24)
+  shareClassId         String?   @map("share_class_id")
+  quantity             Decimal   @default(0) @db.Decimal(20, 4)
+  pricePerShare        Decimal?  @map("price_per_share") @db.Decimal(18, 6)
+  issuanceDate         DateTime? @map("issuance_date") @db.Date
+  boardResolutionUrl   String?   @map("board_resolution_url") @db.Text
+  fromStakeholderId    String?   @map("from_stakeholder_id")
+  toStakeholderId      String?   @map("to_stakeholder_id")
+  dealExecutionPackId  String?   @map("deal_execution_pack_id")
+  journalEntryId       String?   @map("journal_entry_id")
+  certificateSha256    String?   @map("certificate_sha256") @db.VarChar(64)
+  certificateStoragePath String?   @map("certificate_storage_path") @db.Text
+  notes                String?   @db.Text
+  createdById          String?   @map("created_by_id")
+  approvedById         String?   @map("approved_by_id")
+  executedAt           DateTime? @map("executed_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  registry        CapTableRegistry          @relation(fields: [registryId], references: [id], onDelete: Cascade)
+  shareClass      CapTableShareClass?       @relation(fields: [shareClassId], references: [id], onDelete: SetNull)
+  fromStakeholder CapTableStakeholder?      @relation("CapTableTxFrom", fields: [fromStakeholderId], references: [id], onDelete: SetNull)
+  toStakeholder   CapTableStakeholder?      @relation("CapTableTxTo", fields: [toStakeholderId], references: [id], onDelete: SetNull)
+  lines           CapTableTransactionLine[]
+
+  @@index([registryId], map: "cap_table_transactions_registry_idx")
+  @@index([registryId, status], map: "cap_table_transactions_status_idx")
+  @@index([dealExecutionPackId], map: "cap_table_transactions_deal_pack_idx")
+  @@map("cap_table_transactions")
+}
+
+model CapTableTransactionLine {
+  id             String   @id @default(cuid())
+  transactionId  String   @map("transaction_id")
+  stakeholderId  String   @map("stakeholder_id")
+  shareClassId   String   @map("share_class_id")
+  quantityDelta  Decimal  @map("quantity_delta") @db.Decimal(20, 4)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  transaction CapTableTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  stakeholder CapTableStakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+  shareClass  CapTableShareClass  @relation(fields: [shareClassId], references: [id], onDelete: Restrict)
+
+  @@index([transactionId], map: "cap_table_tx_lines_transaction_idx")
+  @@index([stakeholderId, shareClassId], map: "cap_table_tx_lines_holder_class_idx")
+  @@map("cap_table_transaction_lines")
+}
+
+model CapTableOptionGrant {
+  id               String    @id @default(cuid())
+  registryId       String    @map("registry_id")
+  stakeholderId    String    @map("stakeholder_id")
+  shareClassId     String    @map("share_class_id")
+  grantedShares    Decimal   @map("granted_shares") @db.Decimal(20, 4)
+  vestedShares     Decimal   @default(0) @map("vested_shares") @db.Decimal(20, 4)
+  exercisedShares  Decimal   @default(0) @map("exercised_shares") @db.Decimal(20, 4)
+  cancelledShares  Decimal   @default(0) @map("cancelled_shares") @db.Decimal(20, 4)
+  grantDate        DateTime  @map("grant_date") @db.Date
+  vestingStartDate DateTime? @map("vesting_start_date") @db.Date
+  status           String    @default("ACTIVE") @db.VarChar(16)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  registry    CapTableRegistry    @relation(fields: [registryId], references: [id], onDelete: Cascade)
+  stakeholder CapTableStakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+  shareClass  CapTableShareClass  @relation(fields: [shareClassId], references: [id], onDelete: Restrict)
+
+  @@index([registryId], map: "cap_table_option_grants_registry_idx")
+  @@map("cap_table_option_grants")
 }

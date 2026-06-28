@@ -11,6 +11,7 @@ import { FUND_PERFORMANCE_REPORTING_TAG } from './fund-performance-reporting-swa
 import { LP_PORTAL_TAG } from './lp-portal-swagger-paths';
 import { INVESTMENT_MEMO_EDITING_TAG } from './investment-memo-editing-swagger-paths';
 import { STREET_EXCHANGE_RATE_DISPLAY_TAG } from './street-exchange-rate-display-swagger-paths';
+import { CAP_TABLE_MANAGEMENT_TAG } from './cap-table-management-swagger-paths';
 
 /** Tags whose operations are removed unless the operation also carries a protected tag. */
 export const SWAGGER_EXCLUDED_TAGS = new Set([
@@ -86,6 +87,7 @@ export const SWAGGER_PROTECTED_TAGS = new Set([
   LP_PORTAL_TAG,
   INVESTMENT_MEMO_EDITING_TAG,
   STREET_EXCHANGE_RATE_DISPLAY_TAG,
+  CAP_TABLE_MANAGEMENT_TAG,
   'Updated performance'
 ]);
 
