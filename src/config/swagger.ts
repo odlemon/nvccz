@@ -56,6 +56,11 @@ import {
   CAP_TABLE_MANAGEMENT_TAG,
   CAP_TABLE_MANAGEMENT_TAG_DEFINITION,
 } from './cap-table-management-swagger-paths';
+import {
+  fundraisingLpPipelineSwaggerPaths,
+  FUNDRAISING_LP_PIPELINE_TAG,
+  FUNDRAISING_LP_PIPELINE_TAG_DEFINITION,
+} from './fundraising-lp-pipeline-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -9758,6 +9763,11 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: capTableManagementSwaggerPaths,
     tagName: CAP_TABLE_MANAGEMENT_TAG,
     tagDefinition: CAP_TABLE_MANAGEMENT_TAG_DEFINITION,
+  },
+  {
+    paths: fundraisingLpPipelineSwaggerPaths,
+    tagName: FUNDRAISING_LP_PIPELINE_TAG,
+    tagDefinition: FUNDRAISING_LP_PIPELINE_TAG_DEFINITION,
   },
 ]);
 

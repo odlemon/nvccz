@@ -40,6 +40,23 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 
 ---
 
+## Fundraising LP Pipeline
+
+| Status | **PENDING** — script ready; apply on `nts`, `client1_db`, `demo_env` when running migrations |
+
+| # | Script | npm command | What it creates |
+|---|--------|-------------|-----------------|
+| A | `scripts/run-fundraising-lp-pipeline-migration.ts` | `npm run db:migrate:fundraising-lp-pipeline` | Tables: `fundraising_campaigns`, `fundraising_pipeline_stages`, `fundraising_stage_checklist_templates`, `fundraising_pipeline_deals`, `fundraising_deal_checklist_items`, `fundraising_deal_agreements`, `pipeline_interactions`, `fundraising_campaign_gl_mappings` |
+| B | *(same script)* | — | COA seed if missing: `1125` AR LP Commitments, `3010` Partners Capital Committed |
+
+**Prisma:** models in `prisma/schema.prisma` (`Fundraising*`, `PipelineInteraction`).
+
+**UAT after apply:** `npm run uat:fundraising:core`, `uat:fundraising:rbac`, `uat:fundraising:close`
+
+**Deploy after apply:** `python scripts/deploy_vps.py`
+
+---
+
 ## Other features (already applied — reference only)
 
 | Feature | npm command | Notes |
@@ -57,3 +74,4 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 |------|---------|--------|
 | 2026-06-28 | Cap Table Management | Migration script added; **not run** — server unreachable |
 | 2026-06-17 | Cap Table Management | **Applied** on nts, client1_db, demo_env; idempotent re-run confirmed on dev |
+| 2026-06-17 | Fundraising LP Pipeline | Migration script added; **not run** yet |

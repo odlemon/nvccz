@@ -1373,6 +1373,7 @@ model Fund {
   fundReportRuns              FundReportRun[]
   lpPortalDocuments           LpPortalDocument[]
   lpPortalMetricSnapshots     LpPortalMetricSnapshot[]
+  fundraisingCampaigns        FundraisingCampaign[]
 
   @@map("funds")
 }
@@ -1424,6 +1425,7 @@ model Client {
   lpUserRelations         LpUserRelation[]
   lpPortalDocuments       LpPortalDocument[]
   lpPortalMetricSnapshots LpPortalMetricSnapshot[]
+  fundraisingDeals        FundraisingPipelineDeal[]
 
   @@map("clients")
 }
@@ -6346,4 +6348,165 @@ model CapTableOptionGrant {
 
   @@index([registryId], map: "cap_table_option_grants_registry_idx")
   @@map("cap_table_option_grants")
+}
+
+model FundraisingCampaign {
+  id              String   @id @default(cuid())
+  fundId          String   @map("fund_id")
+  name            String   @db.VarChar(255)
+  targetCapital   Decimal  @map("target_capital") @db.Decimal(18, 2)
+  primaryCurrency String   @default("USD") @map("primary_currency") @db.VarChar(8)
+  startDate       DateTime @map("start_date") @db.Date
+  closeDate       DateTime @map("close_date") @db.Date
+  regionTags      Json?    @map("region_tags")
+  status          String   @default("ACTIVE") @db.VarChar(16)
+  createdById     String   @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  fund      Fund                          @relation(fields: [fundId], references: [id], onDelete: Restrict)
+  stages    FundraisingPipelineStage[]
+  deals     FundraisingPipelineDeal[]
+  glMapping FundraisingCampaignGlMapping?
+
+  @@index([fundId], map: "fundraising_campaigns_fund_idx")
+  @@index([status], map: "fundraising_campaigns_status_idx")
+  @@map("fundraising_campaigns")
+}
+
+model FundraisingPipelineStage {
+  id                String   @id @default(cuid())
+  campaignId        String   @map("campaign_id")
+  stageCode         String   @map("stage_code") @db.VarChar(32)
+  stageName         String   @map("stage_name") @db.VarChar(128)
+  sortOrder         Int      @map("sort_order")
+  winProbabilityPct Decimal  @map("win_probability_pct") @db.Decimal(5, 2)
+  gateRules         Json?    @map("gate_rules")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  campaign          FundraisingCampaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  checklistTemplates FundraisingStageChecklistTemplate[]
+  deals             FundraisingPipelineDeal[]
+
+  @@unique([campaignId, stageCode], map: "fundraising_pipeline_stages_campaign_code_key")
+  @@index([campaignId, sortOrder], map: "fundraising_pipeline_stages_campaign_sort_idx")
+  @@map("fundraising_pipeline_stages")
+}
+
+model FundraisingStageChecklistTemplate {
+  id          String   @id @default(cuid())
+  stageId     String   @map("stage_id")
+  itemKey     String   @map("item_key") @db.VarChar(64)
+  label       String   @db.VarChar(255)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isRequired  Boolean  @default(true) @map("is_required")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  stage FundraisingPipelineStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@unique([stageId, itemKey], map: "fundraising_stage_checklist_templates_stage_key")
+  @@map("fundraising_stage_checklist_templates")
+}
+
+model FundraisingPipelineDeal {
+  id                String   @id @default(cuid())
+  campaignId        String   @map("campaign_id")
+  stageId           String   @map("stage_id")
+  prospectName      String   @map("prospect_name") @db.VarChar(255)
+  prospectEmail     String?  @map("prospect_email") @db.VarChar(255)
+  prospectPhone     String?  @map("prospect_phone") @db.VarChar(64)
+  prospectCountry   String?  @map("prospect_country") @db.VarChar(64)
+  prospectType      String   @default("institutional") @map("prospect_type") @db.VarChar(24)
+  proposedAmount    Decimal  @map("proposed_amount") @db.Decimal(18, 2)
+  currencyCode      String   @default("USD") @map("currency_code") @db.VarChar(8)
+  fxRateAtCreation  Decimal? @map("fx_rate_at_creation") @db.Decimal(18, 6)
+  priority          String   @default("MEDIUM") @db.VarChar(16)
+  clientId          String?  @map("client_id")
+  closedAt          DateTime? @map("closed_at")
+  journalEntryId    String?  @map("journal_entry_id")
+  notes             String?  @db.Text
+  createdById       String   @map("created_by_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  campaign     FundraisingCampaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  stage        FundraisingPipelineStage     @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  client       Client?                      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  checklistItems FundraisingDealChecklistItem[]
+  agreement    FundraisingDealAgreement?
+  interactions PipelineInteraction[]
+
+  @@index([campaignId], map: "fundraising_pipeline_deals_campaign_idx")
+  @@index([stageId], map: "fundraising_pipeline_deals_stage_idx")
+  @@index([clientId], map: "fundraising_pipeline_deals_client_idx")
+  @@map("fundraising_pipeline_deals")
+}
+
+model FundraisingDealChecklistItem {
+  id          String    @id @default(cuid())
+  dealId      String    @map("deal_id")
+  itemKey     String    @map("item_key") @db.VarChar(64)
+  label       String    @db.VarChar(255)
+  isRequired  Boolean   @default(true) @map("is_required")
+  isComplete  Boolean   @default(false) @map("is_complete")
+  completedAt DateTime? @map("completed_at")
+  completedById String? @map("completed_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  deal FundraisingPipelineDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, itemKey], map: "fundraising_deal_checklist_items_deal_key")
+  @@map("fundraising_deal_checklist_items")
+}
+
+model FundraisingDealAgreement {
+  id           String    @id @default(cuid())
+  dealId       String    @unique @map("deal_id")
+  fileUrl      String?   @map("file_url") @db.VarChar(512)
+  fileName     String?   @map("file_name") @db.VarChar(255)
+  mimeType     String?   @map("mime_type") @db.VarChar(128)
+  status       String    @default("DRAFT") @db.VarChar(16)
+  signedAt     DateTime? @map("signed_at")
+  sha256       String?   @db.VarChar(64)
+  uploadedById String?   @map("uploaded_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  deal FundraisingPipelineDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@map("fundraising_deal_agreements")
+}
+
+model PipelineInteraction {
+  id              String   @id @default(cuid())
+  dealId          String   @map("deal_id")
+  interactionType String   @map("interaction_type") @db.VarChar(32)
+  subject         String?  @db.VarChar(255)
+  body            String?  @db.Text
+  occurredAt      DateTime @map("occurred_at")
+  createdById     String   @map("created_by_id")
+  mailerBatchId   String?  @map("mailer_batch_id") @db.VarChar(64)
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  deal FundraisingPipelineDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId, occurredAt], map: "pipeline_interactions_deal_occurred_idx")
+  @@map("pipeline_interactions")
+}
+
+model FundraisingCampaignGlMapping {
+  id                        String   @id @default(cuid())
+  campaignId                String   @unique @map("campaign_id")
+  receivableAccountCode     String   @default("1125") @map("receivable_account_code") @db.VarChar(16)
+  committedCapitalAccountCode String @default("3010") @map("committed_capital_account_code") @db.VarChar(16)
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  campaign FundraisingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("fundraising_campaign_gl_mappings")
 }

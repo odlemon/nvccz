@@ -117,6 +117,7 @@ import lpPortalRoutes from "./routes/lpPortalRoutes"
 import lpPortalCronRoutes from "./routes/lpPortalCronRoutes"
 import investmentMemoRoutes from "./routes/investmentMemoRoutes"
 import capTableRoutes from "./routes/capTableRoutes"
+import fundraisingRoutes from "./routes/fundraisingRoutes"
 import exchangeRateDisplayRoutes from "./routes/exchangeRateDisplayRoutes"
 import exchangeRateDisplayCronRoutes from "./routes/exchangeRateDisplayCronRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
@@ -679,6 +680,8 @@ app.use("/api/cron/lp-portal", lpPortalCronRoutes)
 // Investment Memo Editing
 app.use("/api/investment-memos", investmentMemoRoutes)
 app.use("/api/cap-table", capTableRoutes)
+app.use("/api/fundraising", fundraisingRoutes)
+app.use("/api/fundraising", fundraisingRoutes)
 
 // Street Exchange Rate Display
 app.use("/api/exchange-rate-display", exchangeRateDisplayRoutes)
