@@ -59,13 +59,17 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 
 ## Quarterly Client Statements
 
-| Status | **PENDING** — script ready; apply on `nts`, `client1_db`, `demo_env` |
+| Status | **APPLIED** (2026-06-17 — dev `nts`, prod `client1_db`, demo `demo_env`) |
 
 | # | Script | npm command | What it creates |
 |---|--------|-------------|-----------------|
 | A | `scripts/run-quarterly-client-statements-migration.ts` | `npm run db:migrate:quarterly-client-statements` | Tables: `quarterly_statement_runs`, `quarterly_statement_recipients`, `quarterly_statement_ledger_snapshots`, `quarterly_statement_audit_events` |
 
+**Prisma:** models in `prisma/schema.prisma` (`QuarterlyStatement*`).
+
 **UAT after apply:** `npm run uat:quarterly-statements:core`, `uat:quarterly-statements:rbac`, `uat:quarterly-statements:approve`
+
+**Deploy after apply:** `python scripts/deploy_vps.py`
 
 ---
 
