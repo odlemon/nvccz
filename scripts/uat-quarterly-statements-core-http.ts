@@ -53,26 +53,37 @@ async function main() {
   log("resolve fund", true, fund.name);
 
   const year = new Date().getFullYear();
-  const quarter = "Q3";
+  const quarters = ["Q1", "Q2", "Q3", "Q4"] as const;
 
-  const create = await api(
-    "POST",
-    "/quarterly-statements/runs",
-    { fundId: fund.id, financialYear: year, calendarQuarter: quarter },
-    token
-  );
-  let runId = create.json?.data?.id;
-  if (create.status === 400 || create.status === 201) {
-    if (!runId) {
-      const list = await api("GET", `/quarterly-statements/runs?fundId=${fund.id}`, undefined, token);
-      runId =
-        list.json?.data?.find((r: any) => r.calendarQuarter === quarter && r.financialYear === year)?.id ||
-        list.json?.data?.[0]?.id;
+  let runId: string | undefined;
+  let createStatus = 0;
+  for (const quarter of quarters) {
+    const create = await api(
+      "POST",
+      "/quarterly-statements/runs",
+      { fundId: fund.id, financialYear: year, calendarQuarter: quarter },
+      token
+    );
+    createStatus = create.status;
+    if (create.json?.data?.id) {
+      runId = create.json.data.id;
+      break;
     }
-    log("create run", Boolean(runId), runId ? `status ${create.status}` : `status ${create.status}`);
-  } else {
-    log("create run", false, `status ${create.status}`);
+    if (create.status === 400) {
+      const list = await api("GET", `/quarterly-statements/runs?fundId=${fund.id}`, undefined, token);
+      const existing = list.json?.data?.find(
+        (r: any) =>
+          r.calendarQuarter === quarter &&
+          r.financialYear === year &&
+          (r.status === "COMPILING" || r.status === "REVIEW" || r.status === "FAILED")
+      );
+      if (existing?.id) {
+        runId = existing.id;
+        break;
+      }
+    }
   }
+  log("create run", Boolean(runId), runId ? `status ${createStatus}` : `status ${createStatus}`);
 
   if (!runId) process.exit(1);
 

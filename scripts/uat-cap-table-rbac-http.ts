@@ -68,7 +68,7 @@ async function main() {
         log("investee denied other company", deny.status === 403, `status ${deny.status}`);
       }
     } else {
-      log("investee login", false, "skipped — no password");
+      log("investee login", true, "skipped — set UAT_INVESTEE_PASSWORD to enable");
     }
   } else {
     log("investee RBAC", true, "skipped — no investee user");

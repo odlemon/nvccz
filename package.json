@@ -154,6 +154,8 @@
     "uat:quarterly-statements:core": "ts-node --transpile-only -r dotenv/config scripts/uat-quarterly-statements-core-http.ts",
     "uat:quarterly-statements:rbac": "ts-node --transpile-only -r dotenv/config scripts/uat-quarterly-statements-rbac-http.ts",
     "uat:quarterly-statements:approve": "ts-node --transpile-only -r dotenv/config scripts/uat-quarterly-statements-approve-http.ts",
+    "verify:investment-swagger": "ts-node --transpile-only scripts/verify-investment-module-swagger.ts",
+    "verify:investment-swagger-http": "ts-node --transpile-only -r dotenv/config scripts/verify-investment-module-swagger-http.ts",
     "test:quarterly-statements": "jest tests/quarterlyStatementMetricsEngine.test.ts --forceExit",
     "test:exchange-rate-display": "node --max-old-space-size=8192 ./node_modules/jest/bin/jest.js src/tests/exchangeRateDisplay.test.ts --forceExit --runInBand",
     "uat:investments:market-data": "ts-node --transpile-only -r dotenv/config scripts/uat-investments-market-data-http.ts",

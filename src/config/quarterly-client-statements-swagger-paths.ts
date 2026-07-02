@@ -3,6 +3,8 @@
  */
 
 import { SWAGGER_JSON_RESPONSES } from "./swagger-default-responses";
+import { jsonRequestBody, pathParam, queryParam } from "./swagger-module-helpers";
+import { SWAGGER_EX } from "./swagger-uat-examples";
 
 export const QUARTERLY_CLIENT_STATEMENTS_TAG = "Quarterly Client Statements";
 
@@ -21,33 +23,39 @@ function op(summary: string, extra: Record<string, unknown> = {}) {
   return { summary, tags: TAG, security: bearer, responses: SWAGGER_JSON_RESPONSES, ...extra };
 }
 
-const runId = { name: "runId", in: "path", required: true, schema: { type: "string" } };
-const clientId = { name: "clientId", in: "path", required: true, schema: { type: "string" } };
+const runId = pathParam("runId", SWAGGER_EX.runId);
+const clientId = pathParam("clientId", SWAGGER_EX.clientId);
 
 export const quarterlyClientStatementsSwaggerPaths: Record<string, unknown> = {
   "/quarterly-statements/runs": {
     get: op("List statement runs", {
       parameters: [
-        { name: "fundId", in: "query", schema: { type: "string" } },
-        { name: "status", in: "query", schema: { type: "string" } },
+        queryParam("fundId", { type: "string" }, SWAGGER_EX.fundId),
+        queryParam("status", { type: "string", enum: ["COMPILING", "REVIEW", "COMPLETED", "FAILED"] }, "REVIEW"),
       ],
     }),
     post: op("Initialize quarterly run", {
-      requestBody: {
-        content: {
-          "application/json": {
-            schema: {
-              type: "object",
-              required: ["fundId", "financialYear", "calendarQuarter"],
-              properties: {
-                fundId: { type: "string" },
-                financialYear: { type: "integer", example: 2026 },
-                calendarQuarter: { type: "string", enum: ["Q1", "Q2", "Q3", "Q4"] },
-              },
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["fundId", "financialYear", "calendarQuarter"],
+          properties: {
+            fundId: { type: "string" },
+            financialYear: { type: "integer" },
+            calendarQuarter: { type: "string", enum: ["Q1", "Q2", "Q3", "Q4"] },
+          },
+        },
+        examples: {
+          initRun: {
+            summary: "Initialize Q3 2026 run",
+            value: {
+              fundId: SWAGGER_EX.fundId,
+              financialYear: SWAGGER_EX.financialYear,
+              calendarQuarter: SWAGGER_EX.calendarQuarter,
             },
           },
         },
-      },
+      }),
     }),
   },
   "/quarterly-statements/runs/{runId}": {
