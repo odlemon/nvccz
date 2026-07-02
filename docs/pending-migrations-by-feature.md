@@ -42,7 +42,7 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 
 ## Fundraising LP Pipeline
 
-| Status | **PENDING** — script ready; apply on `nts`, `client1_db`, `demo_env` when running migrations |
+| Status | **APPLIED** (2026-06-17 — dev `nts`, prod `client1_db`, demo `demo_env`) |
 
 | # | Script | npm command | What it creates |
 |---|--------|-------------|-----------------|
@@ -74,4 +74,4 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 |------|---------|--------|
 | 2026-06-28 | Cap Table Management | Migration script added; **not run** — server unreachable |
 | 2026-06-17 | Cap Table Management | **Applied** on nts, client1_db, demo_env; idempotent re-run confirmed on dev |
-| 2026-06-17 | Fundraising LP Pipeline | Migration script added; **not run** yet |
+| 2026-06-17 | Fundraising LP Pipeline | **Applied** on nts, client1_db, demo_env |
