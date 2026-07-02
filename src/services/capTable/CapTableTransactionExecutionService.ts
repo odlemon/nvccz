@@ -12,89 +12,107 @@ export class CapTableTransactionExecutionService {
   static async execute(portfolioCompanyId: string, transactionId: string, userId: string) {
     const registry = await CapTableRegistryService.getByPortfolioCompanyId(portfolioCompanyId);
 
-    return prisma.$transaction(async (tx) => {
-      await tx.$queryRawUnsafe(
-        `SELECT id FROM cap_table_registries WHERE id = ? FOR UPDATE`,
-        registry.id
-      );
-
-      const row = await tx.capTableTransaction.findFirst({
-        where: { id: transactionId, registryId: registry.id },
-        include: { shareClass: true, lines: true },
-      });
-      if (!row) throw Object.assign(new Error("Transaction not found"), { statusCode: 404 });
-      if (row.status === "EXECUTED") return row;
-      if (row.status !== "PENDING_APPROVAL") {
-        throw Object.assign(new Error("Only PENDING_APPROVAL transactions can be executed"), { statusCode: 400 });
-      }
-
-      if (row.shareClassId) {
+    const executed = await prisma.$transaction(
+      async (tx) => {
         await tx.$queryRawUnsafe(
-          `SELECT id FROM cap_table_share_classes WHERE id = ? FOR UPDATE`,
-          row.shareClassId
+          `SELECT id FROM cap_table_registries WHERE id = ? FOR UPDATE`,
+          registry.id
         );
-      }
 
-      if (row.transactionType === "TRANSFER" && row.fromStakeholderId && row.shareClassId) {
-        const balance = await CapTableBalanceService.holderBalance(
-          registry.id,
-          row.fromStakeholderId,
-          row.shareClassId
-        );
-        if (balance < Number(row.quantity)) {
-          throw Object.assign(new Error("Insufficient seller balance at execution time"), { statusCode: 400 });
+        const row = await tx.capTableTransaction.findFirst({
+          where: { id: transactionId, registryId: registry.id },
+          include: { shareClass: true, lines: true },
+        });
+        if (!row) throw Object.assign(new Error("Transaction not found"), { statusCode: 404 });
+        if (row.status === "EXECUTED") return row;
+        if (row.status !== "PENDING_APPROVAL") {
+          throw Object.assign(new Error("Only PENDING_APPROVAL transactions can be executed"), {
+            statusCode: 400,
+          });
         }
-      }
 
-      if (row.transactionType === "ISSUANCE" && row.shareClassId) {
-        const issued = await CapTableBalanceService.holderBalances(registry.id);
-        const classIssued = issued
-          .filter((b) => b.shareClassId === row.shareClassId)
-          .reduce((s, b) => s + b.shares, 0);
-        const pendingQty = Number(row.quantity);
-        const authorized = Number(row.shareClass?.authorizedShares ?? 0);
-        if (classIssued + pendingQty > authorized) {
-          throw Object.assign(
-            new Error(`Issuance exceeds authorized shares (${authorized} authorized, ${classIssued} issued)`),
-            { statusCode: 400 }
+        if (row.shareClassId) {
+          await tx.$queryRawUnsafe(
+            `SELECT id FROM cap_table_share_classes WHERE id = ? FOR UPDATE`,
+            row.shareClassId
           );
         }
-      }
 
-      let journalEntryId: string | null = null;
-      if (row.transactionType === "ISSUANCE" && row.shareClass) {
-        journalEntryId = await CapTableGlPostingService.postIssuance({
+        if (row.transactionType === "TRANSFER" && row.fromStakeholderId && row.shareClassId) {
+          const balance = await CapTableBalanceService.holderBalance(
+            registry.id,
+            row.fromStakeholderId,
+            row.shareClassId
+          );
+          if (balance < Number(row.quantity)) {
+            throw Object.assign(new Error("Insufficient seller balance at execution time"), {
+              statusCode: 400,
+            });
+          }
+        }
+
+        if (row.transactionType === "ISSUANCE" && row.shareClassId) {
+          const issued = await CapTableBalanceService.holderBalances(registry.id);
+          const classIssued = issued
+            .filter((b) => b.shareClassId === row.shareClassId)
+            .reduce((s, b) => s + b.shares, 0);
+          const pendingQty = Number(row.quantity);
+          const authorized = Number(row.shareClass?.authorizedShares ?? 0);
+          if (classIssued + pendingQty > authorized) {
+            throw Object.assign(
+              new Error(`Issuance exceeds authorized shares (${authorized} authorized, ${classIssued} issued)`),
+              { statusCode: 400 }
+            );
+          }
+        }
+
+        return tx.capTableTransaction.update({
+          where: { id: transactionId },
+          data: {
+            status: "EXECUTED",
+            executedAt: new Date(),
+            approvedById: row.approvedById ?? userId,
+          },
+          include: { shareClass: true, toStakeholder: true, lines: true },
+        });
+      },
+      { maxWait: 10000, timeout: 15000 }
+    );
+
+    try {
+      if (executed.transactionType === "ISSUANCE" && executed.shareClass) {
+        const journalEntryId = await CapTableGlPostingService.postIssuance({
           userId,
           portfolioCompanyId,
           registryId: registry.id,
-          quantity: Number(row.quantity),
-          pricePerShare: Number(row.pricePerShare ?? 0),
-          parValue: Number(row.shareClass.parValue),
-          issuanceDate: row.issuanceDate ?? new Date(),
+          quantity: Number(executed.quantity),
+          pricePerShare: Number(executed.pricePerShare ?? 0),
+          parValue: Number(executed.shareClass.parValue),
+          issuanceDate: executed.issuanceDate ?? new Date(),
           referenceNumber: `CAP-TX-${transactionId}`,
-          description: `Cap table stock issuance — ${row.shareClass.className}`,
+          description: `Cap table stock issuance — ${executed.shareClass.className}`,
         });
+        await prisma.capTableTransaction.update({
+          where: { id: transactionId },
+          data: { journalEntryId },
+        });
+        await CapTableCertificateService.generateForTransaction(portfolioCompanyId, transactionId).catch(
+          () => null
+        );
       }
 
-      const executed = await tx.capTableTransaction.update({
-        where: { id: transactionId },
-        data: {
-          status: "EXECUTED",
-          executedAt: new Date(),
-          approvedById: row.approvedById ?? userId,
-          journalEntryId,
-        },
-        include: { shareClass: true, toStakeholder: true, lines: true },
-      });
-
-      return executed;
-    }).then(async (executed) => {
-      if (executed.transactionType === "ISSUANCE") {
-        await CapTableCertificateService.generateForTransaction(portfolioCompanyId, transactionId).catch(() => null);
-      }
       await CapTablePortfolioSyncService.sync(portfolioCompanyId);
       await CapTableLpPortalHook.afterExecuted(portfolioCompanyId, transactionId);
-      return CapTableTransactionService.get(portfolioCompanyId, transactionId);
-    });
+    } catch (err) {
+      await prisma.capTableTransaction
+        .update({
+          where: { id: transactionId, status: "EXECUTED" },
+          data: { status: "PENDING_APPROVAL", executedAt: null, journalEntryId: null },
+        })
+        .catch(() => null);
+      throw err;
+    }
+
+    return CapTableTransactionService.get(portfolioCompanyId, transactionId);
   }
 }

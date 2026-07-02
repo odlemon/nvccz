@@ -38,13 +38,17 @@ export class CapTableCertificateService {
 
     let storagePath: string | null = null;
     try {
-      const uploaded = await remoteUploadService.uploadBuffer({
-        buffer: pdfBuffer,
-        originalname: filename,
-        mimetype: "application/pdf",
-        folder: "cap-table/certificates",
-      });
-      storagePath = uploaded?.fileUrl || uploaded?.storagePath || null;
+      const upload = await remoteUploadService.uploadFiles(
+        {
+          buffer: pdfBuffer,
+          originalname: filename,
+          mimetype: "application/pdf",
+        },
+        "cap-table-certificates"
+      );
+      if (upload.success && upload.files?.[0]) {
+        storagePath = upload.files[0].url || upload.files[0].filename || null;
+      }
     } catch {
       storagePath = null;
     }

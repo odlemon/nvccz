@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run cap-table migration on dev, prod, demo DBs via VPS (localhost MySQL)."""
+"""Pull latest on VPS nts and run cap-table migration on dev, prod, demo DBs."""
 import os
 import re
 import sys
@@ -40,25 +40,23 @@ def main() -> int:
     host = creds.get("VPS_HOST", "")
     user = creds.get("VPS_USER", "root")
     password = creds.get("VPS_PASSWORD", "")
-    if not host or not password:
-        print("Missing VPS credentials", file=sys.stderr)
-        return 1
-
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     print(f"Connecting to {user}@{host}...")
     client.connect(host, username=user, password=password, timeout=30, look_for_keys=False, allow_agent=False)
 
+    pull_cmd = "cd /var/www/projects/nts && git pull && npm i"
+    print("=== git pull nts ===")
+    stdin, stdout, stderr = client.exec_command(pull_cmd, get_pty=True)
+    print(stdout.read().decode("utf-8", errors="replace"))
+
     exit_code = 0
     for label, url in URLS:
-        print(f"\n=== {label} ===")
+        print(f"\n=== migrate {label} ===")
         cmd = f'cd /var/www/projects/nts && DATABASE_URL="{url}" npm run db:migrate:cap-table-management'
         stdin, stdout, stderr = client.exec_command(cmd, get_pty=True)
         out = stdout.read().decode("utf-8", errors="replace")
         print(out)
-        err = stderr.read().decode("utf-8", errors="replace")
-        if err.strip():
-            print(err, file=sys.stderr)
         code = stdout.channel.recv_exit_status()
         if code != 0:
             exit_code = code

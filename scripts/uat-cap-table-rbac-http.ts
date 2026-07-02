@@ -26,7 +26,13 @@ async function login(email: string, password: string): Promise<string> {
 }
 
 async function main() {
-  const company = await prisma.portfolioCompany.findFirst({ select: { id: true } });
+  const registryRow = await prisma.capTableRegistry.findFirst({
+    select: { portfolioCompanyId: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const company = registryRow
+    ? { id: registryRow.portfolioCompanyId }
+    : await prisma.portfolioCompany.findFirst({ select: { id: true }, orderBy: { createdAt: "desc" } });
   if (!company) {
     log("portfolio company", false, "none");
     process.exit(1);
@@ -44,8 +50,8 @@ async function main() {
   log("admin can view register", adminRes.status === 200, `status ${adminRes.status}`);
 
   const investee = await prisma.portfolioCompany.findFirst({
-    where: { user: { isNot: null } },
     select: { id: true, user: { select: { email: true } } },
+    orderBy: { createdAt: "desc" },
   });
   if (investee?.user?.email) {
     const invTok = await login(investee.user.email, process.env.UAT_INVESTEE_PASSWORD ?? "password123");

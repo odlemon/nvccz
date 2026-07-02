@@ -84,6 +84,8 @@ Iterative seniority ladder per class: preferential return $R_c = M_c \times C_c 
 
 Migration: `npm run db:migrate:cap-table-management`
 
+> **Pending:** See [`docs/pending-migrations-by-feature.md`](pending-migrations-by-feature.md) — script written; not applied while DB host is unreachable.
+
 ---
 
 ## 5. API specification
