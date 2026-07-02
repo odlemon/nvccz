@@ -61,6 +61,11 @@ import {
   FUNDRAISING_LP_PIPELINE_TAG,
   FUNDRAISING_LP_PIPELINE_TAG_DEFINITION,
 } from './fundraising-lp-pipeline-swagger-paths';
+import {
+  quarterlyClientStatementsSwaggerPaths,
+  QUARTERLY_CLIENT_STATEMENTS_TAG,
+  QUARTERLY_CLIENT_STATEMENTS_TAG_DEFINITION,
+} from './quarterly-client-statements-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -9768,6 +9773,11 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: fundraisingLpPipelineSwaggerPaths,
     tagName: FUNDRAISING_LP_PIPELINE_TAG,
     tagDefinition: FUNDRAISING_LP_PIPELINE_TAG_DEFINITION,
+  },
+  {
+    paths: quarterlyClientStatementsSwaggerPaths,
+    tagName: QUARTERLY_CLIENT_STATEMENTS_TAG,
+    tagDefinition: QUARTERLY_CLIENT_STATEMENTS_TAG_DEFINITION,
   },
 ]);
 

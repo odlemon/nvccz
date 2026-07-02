@@ -57,6 +57,18 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 
 ---
 
+## Quarterly Client Statements
+
+| Status | **PENDING** — script ready; apply on `nts`, `client1_db`, `demo_env` |
+
+| # | Script | npm command | What it creates |
+|---|--------|-------------|-----------------|
+| A | `scripts/run-quarterly-client-statements-migration.ts` | `npm run db:migrate:quarterly-client-statements` | Tables: `quarterly_statement_runs`, `quarterly_statement_recipients`, `quarterly_statement_ledger_snapshots`, `quarterly_statement_audit_events` |
+
+**UAT after apply:** `npm run uat:quarterly-statements:core`, `uat:quarterly-statements:rbac`, `uat:quarterly-statements:approve`
+
+---
+
 ## Other features (already applied — reference only)
 
 | Feature | npm command | Notes |
@@ -75,3 +87,4 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 | 2026-06-28 | Cap Table Management | Migration script added; **not run** — server unreachable |
 | 2026-06-17 | Cap Table Management | **Applied** on nts, client1_db, demo_env; idempotent re-run confirmed on dev |
 | 2026-06-17 | Fundraising LP Pipeline | **Applied** on nts, client1_db, demo_env |
+| 2026-06-17 | Quarterly Client Statements | Migration script added; **not run** yet |
