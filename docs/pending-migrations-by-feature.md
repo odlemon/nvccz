@@ -75,7 +75,7 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 
 ## Deal Execution Pack
 
-| Status | **PENDING** |
+| Status | **APPLIED** (2026-07-03 — dev `nts`, prod `client1_db`, demo `demo_env`) |
 
 | # | Script | npm command | What it creates |
 |---|--------|-------------|-----------------|
@@ -109,4 +109,4 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 | 2026-06-17 | Cap Table Management | **Applied** on nts, client1_db, demo_env; idempotent re-run confirmed on dev |
 | 2026-06-17 | Fundraising LP Pipeline | **Applied** on nts, client1_db, demo_env |
 | 2026-06-17 | Quarterly Client Statements | Migration script added; **not run** yet |
-| 2026-07-03 | Deal Execution Pack | Migration script added; **PENDING** apply on nts, client1_db, demo_env |
+| 2026-07-03 | Deal Execution Pack | **Applied** on nts, client1_db, demo_env |
