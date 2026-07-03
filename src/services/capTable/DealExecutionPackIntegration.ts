@@ -1,7 +1,6 @@
 // @ts-nocheck
 /**
- * Deal Execution Pack (Section 3.11) — PLACEHOLDER integration.
- * When the Deal Execution module ships, replace the stub handler with a real webhook listener.
+ * Deal Execution Pack (Section 3.11) — cap table integration on EXECUTED.
  */
 import type { DealExecutionClosedEvent } from "./capTableTypes";
 import { CapTableRegistryService } from "./CapTableRegistryService";

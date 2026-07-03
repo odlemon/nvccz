@@ -1270,6 +1270,7 @@ model PortfolioCompany {
   distributionsSourced         Distribution[]                  @relation("PortfolioDistributionSource")
   forecastEntities             ForecastEntity[]                @relation("EntityPortfolioCompany")
   capTableRegistry             CapTableRegistry?
+  dealExecutionPacks           DealExecutionPack[]
 
   @@map("portfolio_companies")
 }
@@ -1375,6 +1376,7 @@ model Fund {
   lpPortalMetricSnapshots     LpPortalMetricSnapshot[]
   fundraisingCampaigns        FundraisingCampaign[]
   quarterlyStatementRuns      QuarterlyStatementRun[]
+  dealExecutionPacks          DealExecutionPack[]
 
   @@map("funds")
 }
@@ -1755,6 +1757,7 @@ model Application {
   tasks                    Task[]
   /// Portfolio deal collaboration feed (activity_logs with applicationId set, taskId null).
   dealCollaborationLogs    ActivityLog[]              @relation("ApplicationDealCollaboration")
+  dealExecutionPacks       DealExecutionPack[]
 
   @@map("applications")
 }
@@ -6606,4 +6609,130 @@ model QuarterlyStatementAuditEvent {
 
   @@index([runId, createdAt], map: "quarterly_statement_audit_events_run_idx")
   @@map("quarterly_statement_audit_events")
+}
+
+model DealExecutionPack {
+  id                   String    @id @default(cuid())
+  fundId               String    @map("fund_id")
+  portfolioCompanyId   String    @map("portfolio_company_id")
+  applicationId        String?   @map("application_id")
+  transactionType      String    @default("EQUITY_ROUND") @map("transaction_type") @db.VarChar(32)
+  status               String    @default("DRAFT") @db.VarChar(24)
+  baseCurrency         String    @default("USD") @map("base_currency") @db.VarChar(8)
+  investmentAmount     Decimal?  @map("investment_amount") @db.Decimal(15, 2)
+  preMoneyValuation    Decimal?  @map("pre_money_valuation") @db.Decimal(15, 2)
+  metadata             Json?
+  icpPct               Decimal?  @map("icp_pct") @db.Decimal(8, 4)
+  executedById         String?   @map("executed_by_id")
+  executedAt           DateTime? @map("executed_at")
+  lockedAt             DateTime? @map("locked_at")
+  closingSummarySha256 String?   @map("closing_summary_sha256") @db.VarChar(64)
+  closingSummaryUrl    String?   @map("closing_summary_url") @db.VarChar(1024)
+  journalEntryId       String?   @map("journal_entry_id")
+  createdById          String    @map("created_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  fund             Fund                              @relation(fields: [fundId], references: [id], onDelete: Restrict)
+  portfolioCompany PortfolioCompany                  @relation(fields: [portfolioCompanyId], references: [id], onDelete: Restrict)
+  application      Application?                      @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  documentSlots    DealExecutionPackDocumentSlot[]
+  cps              DealExecutionPackCp[]
+  signatures       DealExecutionPackSignature[]
+  auditEvents      DealExecutionPackAuditEvent[]
+
+  @@unique([fundId, portfolioCompanyId, applicationId], map: "deal_execution_packs_fund_pc_app_key")
+  @@index([fundId], map: "deal_execution_packs_fund_idx")
+  @@index([portfolioCompanyId], map: "deal_execution_packs_pc_idx")
+  @@index([status], map: "deal_execution_packs_status_idx")
+  @@map("deal_execution_packs")
+}
+
+model DealExecutionPackDocumentSlot {
+  id           String   @id @default(cuid())
+  packId       String   @map("pack_id")
+  slotCode     String   @map("slot_code") @db.VarChar(32)
+  displayName  String   @map("display_name") @db.VarChar(128)
+  isMandatory  Boolean  @default(true) @map("is_mandatory")
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  pack      DealExecutionPack             @relation(fields: [packId], references: [id], onDelete: Cascade)
+  documents DealExecutionPackDocument[]
+
+  @@unique([packId, slotCode], map: "deal_execution_pack_slots_pack_code_key")
+  @@index([packId], map: "deal_execution_pack_slots_pack_idx")
+  @@map("deal_execution_pack_document_slots")
+}
+
+model DealExecutionPackDocument {
+  id            String   @id @default(cuid())
+  slotId        String   @map("slot_id")
+  version       Int      @default(1)
+  status        String   @default("ACTIVE") @db.VarChar(16)
+  fileName      String   @map("file_name") @db.VarChar(255)
+  fileUrl       String   @map("file_url") @db.VarChar(1024)
+  storagePath   String?  @map("storage_path") @db.VarChar(512)
+  sha256        String   @db.VarChar(64)
+  fileSizeBytes Int?     @map("file_size_bytes")
+  uploadedById  String   @map("uploaded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  slot DealExecutionPackDocumentSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  cps  DealExecutionPackCp[]
+
+  @@index([slotId], map: "deal_execution_pack_docs_slot_idx")
+  @@index([slotId, version], map: "deal_execution_pack_docs_slot_version_idx")
+  @@map("deal_execution_pack_documents")
+}
+
+model DealExecutionPackCp {
+  id                  String    @id @default(cuid())
+  packId              String    @map("pack_id")
+  description         String    @db.VarChar(512)
+  weight              Int       @default(10)
+  priority            String    @default("MEDIUM") @db.VarChar(16)
+  status              String    @default("PENDING") @db.VarChar(16)
+  verificationOwnerId String?   @map("verification_owner_id")
+  documentId          String?   @map("document_id")
+  satisfiedAt         DateTime? @map("satisfied_at")
+  satisfiedById       String?   @map("satisfied_by_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  pack     DealExecutionPack          @relation(fields: [packId], references: [id], onDelete: Cascade)
+  document DealExecutionPackDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([packId], map: "deal_execution_pack_cps_pack_idx")
+  @@map("deal_execution_pack_cps")
+}
+
+model DealExecutionPackSignature {
+  id               String    @id @default(cuid())
+  packId           String    @map("pack_id")
+  roleCode         String    @map("role_code") @db.VarChar(32)
+  signatoryUserId  String?   @map("signatory_user_id")
+  status           String    @default("PENDING") @db.VarChar(16)
+  signedAt         DateTime? @map("signed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  pack DealExecutionPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@unique([packId, roleCode], map: "deal_execution_pack_sigs_pack_role_key")
+  @@index([packId], map: "deal_execution_pack_sigs_pack_idx")
+  @@map("deal_execution_pack_signatures")
+}
+
+model DealExecutionPackAuditEvent {
+  id        String   @id @default(cuid())
+  packId    String   @map("pack_id")
+  eventType String   @map("event_type") @db.VarChar(32)
+  actorId   String   @map("actor_id")
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pack DealExecutionPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@index([packId, createdAt], map: "deal_execution_pack_audit_pack_idx")
+  @@map("deal_execution_pack_audit_events")
 }

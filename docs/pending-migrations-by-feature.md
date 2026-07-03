@@ -73,6 +73,23 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 
 ---
 
+## Deal Execution Pack
+
+| Status | **PENDING** |
+
+| # | Script | npm command | What it creates |
+|---|--------|-------------|-----------------|
+| A | `scripts/run-deal-execution-pack-migration.ts` | `npm run db:migrate:deal-execution-pack` | Tables: `deal_execution_packs`, `deal_execution_pack_document_slots`, `deal_execution_pack_documents`, `deal_execution_pack_cps`, `deal_execution_pack_signatures`, `deal_execution_pack_audit_events` |
+| B | *(same script)* | — | COA seed if missing: `1502` Investment Asset — Portfolio, `1000` Cash — Bank Operating |
+
+**Prisma:** models in `prisma/schema.prisma` (`DealExecutionPack*`).
+
+**UAT after apply:** `npm run uat:deal-execution-pack:core`, `uat:deal-execution-pack:gate`, `uat:deal-execution-pack:execute`
+
+**Deploy after apply:** `python scripts/deploy_vps.py`
+
+---
+
 ## Other features (already applied — reference only)
 
 | Feature | npm command | Notes |
@@ -92,3 +109,4 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 | 2026-06-17 | Cap Table Management | **Applied** on nts, client1_db, demo_env; idempotent re-run confirmed on dev |
 | 2026-06-17 | Fundraising LP Pipeline | **Applied** on nts, client1_db, demo_env |
 | 2026-06-17 | Quarterly Client Statements | Migration script added; **not run** yet |
+| 2026-07-03 | Deal Execution Pack | Migration script added; **PENDING** apply on nts, client1_db, demo_env |

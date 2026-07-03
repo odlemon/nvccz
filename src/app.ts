@@ -119,6 +119,7 @@ import investmentMemoRoutes from "./routes/investmentMemoRoutes"
 import capTableRoutes from "./routes/capTableRoutes"
 import fundraisingRoutes from "./routes/fundraisingRoutes"
 import quarterlyStatementRoutes from "./routes/quarterlyStatementRoutes"
+import dealExecutionPackRoutes from "./routes/dealExecutionPackRoutes"
 import exchangeRateDisplayRoutes from "./routes/exchangeRateDisplayRoutes"
 import exchangeRateDisplayCronRoutes from "./routes/exchangeRateDisplayCronRoutes"
 import procurementRoutes from "./routes/procurementRoutes"
@@ -683,6 +684,7 @@ app.use("/api/investment-memos", investmentMemoRoutes)
 app.use("/api/cap-table", capTableRoutes)
 app.use("/api/fundraising", fundraisingRoutes)
 app.use("/api/quarterly-statements", quarterlyStatementRoutes)
+app.use("/api/deal-execution-packs", dealExecutionPackRoutes)
 
 // Street Exchange Rate Display
 app.use("/api/exchange-rate-display", exchangeRateDisplayRoutes)

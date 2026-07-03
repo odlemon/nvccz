@@ -614,6 +614,22 @@ export class TermSheetService {
             message: `The term sheet for your application (${termSheet.application.businessName}) has been fully signed by both parties. Your application will now proceed to board review.`
           }
         });
+
+        try {
+          const actorId =
+            updatedTermSheet.investorSignedById ||
+            updatedTermSheet.createdById ||
+            termSheet.createdById;
+          const { DealExecutionPackAutoProvisionHook } = await import(
+            "./dealExecutionPack/DealExecutionPackAutoProvisionHook"
+          );
+          await DealExecutionPackAutoProvisionHook.tryProvisionForApplication(applicationId, actorId);
+        } catch (depErr: any) {
+          console.error("Deal execution pack auto-provision failed (term sheet signed)", {
+            applicationId,
+            error: depErr?.message || depErr,
+          });
+        }
       } else {
         // Partial signature - notify about pending signature
         const pendingParty = signatureType === 'applicant' ? 'investor' : 'applicant';

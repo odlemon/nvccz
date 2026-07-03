@@ -14,6 +14,7 @@ import { STREET_EXCHANGE_RATE_DISPLAY_TAG } from './street-exchange-rate-display
 import { CAP_TABLE_MANAGEMENT_TAG } from './cap-table-management-swagger-paths';
 import { FUNDRAISING_LP_PIPELINE_TAG } from './fundraising-lp-pipeline-swagger-paths';
 import { QUARTERLY_CLIENT_STATEMENTS_TAG } from './quarterly-client-statements-swagger-paths';
+import { DEAL_EXECUTION_PACK_TAG } from './deal-execution-pack-swagger-paths';
 
 /** Tags whose operations are removed unless the operation also carries a protected tag. */
 export const SWAGGER_EXCLUDED_TAGS = new Set([
@@ -92,6 +93,7 @@ export const SWAGGER_PROTECTED_TAGS = new Set([
   CAP_TABLE_MANAGEMENT_TAG,
   FUNDRAISING_LP_PIPELINE_TAG,
   QUARTERLY_CLIENT_STATEMENTS_TAG,
+  DEAL_EXECUTION_PACK_TAG,
   'Updated performance'
 ]);
 

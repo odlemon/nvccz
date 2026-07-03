@@ -280,32 +280,4 @@ export const capTableManagementSwaggerPaths: Record<string, unknown> = {
       },
     }),
   },
-  "/cap-table/integrations/deal-execution/closed": {
-    post: op("PLACEHOLDER — Deal Execution Pack closed webhook", {
-      description: "x-placeholder: Section 3.11 not implemented yet",
-      requestBody: jsonRequestBody({
-        schema: {
-          type: "object",
-          required: ["dealExecutionPackId", "portfolioCompanyId", "closedAt", "spaMetadata"],
-          properties: {
-            dealExecutionPackId: { type: "string" },
-            portfolioCompanyId: { type: "string" },
-            closedAt: { type: "string", format: "date-time" },
-            spaMetadata: { type: "object" },
-          },
-        },
-        examples: {
-          closedWebhook: {
-            summary: "Deal closed webhook stub",
-            value: {
-              dealExecutionPackId: "dep-001",
-              portfolioCompanyId: SWAGGER_EX.portfolioCompanyId,
-              closedAt: "2026-06-01T12:00:00Z",
-              spaMetadata: { instrumentType: "EQUITY" },
-            },
-          },
-        },
-      }),
-    }),
-  },
 };

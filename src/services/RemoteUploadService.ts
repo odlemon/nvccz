@@ -197,6 +197,10 @@ const UPLOAD_TYPE_MAP: Record<string, string> = {
   // Payroll employee profile photos
   "payroll-employee-pictures": "application-documents",
   "payroll-employee-picture": "application-documents",
+
+  // Deal execution pack documents
+  "deal-execution-pack": "financial-reports",
+  "deal-execution-packs": "financial-reports",
   
   // Default/temp
   "temp": "temp",

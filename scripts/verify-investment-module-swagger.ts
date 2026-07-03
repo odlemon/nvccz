@@ -7,6 +7,7 @@ import { quarterlyClientStatementsSwaggerPaths } from "../src/config/quarterly-c
 import { fundraisingLpPipelineSwaggerPaths } from "../src/config/fundraising-lp-pipeline-swagger-paths";
 import { capTableManagementSwaggerPaths } from "../src/config/cap-table-management-swagger-paths";
 import { lpPortalSwaggerPaths } from "../src/config/lp-portal-swagger-paths";
+import { dealExecutionPackSwaggerPaths } from "../src/config/deal-execution-pack-swagger-paths";
 
 const MODULES: Array<{ name: string; paths: Record<string, unknown> }> = [
   { name: "Fund Performance Reporting", paths: fundPerformanceReportingSwaggerPaths as Record<string, unknown> },
@@ -14,6 +15,7 @@ const MODULES: Array<{ name: string; paths: Record<string, unknown> }> = [
   { name: "Fundraising LP Pipeline", paths: fundraisingLpPipelineSwaggerPaths as Record<string, unknown> },
   { name: "Cap Table Management", paths: capTableManagementSwaggerPaths as Record<string, unknown> },
   { name: "LP Portal", paths: lpPortalSwaggerPaths as Record<string, unknown> },
+  { name: "Deal Execution Pack", paths: dealExecutionPackSwaggerPaths as Record<string, unknown> },
 ];
 
 const MUTATING = new Set(["post", "put", "patch"]);

@@ -66,6 +66,11 @@ import {
   QUARTERLY_CLIENT_STATEMENTS_TAG,
   QUARTERLY_CLIENT_STATEMENTS_TAG_DEFINITION,
 } from './quarterly-client-statements-swagger-paths';
+import {
+  dealExecutionPackSwaggerPaths,
+  DEAL_EXECUTION_PACK_TAG,
+  DEAL_EXECUTION_PACK_TAG_DEFINITION,
+} from './deal-execution-pack-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -9778,6 +9783,11 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: quarterlyClientStatementsSwaggerPaths,
     tagName: QUARTERLY_CLIENT_STATEMENTS_TAG,
     tagDefinition: QUARTERLY_CLIENT_STATEMENTS_TAG_DEFINITION,
+  },
+  {
+    paths: dealExecutionPackSwaggerPaths,
+    tagName: DEAL_EXECUTION_PACK_TAG,
+    tagDefinition: DEAL_EXECUTION_PACK_TAG_DEFINITION,
   },
 ]);
 

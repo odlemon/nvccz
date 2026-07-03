@@ -12,7 +12,6 @@ import { CapTableTransactionExecutionService } from "../services/capTable/CapTab
 import { CapTableTransactionService } from "../services/capTable/CapTableTransactionService";
 import { CapTableTransactionWorkflowService } from "../services/capTable/CapTableTransactionWorkflowService";
 import { CapTableWaterfallEngine } from "../services/capTable/CapTableWaterfallEngine";
-import { DealExecutionPackIntegration } from "../services/capTable/DealExecutionPackIntegration";
 
 export class CapTableController {
   static async listRegistries(req: CapTableRequest, res: Response, next: NextFunction) {
@@ -274,19 +273,6 @@ export class CapTableController {
         req.params.transactionId
       );
       res.json({ success: true, data });
-    } catch (e) {
-      next(e);
-    }
-  }
-
-  static async dealExecutionClosed(req: CapTableRequest, res: Response, next: NextFunction) {
-    try {
-      const data = await DealExecutionPackIntegration.onDealPackClosed(req.body, req.user!.id);
-      res.status(201).json({
-        success: true,
-        data,
-        message: "Deal Execution Pack placeholder — DRAFT transactions created",
-      });
     } catch (e) {
       next(e);
     }

@@ -33,4 +33,7 @@ export const SWAGGER_EX = {
   calendarQuarter: "Q3" as const,
   periodStart: "2026-01-01",
   periodEnd: "2026-03-31",
+  packId: "cmpack00000000000000000001",
+  cpId: "cmcp000000000000000000001",
+  signatureId: "cmsig0000000000000000001",
 };

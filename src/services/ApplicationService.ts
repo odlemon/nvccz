@@ -837,6 +837,18 @@ export class ApplicationService {
             error: err?.message
           });
         });
+
+        const { DealExecutionPackAutoProvisionHook } = await import(
+          "./dealExecutionPack/DealExecutionPackAutoProvisionHook"
+        );
+        await DealExecutionPackAutoProvisionHook.tryProvisionForApplication(id, actorUserId).catch(
+          (err: any) => {
+            console.error("Deal execution pack auto-provision failed (ACTIVE_DD)", {
+              applicationId: id,
+              error: err?.message,
+            });
+          }
+        );
       }
 
       return updatedApplication;

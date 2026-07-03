@@ -101,11 +101,4 @@ router.get(
   CapTableController.verifyCertificate
 );
 
-/** Placeholder — Deal Execution Pack (Section 3.11) */
-router.post(
-  "/integrations/deal-execution/closed",
-  requireCapTableAdmin,
-  CapTableController.dealExecutionClosed
-);
-
 export default router;
