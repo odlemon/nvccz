@@ -15,6 +15,7 @@ import { CAP_TABLE_MANAGEMENT_TAG } from './cap-table-management-swagger-paths';
 import { FUNDRAISING_LP_PIPELINE_TAG } from './fundraising-lp-pipeline-swagger-paths';
 import { QUARTERLY_CLIENT_STATEMENTS_TAG } from './quarterly-client-statements-swagger-paths';
 import { DEAL_EXECUTION_PACK_TAG } from './deal-execution-pack-swagger-paths';
+import { TAX_RETURN_PACK_TAG } from './tax-return-pack-swagger-paths';
 
 /** Tags whose operations are removed unless the operation also carries a protected tag. */
 export const SWAGGER_EXCLUDED_TAGS = new Set([
@@ -94,6 +95,7 @@ export const SWAGGER_PROTECTED_TAGS = new Set([
   FUNDRAISING_LP_PIPELINE_TAG,
   QUARTERLY_CLIENT_STATEMENTS_TAG,
   DEAL_EXECUTION_PACK_TAG,
+  TAX_RETURN_PACK_TAG,
   'Updated performance'
 ]);
 

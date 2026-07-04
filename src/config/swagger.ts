@@ -71,6 +71,11 @@ import {
   DEAL_EXECUTION_PACK_TAG,
   DEAL_EXECUTION_PACK_TAG_DEFINITION,
 } from './deal-execution-pack-swagger-paths';
+import {
+  taxReturnPackSwaggerPaths,
+  TAX_RETURN_PACK_TAG,
+  TAX_RETURN_PACK_TAG_DEFINITION,
+} from './tax-return-pack-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -9788,6 +9793,11 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: dealExecutionPackSwaggerPaths,
     tagName: DEAL_EXECUTION_PACK_TAG,
     tagDefinition: DEAL_EXECUTION_PACK_TAG_DEFINITION,
+  },
+  {
+    paths: taxReturnPackSwaggerPaths,
+    tagName: TAX_RETURN_PACK_TAG,
+    tagDefinition: TAX_RETURN_PACK_TAG_DEFINITION,
   },
 ]);
 

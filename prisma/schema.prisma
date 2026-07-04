@@ -1181,6 +1181,7 @@ model ForecastEntity {
   createdBy           User             @relation("ForecastEntityCreatedBy", fields: [createdById], references: [id])
   forecastScenarios   ForecastScenario[]
   accounts            EntityChartOfAccount[]
+  taxReturnPacks      TaxReturnPack[]
 
   @@index([isDefault], map: "forecast_entities_is_default_idx")
   @@index([type, isActive], map: "forecast_entities_type_active_idx")
@@ -1377,6 +1378,7 @@ model Fund {
   fundraisingCampaigns        FundraisingCampaign[]
   quarterlyStatementRuns      QuarterlyStatementRun[]
   dealExecutionPacks          DealExecutionPack[]
+  taxReturnPacks              TaxReturnPack[]
 
   @@map("funds")
 }
@@ -6735,4 +6737,172 @@ model DealExecutionPackAuditEvent {
 
   @@index([packId, createdAt], map: "deal_execution_pack_audit_pack_idx")
   @@map("deal_execution_pack_audit_events")
+}
+
+model TaxReturnPack {
+  id                  String    @id @default(cuid())
+  forecastEntityId    String    @map("forecast_entity_id")
+  fundId              String?   @map("fund_id")
+  taxYear             Int       @map("tax_year")
+  taxPeriod           String    @default("ANNUAL") @map("tax_period") @db.VarChar(16)
+  taxRegime           String    @default("ZIMRA_CIT") @map("tax_regime") @db.VarChar(32)
+  baseCurrency        String    @default("USD") @map("base_currency") @db.VarChar(8)
+  status              String    @default("DRAFT") @db.VarChar(24)
+  periodStart         DateTime  @map("period_start") @db.Date
+  periodEnd           DateTime  @map("period_end") @db.Date
+  accountingProfit    Decimal?  @map("accounting_profit") @db.Decimal(15, 2)
+  taxableIncome       Decimal?  @map("taxable_income") @db.Decimal(15, 2)
+  citLiability        Decimal?  @map("cit_liability") @db.Decimal(15, 2)
+  cgtLiability        Decimal?  @map("cgt_liability") @db.Decimal(15, 2)
+  totalTaxLiability   Decimal?  @map("total_tax_liability") @db.Decimal(15, 2)
+  citLiabilityUsd     Decimal?  @map("cit_liability_usd") @db.Decimal(15, 2)
+  citLiabilityZig     Decimal?  @map("cit_liability_zig") @db.Decimal(15, 2)
+  weightedEtr         Decimal?  @map("weighted_etr") @db.Decimal(8, 4)
+  closingFxRate       Decimal?  @map("closing_fx_rate") @db.Decimal(18, 6)
+  liabilitySnapshot   Json?     @map("liability_snapshot")
+  failureReason       String?   @map("failure_reason") @db.Text
+  compiledById        String?   @map("compiled_by_id")
+  compiledAt          DateTime? @map("compiled_at")
+  submittedById       String?   @map("submitted_by_id")
+  approvedById        String?   @map("approved_by_id")
+  approvedAt          DateTime? @map("approved_at")
+  packPdfSha256       String?   @map("pack_pdf_sha256") @db.VarChar(64)
+  packPdfUrl          String?   @map("pack_pdf_url") @db.VarChar(1024)
+  packPdfStoragePath  String?   @map("pack_pdf_storage_path") @db.VarChar(512)
+  journalEntryId      String?   @map("journal_entry_id")
+  portalDocumentId    String?   @map("portal_document_id")
+  lockedAt            DateTime? @map("locked_at")
+  createdById         String    @map("created_by_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  forecastEntity      ForecastEntity                    @relation(fields: [forecastEntityId], references: [id], onDelete: Restrict)
+  fund                Fund?                             @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  reconciliationLines TaxReturnPackReconciliationLine[]
+  cgtLines            TaxReturnPackCgtLine[]
+  ledgerSnapshots     TaxReturnPackLedgerSnapshot[]
+  lineOverrides       TaxReturnPackLineOverride[]
+  auditEvents         TaxReturnPackAuditEvent[]
+
+  @@unique([forecastEntityId, taxYear, taxPeriod, taxRegime], map: "tax_return_packs_entity_year_period_regime_key")
+  @@index([forecastEntityId], map: "tax_return_packs_entity_idx")
+  @@index([status], map: "tax_return_packs_status_idx")
+  @@index([fundId], map: "tax_return_packs_fund_idx")
+  @@map("tax_return_packs")
+}
+
+model TaxReturnPackReconciliationLine {
+  id              String   @id @default(cuid())
+  packId          String   @map("pack_id")
+  lineCode        String   @map("line_code") @db.VarChar(32)
+  lineLabel       String   @map("line_label") @db.VarChar(255)
+  accountNo       String?  @map("account_no") @db.VarChar(64)
+  glBalance       Decimal  @default(0) @map("gl_balance") @db.Decimal(15, 2)
+  taxAdjustment   Decimal  @default(0) @map("tax_adjustment") @db.Decimal(15, 2)
+  taxCategory     String   @default("BOOK") @map("tax_category") @db.VarChar(16)
+  currencyCode    String   @default("USD") @map("currency_code") @db.VarChar(8)
+  journalLineRefs Json?    @map("journal_line_refs")
+  displayOrder    Int      @default(0) @map("display_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  pack      TaxReturnPack               @relation(fields: [packId], references: [id], onDelete: Cascade)
+  overrides TaxReturnPackLineOverride[]
+
+  @@index([packId], map: "tax_return_pack_recon_pack_idx")
+  @@index([packId, displayOrder], map: "tax_return_pack_recon_pack_order_idx")
+  @@map("tax_return_pack_reconciliation_lines")
+}
+
+model TaxReturnPackCgtLine {
+  id            String    @id @default(cuid())
+  packId        String    @map("pack_id")
+  assetRef      String    @map("asset_ref") @db.VarChar(255)
+  sourceType    String    @map("source_type") @db.VarChar(32)
+  sourceId      String?   @map("source_id")
+  salePrice     Decimal   @map("sale_price") @db.Decimal(15, 2)
+  costOriginal  Decimal   @map("cost_original") @db.Decimal(15, 2)
+  holdingYears  Decimal   @map("holding_years") @db.Decimal(8, 2)
+  costAdjusted  Decimal   @map("cost_adjusted") @db.Decimal(15, 2)
+  capitalGain   Decimal   @map("capital_gain") @db.Decimal(15, 2)
+  cgtRate       Decimal   @map("cgt_rate") @db.Decimal(8, 4)
+  cgtLiability  Decimal   @map("cgt_liability") @db.Decimal(15, 2)
+  currencyCode  String    @default("USD") @map("currency_code") @db.VarChar(8)
+  acquiredAt    DateTime? @map("acquired_at") @db.Date
+  disposedAt    DateTime? @map("disposed_at") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  pack TaxReturnPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@index([packId], map: "tax_return_pack_cgt_pack_idx")
+  @@map("tax_return_pack_cgt_lines")
+}
+
+model TaxReturnPackLedgerSnapshot {
+  id              String   @id @default(cuid())
+  packId          String   @map("pack_id")
+  journalEntryId  String   @map("journal_entry_id")
+  journalLineId   String?  @map("journal_line_id")
+  accountNo       String?  @map("account_no") @db.VarChar(64)
+  accountName     String?  @map("account_name") @db.VarChar(255)
+  transactionDate DateTime @map("transaction_date")
+  amount          Decimal  @db.Decimal(15, 2)
+  currencyCode    String   @default("USD") @map("currency_code") @db.VarChar(8)
+  fxRateAtTx      Decimal? @map("fx_rate_at_tx") @db.Decimal(18, 6)
+  amountUsd       Decimal? @map("amount_usd") @db.Decimal(15, 2)
+  amountZig       Decimal? @map("amount_zig") @db.Decimal(15, 2)
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  pack TaxReturnPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@index([packId], map: "tax_return_pack_snapshots_pack_idx")
+  @@index([packId, transactionDate], map: "tax_return_pack_snapshots_pack_date_idx")
+  @@map("tax_return_pack_ledger_snapshots")
+}
+
+model TaxReturnPackLineOverride {
+  id                   String   @id @default(cuid())
+  packId               String   @map("pack_id")
+  reconciliationLineId String   @map("reconciliation_line_id")
+  priorTaxCategory     String   @map("prior_tax_category") @db.VarChar(16)
+  newTaxCategory       String   @map("new_tax_category") @db.VarChar(16)
+  reason               String?  @db.VarChar(512)
+  overriddenById       String   @map("overridden_by_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  pack               TaxReturnPack                   @relation(fields: [packId], references: [id], onDelete: Cascade)
+  reconciliationLine TaxReturnPackReconciliationLine @relation(fields: [reconciliationLineId], references: [id], onDelete: Cascade)
+
+  @@index([packId], map: "tax_return_pack_overrides_pack_idx")
+  @@index([reconciliationLineId], map: "tax_return_pack_overrides_line_idx")
+  @@map("tax_return_pack_line_overrides")
+}
+
+model TaxAdjustmentRule {
+  id           String   @id @default(cuid())
+  ruleCode     String   @unique @map("rule_code") @db.VarChar(32)
+  matchType    String   @default("NAME_CONTAINS") @map("match_type") @db.VarChar(16)
+  matchValue   String   @map("match_value") @db.VarChar(128)
+  taxCategory  String   @map("tax_category") @db.VarChar(16)
+  displayName  String   @map("display_name") @db.VarChar(255)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("tax_adjustment_rules")
+}
+
+model TaxReturnPackAuditEvent {
+  id        String   @id @default(cuid())
+  packId    String   @map("pack_id")
+  eventType String   @map("event_type") @db.VarChar(32)
+  actorId   String   @map("actor_id")
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pack TaxReturnPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+
+  @@index([packId, createdAt], map: "tax_return_pack_audit_pack_idx")
+  @@map("tax_return_pack_audit_events")
 }

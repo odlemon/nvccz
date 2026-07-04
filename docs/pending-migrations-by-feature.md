@@ -90,6 +90,23 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 
 ---
 
+## Tax Return Pack
+
+| Status | **APPLIED** (2026-07-03 — dev `nts` local); **PENDING VPS** push + `python scripts/run-tax-return-pack-migration-all-dbs-vps.py` |
+
+| # | Script | npm command | What it creates |
+|---|--------|-------------|-----------------|
+| A | `scripts/run-tax-return-pack-migration.ts` | `npm run db:migrate:tax-return-pack` | Tables: `tax_return_packs`, `tax_return_pack_reconciliation_lines`, `tax_return_pack_cgt_lines`, `tax_return_pack_ledger_snapshots`, `tax_return_pack_line_overrides`, `tax_adjustment_rules`, `tax_return_pack_audit_events` |
+| B | *(same script)* | — | COA seed if missing: `5500` Corporate Tax Expense, `2210` Corporate Tax Liabilities — ZIMRA; ZIMRA adjustment rule seeds |
+
+**Prisma:** models in `prisma/schema.prisma` (`TaxReturnPack*`, `TaxAdjustmentRule`).
+
+**UAT after apply:** `npm run uat:tax-return-pack:core`, `uat:tax-return-pack:signoff`, `uat:tax-return-pack:preflight`
+
+**Deploy after apply:** `python scripts/deploy_vps.py`
+
+---
+
 ## Other features (already applied — reference only)
 
 | Feature | npm command | Notes |
@@ -110,3 +127,4 @@ After each apply: `npx prisma generate`, re-run the same script (expect `[skip]`
 | 2026-06-17 | Fundraising LP Pipeline | **Applied** on nts, client1_db, demo_env |
 | 2026-06-17 | Quarterly Client Statements | Migration script added; **not run** yet |
 | 2026-07-03 | Deal Execution Pack | **Applied** on nts, client1_db, demo_env |
+| 2026-07-03 | Tax Return Pack | **Applied** on dev `nts` (local); VPS migrate pending code push |
