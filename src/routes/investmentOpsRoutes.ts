@@ -234,6 +234,8 @@ router.get("/documents/:id/download", ...auth, InvestmentOpsController.downloadD
 
 // Reporting
 
+router.get("/reports/templates", ...auth, InvestmentOpsController.listReportTemplates);
+
 router.post("/reports/generate", ...auth, InvestmentOpsController.generateReport);
 
 router.get("/reports/:id/download", ...auth, InvestmentOpsController.downloadReport);

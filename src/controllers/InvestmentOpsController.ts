@@ -449,6 +449,9 @@ export class InvestmentOpsController {
   }
 
   // Reporting
+  static listReportTemplates(req: AuthRequest, res: Response) {
+    handle(res, Promise.resolve(InvestmentReportingService.listTemplates()));
+  }
   static generateReport(req: AuthRequest, res: Response) {
     handle(res, InvestmentReportingService.generate(req.user!.id, req.user, req.body), 201);
   }
@@ -456,7 +459,12 @@ export class InvestmentOpsController {
     try {
       const run = await InvestmentReportingService.get(req.params.id);
       if (!run?.fileRef) return res.status(404).json({ success: false, message: "Not found" });
-      createReadStream(run.fileRef).pipe(res);
+      res.setHeader("Content-Type", InvestmentReportingService.contentTypeForRun(run));
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${InvestmentReportingService.downloadFilename(run)}"`
+      );
+      InvestmentReportingService.openDownloadStream(run.fileRef).pipe(res);
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }

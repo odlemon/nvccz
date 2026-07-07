@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { createReadStream } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import PDFDocument from "pdfkit";
@@ -8,6 +9,13 @@ import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessSer
 import { ListedEquityPortfolioService } from "../listedEquity/ListedEquityPortfolioService";
 import { InvestmentOpsAuditService } from "./InvestmentOpsAuditService";
 import { reportRef } from "./investmentOpsSupport";
+import { DocxTemplateRenderService } from "./reporting/DocxTemplateRenderService";
+import { PerformanceReportDataBuilder } from "./reporting/PerformanceReportDataBuilder";
+import {
+  getInvestmentReportTemplate,
+  INVESTMENT_REPORT_TEMPLATES,
+  resolveDocxTemplatePath,
+} from "./reporting/investmentReportTemplates";
 
 const REPORT_BUILDERS: Record<string, (fundId: string, userId: string, user: any) => Promise<object>> = {
   PORTFOLIO_VALUATION: async (fundId, userId, user) => {
@@ -103,63 +111,139 @@ function writeCsv(fileRef: string, payload: object) {
 }
 
 export class InvestmentReportingService {
+  static listTemplates() {
+    return INVESTMENT_REPORT_TEMPLATES.map((t) => ({
+      code: t.code,
+      name: t.name,
+      description: t.description,
+      supportedFormats: t.supportedFormats,
+      requiresFundId: t.requiresFundId,
+      hasDocxTemplate: Boolean(t.docxTemplate),
+    }));
+  }
+
   static async generate(
     userId: string,
     user: any,
-    data: { fundId?: string; reportType: string; format?: string; parameters?: object }
+    data: {
+      fundId?: string;
+      reportType: string;
+      format?: string;
+      parameters?: Record<string, unknown>;
+    }
   ) {
-    if (data.fundId) await ListedEquityAccessService.assertFundAccess(userId, data.fundId, user);
+    const templateDef = getInvestmentReportTemplate(data.reportType);
+    const fmt = String(data.format || templateDef.supportedFormats[0]).toUpperCase();
+
+    if (!templateDef.supportedFormats.includes(fmt as any)) {
+      throw new Error(`Format ${fmt} not supported for ${templateDef.code}. Use: ${templateDef.supportedFormats.join(", ")}`);
+    }
+    if (templateDef.requiresFundId && !data.fundId) {
+      throw new Error("fundId is required for this report");
+    }
+    if (data.fundId) {
+      await ListedEquityAccessService.assertFundAccess(userId, data.fundId, user);
+    }
+
     const run = await prisma.investmentReportRun.create({
       data: {
         fundId: data.fundId,
         reportType: data.reportType,
-        format: data.format || "JSON",
+        format: fmt,
         status: "RUNNING",
         parametersJson: data.parameters ?? {},
         requestedById: userId,
       },
     });
 
-    const builder = REPORT_BUILDERS[data.reportType];
-    let payload: object = { message: "Report type stub", reportType: data.reportType };
-    if (builder && data.fundId) {
-      payload = await builder(data.fundId, userId, user);
-    }
-
     const dir = path.join(process.cwd(), "storage", "local-upload-mock", "investment-ops-reports");
     await mkdir(dir, { recursive: true });
-    const fmt = String(data.format || "JSON").toUpperCase();
     const base = reportRef();
     let fileRef: string;
-    if (fmt === "PDF") {
-      fileRef = path.join(dir, `${base}.pdf`);
-      await writePdf(fileRef, data.reportType, payload);
-    } else if (fmt === "EXCEL" || fmt === "XLSX") {
-      fileRef = path.join(dir, `${base}.xlsx`);
-      await writeExcel(fileRef, payload);
-    } else if (fmt === "CSV") {
-      fileRef = path.join(dir, `${base}.csv`);
-      await writeCsv(fileRef, payload);
-    } else {
-      fileRef = path.join(dir, `${base}.json`);
-      await writeFile(fileRef, JSON.stringify(payload, null, 2), "utf8");
+
+    try {
+      if (templateDef.docxTemplate && fmt === "DOCX") {
+        const templatePath = resolveDocxTemplatePath(templateDef);
+        const mergeData = await PerformanceReportDataBuilder.build({
+          fundId: data.fundId!,
+          userId,
+          user,
+          reportRunId: run.id,
+          parameters: data.parameters as any,
+        });
+        const buffer = DocxTemplateRenderService.render(templatePath, mergeData);
+        fileRef = path.join(dir, `${base}.docx`);
+        await writeFile(fileRef, buffer);
+      } else {
+        const builder = REPORT_BUILDERS[data.reportType];
+        let payload: object = { message: "Report type stub", reportType: data.reportType };
+        if (builder && data.fundId) {
+          payload = await builder(data.fundId, userId, user);
+        }
+
+        if (fmt === "PDF") {
+          fileRef = path.join(dir, `${base}.pdf`);
+          await writePdf(fileRef, data.reportType, payload);
+        } else if (fmt === "EXCEL" || fmt === "XLSX") {
+          fileRef = path.join(dir, `${base}.xlsx`);
+          await writeExcel(fileRef, payload);
+        } else if (fmt === "CSV") {
+          fileRef = path.join(dir, `${base}.csv`);
+          await writeCsv(fileRef, payload);
+        } else {
+          fileRef = path.join(dir, `${base}.json`);
+          await writeFile(fileRef, JSON.stringify(payload, null, 2), "utf8");
+        }
+      }
+
+      await InvestmentOpsAuditService.log(
+        "REPORT_GENERATED",
+        "ReportRun",
+        run.id,
+        { reportType: data.reportType, format: fmt },
+        userId
+      );
+
+      return prisma.investmentReportRun.update({
+        where: { id: run.id },
+        data: { status: "COMPLETED", fileRef, completedAt: new Date() },
+      });
+    } catch (err: any) {
+      await prisma.investmentReportRun.update({
+        where: { id: run.id },
+        data: { status: "FAILED", completedAt: new Date() },
+      });
+      throw err;
     }
-
-    await InvestmentOpsAuditService.log(
-      "REPORT_GENERATED",
-      "ReportRun",
-      run.id,
-      { reportType: data.reportType, format: fmt },
-      userId
-    );
-
-    return prisma.investmentReportRun.update({
-      where: { id: run.id },
-      data: { status: "COMPLETED", fileRef, completedAt: new Date() },
-    });
   }
 
   static async get(id: string) {
     return prisma.investmentReportRun.findUnique({ where: { id } });
+  }
+
+  static contentTypeForRun(run: { format?: string; fileRef?: string | null }): string {
+    const fmt = String(run.format || "").toUpperCase();
+    if (fmt === "DOCX") {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+    if (fmt === "PDF") return "application/pdf";
+    if (fmt === "CSV") return "text/csv";
+    if (fmt === "EXCEL" || fmt === "XLSX") {
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    }
+    return "application/json";
+  }
+
+  static downloadFilename(run: { reportType?: string; format?: string; id: string }): string {
+    const ext =
+      String(run.format || "json").toLowerCase() === "xlsx"
+        ? "xlsx"
+        : String(run.format || "json").toLowerCase();
+    const safe = String(run.reportType || "report").replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `${safe}-${run.id}.${ext}`;
+  }
+
+  static openDownloadStream(fileRef: string) {
+    return createReadStream(fileRef);
   }
 }

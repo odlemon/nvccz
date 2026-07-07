@@ -566,6 +566,11 @@ export const investmentOpsSwaggerPaths: Record<string, unknown> = {
   "/investment-ops/documents/{id}/download": {
     get: op("Download document", { parameters: [pathParam("id", SWAGGER_EX.documentId)] }),
   },
+  "/investment-ops/reports/templates": {
+    get: op("List report templates", {
+      description: "Available Investment Operations report templates and supported output formats.",
+    }),
+  },
   "/investment-ops/reports/generate": {
     post: op("Generate report", {
       requestBody: jsonRequestBody({
@@ -574,11 +579,46 @@ export const investmentOpsSwaggerPaths: Record<string, unknown> = {
           required: ["reportType"],
           properties: {
             fundId: { type: "string" },
-            reportType: { type: "string", enum: ["PORTFOLIO_VALUATION", "TRADE_BLOTTER", "HOLDINGS_SUMMARY", "COMPLIANCE_SUMMARY", "RECONCILIATION_SUMMARY"] },
-            format: { type: "string", enum: ["JSON", "PDF", "CSV", "EXCEL"] },
+            reportType: {
+              type: "string",
+              enum: [
+                "PERFORMANCE_REPORT",
+                "PORTFOLIO_VALUATION",
+                "TRADE_BLOTTER",
+                "HOLDINGS_SUMMARY",
+                "COMPLIANCE_SUMMARY",
+                "RECONCILIATION_SUMMARY",
+              ],
+            },
+            format: { type: "string", enum: ["DOCX", "JSON", "PDF", "CSV", "EXCEL"] },
+            parameters: {
+              type: "object",
+              properties: {
+                periodStart: { type: "string", format: "date" },
+                periodEnd: { type: "string", format: "date" },
+                valuationDate: { type: "string", format: "date" },
+                benchmarkName: { type: "string" },
+                clientLegalName: { type: "string" },
+                assetManagerName: { type: "string" },
+              },
+            },
           },
         },
         examples: {
+          performanceDocx: {
+            summary: "Performance Report (Word template)",
+            value: {
+              fundId: SWAGGER_EX.fundId,
+              reportType: "PERFORMANCE_REPORT",
+              format: "DOCX",
+              parameters: {
+                periodStart: "2026-01-01",
+                periodEnd: "2026-03-31",
+                valuationDate: "2026-03-31",
+                benchmarkName: "ZSE Industrial Index",
+              },
+            },
+          },
           pdf: { summary: "PDF valuation", value: { fundId: SWAGGER_EX.fundId, reportType: "PORTFOLIO_VALUATION", format: "PDF" } },
         },
       }),
