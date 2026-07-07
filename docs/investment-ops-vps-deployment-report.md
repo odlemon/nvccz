@@ -1,9 +1,30 @@
 # Investment Operations — VPS deployment report
 
 **Date:** 2026-07-07  
-**Commit:** `0e0906b` — Add Investment Operations v2 with SRD gap remediation  
+**Commit:** `1fcb082` — Investment Operations Swagger audit: full spec, strict VPS verify  
 **Dev API:** https://dev-api.arcus.co.zw/api  
 **Swagger UI:** https://dev-api.arcus.co.zw/api-docs (tag: **Investment Operations**)
+
+## Swagger completeness checklist
+
+| Item | Count / status |
+|------|----------------|
+| Routes in `investmentOpsRoutes.ts` | **89** |
+| Operations in `investment-ops-swagger-paths.ts` | **89** ✓ |
+| Strict verify matrix | **89** endpoints + auth + swagger parity |
+| `SWAGGER_JSON_RESPONSES` on all IO ops | ✓ |
+| POST `requestBody` examples | ✓ (orders preview, valuation, recon, reports, setup, …) |
+| Browser audit doc | `docs/investment-ops-swagger-audit-results.md` |
+
+## Authorize before Try it out
+
+Swagger UI does **not** auto-login. For any **Investment Operations** endpoint:
+
+1. `POST /auth/login` → copy JWT  
+2. Swagger → **Authorize** → paste token  
+3. **Try it out** → **Execute**
+
+Without Authorize, e.g. `GET /investment-ops/accounting/journals` returns `401 Unauthorized` (not an empty success).
 
 ## Migrations (all 3 databases)
 
@@ -24,9 +45,12 @@ Script: `python scripts/run-investment-ops-migration-all-dbs-vps.py`
 
 | Suite | Result |
 |-------|--------|
-| `npm run verify:investment-ops:swagger-vps` | 42/42 passed (after `/api-docs` HTML spec check fix) |
+| `npm run verify:investment-ops:swagger-vps` | **91/91 passed** (strict: 401 without token, shape + data assertions) |
+| `npm run verify:investment-ops:swagger-browser` | Journals Authorize UX checks |
 | `UAT_BASE_URL=https://dev-api.arcus.co.zw/api npm run uat:investment-ops:full` | 11/11 passed |
 | `UAT_BASE_URL=https://dev-api.arcus.co.zw/api npm run uat:investment-ops:core` | 9/9 passed |
+
+See **Swagger audit:** `docs/investment-ops-swagger-audit-results.md`
 
 ## Endpoints exercised on VPS
 
@@ -65,7 +89,8 @@ python scripts/run-investment-ops-migration-all-dbs-vps.py
 # Deploy
 python scripts/deploy_vps.py
 
-# Verify
+# Verify (strict)
 npm run verify:investment-ops:swagger-vps
+npm run verify:investment-ops:swagger-browser
 UAT_BASE_URL=https://dev-api.arcus.co.zw/api npm run uat:investment-ops:full
 ```
