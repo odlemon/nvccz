@@ -32,6 +32,11 @@ import {
   STOCK_PRICE_COLLECTOR_TAG_DEFINITION,
 } from './stock-price-collector-swagger-paths';
 import {
+  investmentOpsSwaggerPaths,
+  INVESTMENT_OPERATIONS_TAG,
+  INVESTMENT_OPERATIONS_TAG_DEFINITION,
+} from './investment-ops-swagger-paths';
+import {
   fundPerformanceReportingSwaggerPaths,
   FUND_PERFORMANCE_REPORTING_TAG,
   FUND_PERFORMANCE_REPORTING_TAG_DEFINITION,
@@ -346,6 +351,10 @@ const options = {
         name: FORECASTING_ENGINE_TAG,
         description:
           '**Forecasting Engine** — multi-dimensional hypercube scenarios, drivers, DAG compute, variance (Eq. 1–10), version lock/snapshots, GL daily sync, and Phase 2 bridges (Investee dispatch, OPM goal links, Events budget accrual). See `docs/forecasting-engine-backend-requirements.md`.'
+      },
+      {
+        name: INVESTMENT_OPERATIONS_TAG,
+        description: INVESTMENT_OPERATIONS_TAG_DEFINITION.description,
       },
       {
         name: STOCK_PRICE_COLLECTOR_TAG,
@@ -2301,6 +2310,8 @@ const fallbackSpec = {
     ...forecastingEngineSwaggerPaths,
     ...payrollEmploymentTrainingSwaggerPaths,
     ...stockPriceCollectorSwaggerPaths,
+  ...investmentOpsSwaggerPaths,
+    ...investmentOpsSwaggerPaths,
     ...fundPerformanceReportingSwaggerPaths,
     // Cashbook endpoints for fallback - Complete set
     // Core Transactions
@@ -9632,6 +9643,7 @@ specs.paths = {
   ...payrollEndpoints,
   ...payrollEmploymentTrainingSwaggerPaths,
   ...stockPriceCollectorSwaggerPaths,
+  ...investmentOpsSwaggerPaths,
   ...fundPerformanceReportingSwaggerPaths,
   ...fundManagementEndpoints,
   ...portfolioLetterheadsEndpoints,
@@ -9748,6 +9760,11 @@ specs = applyProtectedSwaggerModules(specs, [
     paths: payrollEmploymentTrainingSwaggerPaths,
     tagName: PAYROLL_EMPLOYMENT_TRAINING_TAG,
     tagDefinition: PAYROLL_EMPLOYMENT_TRAINING_TAG_DEFINITION,
+  },
+  {
+    paths: investmentOpsSwaggerPaths,
+    tagName: INVESTMENT_OPERATIONS_TAG,
+    tagDefinition: INVESTMENT_OPERATIONS_TAG_DEFINITION,
   },
   {
     paths: stockPriceCollectorSwaggerPaths,

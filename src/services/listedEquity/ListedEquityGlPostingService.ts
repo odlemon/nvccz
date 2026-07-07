@@ -3,6 +3,7 @@ import { prisma } from "../../utils/database";
 import { createJournalEntryWithAuditSequence } from "../AuditTrailSequenceService";
 import { WacCalculatorService } from "./WacCalculatorService";
 import { ListedEquityAuditService } from "./ListedEquityAuditService";
+import { InvestmentAccountingFacadeService } from "../investmentOps/InvestmentAccountingFacadeService";
 import { DEFAULT_COA_MAPPING, type CoaMapping } from "./listedEquityConstants";
 
 export class ListedEquityGlPostingService {
@@ -174,6 +175,16 @@ export class ListedEquityGlPostingService {
       data: { status: "SETTLED", settledAt: new Date() },
     });
     await ListedEquityAuditService.log("TRADE_GL_POSTED", "ListedEquityTrade", tradeId, { journalEntryId });
+    const trade = await prisma.listedEquityTrade.findUnique({ where: { id: tradeId } });
+    if (trade) {
+      await InvestmentAccountingFacadeService.recordFromTradeSettlement(
+        trade.fundId,
+        tradeId,
+        trade.tradeRef,
+        journalEntryId,
+        realizedPnl
+      );
+    }
   }
 
   static async failSettlement(tradeId: string, hopId: string, error: string) {

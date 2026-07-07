@@ -330,6 +330,26 @@ export class TradeOrchestratorService {
     return this.getTradeDetail(hop.tradeId);
   }
 
+  static async cancelHop(hopId: string, userId: string, reason?: string) {
+    const hop = await prisma.listedEquityTradeRoutingHop.findUnique({
+      where: { id: hopId },
+      include: { trade: true },
+    });
+    if (!hop) throw new Error("Hop not found");
+    if (["CONFIRMED", "COMPLETED"].includes(hop.status)) {
+      throw new Error(`Cannot cancel hop in status ${hop.status}`);
+    }
+    await prisma.listedEquityTradeRoutingHop.update({
+      where: { id: hopId },
+      data: { status: "CANCELLED", lastError: reason || "Cancelled by user" },
+    });
+    await ListedEquityAuditService.log("ROUTING_HOP_CANCELLED", "ListedEquityTradeRoutingHop", hopId, {
+      reason,
+      userId,
+    });
+    return this.getTradeDetail(hop.tradeId);
+  }
+
   static async checkAllConfirmed(tradeId: string) {
     await this.reconcileTradeSettlementState(tradeId);
   }

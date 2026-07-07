@@ -6175,6 +6175,401 @@ model ListedEquityCashHold {
   @@map("listed_equity_cash_holds")
 }
 
+// ─── Investment Operations v2.0 (SRD §13) ───────────────────────────────────
+
+model InvestmentCountry {
+  id          String   @id @default(cuid())
+  countryCode String   @unique @map("country_code") @db.VarChar(8)
+  countryName String   @map("country_name") @db.VarChar(128)
+  region      String?  @db.VarChar(64)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  issuers InvestmentIssuer[]
+
+  @@map("investment_countries")
+}
+
+model InvestmentIssuer {
+  id          String   @id @default(cuid())
+  issuerCode  String   @unique @map("issuer_code") @db.VarChar(64)
+  legalName   String   @map("legal_name") @db.VarChar(255)
+  countryCode String?  @map("country_code") @db.VarChar(8)
+  sector      String?  @db.VarChar(128)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  country InvestmentCountry? @relation(fields: [countryCode], references: [countryCode], onDelete: SetNull)
+
+  @@index([countryCode], map: "investment_issuers_country_idx")
+  @@map("investment_issuers")
+}
+
+model InvestmentInstrumentType {
+  id          String   @id @default(cuid())
+  typeCode    String   @unique @map("type_code") @db.VarChar(32)
+  displayName String   @map("display_name") @db.VarChar(128)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("investment_instrument_types")
+}
+
+model InvestmentInstrument {
+  id                    String    @id @default(cuid())
+  instrumentCode        String    @unique @map("instrument_code") @db.VarChar(64)
+  shortName             String    @map("short_name") @db.VarChar(128)
+  fullName              String    @map("full_name") @db.VarChar(512)
+  ticker                String?   @db.VarChar(64)
+  isin                  String?   @db.VarChar(32)
+  bloombergCode         String?   @map("bloomberg_code") @db.VarChar(64)
+  reutersCode           String?   @map("reuters_code") @db.VarChar(64)
+  internalRef           String?   @map("internal_ref") @db.VarChar(64)
+  exchangeCode          String?   @map("exchange_code") @db.VarChar(16)
+  marketCode            String?   @map("market_code") @db.VarChar(32)
+  countryCode           String?   @map("country_code") @db.VarChar(8)
+  issuerName            String?   @map("issuer_name") @db.VarChar(255)
+  issuerId              String?   @map("issuer_id")
+  instrumentTypeCode    String    @default("EQUITY") @map("instrument_type_code") @db.VarChar(32)
+  subCategory           String?   @map("sub_category") @db.VarChar(64)
+  sector                String?   @db.VarChar(128)
+  industry              String?   @db.VarChar(128)
+  listingCurrencyCode   String    @map("listing_currency_code") @db.VarChar(3)
+  pricingSource         String?   @map("pricing_source") @db.VarChar(64)
+  valuationMethod       String    @default("MARK_TO_MARKET") @map("valuation_method") @db.VarChar(32)
+  stalePriceThresholdHours Int    @default(24) @map("stale_price_threshold_hours")
+  decimalPrecision      Int       @default(4) @map("decimal_precision")
+  maturityDate          DateTime? @map("maturity_date") @db.Date
+  couponRate            Decimal?  @map("coupon_rate") @db.Decimal(10, 6)
+  couponFrequency       String?   @map("coupon_frequency") @db.VarChar(16)
+  status                String    @default("DRAFT") @db.VarChar(24)
+  complianceRestriction String?   @map("compliance_restriction") @db.VarChar(16)
+  createdById           String?   @map("created_by_id")
+  approvedById          String?   @map("approved_by_id")
+  approvedAt            DateTime? @map("approved_at")
+  listedEquitySecurityId String?  @map("listed_equity_security_id")
+  auditVersion          Int       @default(1) @map("audit_version")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  orders InvestmentOrder[]
+
+  @@index([instrumentTypeCode, status], map: "investment_instruments_type_status_idx")
+  @@index([listedEquitySecurityId], map: "investment_instruments_security_idx")
+  @@map("investment_instruments")
+}
+
+model InvestmentOrder {
+  id                 String    @id @default(cuid())
+  orderRef           String    @unique @map("order_ref") @db.VarChar(64)
+  fundId             String    @map("fund_id")
+  instrumentId       String?   @map("instrument_id")
+  securityId         String?   @map("security_id")
+  side               String    @db.VarChar(8)
+  quantity           Decimal   @db.Decimal(18, 6)
+  orderType          String    @default("MARKET") @map("order_type") @db.VarChar(24)
+  limitPrice         Decimal?  @map("limit_price") @db.Decimal(18, 6)
+  executionPrice     Decimal?  @map("execution_price") @db.Decimal(18, 6)
+  tradeCurrency      String    @map("trade_currency") @db.VarChar(3)
+  settlementCurrency String?   @map("settlement_currency") @db.VarChar(3)
+  brokerProfileId    String?   @map("broker_profile_id")
+  custodianProfileId String?   @map("custodian_profile_id")
+  valueDate          DateTime? @map("value_date") @db.Date
+  tradeDate          DateTime? @map("trade_date") @db.Date
+  status             String    @default("DRAFT") @db.VarChar(24)
+  complianceStatus   String?   @map("compliance_status") @db.VarChar(24)
+  notes              String?   @db.Text
+  tradeId            String?   @map("trade_id")
+  createdById        String?   @map("created_by_id")
+  submittedAt        DateTime? @map("submitted_at")
+  approvedAt         DateTime? @map("approved_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  instrument         InvestmentInstrument?      @relation(fields: [instrumentId], references: [id], onDelete: SetNull)
+  approvals          InvestmentOrderApproval[]
+  complianceResults  InvestmentComplianceResult[]
+
+  @@index([fundId, status], map: "investment_orders_fund_status_idx")
+  @@index([tradeId], map: "investment_orders_trade_idx")
+  @@map("investment_orders")
+}
+
+model InvestmentOrderApproval {
+  id           String   @id @default(cuid())
+  orderId      String   @map("order_id")
+  approvalType String   @map("approval_type") @db.VarChar(24)
+  status       String   @db.VarChar(16)
+  approverId   String?  @map("approver_id")
+  reason       String?  @db.Text
+  oldStatus    String?  @map("old_status") @db.VarChar(24)
+  newStatus    String?  @map("new_status") @db.VarChar(24)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  order InvestmentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId], map: "investment_order_approvals_order_idx")
+  @@map("investment_order_approvals")
+}
+
+model InvestmentValuationRun {
+  id              String    @id @default(cuid())
+  fundId          String    @map("fund_id")
+  asOf            DateTime  @map("as_of")
+  status          String    @default("RUNNING") @db.VarChar(32)
+  navBaseCurrency Decimal?  @map("nav_base_currency") @db.Decimal(18, 2)
+  errorMessage    String?   @map("error_message") @db.Text
+  parametersJson  Json?     @map("parameters_json")
+  startedById     String?   @map("started_by_id")
+  completedAt     DateTime? @map("completed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  exceptions InvestmentValuationException[]
+
+  @@index([fundId, asOf], map: "investment_valuation_runs_fund_asof_idx")
+  @@map("investment_valuation_runs")
+}
+
+model InvestmentValuationException {
+  id               String    @id @default(cuid())
+  valuationRunId   String?   @map("valuation_run_id")
+  fundId           String    @map("fund_id")
+  instrumentId     String?   @map("instrument_id")
+  securityId       String?   @map("security_id")
+  exceptionType    String    @map("exception_type") @db.VarChar(32)
+  message          String    @db.Text
+  status           String    @default("OPEN") @db.VarChar(16)
+  resolvedById     String?   @map("resolved_by_id")
+  resolutionAction String?   @map("resolution_action") @db.VarChar(32)
+  resolutionNote   String?   @map("resolution_note") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at")
+  resolvedAt       DateTime? @map("resolved_at")
+
+  valuationRun InvestmentValuationRun? @relation(fields: [valuationRunId], references: [id], onDelete: SetNull)
+
+  @@index([fundId], map: "investment_valuation_exceptions_fund_idx")
+  @@map("investment_valuation_exceptions")
+}
+
+model InvestmentAccountingEvent {
+  id                     String    @id @default(cuid())
+  fundId                 String    @map("fund_id")
+  sourceType             String    @map("source_type") @db.VarChar(32)
+  sourceId               String    @map("source_id")
+  eventType              String    @map("event_type") @db.VarChar(32)
+  status                 String    @default("NOT_POSTED") @db.VarChar(24)
+  journalEntryId         String?   @map("journal_entry_id")
+  reversalJournalEntryId String?   @map("reversal_journal_entry_id")
+  tradeRef               String?   @map("trade_ref") @db.VarChar(64)
+  amount                 Decimal?  @db.Decimal(18, 2)
+  currencyCode           String?   @map("currency_code") @db.VarChar(3)
+  postedAt               DateTime? @map("posted_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([fundId, status], map: "investment_accounting_events_fund_status_idx")
+  @@index([journalEntryId], map: "investment_accounting_events_journal_idx")
+  @@map("investment_accounting_events")
+}
+
+model InvestmentComplianceRule {
+  id                 String   @id @default(cuid())
+  fundId             String?  @map("fund_id")
+  ruleCode           String   @map("rule_code") @db.VarChar(64)
+  ruleName           String   @map("rule_name") @db.VarChar(255)
+  ruleType           String   @map("rule_type") @db.VarChar(32)
+  thresholdValue     Decimal? @map("threshold_value") @db.Decimal(18, 6)
+  thresholdUnit      String?  @map("threshold_unit") @db.VarChar(16)
+  instrumentTypeCode String?  @map("instrument_type_code") @db.VarChar(32)
+  sectorCode         String?  @map("sector_code") @db.VarChar(64)
+  countryCode        String?  @map("country_code") @db.VarChar(8)
+  issuerName         String?  @map("issuer_name") @db.VarChar(255)
+  esgFlag            String?  @map("esg_flag") @db.VarChar(32)
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  results InvestmentComplianceResult[]
+
+  @@index([fundId], map: "investment_compliance_rules_fund_idx")
+  @@map("investment_compliance_rules")
+}
+
+model InvestmentComplianceResult {
+  id                 String   @id @default(cuid())
+  orderId            String   @map("order_id")
+  ruleId             String?  @map("rule_id")
+  outcome            String   @db.VarChar(24)
+  message            String?  @db.Text
+  overrideReason     String?  @map("override_reason") @db.Text
+  overrideById       String?  @map("override_by_id")
+  overrideDocumentId String?  @map("override_document_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  order InvestmentOrder           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rule  InvestmentComplianceRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([orderId], map: "investment_compliance_results_order_idx")
+  @@map("investment_compliance_results")
+}
+
+model InvestmentBrokerCommission {
+  id                   String   @id @default(cuid())
+  stakeholderProfileId String   @map("stakeholder_profile_id")
+  instrumentTypeCode   String?  @map("instrument_type_code") @db.VarChar(32)
+  rateBps              Decimal  @map("rate_bps") @db.Decimal(10, 4)
+  flatFee              Decimal? @map("flat_fee") @db.Decimal(18, 2)
+  currencyCode         String   @default("USD") @map("currency_code") @db.VarChar(3)
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([stakeholderProfileId], map: "investment_broker_commissions_profile_idx")
+  @@map("investment_broker_commissions")
+}
+
+model InvestmentMarket {
+  id           String   @id @default(cuid())
+  marketCode   String   @unique @map("market_code") @db.VarChar(32)
+  marketName   String   @map("market_name") @db.VarChar(128)
+  countryCode  String?  @map("country_code") @db.VarChar(8)
+  exchangeCode String?  @map("exchange_code") @db.VarChar(16)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("investment_markets")
+}
+
+model InvestmentOpsSetting {
+  id           String   @id @default(cuid())
+  settingKey   String   @unique @map("setting_key") @db.VarChar(64)
+  settingValue Json     @map("setting_value")
+  updatedById  String?  @map("updated_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("investment_ops_settings")
+}
+
+model InvestmentReconciliationBatch {
+  id               String    @id @default(cuid())
+  fundId           String    @map("fund_id")
+  reconType        String    @map("recon_type") @db.VarChar(32)
+  asOfDate         DateTime  @map("as_of_date") @db.Date
+  status           String    @default("RUNNING") @db.VarChar(24)
+  matchedCount     Int       @default(0) @map("matched_count")
+  unmatchedCount   Int       @default(0) @map("unmatched_count")
+  externalFileName String?   @map("external_file_name") @db.VarChar(255)
+  createdById      String?   @map("created_by_id")
+  completedAt      DateTime? @map("completed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  items InvestmentReconciliationItem[]
+
+  @@index([fundId, reconType], map: "investment_reconciliation_batches_fund_idx")
+  @@map("investment_reconciliation_batches")
+}
+
+model InvestmentReconciliationItem {
+  id                     String    @id @default(cuid())
+  batchId                String    @map("batch_id")
+  status                 String    @default("UNMATCHED") @db.VarChar(24)
+  internalRef            String?   @map("internal_ref") @db.VarChar(128)
+  externalRef            String?   @map("external_ref") @db.VarChar(128)
+  internalAmount         Decimal?  @map("internal_amount") @db.Decimal(18, 2)
+  externalAmount         Decimal?  @map("external_amount") @db.Decimal(18, 2)
+  variance               Decimal?  @db.Decimal(18, 2)
+  message                String?   @db.Text
+  resolvedById           String?   @map("resolved_by_id")
+  resolvedAt             DateTime? @map("resolved_at")
+  resolutionReason       String?   @map("resolution_reason") @db.Text
+  resolutionDocumentId   String?   @map("resolution_document_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  batch InvestmentReconciliationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId], map: "investment_reconciliation_items_batch_idx")
+  @@map("investment_reconciliation_items")
+}
+
+model InvestmentDocument {
+  id             String   @id @default(cuid())
+  fundId         String?  @map("fund_id")
+  documentType   String   @map("document_type") @db.VarChar(32)
+  title          String   @db.VarChar(255)
+  fileRef        String   @map("file_ref") @db.Text
+  orderId        String?  @map("order_id")
+  tradeId        String?  @map("trade_id")
+  versionNo      Int      @default(1) @map("version_no")
+  approvalStatus String   @default("PENDING") @map("approval_status") @db.VarChar(24)
+  uploadedById   String?  @map("uploaded_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([fundId, documentType], map: "investment_documents_fund_type_idx")
+  @@map("investment_documents")
+}
+
+model InvestmentReportRun {
+  id            String    @id @default(cuid())
+  fundId        String?   @map("fund_id")
+  reportType    String    @map("report_type") @db.VarChar(32)
+  format        String    @default("PDF") @db.VarChar(8)
+  status        String    @default("PENDING") @db.VarChar(16)
+  fileRef       String?   @map("file_ref") @db.Text
+  parametersJson Json?    @map("parameters_json")
+  requestedById String?   @map("requested_by_id")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("investment_report_runs")
+}
+
+model InvestmentModelPortfolio {
+  id               String   @id @default(cuid())
+  name             String   @db.VarChar(255)
+  strategyCode     String?  @map("strategy_code") @db.VarChar(64)
+  baseCurrencyCode String   @default("USD") @map("base_currency_code") @db.VarChar(3)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  allocations InvestmentModelPortfolioAllocation[]
+
+  @@map("investment_model_portfolios")
+}
+
+model InvestmentModelPortfolioAllocation {
+  id               String   @id @default(cuid())
+  modelPortfolioId String   @map("model_portfolio_id")
+  allocationType   String   @map("allocation_type") @db.VarChar(24)
+  allocationKey    String   @map("allocation_key") @db.VarChar(64)
+  targetWeightPct  Decimal  @map("target_weight_pct") @db.Decimal(10, 4)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  modelPortfolio InvestmentModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: Cascade)
+
+  @@index([modelPortfolioId], map: "investment_model_allocations_model_idx")
+  @@map("investment_model_portfolio_allocations")
+}
+
+model InvestmentSimulationRun {
+  id          String   @id @default(cuid())
+  fundId      String   @map("fund_id")
+  scenarioJson Json    @map("scenario_json")
+  resultJson  Json?    @map("result_json")
+  status      String   @default("COMPLETED") @db.VarChar(16)
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([fundId], map: "investment_simulation_runs_fund_idx")
+  @@map("investment_simulation_runs")
+}
+
 // ─── Cap Table Management (Phase 2 §3.8) ─────────────────────────────────────
 
 model CapTableRegistry {

@@ -1,0 +1,349 @@
+// @ts-nocheck
+import { prisma } from "../../utils/database";
+import { ListedEquityAccessService } from "../listedEquity/ListedEquityAccessService";
+import { PortfolioValuationEngine } from "../listedEquity/PortfolioValuationEngine";
+import { TradeOrchestratorService } from "../listedEquity/TradeOrchestratorService";
+import { InvestmentComplianceService } from "./InvestmentComplianceService";
+import { InvestmentAccountingFacadeService } from "./InvestmentAccountingFacadeService";
+import { InvestmentInstrumentService } from "./InvestmentInstrumentService";
+import { InvestmentOpsAuditService } from "./InvestmentOpsAuditService";
+import { assertFourEyeApproval } from "./investmentOpsFourEye";
+import { orderRef, paginatedResult, parsePagination } from "./investmentOpsSupport";
+
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  DRAFT: ["SUBMITTED", "COMPLIANCE_REVIEW", "CANCELLED"],
+  SUBMITTED: ["COMPLIANCE_REVIEW", "APPROVED", "REJECTED", "CANCELLED"],
+  COMPLIANCE_REVIEW: ["APPROVED", "REJECTED", "CANCELLED"],
+  APPROVED: ["SENT_TO_BROKER", "CANCELLED"],
+  SENT_TO_BROKER: ["PARTIALLY_EXECUTED", "EXECUTED", "PENDING_SETTLEMENT", "CANCELLED"],
+  PARTIALLY_EXECUTED: ["EXECUTED", "PENDING_SETTLEMENT", "CANCELLED"],
+  EXECUTED: ["PENDING_SETTLEMENT", "SETTLED"],
+  PENDING_SETTLEMENT: ["SETTLED", "FAILED"],
+  SETTLED: ["ARCHIVED"],
+  REJECTED: ["ARCHIVED"],
+  CANCELLED: ["ARCHIVED"],
+  FAILED: ["ARCHIVED"],
+};
+
+export class InvestmentOrderService {
+  static async list(
+    userId: string,
+    user: any,
+    filters: { status?: string; fundId?: string; page?: number; pageSize?: number }
+  ) {
+    const scope = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
+    const where: any = {};
+    if (filters.fundId) where.fundId = filters.fundId;
+    else if (scope !== "ALL") where.fundId = { in: scope };
+    if (filters.status) where.status = filters.status;
+
+    const { page, pageSize, skip, take } = parsePagination(filters);
+    const [rows, total] = await Promise.all([
+      prisma.investmentOrder.findMany({
+        where,
+        include: { instrument: true },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+      }),
+      prisma.investmentOrder.count({ where }),
+    ]);
+    return paginatedResult(rows, total, page, pageSize);
+  }
+
+  static async get(id: string) {
+    return prisma.investmentOrder.findUnique({
+      where: { id },
+      include: { instrument: true, approvals: true, complianceResults: true },
+    });
+  }
+
+  static async preview(data: Record<string, unknown>, userId: string, user: any) {
+    const fundId = data.fundId as string;
+    await ListedEquityAccessService.assertFundAccess(userId, fundId, user);
+
+    let instrument = null;
+    if (data.instrumentId) {
+      instrument = await InvestmentInstrumentService.get(data.instrumentId as string);
+      if (instrument && instrument.status !== "APPROVED") {
+        return {
+          blocked: true,
+          blockReason: `Instrument ${instrument.instrumentCode} is not approved (status: ${instrument.status})`,
+        };
+      }
+    }
+
+    const qty = Number(data.quantity);
+    const price = Number(data.executionPrice || data.limitPrice || 0);
+    const grossConsideration = qty * price;
+
+    let commissionBps = 0;
+    if (data.brokerProfileId) {
+      const comm = await prisma.investmentBrokerCommission.findFirst({
+        where: {
+          stakeholderProfileId: data.brokerProfileId as string,
+          isActive: true,
+          OR: [
+            { instrumentTypeCode: instrument?.instrumentTypeCode },
+            { instrumentTypeCode: null },
+          ],
+        },
+        orderBy: { instrumentTypeCode: "desc" },
+      });
+      if (comm) commissionBps = Number(comm.rateBps);
+    }
+    const fees = grossConsideration * (commissionBps / 10000);
+    const taxes = 0;
+    const settlementAmount = grossConsideration + fees + taxes;
+
+    const snap = await prisma.listedEquityValuationSnapshot.findFirst({
+      where: { fundId },
+      orderBy: { asOf: "desc" },
+    });
+    const nav = snap ? Number(snap.navBaseCurrency) : 0;
+    const weightAfterPct = nav > 0 ? (settlementAmount / nav) * 100 : 0;
+
+    const cashImpact = data.side === "BUY" ? -settlementAmount : settlementAmount;
+    return {
+      grossConsideration,
+      fees,
+      taxes,
+      settlementAmount,
+      portfolioWeightAfterPct: weightAfterPct,
+      cashImpact,
+      nav,
+      instrumentStatus: instrument?.status ?? null,
+      compliancePreview: await InvestmentComplianceService.previewCheck({
+        fundId,
+        side: String(data.side).toUpperCase(),
+        orderValue: settlementAmount,
+        instrument,
+      }),
+    };
+  }
+
+  static async create(data: Record<string, unknown>, userId: string) {
+    await ListedEquityAccessService.assertFundAccess(userId, data.fundId as string);
+    if (data.instrumentId) {
+      await InvestmentInstrumentService.assertApprovedForTrade(data.instrumentId as string);
+    }
+    let securityId = data.securityId as string | undefined;
+    if (!securityId && data.instrumentId) {
+      const inst = await prisma.investmentInstrument.findUnique({
+        where: { id: data.instrumentId as string },
+      });
+      securityId = inst?.listedEquitySecurityId ?? undefined;
+    }
+    const order = await prisma.investmentOrder.create({
+      data: {
+        orderRef: orderRef(),
+        fundId: data.fundId as string,
+        instrumentId: data.instrumentId as string | undefined,
+        securityId,
+        side: String(data.side).toUpperCase(),
+        quantity: Number(data.quantity),
+        orderType: (data.orderType as string) || "MARKET",
+        limitPrice: data.limitPrice != null ? Number(data.limitPrice) : undefined,
+        executionPrice: data.executionPrice != null ? Number(data.executionPrice) : undefined,
+        tradeCurrency: (data.tradeCurrency as string) || "USD",
+        settlementCurrency: data.settlementCurrency as string | undefined,
+        brokerProfileId: data.brokerProfileId as string | undefined,
+        custodianProfileId: data.custodianProfileId as string | undefined,
+        valueDate: data.valueDate ? new Date(data.valueDate as string) : undefined,
+        tradeDate: data.tradeDate ? new Date(data.tradeDate as string) : undefined,
+        notes: data.notes as string | undefined,
+        status: "DRAFT",
+        createdById: userId,
+      },
+      include: { instrument: true },
+    });
+    await InvestmentOpsAuditService.log("ORDER_CREATED", "Order", order.id, { orderRef: order.orderRef }, userId);
+    return order;
+  }
+
+  static assertTransition(oldStatus: string, newStatus: string) {
+    const allowed = VALID_TRANSITIONS[oldStatus];
+    if (!allowed?.includes(newStatus)) {
+      throw new Error(`Invalid transition ${oldStatus} → ${newStatus}`);
+    }
+  }
+
+  static async transition(
+    id: string,
+    userId: string,
+    newStatus: string,
+    approvalType: string,
+    reason?: string
+  ) {
+    const order = await prisma.investmentOrder.findUnique({ where: { id } });
+    if (!order) throw new Error("Order not found");
+    const oldStatus = order.status;
+    this.assertTransition(oldStatus, newStatus);
+
+    const updated = await prisma.investmentOrder.update({
+      where: { id },
+      data: {
+        status: newStatus,
+        submittedAt: newStatus === "SUBMITTED" ? new Date() : order.submittedAt,
+        approvedAt: newStatus === "APPROVED" ? new Date() : order.approvedAt,
+      },
+    });
+    await prisma.investmentOrderApproval.create({
+      data: {
+        orderId: id,
+        approvalType,
+        status: "RECORDED",
+        approverId: userId,
+        reason,
+        oldStatus,
+        newStatus,
+      },
+    });
+    await InvestmentOpsAuditService.log(
+      "ORDER_STATUS_CHANGED",
+      "Order",
+      id,
+      { oldStatus, newStatus, approvalType, reason },
+      userId
+    );
+    return updated;
+  }
+
+  static async submit(id: string, userId: string) {
+    const order = await prisma.investmentOrder.findUnique({ where: { id }, include: { instrument: true } });
+    if (!order) throw new Error("Order not found");
+    if (order.instrumentId) {
+      await InvestmentInstrumentService.assertApprovedForTrade(order.instrumentId);
+    }
+    const check = await InvestmentComplianceService.checkOrder(id);
+    if (check.outcome === "FAILED") {
+      await prisma.investmentOrder.update({
+        where: { id },
+        data: { complianceStatus: "FAILED", status: "COMPLIANCE_REVIEW" },
+      });
+      await InvestmentOpsAuditService.log("ORDER_COMPLIANCE_FAILED", "Order", id, check, userId);
+      throw new Error(`Compliance failed: ${check.message}`);
+    }
+    await prisma.investmentOrder.update({
+      where: { id },
+      data: { complianceStatus: check.outcome },
+    });
+    if (check.outcome === "WARNING") {
+      await this.transition(id, userId, "COMPLIANCE_REVIEW", "SUBMIT_WITH_WARNING");
+    } else {
+      await this.transition(id, userId, "SUBMITTED", "SUBMIT");
+    }
+    return this.get(id);
+  }
+
+  static async approve(id: string, userId: string) {
+    const order = await prisma.investmentOrder.findUnique({ where: { id } });
+    if (!order) throw new Error("Order not found");
+    await assertFourEyeApproval(order, userId);
+    if (!["SUBMITTED", "COMPLIANCE_REVIEW"].includes(order.status)) {
+      throw new Error(`Cannot approve order in status ${order.status}`);
+    }
+    return this.transition(id, userId, "APPROVED", "COMPLIANCE_APPROVE");
+  }
+
+  static async sendToBroker(id: string, userId: string) {
+    const order = await prisma.investmentOrder.findUnique({ where: { id } });
+    if (!order) throw new Error("Order not found");
+    if (order.status !== "APPROVED") throw new Error(`Cannot send to broker from status ${order.status}`);
+    return this.transition(id, userId, "SENT_TO_BROKER", "SEND_TO_BROKER");
+  }
+
+  static async reject(id: string, userId: string, reason: string) {
+    return this.transition(id, userId, "REJECTED", "REJECT", reason);
+  }
+
+  static async cancel(id: string, userId: string, reason?: string) {
+    const order = await prisma.investmentOrder.findUnique({ where: { id } });
+    if (!order) throw new Error("Order not found");
+    const cancellable = [
+      "DRAFT",
+      "SUBMITTED",
+      "COMPLIANCE_REVIEW",
+      "APPROVED",
+      "SENT_TO_BROKER",
+      "PARTIALLY_EXECUTED",
+    ];
+    if (!cancellable.includes(order.status)) {
+      throw new Error(`Cannot cancel order in status ${order.status}`);
+    }
+    return this.transition(id, userId, "CANCELLED", "CANCEL", reason);
+  }
+
+  static async executeOrder(id: string, userId: string, idempotencyKey?: string) {
+    const order = await prisma.investmentOrder.findUnique({ where: { id } });
+    if (!order) throw new Error("Order not found");
+    if (!["APPROVED", "SENT_TO_BROKER"].includes(order.status)) {
+      throw new Error(`Cannot execute order in status ${order.status}`);
+    }
+    if (order.status === "APPROVED") {
+      await this.sendToBroker(id, userId);
+    }
+    if (!order.securityId) throw new Error("Order has no linked security for execution");
+    if (order.instrumentId) {
+      await InvestmentInstrumentService.assertApprovedForTrade(order.instrumentId);
+    }
+
+    const trade = await TradeOrchestratorService.createDraft({
+      fundId: order.fundId,
+      securityId: order.securityId,
+      side: order.side,
+      quantity: Number(order.quantity),
+      executionPrice: Number(order.executionPrice || order.limitPrice || 0),
+      executionCurrencyCode: order.tradeCurrency,
+    });
+
+    const executed = await TradeOrchestratorService.execute(trade.id, userId, idempotencyKey);
+
+    const partialQty = executed.partialFillQuantity != null ? Number(executed.partialFillQuantity) : null;
+    const orderQty = Number(order.quantity);
+    let newStatus = "PENDING_SETTLEMENT";
+    if (partialQty != null && partialQty > 0 && partialQty < orderQty) {
+      newStatus = "PARTIALLY_EXECUTED";
+    } else if (executed.status === "SETTLED") {
+      newStatus = "SETTLED";
+    } else if (executed.status === "ROUTING" || executed.status === "EXECUTED") {
+      newStatus = "EXECUTED";
+    }
+
+    await prisma.investmentOrder.update({
+      where: { id },
+      data: { tradeId: trade.id, status: newStatus },
+    });
+    await InvestmentOpsAuditService.log("ORDER_EXECUTED", "Order", id, { tradeId: trade.id, newStatus }, userId);
+
+    if (executed.settlement?.journalEntryId) {
+      await InvestmentAccountingFacadeService.recordFromTradeSettlement(
+        order.fundId,
+        trade.id,
+        executed.tradeRef,
+        executed.settlement.journalEntryId,
+        executed.settlement.realizedPnl != null ? Number(executed.settlement.realizedPnl) : null
+      );
+      if (newStatus === "PENDING_SETTLEMENT" || newStatus === "EXECUTED") {
+        await prisma.investmentOrder.update({ where: { id }, data: { status: "SETTLED" } });
+      }
+    }
+
+    return { order: await this.get(id), trade: executed };
+  }
+
+  static enrichTradeBlotter(trade: any) {
+    return {
+      ...trade,
+      accountingStatus: trade.settlement?.journalEntryId ? "POSTED" : "NOT_POSTED",
+      confirmationStatus: trade.routingHops?.find((h: any) => h.target === "BROKER")?.status ?? "STAGED",
+      settlementStatus: trade.status,
+      grossConsideration: Number(trade.quantity) * Number(trade.executionPrice),
+      netConsideration:
+        Number(trade.quantity) * Number(trade.executionPrice) + Number(trade.fees || 0),
+      brokerProfileId: trade.brokerProfileId ?? null,
+      custodianProfileId: trade.custodianProfileId ?? null,
+      valueDate: trade.valueDate ?? trade.settlement?.valueDate ?? null,
+    };
+  }
+}
