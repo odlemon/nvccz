@@ -205,28 +205,29 @@ async function main() {
   await hit("Price sources", "GET", "/investment-ops/setup/price-sources");
   await hit("Settings", "GET", "/investment-ops/setup/settings");
 
-  // Swagger doc check
-  const swaggerRes = await fetch(`${BASE.replace(/\/api$/, "")}/api-docs.json`);
+  // Swagger doc check — spec is embedded in /api-docs HTML (no /api-docs.json route)
+  const swaggerBase = BASE.replace(/\/api$/, "");
+  const swaggerRes = await fetch(`${swaggerBase}/api-docs`);
   let swaggerOk = false;
   let pathCount = 0;
   if (swaggerRes.ok) {
-    const spec = (await swaggerRes.json()) as { paths?: Record<string, unknown> };
-    const paths = Object.keys(spec.paths || {}).filter((p) => p.includes("/investment-ops/"));
-    pathCount = paths.length;
+    const html = await swaggerRes.text();
+    const matches = html.match(/\/investment-ops\/[a-z0-9\-/{}]+/gi) || [];
+    pathCount = new Set(matches.map((m) => m.replace(/\{[^}]+\}/g, "{id}"))).size;
     swaggerOk = pathCount >= 30;
     log({
       op: "Swagger investment-ops paths",
       method: "GET",
-      path: "/api-docs.json",
+      path: "/api-docs",
       status: swaggerRes.status,
       ok: swaggerOk,
-      note: `${pathCount} investment-ops paths in spec`,
+      note: `${pathCount} unique investment-ops path patterns in embedded spec`,
     });
   } else {
     log({
       op: "Swagger spec",
       method: "GET",
-      path: "/api-docs.json",
+      path: "/api-docs",
       status: swaggerRes.status,
       ok: false,
       note: "could not load",
