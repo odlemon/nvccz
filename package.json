@@ -133,6 +133,7 @@
     "uat:investment-ops:core": "ts-node --transpile-only -r dotenv/config scripts/uat-investment-ops-core-http.ts",
     "uat:investment-ops:full": "ts-node --transpile-only -r dotenv/config scripts/uat-investment-ops-full-http.ts",
     "verify:investment-ops:swagger-vps": "ts-node --transpile-only -r dotenv/config scripts/verify-investment-ops-swagger-vps-http.ts",
+    "verify:investment-ops:swagger-vps:strict": "ts-node --transpile-only -r dotenv/config scripts/verify-investment-ops-swagger-vps-http.ts",
     "verify:listed-equity-market-terminal": "ts-node --transpile-only -r dotenv/config scripts/verify-listed-equity-market-terminal-migration.ts",
     "probe:mansa:zse": "ts-node --transpile-only -r dotenv/config scripts/probe-mansa-zse.ts",
     "probe:vfex": "ts-node --transpile-only -r dotenv/config scripts/probe-vfex.ts",
