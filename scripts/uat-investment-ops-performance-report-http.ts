@@ -3,7 +3,7 @@
  * npm run uat:investment-ops:performance-report
  */
 import "dotenv/config";
-import { mkdir, writeFileSync } from "fs";
+import { writeFileSync, mkdirSync } from "fs";
 import path from "path";
 
 const BASE = (process.env.UAT_BASE_URL || process.env.API_BASE_URL || "https://dev-api.arcus.co.zw/api").replace(
@@ -78,7 +78,7 @@ async function main() {
   if (buf.length < 5000) throw new Error(`DOCX too small (${buf.length} bytes) — likely empty or error`);
   if (buf[0] !== 0x50 || buf[1] !== 0x4b) throw new Error("Download is not a ZIP/DOCX file");
 
-  await mkdir(OUT_DIR, { recursive: true });
+  mkdirSync(OUT_DIR, { recursive: true });
   const outPath = path.join(OUT_DIR, `performance-report-${runId}.docx`);
   writeFileSync(outPath, buf);
   console.log(`[PASS] Downloaded ${buf.length} bytes → ${outPath}`);
