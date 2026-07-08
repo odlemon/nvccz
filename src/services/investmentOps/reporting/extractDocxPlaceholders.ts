@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import PizZip from "pizzip";
 
 export function extractDocxPlaceholders(docxPath: string): string[] {
@@ -17,6 +17,26 @@ export function countLiteralNaInDocx(docxPath: string): number {
   return (xml.match(/<w:t>N\/A<\/w:t>/g) || []).length;
 }
 
+export function normalizeDocxDelimiters(docxPath: string): number {
+  const content = readFileSync(docxPath, "binary");
+  const zip = new PizZip(content);
+  let changes = 0;
+  for (const name of Object.keys(zip.files)) {
+    if (!name.endsWith(".xml")) continue;
+    let xml = zip.file(name)?.asText() || "";
+    const before = xml;
+    xml = xml.replace(/\{\{/g, "{").replace(/\}\}/g, "}");
+    if (xml !== before) {
+      zip.file(name, xml);
+      changes++;
+    }
+  }
+  if (changes > 0) {
+    writeFileSync(docxPath, zip.generate({ type: "nodebuffer", compression: "DEFLATE" }));
+  }
+  return changes;
+}
+
 export function patchLiteralNaInDocx(docxPath: string, replacements: string[]): number {
   const content = readFileSync(docxPath, "binary");
   const zip = new PizZip(content);
@@ -31,7 +51,6 @@ export function patchLiteralNaInDocx(docxPath: string, replacements: string[]): 
   }
   if (count > 0) {
     zip.file("word/document.xml", xml);
-    const { writeFileSync } = require("fs");
     writeFileSync(docxPath, zip.generate({ type: "nodebuffer", compression: "DEFLATE" }));
   }
   return count;

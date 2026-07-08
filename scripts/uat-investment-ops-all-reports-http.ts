@@ -44,7 +44,7 @@ async function main() {
 
   let clientId: string | null = null;
   try {
-    const clientsRes = await fetch(`${BASE}/fundraising/clients?page=1&pageSize=1`, {
+    const clientsRes = await fetch(`${BASE}/clients?page=1&pageSize=1`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (clientsRes.ok) {

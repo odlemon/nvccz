@@ -7,6 +7,7 @@ import path from "path";
 import {
   countLiteralNaInDocx,
   extractDocxPlaceholders,
+  normalizeDocxDelimiters,
   patchLiteralNaInDocx,
 } from "../src/services/investmentOps/reporting/extractDocxPlaceholders";
 
@@ -46,6 +47,7 @@ function main() {
       continue;
     }
     copyFileSync(src, dest);
+    normalizeDocxDelimiters(dest);
     const naBefore = countLiteralNaInDocx(dest);
     if (naBefore > 0) {
       const replacements = Array.from({ length: naBefore }, (_, i) => `auto_na_field_${i + 1}`);
