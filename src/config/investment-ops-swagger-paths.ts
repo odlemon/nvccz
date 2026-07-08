@@ -24,6 +24,38 @@ export const INVESTMENT_OPERATIONS_TAG_DEFINITION = {
 const TAG = [INVESTMENT_OPERATIONS_TAG];
 const bearer = [{ bearerAuth: [] }];
 
+const REPORT_PERIOD_PARAMS = {
+  periodStart: "2026-01-01",
+  periodEnd: "2026-03-31",
+  valuationDate: "2026-03-31",
+  benchmarkName: "ZSE Industrial Index",
+  assetManagerName: "Arcus Asset Management",
+};
+
+/** Scope requirements per DOCX report type — shown on generate + templates endpoints. */
+const REPORT_SCOPE_GUIDE =
+  "**Scope fields:** `fundId` and `clientId` are optional at the schema level but **required for specific report types** (see table). " +
+  "Omit both for firm-wide reports. Call `GET /investment-ops/reports/templates` for machine-readable `scopeType`, `requiresFundId`, and `requiresClientId` per template.\n\n" +
+  "| Report type | Scope | fundId | clientId |\n" +
+  "|---|---|---|---|\n" +
+  "| `PERFORMANCE_REPORT` | FUND | **Required** | Omit |\n" +
+  "| `HOLDINGS_REPORT` | FUND | **Required** | Omit |\n" +
+  "| `TRANSACTION_REPORT` | FUND | **Required** | Omit |\n" +
+  "| `ASSET_ALLOCATION_REPORT` | FUND | **Required** | Omit |\n" +
+  "| `INCOME_REPORT` | FUND | **Required** | Omit |\n" +
+  "| `FEE_REPORT` | FUND | **Required** | Omit |\n" +
+  "| `CLIENT_PORTFOLIO_VALUATION` | CLIENT_MANDATE | **Required** | **Required** |\n" +
+  "| `RECONCILIATION_EXCEPTION_REPORT` | FUND | **Required** | Omit |\n" +
+  "| `CUSTODIAN_TRUSTEE_RECONCILIATION` | FUND | **Required** | Omit |\n" +
+  "| `SUBSCRIPTIONS_REDEMPTIONS_REPORT` | FUND | **Required** | Omit |\n" +
+  "| `AUM_FUM_MOVEMENT_REPORT` | FIRM | **Do not send** | Omit |\n" +
+  "| `TRUSTEE_QUARTERLY_PACK` | CIS_SCHEME | **Required** (fund/CIS scheme) | Omit |\n" +
+  "| `CIS_MONTHLY_RETURN_PACK` | CIS_SCHEME | **Required** (fund/CIS scheme) | Omit |\n" +
+  "| `AML_CFT_CPF_RETURN_PACK` | FIRM | **Do not send** | Omit |\n" +
+  "| `SECZIM_CAPITAL_ADEQUACY_PACK` | FIRM | **Do not send** | Omit |\n" +
+  "| `SECZIM_PRUDENTIAL_RETURN_PACK` | REGULATOR_PACK | **Do not send** | Omit |\n" +
+  "| `PORTFOLIO_VALUATION`, `TRADE_BLOTTER`, `HOLDINGS_SUMMARY`, `COMPLIANCE_SUMMARY`, `RECONCILIATION_SUMMARY` | FUND | **Required** | Omit |";
+
 function op(summary: string, extra: Record<string, unknown> = {}) {
   return { summary, tags: TAG, security: bearer, responses: SWAGGER_JSON_RESPONSES, ...extra };
 }
@@ -568,7 +600,10 @@ export const investmentOpsSwaggerPaths: Record<string, unknown> = {
   },
   "/investment-ops/reports/templates": {
     get: op("List report templates", {
-      description: "Available Investment Operations report templates and supported output formats.",
+      description:
+        "Available Investment Operations report templates with **scope metadata** for generate requests.\n\n" +
+        "Each item includes `scopeType`, `requiresFundId`, `requiresClientId`, `supportedFormats`, and `hasDocxTemplate`.\n\n" +
+        REPORT_SCOPE_GUIDE,
     }),
   },
   "/investment-ops/reports": {
@@ -586,13 +621,24 @@ export const investmentOpsSwaggerPaths: Record<string, unknown> = {
   },
   "/investment-ops/reports/generate": {
     post: op("Generate report", {
+      description:
+        "Queue a report run. Returns a run record; download the file via `GET /investment-ops/reports/{id}/download` when `status` is `COMPLETED`.\n\n" +
+        REPORT_SCOPE_GUIDE,
       requestBody: jsonRequestBody({
         schema: {
           type: "object",
           required: ["reportType"],
           properties: {
-            fundId: { type: "string" },
-            clientId: { type: "string", description: "Required for CLIENT_MANDATE scoped reports" },
+            fundId: {
+              type: "string",
+              description:
+                "Fund or CIS scheme ID. **Required** for FUND and CIS_SCHEME scoped reports. **Do not send** for FIRM or REGULATOR_PACK reports (AUM/FUM, AML, SECZIM packs).",
+            },
+            clientId: {
+              type: "string",
+              description:
+                "**Required only** for `CLIENT_PORTFOLIO_VALUATION` (scope CLIENT_MANDATE). Must be sent together with `fundId`. Omit for all other report types.",
+            },
             reportType: {
               type: "string",
               enum: [
@@ -635,20 +681,58 @@ export const investmentOpsSwaggerPaths: Record<string, unknown> = {
         },
         examples: {
           performanceDocx: {
-            summary: "Performance Report (Word template)",
+            summary: "FUND scope — Performance Report (fundId required)",
             value: {
               fundId: SWAGGER_EX.fundId,
               reportType: "PERFORMANCE_REPORT",
               format: "DOCX",
-              parameters: {
-                periodStart: "2026-01-01",
-                periodEnd: "2026-03-31",
-                valuationDate: "2026-03-31",
-                benchmarkName: "ZSE Industrial Index",
-              },
+              parameters: REPORT_PERIOD_PARAMS,
             },
           },
-          pdf: { summary: "PDF valuation", value: { fundId: SWAGGER_EX.fundId, reportType: "PORTFOLIO_VALUATION", format: "PDF" } },
+          holdingsDocx: {
+            summary: "FUND scope — Holdings Report (fundId required)",
+            value: {
+              fundId: SWAGGER_EX.fundId,
+              reportType: "HOLDINGS_REPORT",
+              format: "DOCX",
+              parameters: REPORT_PERIOD_PARAMS,
+            },
+          },
+          clientValuationDocx: {
+            summary: "CLIENT_MANDATE — Client Portfolio Valuation (fundId + clientId required)",
+            value: {
+              fundId: SWAGGER_EX.fundId,
+              clientId: SWAGGER_EX.clientId,
+              reportType: "CLIENT_PORTFOLIO_VALUATION",
+              format: "DOCX",
+              parameters: { valuationDate: REPORT_PERIOD_PARAMS.valuationDate },
+            },
+          },
+          aumFumDocx: {
+            summary: "FIRM scope — AUM/FUM Movement (no fundId)",
+            value: {
+              reportType: "AUM_FUM_MOVEMENT_REPORT",
+              format: "DOCX",
+              parameters: REPORT_PERIOD_PARAMS,
+            },
+          },
+          amlDocx: {
+            summary: "FIRM scope — AML/CFT/CPF Return Pack (no fundId)",
+            value: {
+              reportType: "AML_CFT_CPF_RETURN_PACK",
+              format: "DOCX",
+              parameters: REPORT_PERIOD_PARAMS,
+            },
+          },
+          seczimDocx: {
+            summary: "REGULATOR_PACK — SECZIM Prudential Return (no fundId)",
+            value: {
+              reportType: "SECZIM_PRUDENTIAL_RETURN_PACK",
+              format: "DOCX",
+              parameters: REPORT_PERIOD_PARAMS,
+            },
+          },
+          pdf: { summary: "FUND scope — PDF valuation", value: { fundId: SWAGGER_EX.fundId, reportType: "PORTFOLIO_VALUATION", format: "PDF" } },
         },
       }),
     }),
