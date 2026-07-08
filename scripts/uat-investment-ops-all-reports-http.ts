@@ -49,7 +49,7 @@ async function main() {
     });
     if (clientsRes.ok) {
       const cj = await clientsRes.json();
-      clientId = cj.data?.items?.[0]?.id ?? cj.data?.[0]?.id ?? null;
+      clientId = cj.data?.clients?.[0]?.id ?? cj.data?.items?.[0]?.id ?? cj.data?.[0]?.id ?? null;
     }
   } catch {
     /* optional */

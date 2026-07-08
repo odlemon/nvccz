@@ -10,12 +10,9 @@
  */
 
 export const SWAGGER_EX = {
-  fundId: "cmfund00000000000000000001",
-  templateId: "cmtemplate0000000000000001",
-  scheduleId: "cmschedule000000000000001",
-  distributionListId: "cmdistlist000000000000001",
-  runId: "cmrun00000000000000000001",
-  clientId: "cmclient00000000000000001",
+  /** Investment Operations — refresh from VPS UAT (dev-api.arcus.co.zw) */
+  fundId: "cmjfpk2g0000lktwmt25ni8p8",
+  clientId: "cmrbtg2y4001dkttzjm1cbiry",
   userId: "cmuser0000000000000000001",
   campaignId: "cmcampaign000000000000001",
   dealId: "cmdeal0000000000000000001",
@@ -36,7 +33,10 @@ export const SWAGGER_EX = {
   packId: "cmpack00000000000000000001",
   cpId: "cmcp000000000000000000001",
   signatureId: "cmsig0000000000000000001",
-  /** Investment Operations — refresh from VPS UAT */
+  templateId: "cmtemplate0000000000000001",
+  scheduleId: "cmschedule000000000000001",
+  distributionListId: "cmdistlist000000000000001",
+  runId: "cmrun00000000000000000001",
   instrumentId: "bc057eb3-820a-4de9-a75c-6b4f348ed2c9",
   orderId: "cmorder0000000000000000001",
   tradeId: "cmtrade0000000000000000001",
