@@ -6517,7 +6517,9 @@ model InvestmentDocument {
 model InvestmentReportRun {
   id            String    @id @default(cuid())
   fundId        String?   @map("fund_id")
-  reportType    String    @map("report_type") @db.VarChar(32)
+  clientId      String?   @map("client_id")
+  scopeType     String?   @map("scope_type") @db.VarChar(32)
+  reportType    String    @map("report_type") @db.VarChar(64)
   format        String    @default("PDF") @db.VarChar(8)
   status        String    @default("PENDING") @db.VarChar(16)
   fileRef       String?   @map("file_ref") @db.Text

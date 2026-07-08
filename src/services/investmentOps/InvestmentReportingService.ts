@@ -10,10 +10,12 @@ import { ListedEquityPortfolioService } from "../listedEquity/ListedEquityPortfo
 import { InvestmentOpsAuditService } from "./InvestmentOpsAuditService";
 import { reportRef } from "./investmentOpsSupport";
 import { DocxTemplateRenderService } from "./reporting/DocxTemplateRenderService";
-import { PerformanceReportDataBuilder } from "./reporting/PerformanceReportDataBuilder";
+import { InvestmentReportDataBuilderRegistry } from "./reporting/InvestmentReportDataBuilderRegistry";
 import {
   getInvestmentReportTemplate,
   INVESTMENT_REPORT_TEMPLATES,
+  requiresClientIdForScope,
+  requiresFundIdForScope,
   resolveDocxTemplatePath,
 } from "./reporting/investmentReportTemplates";
 
@@ -116,8 +118,10 @@ export class InvestmentReportingService {
       code: t.code,
       name: t.name,
       description: t.description,
+      scopeType: t.scopeType,
       supportedFormats: t.supportedFormats,
       requiresFundId: t.requiresFundId,
+      requiresClientId: Boolean(t.requiresClientId),
       hasDocxTemplate: Boolean(t.docxTemplate),
     }));
   }
@@ -162,8 +166,9 @@ export class InvestmentReportingService {
 
     const userIds = [...new Set(rows.map((r) => r.requestedById).filter(Boolean))] as string[];
     const fundIds = [...new Set(rows.map((r) => r.fundId).filter(Boolean))] as string[];
+    const clientIds = [...new Set(rows.map((r) => r.clientId).filter(Boolean))] as string[];
 
-    const [users, funds] = await Promise.all([
+    const [users, funds, clients] = await Promise.all([
       userIds.length
         ? prisma.user.findMany({
             where: { id: { in: userIds } },
@@ -176,10 +181,17 @@ export class InvestmentReportingService {
             select: { id: true, name: true },
           })
         : [],
+      clientIds.length
+        ? prisma.client.findMany({
+            where: { id: { in: clientIds } },
+            select: { id: true, legalName: true },
+          })
+        : [],
     ]);
 
     const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
     const fundMap = Object.fromEntries(funds.map((f) => [f.id, f]));
+    const clientMap = Object.fromEntries(clients.map((cl) => [cl.id, cl]));
     const templateMap = Object.fromEntries(INVESTMENT_REPORT_TEMPLATES.map((t) => [t.code, t]));
 
     const items = rows.map((r) => {
@@ -189,6 +201,9 @@ export class InvestmentReportingService {
         id: r.id,
         fundId: r.fundId,
         fundName: r.fundId ? fundMap[r.fundId]?.name ?? null : null,
+        clientId: r.clientId,
+        clientName: r.clientId ? clientMap[r.clientId]?.legalName ?? null : null,
+        scopeType: r.scopeType ?? template?.scopeType ?? null,
         reportType: r.reportType,
         reportTypeName: template?.name ?? r.reportType,
         format: r.format,
@@ -221,6 +236,7 @@ export class InvestmentReportingService {
     user: any,
     data: {
       fundId?: string;
+      clientId?: string;
       reportType: string;
       format?: string;
       parameters?: Record<string, unknown>;
@@ -232,8 +248,19 @@ export class InvestmentReportingService {
     if (!templateDef.supportedFormats.includes(fmt as any)) {
       throw new Error(`Format ${fmt} not supported for ${templateDef.code}. Use: ${templateDef.supportedFormats.join(", ")}`);
     }
-    if (templateDef.requiresFundId && !data.fundId) {
+
+    const needsFund =
+      templateDef.requiresFundId ||
+      requiresFundIdForScope(templateDef.scopeType);
+    const needsClient =
+      templateDef.requiresClientId ||
+      requiresClientIdForScope(templateDef.scopeType);
+
+    if (needsFund && !data.fundId) {
       throw new Error("fundId is required for this report");
+    }
+    if (needsClient && !data.clientId) {
+      throw new Error("clientId is required for this report");
     }
     if (data.fundId) {
       await ListedEquityAccessService.assertFundAccess(userId, data.fundId, user);
@@ -242,6 +269,8 @@ export class InvestmentReportingService {
     const run = await prisma.investmentReportRun.create({
       data: {
         fundId: data.fundId,
+        clientId: data.clientId,
+        scopeType: templateDef.scopeType,
         reportType: data.reportType,
         format: fmt,
         status: "RUNNING",
@@ -258,8 +287,11 @@ export class InvestmentReportingService {
     try {
       if (templateDef.docxTemplate && fmt === "DOCX") {
         const templatePath = resolveDocxTemplatePath(templateDef);
-        const mergeData = await PerformanceReportDataBuilder.build({
-          fundId: data.fundId!,
+        const mergeData = await InvestmentReportDataBuilderRegistry.build({
+          reportType: data.reportType,
+          fundId: data.fundId,
+          clientId: data.clientId,
+          scopeType: templateDef.scopeType,
           userId,
           user,
           reportRunId: run.id,
