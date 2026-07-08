@@ -137,7 +137,10 @@ export const investmentOpsSwaggerPaths: Record<string, unknown> = {
     }),
   },
   "/investment-ops/portfolios": {
-    get: op("List portfolios"),
+    get: op("List portfolios", {
+      description:
+        "Listed-equity funds only (`fundPurpose=LISTED_EQUITY` with IO config). Private equity / portfolio funds are excluded.",
+    }),
   },
   "/investment-ops/portfolios/{fundId}/overview": {
     get: op("Portfolio overview", { parameters: [fundId] }),
@@ -739,6 +742,84 @@ export const investmentOpsSwaggerPaths: Record<string, unknown> = {
   },
   "/investment-ops/reports/{id}/download": {
     get: op("Download report", { parameters: [pathParam("id", SWAGGER_EX.reportRunId)] }),
+  },
+  "/investment-ops/setup/funds": {
+    get: op("List listed-equity funds", {
+      description:
+        "Investment Operations funds only (`fundPurpose=LISTED_EQUITY`). Portfolio / PE funds from `POST /api/funds` do **not** appear here.",
+    }),
+    post: op("Create listed-equity fund", {
+      description:
+        "Creates a **LISTED_EQUITY** fund with `listed_equity_fund_configs`. Do not use `POST /api/funds` for Investment Operations.",
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string" },
+            description: { type: "string" },
+            status: { type: "string", enum: ["OPEN", "CLOSED"] },
+            baseCurrencyCode: { type: "string", example: "USD" },
+            trustBankId: { type: "string" },
+            brokerProfileId: { type: "string" },
+            custodianProfileId: { type: "string" },
+            coaMappingJson: { type: "object" },
+          },
+        },
+        examples: {
+          default: {
+            summary: "Arcus listed mandate",
+            value: {
+              name: "Arcus Listed Portfolio",
+              description: "ZSE / VFEX listed equity mandate",
+              baseCurrencyCode: "USD",
+            },
+          },
+        },
+      }),
+    }),
+  },
+  "/investment-ops/setup/funds/{id}": {
+    get: op("Get listed-equity fund", { parameters: [pathParam("id", SWAGGER_EX.fundId)] }),
+    put: op("Update listed-equity fund", {
+      parameters: [pathParam("id", SWAGGER_EX.fundId)],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          properties: { name: { type: "string" }, description: { type: "string" }, status: { type: "string" } },
+        },
+      }),
+    }),
+  },
+  "/investment-ops/setup/funds/{id}/config": {
+    put: op("Update listed-equity fund config", {
+      parameters: [pathParam("id", SWAGGER_EX.fundId)],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          properties: {
+            baseCurrencyCode: { type: "string" },
+            trustBankId: { type: "string" },
+            brokerProfileId: { type: "string" },
+            custodianProfileId: { type: "string" },
+            coaMappingJson: { type: "object" },
+          },
+        },
+      }),
+    }),
+  },
+  "/investment-ops/setup/funds/{id}/managers": {
+    post: op("Assign fund manager to listed-equity fund", {
+      parameters: [pathParam("id", SWAGGER_EX.fundId)],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["userId"],
+          properties: { userId: { type: "string" }, role: { type: "string" } },
+        },
+        examples: { default: { summary: "Manager", value: { userId: SWAGGER_EX.userId, role: "fund_manager" } } },
+      }),
+    }),
   },
   "/investment-ops/setup/brokers": {
     get: op("List brokers"),

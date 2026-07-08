@@ -47,7 +47,7 @@ export class ReportBuilderContextLoader {
       fundIds = [params.fundId];
     } else if (scope === "ALL") {
       const rows = await prisma.fund.findMany({
-        where: { listedEquityFundConfig: { isNot: null } },
+        where: ListedEquityAccessService.listedEquityFundWhere(),
         select: { id: true },
       });
       fundIds = rows.map((r) => r.id);

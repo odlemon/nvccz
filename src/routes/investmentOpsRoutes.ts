@@ -244,6 +244,22 @@ router.get("/reports/:id/download", ...auth, InvestmentOpsController.downloadRep
 
 
 
+// Setup — listed-equity funds
+
+router.get("/setup/funds", ...auth, InvestmentOpsController.listInvestmentFunds);
+
+router.post("/setup/funds", ...auth, InvestmentOpsController.createInvestmentFund);
+
+router.get("/setup/funds/:id", ...auth, InvestmentOpsController.getInvestmentFund);
+
+router.put("/setup/funds/:id", ...auth, InvestmentOpsController.updateInvestmentFund);
+
+router.put("/setup/funds/:id/config", ...auth, InvestmentOpsController.updateInvestmentFundConfig);
+
+router.post("/setup/funds/:id/managers", ...auth, InvestmentOpsController.addInvestmentFundManager);
+
+
+
 // Setup
 
 router.get("/setup/brokers", ...auth, InvestmentOpsController.listBrokers);

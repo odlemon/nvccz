@@ -71,6 +71,7 @@ export class FundService {
           applicationStart: params.applicationStart,
           applicationEnd: params.applicationEnd,
           status: params.status || "OPEN",
+          fundPurpose: "PRIVATE_EQUITY",
           createdById: params.createdById
         }
       });

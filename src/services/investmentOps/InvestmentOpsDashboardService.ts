@@ -117,9 +117,22 @@ export class InvestmentOpsDashboardService {
   }
 
   static async currencyExposure(userId: string, user: any, fundId?: string) {
-    const scope = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
-    if (fundId) await ListedEquityAccessService.assertFundAccess(userId, fundId, user);
-    const where: any = fundId ? { fundId } : scope === "ALL" ? {} : { fundId: { in: scope } };
+    const scope = await ListedEquityAccessService.getAccessibleListedEquityFundIds(userId, user);
+    if (fundId) await ListedEquityAccessService.assertListedEquityFundAccess(userId, fundId, user);
+    let where: any;
+    if (fundId) {
+      where = { fundId };
+    } else if (scope === "ALL") {
+      const ids = (
+        await prisma.fund.findMany({
+          where: ListedEquityAccessService.listedEquityFundWhere(),
+          select: { id: true },
+        })
+      ).map((f) => f.id);
+      where = { fundId: { in: ids } };
+    } else {
+      where = { fundId: { in: scope } };
+    }
     const holdings = await prisma.listedEquityHolding.findMany({
       where,
       include: { security: true },
@@ -139,12 +152,17 @@ export class InvestmentOpsDashboardService {
   }
 
   static async recalculate(userId: string, user: any, fundId?: string) {
-    const scope = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
+    const scope = await ListedEquityAccessService.getAccessibleListedEquityFundIds(userId, user);
     const fundIds =
       fundId != null
         ? [fundId]
         : scope === "ALL"
-          ? (await prisma.fund.findMany({ select: { id: true } })).map((f) => f.id)
+          ? (
+              await prisma.fund.findMany({
+                where: ListedEquityAccessService.listedEquityFundWhere(),
+                select: { id: true },
+              })
+            ).map((f) => f.id)
           : scope;
     const results = [];
     for (const id of fundIds) {

@@ -692,7 +692,7 @@ export class PortfolioDashboardService {
       let funds: any[];
       if (effectiveFundId) {
         const fund = await prisma.fund.findUnique({
-          where: { id: effectiveFundId },
+          where: { id: effectiveFundId, fundPurpose: "PRIVATE_EQUITY" },
           include: {
             portfolioCompanies: {
               include: PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD,
@@ -711,6 +711,7 @@ export class PortfolioDashboardService {
         funds = [fund];
       } else {
         funds = await prisma.fund.findMany({
+          where: { fundPurpose: "PRIVATE_EQUITY" },
           include: {
             portfolioCompanies: {
               include: PORTFOLIO_COMPANY_INCLUDE_FOR_DASHBOARD,

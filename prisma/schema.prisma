@@ -1321,6 +1321,11 @@ model ReportingPeriodOperationalKpi {
   @@map("reporting_period_operational_kpis")
 }
 
+enum FundPurpose {
+  PRIVATE_EQUITY
+  LISTED_EQUITY
+}
+
 model Fund {
   id                        String                     @id @default(cuid())
   name                      String
@@ -1333,6 +1338,8 @@ model Fund {
   applicationStart          DateTime
   applicationEnd            DateTime
   status                    String                     @default("OPEN")
+  /// PRIVATE_EQUITY = portfolio / LP deal pipeline; LISTED_EQUITY = Investment Operations listed trading.
+  fundPurpose               FundPurpose                @default(PRIVATE_EQUITY) @map("fund_purpose")
   createdById               String
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
@@ -1380,6 +1387,7 @@ model Fund {
   dealExecutionPacks          DealExecutionPack[]
   taxReturnPacks              TaxReturnPack[]
 
+  @@index([fundPurpose], map: "funds_fund_purpose_idx")
   @@map("funds")
 }
 

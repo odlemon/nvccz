@@ -13,6 +13,7 @@ import { InvestmentReconciliationService } from "../services/investmentOps/Inves
 import { InvestmentDocumentationService } from "../services/investmentOps/InvestmentDocumentationService";
 import { InvestmentReportingService } from "../services/investmentOps/InvestmentReportingService";
 import { InvestmentSetupService } from "../services/investmentOps/InvestmentSetupService";
+import { InvestmentFundService } from "../services/investmentOps/InvestmentFundService";
 import { InvestmentSimulationService } from "../services/investmentOps/InvestmentSimulationService";
 import { InvestmentModelPortfolioService } from "../services/investmentOps/InvestmentModelPortfolioService";
 import { InvestmentMarketDataFacadeService } from "../services/investmentOps/InvestmentMarketDataFacadeService";
@@ -27,7 +28,13 @@ function handle(res: Response, promise: Promise<unknown>, successStatus = 200) {
     .then((data) => res.status(successStatus).json({ success: true, data }))
     .catch((e: any) => {
       const status =
-        e.message === "FORBIDDEN_FUND_ACCESS" ? 403 : e.message === "Not found" ? 404 : 400;
+        e.message === "FORBIDDEN_FUND_ACCESS"
+          ? 403
+          : e.message === "FUND_NOT_LISTED_EQUITY"
+            ? 400
+            : e.message === "Not found" || e.message === "FUND_NOT_FOUND"
+              ? 404
+              : 400;
       res.status(status).json({ success: false, message: e.message });
     });
 }
@@ -480,6 +487,36 @@ export class InvestmentOpsController {
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
     }
+  }
+
+  // Setup — listed-equity funds (Investment Operations module)
+  static listInvestmentFunds(req: AuthRequest, res: Response) {
+    handle(res, InvestmentFundService.list(req.user!.id, req.user));
+  }
+  static getInvestmentFund(req: AuthRequest, res: Response) {
+    handle(res, InvestmentFundService.getById(req.params.id, req.user!.id, req.user));
+  }
+  static createInvestmentFund(req: AuthRequest, res: Response) {
+    handle(res, InvestmentFundService.create(req.body, req.user!.id), 201);
+  }
+  static updateInvestmentFund(req: AuthRequest, res: Response) {
+    handle(res, InvestmentFundService.update(req.params.id, req.body, req.user!.id, req.user));
+  }
+  static updateInvestmentFundConfig(req: AuthRequest, res: Response) {
+    handle(res, InvestmentFundService.updateConfig(req.params.id, req.body, req.user!.id, req.user));
+  }
+  static addInvestmentFundManager(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentFundService.addManager(
+        req.params.id,
+        req.body.userId,
+        req.body.role,
+        req.user!.id,
+        req.user
+      ),
+      201
+    );
   }
 
   // Setup

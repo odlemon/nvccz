@@ -6,9 +6,12 @@ import { WacCalculatorService } from "./WacCalculatorService";
 
 export class ListedEquityPortfolioService {
   static async listFunds(userId: string, user: any) {
-    const scope = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
+    const scope = await ListedEquityAccessService.getAccessibleListedEquityFundIds(userId, user);
     const funds = await prisma.fund.findMany({
-      where: scope === "ALL" ? {} : { id: { in: scope } },
+      where: {
+        ...ListedEquityAccessService.listedEquityFundWhere(),
+        ...(scope === "ALL" ? {} : { id: { in: scope } }),
+      },
       include: {
         listedEquityFundConfig: true,
         listedEquityValuationSnapshots: { orderBy: { asOf: "desc" }, take: 1 },
@@ -17,6 +20,7 @@ export class ListedEquityPortfolioService {
     return funds.map((f) => ({
       id: f.id,
       name: f.name,
+      fundPurpose: f.fundPurpose,
       baseCurrencyCode: f.listedEquityFundConfig?.baseCurrencyCode || "USD",
       latestSnapshot: f.listedEquityValuationSnapshots[0] || null,
     }));

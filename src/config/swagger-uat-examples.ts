@@ -10,8 +10,8 @@
  */
 
 export const SWAGGER_EX = {
-  /** Investment Operations — refresh from VPS UAT (dev-api.arcus.co.zw) */
-  fundId: "cmjfpk2g0000lktwmt25ni8p8",
+  /** Investment Operations — listed-equity fund on dev (refresh after db:migrate:fund-purpose) */
+  fundId: "cmrcbmaxf0001un4s5x0cnfaf",
   clientId: "cmrbtg2y4001dkttzjm1cbiry",
   userId: "cmuser0000000000000000001",
   campaignId: "cmcampaign000000000000001",
