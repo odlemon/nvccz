@@ -122,6 +122,100 @@ export class InvestmentReportingService {
     }));
   }
 
+  static async list(
+    userId: string,
+    user: any,
+    filters: {
+      fundId?: string;
+      reportType?: string;
+      status?: string;
+      page?: number;
+      pageSize?: number;
+    } = {}
+  ) {
+    const scope = await ListedEquityAccessService.getAccessibleFundIds(userId, user);
+    const where: any = {};
+
+    if (filters.fundId) {
+      await ListedEquityAccessService.assertFundAccess(userId, filters.fundId, user);
+      where.fundId = filters.fundId;
+    } else if (scope !== "ALL") {
+      where.OR = [{ fundId: { in: scope } }, { fundId: null }];
+    }
+
+    if (filters.reportType) where.reportType = filters.reportType;
+    if (filters.status) where.status = filters.status;
+
+    const page = Math.max(1, Number(filters.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(filters.pageSize) || 50));
+    const skip = (page - 1) * pageSize;
+
+    const [rows, total] = await Promise.all([
+      prisma.investmentReportRun.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: pageSize,
+      }),
+      prisma.investmentReportRun.count({ where }),
+    ]);
+
+    const userIds = [...new Set(rows.map((r) => r.requestedById).filter(Boolean))] as string[];
+    const fundIds = [...new Set(rows.map((r) => r.fundId).filter(Boolean))] as string[];
+
+    const [users, funds] = await Promise.all([
+      userIds.length
+        ? prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, firstName: true, lastName: true, email: true },
+          })
+        : [],
+      fundIds.length
+        ? prisma.fund.findMany({
+            where: { id: { in: fundIds } },
+            select: { id: true, name: true },
+          })
+        : [],
+    ]);
+
+    const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+    const fundMap = Object.fromEntries(funds.map((f) => [f.id, f]));
+    const templateMap = Object.fromEntries(INVESTMENT_REPORT_TEMPLATES.map((t) => [t.code, t]));
+
+    const items = rows.map((r) => {
+      const requestedBy = r.requestedById ? userMap[r.requestedById] : null;
+      const template = templateMap[r.reportType];
+      return {
+        id: r.id,
+        fundId: r.fundId,
+        fundName: r.fundId ? fundMap[r.fundId]?.name ?? null : null,
+        reportType: r.reportType,
+        reportTypeName: template?.name ?? r.reportType,
+        format: r.format,
+        status: r.status,
+        parameters: r.parametersJson ?? null,
+        requestedBy: requestedBy
+          ? {
+              id: requestedBy.id,
+              name: `${requestedBy.firstName ?? ""} ${requestedBy.lastName ?? ""}`.trim() || requestedBy.email,
+              email: requestedBy.email,
+            }
+          : null,
+        createdAt: r.createdAt,
+        completedAt: r.completedAt,
+        downloadAvailable: Boolean(r.fileRef && r.status === "COMPLETED"),
+      };
+    });
+
+    return {
+      items,
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize) || 0,
+    };
+  }
+
   static async generate(
     userId: string,
     user: any,

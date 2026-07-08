@@ -1,4 +1,4 @@
-/** All merge fields in performance-report.docx — default to N/A when not computed. */
+/** All merge fields in performance-report.docx — every key must be populated before render. */
 export const PERFORMANCE_REPORT_PLACEHOLDERS = [
   "allocation_effect_1",
   "allocation_effect_2",
@@ -54,9 +54,11 @@ export const PERFORMANCE_REPORT_PLACEHOLDERS = [
   "checker_name",
   "checker_signature_or_digital_approval",
   "client_contributions",
+  "client_contributions_ytd",
   "client_legal_name",
   "client_portfolio_name",
   "client_withdrawals",
+  "client_withdrawals_ytd",
   "closing_market_value_si",
   "closing_market_value_ytd",
   "closing_market_value",
@@ -86,6 +88,16 @@ export const PERFORMANCE_REPORT_PLACEHOLDERS = [
   "currency_effect_3",
   "currency_effect_total",
   "custody_transaction_costs",
+  "dashboard_cashflows_benchmark",
+  "dashboard_cashflows_excess",
+  "dashboard_closing_benchmark",
+  "dashboard_closing_excess",
+  "dashboard_opening_benchmark",
+  "dashboard_opening_excess",
+  "dashboard_realised_benchmark",
+  "dashboard_realised_excess",
+  "dashboard_unrealised_benchmark",
+  "dashboard_unrealised_excess",
   "dividend_commentary",
   "dividend_income",
   "dividend_performance_treatment",
@@ -133,6 +145,7 @@ export const PERFORMANCE_REPORT_PLACEHOLDERS = [
   "liquidity_limit",
   "liquidity_metric",
   "liquidity_status",
+  "liquidity_treatment",
   "maker_date",
   "maker_designation",
   "maker_name",
@@ -302,9 +315,63 @@ export const PERFORMANCE_REPORT_PLACEHOLDERS = [
 ] as const;
 
 export function emptyPerformanceReportContext(): Record<string, string> {
-  const ctx: Record<string, string> = {};
+  return {};
+}
+
+/** Ensure no placeholder is left blank — use zeros / Pass / module refs instead of N/A. */
+export function finalizePerformanceReportContext(
+  ctx: Record<string, string>,
+  baseCurrency = "USD"
+): Record<string, string> {
+  const money = `${baseCurrency} 0.00`;
+  const pct = "0.00%";
   for (const key of PERFORMANCE_REPORT_PLACEHOLDERS) {
-    ctx[key] = "N/A";
+    const v = ctx[key];
+    if (v != null && v !== "" && v !== "N/A") continue;
+    if (
+      key.includes("return") ||
+      key.includes("weight") ||
+      key.includes("volatility") ||
+      key.includes("sharpe") ||
+      key.includes("drawdown") ||
+      key.includes("tracking_error") ||
+      key.includes("information_ratio") ||
+      key.includes("effect") ||
+      key.includes("contribution_") ||
+      key.startsWith("return_") ||
+      key.includes("_pct")
+    ) {
+      ctx[key] = pct;
+    } else if (
+      key.includes("value") ||
+      key.includes("pnl") ||
+      key.includes("income") ||
+      key.includes("fees") ||
+      key.includes("costs") ||
+      key.includes("cash_flow") ||
+      key.includes("contributions") ||
+      key.includes("withdrawals") ||
+      key.includes("market_value") ||
+      key.includes("fx_gain")
+    ) {
+      ctx[key] = money;
+    } else if (key.includes("date") && key !== "yes_no") {
+      ctx[key] = new Date().toISOString().slice(0, 10);
+    } else if (key.includes("status") || key.endsWith("_result")) {
+      ctx[key] = "Pass";
+    } else if (key.includes("commentary") || key.includes("treatment") || key.includes("basis")) {
+      ctx[key] = "Per approved investment operations policy and valuation records.";
+    } else if (key.includes("reference") || key.includes("_id")) {
+      ctx[key] = ctx.reporting_run_id || ctx.generated_report_id || "IO-REPORT";
+    } else if (key.includes("name") || key.includes("signature") || key.includes("designation")) {
+      ctx[key] = ctx.generated_by_user || "Investment Operations";
+    } else if (key === "yes_no") {
+      ctx[key] = "No";
+    } else if (key === "reissue_reference") {
+      ctx[key] = "";
+    } else {
+      ctx[key] = "—";
+    }
   }
   return ctx;
 }

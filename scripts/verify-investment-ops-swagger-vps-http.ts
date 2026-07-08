@@ -209,7 +209,7 @@ async function hit(token: string, exp: Expect) {
   return r;
 }
 
-/** Route matrix — must match investmentOpsRoutes.ts (89 ops) */
+/** Route matrix — must match investmentOpsRoutes.ts (91 ops) */
 function buildMatrix(c: Ctx): Expect[] {
   const q = (p: string) => (c.fundId ? `${p}${p.includes("?") ? "&" : "?"}fundId=${c.fundId}` : p);
   return [
@@ -472,6 +472,8 @@ function buildMatrix(c: Ctx): Expect[] {
       shape: "object",
     },
     { op: "Download document", method: "GET", path: "/investment-ops/documents/{documentId}/download", requires: "documentId", allow: [200, 404, 502] },
+    { op: "List report templates", method: "GET", path: "/investment-ops/reports/templates", shape: "array" },
+    { op: "List generated reports", method: "GET", path: q("/investment-ops/reports?page=1&pageSize=20"), shape: "object" },
     {
       op: "Generate report",
       method: "POST",

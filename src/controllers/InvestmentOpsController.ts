@@ -452,6 +452,18 @@ export class InvestmentOpsController {
   static listReportTemplates(req: AuthRequest, res: Response) {
     handle(res, Promise.resolve(InvestmentReportingService.listTemplates()));
   }
+  static listReports(req: AuthRequest, res: Response) {
+    handle(
+      res,
+      InvestmentReportingService.list(req.user!.id, req.user, {
+        fundId: req.query.fundId as string | undefined,
+        reportType: req.query.reportType as string | undefined,
+        status: req.query.status as string | undefined,
+        page: req.query.page ? Number(req.query.page) : undefined,
+        pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
+      })
+    );
+  }
   static generateReport(req: AuthRequest, res: Response) {
     handle(res, InvestmentReportingService.generate(req.user!.id, req.user, req.body), 201);
   }

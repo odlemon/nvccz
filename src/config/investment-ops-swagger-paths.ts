@@ -571,6 +571,19 @@ export const investmentOpsSwaggerPaths: Record<string, unknown> = {
       description: "Available Investment Operations report templates and supported output formats.",
     }),
   },
+  "/investment-ops/reports": {
+    get: op("List generated reports", {
+      description:
+        "Paginated history of generated report runs with fund, type, format, status, requester, and timestamps.",
+      parameters: [
+        fundIdQuery,
+        queryParam("reportType", { type: "string" }, "PERFORMANCE_REPORT"),
+        queryParam("status", { type: "string", enum: ["PENDING", "RUNNING", "COMPLETED", "FAILED"] }, "COMPLETED"),
+        pageQuery,
+        pageSizeQuery,
+      ],
+    }),
+  },
   "/investment-ops/reports/generate": {
     post: op("Generate report", {
       requestBody: jsonRequestBody({

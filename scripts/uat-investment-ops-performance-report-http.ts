@@ -5,6 +5,7 @@
 import "dotenv/config";
 import { writeFileSync, mkdirSync } from "fs";
 import path from "path";
+import PizZip from "pizzip";
 
 const BASE = (process.env.UAT_BASE_URL || process.env.API_BASE_URL || "https://dev-api.arcus.co.zw/api").replace(
   /\/$/,
@@ -82,6 +83,14 @@ async function main() {
   const outPath = path.join(OUT_DIR, `performance-report-${runId}.docx`);
   writeFileSync(outPath, buf);
   console.log(`[PASS] Downloaded ${buf.length} bytes → ${outPath}`);
+
+  const zip = new PizZip(buf);
+  const docXml = zip.file("word/document.xml")?.asText() || "";
+  const naMatches = docXml.match(/>N\/A</g) || [];
+  if (naMatches.length > 0) {
+    throw new Error(`DOCX still contains ${naMatches.length} N/A placeholder(s) — data mapping incomplete`);
+  }
+  console.log("[PASS] No N/A values in generated document");
   console.log("\nCompare this file with Arcus_Performance_Report_Template (1).docx — placeholders should be filled.");
 }
 
