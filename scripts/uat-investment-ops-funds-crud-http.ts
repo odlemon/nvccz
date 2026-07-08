@@ -26,8 +26,11 @@ async function main() {
 
   const peFundsRes = await fetch(`${BASE}/funds`, { headers });
   const peFundsJson = await peFundsRes.json();
-  const peFundId = Array.isArray(peFundsJson.data) ? peFundsJson.data[0]?.id : peFundsJson.data?.[0]?.id;
-  if (!peFundId) console.log("[WARN] No PE fund found via GET /funds");
+  const peFundsList = peFundsJson.data?.funds ?? (Array.isArray(peFundsJson.data) ? peFundsJson.data : []);
+  const peFundId =
+    peFundsList.find((f: any) => f.fundPurpose === "PRIVATE_EQUITY")?.id ??
+    peFundsList.find((f: any) => f.name === "ZimFund")?.id;
+  if (!peFundId) console.log("[WARN] No PE fund found via GET /funds — skipping PE rejection checks");
 
   const ioListRes = await fetch(`${BASE}/investment-ops/portfolios`, { headers });
   const ioListJson = await ioListRes.json();
