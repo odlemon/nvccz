@@ -1,5 +1,5 @@
 /**
- * Seed realistic Investment Ops demo data for Arcus Listed Portfolio.
+ * Seed realistic Investment Ops demo data for client presentations.
  * Idempotent — safe to re-run. No UAT/Verify/timestamp display names.
  *
  * Usage: npm run db:seed:investment-ops-demo
@@ -10,7 +10,6 @@ import { Decimal } from "@prisma/client/runtime/library";
 
 const prisma = new PrismaClient();
 
-const FUND_NAME = "Arcus Listed Portfolio";
 const DEFAULT_COA = {
   listedSecuritiesAsset: "1501",
   bankClearing: "1100",
@@ -18,7 +17,30 @@ const DEFAULT_COA = {
   realizedLoss: "5200",
 };
 
-const DEMO_EQUITIES = [
+const COUNTRIES = [
+  { countryCode: "ZW", countryName: "Zimbabwe", region: "Southern Africa" },
+  { countryCode: "ZA", countryName: "South Africa", region: "Southern Africa" },
+  { countryCode: "BW", countryName: "Botswana", region: "Southern Africa" },
+  { countryCode: "ZM", countryName: "Zambia", region: "Southern Africa" },
+  { countryCode: "KE", countryName: "Kenya", region: "East Africa" },
+  { countryCode: "NG", countryName: "Nigeria", region: "West Africa" },
+  { countryCode: "MU", countryName: "Mauritius", region: "Indian Ocean" },
+  { countryCode: "US", countryName: "United States", region: "Americas" },
+  { countryCode: "GB", countryName: "United Kingdom", region: "Europe" },
+  { countryCode: "AU", countryName: "Australia", region: "Asia Pacific" },
+];
+
+const MARKETS = [
+  { marketCode: "ZSE", marketName: "Zimbabwe Stock Exchange", countryCode: "ZW", exchangeCode: "ZSE" },
+  { marketCode: "VFEX", marketName: "Victoria Falls Stock Exchange", countryCode: "ZW", exchangeCode: "VFEX" },
+  { marketCode: "JSE", marketName: "Johannesburg Stock Exchange", countryCode: "ZA", exchangeCode: "JSE" },
+  { marketCode: "NASDAQ", marketName: "NASDAQ", countryCode: "US", exchangeCode: "NASDAQ" },
+  { marketCode: "NYSE", marketName: "New York Stock Exchange", countryCode: "US", exchangeCode: "NYSE" },
+  { marketCode: "LSE", marketName: "London Stock Exchange", countryCode: "GB", exchangeCode: "LSE" },
+];
+
+/** Primary book — full ZSE sleeve */
+const PRIMARY_EQUITIES = [
   { symbol: "CBZ", name: "CBZ Holdings Limited", sector: "Financials", price: 12.45, qty: 25000, wac: 11.2 },
   { symbol: "DLTA", name: "Delta Corporation Limited", sector: "Consumer Staples", price: 18.75, qty: 15000, wac: 16.5 },
   { symbol: "FBC", name: "FBC Holdings Limited", sector: "Financials", price: 8.3, qty: 20000, wac: 7.9 },
@@ -29,20 +51,131 @@ const DEMO_EQUITIES = [
   { symbol: "INN", name: "Innscor Africa Limited", sector: "Consumer Staples", price: 42.1, qty: 5000, wac: 39.0 },
 ];
 
-async function ensureCountry() {
-  await prisma.investmentCountry.upsert({
-    where: { countryCode: "ZW" },
-    create: { countryCode: "ZW", countryName: "Zimbabwe", region: "Southern Africa" },
-    update: { countryName: "Zimbabwe", region: "Southern Africa" },
-  });
+const EXTRA_FUNDS: Array<{
+  name: string;
+  description: string;
+  holdings: Array<{ symbol: string; qty: number; wac: number }>;
+}> = [
+  {
+    name: "Arcus Growth Equity Fund",
+    description: "Growth-oriented listed equity mandate focused on ZSE financials and telecoms",
+    holdings: [
+      { symbol: "ECO", qty: 80000, wac: 4.0 },
+      { symbol: "CBZ", qty: 12000, wac: 11.0 },
+      { symbol: "FBC", qty: 15000, wac: 7.5 },
+    ],
+  },
+  {
+    name: "Arcus Income Mandate",
+    description: "Dividend-focused listed equity sleeve for institutional income clients",
+    holdings: [
+      { symbol: "DLTA", qty: 22000, wac: 16.0 },
+      { symbol: "BAT", qty: 3500, wac: 76.0 },
+      { symbol: "INN", qty: 8000, wac: 38.0 },
+    ],
+  },
+  {
+    name: "Harare Pension CIS",
+    description: "Collective investment scheme book for Harare Pension Fund Trustees",
+    holdings: [
+      { symbol: "CBZ", qty: 40000, wac: 10.8 },
+      { symbol: "OKZ", qty: 50000, wac: 2.8 },
+      { symbol: "SEED", qty: 18000, wac: 5.5 },
+    ],
+  },
+  {
+    name: "NSSA Equity Sleeve",
+    description: "National Social Security Authority listed equity allocation",
+    holdings: [
+      { symbol: "ECO", qty: 100000, wac: 3.9 },
+      { symbol: "DLTA", qty: 10000, wac: 15.8 },
+      { symbol: "FBC", qty: 25000, wac: 7.6 },
+    ],
+  },
+  {
+    name: "Arcus Balanced Listed Book",
+    description: "Balanced multi-sector ZSE portfolio for discretionary mandates",
+    holdings: [
+      { symbol: "INN", qty: 6000, wac: 38.5 },
+      { symbol: "CBZ", qty: 18000, wac: 11.1 },
+      { symbol: "BAT", qty: 1500, wac: 79.0 },
+      { symbol: "ECO", qty: 35000, wac: 4.2 },
+    ],
+  },
+  {
+    name: "Arcus VFEX Opportunity Fund",
+    description: "USD-denominated Victoria Falls Exchange opportunity sleeve",
+    holdings: [
+      { symbol: "ECO", qty: 45000, wac: 4.3 },
+      { symbol: "SEED", qty: 9000, wac: 5.9 },
+    ],
+  },
+  {
+    name: "Employee Provident Listed Book",
+    description: "Staff provident fund listed equity allocation",
+    holdings: [
+      { symbol: "OKZ", qty: 20000, wac: 2.9 },
+      { symbol: "FBC", qty: 8000, wac: 7.8 },
+      { symbol: "DLTA", qty: 5000, wac: 16.2 },
+    ],
+  },
+  {
+    name: "Arcus Regional Equity",
+    description: "Regional listed equity satellite with ZSE core holdings",
+    holdings: [
+      { symbol: "CBZ", qty: 9000, wac: 11.3 },
+      { symbol: "INN", qty: 4000, wac: 39.5 },
+      { symbol: "BAT", qty: 800, wac: 80.0 },
+    ],
+  },
+];
+
+const TRADE_SPECS: Array<{
+  refPrefix: string;
+  symbol: string;
+  side: "BUY" | "SELL";
+  qty: number;
+  price: number;
+  fees: number;
+  daysAgo: number;
+}> = [
+  { refPrefix: "ALP-CBZ", symbol: "CBZ", side: "BUY", qty: 5000, price: 11.2, fees: 112, daysAgo: 45 },
+  { refPrefix: "ALP-DLTA", symbol: "DLTA", side: "BUY", qty: 3000, price: 16.5, fees: 99, daysAgo: 40 },
+  { refPrefix: "ALP-ECO", symbol: "ECO", side: "BUY", qty: 10000, price: 4.1, fees: 82, daysAgo: 35 },
+  { refPrefix: "ALP-FBC", symbol: "FBC", side: "BUY", qty: 4000, price: 7.9, fees: 63, daysAgo: 28 },
+  { refPrefix: "ALP-INN", symbol: "INN", side: "BUY", qty: 1500, price: 39.0, fees: 117, daysAgo: 21 },
+  { refPrefix: "ALP-BAT", symbol: "BAT", side: "BUY", qty: 500, price: 78.5, fees: 78.5, daysAgo: 14 },
+  { refPrefix: "ALP-OKZ", symbol: "OKZ", side: "BUY", qty: 8000, price: 2.95, fees: 47, daysAgo: 10 },
+  { refPrefix: "ALP-SEED", symbol: "SEED", side: "BUY", qty: 2500, price: 5.8, fees: 29, daysAgo: 7 },
+  { refPrefix: "ALP-ECO2", symbol: "ECO", side: "BUY", qty: 5000, price: 4.4, fees: 44, daysAgo: 3 },
+  { refPrefix: "ALP-CBZ2", symbol: "CBZ", side: "SELL", qty: 1000, price: 12.4, fees: 24.8, daysAgo: 1 },
+];
+
+async function ensureCountries() {
+  for (const c of COUNTRIES) {
+    await prisma.investmentCountry.upsert({
+      where: { countryCode: c.countryCode },
+      create: { ...c, isActive: true },
+      update: { countryName: c.countryName, region: c.region, isActive: true },
+    });
+  }
+  console.log(`[ok] countries: ${COUNTRIES.length}`);
 }
 
-async function ensureMarket() {
-  await prisma.investmentMarket.upsert({
-    where: { marketCode: "ZSE" },
-    create: { marketCode: "ZSE", marketName: "Zimbabwe Stock Exchange", countryCode: "ZW" },
-    update: { marketName: "Zimbabwe Stock Exchange", countryCode: "ZW" },
-  });
+async function ensureMarkets() {
+  for (const m of MARKETS) {
+    await prisma.investmentMarket.upsert({
+      where: { marketCode: m.marketCode },
+      create: { ...m, isActive: true },
+      update: {
+        marketName: m.marketName,
+        countryCode: m.countryCode,
+        exchangeCode: m.exchangeCode,
+        isActive: true,
+      },
+    });
+  }
+  console.log(`[ok] markets: ${MARKETS.length}`);
 }
 
 async function ensureInstrumentType() {
@@ -81,27 +214,58 @@ async function ensureStakeholder(profileType: "BROKER" | "CUSTODIAN", name: stri
   });
 }
 
-async function ensureFund() {
-  const admin = await prisma.user.findFirst({
-    where: { role: { name: { in: ["admin", "Admin", "System Administrator"] } } },
+async function purgeOrphanCommissions() {
+  const rows = await prisma.investmentBrokerCommission.findMany({ select: { id: true, stakeholderProfileId: true } });
+  const ids = [...new Set(rows.map((r) => r.stakeholderProfileId))];
+  const existing = await prisma.listedEquityStakeholderProfile.findMany({
+    where: { id: { in: ids } },
     select: { id: true },
   });
-  if (!admin) throw new Error("No admin user found");
-  const bank = await prisma.bank.findFirst({ where: { isActive: true }, select: { id: true } });
+  const ok = new Set(existing.map((e) => e.id));
+  const orphanIds = rows.filter((r) => !ok.has(r.stakeholderProfileId)).map((r) => r.id);
+  if (orphanIds.length) {
+    await prisma.investmentBrokerCommission.deleteMany({ where: { id: { in: orphanIds } } });
+    console.log(`[ok] deleted orphan commissions: ${orphanIds.length}`);
+  }
+}
 
-  let fund = await prisma.fund.findFirst({ where: { name: FUND_NAME } });
-  if (!fund) {
-    fund = await prisma.fund.findFirst({
-      where: { fundPurpose: "LISTED_EQUITY", listedEquityFundConfig: { isNot: null } },
+async function ensureCommission(brokerId: string, rateBps: number, instrumentTypeCode: string | null = "EQUITY") {
+  const existing = await prisma.investmentBrokerCommission.findFirst({
+    where: { stakeholderProfileId: brokerId, instrumentTypeCode },
+  });
+  if (!existing) {
+    await prisma.investmentBrokerCommission.create({
+      data: {
+        stakeholderProfileId: brokerId,
+        instrumentTypeCode,
+        rateBps: new Decimal(rateBps),
+        currencyCode: "USD",
+        isActive: true,
+      },
+    });
+  } else {
+    await prisma.investmentBrokerCommission.update({
+      where: { id: existing.id },
+      data: { rateBps: new Decimal(rateBps), isActive: true },
     });
   }
+}
 
+async function ensureListedFund(opts: {
+  name: string;
+  description: string;
+  adminId: string;
+  bankId: string | null;
+  brokerId: string;
+  custodianId: string;
+}) {
+  let fund = await prisma.fund.findFirst({ where: { name: opts.name } });
   if (!fund) {
     const now = new Date();
     fund = await prisma.fund.create({
       data: {
-        name: FUND_NAME,
-        description: "Listed equity mandate managed by Arcus Asset Management",
+        name: opts.name,
+        description: opts.description,
         totalAmount: new Decimal(0),
         remainingAmount: new Decimal(0),
         minInvestment: new Decimal(0),
@@ -111,70 +275,54 @@ async function ensureFund() {
         applicationEnd: new Date("2099-12-31"),
         status: "OPEN",
         fundPurpose: "LISTED_EQUITY",
-        createdById: admin.id,
+        createdById: opts.adminId,
       },
     });
-    console.log(`[ok] Created fund ${fund.id}`);
+    console.log(`[ok] created fund ${opts.name}`);
   } else {
     fund = await prisma.fund.update({
       where: { id: fund.id },
       data: {
-        name: FUND_NAME,
+        description: opts.description,
         fundPurpose: "LISTED_EQUITY",
-        description: "Listed equity mandate managed by Arcus Asset Management",
         status: "OPEN",
       },
     });
-    console.log(`[ok] Updated fund ${fund.id}`);
   }
 
-  const broker = await ensureStakeholder("BROKER", "Imara Edwards Securities", "dealing@imaraedwards.co.zw");
-  const custodian = await ensureStakeholder("CUSTODIAN", "CBZ Custodial Services", "custody@cbz.co.zw");
-
-  const existingComm = await prisma.investmentBrokerCommission.findFirst({
-    where: { stakeholderProfileId: broker.id, instrumentTypeCode: "EQUITY" },
-  });
-  if (!existingComm) {
-    await prisma.investmentBrokerCommission.create({
-      data: {
-        stakeholderProfileId: broker.id,
-        instrumentTypeCode: "EQUITY",
-        rateBps: new Decimal(20),
-        currencyCode: "USD",
-        isActive: true,
-      },
-    });
-  }
-
-  const config = await prisma.listedEquityFundConfig.upsert({
+  await prisma.listedEquityFundConfig.upsert({
     where: { fundId: fund.id },
     create: {
       fundId: fund.id,
       baseCurrencyCode: "USD",
-      trustBankId: bank?.id ?? null,
+      trustBankId: opts.bankId,
       coaMappingJson: DEFAULT_COA,
-      brokerProfileId: broker.id,
-      custodianProfileId: custodian.id,
+      brokerProfileId: opts.brokerId,
+      custodianProfileId: opts.custodianId,
     },
     update: {
       baseCurrencyCode: "USD",
-      trustBankId: bank?.id ?? null,
+      trustBankId: opts.bankId,
       coaMappingJson: DEFAULT_COA,
-      brokerProfileId: broker.id,
-      custodianProfileId: custodian.id,
+      brokerProfileId: opts.brokerId,
+      custodianProfileId: opts.custodianId,
     },
   });
 
   await prisma.fundManager.upsert({
-    where: { fundId_userId: { fundId: fund.id, userId: admin.id } },
-    create: { fundId: fund.id, userId: admin.id, role: "fund_manager", isActive: true },
+    where: { fundId_userId: { fundId: fund.id, userId: opts.adminId } },
+    create: { fundId: fund.id, userId: opts.adminId, role: "fund_manager", isActive: true },
     update: { isActive: true },
   });
 
-  return { fund, config, broker, custodian, adminId: admin.id };
+  return fund;
 }
 
-async function ensureSecurityAndInstrument(eq: (typeof DEMO_EQUITIES)[0], issuerId: string, createdById?: string) {
+async function ensureSecurityAndInstrument(
+  eq: { symbol: string; name: string; sector: string; price: number },
+  issuerId: string,
+  createdById?: string
+) {
   let security = await prisma.listedEquitySecurity.findFirst({
     where: { symbol: eq.symbol, exchangeCode: "ZSE" },
   });
@@ -293,7 +441,7 @@ async function ensureHolding(fundId: string, securityId: string, qty: number, wa
         quantity: new Decimal(qty),
         executionPrice: new Decimal(wac),
         currencyCode: "USD",
-        purchasedAt: new Date(),
+        purchasedAt: new Date(Date.now() - 30 * 86400000),
       },
     });
   }
@@ -331,7 +479,10 @@ async function ensureComplianceRules(fundId: string) {
   }
 }
 
-async function ensureValuationSnapshot(fundId: string, holdings: Array<{ qty: number; price: number; wac: number }>) {
+async function ensureValuationSnapshot(
+  fundId: string,
+  holdings: Array<{ qty: number; price: number; wac: number }>
+) {
   const nav = holdings.reduce((s, h) => s + h.qty * h.price, 0);
   const cost = holdings.reduce((s, h) => s + h.qty * h.wac, 0);
   const unrealized = nav - cost;
@@ -339,28 +490,17 @@ async function ensureValuationSnapshot(fundId: string, holdings: Array<{ qty: nu
     where: { fundId },
     orderBy: { asOf: "desc" },
   });
+  const data = {
+    asOf: new Date(),
+    navBaseCurrency: new Decimal(nav),
+    unrealizedPnlUsd: new Decimal(unrealized),
+    unrealizedPnlZig: new Decimal(0),
+    status: "OK",
+  };
   if (existing) {
-    await prisma.listedEquityValuationSnapshot.update({
-      where: { id: existing.id },
-      data: {
-        asOf: new Date(),
-        navBaseCurrency: new Decimal(nav),
-        unrealizedPnlUsd: new Decimal(unrealized),
-        unrealizedPnlZig: new Decimal(0),
-        status: "OK",
-      },
-    });
+    await prisma.listedEquityValuationSnapshot.update({ where: { id: existing.id }, data });
   } else {
-    await prisma.listedEquityValuationSnapshot.create({
-      data: {
-        fundId,
-        asOf: new Date(),
-        navBaseCurrency: new Decimal(nav),
-        unrealizedPnlUsd: new Decimal(unrealized),
-        unrealizedPnlZig: new Decimal(0),
-        status: "OK",
-      },
-    });
+    await prisma.listedEquityValuationSnapshot.create({ data: { fundId, ...data } });
   }
 }
 
@@ -380,13 +520,11 @@ async function ensureDemoClient(fundId: string) {
         status: "ACTIVE",
       },
     });
-    console.log(`[ok] Created demo client ${client.id}`);
   } else {
     client = await prisma.client.update({
       where: { id: client.id },
       data: { legalName: "Harare Pension Fund Trustees", email, country: "ZW", status: "ACTIVE" },
     });
-    console.log(`[ok] Updated demo client ${client.id}`);
   }
 
   const commitment = await prisma.investmentCommitment.findFirst({
@@ -407,26 +545,34 @@ async function ensureDemoClient(fundId: string) {
   return client;
 }
 
-async function ensureSampleTrade(fundId: string, securityId: string, adminId?: string) {
-  const existing = await prisma.listedEquityTrade.findFirst({
-    where: { fundId, tradeRef: { startsWith: "ALP-DEMO-" } },
-  });
+async function ensureSettledTrade(opts: {
+  fundId: string;
+  securityId: string;
+  tradeRef: string;
+  side: "BUY" | "SELL";
+  qty: number;
+  price: number;
+  fees: number;
+  when: Date;
+  adminId?: string;
+}) {
+  const existing = await prisma.listedEquityTrade.findFirst({ where: { tradeRef: opts.tradeRef } });
   if (existing) return existing;
 
   const trade = await prisma.listedEquityTrade.create({
     data: {
-      tradeRef: `ALP-DEMO-${Date.now().toString(36).toUpperCase()}`,
-      fundId,
-      securityId,
-      side: "BUY",
-      quantity: new Decimal(1000),
-      executionPrice: new Decimal(12.45),
+      tradeRef: opts.tradeRef,
+      fundId: opts.fundId,
+      securityId: opts.securityId,
+      side: opts.side,
+      quantity: new Decimal(opts.qty),
+      executionPrice: new Decimal(opts.price),
       executionCurrencyCode: "USD",
-      fees: new Decimal(24.9),
+      fees: new Decimal(opts.fees),
       status: "SETTLED",
-      executedAt: new Date(),
-      settledAt: new Date(),
-      executedById: adminId ?? null,
+      executedAt: opts.when,
+      settledAt: opts.when,
+      executedById: opts.adminId ?? null,
     },
   });
   for (const target of ["BROKER", "CUSTODIAN", "CORE_BANKING", "ACCOUNTING_GL"]) {
@@ -435,48 +581,243 @@ async function ensureSampleTrade(fundId: string, securityId: string, adminId?: s
         tradeId: trade.id,
         target,
         status: "CONFIRMED",
-        confirmedAt: new Date(),
+        confirmedAt: opts.when,
         externalRef: "DEMO_SEEDED",
       },
     });
   }
+
+  const amount = opts.qty * opts.price;
+  await prisma.investmentAccountingEvent.upsert({
+    where: { id: `demo-acct-${opts.tradeRef}` },
+    create: {
+      id: `demo-acct-${opts.tradeRef}`,
+      fundId: opts.fundId,
+      sourceType: "LISTED_EQUITY_TRADE",
+      sourceId: trade.id,
+      eventType: opts.side === "BUY" ? "PURCHASE" : "SALE",
+      status: "POSTED",
+      tradeRef: opts.tradeRef,
+      amount: new Decimal(amount),
+      currencyCode: "USD",
+      postedAt: opts.when,
+    },
+    update: {
+      status: "POSTED",
+      amount: new Decimal(amount),
+      postedAt: opts.when,
+    },
+  }).catch(async () => {
+    const exists = await prisma.investmentAccountingEvent.findFirst({
+      where: { sourceId: trade.id, sourceType: "LISTED_EQUITY_TRADE" },
+    });
+    if (!exists) {
+      await prisma.investmentAccountingEvent.create({
+        data: {
+          fundId: opts.fundId,
+          sourceType: "LISTED_EQUITY_TRADE",
+          sourceId: trade.id,
+          eventType: opts.side === "BUY" ? "PURCHASE" : "SALE",
+          status: "POSTED",
+          tradeRef: opts.tradeRef,
+          amount: new Decimal(amount),
+          currencyCode: "USD",
+          postedAt: opts.when,
+        },
+      });
+    }
+  });
+
   return trade;
+}
+
+async function ensureOrders(opts: {
+  fundId: string;
+  instrumentId: string;
+  securityId: string;
+  brokerId: string;
+  adminId: string;
+}) {
+  const specs = [
+    { ref: "ORD-ALP-CBZ-001", side: "BUY", qty: 2000, price: 12.4, status: "SETTLED", daysAgo: 5 },
+    { ref: "ORD-ALP-ECO-001", side: "BUY", qty: 8000, price: 4.5, status: "EXECUTED", daysAgo: 2 },
+    { ref: "ORD-ALP-DLTA-001", side: "BUY", qty: 1500, price: 18.7, status: "APPROVED", daysAgo: 1 },
+    { ref: "ORD-ALP-FBC-001", side: "SELL", qty: 500, price: 8.25, status: "SUBMITTED", daysAgo: 0 },
+  ];
+  for (const s of specs) {
+    const existing = await prisma.investmentOrder.findFirst({ where: { orderRef: s.ref } });
+    if (existing) continue;
+    const when = new Date(Date.now() - s.daysAgo * 86400000);
+    await prisma.investmentOrder.create({
+      data: {
+        orderRef: s.ref,
+        fundId: opts.fundId,
+        instrumentId: opts.instrumentId,
+        securityId: opts.securityId,
+        side: s.side,
+        quantity: new Decimal(s.qty),
+        orderType: "LIMIT",
+        limitPrice: new Decimal(s.price),
+        executionPrice: new Decimal(s.price),
+        tradeCurrency: "USD",
+        settlementCurrency: "USD",
+        brokerProfileId: opts.brokerId,
+        status: s.status,
+        complianceStatus: "PASSED",
+        createdById: opts.adminId,
+        submittedAt: when,
+        approvedAt: ["APPROVED", "EXECUTED", "SETTLED"].includes(s.status) ? when : null,
+        tradeDate: when,
+        valueDate: when,
+        createdAt: when,
+      },
+    });
+  }
+  console.log(`[ok] sample orders seeded`);
 }
 
 async function main() {
   console.log("Seeding Investment Ops demo data…\n");
 
-  await ensureCountry();
-  await ensureMarket();
+  await ensureCountries();
+  await ensureMarkets();
   await ensureInstrumentType();
+  await purgeOrphanCommissions();
 
-  const { fund, adminId } = await ensureFund();
+  const admin = await prisma.user.findFirst({
+    where: { role: { name: { in: ["admin", "Admin", "System Administrator"] } } },
+    select: { id: true },
+  });
+  if (!admin) throw new Error("No admin user found");
+  const bank = await prisma.bank.findFirst({ where: { isActive: true }, select: { id: true } });
 
-  const holdingMeta: Array<{ qty: number; price: number; wac: number }> = [];
-  let firstSecurityId: string | null = null;
+  const broker = await ensureStakeholder("BROKER", "Imara Edwards Securities", "dealing@imaraedwards.co.zw");
+  const broker2 = await ensureStakeholder("BROKER", "Imara Capital", "dealing@imara.co.zw");
+  const custodian = await ensureStakeholder("CUSTODIAN", "CBZ Custodial Services", "custody@cbz.co.zw");
+  const custodian2 = await ensureStakeholder("CUSTODIAN", "CABS Custody", "custody@cabs.co.zw");
+  await ensureCommission(broker.id, 20, "EQUITY");
+  await ensureCommission(broker2.id, 25, "EQUITY");
 
-  for (const eq of DEMO_EQUITIES) {
+  const priceBySymbol = Object.fromEntries(PRIMARY_EQUITIES.map((e) => [e.symbol, e]));
+  const securityBySymbol: Record<string, string> = {};
+  const instrumentBySymbol: Record<string, string> = {};
+
+  for (const eq of PRIMARY_EQUITIES) {
     const issuer = await ensureIssuer(eq.symbol, eq.name, eq.sector);
-    const { security } = await ensureSecurityAndInstrument(eq, issuer.id, adminId);
-    await ensureHolding(fund.id, security.id, eq.qty, eq.wac);
-    holdingMeta.push({ qty: eq.qty, price: eq.price, wac: eq.wac });
-    if (!firstSecurityId) firstSecurityId = security.id;
-    console.log(`[ok] ${eq.symbol} — instrument, security, price, holding`);
+    const { security, instrument } = await ensureSecurityAndInstrument(eq, issuer.id, admin.id);
+    securityBySymbol[eq.symbol] = security.id;
+    instrumentBySymbol[eq.symbol] = instrument.id;
+    console.log(`[ok] master ${eq.symbol}`);
   }
 
-  await ensureComplianceRules(fund.id);
-  await ensureValuationSnapshot(fund.id, holdingMeta);
-  if (firstSecurityId) await ensureSampleTrade(fund.id, firstSecurityId, adminId);
-  const client = await ensureDemoClient(fund.id);
+  const primary = await ensureListedFund({
+    name: "Arcus Listed Portfolio",
+    description: "Listed equity mandate managed by Arcus Asset Management",
+    adminId: admin.id,
+    bankId: bank?.id ?? null,
+    brokerId: broker.id,
+    custodianId: custodian.id,
+  });
 
-  const nav = holdingMeta.reduce((s, h) => s + h.qty * h.price, 0);
+  const primaryHoldMeta: Array<{ qty: number; price: number; wac: number }> = [];
+  for (const eq of PRIMARY_EQUITIES) {
+    await ensureHolding(primary.id, securityBySymbol[eq.symbol], eq.qty, eq.wac);
+    primaryHoldMeta.push({ qty: eq.qty, price: eq.price, wac: eq.wac });
+  }
+  await ensureComplianceRules(primary.id);
+  await ensureValuationSnapshot(primary.id, primaryHoldMeta);
+
+  for (const spec of TRADE_SPECS) {
+    const secId = securityBySymbol[spec.symbol];
+    if (!secId) continue;
+    await ensureSettledTrade({
+      fundId: primary.id,
+      securityId: secId,
+      tradeRef: `${spec.refPrefix}-2026`,
+      side: spec.side,
+      qty: spec.qty,
+      price: spec.price,
+      fees: spec.fees,
+      when: new Date(Date.now() - spec.daysAgo * 86400000),
+      adminId: admin.id,
+    });
+  }
+  console.log(`[ok] settled trades: ${TRADE_SPECS.length}`);
+
+  await ensureOrders({
+    fundId: primary.id,
+    instrumentId: instrumentBySymbol.CBZ,
+    securityId: securityBySymbol.CBZ,
+    brokerId: broker.id,
+    adminId: admin.id,
+  });
+
+  const client = await ensureDemoClient(primary.id);
+
+  for (const extra of EXTRA_FUNDS) {
+    const fund = await ensureListedFund({
+      name: extra.name,
+      description: extra.description,
+      adminId: admin.id,
+      bankId: bank?.id ?? null,
+      brokerId: broker.id,
+      custodianId: custodian.id,
+    });
+    const holdMeta: Array<{ qty: number; price: number; wac: number }> = [];
+    for (const h of extra.holdings) {
+      const eq = priceBySymbol[h.symbol];
+      if (!eq || !securityBySymbol[h.symbol]) continue;
+      await ensureHolding(fund.id, securityBySymbol[h.symbol], h.qty, h.wac);
+      holdMeta.push({ qty: h.qty, price: eq.price, wac: h.wac });
+    }
+    await ensureComplianceRules(fund.id);
+    await ensureValuationSnapshot(fund.id, holdMeta);
+  }
+
+  // Keep only realistic stakeholders
+  const keepNames = new Set([
+    "Imara Edwards Securities",
+    "Imara Capital",
+    "CBZ Custodial Services",
+    "CABS Custody",
+  ]);
+  const allStakeholders = await prisma.listedEquityStakeholderProfile.findMany();
+  for (const s of allStakeholders) {
+    if (keepNames.has(s.name)) continue;
+    await prisma.listedEquityFundConfig.updateMany({
+      where: { brokerProfileId: s.id },
+      data: { brokerProfileId: broker.id },
+    });
+    await prisma.listedEquityFundConfig.updateMany({
+      where: { custodianProfileId: s.id },
+      data: { custodianProfileId: custodian.id },
+    });
+    await prisma.investmentBrokerCommission.deleteMany({ where: { stakeholderProfileId: s.id } });
+    await prisma.listedEquityStakeholderProfile.delete({ where: { id: s.id } });
+    console.log(`[ok] removed junk stakeholder ${s.name}`);
+  }
+
+  const funds = await prisma.fund.findMany({
+    where: { fundPurpose: "LISTED_EQUITY" },
+    select: { name: true },
+    orderBy: { name: "asc" },
+  });
+  const tradeCount = await prisma.listedEquityTrade.count({ where: { fundId: primary.id } });
+  const orderCount = await prisma.investmentOrder.count({ where: { fundId: primary.id } });
+  const acctCount = await prisma.investmentAccountingEvent.count({ where: { fundId: primary.id } });
+
   console.log(`\nDemo seed complete.`);
-  console.log(`  Fund: ${FUND_NAME} (${fund.id})`);
-  console.log(`  Positions: ${DEMO_EQUITIES.length}`);
-  console.log(`  Approx NAV: USD ${nav.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
-  console.log(`  Client: ${client.legalName} (${client.id})`);
-  console.log(`  Broker: Imara Edwards Securities`);
-  console.log(`  Custodian: CBZ Custodial Services`);
+  console.log(`  Primary: Arcus Listed Portfolio (${primary.id})`);
+  console.log(`  LISTED_EQUITY funds: ${funds.length}`);
+  for (const f of funds) console.log(`    - ${f.name}`);
+  console.log(`  Trades (primary): ${tradeCount}`);
+  console.log(`  Orders (primary): ${orderCount}`);
+  console.log(`  Accounting events (primary): ${acctCount}`);
+  console.log(`  Client: ${client.legalName}`);
+  console.log(`  Brokers: Imara Edwards Securities, Imara Capital`);
+  console.log(`  Custodians: CBZ Custodial Services, CABS Custody`);
+  console.log(`  Markets: ${MARKETS.map((m) => m.marketCode).join(", ")}`);
+  console.log(`  Countries: ${COUNTRIES.map((c) => c.countryCode).join(", ")}`);
 }
 
 main()

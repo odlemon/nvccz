@@ -39,12 +39,28 @@ export class InvestmentSetupService {
   }
 
   static async listCommissions(stakeholderProfileId?: string) {
-    return prisma.investmentBrokerCommission.findMany({
+    const rows = await prisma.investmentBrokerCommission.findMany({
       where: {
         isActive: true,
         ...(stakeholderProfileId ? { stakeholderProfileId } : {}),
       },
+      orderBy: { createdAt: "desc" },
     });
+    const profileIds = [...new Set(rows.map((r) => r.stakeholderProfileId))];
+    const profiles = profileIds.length
+      ? await prisma.listedEquityStakeholderProfile.findMany({
+          where: { id: { in: profileIds } },
+          select: { id: true, name: true, profileType: true, contactEmail: true },
+        })
+      : [];
+    const byId = Object.fromEntries(profiles.map((p) => [p.id, p]));
+    return rows
+      .filter((r) => byId[r.stakeholderProfileId]) // drop orphan commission rows (e.g. cmbroker…)
+      .map((r) => ({
+        ...r,
+        brokerName: byId[r.stakeholderProfileId]?.name ?? null,
+        stakeholder: byId[r.stakeholderProfileId] ?? null,
+      }));
   }
 
   static async createCommission(data: Record<string, unknown>) {

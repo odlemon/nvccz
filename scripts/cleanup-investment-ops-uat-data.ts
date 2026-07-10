@@ -301,6 +301,24 @@ async function main() {
     console.log(`[ok] Deleted junk stakeholders: ${junkStakeholderIds.length}`);
   }
 
+  // Orphan commissions (stakeholder deleted / fake cmbroker… ids)
+  {
+    const commissions = await prisma.investmentBrokerCommission.findMany({
+      select: { id: true, stakeholderProfileId: true },
+    });
+    const profileIds = [...new Set(commissions.map((c) => c.stakeholderProfileId))];
+    const existing = await prisma.listedEquityStakeholderProfile.findMany({
+      where: { id: { in: profileIds } },
+      select: { id: true },
+    });
+    const ok = new Set(existing.map((e) => e.id));
+    const orphanIds = commissions.filter((c) => !ok.has(c.stakeholderProfileId)).map((c) => c.id);
+    if (orphanIds.length) {
+      await prisma.investmentBrokerCommission.deleteMany({ where: { id: { in: orphanIds } } });
+      console.log(`[ok] Deleted orphan commissions: ${orphanIds.length}`);
+    }
+  }
+
   if (junkMarketIds.length) {
     await prisma.investmentMarket.deleteMany({ where: { id: { in: junkMarketIds } } });
     console.log(`[ok] Deleted junk markets: ${junkMarketIds.length}`);
