@@ -13,8 +13,9 @@ const prisma = new PrismaClient();
 const KEEP_FUND_NAME = "Arcus Listed Portfolio";
 
 function isJunkName(name: string | null | undefined): boolean {
-  if (!name) return false;
+  if (!name) return true;
   const n = name.trim();
+  if (!n || n.toLowerCase() === "string") return true;
   return (
     /^UAT\b/i.test(n) ||
     /UAT Listed Fund/i.test(n) ||
@@ -46,7 +47,9 @@ async function main() {
     where: { fundPurpose: "LISTED_EQUITY" },
     select: { id: true, name: true },
   });
-  const junkFundIds = allLeFunds.filter((f) => isJunkName(f.name) && f.name !== KEEP_FUND_NAME).map((f) => f.id);
+  const junkFundIds = allLeFunds
+    .filter((f) => f.id && f.name !== KEEP_FUND_NAME && (isJunkName(f.name) || f.name === "string" || !f.name?.trim()))
+    .map((f) => f.id);
   console.log(`[info] Junk LISTED_EQUITY funds: ${junkFundIds.length}`);
   for (const f of allLeFunds.filter((x) => junkFundIds.includes(x.id))) {
     console.log(`  - ${f.name} (${f.id})`);

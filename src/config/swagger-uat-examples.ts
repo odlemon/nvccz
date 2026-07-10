@@ -11,8 +11,8 @@
 
 export const SWAGGER_EX = {
   /** Investment Operations — listed-equity fund on dev (refresh after db:migrate:fund-purpose) */
-  fundId: "cmrcbmaxf0001un4s5x0cnfaf",
-  clientId: "cmrbtg2y4001dkttzjm1cbiry",
+  fundId: "cmrdhkyoq003zkt4oo9paby46",
+  clientId: "cmrfh1vnp002cktbtk9m3ghta",
   userId: "cmuser0000000000000000001",
   campaignId: "cmcampaign000000000000001",
   dealId: "cmdeal0000000000000000001",
