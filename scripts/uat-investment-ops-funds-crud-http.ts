@@ -1,5 +1,6 @@
 /**
- * UAT — Investment Operations listed-equity fund CRUD + PE fund rejection.
+ * UAT — Investment Operations listed-equity fund access + PE rejection.
+ * Does not create timestamped UAT funds (demo-safe).
  * npm run uat:investment-ops:funds
  */
 import "dotenv/config";
@@ -41,12 +42,16 @@ async function main() {
     if (peFundId && p.id === peFundId) {
       throw new Error("PE fund must not appear in IO portfolios list");
     }
+    if (/^UAT\b/i.test(p.name || "")) {
+      throw new Error(`UAT-named fund still present in IO portfolios: ${p.name}`);
+    }
   }
 
   const setupListRes = await fetch(`${BASE}/investment-ops/setup/funds`, { headers });
   const setupListJson = await setupListRes.json();
   if (!setupListRes.ok) throw new Error(`setup/funds list failed: ${setupListJson.message}`);
   const setupFunds = setupListJson.data || [];
+  if (!setupFunds.length) throw new Error("No listed-equity funds — run db:seed:investment-ops-demo");
   console.log(`[PASS] GET /setup/funds — ${setupFunds.length} listed-equity fund(s)`);
 
   if (peFundId) {
@@ -58,37 +63,21 @@ async function main() {
     console.log(`[PASS] PE fund rejected on IO overview — ${rejectJson.message || rejectRes.status}`);
   }
 
-  const testName = `UAT Listed Fund ${Date.now()}`;
-  const createRes = await fetch(`${BASE}/investment-ops/setup/funds`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      name: testName,
-      description: "UAT listed-equity mandate",
-      baseCurrencyCode: "USD",
-    }),
-  });
-  const createJson = await createRes.json();
-  if (!createRes.ok || !createJson.data?.id) {
-    throw new Error(`Create fund failed: ${createJson.message || createRes.status}`);
-  }
-  const newFundId = createJson.data.id;
-  console.log(`[PASS] POST /setup/funds — ${newFundId}`);
-
-  const getRes = await fetch(`${BASE}/investment-ops/setup/funds/${newFundId}`, { headers });
+  const fundId = setupFunds.find((f: any) => f.name === "Arcus Listed Portfolio")?.id || setupFunds[0].id;
+  const getRes = await fetch(`${BASE}/investment-ops/setup/funds/${fundId}`, { headers });
   const getJson = await getRes.json();
   if (!getRes.ok || getJson.data?.fundPurpose !== "LISTED_EQUITY") {
     throw new Error(`GET fund failed or wrong purpose: ${getJson.message}`);
   }
-  console.log(`[PASS] GET /setup/funds/{id} — LISTED_EQUITY`);
+  console.log(`[PASS] GET /setup/funds/{id} — LISTED_EQUITY (${getJson.data?.name || fundId})`);
 
   const previewRes = await fetch(`${BASE}/investment-ops/orders/preview`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ fundId: newFundId, side: "BUY", quantity: 100, price: 1.5 }),
+    body: JSON.stringify({ fundId, side: "BUY", quantity: 100, price: 1.5 }),
   });
   const previewJson = await previewRes.json();
-  if (!previewRes.ok) throw new Error(`Order preview on new fund failed: ${previewJson.message}`);
+  if (!previewRes.ok) throw new Error(`Order preview on listed-equity fund failed: ${previewJson.message}`);
   console.log(`[PASS] Order preview on listed-equity fund`);
 
   if (peFundId) {

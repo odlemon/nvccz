@@ -137,6 +137,8 @@
     "uat:investment-ops:all-reports-verify": "ts-node --transpile-only -r dotenv/config scripts/uat-investment-ops-all-reports-verify.ts",
     "uat:ensure-io-client": "ts-node --transpile-only -r dotenv/config scripts/ensure-uat-io-client.ts",
     "uat:investment-ops:funds": "ts-node --transpile-only -r dotenv/config scripts/uat-investment-ops-funds-crud-http.ts",
+    "db:cleanup:investment-ops-uat": "ts-node --transpile-only -r dotenv/config scripts/cleanup-investment-ops-uat-data.ts",
+    "db:seed:investment-ops-demo": "ts-node --transpile-only -r dotenv/config scripts/seed-investment-ops-demo-data.ts",
     "db:migrate:fund-purpose": "ts-node --transpile-only -r dotenv/config scripts/run-fund-purpose-migration.ts",
     "inventory:investment-report-templates": "ts-node --transpile-only scripts/inventory-investment-report-templates.ts",
     "db:migrate:investment-report-run-scope": "ts-node --transpile-only -r dotenv/config scripts/run-investment-report-run-scope-migration.ts",

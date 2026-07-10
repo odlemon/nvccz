@@ -187,7 +187,7 @@ export const INVESTMENT_REPORT_TEMPLATES: InvestmentReportTemplateDef[] = [
     name: "Portfolio Valuation",
     description: "Holdings and P&L snapshot (JSON/PDF/CSV/Excel).",
     scopeType: "FUND",
-    supportedFormats: ["JSON", "PDF", "CSV", "EXCEL", "XLSX"],
+    supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
   },
   {
@@ -195,7 +195,7 @@ export const INVESTMENT_REPORT_TEMPLATES: InvestmentReportTemplateDef[] = [
     name: "Trade Blotter",
     description: "Recent trades for the fund.",
     scopeType: "FUND",
-    supportedFormats: ["JSON", "PDF", "CSV", "EXCEL", "XLSX"],
+    supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
   },
   {
@@ -203,7 +203,7 @@ export const INVESTMENT_REPORT_TEMPLATES: InvestmentReportTemplateDef[] = [
     name: "Holdings Summary",
     description: "Current positions with market values.",
     scopeType: "FUND",
-    supportedFormats: ["JSON", "PDF", "CSV", "EXCEL", "XLSX"],
+    supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
   },
   {
@@ -211,7 +211,7 @@ export const INVESTMENT_REPORT_TEMPLATES: InvestmentReportTemplateDef[] = [
     name: "Compliance Summary",
     description: "Rules and recent compliance check results.",
     scopeType: "FUND",
-    supportedFormats: ["JSON", "PDF", "CSV", "EXCEL", "XLSX"],
+    supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
   },
   {
@@ -219,7 +219,7 @@ export const INVESTMENT_REPORT_TEMPLATES: InvestmentReportTemplateDef[] = [
     name: "Reconciliation Summary",
     description: "Recent reconciliation batches and items.",
     scopeType: "FUND",
-    supportedFormats: ["JSON", "PDF", "CSV", "EXCEL", "XLSX"],
+    supportedFormats: ["PDF", "EXCEL", "XLSX", "CSV", "JSON"],
     requiresFundId: true,
   },
 ];
