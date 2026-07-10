@@ -556,36 +556,73 @@ async function ensureSettledTrade(opts: {
   when: Date;
   adminId?: string;
 }) {
-  const existing = await prisma.listedEquityTrade.findFirst({ where: { tradeRef: opts.tradeRef } });
-  if (existing) return existing;
-
-  const trade = await prisma.listedEquityTrade.create({
-    data: {
-      tradeRef: opts.tradeRef,
-      fundId: opts.fundId,
-      securityId: opts.securityId,
-      side: opts.side,
-      quantity: new Decimal(opts.qty),
-      executionPrice: new Decimal(opts.price),
-      executionCurrencyCode: "USD",
-      fees: new Decimal(opts.fees),
-      status: "SETTLED",
-      executedAt: opts.when,
-      settledAt: opts.when,
-      executedById: opts.adminId ?? null,
-    },
-  });
-  for (const target of ["BROKER", "CUSTODIAN", "CORE_BANKING", "ACCOUNTING_GL"]) {
-    await prisma.listedEquityTradeRoutingHop.create({
+  let trade = await prisma.listedEquityTrade.findFirst({ where: { tradeRef: opts.tradeRef } });
+  if (!trade) {
+    trade = await prisma.listedEquityTrade.create({
       data: {
+        tradeRef: opts.tradeRef,
+        fundId: opts.fundId,
+        securityId: opts.securityId,
+        side: opts.side,
+        quantity: new Decimal(opts.qty),
+        executionPrice: new Decimal(opts.price),
+        executionCurrencyCode: "USD",
+        fees: new Decimal(opts.fees),
+        status: "SETTLED",
+        executedAt: opts.when,
+        settledAt: opts.when,
+        executedById: opts.adminId ?? null,
+      },
+    });
+  } else {
+    trade = await prisma.listedEquityTrade.update({
+      where: { id: trade.id },
+      data: {
+        securityId: opts.securityId,
+        side: opts.side,
+        quantity: new Decimal(opts.qty),
+        executionPrice: new Decimal(opts.price),
+        fees: new Decimal(opts.fees),
+        status: "SETTLED",
+        executedAt: opts.when,
+        settledAt: opts.when,
+        executedById: opts.adminId ?? null,
+      },
+    });
+  }
+
+  for (const target of ["BROKER", "CUSTODIAN", "CORE_BANKING", "ACCOUNTING_GL"]) {
+    await prisma.listedEquityTradeRoutingHop.upsert({
+      where: { tradeId_target: { tradeId: trade.id, target } },
+      create: {
         tradeId: trade.id,
         target,
         status: "CONFIRMED",
         confirmedAt: opts.when,
         externalRef: "DEMO_SEEDED",
       },
+      update: {
+        status: "CONFIRMED",
+        confirmedAt: opts.when,
+        externalRef: "DEMO_SEEDED",
+      },
     });
   }
+
+  const realized =
+    opts.side === "SELL" ? new Decimal((opts.price - opts.price * 0.95) * opts.qty) : null;
+  await prisma.listedEquityTradeSettlement.upsert({
+    where: { tradeId: trade.id },
+    create: {
+      tradeId: trade.id,
+      realizedPnl: realized,
+      settlementDocumentRef: `demo-settlement://${opts.tradeRef}`,
+    },
+    update: {
+      realizedPnl: realized,
+      settlementDocumentRef: `demo-settlement://${opts.tradeRef}`,
+    },
+  });
 
   const amount = opts.qty * opts.price;
   await prisma.investmentAccountingEvent.upsert({
@@ -604,6 +641,7 @@ async function ensureSettledTrade(opts: {
     },
     update: {
       status: "POSTED",
+      sourceId: trade.id,
       amount: new Decimal(amount),
       postedAt: opts.when,
     },
@@ -625,6 +663,11 @@ async function ensureSettledTrade(opts: {
           postedAt: opts.when,
         },
       });
+    } else {
+      await prisma.investmentAccountingEvent.update({
+        where: { id: exists.id },
+        data: { status: "POSTED", amount: new Decimal(amount), postedAt: opts.when },
+      });
     }
   });
 
@@ -633,27 +676,50 @@ async function ensureSettledTrade(opts: {
 
 async function ensureOrders(opts: {
   fundId: string;
-  instrumentId: string;
-  securityId: string;
+  instrumentBySymbol: Record<string, string>;
+  securityBySymbol: Record<string, string>;
   brokerId: string;
   adminId: string;
 }) {
   const specs = [
-    { ref: "ORD-ALP-CBZ-001", side: "BUY", qty: 2000, price: 12.4, status: "SETTLED", daysAgo: 5 },
-    { ref: "ORD-ALP-ECO-001", side: "BUY", qty: 8000, price: 4.5, status: "EXECUTED", daysAgo: 2 },
-    { ref: "ORD-ALP-DLTA-001", side: "BUY", qty: 1500, price: 18.7, status: "APPROVED", daysAgo: 1 },
-    { ref: "ORD-ALP-FBC-001", side: "SELL", qty: 500, price: 8.25, status: "SUBMITTED", daysAgo: 0 },
+    { ref: "ORD-ALP-CBZ-001", symbol: "CBZ", side: "BUY", qty: 2000, price: 12.4, status: "SETTLED", daysAgo: 5 },
+    { ref: "ORD-ALP-ECO-001", symbol: "ECO", side: "BUY", qty: 8000, price: 4.5, status: "EXECUTED", daysAgo: 2 },
+    { ref: "ORD-ALP-DLTA-001", symbol: "DLTA", side: "BUY", qty: 1500, price: 18.7, status: "APPROVED", daysAgo: 1 },
+    { ref: "ORD-ALP-FBC-001", symbol: "FBC", side: "SELL", qty: 500, price: 8.25, status: "SUBMITTED", daysAgo: 0 },
   ];
   for (const s of specs) {
-    const existing = await prisma.investmentOrder.findFirst({ where: { orderRef: s.ref } });
-    if (existing) continue;
+    const instrumentId = opts.instrumentBySymbol[s.symbol];
+    const securityId = opts.securityBySymbol[s.symbol];
+    if (!instrumentId || !securityId) continue;
     const when = new Date(Date.now() - s.daysAgo * 86400000);
+    const existing = await prisma.investmentOrder.findFirst({ where: { orderRef: s.ref } });
+    if (existing) {
+      await prisma.investmentOrder.update({
+        where: { id: existing.id },
+        data: {
+          instrumentId,
+          securityId,
+          side: s.side,
+          quantity: new Decimal(s.qty),
+          limitPrice: new Decimal(s.price),
+          executionPrice: new Decimal(s.price),
+          brokerProfileId: opts.brokerId,
+          status: s.status,
+          complianceStatus: "PASSED",
+          submittedAt: when,
+          approvedAt: ["APPROVED", "EXECUTED", "SETTLED"].includes(s.status) ? when : null,
+          tradeDate: when,
+          valueDate: when,
+        },
+      });
+      continue;
+    }
     await prisma.investmentOrder.create({
       data: {
         orderRef: s.ref,
         fundId: opts.fundId,
-        instrumentId: opts.instrumentId,
-        securityId: opts.securityId,
+        instrumentId,
+        securityId,
         side: s.side,
         quantity: new Decimal(s.qty),
         orderType: "LIMIT",
@@ -746,8 +812,8 @@ async function main() {
 
   await ensureOrders({
     fundId: primary.id,
-    instrumentId: instrumentBySymbol.CBZ,
-    securityId: securityBySymbol.CBZ,
+    instrumentBySymbol,
+    securityBySymbol,
     brokerId: broker.id,
     adminId: admin.id,
   });

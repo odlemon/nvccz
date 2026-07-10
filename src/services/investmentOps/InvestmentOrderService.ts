@@ -333,17 +333,30 @@ export class InvestmentOrderService {
   }
 
   static enrichTradeBlotter(trade: any) {
+    const fundCfg = trade.fund?.listedEquityFundConfig;
+    const glHopConfirmed = trade.routingHops?.some(
+      (h: any) => h.target === "ACCOUNTING_GL" && h.status === "CONFIRMED"
+    );
+    const accountingPosted = Boolean(trade.settlement?.journalEntryId) || Boolean(glHopConfirmed);
+    const brokerProfileId =
+      trade.brokerProfileId ?? fundCfg?.brokerProfileId ?? fundCfg?.brokerProfile?.id ?? null;
+    const custodianProfileId =
+      trade.custodianProfileId ?? fundCfg?.custodianProfileId ?? fundCfg?.custodianProfile?.id ?? null;
     return {
       ...trade,
-      accountingStatus: trade.settlement?.journalEntryId ? "POSTED" : "NOT_POSTED",
+      accountingStatus: accountingPosted ? "POSTED" : "NOT_POSTED",
       confirmationStatus: trade.routingHops?.find((h: any) => h.target === "BROKER")?.status ?? "STAGED",
       settlementStatus: trade.status,
       grossConsideration: Number(trade.quantity) * Number(trade.executionPrice),
       netConsideration:
         Number(trade.quantity) * Number(trade.executionPrice) + Number(trade.fees || 0),
-      brokerProfileId: trade.brokerProfileId ?? null,
-      custodianProfileId: trade.custodianProfileId ?? null,
-      valueDate: trade.valueDate ?? trade.settlement?.valueDate ?? null,
+      brokerProfileId,
+      custodianProfileId,
+      brokerName: fundCfg?.brokerProfile?.name ?? trade.brokerName ?? null,
+      custodianName: fundCfg?.custodianProfile?.name ?? trade.custodianName ?? null,
+      broker: fundCfg?.brokerProfile?.name ?? trade.broker ?? null,
+      custodian: fundCfg?.custodianProfile?.name ?? trade.custodian ?? null,
+      valueDate: trade.valueDate ?? trade.settlement?.valueDate ?? trade.settledAt ?? null,
     };
   }
 }

@@ -376,7 +376,21 @@ export class TradeOrchestratorService {
     }
     return prisma.listedEquityTrade.findMany({
       where,
-      include: { security: true, routingHops: true },
+      include: {
+        security: true,
+        routingHops: true,
+        settlement: true,
+        fund: {
+          include: {
+            listedEquityFundConfig: {
+              include: {
+                brokerProfile: true,
+                custodianProfile: true,
+              },
+            },
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
       take: 100,
     });
