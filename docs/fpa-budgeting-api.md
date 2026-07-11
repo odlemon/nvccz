@@ -64,6 +64,8 @@ Creates cycle + BUDGET workflow + owner tasks. Optionally loads prior actuals an
 **Required:** `modelId`, `name`, `fiscalYear`, `owners` (≥ 1).  
 **409** if an unlocked cycle already exists for the same `modelId` + `fiscalYear`.
 
+**Side effects:** for each owner with `assigneeId`, Arcus creates an in-app notification (`BUDGET_OWNER_ASSIGNED`) and sends an assignment email (non-fatal if mail fails). Same on `PUT …/owners` when assignees are set/updated.
+
 **Response `data`**
 
 ```json

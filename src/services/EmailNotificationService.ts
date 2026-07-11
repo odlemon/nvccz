@@ -206,6 +206,67 @@ export class EmailNotificationService {
   }
 
   /**
+   * Notify a user they were assigned as a budget owner on an FP&A annual budget cycle.
+   */
+  static async sendBudgetOwnerAssignedEmail(data: {
+    assigneeName: string;
+    assigneeEmail: string;
+    cycleName: string;
+    fiscalYear: number;
+    departmentName?: string | null;
+    taskTitle?: string | null;
+    cycleId: string;
+    taskId?: string | null;
+    dueDateDisplay?: string | null;
+  }): Promise<void> {
+    try {
+      const branding = await getEmailBrandingCached();
+      const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+      const budgetPath = `/forecasting/budget?cycleId=${encodeURIComponent(data.cycleId)}`;
+      const link = `${base}${budgetPath}`;
+      const subject = `Budget owner assignment — ${data.cycleName} — ${process.env.COMPANY_NAME_SHORT || "NVCCZ"}`;
+      const deptLine = data.departmentName
+        ? `<p><strong>Department:</strong> ${escapeHtmlForEmail(data.departmentName)}</p>`
+        : "";
+      const dueLine = data.dueDateDisplay
+        ? `<p><strong>Due:</strong> ${escapeHtmlForEmail(data.dueDateDisplay)}</p>`
+        : "";
+      const bodyInnerHtml = `
+            <p>Dear ${escapeHtmlForEmail(data.assigneeName)},</p>
+            <p>You have been assigned as a <strong>budget owner</strong> for the following annual budget cycle.</p>
+            <p><strong>Cycle:</strong> ${escapeHtmlForEmail(data.cycleName)} (FY${data.fiscalYear})</p>
+            ${deptLine}
+            ${data.taskTitle ? `<p><strong>Task:</strong> ${escapeHtmlForEmail(data.taskTitle)}</p>` : ""}
+            ${dueLine}
+            <p>Please open the Budgeting workspace to enter your budget lines and submit when ready.</p>
+            <p><a href="${escapeAttrForEmail(link)}" target="_blank" style="display:inline-block;padding:10px 16px;background:#1e40af;color:#fff;text-decoration:none;border-radius:4px;">Open budget cycle</a></p>
+            <p style="font-size:12px;color:#64748b;">Or go to: ${escapeHtmlForEmail(link)}</p>`;
+
+      const htmlContent = EmailNotificationService.composeNewsletterTransactionalHtml({
+        branding,
+        pageTitle: subject,
+        preheader: `You are a budget owner for ${data.cycleName}`,
+        emailHeading: "Budget owner assignment",
+        headerTagline: "FP&A Budgeting",
+        bodyInnerHtml,
+        teamLabel: "FP&A Team",
+      });
+
+      const from = getFromAddress("platform");
+      await emailTransport.sendMail({
+        from: `"${from.name}" <${from.address}>`,
+        to: `"${data.assigneeName}" <${data.assigneeEmail}>`,
+        subject,
+        html: htmlContent,
+      });
+      console.log(`Budget owner assignment email sent to ${data.assigneeEmail} (cycle ${data.cycleId})`);
+    } catch (error) {
+      console.error("Error sending budget owner assignment email:", error);
+      throw error;
+    }
+  }
+
+  /**
    * HR / cycle trigger: remind reviewees that a manager-created review exists
    * and they have not yet completed the self-assessment portion.
    */

@@ -7,6 +7,8 @@ import { FpaActualsService } from "./FpaActualsService";
 import { FpaModelSetupService } from "./FpaModelSetupService";
 import { FpaVersionService } from "./FpaVersionService";
 import { FpaExportService } from "./FpaExportService";
+import { EmailNotificationService } from "../EmailNotificationService";
+import { emitToUsers } from "../RealtimeSocketService";
 
 export const BUDGET_INPUT_CATEGORIES = [
   "REVENUE",
@@ -281,6 +283,7 @@ export class FpaBudgetCycleService {
     });
 
     await FpaAuditService.log("BUDGET_CYCLE_CREATE", user.id, { modelId, ip });
+    await FpaBudgetCycleService.notifyOwnersAssigned(opened.id);
     const data = await FpaBudgetCycleService.serialize(opened);
     return { ...data, actualsRowCount };
   }
@@ -364,7 +367,110 @@ export class FpaBudgetCycleService {
     });
 
     await FpaAuditService.log("BUDGET_CYCLE_OWNERS", user.id, { modelId: cycle.modelId, ip });
+    await FpaBudgetCycleService.notifyOwnersAssigned(cycleId);
     return FpaBudgetCycleService.get(cycleId);
+  }
+
+  /**
+   * In-app notification + email for each owner with an assigneeId.
+   * Non-fatal: failures are logged and do not roll back the cycle.
+   */
+  static async notifyOwnersAssigned(cycleId: string) {
+    const cycle = await prisma.planningBudgetCycle.findUnique({
+      where: { id: cycleId },
+      include: { owners: true },
+    });
+    if (!cycle?.owners?.length) return;
+
+    const assigneeIds = [...new Set(cycle.owners.map((o) => o.assigneeId).filter(Boolean).map(String))];
+    if (!assigneeIds.length) return;
+
+    const [users, depts, tasks] = await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: assigneeIds } },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      }),
+      prisma.department.findMany({
+        where: { id: { in: cycle.owners.map((o) => o.departmentId) } },
+        select: { id: true, name: true },
+      }),
+      prisma.planningTask.findMany({
+        where: { id: { in: cycle.owners.map((o) => o.taskId).filter(Boolean) as string[] } },
+        select: { id: true, title: true, dueDate: true },
+      }),
+    ]);
+    const userById = Object.fromEntries(users.map((u) => [u.id, u]));
+    const deptById = Object.fromEntries(depts.map((d) => [d.id, d]));
+    const taskById = Object.fromEntries(tasks.map((t) => [t.id, t]));
+    const base = String(process.env.FRONTEND_URL || "http://app.kyntaro.com").replace(/\/+$/, "");
+    const path = `/forecasting/budget?cycleId=${encodeURIComponent(cycle.id)}`;
+
+    const notified = new Set<string>();
+    for (const owner of cycle.owners) {
+      if (!owner.assigneeId) continue;
+      const user = userById[owner.assigneeId];
+      if (!user?.email) continue;
+      const dedupeKey = `${owner.assigneeId}:${owner.departmentId}`;
+      if (notified.has(dedupeKey)) continue;
+      notified.add(dedupeKey);
+
+      const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email;
+      const deptName = deptById[owner.departmentId]?.name || null;
+      const task = owner.taskId ? taskById[owner.taskId] : null;
+      const dueDateDisplay = task?.dueDate
+        ? new Date(task.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+        : cycle.endDate
+          ? new Date(cycle.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+          : null;
+
+      try {
+        await prisma.notification.create({
+          data: {
+            title: "Budget owner assignment",
+            message: `You were assigned as budget owner for "${cycle.name}"${deptName ? ` (${deptName})` : ""}.`,
+            type: "BUDGET_OWNER_ASSIGNED",
+            userId: user.id,
+            relatedEntity: "PlanningBudgetCycle",
+            relatedEntityId: cycle.id,
+            data: {
+              cycleId: cycle.id,
+              taskId: owner.taskId || null,
+              departmentId: owner.departmentId,
+              path,
+              url: `${base}${path}`,
+            },
+          },
+        });
+      } catch (e) {
+        console.error("Budget owner in-app notification failed:", e);
+      }
+
+      try {
+        await EmailNotificationService.sendBudgetOwnerAssignedEmail({
+          assigneeName: name,
+          assigneeEmail: user.email,
+          cycleName: cycle.name,
+          fiscalYear: cycle.fiscalYear,
+          departmentName: deptName,
+          taskTitle: task?.title || null,
+          cycleId: cycle.id,
+          taskId: owner.taskId || null,
+          dueDateDisplay,
+        });
+      } catch (e) {
+        console.error("Budget owner email failed:", e);
+      }
+    }
+
+    try {
+      emitToUsers(assigneeIds, "notification_created", {
+        type: "BUDGET_OWNER_ASSIGNED",
+        cycleId: cycle.id,
+        path,
+      });
+    } catch (e) {
+      console.error("Budget owner realtime emit failed:", e);
+    }
   }
 
   static async loadActuals(cycleId: string, input: any, user: any, ip?: string) {
