@@ -127,9 +127,8 @@ import exchangeRateDisplayCronRoutes from "./routes/exchangeRateDisplayCronRoute
 import procurementRoutes from "./routes/procurementRoutes"
 import procurementSuite06Routes from "./routes/procurementSuite06Routes"
 import vendorDocumentAttachmentRoutes from "./routes/vendorDocumentAttachmentRoutes"
-import forecastingRoutes from "./routes/forecastingRoutes"
-import forecastingV1Routes from "./routes/forecastingV1Routes"
-import forecastingCronRoutes from "./routes/forecastingCronRoutes"
+import forecastEntityRoutes from "./routes/forecastEntityRoutes"
+import fpaRoutes from "./routes/fpaRoutes"
 import vendorQuotationRoutes from "./routes/vendorQuotationRoutes"
 import approvalWorkflowRoutes from "./routes/approvalWorkflowRoutes"
 import procurementApprovalConfigRoutes from "./routes/procurementApprovalConfigRoutes"
@@ -699,10 +698,11 @@ app.use("/api/procurement/document-attachments", vendorDocumentAttachmentRoutes)
 app.use("/api/procurement/suite06", procurementSuite06Routes)
 app.use("/api/procurement", procurementRoutes)
 
-// Forecasting Engine
-app.use("/api/forecasting", forecastingRoutes)
-app.use("/api/v1/forecasting", forecastingV1Routes)
-app.use("/api/cron/forecasting", forecastingCronRoutes)
+// Forecast entities (Tax Return Pack + FP&A dimension)
+app.use("/api/forecast-entities", forecastEntityRoutes)
+
+// FP&A Planning, Budgeting, Forecasting
+app.use("/api/v1/fpa", fpaRoutes)
 
 // Vendor Quotation routes (some are public/unauthenticated)
 app.use("/api/vendor-quotations", vendorQuotationRoutes)

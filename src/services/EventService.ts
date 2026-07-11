@@ -518,17 +518,6 @@ export class EventService {
         },
       });
 
-      const totalAmount = budgetItems.reduce(
-        (sum, item) => sum + Number(item.estimatedCost) * Number(item.quantity || 1),
-        0
-      );
-      try {
-        const { ForecastingEventsBridgeService } = await import("./ForecastingEventsBridgeService");
-        await ForecastingEventsBridgeService.recordPrepaidAccrual(eventId, totalAmount);
-      } catch (accrualErr: any) {
-        console.warn("[addBudgetItems] Forecast accrual hook failed:", accrualErr?.message);
-      }
-
       return budgetItemRecords;
     } catch (error) {
       console.error('Error adding budget items:', error);
@@ -552,14 +541,6 @@ export class EventService {
 
       if (existingEvent.budgetStatus !== 'SUBMITTED') {
         throw new Error(`Budget cannot be approved. Current budget status: ${existingEvent.budgetStatus}. Budget must be in SUBMITTED status to be approved.`);
-      }
-
-      try {
-        const { ForecastingEventsBridgeService } = await import("./ForecastingEventsBridgeService");
-        await ForecastingEventsBridgeService.assertEventWithinForecastBoundary(eventId);
-      } catch (boundaryErr: any) {
-        if (boundaryErr?.code === "EVENT_BUDGET_EXCEEDED") throw boundaryErr;
-        console.warn("[approveBudget] Forecast boundary check skipped:", boundaryErr?.message);
       }
 
       const event = await prisma.event.update({

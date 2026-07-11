@@ -1,0 +1,141 @@
+# FP&A — API by UI Section
+
+Screen → endpoint mapping for frontend handoff.  
+Base: `https://{host}/api/v1/fpa`  
+Auth: Bearer token (same as rest of Arcus).
+
+Entities (legal entities / COA clones): `https://{host}/api/forecast-entities`
+
+---
+
+## B.1 FP&A Home Dashboard
+
+| Screen element | Method | Path |
+|----------------|--------|------|
+| KPI cards, trend, scenario summary, workflow progress, tasks, over-budget | GET | `/home/dashboard?modelId=` |
+| List models (selector) | GET | `/models` |
+| Scenario list (selector) | GET | `/scenarios?modelId=` |
+| Version list (via model detail) | GET | `/models/{modelId}` |
+
+**Home payload (typical):** `kpis` (revenue, ebitda, closingCash, runway), `scenarioComparison`, `workflowProgress`, `openTasks`, `overBudgetDepartments`, `recentActivity`.
+
+---
+
+## B.2 Planning Worksheet
+
+| Screen element | Method | Path |
+|----------------|--------|------|
+| Load grid | GET | `/models/{modelId}/grid?versionId=&scenarioId=&page=&pageSize=` |
+| Edit cell | POST | `/models/{modelId}/cells/update` body: `{ cellId, value }` or `{ versionId, scenarioId, lineItemId, periodDate, value }` |
+| Bulk edit | POST | `/models/{modelId}/cells/bulk-update` body: `{ updates: [...] }` |
+| Spread | POST | `/models/{modelId}/cells/spread` |
+| Copy forward | POST | `/models/{modelId}/cells/copy-forward` |
+| Cell history | GET | `/models/{modelId}/cells/{cellId}/history` |
+| Submit workflow task | POST | `/tasks/{taskId}/submit` |
+
+**Grid response:** `lineItems[]`, `cells[]` (with `isEditable`, `isLocked`, `sourceType`, `valueType`), pagination.
+
+Locked / actual cells: treat as read-only; API returns 403 if edited.
+
+---
+
+## B.3 Model Builder
+
+| Screen element | Method | Path |
+|----------------|--------|------|
+| Create model | POST | `/models` |
+| Get / update / archive | GET/PUT `/models/{modelId}` ; POST `/models/{modelId}/archive` |
+| Line items | GET/POST | `/models/{modelId}/line-items` |
+| Drivers | GET/POST | `/models/{modelId}/drivers` or `/drivers` |
+| Create formula | POST | `/models/{modelId}/formulas` |
+| Update formula | PUT | `/formulas/{formulaId}` |
+| Validate formula | POST | `/formulas/validate` body: `{ expression }` |
+| Dependency / circular check | POST | `/formulas/dependency-check` |
+| Impact map | GET | `/formulas/{formulaId}/impact-map` |
+
+**Create model body:** `{ name, modelType, baseCurrency, startPeriod, endPeriod, timeGranularity, description? }`  
+Seeds BASE scenario, Working version, default line items, and empty monthly cells.
+
+---
+
+## B.4 Scenario Comparison
+
+| Screen element | Method | Path |
+|----------------|--------|------|
+| List scenarios | GET | `/scenarios?modelId=` |
+| Create scenario | POST | `/scenarios` |
+| Copy scenario | POST | `/scenarios/{id}/copy` |
+| Compare | POST | `/scenarios/{id}/compare` body: `{ scenarioIds, versionId }` |
+
+---
+
+## B.5 Workflow & Approvals
+
+| Screen element | Method | Path |
+|----------------|--------|------|
+| Create cycle | POST | `/workflows` |
+| Get workflow | GET | `/workflows/{id}` |
+| My tasks | GET | `/tasks/my-tasks` |
+| Submit | POST | `/tasks/{id}/submit` |
+| Return | POST | `/tasks/{id}/return` |
+| Approve | POST | `/tasks/{id}/approve` |
+| Lock version (CFO) | POST | `/versions/{id}/lock` |
+| Archive version | POST | `/versions/{id}/archive` |
+| Create version | POST | `/versions` |
+
+Maker cannot approve their own submission (enforced server-side).
+
+---
+
+## B.6 Variance Analysis
+
+| Screen element | Method | Path |
+|----------------|--------|------|
+| Calculate | POST | `/variance/calculate` |
+| Results | GET | `/variance/results?modelId=&varianceType=` |
+| Commentary | POST | `/variance/{id}/commentary` body: `{ body, correctiveAction? }` |
+
+Direction: `FAVOURABLE` / `UNFAVOURABLE` / `NEUTRAL` based on line item type (revenue/cash vs expense).
+
+---
+
+## Actuals integration
+
+| Action | Method | Path |
+|--------|--------|------|
+| Sync closed-period GL | POST | `/actuals/sync` |
+| List snapshots | GET | `/actuals/snapshots?modelId=` |
+
+---
+
+## Domain views (thin filters)
+
+| Screen | Method | Path |
+|--------|--------|------|
+| Workforce / Revenue / Expense / Cash | GET | `/domain/{category}?modelId=` (`workforce` \| `revenue` \| `expense` \| `cash`) |
+
+---
+
+## Exports & AI (assist-only)
+
+| Action | Method | Path |
+|--------|--------|------|
+| Board pack / management export | POST | `/exports/board-pack` body: `{ modelId, versionId }` |
+| Forecast suggestion stub | POST | `/ai/suggest` |
+| Commentary draft stub | POST | `/ai/commentary-draft` |
+
+AI never approves, locks, or overrides actuals.
+
+---
+
+## Forecast entities (shared with Tax Return Pack)
+
+| Action | Method | Path |
+|--------|--------|------|
+| List entities | GET | `/api/forecast-entities` |
+| Create | POST | `/api/forecast-entities` |
+| Get | GET | `/api/forecast-entities/{id}` |
+| Entity COA | GET | `/api/forecast-entities/{id}/chart-of-accounts` |
+| Resync COA | POST | `/api/forecast-entities/{id}/resync-coa` |
+
+Use `id` as `entityId` on planning cells / filters when scoping by legal entity.

@@ -153,7 +153,7 @@ export class LpFundMetricsService {
 
     if (reportLevel === "BOARD") {
       snapshot.boardExtras = {
-        forecastVarianceNote: "Board variance sections require forecasting-engine bridge (partial in v1).",
+        forecastVarianceNote: "Board variance sections require FP&A bridge (partial in v1).",
         managementExpenses: fundDashboard.performanceOverview?.managementExpenses ?? 0,
         otherExpenses: fundDashboard.performanceOverview?.otherExpenses ?? 0,
       };

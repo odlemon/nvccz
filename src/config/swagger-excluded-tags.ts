@@ -5,7 +5,7 @@
 
 import { PHASE_TWO_SCORECARD_EDITING_TAG } from './phase-two-scorecard-editing-swagger-paths';
 import { PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
-import { FORECASTING_ENGINE_TAG } from './forecasting-engine-swagger-paths';
+import { FPA_TAG } from './fpa-swagger-paths';
 import { PAYROLL_EMPLOYMENT_TRAINING_TAG } from './payroll-employment-training-swagger-paths';
 import { FUND_PERFORMANCE_REPORTING_TAG } from './fund-performance-reporting-swagger-paths';
 import { LP_PORTAL_TAG } from './lp-portal-swagger-paths';
@@ -86,7 +86,7 @@ export const SWAGGER_EXCLUDED_TAGS = new Set([
 export const SWAGGER_PROTECTED_TAGS = new Set([
   PHASE_TWO_SCORECARD_EDITING_TAG,
   PHASE_TWO_PDF_UPLOADS_TAG,
-  FORECASTING_ENGINE_TAG,
+  FPA_TAG,
   PAYROLL_EMPLOYMENT_TRAINING_TAG,
   FUND_PERFORMANCE_REPORTING_TAG,
   LP_PORTAL_TAG,

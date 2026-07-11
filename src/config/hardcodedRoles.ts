@@ -54,10 +54,10 @@ export const HARDCODED_ROLES: HardcodedRole[] = [
   },
   {
     code: "FORECAST_LOCK",
-    name: "Forecast Lock Authority",
+    name: "FP&A Version Lock Authority",
     level: 5,
     department: "Finance",
-    description: "Can lock forecasting scenarios into immutable approved versions"
+    description: "Can lock FP&A planning versions into immutable approved versions"
   },
   {
     code: "FIN_OFF",

@@ -20,7 +20,6 @@ import { updatedInvestmentFlowExtraPaths } from './updated-investment-flow-swagg
 import { updatedPerformanceSwaggerPaths } from './updated-performance-swagger-paths';
 import { phaseTwoScorecardEditingSwaggerPaths } from './phase-two-scorecard-editing-swagger-paths';
 import { phaseTwoPdfUploadsSwaggerPaths, PHASE_TWO_PDF_UPLOADS_TAG } from './phase-two-pdf-uploads-swagger-paths';
-import { forecastingEngineSwaggerPaths, FORECASTING_ENGINE_TAG } from './forecasting-engine-swagger-paths';
 import {
   payrollEmploymentTrainingSwaggerPaths,
   PAYROLL_EMPLOYMENT_TRAINING_TAG,
@@ -81,6 +80,11 @@ import {
   TAX_RETURN_PACK_TAG,
   TAX_RETURN_PACK_TAG_DEFINITION,
 } from './tax-return-pack-swagger-paths';
+import {
+  fpaSwaggerPaths,
+  FPA_TAG,
+  FPA_TAG_DEFINITION,
+} from './fpa-swagger-paths';
 import { pruneSwaggerSpecByExcludedTags, applyProtectedSwaggerModules } from './swagger-excluded-tags';
 import { performanceUatTasksBoardEndpoints } from './performance-uat-tasks-board-endpoints';
 import { performanceCollaborationNotificationsEndpoints } from './performance-collaboration-notifications-endpoints';
@@ -348,9 +352,9 @@ const options = {
           'Attachments are **optional** on submit; when provided they are validated (type, size, PDF integrity, SHA-256) and fully audited.'
       },
       {
-        name: FORECASTING_ENGINE_TAG,
+        name: FPA_TAG,
         description:
-          '**Forecasting Engine** — multi-dimensional hypercube scenarios, drivers, DAG compute, variance (Eq. 1–10), version lock/snapshots, GL daily sync, and Phase 2 bridges (Investee dispatch, OPM goal links, Events budget accrual). See `docs/forecasting-engine-backend-requirements.md`.'
+          '**FP&A Planning** — models, worksheet grid, formulas, drivers, scenarios, versions, workflow, actuals sync, variance commentary. See `docs/fpa-backend-requirements.md`.'
       },
       {
         name: INVESTMENT_OPERATIONS_TAG,
@@ -2307,7 +2311,7 @@ const fallbackSpec = {
     ...reportingScheduleSwaggerEndpoints,
     ...lpFeesAndDistributionsEndpoints,
     ...phaseTwoPdfUploadsSwaggerPaths,
-    ...forecastingEngineSwaggerPaths,
+    ...fpaSwaggerPaths,
     ...payrollEmploymentTrainingSwaggerPaths,
     ...stockPriceCollectorSwaggerPaths,
   ...investmentOpsSwaggerPaths,
@@ -9639,7 +9643,7 @@ specs.paths = {
   ...updatedPerformanceSwaggerPaths,
   ...phaseTwoScorecardEditingSwaggerPaths,
   ...phaseTwoPdfUploadsSwaggerPaths,
-  ...forecastingEngineSwaggerPaths,
+  ...fpaSwaggerPaths,
   ...payrollEndpoints,
   ...payrollEmploymentTrainingSwaggerPaths,
   ...stockPriceCollectorSwaggerPaths,
@@ -9748,15 +9752,6 @@ specs = applyProtectedSwaggerModules(specs, [
     }
   },
   {
-    paths: forecastingEngineSwaggerPaths,
-    tagName: FORECASTING_ENGINE_TAG,
-    tagDefinition: {
-      name: FORECASTING_ENGINE_TAG,
-      description:
-        '**Forecasting Engine** — multi-dimensional hypercube scenarios, drivers, DAG compute, variance (Eq. 1–10), version lock/snapshots, GL daily sync, and Phase 2 bridges (Investee dispatch, OPM goal links, Events budget accrual). See `docs/forecasting-engine-backend-requirements.md`.'
-    }
-  },
-  {
     paths: payrollEmploymentTrainingSwaggerPaths,
     tagName: PAYROLL_EMPLOYMENT_TRAINING_TAG,
     tagDefinition: PAYROLL_EMPLOYMENT_TRAINING_TAG_DEFINITION,
@@ -9816,13 +9811,18 @@ specs = applyProtectedSwaggerModules(specs, [
     tagName: TAX_RETURN_PACK_TAG,
     tagDefinition: TAX_RETURN_PACK_TAG_DEFINITION,
   },
+  {
+    paths: fpaSwaggerPaths,
+    tagName: FPA_TAG,
+    tagDefinition: FPA_TAG_DEFINITION,
+  },
 ]);
 
 const protectedModules = Object.keys(specs.paths ?? {}).filter(
-  (p) => p.includes('/forecasting/') || p.includes('/v1/forecasting/') || p.includes('/cron/forecasting/') || p.includes('document-attachments')
+  (p) => p.includes('/v1/fpa/') || p.includes('/forecast-entities') || p.includes('document-attachments')
 );
 console.log(
-  `Swagger protected modules: ${protectedModules.filter((p) => p.includes('forecasting')).length} forecasting paths, ` +
+  `Swagger protected modules: ${protectedModules.filter((p) => p.includes('/v1/fpa/') || p.includes('fpa')).length} FP&A paths, ` +
     `${protectedModules.filter((p) => p.includes('document-attachments')).length} vendor PDF paths`
 );
 
