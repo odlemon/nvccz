@@ -203,3 +203,44 @@ APPROVED
 | `GET /workflows?workflowType=BUDGET` | Fallback list (legacy) |
 
 Cells stay on the planning grid; the cycle governs **process** only.
+
+---
+
+## Happy path (HTTP)
+
+```http
+POST /api/v1/fpa/budget-cycles
+POST /api/v1/fpa/budget-cycles/{id}/validate
+POST /api/v1/fpa/budget-cycles/{id}/submit-fpa
+POST /api/v1/fpa/budget-cycles/{id}/fpa-accept
+POST /api/v1/fpa/budget-cycles/{id}/cfo-approve
+POST /api/v1/fpa/budget-cycles/{id}/lock
+POST /api/v1/fpa/budget-cycles/{id}/board-pack
+```
+
+Owner input between create and submit: worksheet + `POST /tasks/{taskId}/submit`.
+
+---
+
+## Acceptance checklist
+
+- [ ] Create cycle assigns owners and creates tasks  
+- [ ] Prior actuals + baseline on create or dedicated posts  
+- [ ] Validate blocks submit when incomplete  
+- [ ] FP&A accept/return and CFO approve/return implement decision diamonds  
+- [ ] Return restores `RETURNED_FOR_CORRECTION` / `OWNER_INPUT`  
+- [ ] Lock freezes version; board pack URL after approve/lock  
+- [ ] `GET /budget-cycles` powers Budgeting tab  
+
+---
+
+## All-DB migration (VPS)
+
+```bash
+# from repo root (SSH via credentials)
+python scripts/run-fpa-budget-cycles-migration-all-dbs-vps.py
+# or on VPS per DB:
+DATABASE_URL="mysql://…/nts…" npm run db:migrate:fpa-budget-cycles
+DATABASE_URL="mysql://…/client1_db…" npm run db:migrate:fpa-budget-cycles
+DATABASE_URL="mysql://…/demo_env…" npm run db:migrate:fpa-budget-cycles
+```
