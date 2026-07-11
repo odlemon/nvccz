@@ -141,10 +141,29 @@ export class FpaModelService {
         lineItems: { orderBy: { sortOrder: "asc" } },
         scenarios: { orderBy: { createdAt: "asc" } },
         versions: { orderBy: { createdAt: "asc" } },
+        modelEntities: true,
+        modelDepartments: true,
+        modelAccounts: true,
+        modelDimensions: { include: { dimension: true } },
+        modelDimensionMembers: true,
+        drivers: { take: 50, orderBy: { code: "asc" } },
+        workflows: { take: 10, orderBy: { createdAt: "desc" }, include: { tasks: true } },
       },
     });
     if (!model) throw new FpaError(404, "NOT_FOUND", "Planning model not found");
-    return model;
+    return {
+      ...model,
+      entityIds: model.modelEntities.map((e) => e.entityId),
+      departmentIds: model.modelDepartments.map((d) => d.departmentId),
+      accountIds: model.modelAccounts.map((a) => a.accountId),
+      dimensions: model.modelDimensions.map((l) => ({
+        key: l.dimension.code,
+        dimensionId: l.dimensionId,
+        valueIds: model.modelDimensionMembers.filter((m) => m.dimensionId === l.dimensionId).map((m) => m.memberId),
+      })),
+      defaultScenarioId: model.scenarios.find((s) => s.isOfficial)?.id || model.scenarios[0]?.id || null,
+      defaultVersionId: model.versions.find((v) => String(v.status).toUpperCase() !== "ARCHIVED")?.id || model.versions[0]?.id || null,
+    };
   }
 
   static async update(modelId: string, input: any, userId: string, ip?: string) {

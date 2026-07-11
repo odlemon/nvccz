@@ -1,6 +1,8 @@
 # FP&A — API by UI Section
 
 Screen → endpoint mapping for frontend handoff.  
+**Full request/response contracts:** [fpa-api-reference.md](./fpa-api-reference.md)
+
 Base: `https://{host}/api/v1/fpa`  
 Auth: Bearer token (same as rest of Arcus).
 
@@ -17,7 +19,7 @@ Entities (legal entities / COA clones): `https://{host}/api/forecast-entities`
 | Scenario list (selector) | GET | `/scenarios?modelId=` |
 | Version list (via model detail) | GET | `/models/{modelId}` |
 
-**Home payload (typical):** `kpis` (revenue, ebitda, closingCash, runway), `scenarioComparison`, `workflowProgress`, `openTasks`, `overBudgetDepartments`, `recentActivity`.
+**Home payload (typical):** `kpis`, `scenarioCompare`, `workflowProgress`, `openTasks`, `overBudgetDepartments` (includes `departmentName`), `activity`.
 
 ---
 
@@ -43,18 +45,31 @@ Locked / actual cells: treat as read-only; API returns 403 if edited.
 
 | Screen element | Method | Path |
 |----------------|--------|------|
-| Create model | POST | `/models` |
+| Create model (atomic setup) | POST | `/models/setup` |
+| Create model (simple fallback) | POST | `/models` |
 | Get / update / archive | GET/PUT `/models/{modelId}` ; POST `/models/{modelId}/archive` |
+| Scope (entities + depts) | PUT | `/models/{modelId}/scope` |
+| COA accounts | PUT | `/models/{modelId}/coa` |
+| Dimensions | PUT | `/models/{modelId}/dimensions` |
+| Baseline | POST | `/models/{modelId}/baseline` |
+| Validate | POST | `/models/{modelId}/validate` |
 | Line items | GET/POST | `/models/{modelId}/line-items` |
+| Bulk line items | POST | `/models/{modelId}/line-items/bulk` |
+| Dimension catalog | GET | `/dimensions` |
 | Drivers | GET/POST | `/models/{modelId}/drivers` or `/drivers` |
+| Update driver | PUT | `/drivers/{id}` |
 | Create formula | POST | `/models/{modelId}/formulas` |
 | Update formula | PUT | `/formulas/{formulaId}` |
 | Validate formula | POST | `/formulas/validate` body: `{ expression }` |
 | Dependency / circular check | POST | `/formulas/dependency-check` |
 | Impact map | GET | `/formulas/{formulaId}/impact-map` |
+| Create version (optional copy) | POST | `/versions` body may include `copyFromVersionId` |
+| Seed empty version cells | POST | `/versions/{id}/seed-cells` |
 
-**Create model body:** `{ name, modelType, baseCurrency, startPeriod, endPeriod, timeGranularity, description? }`  
-Seeds BASE scenario, Working version, default line items, and empty monthly cells.
+**Preferred create:** `POST /models/setup` (modal single-commit).  
+**Fallback create body:** `{ name, modelType, baseCurrency, startPeriod, endPeriod, timeGranularity, description? }`  
+`modelType`: `BUDGET` \| `FORECAST` \| `ROLLING_FORECAST`.  
+`timeGranularity`: `MONTHLY` \| `QUARTERLY` \| `ANNUAL`.
 
 ---
 
@@ -65,6 +80,7 @@ Seeds BASE scenario, Working version, default line items, and empty monthly cell
 | List scenarios | GET | `/scenarios?modelId=` |
 | Create scenario | POST | `/scenarios` |
 | Copy scenario | POST | `/scenarios/{id}/copy` |
+| Promote to forecast | POST | `/scenarios/{id}/promote` |
 | Compare | POST | `/scenarios/{id}/compare` body: `{ versionId, compareScenarioId }` or `{ versionId, scenarioIds: [baseId, otherId] }` |
 
 ---
@@ -74,14 +90,17 @@ Seeds BASE scenario, Working version, default line items, and empty monthly cell
 | Screen element | Method | Path |
 |----------------|--------|------|
 | Create cycle | POST | `/workflows` |
+| List workflows | GET | `/workflows?modelId=` |
 | Get workflow | GET | `/workflows/{id}` |
-| My tasks | GET | `/tasks/my-tasks` |
+| My tasks | GET | `/tasks/my-tasks?modelId=` (assigned **or unassigned** open tasks) |
 | Submit | POST | `/tasks/{id}/submit` |
 | Return | POST | `/tasks/{id}/return` |
 | Approve | POST | `/tasks/{id}/approve` |
+| Reassign | POST | `/tasks/{id}/reassign` body: `{ assigneeId?, comment? }` |
 | Lock version (CFO) | POST | `/versions/{id}/lock` |
 | Archive version | POST | `/versions/{id}/archive` |
 | Create version | POST | `/versions` |
+| Seed cells | POST | `/versions/{id}/seed-cells` |
 
 Maker cannot approve their own submission (enforced server-side).
 
@@ -120,7 +139,9 @@ Direction: `FAVOURABLE` / `UNFAVOURABLE` / `NEUTRAL` based on line item type (re
 
 | Action | Method | Path |
 |--------|--------|------|
-| Board pack / management export | POST | `/exports/board-pack` body: `{ modelId, versionId }` |
+| Board pack / management export | POST | `/exports/board-pack` body: `{ modelId, versionId, exportType? }` → includes `downloadUrl` |
+| Get export job | GET | `/exports/{id}` |
+| Download export file | GET | `/exports/{id}/download` |
 | Forecast suggestion stub | POST | `/ai/suggest` |
 | Commentary draft stub | POST | `/ai/commentary-draft` |
 

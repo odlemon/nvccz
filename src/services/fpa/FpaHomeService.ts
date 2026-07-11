@@ -116,16 +116,42 @@ export class FpaHomeService {
       if (c.sourceType === "ACTUAL") byDept[c.departmentId].actual += v;
       else byDept[c.departmentId].plan += v;
     }
+    const deptIds = Object.keys(byDept);
+    const depts = deptIds.length
+      ? await prisma.department.findMany({
+          where: { id: { in: deptIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const deptNameById = Object.fromEntries(depts.map((d) => [d.id, d.name]));
     for (const [departmentId, vals] of Object.entries(byDept)) {
       if (vals.actual > vals.plan && vals.plan > 0) {
         overBudgetDepartments.push({
           departmentId,
+          departmentName: deptNameById[departmentId] || null,
           plan: vals.plan,
           actual: vals.actual,
           overBy: vals.actual - vals.plan,
         });
       }
     }
+
+    const auditRows = await prisma.planningAuditLog.findMany({
+      where: { modelId: model.id },
+      orderBy: { createdAt: "desc" },
+      take: 15,
+      include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+    });
+    const activity = auditRows.map((a) => ({
+      at: a.createdAt,
+      userId: a.userId,
+      userName: a.user
+        ? [a.user.firstName, a.user.lastName].filter(Boolean).join(" ") || a.user.email
+        : null,
+      action: a.actionType,
+      entityType: a.cellId ? "cell" : a.versionId ? "version" : a.scenarioId ? "scenario" : "model",
+      entityId: a.cellId || a.versionId || a.scenarioId || a.modelId,
+    }));
 
     return {
       model: { id: model.id, name: model.name, status: model.status },
@@ -140,6 +166,7 @@ export class FpaHomeService {
       openTasks,
       scenarioCompare,
       overBudgetDepartments,
+      activity,
     };
   }
 }

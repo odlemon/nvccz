@@ -15,6 +15,7 @@ import { FpaAiService } from "../services/fpa/FpaAiService";
 import { FpaDriverService } from "../services/fpa/FpaDriverService";
 import { FpaLineItemService } from "../services/fpa/FpaLineItemService";
 import { FpaFormulaEngine } from "../services/fpa/FpaFormulaEngine";
+import { FpaModelSetupService } from "../services/fpa/FpaModelSetupService";
 
 function ipOf(req: Request) {
   return (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || null;
@@ -26,18 +27,97 @@ function userOf(req: Request) {
 
 function handleError(res: Response, e: any) {
   const status = e?.statusCode || (e instanceof FpaError ? e.statusCode : 500);
-  res.status(status).json({
+  const body: any = {
     success: false,
     code: e?.code || "ERROR",
     message: e?.message || "Internal error",
-  });
+  };
+  if (Array.isArray(e?.errors) && e.errors.length) body.errors = e.errors;
+  res.status(status).json(body);
 }
 
 export class FpaController {
   // Models
+  static async setupModel(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.setup(req.body, userOf(req).id, ipOf(req));
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async createModel(req: Request, res: Response) {
     try {
       const data = await FpaModelService.create(req.body, userOf(req).id, ipOf(req));
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async setModelScope(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.setScope(req.params.modelId, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async setModelCoa(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.setCoa(req.params.modelId, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async setModelDimensions(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.setDimensions(req.params.modelId, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async setModelBaseline(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.setBaseline(req.params.modelId, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async validateModel(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.validate(req.params.modelId);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listDimensions(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.listDimensions();
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async bulkLineItems(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.bulkLineItems(
+        req.params.modelId,
+        req.body || {},
+        userOf(req).id,
+        ipOf(req)
+      );
       res.status(201).json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -224,6 +304,15 @@ export class FpaController {
     }
   }
 
+  static async promoteScenario(req: Request, res: Response) {
+    try {
+      const data = await FpaScenarioService.promote(req.params.id, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async compareScenarios(req: Request, res: Response) {
     try {
       const data = await FpaScenarioService.compare(req.params.id, req.body);
@@ -237,6 +326,15 @@ export class FpaController {
   static async createVersion(req: Request, res: Response) {
     try {
       const data = await FpaVersionService.create(req.body, userOf(req).id, ipOf(req));
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async seedVersionCells(req: Request, res: Response) {
+    try {
+      const data = await FpaVersionService.seedCells(req.params.id, req.body || {}, userOf(req).id, ipOf(req));
       res.status(201).json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -271,6 +369,15 @@ export class FpaController {
     }
   }
 
+  static async listWorkflows(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowService.listWorkflows(req.query);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async getWorkflow(req: Request, res: Response) {
     try {
       const data = await FpaWorkflowService.getWorkflow(req.params.id);
@@ -282,7 +389,7 @@ export class FpaController {
 
   static async myTasks(req: Request, res: Response) {
     try {
-      const data = await FpaWorkflowService.myTasks(userOf(req).id);
+      const data = await FpaWorkflowService.myTasks(userOf(req).id, req.query);
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -310,6 +417,15 @@ export class FpaController {
   static async approveTask(req: Request, res: Response) {
     try {
       const data = await FpaWorkflowService.approve(req.params.id, userOf(req), req.body.comment, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async reassignTask(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowService.reassign(req.params.id, req.body || {}, userOf(req), ipOf(req));
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -419,6 +535,15 @@ export class FpaController {
     }
   }
 
+  static async updateDriver(req: Request, res: Response) {
+    try {
+      const data = await FpaDriverService.update(req.params.id, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   // Domain
   static async domainCategory(req: Request, res: Response) {
     try {
@@ -435,6 +560,26 @@ export class FpaController {
     try {
       const data = await FpaExportService.createBoardPack(req.body, userOf(req).id, ipOf(req));
       res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async getExportJob(req: Request, res: Response) {
+    try {
+      const data = await FpaExportService.getJob(req.params.id);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async downloadExport(req: Request, res: Response) {
+    try {
+      const { payload, filename, contentType } = await FpaExportService.getDownload(req.params.id);
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.status(200).send(JSON.stringify(payload, null, 2));
     } catch (e) {
       handleError(res, e);
     }

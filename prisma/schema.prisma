@@ -5713,44 +5713,105 @@ enum CounterpartyType {
 
 /// FP&A — Planning, Budgeting, Forecasting (Arcus SRD).
 model PlanningModel {
-  id              String    @id @default(cuid())
-  name            String    @map("model_name") @db.VarChar(255)
-  modelType       String    @map("model_type") @db.VarChar(100)
-  description     String?   @db.Text
-  ownerUserId     String    @map("owner_user_id")
-  baseCurrency    String    @map("base_currency") @db.VarChar(3)
-  startPeriod     DateTime  @map("start_period") @db.Date
-  endPeriod       DateTime  @map("end_period") @db.Date
-  timeGranularity String    @map("time_granularity") @db.VarChar(20)
-  status          String    @default("DRAFT") @db.VarChar(50)
-  createdById     String    @map("created_by")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedById     String?   @map("updated_by")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                        String    @id @default(cuid())
+  name                      String    @map("model_name") @db.VarChar(255)
+  modelType                 String    @map("model_type") @db.VarChar(100)
+  description               String?   @db.Text
+  ownerUserId               String    @map("owner_user_id")
+  baseCurrency              String    @map("base_currency") @db.VarChar(3)
+  startPeriod               DateTime  @map("start_period") @db.Date
+  endPeriod                 DateTime  @map("end_period") @db.Date
+  timeGranularity           String    @map("time_granularity") @db.VarChar(20)
+  status                    String    @default("DRAFT") @db.VarChar(50)
+  baselineMode              String?   @map("baseline_mode") @db.VarChar(32)
+  baselineSourceVersionId   String?   @map("baseline_source_version_id")
+  baselineSourceScenarioId  String?   @map("baseline_source_scenario_id")
+  createdById               String    @map("created_by")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedById               String?   @map("updated_by")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
 
-  owner           User      @relation("PlanningModelOwner", fields: [ownerUserId], references: [id])
-  createdBy       User      @relation("PlanningModelCreatedBy", fields: [createdById], references: [id])
-  updatedBy       User?     @relation("PlanningModelUpdatedBy", fields: [updatedById], references: [id])
-  modelDimensions PlanningModelDimension[]
-  lineItems       PlanningLineItem[]
-  versions        PlanningVersion[]
-  scenarios       PlanningScenario[]
-  cells           PlanningCell[]
-  drivers         PlanningDriver[]
-  formulas        PlanningFormula[]
-  actualsSnapshots PlanningActualsSnapshot[]
-  varianceResults PlanningVarianceResult[]
-  comments        PlanningComment[]
-  workflows       PlanningWorkflow[]
-  importJobs      PlanningImportJob[]
-  exportJobs      PlanningExportJob[]
-  auditLogs       PlanningAuditLog[]
-  locks           PlanningLock[]
-  aiForecasts     PlanningAiForecast[]
+  owner                     User      @relation("PlanningModelOwner", fields: [ownerUserId], references: [id])
+  createdBy                 User      @relation("PlanningModelCreatedBy", fields: [createdById], references: [id])
+  updatedBy                 User?     @relation("PlanningModelUpdatedBy", fields: [updatedById], references: [id])
+  modelDimensions           PlanningModelDimension[]
+  modelDimensionMembers     PlanningModelDimensionMember[]
+  modelEntities             PlanningModelEntity[]
+  modelDepartments          PlanningModelDepartment[]
+  modelAccounts             PlanningModelAccount[]
+  lineItems                 PlanningLineItem[]
+  versions                  PlanningVersion[]
+  scenarios                 PlanningScenario[]
+  cells                     PlanningCell[]
+  drivers                   PlanningDriver[]
+  formulas                  PlanningFormula[]
+  actualsSnapshots          PlanningActualsSnapshot[]
+  varianceResults           PlanningVarianceResult[]
+  comments                  PlanningComment[]
+  workflows                 PlanningWorkflow[]
+  importJobs                PlanningImportJob[]
+  exportJobs                PlanningExportJob[]
+  auditLogs                 PlanningAuditLog[]
+  locks                     PlanningLock[]
+  aiForecasts               PlanningAiForecast[]
 
   @@index([status], map: "planning_models_status_idx")
   @@index([ownerUserId], map: "planning_models_owner_idx")
   @@map("planning_models")
+}
+
+model PlanningModelEntity {
+  id        String   @id @default(cuid())
+  modelId   String   @map("model_id")
+  entityId  String   @map("entity_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  model     PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, entityId], map: "planning_model_entities_key")
+  @@index([modelId], map: "planning_model_entities_model_idx")
+  @@map("planning_model_entities")
+}
+
+model PlanningModelDepartment {
+  id           String   @id @default(cuid())
+  modelId      String   @map("model_id")
+  departmentId String   @map("department_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  model        PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, departmentId], map: "planning_model_departments_key")
+  @@index([modelId], map: "planning_model_departments_model_idx")
+  @@map("planning_model_departments")
+}
+
+model PlanningModelAccount {
+  id        String   @id @default(cuid())
+  modelId   String   @map("model_id")
+  entityId  String?  @map("entity_id")
+  accountId String   @map("account_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  model     PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, accountId], map: "planning_model_accounts_key")
+  @@index([modelId], map: "planning_model_accounts_model_idx")
+  @@map("planning_model_accounts")
+}
+
+model PlanningModelDimensionMember {
+  id          String   @id @default(cuid())
+  modelId     String   @map("model_id")
+  dimensionId String   @map("dimension_id")
+  memberId    String   @map("member_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  model       PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, dimensionId, memberId], map: "planning_model_dim_members_key")
+  @@index([modelId], map: "planning_model_dim_members_model_idx")
+  @@map("planning_model_dimension_members")
 }
 
 model PlanningDimension {

@@ -3,6 +3,10 @@ import { prisma } from "../../utils/database";
 import { FpaError } from "./FpaError";
 import { FpaAuditService } from "./FpaAuditService";
 
+function downloadPath(jobId: string) {
+  return `/api/v1/fpa/exports/${jobId}/download`;
+}
+
 export class FpaExportService {
   static async createBoardPack(input: any, userId: string, ip?: string) {
     const modelId = input.modelId;
@@ -45,11 +49,41 @@ export class FpaExportService {
       },
     });
 
+    const fileUrl = downloadPath(job.id);
+    const updated = await prisma.planningExportJob.update({
+      where: { id: job.id },
+      data: { fileUrl },
+    });
+
     await FpaAuditService.log("EXPORT_BOARD_PACK", userId, { modelId, versionId, ip });
-    return job;
+    return {
+      ...updated,
+      downloadUrl: fileUrl,
+    };
   }
 
   static async createManagementReport(input: any, userId: string, ip?: string) {
     return FpaExportService.createBoardPack({ ...input, exportType: "MANAGEMENT_REPORT" }, userId, ip);
+  }
+
+  static async getJob(jobId: string) {
+    const job = await prisma.planningExportJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new FpaError(404, "NOT_FOUND", "Export job not found");
+    return {
+      ...job,
+      downloadUrl: job.fileUrl || downloadPath(job.id),
+    };
+  }
+
+  /** Returns payload + filename for controller to stream as attachment. */
+  static async getDownload(jobId: string) {
+    const job = await prisma.planningExportJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new FpaError(404, "NOT_FOUND", "Export job not found");
+    if (job.status !== "COMPLETED") {
+      throw new FpaError(409, "NOT_READY", `Export status is ${job.status}`);
+    }
+    const payload = job.payloadJson ?? { exportType: job.exportType, modelId: job.modelId, cellCount: 0, cells: [] };
+    const filename = `${String(job.exportType || "EXPORT").toLowerCase()}-${job.id}.json`;
+    return { job, payload, filename, contentType: "application/json" };
   }
 }

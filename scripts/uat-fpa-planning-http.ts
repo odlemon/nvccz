@@ -77,6 +77,59 @@ async function main() {
   const scenarioId = model?.defaultScenarioId || model?.scenarios?.[0]?.id;
   log("seeded version/scenario", Boolean(versionId && scenarioId), `v=${versionId} s=${scenarioId}`);
 
+  const dims = await api("GET", "/v1/fpa/dimensions", undefined, token);
+  log("list dimensions", dims.status === 200 && Array.isArray(dims.json?.data), `status ${dims.status}`);
+
+  const setup = await api(
+    "POST",
+    "/v1/fpa/models/setup",
+    {
+      name: `UAT Setup Model ${Date.now()}`,
+      modelType: "BUDGET",
+      baseCurrency: "USD",
+      startPeriod: start.toISOString().slice(0, 10),
+      endPeriod: end.toISOString().slice(0, 10),
+      timeGranularity: "MONTHLY",
+      baseline: { mode: "NONE" },
+      lineItems: [
+        { code: "REVENUE", name: "Revenue", lineItemType: "REVENUE", category: "REVENUE" },
+        { code: "COGS", name: "COGS", lineItemType: "EXPENSE", category: "EXPENSE" },
+        { code: "EBITDA", name: "EBITDA", lineItemType: "CALC", category: "REVENUE" },
+      ],
+      formulas: [{ lineItemCode: "EBITDA", expression: "LINE('REVENUE') - LINE('COGS')" }],
+      drivers: [{ code: "GROWTH", name: "Growth", value: 1.05, category: "GENERAL" }],
+      workflow: {
+        name: "UAT Setup Cycle",
+        workflowType: "BUDGET",
+        tasks: [{ title: "Finance input" }],
+      },
+    },
+    token
+  );
+  const setupModelId = setup.json?.data?.model?.id;
+  log(
+    "atomic model setup",
+    (setup.status === 201 || setup.status === 200) && Boolean(setupModelId),
+    `status ${setup.status}`
+  );
+
+  if (setupModelId) {
+    const scope = await api(
+      "PUT",
+      `/v1/fpa/models/${setupModelId}/scope`,
+      { entityIds: [], departmentIds: [] },
+      token
+    );
+    log("set scope", scope.status === 200, `status ${scope.status}`);
+
+    const validate = await api("POST", `/v1/fpa/models/${setupModelId}/validate`, {}, token);
+    log(
+      "validate model",
+      validate.status === 200 && typeof validate.json?.data?.passed === "boolean",
+      `status ${validate.status} passed=${validate.json?.data?.passed}`
+    );
+  }
+
   const getModel = await api("GET", `/v1/fpa/models/${modelId}`, undefined, token);
   log("get model", getModel.status === 200, `status ${getModel.status}`);
 
@@ -176,7 +229,13 @@ async function main() {
     },
     token
   );
+  const driverId = driver.json?.data?.id;
   log("create driver", driver.status === 200 || driver.status === 201, `status ${driver.status}`);
+
+  if (driverId) {
+    const upd = await api("PUT", `/v1/fpa/drivers/${driverId}`, { value: 0.08, unit: "ratio" }, token);
+    log("update driver", upd.status === 200, `status ${upd.status}`);
+  }
 
   const wf = await api(
     "POST",
@@ -192,8 +251,37 @@ async function main() {
   const workflowId = wf.json?.data?.id;
   log("create workflow", Boolean(workflowId) || wf.status === 200 || wf.status === 201, `status ${wf.status}`);
 
-  const tasks = await api("GET", "/v1/fpa/tasks/my-tasks", undefined, token);
-  log("my tasks", tasks.status === 200, `status ${tasks.status}`);
+  const wfList = await api("GET", `/v1/fpa/workflows?modelId=${modelId}`, undefined, token);
+  log("list workflows", wfList.status === 200 && Array.isArray(wfList.json?.data), `status ${wfList.status}`);
+
+  const tasks = await api("GET", `/v1/fpa/tasks/my-tasks?modelId=${modelId}`, undefined, token);
+  const taskCount = Array.isArray(tasks.json?.data) ? tasks.json.data.length : 0;
+  log("my tasks includes unassigned", tasks.status === 200 && taskCount > 0, `status ${tasks.status} count ${taskCount}`);
+
+  if (taskCount > 0 && tasks.json.data[0]?.id) {
+    const tid = tasks.json.data[0].id;
+    const re = await api("POST", `/v1/fpa/tasks/${tid}/reassign`, { comment: "UAT keep unassigned" }, token);
+    log("reassign task", re.status === 200, `status ${re.status}`);
+  }
+
+  if (upsideId) {
+    const promo = await api("POST", `/v1/fpa/scenarios/${upsideId}/promote`, { scenarioType: "FORECAST" }, token);
+    log("promote scenario", promo.status === 200, `status ${promo.status}`);
+  }
+
+  const exportJob = await api(
+    "POST",
+    "/v1/fpa/exports/board-pack",
+    { modelId, versionId, exportType: "BOARD_PACK" },
+    token
+  );
+  const exportId = exportJob.json?.data?.id;
+  const downloadUrl = exportJob.json?.data?.downloadUrl;
+  log("board-pack export", Boolean(exportId) && Boolean(downloadUrl), `status ${exportJob.status}`);
+  if (exportId) {
+    const dl = await api("GET", `/v1/fpa/exports/${exportId}/download`, undefined, token);
+    log("export download", dl.status === 200, `status ${dl.status}`);
+  }
 
   const home = await api("GET", `/v1/fpa/home/dashboard?modelId=${modelId}`, undefined, token);
   log("home dashboard", home.status === 200, `status ${home.status}`);
@@ -226,6 +314,18 @@ async function main() {
   log("ai suggest stub", ai.status === 200 || ai.status === 201, `status ${ai.status}`);
 
   if (versionId) {
+    const seeded = await api(
+      "POST",
+      `/v1/fpa/versions/${versionId}/seed-cells`,
+      { scenarioId, force: true },
+      token
+    );
+    log(
+      "seed cells (skip-or-ok)",
+      seeded.status === 200 || seeded.status === 409,
+      `status ${seeded.status}`
+    );
+
     const lock = await api("POST", `/v1/fpa/versions/${versionId}/lock`, {}, token);
     log("lock version", lock.status === 200 || lock.status === 201, `status ${lock.status}`);
 

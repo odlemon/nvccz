@@ -60,4 +60,10 @@ npm run uat:fpa
 
 ## Frontend map
 
-See [fpa-api-by-ui-section.md](./fpa-api-by-ui-section.md).
+- **User journey (start → finish):** [fpa-user-flow.md](./fpa-user-flow.md)
+- Screen → path map: [fpa-api-by-ui-section.md](./fpa-api-by-ui-section.md)
+- **Full request/response API reference:** [fpa-api-reference.md](./fpa-api-reference.md)
+
+**Model setup:** prefer `POST /v1/fpa/models/setup` (atomic).  
+**Setup API doc:** [fpa-model-setup-api.md](./fpa-model-setup-api.md)  
+Migration: `npm run db:migrate:fpa-model-setup`.

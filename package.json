@@ -232,6 +232,7 @@
     "db:migrate:vendor-portal-procurement": "ts-node scripts/run-vendor-portal-procurement-migration.ts",
     "db:migrate:vendor-document-attachments": "ts-node scripts/run-vendor-document-attachment-migration.ts",
     "db:migrate:fpa-planning": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-planning-migration.ts",
+    "db:migrate:fpa-model-setup": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-model-setup-migration.ts",
     "db:migrate:all": "ts-node scripts/run-all-db-migrations.ts",
     "test:delete-user-local": "ts-node --transpile-only -r dotenv/config scripts/test-delete-user-local.ts",
     "uat:delete-user": "ts-node --transpile-only -r dotenv/config scripts/uat-delete-user-http.ts",

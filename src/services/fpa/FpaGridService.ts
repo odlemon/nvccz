@@ -72,6 +72,31 @@ export class FpaGridService {
         },
       });
     }
+
+    // Upsert for empty DRAFT versions: create cell at coordinates then update
+    if (!cell && input.lineItemId && input.periodDate && input.versionId && input.scenarioId && input.modelId) {
+      await FpaGridService.assertEditableVersion(String(input.versionId), userId, user, ip);
+      const lineItem = await prisma.planningLineItem.findFirst({
+        where: { id: String(input.lineItemId), modelId: String(input.modelId) },
+      });
+      if (!lineItem) throw new FpaError(404, "NOT_FOUND", "Line item not found");
+      cell = await prisma.planningCell.create({
+        data: {
+          modelId: String(input.modelId),
+          scenarioId: String(input.scenarioId),
+          versionId: String(input.versionId),
+          lineItemId: String(input.lineItemId),
+          periodDate: new Date(input.periodDate),
+          currencyCode: input.currencyCode || "USD",
+          value: null,
+          valueType: "INPUT",
+          sourceType: "MANUAL",
+          isEditable: lineItem.isEditable !== false,
+          isLocked: false,
+        },
+      });
+    }
+
     if (!cell) throw new FpaError(404, "NOT_FOUND", "Cell not found");
     const version = await FpaGridService.assertEditableVersion(cell.versionId, userId, user, ip);
     if (cell.isLocked || !cell.isEditable) {

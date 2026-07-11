@@ -30,6 +30,33 @@ const id = pathParam("id", "cuid");
 const category = pathParam("category", "revenue");
 
 export const fpaSwaggerPaths: Record<string, unknown> = {
+  "/v1/fpa/models/setup": {
+    post: op("Atomic planning model setup (modal single-commit)", {
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["name", "startPeriod", "endPeriod"],
+          properties: {
+            name: { type: "string" },
+            modelType: { type: "string", enum: ["BUDGET", "FORECAST", "ROLLING_FORECAST"] },
+            baseCurrency: { type: "string" },
+            startPeriod: { type: "string", format: "date" },
+            endPeriod: { type: "string", format: "date" },
+            timeGranularity: { type: "string", enum: ["MONTHLY", "QUARTERLY", "ANNUAL"] },
+            entityIds: { type: "array", items: { type: "string" } },
+            departmentIds: { type: "array", items: { type: "string" } },
+            accountIds: { type: "array", items: { type: "string" } },
+            dimensions: { type: "array", items: { type: "object" } },
+            baseline: { type: "object" },
+            lineItems: { type: "array", items: { type: "object" } },
+            formulas: { type: "array", items: { type: "object" } },
+            drivers: { type: "array", items: { type: "object" } },
+            workflow: { type: "object" },
+          },
+        },
+      }),
+    }),
+  },
   "/v1/fpa/models": {
     get: op("List planning models"),
     post: op("Create planning model (seeds BASE + Working + default line items)", {
@@ -39,16 +66,19 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
           required: ["name", "startPeriod", "endPeriod"],
           properties: {
             name: { type: "string" },
-            modelType: { type: "string", example: "BUDGET" },
+            modelType: { type: "string", enum: ["BUDGET", "FORECAST", "ROLLING_FORECAST"], example: "BUDGET" },
             baseCurrency: { type: "string", example: "USD" },
             startPeriod: { type: "string", format: "date" },
             endPeriod: { type: "string", format: "date" },
-            timeGranularity: { type: "string", example: "MONTHLY" },
+            timeGranularity: { type: "string", enum: ["MONTHLY", "QUARTERLY", "ANNUAL"], example: "MONTHLY" },
             description: { type: "string" },
           },
         },
       }),
     }),
+  },
+  "/v1/fpa/dimensions": {
+    get: op("List planning dimension catalog"),
   },
   "/v1/fpa/models/{modelId}": {
     get: op("Get planning model", { parameters: [modelId] }),
@@ -56,6 +86,24 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   },
   "/v1/fpa/models/{modelId}/archive": {
     post: op("Archive planning model", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/scope": {
+    put: op("Bind entities + departments to model", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/coa": {
+    put: op("Bind chart-of-accounts account ids to model", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/dimensions": {
+    put: op("Bind dimensions + member values to model", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/baseline": {
+    post: op("Seed baseline (NONE | ACTUALS_SYNC | PRIOR_FORECAST)", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/validate": {
+    post: op("Validate model readiness for planning input", { parameters: [modelId] }),
+  },
+  "/v1/fpa/models/{modelId}/line-items/bulk": {
+    post: op("Bulk create line items", { parameters: [modelId] }),
   },
   "/v1/fpa/models/{modelId}/grid": {
     get: op("Get planning grid (paginated cells)", {
@@ -121,8 +169,14 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   "/v1/fpa/scenarios/{id}/compare": {
     post: op("Compare scenarios side-by-side", { parameters: [id] }),
   },
+  "/v1/fpa/scenarios/{id}/promote": {
+    post: op("Promote scenario to official forecast", { parameters: [id] }),
+  },
   "/v1/fpa/versions": {
-    post: op("Create version"),
+    post: op("Create version (optional copyFromVersionId)"),
+  },
+  "/v1/fpa/versions/{id}/seed-cells": {
+    post: op("Seed empty version cells or copyFromVersionId", { parameters: [id] }),
   },
   "/v1/fpa/versions/{id}/lock": {
     post: op("Lock version (cells + planning_locks)", { parameters: [id] }),
@@ -131,13 +185,18 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
     post: op("Archive version", { parameters: [id] }),
   },
   "/v1/fpa/workflows": {
+    get: op("List workflows", {
+      parameters: [queryParam("modelId", { type: "string" }), queryParam("status", { type: "string" })],
+    }),
     post: op("Create workflow (+ optional tasks)"),
   },
   "/v1/fpa/workflows/{id}": {
     get: op("Get workflow", { parameters: [id] }),
   },
   "/v1/fpa/tasks/my-tasks": {
-    get: op("List my open planning tasks"),
+    get: op("List my open tasks (assigned to me or unassigned)", {
+      parameters: [queryParam("modelId", { type: "string" }), queryParam("status", { type: "string" })],
+    }),
   },
   "/v1/fpa/tasks/{id}/submit": {
     post: op("Submit task", { parameters: [id] }),
@@ -147,6 +206,9 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   },
   "/v1/fpa/tasks/{id}/approve": {
     post: op("Approve task (maker-checker)", { parameters: [id] }),
+  },
+  "/v1/fpa/tasks/{id}/reassign": {
+    post: op("Reassign task", { parameters: [id] }),
   },
   "/v1/fpa/actuals/sync": {
     post: op("Sync actuals from GL journal lines"),
@@ -176,13 +238,22 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
     get: op("List drivers for model", { parameters: [modelId] }),
     post: op("Create driver", { parameters: [modelId] }),
   },
+  "/v1/fpa/drivers/{id}": {
+    put: op("Update driver (value/period/unit/name)", { parameters: [id] }),
+  },
   "/v1/fpa/domain/{category}": {
     get: op("Domain view (workforce|revenue|expense|cash)", {
       parameters: [category, queryParam("modelId", { type: "string" })],
     }),
   },
   "/v1/fpa/exports/board-pack": {
-    post: op("Create board pack / management report export job"),
+    post: op("Create board pack / management report export job (returns downloadUrl)"),
+  },
+  "/v1/fpa/exports/{id}": {
+    get: op("Get export job (+ downloadUrl)", { parameters: [id] }),
+  },
+  "/v1/fpa/exports/{id}/download": {
+    get: op("Download export file (JSON attachment)", { parameters: [id] }),
   },
   "/v1/fpa/ai/suggest": {
     post: op("AI forecast suggestion stub (DRAFT only)"),

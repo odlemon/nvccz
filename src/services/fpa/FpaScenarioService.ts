@@ -161,4 +161,39 @@ export class FpaScenarioService {
       rows,
     };
   }
+
+  /** Promote a draft / what-if scenario to forecast (official working forecast). */
+  static async promote(scenarioId: string, input: any, userId: string, ip?: string) {
+    const scenario = await prisma.planningScenario.findUnique({ where: { id: scenarioId } });
+    if (!scenario) throw new FpaError(404, "NOT_FOUND", "Scenario not found");
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (input.demoteOthers !== false) {
+        await tx.planningScenario.updateMany({
+          where: {
+            modelId: scenario.modelId,
+            id: { not: scenarioId },
+            isOfficial: true,
+          },
+          data: { isOfficial: false },
+        });
+      }
+      return tx.planningScenario.update({
+        where: { id: scenarioId },
+        data: {
+          scenarioType: String(input.scenarioType || "FORECAST"),
+          status: String(input.status || "ACTIVE"),
+          isOfficial: input.isOfficial !== false,
+          name: input.name != null ? String(input.name) : scenario.name,
+        },
+      });
+    });
+
+    await FpaAuditService.log("SCENARIO_PROMOTE", userId, {
+      modelId: scenario.modelId,
+      scenarioId,
+      ip,
+    });
+    return updated;
+  }
 }
