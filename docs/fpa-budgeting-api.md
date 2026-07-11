@@ -194,12 +194,30 @@ APPROVED
 
 ## Supporting (reuse)
 
+### `GET /api/departments` → **200**
+
+Auth required. Returns org `departments` rows for `owners[].departmentId`:
+
+```json
+{
+  "success": true,
+  "data": [
+    { "id": "cm…", "name": "Finance", "description": "…", "branch": null, "isActive": true }
+  ],
+  "count": 9
+}
+```
+
+If the table is empty, seeds the standard catalog (Finance, Sales, Operations, …) once so owners can be bound. Prefer `id` from this list — do **not** send department names as `departmentId`.
+
+Also: `GET /api/departments/{id}`.
+
 | Path | Use |
 |------|-----|
 | `GET /tasks/my-tasks` | Owner task list |
 | `POST /tasks/{id}/submit\|return\|approve\|reassign` | Per-task actions |
 | `GET /models/{id}/grid` | Owner input |
-| `GET /departments` | Owner picker |
+| `GET /departments` | Owner picker — `{ id, name }` (`/api/departments`) |
 | `GET /workflows?workflowType=BUDGET` | Fallback list (legacy) |
 
 Cells stay on the planning grid; the cycle governs **process** only.

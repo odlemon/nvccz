@@ -26,6 +26,7 @@ try {
 import authRoutes from "./routes/authRoutes"
 import roleRoutes from "./routes/roleRoutes"
 import userRoutes from "./routes/userRoutes"
+import departmentRoutes from "./routes/departmentRoutes"
 import auditLogRoutes from "./routes/auditLogRoutes"
 import postRoutes from "./routes/postRoutes"
 import newsletterRoutes from "./routes/newsletterRoutes"
@@ -496,6 +497,9 @@ app.use("/api/hardcoded-roles", hardcodedRoleRoutes)
 
 // User management routes
 app.use("/api/users", userRoutes)
+
+// Org departments (id + name for FP&A budget owners, etc.)
+app.use("/api/departments", departmentRoutes)
 
 // Audit logs (admin only)
 app.use("/api/audit-logs", auditLogRoutes)
