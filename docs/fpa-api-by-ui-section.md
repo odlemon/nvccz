@@ -65,7 +65,7 @@ Seeds BASE scenario, Working version, default line items, and empty monthly cell
 | List scenarios | GET | `/scenarios?modelId=` |
 | Create scenario | POST | `/scenarios` |
 | Copy scenario | POST | `/scenarios/{id}/copy` |
-| Compare | POST | `/scenarios/{id}/compare` body: `{ scenarioIds, versionId }` |
+| Compare | POST | `/scenarios/{id}/compare` body: `{ versionId, compareScenarioId }` or `{ versionId, scenarioIds: [baseId, otherId] }` |
 
 ---
 

@@ -115,13 +115,18 @@ export class FpaScenarioService {
   static async compare(scenarioId: string, input: any) {
     const left = await prisma.planningScenario.findUnique({ where: { id: scenarioId } });
     if (!left) throw new FpaError(404, "NOT_FOUND", "Scenario not found");
-    const rightId = input.compareScenarioId || input.otherScenarioId || input.scenarioIdB;
+    const rightId =
+      input.compareScenarioId ||
+      input.otherScenarioId ||
+      input.scenarioIdB ||
+      (Array.isArray(input.scenarioIds) ? input.scenarioIds.find((id: string) => id !== scenarioId) || input.scenarioIds[1] : null);
     if (!rightId) throw new FpaError(400, "VALIDATION", "compareScenarioId required");
     const right = await prisma.planningScenario.findUnique({ where: { id: rightId } });
     if (!right) throw new FpaError(404, "NOT_FOUND", "Compare scenario not found");
     const versionId = input.versionId;
     if (!versionId) throw new FpaError(400, "VALIDATION", "versionId required");
 
+    // Upside/new scenarios may have no cells yet — still return zeroed comparison.
     const lineItems = await prisma.planningLineItem.findMany({
       where: { modelId: left.modelId, code: { in: KEY_CODES } },
     });
