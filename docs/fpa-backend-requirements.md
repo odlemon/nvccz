@@ -61,6 +61,8 @@ npm run uat:fpa
 ## Frontend map
 
 - **User journey (start → finish):** [fpa-user-flow.md](./fpa-user-flow.md)
+- **Budgeting (Annual Budget Cycle):** [fpa-budgeting-flow.md](./fpa-budgeting-flow.md)
+- **Budgeting API:** [fpa-budgeting-api.md](./fpa-budgeting-api.md)
 - Screen → path map: [fpa-api-by-ui-section.md](./fpa-api-by-ui-section.md)
 - **Full request/response API reference:** [fpa-api-reference.md](./fpa-api-reference.md)
 

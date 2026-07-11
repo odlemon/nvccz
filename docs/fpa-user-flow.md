@@ -200,7 +200,10 @@ Pixel extras (waterfall bridge, sensitivity matrix, runway sparklines) may still
 
 ## 9. Phase G — Budget cycle (Workflow)
 
-This is the controlled path from “departments enter” to “approved plan”.
+**Full SRD budgeting flow (Annual Budget Cycle + Budget Owner Sequence):** [fpa-budgeting-flow.md](./fpa-budgeting-flow.md)
+
+Purpose: formal financial plan for the year — allocate resources, control spend, measure performance.  
+Inputs: revenue, COGS, payroll, opex, departmental / project budgets, capex, tax, cash & funding assumptions.
 
 ### G.1 Open a cycle
 
@@ -211,22 +214,22 @@ Users can **list** workflows for the model and open one for progress.
 ### G.2 Department / analyst works a task
 
 1. **My tasks** shows open work (assigned to them **or** still unassigned — same idea as Home open tasks).
-2. They open Worksheet for the right version/scenario, enter numbers.
+2. They open Worksheet for the right version/scenario, enter numbers (+ commentary when FE/API support it).
 3. **Submit** task (optional comment) → status `PENDING` → `SUBMITTED`.
 
 ### G.3 Approver review
 
 | Action | User intent |
 |--------|-------------|
-| **Return** | Send back with comment → `RETURNED` |
+| **Return** | Send back with comment → `RETURNED` (SRD: return for correction → owner input again) |
 | **Approve** | Accept submission (approver role; **not** the same person who submitted) |
 | **Reassign** | Hand the task to another user (or unassign) |
 
-Home **workflow progress** reflects completed vs total tasks for the cycle.
+SRD expects **FP&A then CFO** as two gates; current API is a single approve primitive until FE defines stages.
 
-### G.4 Parallel: Budget screen
+### G.4 Close cycle
 
-Uses workflow list + dashboard progress; without list/dashboard it used to look empty — list is now available.
+Lock approved version → generate dashboards / board pack (manual today; auto after CFO when Budget APIs land).
 
 ---
 

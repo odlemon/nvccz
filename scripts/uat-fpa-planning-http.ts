@@ -286,6 +286,41 @@ async function main() {
   const home = await api("GET", `/v1/fpa/home/dashboard?modelId=${modelId}`, undefined, token);
   log("home dashboard", home.status === 200, `status ${home.status}`);
 
+  const depts = await api("GET", "/departments", undefined, token);
+  const deptId = Array.isArray(depts.json?.data)
+    ? depts.json.data[0]?.id
+    : Array.isArray(depts.json)
+      ? depts.json[0]?.id
+      : depts.json?.data?.departments?.[0]?.id;
+  const fy = start.getUTCFullYear();
+  if (deptId) {
+    const bc = await api(
+      "POST",
+      "/v1/fpa/budget-cycles",
+      {
+        modelId,
+        name: `UAT Budget ${Date.now()}`,
+        fiscalYear: fy + 1000 + Math.floor(Math.random() * 100),
+        versionId,
+        scenarioId,
+        loadPriorActuals: false,
+        loadBaseline: false,
+        owners: [{ departmentId: deptId, categories: ["REVENUE", "OPERATING_EXPENSES"] }],
+      },
+      token
+    );
+    const cycleId = bc.json?.data?.id;
+    log("create budget cycle", (bc.status === 201 || bc.status === 200) && Boolean(cycleId), `status ${bc.status}`);
+    if (cycleId) {
+      const listBc = await api("GET", `/v1/fpa/budget-cycles?modelId=${modelId}`, undefined, token);
+      log("list budget cycles", listBc.status === 200 && Array.isArray(listBc.json?.data), `status ${listBc.status}`);
+      const val = await api("POST", `/v1/fpa/budget-cycles/${cycleId}/validate`, {}, token);
+      log("validate budget cycle", val.status === 200, `status ${val.status} passed=${val.json?.data?.passed}`);
+    }
+  } else {
+    log("create budget cycle", false, "no department available");
+  }
+
   const domain = await api("GET", `/v1/fpa/domain/revenue?modelId=${modelId}`, undefined, token);
   log("domain revenue", domain.status === 200, `status ${domain.status}`);
 

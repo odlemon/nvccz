@@ -16,6 +16,7 @@ import { FpaDriverService } from "../services/fpa/FpaDriverService";
 import { FpaLineItemService } from "../services/fpa/FpaLineItemService";
 import { FpaFormulaEngine } from "../services/fpa/FpaFormulaEngine";
 import { FpaModelSetupService } from "../services/fpa/FpaModelSetupService";
+import { FpaBudgetCycleService } from "../services/fpa/FpaBudgetCycleService";
 
 function ipOf(req: Request) {
   return (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || null;
@@ -119,6 +120,142 @@ export class FpaController {
         ipOf(req)
       );
       res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  // Budget cycles
+  static async listBudgetCycles(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.list(req.query);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async createBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.create(req.body, userOf(req), ipOf(req));
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async getBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.get(req.params.id);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async setBudgetCycleOwners(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.setOwners(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async loadBudgetCycleActuals(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.loadActuals(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async loadBudgetCycleBaseline(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.loadBaseline(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async validateBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.validate(req.params.id, { persist: true });
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async submitBudgetCycleFpa(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.submitFpa(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async fpaAcceptBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.fpaAccept(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async fpaReturnBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.fpaReturn(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async cfoApproveBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.cfoApprove(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async cfoReturnBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.cfoReturn(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async lockBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.lock(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async boardPackBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.boardPack(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async budgetCycleSummary(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.summary(req.params.id);
+      res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
     }

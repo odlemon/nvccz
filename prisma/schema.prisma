@@ -5754,6 +5754,7 @@ model PlanningModel {
   auditLogs                 PlanningAuditLog[]
   locks                     PlanningLock[]
   aiForecasts               PlanningAiForecast[]
+  budgetCycles              PlanningBudgetCycle[]
 
   @@index([status], map: "planning_models_status_idx")
   @@index([ownerUserId], map: "planning_models_owner_idx")
@@ -6105,9 +6106,60 @@ model PlanningWorkflow {
   model        PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
   tasks        PlanningTask[]
   approvals    PlanningApproval[]
+  budgetCycles PlanningBudgetCycle[]
 
   @@index([modelId, status], map: "planning_workflows_model_status_idx")
   @@map("planning_workflows")
+}
+
+model PlanningBudgetCycle {
+  id                   String    @id @default(cuid())
+  name                 String    @db.VarChar(255)
+  modelId              String    @map("model_id")
+  versionId            String    @map("version_id")
+  scenarioId           String?   @map("scenario_id")
+  workflowId           String?   @map("workflow_id")
+  fiscalYear           Int       @map("fiscal_year")
+  status               String    @default("DRAFT") @db.VarChar(64)
+  currentStage         String    @default("CREATE_CYCLE") @map("current_stage") @db.VarChar(64)
+  startDate            DateTime? @map("start_date") @db.Date
+  endDate              DateTime? @map("end_date") @db.Date
+  inputCategoriesJson  Json?     @map("input_categories_json")
+  lockedAt             DateTime? @map("locked_at")
+  lockedById           String?   @map("locked_by_id")
+  approvedAt           DateTime? @map("approved_at")
+  approvedById         String?   @map("approved_by_id")
+  boardPackUrl         String?   @map("board_pack_url") @db.VarChar(512)
+  createdById          String    @map("created_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  model                PlanningModel              @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  workflow             PlanningWorkflow?          @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+  owners               PlanningBudgetCycleOwner[]
+
+  @@index([modelId], map: "planning_budget_cycles_model_idx")
+  @@index([modelId, fiscalYear], map: "planning_budget_cycles_model_fy_idx")
+  @@index([status], map: "planning_budget_cycles_status_idx")
+  @@map("planning_budget_cycles")
+}
+
+model PlanningBudgetCycleOwner {
+  id              String   @id @default(cuid())
+  cycleId         String   @map("cycle_id")
+  departmentId    String   @map("department_id")
+  assigneeId      String?  @map("assignee_id")
+  taskId          String?  @map("task_id")
+  categoriesJson  Json?    @map("categories_json")
+  status          String   @default("PENDING") @db.VarChar(32)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  cycle           PlanningBudgetCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@unique([cycleId, departmentId], map: "planning_budget_cycle_owners_key")
+  @@index([cycleId], map: "planning_budget_cycle_owners_cycle_idx")
+  @@map("planning_budget_cycle_owners")
 }
 
 model PlanningTask {

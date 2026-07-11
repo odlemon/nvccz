@@ -21,6 +21,23 @@ router.post("/models/:modelId/baseline", FpaController.setModelBaseline);
 router.post("/models/:modelId/validate", FpaController.validateModel);
 router.post("/models/:modelId/line-items/bulk", FpaController.bulkLineItems);
 
+// Budget cycles (Annual Budget Cycle)
+router.get("/budget-cycles", FpaController.listBudgetCycles);
+router.post("/budget-cycles", FpaController.createBudgetCycle);
+router.get("/budget-cycles/:id", FpaController.getBudgetCycle);
+router.put("/budget-cycles/:id/owners", FpaController.setBudgetCycleOwners);
+router.post("/budget-cycles/:id/load-actuals", FpaController.loadBudgetCycleActuals);
+router.post("/budget-cycles/:id/load-baseline", FpaController.loadBudgetCycleBaseline);
+router.post("/budget-cycles/:id/validate", FpaController.validateBudgetCycle);
+router.post("/budget-cycles/:id/submit-fpa", FpaController.submitBudgetCycleFpa);
+router.post("/budget-cycles/:id/fpa-accept", FpaController.fpaAcceptBudgetCycle);
+router.post("/budget-cycles/:id/fpa-return", FpaController.fpaReturnBudgetCycle);
+router.post("/budget-cycles/:id/cfo-approve", FpaController.cfoApproveBudgetCycle);
+router.post("/budget-cycles/:id/cfo-return", FpaController.cfoReturnBudgetCycle);
+router.post("/budget-cycles/:id/lock", FpaController.lockBudgetCycle);
+router.post("/budget-cycles/:id/board-pack", FpaController.boardPackBudgetCycle);
+router.get("/budget-cycles/:id/summary", FpaController.budgetCycleSummary);
+
 // Grid / cells
 router.get("/models/:modelId/grid", FpaController.getGrid);
 router.post("/models/:modelId/cells/update", FpaController.updateCell);

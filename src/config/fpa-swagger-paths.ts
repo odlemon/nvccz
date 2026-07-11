@@ -105,6 +105,71 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   "/v1/fpa/models/{modelId}/line-items/bulk": {
     post: op("Bulk create line items", { parameters: [modelId] }),
   },
+  "/v1/fpa/budget-cycles": {
+    get: op("List budget cycles", {
+      parameters: [
+        queryParam("modelId", { type: "string" }),
+        queryParam("fiscalYear", { type: "integer" }),
+        queryParam("status", { type: "string" }),
+      ],
+    }),
+    post: op("Create annual budget cycle (assigns owners + tasks)", {
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["modelId", "name", "fiscalYear", "owners"],
+          properties: {
+            modelId: { type: "string" },
+            name: { type: "string" },
+            fiscalYear: { type: "integer" },
+            owners: { type: "array", items: { type: "object" } },
+            loadPriorActuals: { type: "boolean" },
+            loadBaseline: { type: "boolean" },
+            inputCategories: { type: "array", items: { type: "string" } },
+          },
+        },
+      }),
+    }),
+  },
+  "/v1/fpa/budget-cycles/{id}": {
+    get: op("Get budget cycle", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/owners": {
+    put: op("Assign / replace budget owners", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/load-actuals": {
+    post: op("Load prior-year actuals for cycle", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/load-baseline": {
+    post: op("Load baseline assumptions for cycle", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/validate": {
+    post: op("Validate budget completeness", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/submit-fpa": {
+    post: op("Submit cycle for FP&A review", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/fpa-accept": {
+    post: op("FP&A accept → CFO review", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/fpa-return": {
+    post: op("FP&A return for correction", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/cfo-approve": {
+    post: op("CFO approve budget cycle", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/cfo-return": {
+    post: op("CFO return for correction", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/lock": {
+    post: op("Lock approved budget version", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/board-pack": {
+    post: op("Generate board pack for cycle", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/summary": {
+    get: op("Budget cycle summary by category/department", { parameters: [id] }),
+  },
   "/v1/fpa/models/{modelId}/grid": {
     get: op("Get planning grid (paginated cells)", {
       parameters: [

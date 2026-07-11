@@ -89,7 +89,17 @@ Locked / actual cells: treat as read-only; API returns 403 if edited.
 
 | Screen element | Method | Path |
 |----------------|--------|------|
-| Create cycle | POST | `/workflows` |
+| Create cycle | POST | `/budget-cycles` |
+| List cycles | GET | `/budget-cycles?modelId=` |
+| Get cycle | GET | `/budget-cycles/{id}` |
+| Assign owners | PUT | `/budget-cycles/{id}/owners` |
+| Validate | POST | `/budget-cycles/{id}/validate` |
+| Submit to FP&A | POST | `/budget-cycles/{id}/submit-fpa` |
+| FP&A accept / return | POST | `/budget-cycles/{id}/fpa-accept` · `fpa-return` |
+| CFO approve / return | POST | `/budget-cycles/{id}/cfo-approve` · `cfo-return` |
+| Lock / board pack | POST | `/budget-cycles/{id}/lock` · `board-pack` |
+| Summary | GET | `/budget-cycles/{id}/summary` |
+| Create cycle (legacy) | POST | `/workflows` |
 | List workflows | GET | `/workflows?modelId=` |
 | Get workflow | GET | `/workflows/{id}` |
 | My tasks | GET | `/tasks/my-tasks?modelId=` (assigned **or unassigned** open tasks) |
@@ -101,6 +111,8 @@ Locked / actual cells: treat as read-only; API returns 403 if edited.
 | Archive version | POST | `/versions/{id}/archive` |
 | Create version | POST | `/versions` |
 | Seed cells | POST | `/versions/{id}/seed-cells` |
+
+**Budgeting API doc:** [fpa-budgeting-api.md](./fpa-budgeting-api.md)
 
 Maker cannot approve their own submission (enforced server-side).
 
