@@ -133,9 +133,23 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   },
   "/v1/fpa/budget-cycles/{id}": {
     get: op("Get budget cycle", { parameters: [id] }),
+    patch: op("Update budget cycle setup", { parameters: [id] }),
+    put: op("Update budget cycle setup", { parameters: [id] }),
   },
   "/v1/fpa/budget-cycles/{id}/owners": {
     put: op("Assign / replace budget owners", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/validate-setup": {
+    post: op("Validate cycle setup — full unmet requirement list", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/open": {
+    post: op("Open DRAFT cycle after validate-setup", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/owner-workspace": {
+    get: op("Budget owner workspace shell", { parameters: [id] }),
+  },
+  "/v1/fpa/budget-cycles/{id}/validate-owner-submit": {
+    post: op("Owner submission gate check", { parameters: [id] }),
   },
   "/v1/fpa/budget-cycles/{id}/load-actuals": {
     post: op("Load prior-year actuals for cycle", { parameters: [id] }),

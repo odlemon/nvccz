@@ -23,6 +23,21 @@ function monthStart(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
+function cellStatusOf(c: any): string {
+  if (c.isLocked) return "LOCKED";
+  const src = String(c.sourceType || "").toUpperCase();
+  const vt = String(c.valueType || "").toUpperCase();
+  if (src === "ACTUAL") return "ACTUAL";
+  if (src === "IMPORT" || src === "IMPORTED") return "IMPORTED";
+  if (src === "OVERRIDE") return "OVERRIDE";
+  if (src === "ERROR" || vt === "ERROR") return "ERROR";
+  if (src === "PENDING" || vt === "PENDING_CALCULATION") return "PENDING_CALCULATION";
+  if (c.formulaId || vt === "CALCULATED" || vt === "FORMULA" || src === "FORMULA" || src === "GROWTH") {
+    return "CALCULATED";
+  }
+  return "INPUT";
+}
+
 export class FpaGridService {
   static async assertEditableVersion(versionId: string, userId: string, user: any, ip?: string) {
     const version = await prisma.planningVersion.findUnique({ where: { id: versionId } });
@@ -55,7 +70,7 @@ export class FpaGridService {
     return monthStart(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
   }
 
-  static async getGrid(modelId: string, opts: any = {}) {
+  static async getGrid(modelId: string, opts: any = {}, user: any = null) {
     const page = Math.max(1, Number(opts.page || 1));
     const pageSize = Math.min(500, Math.max(1, Number(opts.pageSize || opts.page_size || 100)));
     const where: any = { modelId };
@@ -63,7 +78,28 @@ export class FpaGridService {
     if (opts.scenarioId) where.scenarioId = String(opts.scenarioId);
     if (opts.lineItemId) where.lineItemId = String(opts.lineItemId);
 
-    const [model, total, cells, lineItems, actualCutoff] = await Promise.all([
+    let assignedDepartmentIds: string[] | null = null;
+    let cycleMeta: any = null;
+    if (opts.cycleId && user) {
+      cycleMeta = await prisma.planningBudgetCycle.findUnique({ where: { id: String(opts.cycleId) } });
+      if (cycleMeta) {
+        if (!opts.versionId) where.versionId = cycleMeta.versionId;
+        if (!opts.scenarioId && cycleMeta.scenarioId) where.scenarioId = cycleMeta.scenarioId;
+      }
+      assignedDepartmentIds = await FpaAccessService.resolveCycleDepartmentIds(user, opts.cycleId);
+      if (assignedDepartmentIds && assignedDepartmentIds.length === 0) {
+        throw new FpaError(403, "FORBIDDEN", "You are not assigned to this budget cycle");
+      }
+      if (assignedDepartmentIds?.length) {
+        where.OR = [{ departmentId: { in: assignedDepartmentIds } }, { departmentId: null }];
+      }
+    }
+    if (opts.departmentId) where.departmentId = String(opts.departmentId);
+
+    let actualCutoff = await FpaGridService.resolveActualCutoff(modelId);
+    if (cycleMeta?.actualsCutoffDate) actualCutoff = monthStart(new Date(cycleMeta.actualsCutoffDate));
+
+    const [model, total, cells, lineItems] = await Promise.all([
       prisma.planningModel.findUnique({
         where: { id: modelId },
         include: {
@@ -83,15 +119,21 @@ export class FpaGridService {
         take: pageSize,
       }),
       prisma.planningLineItem.findMany({ where: { modelId }, orderBy: { sortOrder: "asc" } }),
-      FpaGridService.resolveActualCutoff(modelId),
     ]);
     if (!model) throw new FpaError(404, "NOT_FOUND", "Planning model not found");
 
-    const enrichedCells = cells.map((c) => ({
-      ...c,
-      periodRole: periodRoleFor(c.periodDate, actualCutoff, c.sourceType),
-      value: c.value != null ? Number(c.value) : null,
-    }));
+    const enrichedCells = cells.map((c) => {
+      const cellStatus = cellStatusOf(c);
+      const periodRole = periodRoleFor(c.periodDate, actualCutoff, c.sourceType);
+      return {
+        ...c,
+        recordVersion: c.recordVersion != null ? Number(c.recordVersion) : 1,
+        periodRole,
+        cellStatus,
+        isEditable: cellStatus === "INPUT" && c.isEditable && !c.isLocked,
+        value: c.value != null ? Number(c.value) : null,
+      };
+    });
 
     const periodMap = new Map<string, { periodDate: string; periodRole: "ACTUAL" | "FORECAST" }>();
     for (const c of enrichedCells) {
@@ -119,8 +161,10 @@ export class FpaGridService {
 
     return {
       modelId,
-      versionId: opts.versionId || null,
-      scenarioId: opts.scenarioId || null,
+      versionId: opts.versionId || cycleMeta?.versionId || null,
+      scenarioId: opts.scenarioId || cycleMeta?.scenarioId || null,
+      cycleId: opts.cycleId || null,
+      assignedDepartmentIds,
       page,
       pageSize,
       total,
@@ -174,29 +218,62 @@ export class FpaGridService {
           versionId: String(input.versionId),
           lineItemId: String(input.lineItemId),
           periodDate: new Date(input.periodDate),
+          departmentId: input.departmentId ? String(input.departmentId) : null,
           currencyCode: input.currencyCode || "USD",
           value: null,
           valueType: "INPUT",
           sourceType: "MANUAL",
           isEditable: lineItem.isEditable !== false,
           isLocked: false,
+          recordVersion: BigInt(1),
         },
       });
     }
 
     if (!cell) throw new FpaError(404, "NOT_FOUND", "Cell not found");
     const version = await FpaGridService.assertEditableVersion(cell.versionId, userId, user, ip);
-    if (cell.isLocked || !cell.isEditable) {
+    const status = cellStatusOf(cell);
+    if (status !== "INPUT" || cell.isLocked || !cell.isEditable) {
       await FpaAuditService.log("CELL_EDIT_BLOCKED", userId, {
         modelId: cell.modelId,
         versionId: cell.versionId,
         cellId: cell.id,
-        reason: "Cell locked or not editable",
+        reason: `Cell status ${status} is not editable`,
         ip,
       });
-      throw new FpaError(403, "CELL_LOCKED", "Cell is locked or not editable");
+      throw new FpaError(403, "CELL_LOCKED", `Users may edit INPUT cells only (got ${status})`);
     }
-    FpaAccessService.assertCanEditVersion(user, version, { departmentId: cell.departmentId });
+
+    let assignedDepartmentIds: string[] | null = null;
+    if (input.cycleId) {
+      assignedDepartmentIds = await FpaAccessService.resolveCycleDepartmentIds(user, input.cycleId);
+      if (assignedDepartmentIds && assignedDepartmentIds.length === 0) {
+        throw new FpaError(403, "FORBIDDEN", "You are not assigned to this budget cycle");
+      }
+    }
+    FpaAccessService.assertCanEditVersion(user, version, {
+      departmentId: cell.departmentId || input.departmentId || null,
+      assignedDepartmentIds: assignedDepartmentIds || undefined,
+    });
+
+    const currentVersion = cell.recordVersion != null ? Number(cell.recordVersion) : 1;
+    if (input.recordVersion != null && Number(input.recordVersion) !== currentVersion) {
+      const changer = cell.lastUpdatedById
+        ? await prisma.user.findUnique({
+            where: { id: cell.lastUpdatedById },
+            select: { firstName: true, lastName: true, email: true },
+          })
+        : null;
+      throw new FpaError(409, "CONFLICT", "This value changed after you opened the worksheet.", [
+        {
+          code: "CONFLICT",
+          currentValue: cell.value != null ? Number(cell.value) : null,
+          recordVersion: currentVersion,
+          changedBy: userDisplayName(changer),
+          changedAt: cell.lastUpdatedAt,
+        },
+      ]);
+    }
 
     const oldValue = cell.value;
     const newValue = input.value;
@@ -206,8 +283,10 @@ export class FpaGridService {
         value: newValue,
         valueType: input.valueType || "MANUAL",
         sourceType: input.sourceType || "INPUT",
+        departmentId: cell.departmentId || input.departmentId || undefined,
         lastUpdatedById: userId,
         lastUpdatedAt: new Date(),
+        recordVersion: BigInt(currentVersion + 1),
       },
     });
     await FpaAuditService.log("CELL_UPDATE", userId, {
@@ -219,7 +298,12 @@ export class FpaGridService {
       newValue: newValue != null ? String(newValue) : null,
       ip,
     });
-    return updated;
+    return {
+      ...updated,
+      recordVersion: Number(updated.recordVersion),
+      cellStatus: cellStatusOf(updated),
+      value: updated.value != null ? Number(updated.value) : null,
+    };
   }
 
   static async bulkUpdate(modelId: string, updates: any[], user: any, ip?: string) {
@@ -547,6 +631,245 @@ export class FpaGridService {
       scenarioId,
       count: issues.length,
       issues,
+    };
+  }
+
+  /**
+   * Bulk spreadsheet-style ops (server-validated).
+   * operation: FILL_RIGHT | FILL_DOWN | COPY_PRIOR_PERIOD | COPY_PRIOR_YEAR |
+   *            PERCENT_INCREASE | PERCENT_DECREASE | CLEAR_EDITABLE
+   */
+  static async bulkOperation(input: any, user: any, ip?: string) {
+    const op = String(input.operation || "").toUpperCase();
+    const modelId = String(input.modelId || "");
+    const versionId = String(input.versionId || "");
+    const scenarioId = String(input.scenarioId || "");
+    const lineItemId = input.lineItemId ? String(input.lineItemId) : null;
+    if (!modelId || !versionId || !op) {
+      throw new FpaError(400, "VALIDATION", "modelId, versionId, and operation are required");
+    }
+    await FpaGridService.assertEditableVersion(versionId, user?.id, user, ip);
+
+    const where: any = {
+      modelId,
+      versionId,
+      isLocked: false,
+      isEditable: true,
+      ...(scenarioId ? { scenarioId } : {}),
+      ...(lineItemId ? { lineItemId } : {}),
+      ...(input.departmentId ? { departmentId: String(input.departmentId) } : {}),
+    };
+    const cells = await prisma.planningCell.findMany({
+      where,
+      orderBy: [{ lineItemId: "asc" }, { periodDate: "asc" }],
+    });
+    const editable = cells.filter((c) => cellStatusOf(c) === "INPUT");
+    const updated = [];
+    const ratePct = Number(input.ratePct || 0);
+
+    if (op === "CLEAR_EDITABLE") {
+      for (const c of editable) {
+        updated.push(
+          await FpaGridService.updateCell(
+            { cellId: c.id, value: null, recordVersion: Number(c.recordVersion || 1), cycleId: input.cycleId },
+            user,
+            ip
+          )
+        );
+      }
+    } else if (op === "PERCENT_INCREASE" || op === "PERCENT_DECREASE") {
+      const sign = op === "PERCENT_DECREASE" ? -1 : 1;
+      const factor = 1 + (sign * ratePct) / 100;
+      for (const c of editable) {
+        if (c.value == null) continue;
+        updated.push(
+          await FpaGridService.updateCell(
+            {
+              cellId: c.id,
+              value: Number(c.value) * factor,
+              recordVersion: Number(c.recordVersion || 1),
+              cycleId: input.cycleId,
+            },
+            user,
+            ip
+          )
+        );
+      }
+    } else if (op === "FILL_RIGHT" || op === "COPY_PRIOR_PERIOD") {
+      const byLine: Record<string, typeof editable> = {};
+      for (const c of editable) {
+        (byLine[c.lineItemId] ||= []).push(c);
+      }
+      for (const list of Object.values(byLine)) {
+        list.sort((a, b) => new Date(a.periodDate).getTime() - new Date(b.periodDate).getTime());
+        let prev = list[0]?.value;
+        for (let i = 1; i < list.length; i++) {
+          const c = list[i];
+          if (prev == null) {
+            prev = c.value;
+            continue;
+          }
+          updated.push(
+            await FpaGridService.updateCell(
+              {
+                cellId: c.id,
+                value: Number(prev),
+                recordVersion: Number(c.recordVersion || 1),
+                cycleId: input.cycleId,
+              },
+              user,
+              ip
+            )
+          );
+          prev = prev;
+        }
+      }
+    } else if (op === "COPY_PRIOR_YEAR") {
+      for (const c of editable) {
+        const prior = new Date(c.periodDate);
+        prior.setUTCFullYear(prior.getUTCFullYear() - 1);
+        const src = await prisma.planningCell.findFirst({
+          where: {
+            modelId,
+            versionId,
+            scenarioId: c.scenarioId,
+            lineItemId: c.lineItemId,
+            periodDate: prior,
+          },
+        });
+        if (!src || src.value == null) continue;
+        updated.push(
+          await FpaGridService.updateCell(
+            {
+              cellId: c.id,
+              value: Number(src.value),
+              recordVersion: Number(c.recordVersion || 1),
+              cycleId: input.cycleId,
+            },
+            user,
+            ip
+          )
+        );
+      }
+    } else if (op === "FILL_DOWN") {
+      const byPeriod: Record<string, typeof editable> = {};
+      for (const c of editable) {
+        const key = new Date(c.periodDate).toISOString().slice(0, 10);
+        (byPeriod[key] ||= []).push(c);
+      }
+      for (const list of Object.values(byPeriod)) {
+        const first = list.find((c) => c.value != null);
+        if (!first) continue;
+        for (const c of list) {
+          if (c.id === first.id) continue;
+          updated.push(
+            await FpaGridService.updateCell(
+              {
+                cellId: c.id,
+                value: Number(first.value),
+                recordVersion: Number(c.recordVersion || 1),
+                cycleId: input.cycleId,
+              },
+              user,
+              ip
+            )
+          );
+        }
+      }
+    } else {
+      throw new FpaError(400, "VALIDATION", `Unknown bulk operation: ${op}`);
+    }
+
+    return { operation: op, updated: updated.length, cells: updated };
+  }
+
+  static async cellDetail(modelId: string, cellId: string) {
+    const cell = await prisma.planningCell.findFirst({
+      where: { id: cellId, modelId },
+      include: {
+        lineItem: true,
+        formula: true,
+        driver: true,
+        scenario: { select: { id: true, name: true } },
+        version: { select: { id: true, name: true, status: true } },
+        lastUpdatedBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    });
+    if (!cell) throw new FpaError(404, "NOT_FOUND", "Cell not found");
+
+    let departmentName = null;
+    let entityName = null;
+    if (cell.departmentId) {
+      const d = await prisma.department.findUnique({
+        where: { id: cell.departmentId },
+        select: { name: true },
+      });
+      departmentName = d?.name || null;
+    }
+    if (cell.entityId) {
+      try {
+        const e = await prisma.forecastEntity.findUnique({
+          where: { id: cell.entityId },
+          select: { name: true },
+        });
+        entityName = e?.name || null;
+      } catch {
+        entityName = null;
+      }
+    }
+
+    const drivers = [];
+    if (cell.driver) {
+      drivers.push({
+        id: cell.driver.id,
+        code: cell.driver.code,
+        name: cell.driver.name,
+        value: Number(cell.driver.value),
+        unit: cell.driver.unit,
+      });
+    } else if (cell.formulaId) {
+      const related = await prisma.planningDriver.findMany({
+        where: { modelId, versionId: cell.versionId },
+        take: 20,
+      });
+      for (const d of related) {
+        drivers.push({
+          id: d.id,
+          code: d.code,
+          name: d.name,
+          value: Number(d.value),
+          unit: d.unit,
+        });
+      }
+    }
+
+    const history = await FpaGridService.cellHistory(cellId);
+    const comments = await FpaGridService.listCellComments(modelId, cellId);
+
+    return {
+      id: cell.id,
+      lineItem: cell.lineItem
+        ? { id: cell.lineItem.id, code: cell.lineItem.code, name: cell.lineItem.name }
+        : null,
+      periodDate: cell.periodDate,
+      departmentId: cell.departmentId,
+      departmentName,
+      entityId: cell.entityId,
+      entityName,
+      version: cell.version,
+      scenario: cell.scenario,
+      value: cell.value != null ? Number(cell.value) : null,
+      currencyCode: cell.currencyCode,
+      cellStatus: cellStatusOf(cell),
+      recordVersion: cell.recordVersion != null ? Number(cell.recordVersion) : 1,
+      formula: cell.formula
+        ? { id: cell.formula.id, expression: cell.formula.expression, isValid: cell.formula.isValid }
+        : null,
+      currentDrivers: drivers,
+      lastUpdatedBy: userDisplayName(cell.lastUpdatedBy),
+      lastUpdatedAt: cell.lastUpdatedAt,
+      history,
+      comments,
     };
   }
 }

@@ -63,14 +63,29 @@ export class FpaAccessService {
     if (!user) return false;
     if (FpaAccessService.isBoardViewer(user) && !FpaAccessService.canApprove(user)) return false;
     if (FpaAccessService.canApprove(user)) return true;
-    if (FpaAccessService.isDeptHead(user)) {
-      const assigned = opts?.assignedDepartmentIds || user?.assignedDepartmentIds || [];
-      const deptId = opts?.departmentId;
-      if (!deptId) return true;
-      if (!assigned.length) return true;
+    const assigned = opts?.assignedDepartmentIds || user?.assignedDepartmentIds || [];
+    const deptId = opts?.departmentId;
+    // When cycle-scoped department list is provided, enforce it for all non-approvers
+    if (assigned.length) {
+      if (!deptId) return false;
       return assigned.includes(deptId);
     }
+    if (FpaAccessService.isDeptHead(user)) {
+      if (!deptId) return true;
+      return true;
+    }
     return true;
+  }
+
+  static async resolveCycleDepartmentIds(user: any, cycleId?: string | null): Promise<string[] | null> {
+    if (!cycleId) return null;
+    if (FpaAccessService.canApprove(user)) return null; // unrestricted
+    const { prisma } = await import("../../utils/database");
+    const owners = await prisma.planningBudgetCycleOwner.findMany({
+      where: { cycleId: String(cycleId), assigneeId: user.id },
+      select: { departmentId: true },
+    });
+    return owners.map((o) => o.departmentId);
   }
 
   static assertCanEditVersion(user: any, version: { status?: string; id?: string }, opts?: any) {

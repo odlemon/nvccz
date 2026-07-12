@@ -25,6 +25,8 @@ Illegal status transitions → **409** `INVALID_TRANSITION`.
 
 **status:** `DRAFT` · `LOADING_ACTUALS` · `LOADING_BASELINE` · `OPEN_FOR_INPUT` · `PENDING_VALIDATION` · `PENDING_FPA_REVIEW` · `PENDING_CFO_REVIEW` · `RETURNED_FOR_CORRECTION` · `APPROVED` · `LOCKED`
 
+Happy-path create stays in **`DRAFT`** until `POST …/open` (or `openImmediately: true`).
+
 **currentStage:** `CREATE_CYCLE` · `LOAD_ACTUALS` · `LOAD_BASELINE` · `ASSIGN_OWNERS` · `OWNER_INPUT` · `VALIDATE` · `FPA_REVIEW` · `CFO_REVIEW` · `LOCK` · `REPORTS`
 
 ---
@@ -37,17 +39,25 @@ Query: `modelId`, `fiscalYear`, `status`
 
 ### `POST /budget-cycles` → **201**
 
-Creates cycle + BUDGET workflow + owner tasks. Optionally loads prior actuals and baseline.
+Creates cycle in **`DRAFT`** (staged). Pass `"openImmediately": true` for legacy one-step open (still runs setup validation).
+
+Creates cycle + BUDGET workflow + owner tasks. Optionally loads prior actuals and baseline **on open**.
 
 ```json
 {
   "modelId": "cm…",
   "name": "FY2026 Annual Budget",
   "fiscalYear": 2026,
+  "planningType": "ANNUAL_BUDGET",
   "versionId": "cm…",
   "scenarioId": "cm…",
   "startDate": "2026-01-01",
   "endDate": "2026-12-31",
+  "actualsCutoffDate": "2025-12-31",
+  "forecastStartPeriod": "2026-01-01",
+  "submissionDeadline": "2025-11-30",
+  "baseCurrency": "USD",
+  "openImmediately": false,
   "loadPriorActuals": true,
   "loadBaseline": true,
   "inputCategories": ["REVENUE", "COST_OF_SALES", "PAYROLL", "OPERATING_EXPENSES", "DEPARTMENTAL", "PROJECT", "CAPEX", "TAX", "CASH_MOVEMENT", "FUNDING"],
@@ -63,6 +73,18 @@ Creates cycle + BUDGET workflow + owner tasks. Optionally loads prior actuals an
 
 **Required:** `modelId`, `name`, `fiscalYear`, `owners` (≥ 1).  
 **409** if an unlocked cycle already exists for the same `modelId` + `fiscalYear`.
+
+**Staged setup endpoints**
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `PATCH`/`PUT` | `/budget-cycles/{id}` | Update setup while DRAFT / open |
+| `POST` | `/budget-cycles/{id}/validate-setup` | Full unmet requirement list |
+| `POST` | `/budget-cycles/{id}/open` | Open after validate-setup passes |
+| `GET` | `/budget-cycles/{id}/owner-workspace` | Owner sheet shell |
+| `POST` | `/budget-cycles/{id}/validate-owner-submit` | §3.3 submit gates |
+
+Owner workspace + worksheet contracts: [fpa-budgeting-owner-workspace-api.md](./fpa-budgeting-owner-workspace-api.md).
 
 **Side effects (notifications + email):** every user-affecting budget action creates an in-app notification and sends email (non-fatal if mail fails). Recipients:
 

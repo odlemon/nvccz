@@ -162,6 +162,56 @@ export class FpaController {
     }
   }
 
+  static async updateBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.update(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async validateBudgetCycleSetup(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.validateSetup(req.params.id);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async openBudgetCycle(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.open(req.params.id, req.body || {}, userOf(req), ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async budgetCycleOwnerWorkspace(req: Request, res: Response) {
+    try {
+      const data = await FpaBudgetCycleService.ownerWorkspace(req.params.id, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async validateBudgetCycleOwnerSubmit(req: Request, res: Response) {
+    try {
+      const departmentIds = Array.isArray(req.body?.departmentIds)
+        ? req.body.departmentIds.map(String)
+        : undefined;
+      const data = await FpaBudgetCycleService.validateOwnerSubmission(req.params.id, userOf(req), {
+        departmentIds,
+      });
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async loadBudgetCycleActuals(req: Request, res: Response) {
     try {
       const data = await FpaBudgetCycleService.loadActuals(req.params.id, req.body || {}, userOf(req), ipOf(req));
@@ -300,13 +350,19 @@ export class FpaController {
   // Grid / cells
   static async getGrid(req: Request, res: Response) {
     try {
-      const data = await FpaGridService.getGrid(req.params.modelId, {
-        versionId: req.query.versionId,
-        scenarioId: req.query.scenarioId,
-        page: req.query.page,
-        pageSize: req.query.pageSize || req.query.page_size,
-        lineItemId: req.query.lineItemId,
-      });
+      const data = await FpaGridService.getGrid(
+        req.params.modelId,
+        {
+          versionId: req.query.versionId,
+          scenarioId: req.query.scenarioId,
+          cycleId: req.query.cycleId,
+          departmentId: req.query.departmentId,
+          page: req.query.page,
+          pageSize: req.query.pageSize || req.query.page_size,
+          lineItemId: req.query.lineItemId,
+        },
+        userOf(req)
+      );
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -361,6 +417,28 @@ export class FpaController {
         userOf(req),
         ipOf(req)
       );
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async bulkCellOperation(req: Request, res: Response) {
+    try {
+      const data = await FpaGridService.bulkOperation(
+        { ...req.body, modelId: req.params.modelId },
+        userOf(req),
+        ipOf(req)
+      );
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async cellDetail(req: Request, res: Response) {
+    try {
+      const data = await FpaGridService.cellDetail(req.params.modelId, req.params.cellId);
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);

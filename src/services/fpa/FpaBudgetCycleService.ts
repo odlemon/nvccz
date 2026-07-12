@@ -171,6 +171,28 @@ export class FpaBudgetCycleService {
     const loadBaseline = input.loadBaseline !== false;
     const startDate = input.startDate ? new Date(input.startDate) : new Date(Date.UTC(fiscalYear, 0, 1));
     const endDate = input.endDate ? new Date(input.endDate) : new Date(Date.UTC(fiscalYear, 11, 31));
+    const planningType = String(input.planningType || "ANNUAL_BUDGET").toUpperCase();
+    const actualsCutoffDate = input.actualsCutoffDate
+      ? new Date(input.actualsCutoffDate)
+      : new Date(Date.UTC(fiscalYear - 1, 11, 31));
+    const forecastStartPeriod = input.forecastStartPeriod
+      ? new Date(input.forecastStartPeriod)
+      : new Date(Date.UTC(fiscalYear, 0, 1));
+    const submissionDeadline = input.submissionDeadline
+      ? new Date(input.submissionDeadline)
+      : endDate;
+    const baseCurrency = input.baseCurrency ? String(input.baseCurrency).toUpperCase() : model.baseCurrency || "USD";
+    const cycleOwnerId = input.cycleOwnerId ? String(input.cycleOwnerId) : user.id;
+    const entityIds = Array.isArray(input.entityIds)
+      ? input.entityIds.map(String)
+      : Array.isArray(input.participatingEntities)
+        ? input.participatingEntities.map(String)
+        : [];
+    const baselineMode = input.baselineMode ? String(input.baselineMode) : "NONE";
+    const baselineSourceVersionId = input.baselineSourceVersionId
+      ? String(input.baselineSourceVersionId)
+      : null;
+    const openImmediately = input.openImmediately === true;
 
     const cycle = await prisma.$transaction(async (tx) => {
       const workflow = await tx.planningWorkflow.create({
@@ -178,7 +200,7 @@ export class FpaBudgetCycleService {
           modelId,
           name,
           workflowType: "BUDGET",
-          stage: "OWNER_INPUT",
+          stage: "SETUP",
           status: "ACTIVE",
           startDate,
           endDate,
@@ -192,6 +214,7 @@ export class FpaBudgetCycleService {
         const dept = depts.find((d) => d.id === departmentId);
         const categories =
           Array.isArray(o.categories) && o.categories.length ? o.categories.map(String) : inputCategories;
+        const due = o.dueDate ? new Date(o.dueDate) : submissionDeadline || endDate;
         const task = await tx.planningTask.create({
           data: {
             workflowId: workflow.id,
@@ -200,7 +223,7 @@ export class FpaBudgetCycleService {
             assigneeId: o.assigneeId ? String(o.assigneeId) : null,
             status: "PENDING",
             priority: "NORMAL",
-            dueDate: endDate,
+            dueDate: due,
           },
         });
         ownerRows.push({
@@ -220,10 +243,21 @@ export class FpaBudgetCycleService {
           scenarioId,
           workflowId: workflow.id,
           fiscalYear,
-          status: "OPEN_FOR_INPUT",
-          currentStage: "OWNER_INPUT",
+          planningType,
+          status: "DRAFT",
+          currentStage: "CREATE_CYCLE",
           startDate,
           endDate,
+          actualsCutoffDate,
+          forecastStartPeriod,
+          submissionDeadline,
+          baseCurrency,
+          cycleOwnerId,
+          entityIdsJson: entityIds,
+          baselineMode,
+          baselineSourceVersionId,
+          loadPriorActualsOnOpen: loadPriorActuals,
+          loadBaselineOnOpen: loadBaseline,
           inputCategoriesJson: inputCategories,
           createdById: user.id,
           owners: { create: ownerRows },
@@ -233,20 +267,254 @@ export class FpaBudgetCycleService {
       return created;
     });
 
+    await FpaAuditService.log("BUDGET_CYCLE_CREATE", user.id, { modelId, ip });
+
+    if (openImmediately) {
+      return FpaBudgetCycleService.open(cycle.id, {}, user, ip);
+    }
+
+    return FpaBudgetCycleService.serialize(
+      await prisma.planningBudgetCycle.findUnique({ where: { id: cycle.id }, include: { owners: true } })
+    );
+  }
+
+  static async update(cycleId: string, input: any, user: any, ip?: string) {
+    FpaBudgetCycleService.assertFpaManager(user);
+    const cycle = await FpaBudgetCycleService.assertCycle(cycleId);
+    if (!["DRAFT", "OPEN_FOR_INPUT", "RETURNED_FOR_CORRECTION"].includes(cycle.status)) {
+      throw new FpaError(409, "INVALID_TRANSITION", `Cannot update cycle in status ${cycle.status}`);
+    }
+    const data: any = {};
+    if (input.name != null) data.name = String(input.name).trim();
+    if (input.planningType != null) data.planningType = String(input.planningType).toUpperCase();
+    if (input.versionId != null) data.versionId = String(input.versionId);
+    if (input.scenarioId != null) data.scenarioId = String(input.scenarioId);
+    if (input.startDate != null) data.startDate = new Date(input.startDate);
+    if (input.endDate != null) data.endDate = new Date(input.endDate);
+    if (input.actualsCutoffDate != null) data.actualsCutoffDate = new Date(input.actualsCutoffDate);
+    if (input.forecastStartPeriod != null) data.forecastStartPeriod = new Date(input.forecastStartPeriod);
+    if (input.submissionDeadline != null) data.submissionDeadline = new Date(input.submissionDeadline);
+    if (input.baseCurrency != null) data.baseCurrency = String(input.baseCurrency).toUpperCase();
+    if (input.cycleOwnerId != null) data.cycleOwnerId = String(input.cycleOwnerId);
+    if (input.baselineMode != null) data.baselineMode = String(input.baselineMode);
+    if (input.baselineSourceVersionId !== undefined) {
+      data.baselineSourceVersionId = input.baselineSourceVersionId ? String(input.baselineSourceVersionId) : null;
+    }
+    if (input.loadPriorActuals != null) data.loadPriorActualsOnOpen = input.loadPriorActuals !== false;
+    if (input.loadBaseline != null) data.loadBaselineOnOpen = input.loadBaseline !== false;
+    if (Array.isArray(input.inputCategories)) data.inputCategoriesJson = input.inputCategories.map(String);
+    if (Array.isArray(input.entityIds) || Array.isArray(input.participatingEntities)) {
+      data.entityIdsJson = (input.entityIds || input.participatingEntities).map(String);
+    }
+
+    if (Object.keys(data).length) {
+      await prisma.planningBudgetCycle.update({ where: { id: cycleId }, data });
+    }
+    if (Array.isArray(input.owners) && input.owners.length) {
+      await FpaBudgetCycleService.setOwners(cycleId, { owners: input.owners }, user, ip);
+    }
+    await FpaAuditService.log("BUDGET_CYCLE_UPDATE", user.id, { modelId: cycle.modelId, ip });
+    return FpaBudgetCycleService.get(cycleId);
+  }
+
+  /**
+   * Pre-open validation — returns every unmet requirement (not just the first).
+   */
+  static async validateSetup(cycleId: string) {
+    const cycle = await prisma.planningBudgetCycle.findUnique({
+      where: { id: cycleId },
+      include: { owners: true },
+    });
+    if (!cycle) throw new FpaError(404, "NOT_FOUND", "Budget cycle not found");
+
+    const errors: Array<{ code: string; message: string; step?: string }> = [];
+    const model = await prisma.planningModel.findUnique({
+      where: { id: cycle.modelId },
+      include: {
+        versions: true,
+        scenarios: true,
+        drivers: true,
+        modelDepartments: true,
+        modelEntities: true,
+        modelAccounts: true,
+        formulas: true,
+      },
+    });
+    if (!model) {
+      errors.push({ code: "MODEL_MISSING", step: "SELECT_MODEL", message: "Source planning model was not found." });
+      return { passed: false, errors, message: "Planning cycle cannot be opened." };
+    }
+    if (String(model.status).toUpperCase() === "ARCHIVED") {
+      errors.push({ code: "MODEL_ARCHIVED", step: "SELECT_MODEL", message: "Published model is archived." });
+    }
+    const version = model.versions.find((v) => v.id === cycle.versionId);
+    if (!version) {
+      errors.push({ code: "VERSION_MISSING", step: "SELECT_MODEL", message: "Published model version is missing." });
+    } else if (String(version.status).toUpperCase() === "ARCHIVED") {
+      errors.push({ code: "VERSION_ARCHIVED", step: "SELECT_MODEL", message: "Published model version is archived." });
+    } else if (String(version.status).toUpperCase() === "LOCKED" && cycle.status === "DRAFT") {
+      // Locked version can still be the base for a new cycle; warn only if trying to edit later
+    }
+
+    if (cycle.startDate && model.startPeriod && new Date(cycle.startDate) < new Date(model.startPeriod)) {
+      errors.push({
+        code: "HORIZON_BEFORE_MODEL",
+        step: "SET_HORIZON",
+        message: "Planning horizon starts before the model period.",
+      });
+    }
+    if (cycle.endDate && model.endPeriod && new Date(cycle.endDate) > new Date(model.endPeriod)) {
+      errors.push({
+        code: "HORIZON_AFTER_MODEL",
+        step: "SET_HORIZON",
+        message: "Planning horizon ends after the model period.",
+      });
+    }
+    if (!cycle.forecastStartPeriod && !cycle.startDate) {
+      errors.push({
+        code: "FORECAST_START_MISSING",
+        step: "SET_HORIZON",
+        message: "Forecast start period is required.",
+      });
+    }
+    if (!cycle.actualsCutoffDate) {
+      errors.push({
+        code: "ACTUALS_CUTOFF_MISSING",
+        step: "SET_HORIZON",
+        message: "Actuals cut-off date is required.",
+      });
+    }
+    if (!cycle.submissionDeadline) {
+      errors.push({
+        code: "SUBMISSION_DEADLINE_MISSING",
+        step: "CONFIGURE_WORKFLOW",
+        message: "Submission deadline is required.",
+      });
+    } else if (new Date(cycle.submissionDeadline) < new Date(new Date().toISOString().slice(0, 10))) {
+      errors.push({
+        code: "SUBMISSION_DEADLINE_PAST",
+        step: "CONFIGURE_WORKFLOW",
+        message: "Submission deadline is in the past.",
+      });
+    }
+
+    if (!cycle.owners?.length) {
+      errors.push({
+        code: "NO_OWNERS",
+        step: "ASSIGN_OWNERS",
+        message: "At least one participating department is required.",
+      });
+    }
+    for (const o of cycle.owners || []) {
+      if (!o.assigneeId) {
+        const dept = await prisma.department.findUnique({
+          where: { id: o.departmentId },
+          select: { name: true },
+        });
+        errors.push({
+          code: "OWNER_UNASSIGNED",
+          step: "ASSIGN_OWNERS",
+          message: `${dept?.name || "Department"} has no Budget Owner.`,
+        });
+      }
+    }
+
+    if (!model.modelDepartments?.length && !model.modelEntities?.length) {
+      errors.push({
+        code: "SCOPE_MISSING",
+        step: "SELECT_ENTITIES",
+        message: "Model has no participating entities or departments.",
+      });
+    }
+    if (!model.modelAccounts?.length) {
+      errors.push({
+        code: "COA_MISSING",
+        step: "SELECT_MODEL",
+        message: "Required chart-of-accounts mappings are missing on the model.",
+      });
+    }
+
+    const invalidFormulas = (model.formulas || []).filter((f) => f.isValid === false);
+    for (const f of invalidFormulas.slice(0, 10)) {
+      errors.push({
+        code: "INVALID_FORMULA",
+        step: "CONFIGURE_DRIVERS",
+        message: f.validationMsg || "A model formula is invalid.",
+      });
+    }
+
+    // FX / required drivers: any driver whose code looks like a rate and has no value past cutoff
+    const fxDrivers = (model.drivers || []).filter((d) =>
+      /FX|RATE|USD|ZIG|ZWG/i.test(`${d.code} ${d.name}`)
+    );
+    if (fxDrivers.length && cycle.forecastStartPeriod && cycle.endDate) {
+      for (const d of fxDrivers) {
+        if (d.periodDate && new Date(d.periodDate) < new Date(cycle.endDate) && Number(d.value) === 0) {
+          errors.push({
+            code: "DRIVER_RATE_MISSING",
+            step: "CONFIGURE_DRIVERS",
+            message: `${d.code} forecast rate is missing or zero before the planning horizon end.`,
+          });
+        }
+      }
+    }
+
+    const cfoUsers = await FpaBudgetCycleService.resolveCfoUsers();
+    if (!cfoUsers.length) {
+      errors.push({
+        code: "CFO_STAGE_MISSING",
+        step: "CONFIGURE_WORKFLOW",
+        message: "CFO approval stage has not been configured (no CFO users found).",
+      });
+    }
+    if (!cycle.workflowId) {
+      errors.push({
+        code: "WORKFLOW_MISSING",
+        step: "CONFIGURE_WORKFLOW",
+        message: "Budget workflow has not been created for this cycle.",
+      });
+    }
+
+    const passed = errors.length === 0;
+    return {
+      passed,
+      errors,
+      message: passed
+        ? "Planning cycle is ready to open."
+        : `Planning cycle cannot be opened.\n${errors.length} requirement${errors.length === 1 ? "" : "s"} remain:`,
+    };
+  }
+
+  static async open(cycleId: string, input: any, user: any, ip?: string) {
+    FpaBudgetCycleService.assertFpaManager(user);
+    const cycle = await FpaBudgetCycleService.assertCycle(cycleId);
+    if (!["DRAFT", "LOADING_ACTUALS", "LOADING_BASELINE"].includes(cycle.status)) {
+      throw new FpaError(409, "INVALID_TRANSITION", `Cannot open cycle from status ${cycle.status}`);
+    }
+    const setup = await FpaBudgetCycleService.validateSetup(cycleId);
+    if (!setup.passed) {
+      throw new FpaError(400, "SETUP_INCOMPLETE", setup.message, setup.errors);
+    }
+
     let actualsRowCount = 0;
-    if (loadPriorActuals) {
+    const loadPrior = input.loadPriorActuals != null ? input.loadPriorActuals !== false : cycle.loadPriorActualsOnOpen;
+    const loadBase = input.loadBaseline != null ? input.loadBaseline !== false : cycle.loadBaselineOnOpen;
+
+    if (loadPrior) {
       try {
-        const priorStart = new Date(Date.UTC(fiscalYear - 1, 0, 1));
-        const priorEnd = new Date(Date.UTC(fiscalYear - 1, 11, 31));
         await prisma.planningBudgetCycle.update({
-          where: { id: cycle.id },
+          where: { id: cycleId },
           data: { status: "LOADING_ACTUALS", currentStage: "LOAD_ACTUALS" },
         });
+        const priorStart = new Date(Date.UTC(cycle.fiscalYear - 1, 0, 1));
+        const priorEnd = cycle.actualsCutoffDate
+          ? new Date(cycle.actualsCutoffDate)
+          : new Date(Date.UTC(cycle.fiscalYear - 1, 11, 31));
         const job = await FpaActualsService.sync(
           {
-            modelId,
-            versionId,
-            scenarioId,
+            modelId: cycle.modelId,
+            versionId: cycle.versionId,
+            scenarioId: cycle.scenarioId,
             periodStart: priorStart.toISOString().slice(0, 10),
             periodEnd: priorEnd.toISOString().slice(0, 10),
           },
@@ -259,15 +527,18 @@ export class FpaBudgetCycleService {
       }
     }
 
-    if (loadBaseline) {
+    if (loadBase) {
       try {
         await prisma.planningBudgetCycle.update({
-          where: { id: cycle.id },
+          where: { id: cycleId },
           data: { status: "LOADING_BASELINE", currentStage: "LOAD_BASELINE" },
         });
         await FpaModelSetupService.setBaseline(
-          modelId,
-          { mode: "NONE", sourceVersionId: null },
+          cycle.modelId,
+          {
+            mode: cycle.baselineMode || "NONE",
+            sourceVersionId: cycle.baselineSourceVersionId || null,
+          },
           user.id,
           ip
         );
@@ -276,16 +547,23 @@ export class FpaBudgetCycleService {
       }
     }
 
+    if (cycle.workflowId) {
+      await prisma.planningWorkflow.update({
+        where: { id: cycle.workflowId },
+        data: { stage: "OWNER_INPUT" },
+      });
+    }
+
     const opened = await prisma.planningBudgetCycle.update({
-      where: { id: cycle.id },
+      where: { id: cycleId },
       data: { status: "OPEN_FOR_INPUT", currentStage: "OWNER_INPUT" },
       include: { owners: true },
     });
 
-    await FpaAuditService.log("BUDGET_CYCLE_CREATE", user.id, { modelId, ip });
+    await FpaAuditService.log("BUDGET_CYCLE_OPEN", user.id, { modelId: cycle.modelId, ip });
     await FpaBudgetCycleService.notifyOwnersAssigned(opened.id);
     const data = await FpaBudgetCycleService.serialize(opened);
-    return { ...data, actualsRowCount };
+    return { ...data, actualsRowCount, setupValidation: setup };
   }
 
   static async setOwners(cycleId: string, input: any, user: any, ip?: string) {
@@ -1001,12 +1279,27 @@ export class FpaBudgetCycleService {
       throw new FpaError(409, "INVALID_TRANSITION", `Cannot submit-fpa from ${cycle.status}`);
     }
     const validation = await FpaBudgetCycleService.validate(cycleId, { persist: false });
-    if (!validation.passed) {
+    const ownerCheck = await FpaBudgetCycleService.validateOwnerSubmission(cycleId, user, {});
+    const allErrors = [...(validation.errors || []), ...(ownerCheck.errors || [])];
+    const seen = new Set<string>();
+    const deduped = [];
+    for (const e of allErrors) {
+      const key = `${e.code}|${e.departmentId || ""}|${e.message}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(e);
+    }
+    if (deduped.length) {
       await prisma.planningBudgetCycle.update({
         where: { id: cycleId },
         data: { status: "PENDING_VALIDATION", currentStage: "VALIDATE" },
       });
-      throw new FpaError(400, "VALIDATION", "Budget cycle incomplete", validation.errors);
+      throw new FpaError(
+        400,
+        "VALIDATION",
+        `Budget cycle incomplete — ${deduped.length} requirement(s) remain`,
+        deduped
+      );
     }
 
     const owners = await prisma.planningBudgetCycleOwner.findMany({ where: { cycleId } });
@@ -1063,6 +1356,13 @@ export class FpaBudgetCycleService {
       throw new FpaError(409, "INVALID_TRANSITION", `Cannot fpa-accept from ${cycle.status}`);
     }
     if (cycle.workflowId) {
+      const submitApproval = await prisma.planningApproval.findFirst({
+        where: { workflowId: cycle.workflowId, action: "SUBMIT_FPA" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (submitApproval && submitApproval.actorId === user.id) {
+        throw new FpaError(403, "MAKER_CHECKER", "Maker cannot approve their own submission");
+      }
       await prisma.planningWorkflow.update({ where: { id: cycle.workflowId }, data: { stage: "CFO_REVIEW" } });
       await prisma.planningApproval.create({
         data: {
@@ -1119,6 +1419,13 @@ export class FpaBudgetCycleService {
       throw new FpaError(409, "INVALID_TRANSITION", `Cannot cfo-approve from ${cycle.status}`);
     }
     if (cycle.workflowId) {
+      const prior = await prisma.planningApproval.findFirst({
+        where: { workflowId: cycle.workflowId, action: { in: ["SUBMIT_FPA", "FPA_ACCEPT"] } },
+        orderBy: { createdAt: "desc" },
+      });
+      if (prior && prior.actorId === user.id) {
+        throw new FpaError(403, "MAKER_CHECKER", "Maker cannot approve their own submission");
+      }
       await prisma.planningWorkflow.update({ where: { id: cycle.workflowId }, data: { stage: "APPROVED" } });
       await prisma.planningApproval.create({
         data: {
@@ -1368,10 +1675,21 @@ export class FpaBudgetCycleService {
       scenarioId: cycle.scenarioId,
       workflowId: cycle.workflowId,
       fiscalYear: cycle.fiscalYear,
+      planningType: cycle.planningType || "ANNUAL_BUDGET",
       status: cycle.status,
       currentStage: cycle.currentStage,
       startDate: cycle.startDate,
       endDate: cycle.endDate,
+      actualsCutoffDate: cycle.actualsCutoffDate || null,
+      forecastStartPeriod: cycle.forecastStartPeriod || null,
+      submissionDeadline: cycle.submissionDeadline || null,
+      baseCurrency: cycle.baseCurrency || null,
+      cycleOwnerId: cycle.cycleOwnerId || null,
+      entityIds: asStringArray(cycle.entityIdsJson),
+      baselineMode: cycle.baselineMode || null,
+      baselineSourceVersionId: cycle.baselineSourceVersionId || null,
+      loadPriorActualsOnOpen: cycle.loadPriorActualsOnOpen !== false,
+      loadBaselineOnOpen: cycle.loadBaselineOnOpen !== false,
       owners: owners.map((o) => ({
         departmentId: o.departmentId,
         departmentName: deptName[o.departmentId] || null,
@@ -1387,6 +1705,291 @@ export class FpaBudgetCycleService {
       boardPackUrl: cycle.boardPackUrl,
       createdAt: cycle.createdAt,
     };
+  }
+
+  /**
+   * Department-scoped owner workspace (SRD §4.6).
+   */
+  static async ownerWorkspace(cycleId: string, user: any) {
+    const cycle = await prisma.planningBudgetCycle.findUnique({
+      where: { id: cycleId },
+      include: { owners: true },
+    });
+    if (!cycle) throw new FpaError(404, "NOT_FOUND", "Budget cycle not found");
+
+    const isApprover = FpaAccessService.canApprove(user);
+    const myOwners = isApprover
+      ? cycle.owners
+      : cycle.owners.filter((o) => o.assigneeId === user.id);
+    if (!myOwners.length && !isApprover) {
+      throw new FpaError(403, "FORBIDDEN", "You are not assigned as a budget owner on this cycle");
+    }
+
+    const deadline = cycle.submissionDeadline || cycle.endDate;
+    const now = new Date();
+    const daysRemaining =
+      deadline != null
+        ? Math.ceil((new Date(deadline).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        : null;
+
+    const taskIds = myOwners.map((o) => o.taskId).filter(Boolean) as string[];
+    const tasks = taskIds.length
+      ? await prisma.planningTask.findMany({ where: { id: { in: taskIds } } })
+      : [];
+    const taskById = Object.fromEntries(tasks.map((t) => [t.id, t]));
+    const openTasks = tasks.filter((t) => ["PENDING", "RETURNED", "SUBMITTED"].includes(t.status));
+    const completedTasks = tasks.filter((t) => ["APPROVED", "COMPLETED", "SUBMITTED"].includes(t.status));
+
+    const deptIds = myOwners.map((o) => o.departmentId);
+    const depts = await prisma.department.findMany({
+      where: { id: { in: deptIds } },
+      select: { id: true, name: true },
+    });
+    const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
+
+    const cells = await prisma.planningCell.findMany({
+      where: {
+        modelId: cycle.modelId,
+        versionId: cycle.versionId,
+        ...(cycle.scenarioId ? { scenarioId: cycle.scenarioId } : {}),
+        OR: [{ departmentId: { in: deptIds } }, { departmentId: null }],
+      },
+      include: { lineItem: true },
+    });
+
+    const planningAreas = [];
+    const register = [];
+    const validationItems = [];
+
+    for (const o of myOwners) {
+      const cats = asStringArray(o.categoriesJson);
+      for (const cat of cats.length ? cats : ["DEPARTMENTAL"]) {
+        const match = CATEGORY_LINE_MATCH[cat] || {};
+        const catCells = cells.filter((c) => {
+          if (c.departmentId && c.departmentId !== o.departmentId) return false;
+          const code = String(c.lineItem?.code || "").toUpperCase();
+          const category = String(c.lineItem?.category || "").toUpperCase();
+          const type = String(c.lineItem?.lineItemType || "").toUpperCase();
+          if (match.categories?.some((x) => category.includes(x))) return true;
+          if (match.codes?.some((x) => code.includes(x))) return true;
+          if (match.types?.some((x) => type.includes(x))) return true;
+          return false;
+        });
+        const filled = catCells.filter((c) => c.value != null && Number(c.value) !== 0).length;
+        const status =
+          filled === 0 ? "NOT_STARTED" : filled < Math.max(1, catCells.length * 0.5) ? "IN_PROGRESS" : "COMPLETE";
+        planningAreas.push({
+          departmentId: o.departmentId,
+          departmentName: deptName[o.departmentId] || null,
+          area: cat,
+          status,
+          filledCells: filled,
+          totalCells: catCells.length,
+        });
+
+        const prior = catCells
+          .filter((c) => String(c.sourceType).toUpperCase() === "ACTUAL")
+          .reduce((s, c) => s + Number(c.value || 0), 0);
+        const current = catCells
+          .filter((c) => String(c.sourceType).toUpperCase() !== "ACTUAL")
+          .reduce((s, c) => s + Number(c.value || 0), 0);
+        const changePct = prior !== 0 ? ((current - prior) / Math.abs(prior)) * 100 : null;
+        register.push({
+          departmentId: o.departmentId,
+          account: cat,
+          method: cycle.baselineMode || "PRIOR_YEAR_ACTUAL",
+          priorYearActual: prior,
+          currentBudget: current,
+          changePct,
+        });
+
+        if (status !== "COMPLETE") {
+          validationItems.push({
+            code: "AREA_INCOMPLETE",
+            severity: "BLOCKING",
+            message: `${deptName[o.departmentId] || "Department"} / ${cat} is ${status.replace("_", " ").toLowerCase()}`,
+            departmentId: o.departmentId,
+            category: cat,
+            status: "BLOCKING",
+          });
+        } else {
+          validationItems.push({
+            code: "AREA_COMPLETE",
+            severity: "DONE",
+            message: `${cat} complete`,
+            departmentId: o.departmentId,
+            category: cat,
+            status: "DONE",
+          });
+        }
+      }
+
+      const task = o.taskId ? taskById[o.taskId] : null;
+      if (task && !["SUBMITTED", "APPROVED", "COMPLETED"].includes(task.status)) {
+        validationItems.push({
+          code: "TASK_OPEN",
+          severity: "BLOCKING",
+          message: `Task "${task.title}" is not submitted`,
+          departmentId: o.departmentId,
+          status: "BLOCKING",
+        });
+      }
+    }
+
+    const submitCheck = await FpaBudgetCycleService.validateOwnerSubmission(cycleId, user, {
+      departmentIds: myOwners.map((o) => o.departmentId),
+    });
+
+    const areaComplete = planningAreas.filter((a) => a.status === "COMPLETE").length;
+    const progressPct = planningAreas.length
+      ? Math.round((areaComplete / planningAreas.length) * 100)
+      : 0;
+
+    return {
+      cycle: await FpaBudgetCycleService.serialize(cycle),
+      budgetProgress: { percent: progressPct, trend: null },
+      submissionDue: {
+        date: deadline,
+        daysRemaining,
+      },
+      openTasks: {
+        count: openTasks.length,
+        completedCount: completedTasks.length,
+        items: openTasks,
+      },
+      validationIssues: {
+        count: validationItems.filter((v) => v.status === "BLOCKING").length,
+        needsAttention: validationItems.some((v) => v.status === "BLOCKING"),
+        items: validationItems,
+      },
+      planningAreas,
+      departmentBudgetRegister: register,
+      canSubmit: submitCheck.passed,
+      unmetRequirements: submitCheck.errors,
+    };
+  }
+
+  /**
+   * SRD §3.3 submission controls — full unmet list.
+   */
+  static async validateOwnerSubmission(
+    cycleId: string,
+    user: any,
+    opts: { departmentIds?: string[] } = {}
+  ) {
+    const cycle = await prisma.planningBudgetCycle.findUnique({
+      where: { id: cycleId },
+      include: { owners: true },
+    });
+    if (!cycle) throw new FpaError(404, "NOT_FOUND", "Budget cycle not found");
+
+    const owners = opts.departmentIds?.length
+      ? cycle.owners.filter((o) => opts.departmentIds!.includes(o.departmentId))
+      : cycle.owners.filter((o) => o.assigneeId === user?.id || FpaAccessService.canApprove(user));
+
+    const errors: Array<{ code: string; message: string; departmentId?: string; severity?: string }> = [];
+
+    for (const o of owners) {
+      if (!o.assigneeId) {
+        errors.push({
+          code: "BUDGET_OWNER_UNASSIGNED",
+          message: "Budget owner is not assigned",
+          departmentId: o.departmentId,
+          severity: "BLOCKING",
+        });
+      }
+      const cats = asStringArray(o.categoriesJson);
+      const cells = await prisma.planningCell.findMany({
+        where: {
+          modelId: cycle.modelId,
+          versionId: cycle.versionId,
+          ...(cycle.scenarioId ? { scenarioId: cycle.scenarioId } : {}),
+          OR: [{ departmentId: o.departmentId }, { departmentId: null }],
+        },
+        include: { lineItem: true },
+      });
+      for (const cat of cats) {
+        const match = CATEGORY_LINE_MATCH[cat] || {};
+        const catCells = cells.filter((c) => {
+          const code = String(c.lineItem?.code || "").toUpperCase();
+          const category = String(c.lineItem?.category || "").toUpperCase();
+          const type = String(c.lineItem?.lineItemType || "").toUpperCase();
+          if (match.categories?.some((x) => category.includes(x))) return true;
+          if (match.codes?.some((x) => code.includes(x))) return true;
+          if (match.types?.some((x) => type.includes(x))) return true;
+          return false;
+        });
+        const filled = catCells.some((c) => c.value != null && Number(c.value) !== 0);
+        if (!filled) {
+          errors.push({
+            code: "MANDATORY_INPUT_INCOMPLETE",
+            message: `Mandatory inputs incomplete for ${cat}`,
+            departmentId: o.departmentId,
+            severity: "BLOCKING",
+          });
+        }
+      }
+      if (o.taskId) {
+        const task = await prisma.planningTask.findUnique({ where: { id: o.taskId } });
+        if (task?.status === "CANCELLED") {
+          errors.push({
+            code: "MANDATORY_TASK_INCOMPLETE",
+            message: "Mandatory task is cancelled",
+            departmentId: o.departmentId,
+            severity: "BLOCKING",
+          });
+        }
+      }
+    }
+
+    const commentaryNeeded = await prisma.planningVarianceResult.findMany({
+      where: {
+        modelId: cycle.modelId,
+        commentaryRequired: true,
+        ...(opts.departmentIds?.length ? { departmentId: { in: opts.departmentIds } } : {}),
+      },
+      take: 50,
+    });
+    for (const v of commentaryNeeded) {
+      const comment = await prisma.planningComment.findFirst({ where: { varianceId: v.id } });
+      if (!comment) {
+        errors.push({
+          code: "REQUIRED_COMMENTARY_INCOMPLETE",
+          message: "Required variance commentary is incomplete",
+          departmentId: v.departmentId || undefined,
+          severity: "BLOCKING",
+        });
+      }
+    }
+
+    const baseValidate = await FpaBudgetCycleService.validate(cycleId, { persist: false });
+    for (const e of baseValidate.errors || []) {
+      if (
+        opts.departmentIds?.length &&
+        e.departmentId &&
+        !opts.departmentIds.includes(e.departmentId)
+      ) {
+        continue;
+      }
+      errors.push({
+        code: e.code || "BLOCKING_VALIDATION",
+        message: e.message || "Validation error",
+        departmentId: e.departmentId,
+        severity: "BLOCKING",
+      });
+    }
+
+    // Deduplicate by code+department+message
+    const seen = new Set<string>();
+    const unique = [];
+    for (const e of errors) {
+      const key = `${e.code}|${e.departmentId || ""}|${e.message}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(e);
+    }
+
+    return { passed: unique.length === 0, errors: unique };
   }
 }
 

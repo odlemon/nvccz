@@ -14,11 +14,12 @@ Related: [fpa-user-flow.md](./fpa-user-flow.md) · [fpa-model-setup-api.md](./fp
 ## 1. Annual Budget Cycle (SRD flow)
 
 ```text
-FP&A creates annual budget cycle
+FP&A creates annual budget cycle (DRAFT)
+  → Validate setup (full unmet list) → Open cycle
   → Load prior-year actuals
   → Load baseline assumptions
   → Assign tasks to budget owners
-  → Budget owners input budget
+  → Budget owners input budget (owner workspace / scoped grid)
   → Validate completeness
        ├─ No  → Return for correction → (back to owner input)
        └─ Yes → Submit to FP&A review
@@ -30,6 +31,8 @@ FP&A creates annual budget cycle
        └─ Yes → Lock approved budget version
                  → Generate dashboards and board pack
 ```
+
+Owner sheet FE API: [fpa-budgeting-owner-workspace-api.md](./fpa-budgeting-owner-workspace-api.md).
 
 ---
 

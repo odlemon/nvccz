@@ -288,6 +288,22 @@ export class FpaWorkflowService {
     if (task.assigneeId && task.assigneeId !== user.id && !FpaAccessService.canApprove(user)) {
       throw new FpaError(403, "FORBIDDEN", "Only assignee can submit this task");
     }
+
+    const cycle = await FpaWorkflowService.cycleForWorkflow(task.workflowId);
+    if (cycle?.id) {
+      const check = await FpaBudgetCycleService.validateOwnerSubmission(cycle.id, user, {
+        departmentIds: task.departmentId ? [task.departmentId] : undefined,
+      });
+      if (!check.passed) {
+        throw new FpaError(
+          400,
+          "SUBMISSION_BLOCKED",
+          `Cannot submit: ${check.errors.length} requirement(s) remain unmet`,
+          check.errors
+        );
+      }
+    }
+
     const updated = await prisma.planningTask.update({
       where: { id: taskId },
       data: { status: "SUBMITTED", submittedAt: new Date() },
@@ -301,6 +317,12 @@ export class FpaWorkflowService {
         comment: comment || null,
       },
     });
+    if (cycle?.id && task.departmentId) {
+      await prisma.planningBudgetCycleOwner.updateMany({
+        where: { cycleId: cycle.id, departmentId: task.departmentId },
+        data: { status: "SUBMITTED" },
+      });
+    }
     await FpaAuditService.log("TASK_SUBMIT", user.id, { modelId: task.workflow.modelId, reason: comment, ip });
     await FpaWorkflowService.notifyTaskEvent({
       task: updated,

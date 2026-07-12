@@ -24,6 +24,7 @@ URLS = [
 MIGRATE_SCRIPTS = [
     "db:migrate:fpa-model-setup",
     "db:migrate:fpa-budget-cycles",
+    "db:migrate:fpa-budget-cycle-polish",
 ]
 
 
