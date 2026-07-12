@@ -3,7 +3,8 @@
 How Planning, Budgeting & Forecasting works in Arcus from a **user’s point of view**: who does what, in which screen, from first setup through board reporting.
 
 For API contracts see [fpa-api-reference.md](./fpa-api-reference.md).  
-For screen → endpoint map see [fpa-api-by-ui-section.md](./fpa-api-by-ui-section.md).
+For screen → endpoint map see [fpa-api-by-ui-section.md](./fpa-api-by-ui-section.md).  
+For **Model Planning vs Model Builder** (two tabs, one model) see [fpa-model-planning-vs-builder.md](./fpa-model-planning-vs-builder.md).
 
 ---
 
@@ -29,8 +30,8 @@ Everything hangs off one **planning model** (e.g. “FY2026 Operating Plan”).
 Login
   → Models list
     → Home (KPIs, tasks, over-budget)
-      → Model Builder (structure)
-      → Worksheet (enter numbers)
+      → Model Builder (structure / formulas — admin)
+      → Model Planning / Worksheet (enter assumptions — owners)
       → Drivers / Domain tabs
       → Scenarios (compare / promote)
       → Workflow (submit / approve)

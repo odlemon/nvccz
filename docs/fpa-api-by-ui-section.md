@@ -1,7 +1,8 @@
 # FP&A — API by UI Section
 
 Screen → endpoint mapping for frontend handoff.  
-**Full request/response contracts:** [fpa-api-reference.md](./fpa-api-reference.md)
+**Full request/response contracts:** [fpa-api-reference.md](./fpa-api-reference.md)  
+**Model Planning vs Model Builder (tabs):** [fpa-model-planning-vs-builder.md](./fpa-model-planning-vs-builder.md)
 
 Base: `https://{host}/api/v1/fpa`  
 Auth: Bearer token (same as rest of Arcus).
@@ -23,7 +24,9 @@ Entities (legal entities / COA clones): `https://{host}/api/forecast-entities`
 
 ---
 
-## B.2 Planning Worksheet
+## B.2 Planning Worksheet (Model Planning grid)
+
+Primary surface for the **Model Planning** tab (enter assumptions / view calculated rows). Product naming: Model Planning; older docs said Worksheet.
 
 | Screen element | Method | Path |
 |----------------|--------|------|
@@ -47,6 +50,8 @@ Locked / actual cells: treat as read-only; API returns 403 if edited.
 ---
 
 ## B.3 Model Builder
+
+Technical modelling studio (structure, formulas, validate). Not the owner planning grid — see [fpa-model-planning-vs-builder.md](./fpa-model-planning-vs-builder.md).
 
 | Screen element | Method | Path |
 |----------------|--------|------|
