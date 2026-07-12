@@ -2,17 +2,34 @@
 import { prisma } from "../../utils/database";
 import { FpaError } from "./FpaError";
 import { FpaAuditService } from "./FpaAuditService";
+import { FpaFormulaEngine } from "./FpaFormulaEngine";
 
 const DEFAULT_LINE_ITEMS = [
-  { code: "REVENUE", name: "Revenue", lineItemType: "REVENUE", category: "REVENUE", sortOrder: 10 },
-  { code: "COGS", name: "COGS", lineItemType: "EXPENSE", category: "EXPENSE", sortOrder: 20 },
-  { code: "GROSS_PROFIT", name: "Gross Profit", lineItemType: "CALC", category: "REVENUE", sortOrder: 30, isEditable: false },
-  { code: "SALARIES", name: "Salaries", lineItemType: "EXPENSE", category: "WORKFORCE", sortOrder: 40 },
-  { code: "RENT", name: "Rent", lineItemType: "EXPENSE", category: "EXPENSE", sortOrder: 50 },
-  { code: "MARKETING", name: "Marketing", lineItemType: "EXPENSE", category: "EXPENSE", sortOrder: 60 },
-  { code: "EBITDA", name: "EBITDA", lineItemType: "CALC", category: "REVENUE", sortOrder: 70, isEditable: false },
+  { code: "REVENUE", name: "Revenue", lineItemType: "INPUT", category: "REVENUE", sortOrder: 10 },
+  { code: "COGS", name: "COGS", lineItemType: "INPUT", category: "EXPENSE", sortOrder: 20 },
+  { code: "GROSS_PROFIT", name: "Gross Profit", lineItemType: "CALCULATED", category: "REVENUE", sortOrder: 30, isEditable: false },
+  { code: "SALARIES", name: "Salaries", lineItemType: "INPUT", category: "WORKFORCE", sortOrder: 40 },
+  { code: "RENT", name: "Rent", lineItemType: "INPUT", category: "EXPENSE", sortOrder: 50 },
+  { code: "MARKETING", name: "Marketing", lineItemType: "INPUT", category: "EXPENSE", sortOrder: 60 },
+  { code: "EBITDA", name: "EBITDA", lineItemType: "CALCULATED", category: "REVENUE", sortOrder: 70, isEditable: false },
   { code: "HEADCOUNT", name: "Headcount", lineItemType: "DRIVER", category: "WORKFORCE", dataType: "NUMBER", sortOrder: 80 },
-  { code: "CLOSING_CASH", name: "Closing Cash", lineItemType: "CASH", category: "CASH", sortOrder: 90 },
+  { code: "CLOSING_CASH", name: "Closing Cash", lineItemType: "INPUT", category: "CASH", sortOrder: 90 },
+];
+
+/** Seed formulas for calculated defaults (LINE() dialect). */
+const DEFAULT_FORMULAS: Array<{ code: string; expression: string }> = [
+  { code: "GROSS_PROFIT", expression: "LINE('REVENUE') - LINE('COGS')" },
+  {
+    code: "EBITDA",
+    expression: "LINE('GROSS_PROFIT') - LINE('SALARIES') - LINE('RENT') - LINE('MARKETING')",
+  },
+];
+
+const DEFAULT_MODULES: Array<{ code: string; name: string; categories: string[] }> = [
+  { code: "REVENUE", name: "Revenue Planning", categories: ["REVENUE"] },
+  { code: "EXPENSE", name: "Expense Planning", categories: ["EXPENSE"] },
+  { code: "WORKFORCE", name: "Workforce", categories: ["WORKFORCE"] },
+  { code: "CASH", name: "Cash", categories: ["CASH"] },
 ];
 
 function monthStarts(start: Date, end: Date): Date[] {
@@ -91,6 +108,67 @@ export class FpaModelService {
         );
       }
 
+      // Default modules + assign line items by category
+      const moduleByCategory: Record<string, string> = {};
+      for (let i = 0; i < DEFAULT_MODULES.length; i++) {
+        const mod = DEFAULT_MODULES[i];
+        const row = await tx.planningModule.create({
+          data: {
+            modelId: created.id,
+            code: mod.code,
+            name: mod.name,
+            calcOrder: i + 1,
+            sortOrder: i + 1,
+            status: "DRAFT",
+            dimensionKeys: ["Time", "Product", "Region", "Version", "Scenario"],
+          },
+        });
+        for (const cat of mod.categories) moduleByCategory[cat] = row.id;
+      }
+      for (const li of lineItems) {
+        const moduleId = moduleByCategory[li.category] || null;
+        if (moduleId) {
+          await tx.planningLineItem.update({ where: { id: li.id }, data: { moduleId } });
+          li.moduleId = moduleId;
+        }
+      }
+
+      // Seed formulas for calculated line items
+      const byCode = Object.fromEntries(lineItems.map((l) => [l.code, l]));
+      const formulaRows = [];
+      for (const df of DEFAULT_FORMULAS) {
+        const li = byCode[df.code];
+        if (!li) continue;
+        formulaRows.push(
+          await tx.planningFormula.create({
+            data: {
+              modelId: created.id,
+              lineItemId: li.id,
+              expression: df.expression,
+              isValid: true,
+              validationMsg: null,
+              createdById: userId,
+            },
+          })
+        );
+      }
+      // Wire formula dependencies where both sides have formulas
+      const formulaByLiCode: Record<string, string> = {};
+      for (const f of formulaRows) {
+        const li = lineItems.find((x) => x.id === f.lineItemId);
+        if (li) formulaByLiCode[li.code] = f.id;
+      }
+      for (const f of formulaRows) {
+        for (const code of FpaFormulaEngine.extractLineCodes(f.expression)) {
+          const depId = formulaByLiCode[String(code).toUpperCase()];
+          if (depId && depId !== f.id) {
+            await tx.planningFormulaDependency
+              .create({ data: { formulaId: f.id, dependsOnFormulaId: depId } })
+              .catch(() => null);
+          }
+        }
+      }
+
       const periods = monthStarts(startPeriod, endPeriod);
       const cellRows = [];
       for (const li of lineItems) {
@@ -127,6 +205,77 @@ export class FpaModelService {
 
     await FpaAuditService.log("MODEL_CREATE", userId, { modelId: model.id, ip });
     return model;
+  }
+
+  /**
+   * Idempotent: seed Gross Profit / EBITDA formulas (and formula deps) when missing.
+   * Safe to call for older models created before default formula seeding.
+   */
+  static async ensureDefaultFormulas(modelId: string, userId: string) {
+    const model = await prisma.planningModel.findUnique({ where: { id: modelId } });
+    if (!model) throw new FpaError(404, "NOT_FOUND", "Planning model not found");
+
+    const lineItems = await prisma.planningLineItem.findMany({ where: { modelId } });
+    const byCode = Object.fromEntries(lineItems.map((l) => [l.code, l]));
+    const created = [];
+
+    for (const df of DEFAULT_FORMULAS) {
+      const li = byCode[df.code];
+      if (!li) continue;
+      const existing = await prisma.planningFormula.findFirst({ where: { lineItemId: li.id } });
+      if (existing) continue;
+      // Also accept CALC / CALCULATED type rename
+      const formula = await prisma.planningFormula.create({
+        data: {
+          modelId,
+          lineItemId: li.id,
+          expression: df.expression,
+          isValid: true,
+          validationMsg: null,
+          createdById: userId,
+        },
+      });
+      // Normalize type to CALCULATED for inspector
+      if (["CALC", "FX"].includes(String(li.lineItemType).toUpperCase())) {
+        await prisma.planningLineItem.update({
+          where: { id: li.id },
+          data: { lineItemType: "CALCULATED", isEditable: false },
+        });
+      }
+      created.push(formula);
+    }
+
+    const allFormulas = await prisma.planningFormula.findMany({
+      where: { modelId },
+      include: { lineItem: true },
+    });
+    const formulaByLiCode: Record<string, string> = {};
+    for (const f of allFormulas) {
+      if (f.lineItem?.code) formulaByLiCode[f.lineItem.code] = f.id;
+    }
+    for (const f of allFormulas) {
+      for (const code of FpaFormulaEngine.extractLineCodes(f.expression)) {
+        const depId = formulaByLiCode[String(code).toUpperCase()];
+        if (depId && depId !== f.id) {
+          await prisma.planningFormulaDependency
+            .create({ data: { formulaId: f.id, dependsOnFormulaId: depId } })
+            .catch(() => null);
+        }
+      }
+    }
+
+    if (created.length) {
+      await FpaAuditService.log("MODEL_SEED_FORMULAS", userId, {
+        modelId,
+        reason: `Seeded ${created.length} default formula(s)`,
+      });
+    }
+
+    return {
+      modelId,
+      formulasCreated: created.length,
+      formulas: created,
+    };
   }
 
   static async list(query: any = {}) {

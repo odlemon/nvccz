@@ -496,6 +496,13 @@ export class FpaModuleService {
   static async dependencyGraph(modelId: string, query: any, user: any) {
     FpaModuleService.assertBuilder(user);
     await FpaModuleService.assertModel(modelId);
+    // Auto-heal seed formulas so graph edges appear for older models
+    try {
+      const { FpaModelService } = await import("./FpaModelService");
+      await FpaModelService.ensureDefaultFormulas(modelId, user?.id || "system");
+    } catch {
+      /* non-fatal */
+    }
     const focusModuleId = query?.moduleId ? String(query.moduleId) : null;
     const viewRaw = String(query?.view || "module").toLowerCase();
     const lineItemView = viewRaw === "line-item" || viewRaw === "line" || viewRaw === "line_item";
@@ -530,13 +537,16 @@ export class FpaModuleService {
     for (const f of formulas) {
       const target = f.lineItem;
       if (!target) continue;
-      const codes = FpaFormulaEngine.extractLineCodes(f.expression);
-      for (const code of codes) {
-        const src = byCode[String(code).toUpperCase()];
+      const keys = FpaFormulaEngine.extractDependencyKeys(f.expression);
+      for (const key of keys) {
+        const src =
+          byCode[String(key).toUpperCase()] ||
+          allLines.find((l) => l.name.toLowerCase() === String(key).toLowerCase()) ||
+          allLines.find((l) => l.code.toUpperCase() === String(key).toUpperCase().replace(/\s+/g, "_"));
         if (!src || src.id === target.id) continue;
-        const key = `${src.id}->${target.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        const edgeKey = `${src.id}->${target.id}`;
+        if (seen.has(edgeKey)) continue;
+        seen.add(edgeKey);
         let kind = "direct";
         if (src.moduleId && target.moduleId && src.moduleId !== target.moduleId) kind = "external";
         if (f.isValid === false) kind = "invalid";
@@ -572,7 +582,14 @@ export class FpaModuleService {
     for (const f of formulas) {
       const code = f.lineItem?.code;
       if (!code) continue;
-      depGraph[code] = FpaFormulaEngine.extractLineCodes(f.expression).map((c) => String(c).toUpperCase());
+      depGraph[code] = FpaFormulaEngine.extractDependencyKeys(f.expression)
+        .map((k) => {
+          const src =
+            byCode[String(k).toUpperCase()] ||
+            allLines.find((l) => l.name.toLowerCase() === String(k).toLowerCase());
+          return src?.code;
+        })
+        .filter(Boolean);
     }
     const circular = FpaFormulaEngine.detectCircular(depGraph);
 
@@ -664,7 +681,14 @@ export class FpaModuleService {
     for (const f of formulas) {
       const code = f.lineItem?.code;
       if (!code) continue;
-      depGraph[code] = FpaFormulaEngine.extractLineCodes(f.expression).map((c) => String(c).toUpperCase());
+      depGraph[code] = FpaFormulaEngine.extractDependencyKeys(f.expression)
+        .map((k) => {
+          const src =
+            byCode[String(k).toUpperCase()] ||
+            allLines.find((l) => l.name.toLowerCase() === String(k).toLowerCase());
+          return src?.code;
+        })
+        .filter(Boolean);
     }
     const circular = FpaFormulaEngine.detectCircular(depGraph);
     if (circular.circular) {

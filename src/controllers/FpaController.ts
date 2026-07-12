@@ -89,6 +89,24 @@ export class FpaController {
     }
   }
 
+  static async getModelDimensions(req: Request, res: Response) {
+    try {
+      const data = await FpaModelSetupService.getDimensions(req.params.modelId);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async seedModelDefaults(req: Request, res: Response) {
+    try {
+      const data = await FpaModelService.ensureDefaultFormulas(req.params.modelId, userOf(req).id);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async setModelBaseline(req: Request, res: Response) {
     try {
       const data = await FpaModelSetupService.setBaseline(req.params.modelId, req.body || {}, userOf(req).id, ipOf(req));

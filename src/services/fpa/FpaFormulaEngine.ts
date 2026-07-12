@@ -4,15 +4,46 @@ import { FpaError } from "./FpaError";
 
 const LINE_RE = /LINE\s*\(\s*['"]([^'"]+)['"]\s*\)/gi;
 const DRIVER_RE = /DRIVER\s*\(\s*['"]([^'"]+)['"]\s*\)/gi;
+const BRACKET_RE = /\[([^\]]+)\]/g;
 const SAFE_EXPR_RE = /^[\d\s+\-*/().,A-Z_'"=<>!&|]+$/i;
 
 export class FpaFormulaEngine {
+  /** LINE('CODE') refs */
   static extractLineCodes(expr: string): string[] {
     const codes: string[] = [];
     let m;
     const re = new RegExp(LINE_RE.source, "gi");
-    while ((m = re.exec(expr || "")) !== null) codes.push(m[1]);
+    while ((m = re.exec(expr || "")) !== null) codes.push(String(m[1]).toUpperCase());
     return [...new Set(codes)];
+  }
+
+  /** Bracket refs `[Units Sold]` or `[Workforce.Headcount]` — returns raw inner strings */
+  static extractBracketRefs(expr: string): string[] {
+    const refs: string[] = [];
+    let m;
+    const re = new RegExp(BRACKET_RE.source, "g");
+    while ((m = re.exec(expr || "")) !== null) {
+      const inner = String(m[1] || "").trim();
+      if (inner) refs.push(inner);
+    }
+    return [...new Set(refs)];
+  }
+
+  /**
+   * All line-item dependency keys from an expression (LINE codes + bracket names/codes).
+   * Bracket `Module.Line` → last segment used as name/code candidate.
+   */
+  static extractDependencyKeys(expr: string): string[] {
+    const keys = new Set<string>(FpaFormulaEngine.extractLineCodes(expr));
+    for (const ref of FpaFormulaEngine.extractBracketRefs(expr)) {
+      const parts = ref.split(".");
+      const leaf = (parts[parts.length - 1] || ref).trim();
+      if (leaf) {
+        keys.add(leaf.toUpperCase().replace(/\s+/g, "_"));
+        keys.add(leaf); // keep display name for name lookup
+      }
+    }
+    return [...keys];
   }
 
   static extractDriverCodes(expr: string): string[] {
@@ -30,19 +61,23 @@ export class FpaFormulaEngine {
     const normalized = String(expr).trim();
     const lineCodes = FpaFormulaEngine.extractLineCodes(normalized);
     const driverCodes = FpaFormulaEngine.extractDriverCodes(normalized);
+    // Bracket-only formulas: treat as structurally OK for save; engine eval may still use LINE()
+    const hasBrackets = FpaFormulaEngine.extractBracketRefs(normalized).length > 0;
     let probe = normalized
       .replace(LINE_RE, "1")
       .replace(DRIVER_RE, "1")
+      .replace(BRACKET_RE, "1")
       .replace(/IF\s*\(/gi, "IF(");
-    // Allow IF(cond,a,b) tokens for validation
     probe = probe.replace(/IF\(/gi, "(");
     if (!SAFE_EXPR_RE.test(probe.replace(/,/g, ""))) {
       return { valid: false, message: "Expression contains unsupported characters", lineCodes, driverCodes };
     }
-    try {
-      FpaFormulaEngine.evaluate(normalized, { lines: {}, drivers: {} });
-    } catch (e: any) {
-      return { valid: false, message: e?.message || "Invalid expression", lineCodes, driverCodes };
+    if (!hasBrackets) {
+      try {
+        FpaFormulaEngine.evaluate(normalized, { lines: {}, drivers: {} });
+      } catch (e: any) {
+        return { valid: false, message: e?.message || "Invalid expression", lineCodes, driverCodes };
+      }
     }
     return { valid: true, lineCodes, driverCodes };
   }
