@@ -19,7 +19,7 @@ Entities (legal entities / COA clones): `https://{host}/api/forecast-entities`
 | Scenario list (selector) | GET | `/scenarios?modelId=` |
 | Version list (via model detail) | GET | `/models/{modelId}` |
 
-**Home payload (typical):** `kpis`, `scenarioCompare`, `workflowProgress`, `openTasks`, `overBudgetDepartments` (includes `departmentName`), `activity`.
+**Home payload (typical):** `kpis` (incl. `sparklines`), `cashByMonth`, `scenarioCompare`, `workflowProgress`, `openTasks`, `overBudgetDepartments` (`departmentName`, `ownerName`, `ownerAvatarUrl`), `activity`, `model.ownerName`.
 
 ---
 
@@ -28,14 +28,19 @@ Entities (legal entities / COA clones): `https://{host}/api/forecast-entities`
 | Screen element | Method | Path |
 |----------------|--------|------|
 | Load grid | GET | `/models/{modelId}/grid?versionId=&scenarioId=&page=&pageSize=` |
-| Edit cell | POST | `/models/{modelId}/cells/update` body: `{ cellId, value }` or `{ versionId, scenarioId, lineItemId, periodDate, value }` |
+| Validation strip | GET | `/models/{modelId}/grid/validations?versionId=&scenarioId=` |
+| Edit cell | POST | `/models/{modelId}/cells/update` body: `{ cellId, value }` **or** `{ versionId, scenarioId, lineItemId, periodDate, value }` (upserts if missing) |
 | Bulk edit | POST | `/models/{modelId}/cells/bulk-update` body: `{ updates: [...] }` |
 | Spread | POST | `/models/{modelId}/cells/spread` |
 | Copy forward | POST | `/models/{modelId}/cells/copy-forward` |
-| Cell history | GET | `/models/{modelId}/cells/{cellId}/history` |
+| Apply growth | POST | `/models/{modelId}/cells/apply-growth` `{ versionId, scenarioId, lineItemId, fromPeriodDate, ratePct, mode? }` |
+| Cell history | GET | `/models/{modelId}/cells/{cellId}/history` → includes `userName` |
+| Cell comments | GET/POST | `/models/{modelId}/cells/{cellId}/comments` |
+| Seed empty version | POST | `/versions/{id}/seed-cells` |
 | Submit workflow task | POST | `/tasks/{taskId}/submit` |
+| My open tasks (Worksheet Submit binder) | GET | `/tasks/my-tasks?modelId=&versionId=` |
 
-**Grid response:** `lineItems[]`, `cells[]` (with `isEditable`, `isLocked`, `sourceType`, `valueType`), pagination.
+**Grid response:** `periods[]` (`periodDate`, `periodRole: ACTUAL|FORECAST`), `lineItems[]`, `cells[]` (with `periodRole`, `isEditable`, `isLocked`, `sourceType`), `ownerName`, `actualCutoff`, pagination.
 
 Locked / actual cells: treat as read-only; API returns 403 if edited.
 

@@ -40,11 +40,15 @@ router.get("/budget-cycles/:id/summary", FpaController.budgetCycleSummary);
 
 // Grid / cells
 router.get("/models/:modelId/grid", FpaController.getGrid);
+router.get("/models/:modelId/grid/validations", FpaController.gridValidations);
 router.post("/models/:modelId/cells/update", FpaController.updateCell);
 router.post("/models/:modelId/cells/bulk-update", FpaController.bulkUpdate);
 router.post("/models/:modelId/cells/spread", FpaController.spread);
 router.post("/models/:modelId/cells/copy-forward", FpaController.copyForward);
+router.post("/models/:modelId/cells/apply-growth", FpaController.applyGrowth);
 router.get("/models/:modelId/cells/:cellId/history", FpaController.cellHistory);
+router.get("/models/:modelId/cells/:cellId/comments", FpaController.listCellComments);
+router.post("/models/:modelId/cells/:cellId/comments", FpaController.addCellComment);
 
 // Formulas
 router.post("/formulas/validate", FpaController.validateFormula);

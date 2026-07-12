@@ -1102,7 +1102,7 @@ If `modelId` omitted, uses latest non-archived model.
 
 Empty state (no models): `{ "kpis": null, "workflowProgress": [], "openTasks": [], "message": "No planning models yet" }`.
 
-Pixel extras still not returned (sparklines, cash-by-month bars, owner avatars) — use worksheet/domain data or follow-up APIs.
+Also returns `kpis.sparklines`, `cashByMonth[]`, `overBudgetDepartments[].ownerName` / `ownerAvatarUrl`, and `model.ownerName`.
 
 ---
 

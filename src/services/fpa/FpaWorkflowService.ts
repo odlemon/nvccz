@@ -99,7 +99,23 @@ export class FpaWorkflowService {
         : { in: ["PENDING", "RETURNED", "SUBMITTED"] },
     };
     if (query.modelId) {
-      where.workflow = { modelId: String(query.modelId) };
+      where.workflow = { ...(where.workflow || {}), modelId: String(query.modelId) };
+    }
+    // Optional versionId: tasks on budget cycles / workflows tied to that version
+    if (query.versionId) {
+      const cycles = await prisma.planningBudgetCycle.findMany({
+        where: { versionId: String(query.versionId) },
+        select: { workflowId: true },
+      });
+      const workflowIds = cycles.map((c) => c.workflowId).filter(Boolean);
+      if (workflowIds.length) {
+        where.workflowId = { in: workflowIds };
+      } else {
+        // No budget cycle for version — still allow model-scoped tasks if modelId set
+        if (!query.modelId) {
+          return [];
+        }
+      }
     }
 
     return prisma.planningTask.findMany({

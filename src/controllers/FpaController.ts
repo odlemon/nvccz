@@ -315,7 +315,11 @@ export class FpaController {
 
   static async updateCell(req: Request, res: Response) {
     try {
-      const data = await FpaGridService.updateCell(req.body, userOf(req), ipOf(req));
+      const data = await FpaGridService.updateCell(
+        { ...req.body, modelId: req.params.modelId || req.body.modelId },
+        userOf(req),
+        ipOf(req)
+      );
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -350,9 +354,57 @@ export class FpaController {
     }
   }
 
+  static async applyGrowth(req: Request, res: Response) {
+    try {
+      const data = await FpaGridService.applyGrowth(
+        { ...req.body, modelId: req.params.modelId },
+        userOf(req),
+        ipOf(req)
+      );
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async cellHistory(req: Request, res: Response) {
     try {
       const data = await FpaGridService.cellHistory(req.params.cellId);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listCellComments(req: Request, res: Response) {
+    try {
+      const data = await FpaGridService.listCellComments(req.params.modelId, req.params.cellId);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async addCellComment(req: Request, res: Response) {
+    try {
+      const data = await FpaGridService.addCellComment(
+        req.params.modelId,
+        req.params.cellId,
+        req.body,
+        userOf(req)
+      );
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async gridValidations(req: Request, res: Response) {
+    try {
+      const data = await FpaGridService.gridValidations(req.params.modelId, {
+        versionId: req.query.versionId || req.body?.versionId,
+        scenarioId: req.query.scenarioId || req.body?.scenarioId,
+      });
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);

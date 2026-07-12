@@ -341,11 +341,11 @@ AI suggest / commentary draft (if shown) are **assist-only** — they never appr
 
 These do not block the core flow above, but users may still see empty or toast-only UI for:
 
-- Home KPI sparklines, 12-month R/E trend, cash bar series, owner avatars  
 - Rich domain packs (hire plan, revenue waterfall, full cash statement)  
 - Scenario waterfall / sensitivity / runway series  
 - Variance commentary queue & department rollup  
 - Settings: sync-source config, variance thresholds, workflow defaults  
-- “Apply growth” style one-click transforms (if UI shows toast only)
+
+**Now shipped (worksheet / home):** KPI sparklines, `cashByMonth`, owner names/avatars on over-budget, `periodRole`, apply-growth, cell comments, grid validations, cell-history `userName`.
 
 Core path — **model → enter → workflow → lock → export** — is the supported finish line.

@@ -171,7 +171,7 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
     get: op("Budget cycle summary by category/department", { parameters: [id] }),
   },
   "/v1/fpa/models/{modelId}/grid": {
-    get: op("Get planning grid (paginated cells)", {
+    get: op("Get planning grid (paginated cells + periods with periodRole)", {
       parameters: [
         modelId,
         queryParam("versionId", { type: "string" }),
@@ -181,16 +181,28 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
       ],
     }),
   },
+  "/v1/fpa/models/{modelId}/grid/validations": {
+    get: op("Worksheet validation strip issues", {
+      parameters: [
+        modelId,
+        queryParam("versionId", { type: "string" }),
+        queryParam("scenarioId", { type: "string" }),
+      ],
+    }),
+  },
   "/v1/fpa/models/{modelId}/cells/update": {
-    post: op("Update single cell", {
+    post: op("Update or upsert cell (injects path modelId; creates cell if coords given on empty version)", {
       parameters: [modelId],
       requestBody: jsonRequestBody({
         schema: {
           type: "object",
-          required: ["cellId", "value"],
           properties: {
             cellId: { type: "string" },
             value: { type: "number" },
+            versionId: { type: "string" },
+            scenarioId: { type: "string" },
+            lineItemId: { type: "string" },
+            periodDate: { type: "string", format: "date" },
             reason: { type: "string" },
           },
         },
@@ -206,8 +218,40 @@ export const fpaSwaggerPaths: Record<string, unknown> = {
   "/v1/fpa/models/{modelId}/cells/copy-forward": {
     post: op("Copy cell value forward", { parameters: [modelId] }),
   },
+  "/v1/fpa/models/{modelId}/cells/apply-growth": {
+    post: op("Apply growth rate forward from a base period", {
+      parameters: [modelId],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["versionId", "scenarioId", "lineItemId", "fromPeriodDate", "ratePct"],
+          properties: {
+            versionId: { type: "string" },
+            scenarioId: { type: "string" },
+            lineItemId: { type: "string" },
+            fromPeriodDate: { type: "string", format: "date" },
+            ratePct: { type: "number", example: 5 },
+            mode: { type: "string", enum: ["COMPOUND", "FLAT"], default: "COMPOUND" },
+          },
+        },
+      }),
+    }),
+  },
   "/v1/fpa/models/{modelId}/cells/{cellId}/history": {
-    get: op("Cell audit history", { parameters: [modelId, cellId] }),
+    get: op("Cell audit history (includes userName)", { parameters: [modelId, cellId] }),
+  },
+  "/v1/fpa/models/{modelId}/cells/{cellId}/comments": {
+    get: op("List cell comments", { parameters: [modelId, cellId] }),
+    post: op("Add cell comment", {
+      parameters: [modelId, cellId],
+      requestBody: jsonRequestBody({
+        schema: {
+          type: "object",
+          required: ["body"],
+          properties: { body: { type: "string" }, correctiveAction: { type: "string" } },
+        },
+      }),
+    }),
   },
   "/v1/fpa/formulas/validate": {
     post: op("Validate formula expression"),
