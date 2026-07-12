@@ -282,7 +282,12 @@ export class FpaWorkflowService {
     return updated;
   }
 
-  static async submit(taskId: string, user: any, comment?: string, ip?: string) {
+  static async submit(taskId: string, user: any, input: any = {}, ip?: string) {
+    const comment = typeof input === "string" ? input : input?.comment;
+    const changeNotes =
+      typeof input === "object" && input
+        ? String(input.changeNotes || input.notes || "").trim() || null
+        : null;
     const task = await prisma.planningTask.findUnique({ where: { id: taskId }, include: { workflow: true } });
     if (!task) throw new FpaError(404, "NOT_FOUND", "Task not found");
     if (task.assigneeId && task.assigneeId !== user.id && !FpaAccessService.canApprove(user)) {
@@ -306,7 +311,11 @@ export class FpaWorkflowService {
 
     const updated = await prisma.planningTask.update({
       where: { id: taskId },
-      data: { status: "SUBMITTED", submittedAt: new Date() },
+      data: {
+        status: "SUBMITTED",
+        submittedAt: new Date(),
+        ...(changeNotes != null ? { changeNotes } : {}),
+      },
     });
     await prisma.planningApproval.create({
       data: {
@@ -314,7 +323,7 @@ export class FpaWorkflowService {
         taskId,
         actorId: user.id,
         action: "SUBMIT",
-        comment: comment || null,
+        comment: comment || changeNotes || null,
       },
     });
     if (cycle?.id && task.departmentId) {
@@ -376,7 +385,7 @@ export class FpaWorkflowService {
 
     const updated = await prisma.planningTask.update({
       where: { id: taskId },
-      data: { status: "APPROVED" },
+      data: { status: "APPROVED", reviewerId: user.id },
     });
     await prisma.planningApproval.create({
       data: {

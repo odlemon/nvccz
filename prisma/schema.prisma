@@ -6077,6 +6077,10 @@ model PlanningComment {
   modelId          String   @map("model_id")
   cellId           String?  @map("cell_id")
   varianceId       String?  @map("variance_id")
+  cycleId          String?  @map("cycle_id")
+  taskId           String?  @map("task_id")
+  /// INTERNAL | ALL
+  visibility       String   @default("ALL") @db.VarChar(16)
   body             String   @db.Text
   correctiveAction String?  @map("corrective_action") @db.Text
   status           String   @default("OPEN") @db.VarChar(32)
@@ -6089,6 +6093,8 @@ model PlanningComment {
   variance         PlanningVarianceResult? @relation(fields: [varianceId], references: [id], onDelete: Cascade)
 
   @@index([modelId], map: "planning_comments_model_idx")
+  @@index([cycleId], map: "planning_comments_cycle_idx")
+  @@index([taskId], map: "planning_comments_task_idx")
   @@map("planning_comments")
 }
 
@@ -6139,6 +6145,9 @@ model PlanningBudgetCycle {
   loadPriorActualsOnOpen   Boolean   @default(true) @map("load_prior_actuals_on_open")
   loadBaselineOnOpen       Boolean   @default(true) @map("load_baseline_on_open")
   inputCategoriesJson      Json?     @map("input_categories_json")
+  openedAt                 DateTime? @map("opened_at")
+  fpaReviewAt              DateTime? @map("fpa_review_at")
+  cfoReviewAt              DateTime? @map("cfo_review_at")
   lockedAt                 DateTime? @map("locked_at")
   lockedById               String?   @map("locked_by_id")
   approvedAt               DateTime? @map("approved_at")
@@ -6184,16 +6193,19 @@ model PlanningTask {
   title        String    @db.VarChar(255)
   departmentId String?   @map("department_id")
   assigneeId   String?   @map("assignee_id")
+  reviewerId   String?   @map("reviewer_id")
   status       String    @default("PENDING") @db.VarChar(32)
   priority     String    @default("NORMAL") @db.VarChar(16)
   dueDate      DateTime? @map("due_date") @db.Date
   submittedAt  DateTime? @map("submitted_at")
+  changeNotes  String?   @map("change_notes") @db.Text
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   workflow     PlanningWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   assignee     User?            @relation("PlanningTaskAssignee", fields: [assigneeId], references: [id])
   approvals    PlanningApproval[]
+  attachments  PlanningAttachment[]
 
   @@index([assigneeId, status], map: "planning_tasks_assignee_status_idx")
   @@index([workflowId], map: "planning_tasks_workflow_idx")
@@ -6215,6 +6227,25 @@ model PlanningApproval {
 
   @@index([workflowId], map: "planning_approvals_workflow_idx")
   @@map("planning_approvals")
+}
+
+model PlanningAttachment {
+  id           String   @id @default(cuid())
+  taskId       String?  @map("task_id")
+  cycleId      String?  @map("cycle_id")
+  fileName     String   @map("file_name") @db.VarChar(255)
+  mimeType     String?  @map("mime_type") @db.VarChar(128)
+  sizeBytes    Int?     @map("size_bytes")
+  storageKey   String   @map("storage_key") @db.VarChar(1024)
+  fileUrl      String?  @map("file_url") @db.VarChar(1024)
+  uploadedById String   @map("uploaded_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  task         PlanningTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId], map: "planning_attachments_task_idx")
+  @@index([cycleId], map: "planning_attachments_cycle_idx")
+  @@map("planning_attachments")
 }
 
 model PlanningImportJob {

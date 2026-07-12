@@ -1,10 +1,16 @@
 // @ts-nocheck
 import express from "express";
+import multer from "multer";
 import { authenticate } from "../middleware/authenticate";
 import { FpaController } from "../controllers/FpaController";
 
 const router = express.Router();
 router.use(authenticate);
+
+const uploadAttachment = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
 
 // Models (setup before :modelId so "setup" is not captured as an id)
 router.post("/models/setup", FpaController.setupModel);
@@ -32,6 +38,11 @@ router.post("/budget-cycles/:id/validate-setup", FpaController.validateBudgetCyc
 router.post("/budget-cycles/:id/open", FpaController.openBudgetCycle);
 router.get("/budget-cycles/:id/owner-workspace", FpaController.budgetCycleOwnerWorkspace);
 router.get("/budget-cycles/:id/review-workspace", FpaController.budgetCycleReviewWorkspace);
+router.get("/budget-cycles/:id/tasks/export", FpaController.exportBudgetCycleTasks);
+router.get("/budget-cycles/:id/tasks", FpaController.listBudgetCycleTasks);
+router.get("/budget-cycles/:id/approval-events", FpaController.listBudgetCycleApprovalEvents);
+router.get("/budget-cycles/:id/comments", FpaController.listBudgetCycleComments);
+router.post("/budget-cycles/:id/comments", FpaController.addBudgetCycleComment);
 router.post("/budget-cycles/:id/validate-owner-submit", FpaController.validateBudgetCycleOwnerSubmit);
 router.post("/budget-cycles/:id/load-actuals", FpaController.loadBudgetCycleActuals);
 router.post("/budget-cycles/:id/load-baseline", FpaController.loadBudgetCycleBaseline);
@@ -86,10 +97,17 @@ router.post("/workflows", FpaController.createWorkflow);
 router.get("/workflows", FpaController.listWorkflows);
 router.get("/workflows/:id", FpaController.getWorkflow);
 router.get("/tasks/my-tasks", FpaController.myTasks);
+router.get("/tasks/:id/comments", FpaController.listTaskComments);
+router.post("/tasks/:id/comments", FpaController.addTaskComment);
+router.get("/tasks/:id/attachments", FpaController.listTaskAttachments);
+router.post("/tasks/:id/attachments", uploadAttachment.single("file"), FpaController.uploadTaskAttachment);
+router.get("/tasks/:id/summary", FpaController.taskSummary);
 router.post("/tasks/:id/submit", FpaController.submitTask);
 router.post("/tasks/:id/return", FpaController.returnTask);
 router.post("/tasks/:id/approve", FpaController.approveTask);
 router.post("/tasks/:id/reassign", FpaController.reassignTask);
+router.get("/attachments/:id/download", FpaController.downloadAttachment);
+router.delete("/attachments/:id", FpaController.deleteAttachment);
 
 // Actuals
 router.post("/actuals/sync", FpaController.syncActuals);

@@ -17,6 +17,8 @@ import { FpaLineItemService } from "../services/fpa/FpaLineItemService";
 import { FpaFormulaEngine } from "../services/fpa/FpaFormulaEngine";
 import { FpaModelSetupService } from "../services/fpa/FpaModelSetupService";
 import { FpaBudgetCycleService } from "../services/fpa/FpaBudgetCycleService";
+import { FpaWorkflowCollabService } from "../services/fpa/FpaWorkflowCollabService";
+import fs from "fs";
 
 function ipOf(req: Request) {
   return (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || null;
@@ -201,6 +203,131 @@ export class FpaController {
   static async budgetCycleReviewWorkspace(req: Request, res: Response) {
     try {
       const data = await FpaBudgetCycleService.reviewWorkspace(req.params.id, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listBudgetCycleTasks(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.listCycleTasks(req.params.id, req.query, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async exportBudgetCycleTasks(req: Request, res: Response) {
+    try {
+      const file = await FpaWorkflowCollabService.exportCycleTasksCsv(req.params.id, req.query, userOf(req));
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+      res.send(file.body);
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listBudgetCycleApprovalEvents(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.listApprovalEvents(req.params.id, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listBudgetCycleComments(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.listComments({ cycleId: req.params.id }, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async addBudgetCycleComment(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.addComment(
+        { cycleId: req.params.id },
+        req.body || {},
+        userOf(req)
+      );
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listTaskComments(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.listComments({ taskId: req.params.id }, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async addTaskComment(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.addComment(
+        { taskId: req.params.id },
+        req.body || {},
+        userOf(req)
+      );
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listTaskAttachments(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.listAttachments(req.params.id, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async uploadTaskAttachment(req: Request, res: Response) {
+    try {
+      const file = (req as any).file;
+      const data = await FpaWorkflowCollabService.uploadAttachment(req.params.id, file, userOf(req));
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async downloadAttachment(req: Request, res: Response) {
+    try {
+      const result = await FpaWorkflowCollabService.downloadAttachment(req.params.id, userOf(req));
+      if (result.redirectUrl) {
+        return res.redirect(result.redirectUrl);
+      }
+      const a = result.attachment;
+      res.setHeader("Content-Type", a.mimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${a.fileName}"`);
+      fs.createReadStream(result.streamPath).pipe(res);
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async deleteAttachment(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.deleteAttachment(req.params.id, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async taskSummary(req: Request, res: Response) {
+    try {
+      const data = await FpaWorkflowCollabService.taskSummary(req.params.id, userOf(req));
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -692,7 +819,7 @@ export class FpaController {
 
   static async submitTask(req: Request, res: Response) {
     try {
-      const data = await FpaWorkflowService.submit(req.params.id, userOf(req), req.body.comment, ipOf(req));
+      const data = await FpaWorkflowService.submit(req.params.id, userOf(req), req.body || {}, ipOf(req));
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);

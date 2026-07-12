@@ -682,7 +682,7 @@ export class FpaBudgetCycleService {
 
     const opened = await prisma.planningBudgetCycle.update({
       where: { id: cycleId },
-      data: { status: "OPEN_FOR_INPUT", currentStage: "OWNER_INPUT" },
+      data: { status: "OPEN_FOR_INPUT", currentStage: "OWNER_INPUT", openedAt: new Date() },
       include: { owners: true },
     });
 
@@ -1475,7 +1475,11 @@ export class FpaBudgetCycleService {
 
     const updated = await prisma.planningBudgetCycle.update({
       where: { id: cycleId },
-      data: { status: "PENDING_FPA_REVIEW", currentStage: "FPA_REVIEW" },
+      data: {
+        status: "PENDING_FPA_REVIEW",
+        currentStage: "FPA_REVIEW",
+        fpaReviewAt: cycle.fpaReviewAt || new Date(),
+      },
       include: { owners: true },
     });
     await FpaAuditService.log("BUDGET_CYCLE_SUBMIT_FPA", user.id, {
@@ -1513,7 +1517,11 @@ export class FpaBudgetCycleService {
     }
     const updated = await prisma.planningBudgetCycle.update({
       where: { id: cycleId },
-      data: { status: "PENDING_CFO_REVIEW", currentStage: "CFO_REVIEW" },
+      data: {
+        status: "PENDING_CFO_REVIEW",
+        currentStage: "CFO_REVIEW",
+        cfoReviewAt: cycle.cfoReviewAt || new Date(),
+      },
       include: { owners: true },
     });
     await FpaAuditService.log("BUDGET_CYCLE_FPA_ACCEPT", user.id, { modelId: cycle.modelId, ip });
@@ -1857,9 +1865,13 @@ export class FpaBudgetCycleService {
       })),
       inputCategories: asStringArray(cycle.inputCategoriesJson),
       lockedAt: cycle.lockedAt,
+      openedAt: cycle.openedAt || null,
+      fpaReviewAt: cycle.fpaReviewAt || null,
+      cfoReviewAt: cycle.cfoReviewAt || null,
       approvedAt: cycle.approvedAt,
       boardPackUrl: cycle.boardPackUrl,
       createdAt: cycle.createdAt,
+      stages: (await import("./FpaWorkflowCollabService")).FpaWorkflowCollabService.buildStages(cycle),
     };
   }
 
@@ -2264,6 +2276,9 @@ export class FpaBudgetCycleService {
         status: t.status,
         dueDate: t.dueDate,
         priority: t.priority,
+        submittedOn: t.submittedAt,
+        changeNotes: t.changeNotes || null,
+        reviewerId: t.reviewerId || null,
       }));
 
     const approvalHistory = [];
@@ -2283,6 +2298,10 @@ export class FpaBudgetCycleService {
       });
     }
 
+    const { FpaWorkflowCollabService } = await import("./FpaWorkflowCollabService");
+    const stages = FpaWorkflowCollabService.buildStages(cycle);
+    const wow = await FpaWorkflowCollabService.weekOverWeekDeltas(cycle);
+
     return {
       cycle: await FpaBudgetCycleService.serialize(cycle),
       progress: {
@@ -2290,7 +2309,10 @@ export class FpaBudgetCycleService {
         submittedDepartments: submitted,
         totalDepartments: owners.length,
         statusCounts,
+        pendingDeltaWoW: wow.pendingDeltaWoW,
+        returnedDeltaWoW: wow.returnedDeltaWoW,
       },
+      stages,
       taskQueue,
       submissionRegister,
       approvalHistory,
