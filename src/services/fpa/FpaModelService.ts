@@ -114,7 +114,15 @@ export class FpaModelService {
         await tx.planningCell.createMany({ data: cellRows });
       }
 
-      return { ...created, defaultScenarioId: scenario.id, defaultVersionId: version.id, lineItemCount: lineItems.length, cellCount: cellRows.length };
+      return {
+        ...created,
+        defaultScenarioId: scenario.id,
+        defaultVersionId: version.id,
+        versions: [{ id: version.id, name: version.name, status: version.status }],
+        scenarios: [{ id: scenario.id, name: scenario.name, isDefault: true, isOfficial: scenario.isOfficial }],
+        lineItemCount: lineItems.length,
+        cellCount: cellRows.length,
+      };
     });
 
     await FpaAuditService.log("MODEL_CREATE", userId, { modelId: model.id, ip });
@@ -125,12 +133,43 @@ export class FpaModelService {
     const where: any = {};
     if (query.status) where.status = String(query.status);
     if (query.ownerUserId) where.ownerUserId = String(query.ownerUserId);
-    return prisma.planningModel.findMany({
+    if (query.q) {
+      const q = String(query.q).trim();
+      where.OR = [
+        { name: { contains: q } },
+        { modelType: { contains: q } },
+        { status: { contains: q } },
+      ];
+    }
+    const rows = await prisma.planningModel.findMany({
       where,
       orderBy: { updatedAt: "desc" },
       include: {
+        owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         _count: { select: { lineItems: true, scenarios: true, versions: true } },
       },
+    });
+    return rows.map((m) => {
+      const ownerName = m.owner
+        ? [m.owner.firstName, m.owner.lastName].filter(Boolean).join(" ").trim() || m.owner.email
+        : null;
+      return {
+        id: m.id,
+        name: m.name,
+        description: m.description,
+        modelType: m.modelType,
+        status: m.status,
+        baseCurrency: m.baseCurrency,
+        startPeriod: m.startPeriod,
+        endPeriod: m.endPeriod,
+        timeGranularity: m.timeGranularity,
+        updatedAt: m.updatedAt,
+        createdAt: m.createdAt,
+        publishedAt: m.publishedAt,
+        ownerUserId: m.ownerUserId,
+        ownerName,
+        _count: m._count,
+      };
     });
   }
 
@@ -151,8 +190,17 @@ export class FpaModelService {
       },
     });
     if (!model) throw new FpaError(404, "NOT_FOUND", "Planning model not found");
+    let publishedByName = null;
+    if (model.publishedById) {
+      const pub = await prisma.user.findUnique({
+        where: { id: model.publishedById },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      publishedByName = pub ? [pub.firstName, pub.lastName].filter(Boolean).join(" ").trim() || pub.email : null;
+    }
     return {
       ...model,
+      publishedByName,
       entityIds: model.modelEntities.map((e) => e.entityId),
       departmentIds: model.modelDepartments.map((d) => d.departmentId),
       accountIds: model.modelAccounts.map((a) => a.accountId),

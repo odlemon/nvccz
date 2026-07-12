@@ -20,6 +20,7 @@ import { FpaBudgetCycleService } from "../services/fpa/FpaBudgetCycleService";
 import { FpaWorkflowCollabService } from "../services/fpa/FpaWorkflowCollabService";
 import { FpaModuleService } from "../services/fpa/FpaModuleService";
 import { FpaAuditService } from "../services/fpa/FpaAuditService";
+import { FpaTemplateService } from "../services/fpa/FpaTemplateService";
 import fs from "fs";
 
 function ipOf(req: Request) {
@@ -144,7 +145,25 @@ export class FpaController {
 
   static async deleteModule(req: Request, res: Response) {
     try {
-      const data = await FpaModuleService.deleteModule(req.params.moduleId, userOf(req), ipOf(req));
+      const data = await FpaModuleService.deleteModule(req.params.moduleId, userOf(req), ipOf(req), req.query);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async duplicateModule(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.duplicateModule(req.params.moduleId, userOf(req), ipOf(req));
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async setModuleDimensions(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.setModuleDimensions(req.params.moduleId, req.body || {}, userOf(req), ipOf(req));
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -160,9 +179,18 @@ export class FpaController {
     }
   }
 
+  static async dependencyGraph(req: Request, res: Response) {
+    try {
+      const data = await FpaModuleService.dependencyGraph(req.params.modelId, req.query, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
   static async publishModel(req: Request, res: Response) {
     try {
-      const data = await FpaModuleService.publish(req.params.modelId, userOf(req), ipOf(req));
+      const data = await FpaModuleService.publish(req.params.modelId, userOf(req), ipOf(req), req.body || {});
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -172,6 +200,15 @@ export class FpaController {
   static async listModelAuditLogs(req: Request, res: Response) {
     try {
       const data = await FpaAuditService.list(req.params.modelId, req.query);
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listModelAudit(req: Request, res: Response) {
+    try {
+      const data = await FpaAuditService.listForFe(req.params.modelId, req.query);
       res.json({ success: true, data });
     } catch (e) {
       handleError(res, e);
@@ -757,6 +794,99 @@ export class FpaController {
     try {
       const data = await FpaLineItemService.updateFormula(req.params.formulaId, req.body, userOf(req).id, ipOf(req));
       res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async publishVersion(req: Request, res: Response) {
+    try {
+      const data = await FpaVersionService.publish(req.params.id, userOf(req), req.body || {}, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async testVersionCalculation(req: Request, res: Response) {
+    try {
+      const data = await FpaVersionService.testCalculation(req.params.id, req.body || {}, userOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async reorderLineItem(req: Request, res: Response) {
+    try {
+      const data = await FpaLineItemService.reorder(req.params.id, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async setLineItemDimensions(req: Request, res: Response) {
+    try {
+      const data = await FpaLineItemService.setDimensions(req.params.id, req.body || {}, userOf(req).id, ipOf(req));
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async listLineItemTemplates(_req: Request, res: Response) {
+    try {
+      const data = FpaTemplateService.list();
+      res.json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async applyModuleTemplate(req: Request, res: Response) {
+    try {
+      const data = await FpaTemplateService.apply(
+        req.params.modelId,
+        req.params.moduleId,
+        String(req.body?.templateId || ""),
+        userOf(req),
+        ipOf(req)
+      );
+      res.status(201).json({ success: true, data });
+    } catch (e) {
+      handleError(res, e);
+    }
+  }
+
+  static async updateGridCells(req: Request, res: Response) {
+    try {
+      const modelId = req.params.modelId;
+      const body = req.body || {};
+      const versionId = body.versionId;
+      const scenarioId = body.scenarioId;
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      const results = [];
+      for (const u of updates) {
+        let periodDate = u.periodDate || u.periodKey;
+        if (periodDate && /^\d{4}-\d{2}$/.test(String(periodDate))) {
+          periodDate = `${periodDate}-01`;
+        }
+        const data = await FpaGridService.updateCell(
+          {
+            modelId,
+            versionId,
+            scenarioId,
+            lineItemId: u.lineItemId,
+            periodDate,
+            value: u.value,
+          },
+          userOf(req),
+          ipOf(req)
+        );
+        results.push(data);
+      }
+      res.json({ success: true, data: { updated: results.length, cells: results } });
     } catch (e) {
       handleError(res, e);
     }

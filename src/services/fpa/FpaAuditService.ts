@@ -31,7 +31,8 @@ export class FpaAuditService {
     });
   }
 
-  static async list(modelId: string, query: any = {}) {
+  /** FE drawer / History: { entries, nextCursor } */
+  static async listForFe(modelId: string, query: any = {}) {
     const where: any = { modelId };
     if (query.actionType || query.action) where.actionType = String(query.actionType || query.action);
     if (query.userId) where.userId = String(query.userId);
@@ -40,8 +41,12 @@ export class FpaAuditService {
       if (query.from) where.createdAt.gte = new Date(String(query.from));
       if (query.to) where.createdAt.lte = new Date(String(query.to));
     }
+    if (query.q) {
+      const q = String(query.q).trim();
+      where.OR = [{ actionType: { contains: q } }, { reason: { contains: q } }, { newValue: { contains: q } }];
+    }
     const take = Math.min(Number(query.limit || query.pageSize || 50), 200);
-    const skip = query.page ? (Math.max(1, Number(query.page)) - 1) * take : Number(query.offset || 0);
+    const skip = query.page ? (Math.max(1, Number(query.page)) - 1) * take : Number(query.offset || query.cursor || 0);
 
     const rows = await prisma.planningAuditLog.findMany({
       where,
@@ -53,17 +58,43 @@ export class FpaAuditService {
       },
     });
 
-    return rows.map((r) => {
+    const entries = rows.map((r) => {
       const u = r.user;
       const name = u ? [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email : null;
+      let before = null;
+      let after = null;
+      let entityType = null;
+      let entityId = null;
+      let summary = r.reason || r.actionType;
+      if (r.reason) {
+        try {
+          const parsed = JSON.parse(r.reason);
+          if (parsed && typeof parsed === "object") {
+            before = parsed.before ?? null;
+            after = parsed.after ?? null;
+            entityType = parsed.entityType || null;
+            entityId = parsed.entityId || null;
+            if (parsed.summary) summary = parsed.summary;
+          }
+        } catch {
+          /* plain string */
+        }
+      }
+      if (!entityId && r.newValue) entityId = String(r.newValue);
       return {
         id: r.id,
+        at: r.createdAt,
         time: r.createdAt,
         createdAt: r.createdAt,
         userId: r.userId,
         userName: name,
         action: r.actionType,
         actionType: r.actionType,
+        entityType,
+        entityId,
+        summary,
+        before,
+        after,
         details: r.reason || r.newValue || r.oldValue || null,
         oldValue: r.oldValue,
         newValue: r.newValue,
@@ -71,5 +102,17 @@ export class FpaAuditService {
         cellId: r.cellId,
       };
     });
+
+    return {
+      entries,
+      nextCursor: entries.length === take ? String(skip + take) : null,
+    };
+  }
+
+  /** Legacy: bare array (audit-logs). Pass format=fe for { entries }. */
+  static async list(modelId: string, query: any = {}) {
+    const payload = await FpaAuditService.listForFe(modelId, query);
+    if (String(query?.format || "").toLowerCase() === "fe" || query?.fe === "1") return payload;
+    return payload.entries;
   }
 }

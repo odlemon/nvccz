@@ -281,4 +281,135 @@ export class FpaVersionService {
       reason,
     };
   }
+
+  static async publish(versionId: string, user: any, body: any = {}, ip?: string) {
+    FpaAccessService.assertCanApprove(user);
+    const version = await prisma.planningVersion.findUnique({ where: { id: versionId } });
+    if (!version) throw new FpaError(404, "NOT_FOUND", "Version not found");
+
+    const { FpaModuleService } = await import("./FpaModuleService");
+    const validation = await FpaModuleService.enrichedValidate(version.modelId);
+    if (!validation.passed || validation.circular) {
+      throw new FpaError(
+        409,
+        "PUBLISH_BLOCKED",
+        "Fix validation errors before publishing",
+        (validation.errors || []).map((i: any) => ({ code: i.code, message: i.message, step: i.category || i.type }))
+      );
+    }
+
+    const checksum = await FpaModuleService.structureChecksum(version.modelId);
+    const notes = body?.notes != null ? String(body.notes) : null;
+    const publishedAt = new Date();
+
+    const updatedVersion = await prisma.planningVersion.update({
+      where: { id: versionId },
+      data: {
+        status: "LOCKED",
+        lockedAt: publishedAt,
+        lockedById: user.id,
+        publishedAt,
+        publishedById: user.id,
+        checksum,
+        publishNotes: notes,
+      },
+    });
+
+    await prisma.planningCell.updateMany({
+      where: { versionId },
+      data: { isLocked: true, isEditable: false },
+    });
+
+    const model = await prisma.planningModel.update({
+      where: { id: version.modelId },
+      data: {
+        status: "PUBLISHED",
+        publishedAt,
+        publishedById: user.id,
+      },
+    });
+
+    await FpaAuditService.log("VERSION_PUBLISHED", user.id, {
+      modelId: version.modelId,
+      versionId,
+      reason: notes || "Version published for Model Planning",
+      newValue: checksum,
+      ip,
+    });
+
+    const publisher = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const publishedByName = publisher
+      ? [publisher.firstName, publisher.lastName].filter(Boolean).join(" ").trim() || publisher.email
+      : null;
+
+    return {
+      modelId: version.modelId,
+      versionId: updatedVersion.id,
+      publishedBy: user.id,
+      publishedById: user.id,
+      publishedByName,
+      publishedAt,
+      checksum,
+      status: model.status,
+      versionStatus: updatedVersion.status,
+      validationResult: {
+        passed: validation.passed,
+        errors: validation.errors || [],
+        warnings: validation.warnings || [],
+      },
+      modulesChanged: [],
+      lineItemsChanged: [],
+      formulaChanges: [],
+      mappingChanges: [],
+      notes,
+    };
+  }
+
+  /** Refresh grid preview for a version (Builder test calc). */
+  static async testCalculation(versionId: string, input: any = {}, user: any) {
+    FpaAccessService.assertCanApprove(user);
+    const version = await prisma.planningVersion.findUnique({ where: { id: versionId } });
+    if (!version) throw new FpaError(404, "NOT_FOUND", "Version not found");
+    const scenarioId =
+      input?.scenarioId ||
+      (
+        await prisma.planningScenario.findFirst({
+          where: { modelId: version.modelId },
+          orderBy: { createdAt: "asc" },
+        })
+      )?.id;
+    const { FpaGridService } = await import("./FpaGridService");
+    const grid = await FpaGridService.getGrid(
+      version.modelId,
+      {
+        versionId,
+        scenarioId,
+        moduleId: input?.moduleId,
+        pageSize: input?.pageSize || 500,
+      },
+      user
+    );
+    return {
+      versionId,
+      scenarioId: scenarioId || null,
+      calculatedAt: new Date().toISOString(),
+      message: "Calculation preview refreshed",
+      grid,
+    };
+  }
+
+  static async archive(versionId: string, user: any, ip?: string) {
+    const userId = typeof user === "string" ? user : user?.id;
+    const version = await prisma.planningVersion.findUnique({ where: { id: versionId } });
+    if (!version) throw new FpaError(404, "NOT_FOUND", "Version not found");
+    const updated = await prisma.planningVersion.update({
+      where: { id: versionId },
+      data: { status: "ARCHIVED" },
+    });
+    await FpaAuditService.log("VERSION_ARCHIVE", userId, { modelId: version.modelId, versionId, ip });
+    return updated;
+  }
 }

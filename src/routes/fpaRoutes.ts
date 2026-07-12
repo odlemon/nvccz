@@ -28,12 +28,18 @@ router.post("/models/:modelId/validate", FpaController.validateModel);
 router.get("/models/:modelId/validation-summary", FpaController.validationSummary);
 router.post("/models/:modelId/publish", FpaController.publishModel);
 router.get("/models/:modelId/audit-logs", FpaController.listModelAuditLogs);
+router.get("/models/:modelId/audit", FpaController.listModelAudit);
 router.get("/models/:modelId/modules", FpaController.listModelModules);
 router.post("/models/:modelId/modules", FpaController.createModelModule);
 router.get("/models/:modelId/dependency-map", FpaController.dependencyMap);
+router.get("/models/:modelId/dependency-graph", FpaController.dependencyGraph);
 router.post("/models/:modelId/line-items/bulk", FpaController.bulkLineItems);
 router.put("/modules/:moduleId", FpaController.updateModule);
 router.delete("/modules/:moduleId", FpaController.deleteModule);
+router.post("/modules/:moduleId/duplicate", FpaController.duplicateModule);
+router.put("/modules/:moduleId/dimensions", FpaController.setModuleDimensions);
+router.get("/line-item-templates", FpaController.listLineItemTemplates);
+router.post("/models/:modelId/modules/:moduleId/apply-template", FpaController.applyModuleTemplate);
 
 // Budget cycles (Annual Budget Cycle)
 router.get("/budget-cycles", FpaController.listBudgetCycles);
@@ -67,6 +73,7 @@ router.get("/budget-cycles/:id/summary", FpaController.budgetCycleSummary);
 // Grid / cells
 router.get("/models/:modelId/grid", FpaController.getGrid);
 router.get("/models/:modelId/grid/validations", FpaController.gridValidations);
+router.put("/models/:modelId/grid/cells", FpaController.updateGridCells);
 router.post("/models/:modelId/cells/update", FpaController.updateCell);
 router.post("/models/:modelId/cells/bulk-update", FpaController.bulkUpdate);
 router.post("/models/:modelId/cells/spread", FpaController.spread);
@@ -97,6 +104,8 @@ router.post("/scenarios/:id/promote", FpaController.promoteScenario);
 router.post("/versions", FpaController.createVersion);
 router.post("/versions/:id/seed-cells", FpaController.seedVersionCells);
 router.post("/versions/:id/lock", FpaController.lockVersion);
+router.post("/versions/:id/publish", FpaController.publishVersion);
+router.post("/versions/:id/test-calculation", FpaController.testVersionCalculation);
 router.post("/versions/:id/request-reopen", FpaController.requestReopenVersion);
 router.post("/versions/:id/archive", FpaController.archiveVersion);
 
@@ -133,6 +142,8 @@ router.get("/home/dashboard", FpaController.homeDashboard);
 router.get("/models/:modelId/line-items", FpaController.listLineItems);
 router.post("/models/:modelId/line-items", FpaController.createLineItem);
 router.put("/line-items/:id", FpaController.updateLineItem);
+router.put("/line-items/:id/reorder", FpaController.reorderLineItem);
+router.put("/line-items/:id/dimensions", FpaController.setLineItemDimensions);
 router.delete("/line-items/:id", FpaController.deleteLineItem);
 router.get("/line-items/:id/dependencies", FpaController.lineItemDependencies);
 router.get("/line-items/:id/trace", FpaController.lineItemTrace);

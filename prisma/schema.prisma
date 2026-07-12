@@ -5765,17 +5765,18 @@ model PlanningModel {
 }
 
 model PlanningModule {
-  id          String   @id @default(cuid())
-  modelId     String   @map("model_id")
-  code        String   @db.VarChar(64)
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  parentId    String?  @map("parent_id")
-  calcOrder   Int      @default(0) @map("calc_order")
-  sortOrder   Int      @default(0) @map("sort_order")
-  status      String   @default("DRAFT") @db.VarChar(50)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(cuid())
+  modelId        String   @map("model_id")
+  code           String   @db.VarChar(64)
+  name           String   @db.VarChar(255)
+  description    String?  @db.Text
+  parentId       String?  @map("parent_id")
+  calcOrder      Int      @default(0) @map("calc_order")
+  sortOrder      Int      @default(0) @map("sort_order")
+  status         String   @default("DRAFT") @db.VarChar(50)
+  dimensionKeys  Json?    @map("dimension_keys")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   model       PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
   lineItems   PlanningLineItem[]
@@ -5891,6 +5892,7 @@ model PlanningLineItem {
   moduleId       String?  @map("module_id")
   code           String   @db.VarChar(64)
   name           String   @db.VarChar(255)
+  description    String?  @db.Text
   lineItemType   String   @map("line_item_type") @db.VarChar(50)
   category       String   @default("GENERAL") @db.VarChar(50)
   dataType       String   @default("CURRENCY") @map("data_type") @db.VarChar(32)
@@ -5898,6 +5900,7 @@ model PlanningLineItem {
   format         String?  @db.VarChar(32)
   currencyCode   String?  @map("currency_code") @db.VarChar(3)
   decimalPlaces  Int?     @map("decimal_places")
+  dimensionKeys  Json?    @map("dimension_keys")
   isEditable     Boolean  @default(true) @map("is_editable")
   sortOrder      Int      @default(0) @map("sort_order")
   accountId      String?  @map("account_id")
@@ -5918,15 +5921,19 @@ model PlanningLineItem {
 }
 
 model PlanningVersion {
-  id          String    @id @default(cuid())
-  modelId     String    @map("model_id")
-  name        String    @db.VarChar(255)
-  status      String    @default("DRAFT") @db.VarChar(50)
-  lockedAt    DateTime? @map("locked_at")
-  lockedById  String?   @map("locked_by_id")
-  createdById String    @map("created_by")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id            String    @id @default(cuid())
+  modelId       String    @map("model_id")
+  name          String    @db.VarChar(255)
+  status        String    @default("DRAFT") @db.VarChar(50)
+  lockedAt      DateTime? @map("locked_at")
+  lockedById    String?   @map("locked_by_id")
+  publishedAt   DateTime? @map("published_at")
+  publishedById String?   @map("published_by")
+  checksum      String?   @db.VarChar(128)
+  publishNotes  String?   @map("publish_notes") @db.Text
+  createdById   String    @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   model       PlanningModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
   cells       PlanningCell[]
