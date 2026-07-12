@@ -19,6 +19,14 @@ function escCsv(v: any): string {
   return s;
 }
 
+/** Canonical UI priority: HIGH | MEDIUM | LOW (legacy NORMAL → MEDIUM). */
+function mapTaskPriority(p: any): "HIGH" | "MEDIUM" | "LOW" {
+  const v = String(p || "MEDIUM").toUpperCase();
+  if (v === "HIGH") return "HIGH";
+  if (v === "LOW") return "LOW";
+  return "MEDIUM"; // NORMAL and anything else
+}
+
 export class FpaWorkflowCollabService {
   static async assertCycle(cycleId: string) {
     const cycle = await prisma.planningBudgetCycle.findUnique({
@@ -119,7 +127,11 @@ export class FpaWorkflowCollabService {
     if (query.status) where.status = String(query.status);
     if (query.departmentId) where.departmentId = String(query.departmentId);
     if (query.assigneeId) where.assigneeId = String(query.assigneeId);
-    if (query.priority) where.priority = String(query.priority);
+    if (query.priority) {
+      const p = mapTaskPriority(query.priority);
+      // Include legacy NORMAL rows when filtering MEDIUM
+      where.priority = p === "MEDIUM" ? { in: ["MEDIUM", "NORMAL"] } : p;
+    }
 
     const tasks = await prisma.planningTask.findMany({
       where,
@@ -153,7 +165,7 @@ export class FpaWorkflowCollabService {
       id: t.id,
       title: t.title,
       status: t.status,
-      priority: t.priority,
+      priority: mapTaskPriority(t.priority),
       departmentId: t.departmentId,
       departmentName: t.departmentId ? deptName[t.departmentId] || null : null,
       assigneeId: t.assigneeId,
@@ -171,40 +183,36 @@ export class FpaWorkflowCollabService {
   static async exportCycleTasksCsv(cycleId: string, query: any, user: any) {
     const rows = await FpaWorkflowCollabService.listCycleTasks(cycleId, query, user);
     const header = [
-      "id",
-      "title",
-      "status",
-      "priority",
-      "departmentName",
-      "assigneeName",
-      "reviewerName",
-      "dueDate",
-      "submittedOn",
-      "changeNotes",
+      "Task",
+      "Department",
+      "Assignee",
+      "Status",
+      "Priority",
+      "Due Date",
+      "Submitted On",
+      "Reviewer",
     ];
     const lines = [header.join(",")];
     for (const r of rows) {
       lines.push(
         [
-          r.id,
           r.title,
-          r.status,
-          r.priority,
           r.departmentName,
           r.assigneeName,
-          r.reviewerName,
+          r.status,
+          r.priority,
           r.dueDate ? new Date(r.dueDate).toISOString().slice(0, 10) : "",
           r.submittedOn ? new Date(r.submittedOn).toISOString() : "",
-          r.changeNotes,
+          r.reviewerName,
         ]
           .map(escCsv)
           .join(",")
       );
     }
     return {
-      filename: `budget-cycle-${cycleId}-tasks.csv`,
+      filename: "cycle-tasks.csv",
       contentType: "text/csv; charset=utf-8",
-      body: lines.join("\n"),
+      body: "\uFEFF" + lines.join("\n"),
       rowCount: rows.length,
     };
   }
@@ -361,10 +369,12 @@ export class FpaWorkflowCollabService {
       cycleId: r.cycleId,
       fileName: r.fileName,
       mimeType: r.mimeType,
+      size: r.sizeBytes,
       sizeBytes: r.sizeBytes,
       fileUrl: r.fileUrl || `/api/v1/fpa/attachments/${r.id}/download`,
       uploadedById: r.uploadedById,
       uploadedByName: userDisplayName(byId[r.uploadedById]),
+      uploadedAt: r.createdAt,
       createdAt: r.createdAt,
     }));
   }
@@ -432,9 +442,12 @@ export class FpaWorkflowCollabService {
       cycleId: created.cycleId,
       fileName: created.fileName,
       mimeType: created.mimeType,
+      size: created.sizeBytes,
       sizeBytes: created.sizeBytes,
       fileUrl: created.fileUrl || `/api/v1/fpa/attachments/${created.id}/download`,
       uploadedById: user.id,
+      uploadedByName: userDisplayName(user),
+      uploadedAt: created.createdAt,
       createdAt: created.createdAt,
     };
   }
@@ -475,16 +488,18 @@ export class FpaWorkflowCollabService {
 
   static async taskSummary(taskId: string, user: any) {
     const { task, cycle } = await FpaWorkflowCollabService.cycleForTask(taskId);
-    if (!cycle) {
-      return {
-        priorFy: 0,
-        request: 0,
-        pctChange: null,
-        currency: "USD",
-        lines: [],
-        changeNotes: task.changeNotes || null,
-      };
-    }
+    const empty = {
+      priorFy: null as number | null,
+      request: null as number | null,
+      pctChange: null as number | null,
+      currency: (cycle?.baseCurrency as string) || "USD",
+      changeNotes: task.changeNotes || null,
+      lines: [] as any[],
+      departmentId: task.departmentId || null,
+      taskId: task.id,
+      cycleId: cycle?.id || null,
+    };
+    if (!cycle) return empty;
 
     const deptId = task.departmentId;
     const cells = await prisma.planningCell.findMany({
@@ -496,6 +511,8 @@ export class FpaWorkflowCollabService {
       },
       include: { lineItem: { select: { id: true, code: true, name: true, category: true } } },
     });
+
+    if (!cells.length) return empty;
 
     const byLine: Record<string, { label: string; prior: number; request: number }> = {};
     let priorFy = 0;
@@ -515,16 +532,24 @@ export class FpaWorkflowCollabService {
       }
     }
 
+    const lines = Object.values(byLine)
+      .filter((l) => l.prior !== 0 || l.request !== 0)
+      .map((l) => ({
+        ...l,
+        pctChange: l.prior !== 0 ? ((l.request - l.prior) / Math.abs(l.prior)) * 100 : null,
+      }))
+      .sort((a, b) => Math.abs(b.request) - Math.abs(a.request))
+      .slice(0, 50);
+
+    if (!lines.length) return empty;
+
     const pctChange = priorFy !== 0 ? ((request - priorFy) / Math.abs(priorFy)) * 100 : null;
     return {
       priorFy,
       request,
       pctChange,
       currency: cycle.baseCurrency || "USD",
-      lines: Object.values(byLine)
-        .filter((l) => l.prior !== 0 || l.request !== 0)
-        .sort((a, b) => Math.abs(b.request) - Math.abs(a.request))
-        .slice(0, 50),
+      lines,
       changeNotes: task.changeNotes || null,
       departmentId: deptId,
       taskId: task.id,

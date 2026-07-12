@@ -997,10 +997,10 @@ export class FpaController {
 
   static async downloadExport(req: Request, res: Response) {
     try {
-      const { payload, filename, contentType } = await FpaExportService.getDownload(req.params.id);
+      const { buffer, filename, contentType } = await FpaExportService.getDownload(req.params.id);
       res.setHeader("Content-Type", contentType);
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      res.status(200).send(JSON.stringify(payload, null, 2));
+      res.status(200).send(buffer);
     } catch (e) {
       handleError(res, e);
     }

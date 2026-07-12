@@ -39,7 +39,7 @@ export class FpaWorkflowService {
             departmentId: t.departmentId || null,
             assigneeId: t.assigneeId || null,
             status: "PENDING",
-            priority: t.priority || "NORMAL",
+            priority: t.priority || "MEDIUM",
             dueDate: t.dueDate ? new Date(t.dueDate) : null,
           },
         })

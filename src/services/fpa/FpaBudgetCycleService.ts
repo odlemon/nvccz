@@ -284,7 +284,7 @@ export class FpaBudgetCycleService {
             departmentId,
             assigneeId: o.assigneeId ? String(o.assigneeId) : null,
             status: "PENDING",
-            priority: "NORMAL",
+            priority: "MEDIUM",
             dueDate: due,
           },
         });
@@ -763,7 +763,7 @@ export class FpaBudgetCycleService {
               departmentId,
               assigneeId: o.assigneeId ? String(o.assigneeId) : null,
               status: "PENDING",
-              priority: "NORMAL",
+              priority: "MEDIUM",
               dueDate: due || null,
             },
           });
@@ -1705,7 +1705,14 @@ export class FpaBudgetCycleService {
     }
     await FpaAuditService.log("BUDGET_CYCLE_BOARD_PACK", user.id, { modelId: cycle.modelId, ip });
     await FpaBudgetCycleService.notifyBoardPackReady(cycleId, user.id, url);
-    return { url, cycle: await FpaBudgetCycleService.serialize(updated), exportJobId: job.id };
+    const cycleOut = await FpaBudgetCycleService.serialize(updated);
+    return {
+      id: job.id,
+      exportJobId: job.id,
+      boardPackUrl: url,
+      url,
+      cycle: cycleOut,
+    };
   }
 
   static async summary(cycleId: string) {
@@ -2275,7 +2282,12 @@ export class FpaBudgetCycleService {
         assigneeId: t.assigneeId,
         status: t.status,
         dueDate: t.dueDate,
-        priority: t.priority,
+        priority: (() => {
+          const v = String(t.priority || "MEDIUM").toUpperCase();
+          if (v === "HIGH") return "HIGH";
+          if (v === "LOW") return "LOW";
+          return "MEDIUM";
+        })(),
         submittedOn: t.submittedAt,
         changeNotes: t.changeNotes || null,
         reviewerId: t.reviewerId || null,
