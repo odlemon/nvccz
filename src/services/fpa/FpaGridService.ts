@@ -3,6 +3,7 @@ import { prisma } from "../../utils/database";
 import { FpaError } from "./FpaError";
 import { FpaAccessService } from "./FpaAccessService";
 import { FpaAuditService } from "./FpaAuditService";
+import { FpaFormulaEngine } from "./FpaFormulaEngine";
 
 function userDisplayName(u: any): string | null {
   if (!u) return null;
@@ -36,6 +37,19 @@ function cellStatusOf(c: any): string {
     return "CALCULATED";
   }
   return "INPUT";
+}
+
+function isEditableStatus(status: string): boolean {
+  return status === "INPUT" || status === "OVERRIDE";
+}
+
+function serializeCell(c: any) {
+  return {
+    ...c,
+    recordVersion: c.recordVersion != null ? Number(c.recordVersion) : 1,
+    cellStatus: cellStatusOf(c),
+    value: c.value != null ? Number(c.value) : null,
+  };
 }
 
 export class FpaGridService {
@@ -130,7 +144,7 @@ export class FpaGridService {
         recordVersion: c.recordVersion != null ? Number(c.recordVersion) : 1,
         periodRole,
         cellStatus,
-        isEditable: cellStatus === "INPUT" && c.isEditable && !c.isLocked,
+        isEditable: isEditableStatus(cellStatus) && c.isEditable && !c.isLocked,
         value: c.value != null ? Number(c.value) : null,
       };
     });
@@ -233,7 +247,7 @@ export class FpaGridService {
     if (!cell) throw new FpaError(404, "NOT_FOUND", "Cell not found");
     const version = await FpaGridService.assertEditableVersion(cell.versionId, userId, user, ip);
     const status = cellStatusOf(cell);
-    if (status !== "INPUT" || cell.isLocked || !cell.isEditable) {
+    if (!isEditableStatus(status) || cell.isLocked || !cell.isEditable) {
       await FpaAuditService.log("CELL_EDIT_BLOCKED", userId, {
         modelId: cell.modelId,
         versionId: cell.versionId,
@@ -241,7 +255,7 @@ export class FpaGridService {
         reason: `Cell status ${status} is not editable`,
         ip,
       });
-      throw new FpaError(403, "CELL_LOCKED", `Users may edit INPUT cells only (got ${status})`);
+      throw new FpaError(403, "CELL_NOT_EDITABLE", `Users may edit INPUT/OVERRIDE cells only (got ${status})`);
     }
 
     let assignedDepartmentIds: string[] | null = null;
@@ -282,7 +296,7 @@ export class FpaGridService {
       data: {
         value: newValue,
         valueType: input.valueType || "MANUAL",
-        sourceType: input.sourceType || "INPUT",
+        sourceType: input.sourceType || (status === "OVERRIDE" ? "OVERRIDE" : "INPUT"),
         departmentId: cell.departmentId || input.departmentId || undefined,
         lastUpdatedById: userId,
         lastUpdatedAt: new Date(),
@@ -298,12 +312,83 @@ export class FpaGridService {
       newValue: newValue != null ? String(newValue) : null,
       ip,
     });
+
+    const dependents = await FpaGridService.recalculateDependents(updated, userId);
+    const primary = serializeCell(updated);
     return {
-      ...updated,
-      recordVersion: Number(updated.recordVersion),
-      cellStatus: cellStatusOf(updated),
-      value: updated.value != null ? Number(updated.value) : null,
+      ...primary,
+      updatedCells: [primary, ...dependents],
     };
+  }
+
+  /** Re-evaluate formulas that reference the edited line in the same period / dept slice. */
+  static async recalculateDependents(cell: any, userId: string) {
+    const lineItem = await prisma.planningLineItem.findUnique({ where: { id: cell.lineItemId } });
+    if (!lineItem) return [];
+    const code = String(lineItem.code).toUpperCase();
+    const formulas = await prisma.planningFormula.findMany({
+      where: { modelId: cell.modelId },
+      include: { lineItem: { select: { id: true, code: true } } },
+    });
+    const dependents = formulas.filter((f) =>
+      FpaFormulaEngine.extractLineCodes(f.expression).some((c) => String(c).toUpperCase() === code)
+    );
+    if (!dependents.length) return [];
+
+    const periodCells = await prisma.planningCell.findMany({
+      where: {
+        versionId: cell.versionId,
+        scenarioId: cell.scenarioId,
+        periodDate: cell.periodDate,
+        departmentId: cell.departmentId ?? null,
+      },
+      include: { lineItem: { select: { id: true, code: true } } },
+    });
+    const lines: Record<string, number> = {};
+    for (const c of periodCells) {
+      if (c.lineItem?.code) lines[String(c.lineItem.code).toUpperCase()] = Number(c.value || 0);
+    }
+    const driversRows = await prisma.planningDriver.findMany({ where: { modelId: cell.modelId }, take: 200 });
+    const drivers: Record<string, number> = {};
+    for (const d of driversRows) drivers[String(d.code).toUpperCase()] = Number(d.value || 0);
+
+    const out = [];
+    for (const f of dependents) {
+      if (!f.lineItemId) continue;
+      try {
+        const value = FpaFormulaEngine.evaluate(f.expression, { lines, drivers });
+        const target =
+          periodCells.find((c) => c.lineItemId === f.lineItemId) ||
+          (await prisma.planningCell.findFirst({
+            where: {
+              versionId: cell.versionId,
+              scenarioId: cell.scenarioId,
+              lineItemId: f.lineItemId,
+              periodDate: cell.periodDate,
+              departmentId: cell.departmentId ?? null,
+            },
+          }));
+        if (!target || target.isLocked) continue;
+        const nextRv = BigInt(Number(target.recordVersion || 1) + 1);
+        const updated = await prisma.planningCell.update({
+          where: { id: target.id },
+          data: {
+            value,
+            valueType: "CALCULATED",
+            sourceType: "FORMULA",
+            formulaId: f.id,
+            lastUpdatedById: userId,
+            lastUpdatedAt: new Date(),
+            recordVersion: nextRv,
+          },
+        });
+        if (f.lineItem?.code) lines[String(f.lineItem.code).toUpperCase()] = value;
+        out.push(serializeCell(updated));
+      } catch {
+        /* skip invalid formula for this slice */
+      }
+    }
+    return out;
   }
 
   static async bulkUpdate(modelId: string, updates: any[], user: any, ip?: string) {
@@ -870,6 +955,48 @@ export class FpaGridService {
       lastUpdatedAt: cell.lastUpdatedAt,
       history,
       comments,
+    };
+  }
+
+  /** Formula dependency graph for “View Formula Trace”. */
+  static async cellTrace(modelId: string, cellId: string) {
+    const detail = await FpaGridService.cellDetail(modelId, cellId);
+    const expression = detail.formula?.expression || null;
+    const lineCodes = expression ? FpaFormulaEngine.extractLineCodes(expression) : [];
+    const driverCodes = expression ? FpaFormulaEngine.extractDriverCodes(expression) : [];
+    const formulas = await prisma.planningFormula.findMany({
+      where: { modelId },
+      include: { lineItem: { select: { id: true, code: true, name: true } } },
+    });
+    const dependents = formulas
+      .filter((f) => {
+        if (!detail.lineItem?.code) return false;
+        return FpaFormulaEngine.extractLineCodes(f.expression).some(
+          (c) => String(c).toUpperCase() === String(detail.lineItem.code).toUpperCase()
+        );
+      })
+      .map((f) => ({
+        formulaId: f.id,
+        lineItemId: f.lineItemId,
+        lineCode: f.lineItem?.code || null,
+        lineName: f.lineItem?.name || null,
+        expression: f.expression,
+      }));
+
+    return {
+      cellId,
+      expression,
+      inputs: {
+        lineCodes,
+        driverCodes,
+        currentDrivers: detail.currentDrivers,
+      },
+      dependents,
+      nodes: [
+        ...lineCodes.map((c) => ({ type: "LINE", code: c })),
+        ...driverCodes.map((c) => ({ type: "DRIVER", code: c })),
+        ...dependents.map((d) => ({ type: "DEPENDENT", code: d.lineCode, formulaId: d.formulaId })),
+      ],
     };
   }
 }

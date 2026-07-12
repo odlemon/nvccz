@@ -209,21 +209,76 @@ export class FpaVersionService {
     return result;
   }
 
-  static async archive(versionId: string, user: any, ip?: string) {
+  static async requestReopen(versionId: string, input: any, user: any, ip?: string) {
+    FpaAccessService.assertCanApprove(user);
+    const reason = String(input?.reason || "").trim();
+    if (!reason) throw new FpaError(400, "VALIDATION", "reason is required to request reopen");
     const version = await prisma.planningVersion.findUnique({ where: { id: versionId } });
     if (!version) throw new FpaError(404, "NOT_FOUND", "Version not found");
-    if (String(version.status).toUpperCase() === "LOCKED") {
-      FpaAccessService.assertCanLock(user);
+    if (String(version.status).toUpperCase() !== "LOCKED") {
+      throw new FpaError(409, "INVALID_TRANSITION", "Only locked versions can request reopen");
     }
-    const updated = await prisma.planningVersion.update({
-      where: { id: versionId },
-      data: { status: "ARCHIVED" },
+
+    // Default policy: never silent-unlock — create a new working copy
+    const copy = await prisma.planningVersion.create({
+      data: {
+        modelId: version.modelId,
+        name: `${version.name} (reopen ${new Date().toISOString().slice(0, 10)})`,
+        status: "DRAFT",
+        createdById: user.id,
+      },
     });
-    await FpaAuditService.log("VERSION_ARCHIVE", user.id, {
+
+    // Copy cells into the new working version (unlocked)
+    const sourceCells = await prisma.planningCell.findMany({ where: { versionId } });
+    const rows = sourceCells.map((c) => ({
+      modelId: c.modelId,
+      scenarioId: c.scenarioId,
+      versionId: copy.id,
+      lineItemId: c.lineItemId,
+      periodDate: c.periodDate,
+      departmentId: c.departmentId,
+      entityId: c.entityId,
+      currencyCode: c.currencyCode,
+      value: c.value,
+      valueType: c.valueType,
+      sourceType: c.sourceType,
+      formulaId: c.formulaId,
+      driverId: c.driverId,
+      isEditable: true,
+      isLocked: false,
+      recordVersion: BigInt(1),
+    }));
+    if (rows.length) {
+      // chunk to avoid packet limits
+      for (let i = 0; i < rows.length; i += 500) {
+        await prisma.planningCell.createMany({ data: rows.slice(i, i + 500), skipDuplicates: true });
+      }
+    }
+
+    await prisma.planningLock.create({
+      data: {
+        modelId: version.modelId,
+        versionId: copy.id,
+        lockType: "REOPEN_REQUEST",
+        lockedById: user.id,
+        reason: `Reopen from ${versionId}: ${reason}`,
+      },
+    });
+    await FpaAuditService.log("VERSION_REQUEST_REOPEN", user.id, {
       modelId: version.modelId,
       versionId,
+      reason,
+      newValue: copy.id,
       ip,
     });
-    return updated;
+
+    return {
+      sourceVersionId: versionId,
+      workingCopyVersionId: copy.id,
+      cellsCopied: rows.length,
+      message: "New working copy created; locked version remains locked.",
+      reason,
+    };
   }
 }

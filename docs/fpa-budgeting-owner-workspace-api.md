@@ -45,6 +45,7 @@ Legacy: `POST /budget-cycles` with `"openImmediately": true` still opens in one 
   "entityIds": ["ent_…"],
   "baselineMode": "PRIOR_YEAR_ACTUAL",
   "baselineSourceVersionId": null,
+  "workflowTemplateId": null,
   "loadPriorActuals": true,
   "loadBaseline": true,
   "openImmediately": false,
@@ -54,7 +55,8 @@ Legacy: `POST /budget-cycles` with `"openImmediately": true` still opens in one 
       "departmentId": "dept_…",
       "assigneeId": "user_…",
       "categories": ["PAYROLL", "OPERATING_EXPENSES"],
-      "dueDate": "2027-11-15"
+      "dueDate": "2027-11-15",
+      "baselineMethod": "PRIOR_YEAR_ACTUAL"
     }
   ]
 }
@@ -148,7 +150,7 @@ When `cycleId` is set:
 - Response includes `assignedDepartmentIds`, `periods[].periodRole`, `cells[].cellStatus`, `cells[].recordVersion`
 
 **`cellStatus`:** `ACTUAL` · `INPUT` · `CALCULATED` · `IMPORTED` · `LOCKED` · `OVERRIDE` · `ERROR` · `PENDING_CALCULATION`  
-Only **`INPUT`** cells are writable.
+Only **`INPUT`** and **`OVERRIDE`** cells are writable. Others → **403** `CELL_NOT_EDITABLE`. Locked version → **403** `LOCKED_VERSION`.
 
 ### `POST /models/{modelId}/cells/update`
 
@@ -163,6 +165,8 @@ Only **`INPUT`** cells are writable.
 ```
 
 Or coordinate upsert: `versionId`, `scenarioId`, `lineItemId`, `periodDate`, `value`, `recordVersion?`, `cycleId?`.
+
+Response includes `updatedCells[]` (edited cell + recalculated dependents).
 
 **409 CONFLICT** (optimistic concurrency):
 
@@ -199,17 +203,39 @@ Or coordinate upsert: `versionId`, `scenarioId`, `lineItemId`, `periodDate`, `va
 `operation`: `FILL_RIGHT` · `FILL_DOWN` · `COPY_PRIOR_PERIOD` · `COPY_PRIOR_YEAR` · `PERCENT_INCREASE` · `PERCENT_DECREASE` · `CLEAR_EDITABLE`  
 Also keep: `…/spread`, `…/copy-forward`, `…/apply-growth`.
 
-### Cell detail — `GET /models/{modelId}/cells/{cellId}/detail`
+### Cell detail + trace
 
-Line/period/dept/entity/version/scenario/value/`cellStatus`/formula/currentDrivers/history/comments.
+- `GET /models/{modelId}/cells/{cellId}/detail` — line/period/dept/entity/version/scenario/value/`cellStatus`/formula/`currentDrivers`/history/comments  
+- `GET /models/{modelId}/cells/{cellId}/trace` — dependency graph for “View Formula Trace”
 
 ---
 
-## 7. Submission & maker-checker
+## 7. Review workspace — `GET /budget-cycles/{id}/review-workspace` → **200**
+
+FP&A / CFO only. Returns cycle progress, department status counts, task queue, submission register, approval history, due-date risks, inspector checklist template.
+
+## 8. Reopen locked version — `POST /versions/{id}/request-reopen`
+
+Body: `{ "reason": "…" }` (required). **Never** silent-unlocks; creates a new **DRAFT** working copy with cells copied. Locked source stays locked.
+
+---
+
+## 9. Submission & maker-checker
 
 - `POST /tasks/{id}/submit` runs owner §3.3 checks; **400** `SUBMISSION_BLOCKED` with full `errors[]`
-- `POST /budget-cycles/{id}/submit-fpa` merges validate + owner checks (full list)
-- `fpa-accept` / `cfo-approve` reject self-approval (**403** `MAKER_CHECKER`)
+- Gate codes: `MANDATORY_INPUT_INCOMPLETE` · `BLOCKING_VALIDATION` · `COMMENTARY_REQUIRED` · `TASKS_INCOMPLETE` · `OWNER_UNASSIGNED`
+- `POST /budget-cycles/{id}/validate-owner-submit` returns the **same** list
+- `fpa-accept` / `cfo-approve` / task approve reject self-approval (**403** `MAKER_CHECKER`)
+
+### Baseline methods
+
+Cycle `baselineMode` and per-owner `baselineMethod`:  
+`ZERO_BASED` · `PRIOR_YEAR_ACTUAL` · `PRIOR_YEAR_BUDGET` · `LATEST_FORECAST` · `DRIVER_BASED` · `CUSTOM` · `NONE`  
+(Aliases `ACTUALS_SYNC` → `PRIOR_YEAR_ACTUAL`, `PRIOR_FORECAST` → `LATEST_FORECAST`.)
+
+### Canonical surface
+
+Keep **`/budget-cycles`** + `/models/{id}/grid?cycleId=` — do **not** dual-call `/planning-cycles`.
 
 ---
 
@@ -224,7 +250,7 @@ Line/period/dept/entity/version/scenario/value/`cellStatus`/formula/currentDrive
 | Create cycle without `openImmediately` | `status: DRAFT` |
 | Leave Operations without assignee | `validate-setup` lists `OWNER_UNASSIGNED` among others |
 | Assign all owners + cutoff/deadline | `validate-setup.passed: true` |
-| `POST …/open` | Owners notified; status `OPEN_FOR_INPUT`; prior actuals loaded when flagged |
+| `POST …/open` | Owners notified; status `OPEN_FOR_INPUT`; `actualsRowCount` + `actualsLoadReason`; baseline applied |
 
 ### Nyasha — Marketing owner sheet
 
@@ -234,7 +260,7 @@ Line/period/dept/entity/version/scenario/value/`cellStatus`/formula/currentDrive
 |------|--------|
 | `GET …/owner-workspace` | Marketing areas only; due date + progress |
 | `GET …/grid?cycleId=` | Only Marketing-scoped cells; `cellStatus` distinguishes INPUT vs CALCULATED |
-| Edit CALCULATED cell | **403** |
+| Edit CALCULATED cell | **403** `CELL_NOT_EDITABLE` |
 | Stale `recordVersion` | **409 CONFLICT** with current value + changedBy |
 | Incomplete inputs | Submit disabled / `SUBMISSION_BLOCKED` with full unmet list |
 | Complete + submit task | Task `SUBMITTED`; owner row progresses |
@@ -247,9 +273,11 @@ Line/period/dept/entity/version/scenario/value/`cellStatus`/formula/currentDrive
 - [ ] Cycles use a published/valid model version  
 - [ ] Actual vs forecast periods distinguishable (`periodRole` / `cellStatus`)  
 - [ ] Department users only access authorised areas (`cycleId` grid scope)  
-- [ ] INPUT editable; CALCULATED/ACTUAL/LOCKED not  
-- [ ] Cell edits audit + `recordVersion` concurrency  
+- [ ] INPUT/OVERRIDE editable; CALCULATED/ACTUAL/LOCKED not (`CELL_NOT_EDITABLE`)  
+- [ ] Cell edits audit + `recordVersion` concurrency + `updatedCells`  
 - [ ] Bulk ops server-validated  
 - [ ] Owner submit blocked until §3.3 gates pass (full error list)  
 - [ ] Maker-checker on FPA/CFO accept  
-- [ ] Locked versions reject writes  
+- [ ] Locked versions reject writes (`LOCKED_VERSION`); reopen creates working copy  
+- [ ] Review workspace payload for FP&A board path  
+- [ ] Model `PUT` persists `entityIds` / `departmentIds` / `accountIds` (round-trip on GET)  

@@ -6165,6 +6165,8 @@ model PlanningBudgetCycleOwner {
   assigneeId      String?  @map("assignee_id")
   taskId          String?  @map("task_id")
   categoriesJson  Json?    @map("categories_json")
+  /// ZERO_BASED | PRIOR_YEAR_ACTUAL | PRIOR_YEAR_BUDGET | LATEST_FORECAST | DRIVER_BASED | CUSTOM
+  baselineMethod  String?  @map("baseline_method") @db.VarChar(32)
   status          String   @default("PENDING") @db.VarChar(32)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

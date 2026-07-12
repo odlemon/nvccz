@@ -7,7 +7,19 @@ import { FpaActualsService } from "./FpaActualsService";
 
 export const FPA_MODEL_TYPES = ["BUDGET", "FORECAST", "ROLLING_FORECAST"] as const;
 export const FPA_TIME_GRANULARITIES = ["MONTHLY", "QUARTERLY", "ANNUAL"] as const;
-export const FPA_BASELINE_MODES = ["NONE", "ACTUALS_SYNC", "PRIOR_FORECAST"] as const;
+/** Canonical SRD + legacy aliases. */
+export const FPA_BASELINE_MODES = [
+  "NONE",
+  "ZERO_BASED",
+  "PRIOR_YEAR_ACTUAL",
+  "PRIOR_YEAR_BUDGET",
+  "LATEST_FORECAST",
+  "DRIVER_BASED",
+  "CUSTOM",
+  // legacy aliases (normalized below)
+  "ACTUALS_SYNC",
+  "PRIOR_FORECAST",
+] as const;
 
 const DEFAULT_LINE_ITEMS = [
   { code: "REVENUE", name: "Revenue", lineItemType: "REVENUE", category: "REVENUE", sortOrder: 10 },
@@ -75,7 +87,11 @@ function normalizeGranularity(raw: any): string {
 
 function normalizeBaselineMode(raw: any): string {
   if (raw == null || raw === "") return "NONE";
-  const v = String(raw).toUpperCase();
+  let v = String(raw).toUpperCase().replace(/-/g, "_");
+  // Map legacy / synonym names onto SRD methods
+  if (v === "ACTUALS_SYNC" || v === "PRIOR_ACTUAL" || v === "PRIOR_ACTUALS") v = "PRIOR_YEAR_ACTUAL";
+  if (v === "PRIOR_FORECAST" || v === "FORECAST") v = "LATEST_FORECAST";
+  if (v === "PRIOR_BUDGET") v = "PRIOR_YEAR_BUDGET";
   if (!FPA_BASELINE_MODES.includes(v as any)) {
     throw new FpaError(400, "VALIDATION", `baseline.mode must be one of ${FPA_BASELINE_MODES.join(", ")}`, [
       { code: "INVALID_BASELINE", step: "baseline", message: `Unsupported baseline mode: ${raw}`, field: "baseline.mode" },
@@ -208,11 +224,14 @@ export class FpaModelSetupService {
     const baseline = input.baseline || {};
     try {
       const mode = normalizeBaselineMode(baseline.mode);
-      if (mode === "PRIOR_FORECAST" && !baseline.sourceVersionId) {
+      if (
+        (mode === "LATEST_FORECAST" || mode === "PRIOR_YEAR_BUDGET") &&
+        !baseline.sourceVersionId
+      ) {
         errors.push({
           code: "MISSING_BASELINE_SOURCE",
           step: "baseline",
-          message: "sourceVersionId required for PRIOR_FORECAST",
+          message: "sourceVersionId required for forecast/budget baseline",
           field: "baseline.sourceVersionId",
         });
       }
@@ -480,7 +499,10 @@ export class FpaModelSetupService {
         await tx.planningCell.createMany({ data: cellRows });
       }
 
-      if (baselineMode === "PRIOR_FORECAST" && baseline.sourceVersionId) {
+      if (
+        (baselineMode === "LATEST_FORECAST" || baselineMode === "PRIOR_YEAR_BUDGET") &&
+        baseline.sourceVersionId
+      ) {
         const sourceCells = await tx.planningCell.findMany({
           where: {
             versionId: String(baseline.sourceVersionId),
@@ -527,7 +549,7 @@ export class FpaModelSetupService {
       };
     });
 
-    if (baselineMode === "ACTUALS_SYNC") {
+    if (baselineMode === "PRIOR_YEAR_ACTUAL") {
       try {
         await FpaActualsService.sync(
           {
@@ -707,21 +729,42 @@ export class FpaModelSetupService {
     const mode = normalizeBaselineMode(input.mode);
     const sourceVersionId = input.sourceVersionId ? String(input.sourceVersionId) : null;
     const sourceScenarioId = input.sourceScenarioId ? String(input.sourceScenarioId) : null;
+    const targetVersionId = input.versionId ? String(input.versionId) : null;
+    const targetScenarioId = input.scenarioId ? String(input.scenarioId) : null;
+    const departmentIds = Array.isArray(input.departmentIds)
+      ? input.departmentIds.map(String)
+      : null;
 
-    if (mode === "PRIOR_FORECAST" && !sourceVersionId) {
-      throw new FpaError(400, "VALIDATION", "sourceVersionId required for PRIOR_FORECAST", [
-        { code: "MISSING_BASELINE_SOURCE", step: "baseline", message: "sourceVersionId required", field: "sourceVersionId" },
+    if (
+      (mode === "LATEST_FORECAST" || mode === "PRIOR_YEAR_BUDGET") &&
+      !sourceVersionId
+    ) {
+      throw new FpaError(400, "VALIDATION", "sourceVersionId required for forecast/budget baseline", [
+        {
+          code: "MISSING_BASELINE_SOURCE",
+          step: "baseline",
+          message: "sourceVersionId required",
+          field: "sourceVersionId",
+        },
       ]);
     }
 
-    const version = await prisma.planningVersion.findFirst({
-      where: { modelId, status: { not: "ARCHIVED" } },
-      orderBy: { createdAt: "asc" },
-    });
-    const scenario = await prisma.planningScenario.findFirst({
-      where: { modelId },
-      orderBy: { createdAt: "asc" },
-    });
+    const version =
+      (targetVersionId
+        ? await prisma.planningVersion.findUnique({ where: { id: targetVersionId } })
+        : null) ||
+      (await prisma.planningVersion.findFirst({
+        where: { modelId, status: { not: "ARCHIVED" } },
+        orderBy: { createdAt: "asc" },
+      }));
+    const scenario =
+      (targetScenarioId
+        ? await prisma.planningScenario.findUnique({ where: { id: targetScenarioId } })
+        : null) ||
+      (await prisma.planningScenario.findFirst({
+        where: { modelId },
+        orderBy: { createdAt: "asc" },
+      }));
 
     await prisma.planningModel.update({
       where: { id: modelId },
@@ -734,11 +777,49 @@ export class FpaModelSetupService {
     });
 
     let cellsCopied = 0;
-    if (mode === "PRIOR_FORECAST" && sourceVersionId && version && scenario) {
+    let cellsZeroed = 0;
+    let actualsSynced = 0;
+
+    const editableWhere: any = {
+      versionId: version?.id,
+      scenarioId: scenario?.id,
+      isLocked: false,
+      isEditable: true,
+      sourceType: { not: "ACTUAL" },
+    };
+    if (departmentIds?.length) {
+      editableWhere.OR = [{ departmentId: { in: departmentIds } }, { departmentId: null }];
+    }
+
+    if (mode === "ZERO_BASED" && version && scenario) {
+      const targets = await prisma.planningCell.findMany({ where: editableWhere });
+      for (const t of targets) {
+        await prisma.planningCell.update({
+          where: { id: t.id },
+          data: {
+            value: 0,
+            sourceType: "BASELINE",
+            valueType: "INPUT",
+            recordVersion: BigInt(Number(t.recordVersion || 1) + 1),
+          },
+        });
+        cellsZeroed += 1;
+      }
+    }
+
+    if (
+      (mode === "LATEST_FORECAST" || mode === "PRIOR_YEAR_BUDGET" || mode === "CUSTOM") &&
+      sourceVersionId &&
+      version &&
+      scenario
+    ) {
       const sourceCells = await prisma.planningCell.findMany({
         where: {
           versionId: sourceVersionId,
           ...(sourceScenarioId ? { scenarioId: sourceScenarioId } : {}),
+          ...(departmentIds?.length
+            ? { OR: [{ departmentId: { in: departmentIds } }, { departmentId: null }] }
+            : {}),
         },
       });
       for (const c of sourceCells) {
@@ -748,20 +829,26 @@ export class FpaModelSetupService {
             scenarioId: scenario.id,
             lineItemId: c.lineItemId,
             periodDate: c.periodDate,
+            departmentId: c.departmentId ?? null,
           },
         });
-        if (target) {
+        if (target && target.isEditable && !target.isLocked) {
           await prisma.planningCell.update({
             where: { id: target.id },
-            data: { value: c.value, sourceType: "COPIED", valueType: c.valueType || "INPUT" },
+            data: {
+              value: c.value,
+              sourceType: "BASELINE",
+              valueType: c.valueType || "INPUT",
+              recordVersion: BigInt(Number(target.recordVersion || 1) + 1),
+            },
           });
           cellsCopied += 1;
         }
       }
     }
 
-    if (mode === "ACTUALS_SYNC" && version && scenario) {
-      await FpaActualsService.sync(
+    if (mode === "PRIOR_YEAR_ACTUAL" && version && scenario) {
+      const job = await FpaActualsService.sync(
         {
           modelId,
           versionId: version.id,
@@ -772,10 +859,29 @@ export class FpaModelSetupService {
         userId,
         ip
       );
+      actualsSynced = job?.rowCount ?? job?.data?.rowCount ?? 0;
     }
 
     await FpaAuditService.log("MODEL_BASELINE", userId, { modelId, ip });
-    return { modelId, mode, sourceVersionId, sourceScenarioId, cellsCopied };
+    return {
+      modelId,
+      mode,
+      sourceVersionId,
+      sourceScenarioId,
+      cellsCopied,
+      cellsZeroed,
+      actualsSynced,
+      reason:
+        mode === "NONE" || mode === "DRIVER_BASED"
+          ? "No cell seeding for this baseline method"
+          : mode === "ZERO_BASED"
+            ? `Zeroed ${cellsZeroed} editable cells`
+            : mode === "PRIOR_YEAR_ACTUAL"
+              ? actualsSynced
+                ? `Synced ${actualsSynced} actual rows`
+                : "No GL actuals found for period"
+              : `Copied ${cellsCopied} cells from source version`,
+    };
   }
 
   static async bulkLineItems(modelId: string, input: any, userId: string, ip?: string) {

@@ -168,6 +168,7 @@ export class FpaModelService {
 
   static async update(modelId: string, input: any, userId: string, ip?: string) {
     await FpaModelService.get(modelId);
+    const { FpaModelSetupService } = await import("./FpaModelSetupService");
     const data: any = { updatedById: userId };
     if (input.name != null) data.name = String(input.name);
     if (input.description != null) data.description = input.description;
@@ -177,9 +178,33 @@ export class FpaModelService {
     if (input.startPeriod != null) data.startPeriod = new Date(input.startPeriod);
     if (input.endPeriod != null) data.endPeriod = new Date(input.endPeriod);
     if (input.timeGranularity != null) data.timeGranularity = String(input.timeGranularity);
-    const updated = await prisma.planningModel.update({ where: { id: modelId }, data });
+    await prisma.planningModel.update({ where: { id: modelId }, data });
+
+    // Scope + COA must round-trip on GET when sent on PUT (FE single-setup form).
+    // Only touch join tables when keys are present so metadata-only PUTs do not wipe them.
+    if (Array.isArray(input.entityIds) || Array.isArray(input.departmentIds)) {
+      const current = await FpaModelSetupService.getScope(modelId);
+      await FpaModelSetupService.setScope(
+        modelId,
+        {
+          entityIds: Array.isArray(input.entityIds) ? input.entityIds : current.entityIds,
+          departmentIds: Array.isArray(input.departmentIds) ? input.departmentIds : current.departmentIds,
+        },
+        userId,
+        ip
+      );
+    }
+    if (Array.isArray(input.accountIds)) {
+      await FpaModelSetupService.setCoa(
+        modelId,
+        { accountIds: input.accountIds, entityId: input.entityId },
+        userId,
+        ip
+      );
+    }
+
     await FpaAuditService.log("MODEL_UPDATE", userId, { modelId, ip });
-    return updated;
+    return FpaModelService.get(modelId);
   }
 
   static async archive(modelId: string, userId: string, ip?: string) {

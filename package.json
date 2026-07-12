@@ -235,6 +235,7 @@
     "db:migrate:fpa-model-setup": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-model-setup-migration.ts",
     "db:migrate:fpa-budget-cycles": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-budget-cycles-migration.ts",
     "db:migrate:fpa-budget-cycle-polish": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-budget-cycle-polish-migration.ts",
+    "db:migrate:fpa-budget-srd-gaps": "ts-node --transpile-only -r dotenv/config scripts/run-fpa-budget-srd-gaps-migration.ts",
     "db:migrate:all": "ts-node scripts/run-all-db-migrations.ts",
     "test:delete-user-local": "ts-node --transpile-only -r dotenv/config scripts/test-delete-user-local.ts",
     "uat:delete-user": "ts-node --transpile-only -r dotenv/config scripts/uat-delete-user-http.ts",

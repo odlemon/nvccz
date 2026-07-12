@@ -90,7 +90,7 @@ export class FpaAccessService {
 
   static assertCanEditVersion(user: any, version: { status?: string; id?: string }, opts?: any) {
     if (String(version?.status || "").toUpperCase() === "LOCKED") {
-      throw new FpaError(403, "VERSION_LOCKED", "Version is locked and cannot be edited");
+      throw new FpaError(403, "LOCKED_VERSION", "Version is locked and cannot be edited");
     }
     if (String(version?.status || "").toUpperCase() === "ARCHIVED") {
       throw new FpaError(403, "VERSION_ARCHIVED", "Version is archived and cannot be edited");

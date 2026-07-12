@@ -31,6 +31,7 @@ router.put("/budget-cycles/:id/owners", FpaController.setBudgetCycleOwners);
 router.post("/budget-cycles/:id/validate-setup", FpaController.validateBudgetCycleSetup);
 router.post("/budget-cycles/:id/open", FpaController.openBudgetCycle);
 router.get("/budget-cycles/:id/owner-workspace", FpaController.budgetCycleOwnerWorkspace);
+router.get("/budget-cycles/:id/review-workspace", FpaController.budgetCycleReviewWorkspace);
 router.post("/budget-cycles/:id/validate-owner-submit", FpaController.validateBudgetCycleOwnerSubmit);
 router.post("/budget-cycles/:id/load-actuals", FpaController.loadBudgetCycleActuals);
 router.post("/budget-cycles/:id/load-baseline", FpaController.loadBudgetCycleBaseline);
@@ -54,6 +55,7 @@ router.post("/models/:modelId/cells/copy-forward", FpaController.copyForward);
 router.post("/models/:modelId/cells/apply-growth", FpaController.applyGrowth);
 router.post("/models/:modelId/cells/bulk-operation", FpaController.bulkCellOperation);
 router.get("/models/:modelId/cells/:cellId/detail", FpaController.cellDetail);
+router.get("/models/:modelId/cells/:cellId/trace", FpaController.cellTrace);
 router.get("/models/:modelId/cells/:cellId/history", FpaController.cellHistory);
 router.get("/models/:modelId/cells/:cellId/comments", FpaController.listCellComments);
 router.post("/models/:modelId/cells/:cellId/comments", FpaController.addCellComment);
@@ -76,6 +78,7 @@ router.post("/scenarios/:id/promote", FpaController.promoteScenario);
 router.post("/versions", FpaController.createVersion);
 router.post("/versions/:id/seed-cells", FpaController.seedVersionCells);
 router.post("/versions/:id/lock", FpaController.lockVersion);
+router.post("/versions/:id/request-reopen", FpaController.requestReopenVersion);
 router.post("/versions/:id/archive", FpaController.archiveVersion);
 
 // Workflow / tasks

@@ -67,6 +67,41 @@ export class FpaBudgetCycleService {
     FpaAccessService.assertCanApprove(user);
   }
 
+  /** Reject archived / missing versions. */
+  static async assertVersionExists(modelId: string, versionId: string) {
+    const version = await prisma.planningVersion.findUnique({ where: { id: versionId } });
+    if (!version || version.modelId !== modelId) {
+      throw new FpaError(400, "VERSION_MISSING", "Published model version is missing", [
+        { code: "VERSION_MISSING", step: "SELECT_MODEL", message: "versionId does not belong to this model" },
+      ]);
+    }
+    const status = String(version.status).toUpperCase();
+    if (status === "ARCHIVED") {
+      throw new FpaError(400, "VERSION_ARCHIVED", "Cannot bind an archived model version", [
+        { code: "VERSION_ARCHIVED", step: "SELECT_MODEL", message: "Published model version is archived." },
+      ]);
+    }
+    return version;
+  }
+
+  /** Version + model setup must be ready (used when opening immediately). */
+  static async assertVersionReadyForCycle(modelId: string, versionId: string) {
+    await FpaBudgetCycleService.assertVersionExists(modelId, versionId);
+    const modelCheck = await FpaModelSetupService.validate(modelId);
+    if (!modelCheck.passed) {
+      throw new FpaError(
+        400,
+        "VERSION_NOT_READY",
+        "Model version is not ready for budgeting (setup incomplete)",
+        modelCheck.errors.map((e) => ({
+          code: e.code || "MODEL_INVALID",
+          step: e.step || "SELECT_MODEL",
+          message: e.message,
+        }))
+      );
+    }
+  }
+
   static async list(query: any = {}) {
     const where: any = {};
     if (query.modelId) where.modelId = String(query.modelId);
@@ -126,6 +161,28 @@ export class FpaBudgetCycleService {
       model.scenarios[0]?.id ||
       null;
     if (!versionId) throw new FpaError(400, "VALIDATION", "model has no version; create a version first");
+    await FpaBudgetCycleService.assertVersionExists(modelId, versionId);
+    const openImmediately = input.openImmediately === true;
+    if (openImmediately) {
+      await FpaBudgetCycleService.assertVersionReadyForCycle(modelId, versionId);
+    }
+
+    const workflowTemplateId = input.workflowTemplateId || input.workflowId || null;
+    let workflowTemplate: any = null;
+    if (workflowTemplateId) {
+      workflowTemplate = await prisma.planningWorkflow.findUnique({
+        where: { id: String(workflowTemplateId) },
+      });
+      if (!workflowTemplate) {
+        throw new FpaError(400, "UNKNOWN_WORKFLOW", `Workflow template not found: ${workflowTemplateId}`, [
+          {
+            code: "UNKNOWN_WORKFLOW",
+            step: "CONFIGURE_WORKFLOW",
+            message: `Unknown workflowTemplateId ${workflowTemplateId}`,
+          },
+        ]);
+      }
+    }
 
     const existing = await prisma.planningBudgetCycle.findFirst({
       where: {
@@ -192,14 +249,16 @@ export class FpaBudgetCycleService {
     const baselineSourceVersionId = input.baselineSourceVersionId
       ? String(input.baselineSourceVersionId)
       : null;
-    const openImmediately = input.openImmediately === true;
+    // openImmediately already resolved above
 
     const cycle = await prisma.$transaction(async (tx) => {
       const workflow = await tx.planningWorkflow.create({
         data: {
           modelId,
-          name,
-          workflowType: "BUDGET",
+          name: workflowTemplate?.name
+            ? `${workflowTemplate.name} — ${name}`
+            : name,
+          workflowType: workflowTemplate?.workflowType || "BUDGET",
           stage: "SETUP",
           status: "ACTIVE",
           startDate,
@@ -215,6 +274,9 @@ export class FpaBudgetCycleService {
         const categories =
           Array.isArray(o.categories) && o.categories.length ? o.categories.map(String) : inputCategories;
         const due = o.dueDate ? new Date(o.dueDate) : submissionDeadline || endDate;
+        const baselineMethod = o.baselineMethod
+          ? String(o.baselineMethod).toUpperCase()
+          : baselineMode;
         const task = await tx.planningTask.create({
           data: {
             workflowId: workflow.id,
@@ -231,6 +293,7 @@ export class FpaBudgetCycleService {
           assigneeId: o.assigneeId ? String(o.assigneeId) : null,
           taskId: task.id,
           categoriesJson: categories,
+          baselineMethod,
           status: "PENDING",
         });
       }
@@ -287,7 +350,10 @@ export class FpaBudgetCycleService {
     const data: any = {};
     if (input.name != null) data.name = String(input.name).trim();
     if (input.planningType != null) data.planningType = String(input.planningType).toUpperCase();
-    if (input.versionId != null) data.versionId = String(input.versionId);
+    if (input.versionId != null) {
+      await FpaBudgetCycleService.assertVersionExists(cycle.modelId, String(input.versionId));
+      data.versionId = String(input.versionId);
+    }
     if (input.scenarioId != null) data.scenarioId = String(input.scenarioId);
     if (input.startDate != null) data.startDate = new Date(input.startDate);
     if (input.endDate != null) data.endDate = new Date(input.endDate);
@@ -434,6 +500,27 @@ export class FpaBudgetCycleService {
       });
     }
 
+    // Also surface any remaining model-setup validate errors (mapped codes)
+    try {
+      const modelCheck = await FpaModelSetupService.validate(cycle.modelId);
+      for (const e of modelCheck.errors || []) {
+        const code =
+          e.code === "MISSING_COA"
+            ? "COA_MISSING"
+            : e.code === "MISSING_SCOPE"
+              ? "SCOPE_MISSING"
+              : e.code;
+        if (errors.some((x) => x.code === code && x.message === e.message)) continue;
+        errors.push({
+          code,
+          step: e.step || "SELECT_MODEL",
+          message: e.message,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+
     const invalidFormulas = (model.formulas || []).filter((f) => f.isValid === false);
     for (const f of invalidFormulas.slice(0, 10)) {
       errors.push({
@@ -443,13 +530,18 @@ export class FpaBudgetCycleService {
       });
     }
 
-    // FX / required drivers: any driver whose code looks like a rate and has no value past cutoff
+    // FX / required drivers: any driver whose code looks like a rate and has missing/zero value
     const fxDrivers = (model.drivers || []).filter((d) =>
       /FX|RATE|USD|ZIG|ZWG/i.test(`${d.code} ${d.name}`)
     );
-    if (fxDrivers.length && cycle.forecastStartPeriod && cycle.endDate) {
+    if (fxDrivers.length) {
       for (const d of fxDrivers) {
-        if (d.periodDate && new Date(d.periodDate) < new Date(cycle.endDate) && Number(d.value) === 0) {
+        const val = d.value == null ? null : Number(d.value);
+        const inHorizon =
+          !cycle.endDate ||
+          !d.periodDate ||
+          new Date(d.periodDate) <= new Date(cycle.endDate);
+        if (inHorizon && (val == null || val === 0 || Number.isNaN(val))) {
           errors.push({
             code: "DRIVER_RATE_MISSING",
             step: "CONFIGURE_DRIVERS",
@@ -457,6 +549,9 @@ export class FpaBudgetCycleService {
           });
         }
       }
+    } else if (cycle.planningType === "ANNUAL_BUDGET") {
+      // Soft signal when no FX drivers exist at all on an annual budget model
+      // (not blocking if model intentionally has none — only emit when drivers table empty of rates)
     }
 
     const cfoUsers = await FpaBudgetCycleService.resolveCfoUsers();
@@ -497,6 +592,8 @@ export class FpaBudgetCycleService {
     }
 
     let actualsRowCount = 0;
+    let actualsLoadReason: string | null = null;
+    let baselineResult: any = null;
     const loadPrior = input.loadPriorActuals != null ? input.loadPriorActuals !== false : cycle.loadPriorActualsOnOpen;
     const loadBase = input.loadBaseline != null ? input.loadBaseline !== false : cycle.loadBaselineOnOpen;
 
@@ -522,9 +619,16 @@ export class FpaBudgetCycleService {
           ip
         );
         actualsRowCount = job?.rowCount ?? job?.data?.rowCount ?? 0;
-      } catch {
+        actualsLoadReason =
+          actualsRowCount > 0
+            ? `Loaded ${actualsRowCount} prior-actual rows from GL`
+            : "No GL actuals found for prior period (rowCount=0)";
+      } catch (e: any) {
         actualsRowCount = 0;
+        actualsLoadReason = e?.message || "Prior actuals sync failed; continuing with rowCount=0";
       }
+    } else {
+      actualsLoadReason = "loadPriorActuals disabled";
     }
 
     if (loadBase) {
@@ -533,17 +637,39 @@ export class FpaBudgetCycleService {
           where: { id: cycleId },
           data: { status: "LOADING_BASELINE", currentStage: "LOAD_BASELINE" },
         });
-        await FpaModelSetupService.setBaseline(
+        const deptIds = (cycle.owners || []).map((o) => o.departmentId);
+        baselineResult = await FpaModelSetupService.setBaseline(
           cycle.modelId,
           {
             mode: cycle.baselineMode || "NONE",
             sourceVersionId: cycle.baselineSourceVersionId || null,
+            versionId: cycle.versionId,
+            scenarioId: cycle.scenarioId,
+            departmentIds: deptIds,
           },
           user.id,
           ip
         );
-      } catch {
-        /* non-fatal */
+        // Per-owner method overrides
+        for (const o of cycle.owners || []) {
+          const method = o.baselineMethod || cycle.baselineMode;
+          if (method && method !== cycle.baselineMode) {
+            await FpaModelSetupService.setBaseline(
+              cycle.modelId,
+              {
+                mode: method,
+                sourceVersionId: cycle.baselineSourceVersionId || null,
+                versionId: cycle.versionId,
+                scenarioId: cycle.scenarioId,
+                departmentIds: [o.departmentId],
+              },
+              user.id,
+              ip
+            );
+          }
+        }
+      } catch (e: any) {
+        baselineResult = { reason: e?.message || "Baseline load failed (non-fatal)" };
       }
     }
 
@@ -563,7 +689,13 @@ export class FpaBudgetCycleService {
     await FpaAuditService.log("BUDGET_CYCLE_OPEN", user.id, { modelId: cycle.modelId, ip });
     await FpaBudgetCycleService.notifyOwnersAssigned(opened.id);
     const data = await FpaBudgetCycleService.serialize(opened);
-    return { ...data, actualsRowCount, setupValidation: setup };
+    return {
+      ...data,
+      actualsRowCount,
+      actualsLoadReason,
+      baseline: baselineResult,
+      setupValidation: setup,
+    };
   }
 
   static async setOwners(cycleId: string, input: any, user: any, ip?: string) {
@@ -600,6 +732,8 @@ export class FpaBudgetCycleService {
         const departmentId = String(o.departmentId);
         const categories =
           Array.isArray(o.categories) && o.categories.length ? o.categories.map(String) : inputCategories;
+        const due = o.dueDate ? new Date(o.dueDate) : undefined;
+        const baselineMethod = o.baselineMethod ? String(o.baselineMethod).toUpperCase() : undefined;
         const prev = existing.find((e) => e.departmentId === departmentId);
         if (prev) {
           if (prev.taskId) {
@@ -608,6 +742,7 @@ export class FpaBudgetCycleService {
               data: {
                 assigneeId: o.assigneeId ? String(o.assigneeId) : null,
                 status: prev.status === "CANCELLED" ? "PENDING" : undefined,
+                ...(due ? { dueDate: due } : {}),
               },
             });
           }
@@ -616,6 +751,7 @@ export class FpaBudgetCycleService {
             data: {
               assigneeId: o.assigneeId ? String(o.assigneeId) : null,
               categoriesJson: categories,
+              ...(baselineMethod ? { baselineMethod } : {}),
               status: "PENDING",
             },
           });
@@ -628,6 +764,7 @@ export class FpaBudgetCycleService {
               assigneeId: o.assigneeId ? String(o.assigneeId) : null,
               status: "PENDING",
               priority: "NORMAL",
+              dueDate: due || null,
             },
           });
           await tx.planningBudgetCycleOwner.create({
@@ -637,6 +774,7 @@ export class FpaBudgetCycleService {
               assigneeId: o.assigneeId ? String(o.assigneeId) : null,
               taskId: task.id,
               categoriesJson: categories,
+              baselineMethod: baselineMethod || null,
               status: "PENDING",
             },
           });
@@ -1528,7 +1666,17 @@ export class FpaBudgetCycleService {
       user.id,
       ip
     );
-    const url = job.downloadUrl || job.fileUrl || `/api/v1/fpa/exports/${job.id}/download`;
+    if (!job || job.status === "FAILED" || job.error) {
+      throw new FpaError(500, "BOARD_PACK_FAILED", job?.error || "Board pack generation failed", [
+        { code: "BOARD_PACK_FAILED", message: job?.error || "Export job failed" },
+      ]);
+    }
+    const url = job.downloadUrl || job.fileUrl || (job.id ? `/api/v1/fpa/exports/${job.id}/download` : null);
+    if (!url) {
+      throw new FpaError(500, "BOARD_PACK_FAILED", "Board pack completed without a downloadable artifact", [
+        { code: "BOARD_PACK_NO_ARTIFACT", message: "Missing download URL" },
+      ]);
+    }
     const updated = await prisma.planningBudgetCycle.update({
       where: { id: cycleId },
       data: {
@@ -1634,7 +1782,10 @@ export class FpaBudgetCycleService {
   }
 
   static async assertCycle(id: string) {
-    const cycle = await prisma.planningBudgetCycle.findUnique({ where: { id } });
+    const cycle = await prisma.planningBudgetCycle.findUnique({
+      where: { id },
+      include: { owners: true },
+    });
     if (!cycle) throw new FpaError(404, "NOT_FOUND", "Budget cycle not found");
     return cycle;
   }
@@ -1657,14 +1808,14 @@ export class FpaBudgetCycleService {
     const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
     const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
 
-    let taskStatusById: Record<string, string> = {};
+    let taskById: Record<string, { status: string; dueDate: Date | null }> = {};
     const taskIds = owners.map((o) => o.taskId).filter(Boolean);
     if (taskIds.length) {
       const tasks = await prisma.planningTask.findMany({
         where: { id: { in: taskIds } },
-        select: { id: true, status: true },
+        select: { id: true, status: true, dueDate: true },
       });
-      taskStatusById = Object.fromEntries(tasks.map((t) => [t.id, t.status]));
+      taskById = Object.fromEntries(tasks.map((t) => [t.id, t]));
     }
 
     return {
@@ -1696,7 +1847,12 @@ export class FpaBudgetCycleService {
         assigneeId: o.assigneeId,
         assigneeName: userDisplayName(userMap[o.assigneeId]),
         taskId: o.taskId,
-        status: o.status === "PENDING" && taskStatusById[o.taskId] === "SUBMITTED" ? "SUBMITTED" : mapOwnerStatus(o, taskStatusById),
+        dueDate: (o.taskId && taskById[o.taskId]?.dueDate) || null,
+        baselineMethod: o.baselineMethod || cycle.baselineMode || null,
+        status:
+          o.status === "PENDING" && taskById[o.taskId]?.status === "SUBMITTED"
+            ? "SUBMITTED"
+            : mapOwnerStatus(o, Object.fromEntries(Object.entries(taskById).map(([k, v]) => [k, v.status]))),
         categories: asStringArray(o.categoriesJson),
       })),
       inputCategories: asStringArray(cycle.inputCategoriesJson),
@@ -1797,7 +1953,7 @@ export class FpaBudgetCycleService {
         register.push({
           departmentId: o.departmentId,
           account: cat,
-          method: cycle.baselineMode || "PRIOR_YEAR_ACTUAL",
+          method: o.baselineMethod || cycle.baselineMode || "PRIOR_YEAR_ACTUAL",
           priorYearActual: prior,
           currentBudget: current,
           changePct,
@@ -1892,7 +2048,7 @@ export class FpaBudgetCycleService {
     for (const o of owners) {
       if (!o.assigneeId) {
         errors.push({
-          code: "BUDGET_OWNER_UNASSIGNED",
+          code: "OWNER_UNASSIGNED",
           message: "Budget owner is not assigned",
           departmentId: o.departmentId,
           severity: "BLOCKING",
@@ -1931,10 +2087,10 @@ export class FpaBudgetCycleService {
       }
       if (o.taskId) {
         const task = await prisma.planningTask.findUnique({ where: { id: o.taskId } });
-        if (task?.status === "CANCELLED") {
+        if (task && ["CANCELLED"].includes(task.status)) {
           errors.push({
-            code: "MANDATORY_TASK_INCOMPLETE",
-            message: "Mandatory task is cancelled",
+            code: "TASKS_INCOMPLETE",
+            message: "Mandatory task is incomplete",
             departmentId: o.departmentId,
             severity: "BLOCKING",
           });
@@ -1954,7 +2110,7 @@ export class FpaBudgetCycleService {
       const comment = await prisma.planningComment.findFirst({ where: { varianceId: v.id } });
       if (!comment) {
         errors.push({
-          code: "REQUIRED_COMMENTARY_INCOMPLETE",
+          code: "COMMENTARY_REQUIRED",
           message: "Required variance commentary is incomplete",
           departmentId: v.departmentId || undefined,
           severity: "BLOCKING",
@@ -1972,7 +2128,12 @@ export class FpaBudgetCycleService {
         continue;
       }
       errors.push({
-        code: e.code || "BLOCKING_VALIDATION",
+        code:
+          e.code === "MISSING_COMMENTARY"
+            ? "COMMENTARY_REQUIRED"
+            : e.code === "MISSING_CATEGORY"
+              ? "MANDATORY_INPUT_INCOMPLETE"
+              : e.code || "BLOCKING_VALIDATION",
         message: e.message || "Validation error",
         departmentId: e.departmentId,
         severity: "BLOCKING",
@@ -1990,6 +2151,158 @@ export class FpaBudgetCycleService {
     }
 
     return { passed: unique.length === 0, errors: unique };
+  }
+
+  /**
+   * FP&A / CFO review workspace (SRD §5.4).
+   */
+  static async reviewWorkspace(cycleId: string, user: any) {
+    FpaAccessService.assertCanApprove(user);
+    const cycle = await prisma.planningBudgetCycle.findUnique({
+      where: { id: cycleId },
+      include: { owners: true },
+    });
+    if (!cycle) throw new FpaError(404, "NOT_FOUND", "Budget cycle not found");
+
+    const owners = cycle.owners || [];
+    const deptIds = owners.map((o) => o.departmentId);
+    const assigneeIds = owners.map((o) => o.assigneeId).filter(Boolean) as string[];
+    const taskIds = owners.map((o) => o.taskId).filter(Boolean) as string[];
+    const [depts, users, tasks, approvals] = await Promise.all([
+      deptIds.length
+        ? prisma.department.findMany({ where: { id: { in: deptIds } }, select: { id: true, name: true } })
+        : [],
+      assigneeIds.length
+        ? prisma.user.findMany({
+            where: { id: { in: assigneeIds } },
+            select: { id: true, firstName: true, lastName: true, email: true },
+          })
+        : [],
+      taskIds.length ? prisma.planningTask.findMany({ where: { id: { in: taskIds } } }) : [],
+      cycle.workflowId
+        ? prisma.planningApproval.findMany({
+            where: { workflowId: cycle.workflowId },
+            orderBy: { createdAt: "desc" },
+            take: 100,
+          })
+        : [],
+    ]);
+    const deptName = Object.fromEntries(depts.map((d) => [d.id, d.name]));
+    const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+    const taskById = Object.fromEntries(tasks.map((t) => [t.id, t]));
+    const taskStatusById = Object.fromEntries(tasks.map((t) => [t.id, t.status]));
+
+    const statusCounts: Record<string, number> = {
+      DRAFT: 0,
+      SUBMITTED: 0,
+      UNDER_REVIEW: 0,
+      APPROVED: 0,
+      RETURNED: 0,
+      PENDING: 0,
+    };
+    const submissionRegister = [];
+    const dueDateRisks = [];
+    const now = new Date();
+    for (const o of owners) {
+      const task = o.taskId ? taskById[o.taskId] : null;
+      const mapped = mapOwnerStatus(o, taskStatusById);
+      const bucket =
+        mapped === "SUBMITTED"
+          ? "SUBMITTED"
+          : mapped === "APPROVED"
+            ? "APPROVED"
+            : mapped === "RETURNED"
+              ? "RETURNED"
+              : mapped === "IN_PROGRESS"
+                ? "DRAFT"
+                : String(cycle.status).includes("REVIEW")
+                  ? "UNDER_REVIEW"
+                  : "PENDING";
+      statusCounts[bucket] = (statusCounts[bucket] || 0) + 1;
+      const due = task?.dueDate || cycle.submissionDeadline;
+      const daysRemaining =
+        due != null ? Math.ceil((new Date(due).getTime() - now.getTime()) / 86400000) : null;
+      const issues = await FpaBudgetCycleService.validateOwnerSubmission(cycleId, user, {
+        departmentIds: [o.departmentId],
+      });
+      submissionRegister.push({
+        departmentId: o.departmentId,
+        departmentName: deptName[o.departmentId] || null,
+        ownerId: o.assigneeId,
+        ownerName: userDisplayName(userMap[o.assigneeId]),
+        status: mapped,
+        dueDate: due || null,
+        daysRemaining,
+        issueCount: issues.errors.length,
+        issues: issues.errors,
+      });
+      if (daysRemaining != null && daysRemaining <= 3 && !["APPROVED", "SUBMITTED"].includes(mapped)) {
+        dueDateRisks.push({
+          departmentId: o.departmentId,
+          departmentName: deptName[o.departmentId] || null,
+          dueDate: due,
+          daysRemaining,
+          status: mapped,
+        });
+      }
+    }
+
+    const submitted = owners.filter((o) => {
+      const t = o.taskId ? taskById[o.taskId] : null;
+      return t && ["SUBMITTED", "APPROVED"].includes(t.status);
+    }).length;
+    const progressPct = owners.length ? Math.round((submitted / owners.length) * 100) : 0;
+
+    const taskQueue = tasks
+      .filter((t) => ["PENDING", "RETURNED", "SUBMITTED"].includes(t.status))
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        departmentId: t.departmentId,
+        departmentName: t.departmentId ? deptName[t.departmentId] || null : null,
+        assigneeId: t.assigneeId,
+        status: t.status,
+        dueDate: t.dueDate,
+        priority: t.priority,
+      }));
+
+    const approvalHistory = [];
+    for (const a of approvals) {
+      const actor = await prisma.user.findUnique({
+        where: { id: a.actorId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      approvalHistory.push({
+        id: a.id,
+        action: a.action,
+        comment: a.comment,
+        actorId: a.actorId,
+        actorName: userDisplayName(actor),
+        taskId: a.taskId,
+        createdAt: a.createdAt,
+      });
+    }
+
+    return {
+      cycle: await FpaBudgetCycleService.serialize(cycle),
+      progress: {
+        percent: progressPct,
+        submittedDepartments: submitted,
+        totalDepartments: owners.length,
+        statusCounts,
+      },
+      taskQueue,
+      submissionRegister,
+      approvalHistory,
+      dueDateRisks,
+      inspectorChecklistTemplate: [
+        { key: "drivers", label: "Drivers complete" },
+        { key: "headcount", label: "Headcount reconciled" },
+        { key: "commentary", label: "Commentary complete" },
+        { key: "fx", label: "FX rates present" },
+        { key: "tasks", label: "Mandatory tasks complete" },
+      ],
+    };
   }
 }
 
